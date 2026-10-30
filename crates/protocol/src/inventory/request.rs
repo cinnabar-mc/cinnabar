@@ -1,13 +1,13 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     InteractAction, PacketViolationSeverity, PacketViolationType, TextProcessingEventOrigin,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     ContainerClose, Interact, ItemStackRequest, PacketViolationWarning,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, ItemStackRequestID, ItemStackRequestPacketData,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use super::InventoryPacketError;
 mod actions;
@@ -178,8 +178,8 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_60::packets;
-    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
+    use bedrock_protocol_contract_1_26_60::packets;
+    use bedrock_protocol_contract_1_26_60::wire::{Decode, Encode};
 
     use super::*;
 

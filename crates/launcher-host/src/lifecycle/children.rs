@@ -13,8 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Tells a spawned core which PID to outlive; bedrock-core's `lifeline.ParentEnv` reads it.
-const PARENT_ENV: &str = "BEDROCK_CORE_PARENT_PID";
 const POLL: Duration = Duration::from_millis(10);
 /// Escalation after the graceful step: SIGTERM, then SIGKILL, each bounded.
 const TERM_WAIT: Duration = Duration::from_millis(300);
@@ -299,16 +297,14 @@ impl From<Child> for Spawned {
     }
 }
 
-/// Spawns `command` as a tracked child that knows to exit with this process.
+/// Spawns `command` under the original tracked shutdown owner.
 pub fn spawn(command: &mut Command) -> io::Result<Spawned> {
-    command.env(PARENT_ENV, std::process::id().to_string());
     CHILDREN.spawn(command, Duration::ZERO, false)
 }
 
 /// [`spawn`] for a child that saves after its stop request: exit sweeps wait up to `save_budget`
 /// for it to exit before signalling it.
 pub fn spawn_saving(command: &mut Command, save_budget: Duration) -> io::Result<Spawned> {
-    command.env(PARENT_ENV, std::process::id().to_string());
     CHILDREN.spawn(command, save_budget, false)
 }
 
@@ -602,13 +598,13 @@ mod update_tests {
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::{io::Read, process::Stdio};
+    use std::process::Stdio;
 
     use super::*;
 
     #[test]
     fn an_outliving_monitor_keeps_its_pipes_and_identity_through_the_exit_sweep() {
-        use std::io::{BufRead, BufReader};
+        use std::io::{BufRead, BufReader, Read};
 
         let children = Children::new();
         let child = children
@@ -866,24 +862,5 @@ mod tests {
             "a hook registered during shutdown runs at once"
         );
         drop((kept, late));
-    }
-
-    #[test]
-    fn spawned_children_learn_which_pid_to_outlive() {
-        let child = spawn(
-            Command::new("sh")
-                .args(["-c", &format!("printf %s \"${PARENT_ENV}\"")])
-                .stdin(Stdio::null())
-                .stdout(Stdio::piped()),
-        )
-        .unwrap();
-        let mut printed = String::new();
-        child
-            .take_stdout()
-            .unwrap()
-            .read_to_string(&mut printed)
-            .unwrap();
-        child.wait();
-        assert_eq!(printed, std::process::id().to_string());
     }
 }

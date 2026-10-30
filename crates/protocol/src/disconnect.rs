@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_60::enums::ConnectionDisconnectFailReason;
-use bedrock_protocol_1_26_60::packets::{self, Disconnect};
-use bedrock_protocol_1_26_60::types::DisconnectMessages;
+use bedrock_protocol_contract_1_26_60::enums::ConnectionDisconnectFailReason;
+use bedrock_protocol_contract_1_26_60::packets::{self, Disconnect};
+use bedrock_protocol_contract_1_26_60::types::DisconnectMessages;
 
 use crate::codec::SessionFailure;
 use crate::session_wire::SessionDisconnect;
@@ -286,7 +286,7 @@ mod tests {
     #[test]
     fn normalization_ignores_non_disconnect_packets() {
         let other = packets::Packet::SetTime(packets::SetTime {
-            time: bedrock_protocol_1_26_60::wire::ZigZag32(7),
+            time: bedrock_protocol_contract_1_26_60::wire::ZigZag32(7),
         });
         assert!(ServerDisconnectEvent::from_packet_data(&other).is_none());
     }

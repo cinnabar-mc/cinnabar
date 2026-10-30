@@ -222,12 +222,15 @@ fn crosshair_pack_texture_does_not_bypass_visibility() {
 
 #[test]
 fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
-    for files in [
-        Vec::new(),
-        vec![(
-            format!("{CROSSHAIR_TEXTURE}.png"),
-            texture([22, 33, 44, 255]),
-        )],
+    for (files, rgb_coverage) in [
+        (Vec::new(), true),
+        (
+            vec![(
+                format!("{CROSSHAIR_TEXTURE}.png"),
+                texture([22, 33, 44, 255]),
+            )],
+            false,
+        ),
     ] {
         let engine = engine(&files);
         let (inverted, _) = draw(&engine, true, ui::UiBlendMode::Invert);
@@ -238,24 +241,37 @@ fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
             .unwrap();
         let normal = normal
             .iter()
-            .find(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+            .find(|node| {
+                matches!(
+                    node.visual(),
+                    UiVisual::Sprite { .. } | UiVisual::RgbCoverageSprite { .. }
+                )
+            })
             .unwrap();
         assert_eq!(inverted.bounds(), normal.bounds());
         let UiVisual::InvertedSprite { texture_page, uv } = inverted.visual() else {
             unreachable!()
         };
-        assert_eq!(
-            normal.visual(),
-            &UiVisual::Sprite {
+        let expected = if rgb_coverage {
+            UiVisual::RgbCoverageSprite {
                 texture_page: *texture_page,
                 uv: *uv,
-                color: [255; 4]
+                color: [255; 4],
             }
-        );
+        } else {
+            UiVisual::Sprite {
+                texture_page: *texture_page,
+                uv: *uv,
+                color: [255; 4],
+            }
+        };
+        assert_eq!(normal.visual(), &expected);
         let (hidden, _) = draw(&engine, false, ui::UiBlendMode::Alpha);
         assert!(!hidden.iter().any(|node| matches!(
             node.visual(),
-            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+            UiVisual::Sprite { .. }
+                | UiVisual::RgbCoverageSprite { .. }
+                | UiVisual::InvertedSprite { .. }
         )));
     }
 }

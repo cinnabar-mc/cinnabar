@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Builds an unsigned arm64 iPhone/iPad IPA. iOS cannot spawn processes, so the Go core links into
-# the app as a static archive. The app ships the shared resources only: no prep kit (iOS runs no
-# helper executables) and no game assets; add-assets.py injects a user's own compiled carriers.
+# Builds an unsigned arm64 iPhone/iPad IPA with the native Rust client. The app ships shared
+# resources only: no prep kit (iOS runs no helper executables) and no game assets;
+# add-assets.py injects a user's own compiled carriers.
 #
 # Needs macOS with the Xcode major runtime.json pins (an /Applications/Xcode_<major>*.app is
-# selected when present), the aarch64-apple-ios Rust target, Go, zip and librsvg or ImageMagick.
+# selected when present), the aarch64-apple-ios Rust target, zip and librsvg or ImageMagick.
 # CINNABAR_IOS_PROFILE picks the Cargo profile (release). The IPA is signed ad hoc only:
 # sideloading tools sign it with the installer's identity.
 set -euo pipefail
@@ -43,7 +43,6 @@ sdk_version="$(xcrun --sdk iphoneos --show-sdk-version)"
     echo "the iPhoneOS SDK is $sdk_version; install Xcode $xcode or point DEVELOPER_DIR at it" >&2
     exit 1
 }
-sdk_path="$(xcrun --sdk iphoneos --show-sdk-path)"
 
 out="$repo_root/target/ios"
 stage="$out/stage"
@@ -52,15 +51,8 @@ ipa="$out/$product-$version-unsigned.ipa"
 rm -rf "$stage" "$ipa"
 mkdir -p "$app"
 
-# One commit identifies both the app and the core, chosen as the Makefile does.
+# Identify the app build with the same commit policy as the Makefile.
 export CINNABAR_BUILD_COMMIT="${CINNABAR_BUILD_COMMIT:-$(git rev-parse HEAD)}"
-
-target_flags="-isysroot $sdk_path -arch arm64 -miphoneos-version-min=$IPHONEOS_DEPLOYMENT_TARGET"
-CGO_ENABLED=1 GOOS=ios GOARCH=arm64 CC="$(xcrun --sdk iphoneos --find clang)" \
-    CGO_CFLAGS="$target_flags" CGO_LDFLAGS="$target_flags" \
-    go build -buildmode=c-archive -trimpath \
-    -ldflags "-s -w $(bash "$here/../common/core-ldflags.sh")" \
-    -o "$out/libbedrock_core.a" ./core/cmd/bedrock-core
 
 # The host crate's package and its single binary, as Cargo resolves them.
 IFS=$'\t' read -r target_dir client_package client_binary < <(
@@ -72,8 +64,7 @@ package = next(p for p in meta["packages"] if os.path.realpath(p["manifest_path"
 binary = next(t["name"] for t in package["targets"] if "bin" in t["kind"])
 print(meta["target_directory"], package["name"], binary, sep="\t")
 ' "$here/client/Cargo.toml")
-CINNABAR_IOS_CORE_ARCHIVE="$out/libbedrock_core.a" \
-    cargo build --target "$triple" --profile "$profile" --locked -p "$client_package"
+cargo build --target "$triple" --profile "$profile" --locked -p "$client_package"
 # Cargo writes the `dev` profile's artifacts under `debug`.
 profile_dir="$profile"
 [[ "$profile" != dev ]] || profile_dir=debug

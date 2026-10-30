@@ -1,8 +1,10 @@
-use bedrock_protocol_1_26_60::enums::{ItemStackRequestActionType, TextProcessingEventOrigin};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::{
+    ItemStackRequestActionType, TextProcessingEventOrigin,
+};
+use bedrock_protocol_contract_1_26_60::types::{
     ItemStackRequestData, ItemStackRequestID, StackRequestAction,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 /// A bounded mining request carrier, not proof of current inventory authority.

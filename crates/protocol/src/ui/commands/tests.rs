@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     CommandData, CommandEnum, CommandOverload, CommandParameter, DynamicEnum,
 };
 

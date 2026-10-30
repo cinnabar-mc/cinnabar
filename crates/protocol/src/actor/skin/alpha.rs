@@ -1,7 +1,7 @@
 //! Bedrock's non-persona skin alpha validation, before texture packing or resampling.
 #[cfg(test)]
-use bedrock_protocol_1_26_60::types::SerializedSkinRef;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::types::SerializedSkinRef;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use render_api::{CLASSIC_SKIN_SIDE, MAX_CLASSIC_SKIN_SIDE};
 

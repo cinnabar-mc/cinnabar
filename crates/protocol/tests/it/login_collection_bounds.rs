@@ -4,15 +4,15 @@
 //! allocating, and reject malformed/truncated collections without imposing a global
 //! 4,096-element ceiling.
 
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     BiomeDefinitionList, CreativeContent, ItemRegistry, ResourcePackStack, ResourcePacksInfo,
     StartGame,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     BiomeDefinitionData, CreativeGroupInfo, CreativeItemEntry, ItemData, LevelExperimentToggle,
     LevelGameRule, PackInfoData, PackInstanceId, ServerBlockProperty,
 };
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 
 const MAX_LOGIN_COLLECTION_ELEMENTS: usize = 4096;
 
@@ -123,7 +123,7 @@ fn resource_pack_stack_rejects_oversized_experiment_count() {
     let mut one = empty.clone();
     one.experiments
         .toggles
-        .push(bedrock_protocol_1_26_60::types::ExperimentToggle::default());
+        .push(bedrock_protocol_contract_1_26_60::types::ExperimentToggle::default());
     let bytes = malicious_collection_prefix(&empty, &one, encode_oversized_u32);
 
     assert_rejected_without_a_length_ceiling(ResourcePackStack::decode_exact(&bytes).unwrap_err());
@@ -135,7 +135,7 @@ fn resource_pack_stack_rejects_impossible_experiment_count() {
     let mut one = empty.clone();
     one.experiments
         .toggles
-        .push(bedrock_protocol_1_26_60::types::ExperimentToggle::default());
+        .push(bedrock_protocol_contract_1_26_60::types::ExperimentToggle::default());
     let bytes = malicious_collection_prefix(&empty, &one, |writer| {
         writer
             .write_all(&(MAX_LOGIN_COLLECTION_ELEMENTS as u32).to_le_bytes())

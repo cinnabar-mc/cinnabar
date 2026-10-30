@@ -5,8 +5,8 @@
 //! names come from the encoder's own [`super::INPUT_FLAG_ITEMS`] table rather
 //! than a second spelling.
 
-use bedrock_protocol_1_26_60::enums::{InputData, InputMode};
-use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::enums::{InputData, InputMode};
+use bedrock_protocol_contract_1_26_60::packets;
 
 use super::INPUT_FLAG_ITEMS;
 use crate::Packet;

@@ -1,10 +1,10 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ContainerEnumName, InventorySourceType, ItemUseInventoryTransactionPredictedResult,
     ItemUseInventoryTransactionTriggerType, PlayerActionType,
 };
-use bedrock_protocol_1_26_60::packets;
-use bedrock_protocol_1_26_60::types::InventoryTransactionPacketData;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::types::InventoryTransactionPacketData;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{
     BlockUseRequest, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
     VerifiedNetworkItemStack, click_block_transaction_packet, decode_batch, encode,

@@ -21,9 +21,9 @@
 //! that the inconsistencies they used to catch are now *unrepresentable*, which
 //! is the same intent expressed against the new shape.
 
-use bedrock_protocol_1_26_60::packets::{self, PlayerList as PlayerListPacket};
-use bedrock_protocol_1_26_60::types::{ActorUniqueID, PlayerListData, SerializedSkinRef};
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::packets::{self, PlayerList as PlayerListPacket};
+use bedrock_protocol_contract_1_26_60::types::{ActorUniqueID, PlayerListData, SerializedSkinRef};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
 
 const FIXTURE_UUID: uuid::Uuid = uuid::Uuid::from_bytes([

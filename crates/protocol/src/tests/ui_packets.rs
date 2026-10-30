@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     BossBarColor, BossBarOverlay, BossEventUpdateType, ModalFormCancelReason, PlayStatusType,
     SoftEnumUpdateType, TextPacketType, TitleType,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     self, BossEvent as BossEventPacket, CommandOutput, LevelEvent, ModalFormRequest,
     ModalFormResponse, PacketId, PlayStatus, SetHealth, SetScore, SetTitle, Text, ToastRequest,
     UpdateSoftEnum,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorUniqueID, CommandOutputData, CommandOutputMessage, ScoreboardId, SetScoreInfoItem,
     TextData,
 };
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 use bytes::{BufMut, BytesMut};
 use protocol::{
     BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,

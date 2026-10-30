@@ -13,7 +13,7 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/protocol/packet"
 )
 
-// Listener wraps a Dragonfly listener function, typically the default RakNet one of
+// Listener wraps a Dragonfly listener function, typically the NetherNet one of
 // server.UserConfig.Config, so that every connection it accepts carries the server half.
 func (s *Server) Listener(inner func(server.Config) (server.Listener, error)) func(server.Config) (server.Listener, error) {
 	return func(conf server.Config) (server.Listener, error) {
@@ -26,7 +26,7 @@ func (s *Server) Listener(inner func(server.Config) (server.Listener, error)) fu
 }
 
 // listener hands Dragonfly wrapped connections and gives its own listener back the connections
-// it accepted: the default RakNet listener's Disconnect requires its *minecraft.Conn.
+// it accepted: the listener's Disconnect requires its *minecraft.Conn.
 type listener struct {
 	server.Listener
 	s *Server

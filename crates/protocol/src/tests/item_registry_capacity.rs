@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_60::enums::ItemVersion;
-use bedrock_protocol_1_26_60::packets::ItemRegistry as ItemRegistryPacket;
-use bedrock_protocol_1_26_60::types::ItemData;
-use bedrock_protocol_1_26_60::wire::{self, NetworkNbt as Nbt};
+use bedrock_protocol_contract_1_26_60::enums::ItemVersion;
+use bedrock_protocol_contract_1_26_60::packets::ItemRegistry as ItemRegistryPacket;
+use bedrock_protocol_contract_1_26_60::types::ItemData;
+use bedrock_protocol_contract_1_26_60::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ItemActorEvent, ItemPacketError, WorldEvent, WorldPacketError, WorldWireError,

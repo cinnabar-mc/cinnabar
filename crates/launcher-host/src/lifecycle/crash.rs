@@ -11,7 +11,6 @@
 //! folder in-process, as without a monitor elsewhere, and native faults go unreported.
 
 pub mod attachments;
-pub(crate) mod core_exit;
 mod fallback;
 #[cfg(not(target_os = "ios"))]
 mod handler;

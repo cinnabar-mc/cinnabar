@@ -11,7 +11,18 @@ fn network_config_call_sites_share_the_process_blob_cache() {
     let first = NetworkConfig {
         registry_base: registry_base.clone(),
         session_generation: SessionGeneration::new(7),
-        socket_dir: std::path::PathBuf::from("first-core.sock"),
+        endpoint: protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
+            "fixture.invalid:19132".into(),
+            protocol::NativeTransport::Addressed,
+        )),
+        #[cfg(feature = "native-networking")]
+        native_account: None,
+        #[cfg(feature = "native-networking")]
+        native_friend: None,
+        #[cfg(feature = "native-networking")]
+        native_gathering: None,
+        #[cfg(feature = "native-networking")]
+        native_local_world: None,
         display_name: "cache-owner".to_owned(),
         client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),
@@ -31,7 +42,18 @@ fn network_config_call_sites_share_the_process_blob_cache() {
     let replacement = NetworkConfig {
         registry_base,
         session_generation: SessionGeneration::new(8),
-        socket_dir: std::path::PathBuf::from("replacement-core.sock"),
+        endpoint: protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
+            "fixture.invalid:19132".into(),
+            protocol::NativeTransport::Addressed,
+        )),
+        #[cfg(feature = "native-networking")]
+        native_account: None,
+        #[cfg(feature = "native-networking")]
+        native_friend: None,
+        #[cfg(feature = "native-networking")]
+        native_gathering: None,
+        #[cfg(feature = "native-networking")]
+        native_local_world: None,
         display_name: "cache-owner".to_owned(),
         client_random_id: protocol::ClientRandomId::new(-7).unwrap(),
         client_blob_cache: owner.cache(),
@@ -76,7 +98,7 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
 /// registrations dispatch every `Update` and `PostUpdate`. Each one costs executor and parameter
 /// work on every frame even when it finds nothing to do, so growth must be deliberate: change
 /// these with the registrations, and prefer one set condition over a condition per system.
-const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 143, 8), ("PostUpdate", 1, 0)];
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 145, 8), ("PostUpdate", 1, 0)];
 
 #[test]
 fn client_frame_dispatch_stays_within_its_budget() {

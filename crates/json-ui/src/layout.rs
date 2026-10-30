@@ -52,43 +52,6 @@ pub struct Rect {
     pub h: f64,
 }
 
-impl Rect {
-    pub fn new(x: f64, y: f64, w: f64, h: f64) -> Self {
-        Self { x, y, w, h }
-    }
-
-    /// The overlap of two rects, clamped so width/height never go negative.
-    pub fn intersect(self, other: Rect) -> Rect {
-        let x0 = self.x.max(other.x);
-        let y0 = self.y.max(other.y);
-        let x1 = (self.x + self.w).min(other.x + other.w);
-        let y1 = (self.y + self.h).min(other.y + other.h);
-        Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
-    }
-
-    /// The smallest rectangle containing both rectangles.
-    pub(crate) fn union(self, other: Rect) -> Rect {
-        let x = self.x.min(other.x);
-        let y = self.y.min(other.y);
-        Rect::new(
-            x,
-            y,
-            (self.x + self.w).max(other.x + other.w) - x,
-            (self.y + self.h).max(other.y + other.h) - y,
-        )
-    }
-
-    /// Extends every edge by a nonnegative coverage allowance.
-    pub(crate) fn expanded(self, padding: f64) -> Rect {
-        Rect::new(
-            self.x - padding,
-            self.y - padding,
-            self.w + 2.0 * padding,
-            self.h + 2.0 * padding,
-        )
-    }
-}
-
 /// Natural size of a label's text, in virtual pixels. The real font binds later; a
 /// caller without one can return zero, which lays a label out as an empty extent.
 pub trait TextMeasure {
@@ -302,10 +265,18 @@ fn lay_out<'a>(
         rect,
         screen,
         (0, true, false, true),
-        &Inherited::default(),
+        &Inherited::viewport(screen),
         &mut ctx,
     );
     (laid, ctx.report)
+}
+
+/// A named ancestor's geometry and the same clipping boundary its children inherit.
+struct Ancestor<'tree> {
+    name: &'tree str,
+    rect: Rect,
+    clip: Rect,
+    animation_clip: Option<std::sync::Arc<crate::anim::Clip>>,
 }
 
 struct PlaceCtx<'tree, 'e, 'x> {
@@ -318,7 +289,7 @@ struct PlaceCtx<'tree, 'e, 'x> {
     /// Enclosing sliders: fraction, box and progress names, rect, and axis.
     sliders: Vec<widgets::SliderFrame>,
     /// Enclosing controls' names, rects, and child clips, for `dropdown_area`.
-    ancestors: Vec<(&'tree str, Rect, Rect)>,
+    ancestors: Vec<Ancestor<'tree>>,
     /// State controls enclosing stateful controls show or hide: target, shown, state mask.
     overrides: Vec<(usize, bool, u8)>,
     /// Enclosing disabled controls; their descendants are locked.
@@ -434,7 +405,7 @@ fn place_subtree<'a>(
     let parent_rect = ctx
         .ancestors
         .last()
-        .map_or(parent_clip, |(_, parent, _)| *parent);
+        .map_or(parent_clip, |parent| parent.rect);
     let enabled_above = ctx.disabled == 0;
     let pinned = ctx
         .reuse
@@ -542,28 +513,27 @@ fn place_subtree<'a>(
     {
         space.region = std::num::NonZeroU64::new(region);
     }
-    let spaces = space.place(
-        style.transform,
-        crate::transform::ClipInputs {
-            rect,
-            parent: parent_clip,
-            clips,
-            clip_offset: style.clip_offset,
-            allows,
-            screen: ctx.screen,
-        },
-    );
+    let clipping = crate::transform::ClipInputs {
+        rect,
+        parent: parent_clip,
+        clips,
+        clip_offset: style.clip_offset,
+        allows,
+        screen: ctx.screen,
+    };
+    let spaces = space.place(style.transform, clipping);
     let paint = spaces.0;
     let filter = crate::filter::FilterGroup::place(inherited.filter.as_ref(), style.filter, &key);
     let (own_alpha, anim, inherit) = inherited.apply(
         control,
         style.alpha,
         own_anims,
-        clips,
+        clipping,
         spaces,
         filter,
         |node| place::sprite_rest(control, node),
     );
+    let moving_geometry = anim.as_ref().is_some_and(|anim| anim.moves_geometry());
     let absolute_layer = parent_layer.saturating_add(style.layer);
     let mut scroll = ScrollFrame::open(control, &key, rect, ctx.state, ctx.env);
     // A bar panel hidden or shown again frees or takes back its space: solve again.
@@ -610,12 +580,18 @@ fn place_subtree<'a>(
     if let Some(name) = placeholder {
         ctx.hidden_names.push(name.to_owned());
     }
-    ctx.ancestors.push((&control.name, rect, child_clip));
+    ctx.ancestors.push(Ancestor {
+        name: &control.name,
+        rect,
+        clip: child_clip,
+        animation_clip: inherit.clip.clone(),
+    });
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
         let indexed_clip = (ctx.cull
+            && !moving_geometry
             && grid::is_grid(control)
             && allows
             && !style.unclipped_descendant
@@ -700,19 +676,23 @@ fn place_subtree<'a>(
                 .copied()
                 .unwrap_or(false);
         let mut clip_for_child = child_clip;
+        let mut popup_inherit = None;
         // A dropdown's content drops from the dropdown, kept inside its named area.
         if let Some((drop, area, content)) = &dropdown
             && *content == child.name
-            && let Some((_, area_rect, area_clip)) = ctx
+            && let Some(named_area) = ctx
                 .ancestors
                 .iter()
                 .rev()
-                .find(|(name, _, _)| *name == area.as_str())
+                .find(|ancestor| ancestor.name == area.as_str())
             && let Some((_, drop_rect)) =
                 placed_rects.iter().find(|(name, _)| *name == drop.as_str())
         {
-            child_rect.y = widgets::dropdown_content_top(*drop_rect, *area_rect, child_rect.h);
-            clip_for_child = *area_clip;
+            child_rect.y = widgets::dropdown_content_top(*drop_rect, named_area.rect, child_rect.h);
+            clip_for_child = named_area.clip;
+            let mut escaped = inherit.clone();
+            escaped.clip = named_area.animation_clip.clone();
+            popup_inherit = Some(escaped);
         }
         let mut child_shown = child_shown;
         let mut box_fade = None;
@@ -786,6 +766,7 @@ fn place_subtree<'a>(
         }
         // Scroll content wholly outside its viewport neither draws nor takes input.
         if ctx.cull
+            && !moving_geometry
             && ctx
                 .scrolls
                 .last()
@@ -813,7 +794,7 @@ fn place_subtree<'a>(
             child_rect,
             clip_for_child,
             (absolute_layer, child_shown, packs, allows),
-            &inherit,
+            popup_inherit.as_ref().unwrap_or(&inherit),
             ctx,
         );
         // A fading touch box dims its children, as vanilla writes their alpha.

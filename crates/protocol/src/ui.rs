@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     BossBarColor, BossBarOverlay, BossEventUpdateType, PlayStatusType, SoftEnumUpdateType,
     TextPacketType,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     BossEvent as BossEventPacket, CommandOutput, CommandRequest, LevelEvent, PlayStatus,
     RemoveObjective, SetDisplayObjective, SetHealth, SetScore, Text, ToastRequest, UpdateSoftEnum,
 };
-use bedrock_protocol_1_26_60::types::{CommandOriginData, SetScoreInfoItem, TextData};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::types::{CommandOriginData, SetScoreInfoItem, TextData};
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 mod commands;
@@ -525,8 +525,13 @@ pub(crate) fn normalize_health(packet: SetHealth) -> UiEvent {
 }
 
 pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiPacketError> {
+    player_status(packet.status).map(|status| UiEvent::Hud(HudEvent::PlayerStatus(status)))
+}
+
+/// Classifies a known wire status for both startup admission and the HUD.
+pub(crate) fn player_status(status: PlayStatusType) -> Result<PlayerStatus, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
-    let status = match packet.status {
+    let status = match status {
         PlayStatusType::LoginSuccess => PlayerStatus::LoginSuccess,
         PlayStatusType::LoginFailedClientOld => PlayerStatus::FailedClient,
         PlayStatusType::LoginFailedServerOld => PlayerStatus::FailedSpawn,
@@ -550,7 +555,7 @@ pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiP
             });
         }
     };
-    Ok(UiEvent::Hud(HudEvent::PlayerStatus(status)))
+    Ok(status)
 }
 
 pub(crate) fn normalize_display_objective(

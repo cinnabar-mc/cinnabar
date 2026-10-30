@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use bytes::Bytes;
 
 // Regenerated for protocol 2168 from gophertunnel at commit

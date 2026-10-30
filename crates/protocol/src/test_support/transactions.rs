@@ -1,13 +1,13 @@
 //! Observations of outbound inventory transactions.
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     InventorySourceType, ItemReleaseInventoryTransactionActionType,
     ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
     ItemUseInventoryTransactionPredictedResult, ItemUseInventoryTransactionTriggerType,
     ItemUseOnActorInventoryTransactionActionType,
 };
-use bedrock_protocol_1_26_60::packets;
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::types::{
     InventoryAction, InventoryTransactionPacketData,
     NetworkItemStackDescriptorSerializedData as WireItem,
 };

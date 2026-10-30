@@ -1,14 +1,16 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex as StdMutex, PoisonError};
 
-use bedrock_protocol_1_26_60::packets::{self, SetTime};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::{self, SetTime};
+use bedrock_protocol_contract_1_26_60::wire;
 use tokio::io::AsyncReadExt;
 
 use super::*;
 use crate::Packet;
 use crate::session_transport::tests::unix::{Pair, pair, write_frame};
 use crate::session_transport::{Inbound, batch_frame};
+
+mod unknown;
 
 /// A relay that records what it sees and answers from scripted replies; an empty script forwards.
 #[derive(Default)]
@@ -208,7 +210,7 @@ async fn taps_record_relay_replacements_and_detached_writes_once() {
     pair.transport.send(&[set_time(2)]).await.unwrap();
     pair.transport
         .batch_writer()
-        .send(batch_frame(&[set_time(3)]).unwrap())
+        .send(Bytes::from(body(&[3])))
         .await
         .unwrap();
     for time in [5, 3] {

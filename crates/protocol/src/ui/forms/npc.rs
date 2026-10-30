@@ -6,12 +6,12 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{NpcDialogueActionType, RequestType};
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::enums::{NpcDialogueActionType, RequestType};
+use bedrock_protocol_contract_1_26_60::packets::{
     ModalFormRequest, NpcDialogue, NpcRequest, ServerSettingsRequest, ServerSettingsResponse,
 };
-use bedrock_protocol_1_26_60::types::ActorRuntimeID;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_contract_1_26_60::wire;
 use serde_json::Value;
 
 use super::{FormKind, FormRequestEvent, ServerFormModel, UnsupportedForm, normalize_form};

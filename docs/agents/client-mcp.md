@@ -10,6 +10,14 @@ schemas document every argument. Agents drive the client only through this endpo
   joins need `allow_remote`, since they sign in with the configured account; ask the owner first.
   The local server accepts `/give <item> [count] [data]`, `/fly`, `/speed`, `/tp`, `/weather` and
   `/time set <ticks|noon|midnight|…>` (frozen until `/time cycle`) for captures.
+- `native_friends` reads the selected native account's current friend-world rows. A join takes the
+  returned `revision`, `index` and XUID as `join: {revision, index, expected_xuid}`, plus
+  `allow_remote: true`. Stale observations fail locally; the client uses its retained catalog
+  selection. This needs both `developer-control` and `native-networking`; ordinary friend UI
+  availability is unchanged.
+- `disconnect` queues the ordinary menu disconnect. Poll `state` for local retirement;
+  `native_friend_cleanup.reserved` and `.pending` expose the existing worker reservation and
+  unresolved membership slot. Neither the command reply nor an empty slot proves remote receipt.
 - `input` sends real key and mouse events, so mods' ability keys (`Digit1`…) work; `F1` hides the HUD.
   To test Retina rendering headlessly, pass `CINNABAR_WINDOW_SCALE_FACTOR=2` in the
   launch environment. Capture sizes stay in physical pixels; pointer input uses
@@ -39,6 +47,10 @@ schemas document every argument. Agents drive the client only through this endpo
   item's resolved use profile. `state.local_mods` also reports bounded
   host status and validated panel controls, so tests can verify module toggles and settings
   directly before sending a stimulus. These diagnostics do not grant movement authority.
+- `state.menu.featured` lists a bounded prefix of current Featured rows in selection order, with their
+  indices, names and logical targets, plus the total count and catalog-loading state. Read
+  it before selecting a row and verify the resulting activation; later catalog refreshes
+  can change indices. A service target still requires normal account-owned preparation.
 - `state.client_part_screens` lists each running client part's open modal screen: its `bundle`,
   its `template` (such as `ui/terminal.json`), whether it is `focused` (owns input) and whether
   the last frame `drawn` it. `state.screens` lists only the client's own scenes.

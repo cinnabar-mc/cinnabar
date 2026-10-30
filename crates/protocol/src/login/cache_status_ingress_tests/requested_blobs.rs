@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_60::packets::{ClientCacheMissResponse, SubChunk, UpdateBlock};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_contract_1_26_60::packets::{ClientCacheMissResponse, SubChunk, UpdateBlock};
+use bedrock_protocol_contract_1_26_60::types::{
     BlockPos, DimensionType, MissingBlobData, SubChunkData, SubChunkPos, SubChunkPosOffset,
 };
 
@@ -76,7 +76,11 @@ async fn requested_blob_survives_repeated_ordinary_update_interleave() {
     );
     let cache = ClientBlobCache::default();
     let transport = SessionTransport::new(reader, frames, &startup);
-    let mut session = PlaySession::new(transport, Some(cache.clone()), 1, false);
+    let mut session = PlaySession::new(
+        transport,
+        Some(cache.clone()),
+        crate::login::startup::ready_fixture(1),
+    );
 
     assert!(matches!(
         next_ingress(&mut session),

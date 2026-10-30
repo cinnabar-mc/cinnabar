@@ -1,5 +1,6 @@
 """Exercise release build commands without compiling native binaries."""
 
+import argparse
 import json
 import os
 import plistlib
@@ -40,8 +41,8 @@ class PackageBinariesTests(unittest.TestCase):
             self.assertEqual(calls[0][calls[0].index("--bin") + 1], "assetc")
             self.assertNotIn("--features", calls[0])
 
-    def test_package_build_includes_the_client_and_compiler(self):
-        """Shipping builds include both hosts without optional feature arguments."""
+    def test_package_build_uses_the_requested_channel_features(self):
+        """Release builds keep native networking alongside the channel's client/compiler features."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             log = root / "commands.jsonl"
@@ -52,19 +53,26 @@ class PackageBinariesTests(unittest.TestCase):
                 "    log.write(json.dumps(sys.argv[1:]) + '\\n')\n"
             )
             command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
-            log.write_text("")
-            subprocess.run(
-                ["make", "--no-print-directory", "package-binaries",
-                 f"CARGO={command} cargo", f"GO={command} go"],
-                cwd=ROOT, env={**os.environ, "PACKAGE_TEST_LOG": str(log)},
-                capture_output=True, text=True, check=True,
-            )
-            calls = [json.loads(line) for line in log.read_text().splitlines()]
-            args = next(args for tool, *args in calls if tool == "cargo")
-            self.assertNotIn("--features", args)
-            packages = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
-            self.assertIn("cinnabar", packages)
-            self.assertIn("asset-compiler", packages)
+            metadata = json.loads((ROOT / "packaging/release-assets.json").read_text())
+            for release in metadata["update_channels"].values():
+                features = ",".join(release.get("cargo_features", []))
+                log.write_text("")
+                subprocess.run(
+                    ["make", "--no-print-directory", "package-binaries",
+                     f"PACKAGE_CARGO_FEATURES={features}", f"CARGO={command} cargo", f"GO={command} go"],
+                    cwd=ROOT, env={**os.environ, "PACKAGE_TEST_LOG": str(log)},
+                    capture_output=True, text=True, check=True,
+                )
+                calls = [json.loads(line) for line in log.read_text().splitlines()]
+                args = next(args for tool, *args in calls if tool == "cargo")
+                self.assertIn("--features", args)
+                self.assertEqual(
+                    args[args.index("--features") + 1].replace(",", " ").split(),
+                    ["cinnabar/native-networking"],
+                )
+                packages = [args[index + 1] for index, arg in enumerate(args) if arg == "-p"]
+                self.assertIn("cinnabar", packages)
+                self.assertIn("asset-compiler", packages)
 
     def test_runtime_table_has_unique_names_packages_and_overrides(self):
         """All consumers receive complete, unambiguous runtime binary records."""
@@ -104,13 +112,17 @@ class PackageBinariesTests(unittest.TestCase):
                         log.write_text("")
                         subprocess.run(
                             ["make", "--no-print-directory", "-o", "assets", "-o", "physics-assets",
-                             "play", f"PROFILE={profile}", f"TRACY={tracy}",
+                             "play-build", f"PROFILE={profile}", f"TRACY={tracy}",
                              f"CARGO={command} cargo", f"GO={command} go"],
                             cwd=ROOT, env=dict(os.environ, PACKAGE_TEST_LOG=str(log)),
                             capture_output=True, text=True, check=True,
                         )
                         calls = [json.loads(line) for line in log.read_text().splitlines()]
-                        args = next(args for tool, *args in calls if tool == "cargo" and args[0] == "run")
+                        args = next(
+                            args for tool, *args in calls
+                            if tool == "cargo" and args[0] == "build"
+                            and args[args.index("-p") + 1] == "cinnabar"
+                        )
                         self.assertNotIn("--no-default-features", args)
                         self.assertEqual(args[args.index("--profile") + 1], profile)
                         if tracy:
@@ -143,7 +155,15 @@ class PackageBinariesTests(unittest.TestCase):
                     builds = [args for tool, *args in calls if tool == "cargo" and args[0] == "build"]
                     self.assertEqual(len(builds), 1)
                     args = builds[0]
-                    self.assertNotIn("--features", args)
+                    feature_args = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+                    feature_args.add_argument("--features", "-F", action="append", default=[])
+                    selected, _ = feature_args.parse_known_args(args)
+                    self.assertEqual(
+                        [feature for value in selected.features
+                         for feature in value.replace(",", " ").split()],
+                        ["cinnabar/native-networking"],
+                    )
+                    self.assertNotIn("--all-features", args)
                     self.assertIn("--release", args)
                     self.assertIn("--no-default-features", args)
                     runtime = [line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines()]

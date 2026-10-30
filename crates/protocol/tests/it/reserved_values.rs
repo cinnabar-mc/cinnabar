@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ActorEventType, ActorType, ConnectionDisconnectFailReason, ContainerEnumName,
     ItemStackRequestActionType, LegacyTelemetryType, PhotoType, PlayStatusType,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     BookEditAction, EventData, ResourcePackClientResponseData, StackRequestAction,
 };
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 
 fn assert_wire<T>(value: T, expected: &[u8])
 where

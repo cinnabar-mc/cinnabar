@@ -1,8 +1,8 @@
-use bedrock_protocol_1_26_60::packets::UpdateAbilities;
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::packets::UpdateAbilities;
+use bedrock_protocol_contract_1_26_60::types::{
     SerializedAbilitiesData, SerializedAbilitiesDataSerializedLayer,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 
 fn raw(count: usize) -> crate::raw_packet::RawPacket {
     let packet: crate::Packet = crate::Packet::new(UpdateAbilities {

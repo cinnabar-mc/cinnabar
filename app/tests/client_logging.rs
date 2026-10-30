@@ -28,15 +28,7 @@ mod particle_carrier;
 
 /// Uses the real installation layout while keeping every fixture file beneath its temporary root.
 fn logging_layout(root: &std::path::Path) -> launcher::install_layout::InstallLayout {
-    use launcher::install_layout::Platform;
-    let platform = if cfg!(windows) {
-        Platform::Windows
-    } else if cfg!(target_os = "macos") {
-        Platform::MacOs
-    } else {
-        Platform::Linux
-    };
-    launcher::test_support::scratch_at(platform, root)
+    launcher::test_support::scratch_in(root)
 }
 
 /// Returns the fixture's client log using the production layout's directory policy.

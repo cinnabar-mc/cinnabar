@@ -1,9 +1,9 @@
 //! Real raw ingress for BDS's targeted game-mode confirmation packet.
 
-use bedrock_protocol_1_26_60::enums::LevelGameType;
-use bedrock_protocol_1_26_60::packets::{PacketId, UpdatePlayerGameType};
-use bedrock_protocol_1_26_60::types::{ActorUniqueID, PlayerInputTick};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::LevelGameType;
+use bedrock_protocol_contract_1_26_60::packets::{PacketId, UpdatePlayerGameType};
+use bedrock_protocol_contract_1_26_60::types::{ActorUniqueID, PlayerInputTick};
+use bedrock_protocol_contract_1_26_60::wire;
 
 fn raw_packet(
     mode: LevelGameType,

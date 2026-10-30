@@ -3,15 +3,15 @@ use std::{
     sync::Arc,
 };
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     AnimateAction as AnimatePacketAction, ItemVersion as ItemDataItemVersion,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
     ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
 };
-use bedrock_protocol_1_26_60::types::ActorRuntimeID;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_contract_1_26_60::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -66,16 +66,16 @@ pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
 /// descriptor whose trailing user data is an opaque length-prefixed buffer, so
 /// the shield ID is no longer needed to decode an item.
 type ItemStackDescriptor =
-    bedrock_protocol_1_26_60::types::NetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_contract_1_26_60::types::NetworkItemStackDescriptorSerializedData;
 
 /// Number of hotbar slots on the vanilla survival hotbar.
 pub const HOTBAR_SLOT_COUNT: u8 = 9;
 
 /// Packs a held-use particle event from the negotiated item ID and signed auxiliary value.
 pub fn item_use_progress_packet(runtime_id: u64, item_id: i16, auxiliary: i16) -> crate::Packet {
-    crate::Packet::new(bedrock_protocol_1_26_60::packets::ActorEvent {
+    crate::Packet::new(bedrock_protocol_contract_1_26_60::packets::ActorEvent {
         target_runtime_id: ActorRuntimeID(runtime_id),
-        event_id: bedrock_protocol_1_26_60::enums::ActorEventType::Feed,
+        event_id: bedrock_protocol_contract_1_26_60::enums::ActorEventType::Feed,
         data: wire::ZigZag32((i32::from(item_id as u16) << 16) | i32::from(auxiliary)),
         fire_at_position: None,
     })

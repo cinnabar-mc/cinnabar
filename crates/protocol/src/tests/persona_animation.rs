@@ -1,9 +1,11 @@
-use bedrock_protocol_1_26_60::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
-use bedrock_protocol_1_26_60::packets::PlayerList as PlayerListPacket;
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::{
+    PersonaAnimatedTextureType, PersonaAnimationExpression,
+};
+use bedrock_protocol_contract_1_26_60::packets::PlayerList as PlayerListPacket;
+use bedrock_protocol_contract_1_26_60::types::{
     ActorUniqueID, AnimatedImageData, PlayerListData, SerializedSkinRef, SkinImage,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{ActorEvent, PlayerListEntry, PlayerSkin, WorldEvent, into_world_event};
 
 #[test]

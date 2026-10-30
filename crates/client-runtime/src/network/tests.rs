@@ -81,7 +81,7 @@ fn joined_idle_frames_advance_without_a_player_controller_or_world_stream() {
     let mut app = App::new();
     configure_network_frame_flush::<()>(&mut app);
     let (mut network, mut captured) = NetworkHandle::<()>::stub_capturing_packets();
-    network.core_socket_dir = Some(PathBuf::from("unused-test-endpoint"));
+    network.connected = true;
     app.insert_resource(network)
         .init_resource::<bevy::prelude::Time<bevy::time::Real>>();
     for _ in 0..3 {
@@ -159,7 +159,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
         ingress.is_closed(),
         "old ingress closes on the transition frame"
     );
-    assert!(old.core_socket_dir().is_none());
+    assert_eq!(old.pending_event_count(), 0);
     let thread = released
         .recv_timeout(std::time::Duration::from_secs(10))
         .unwrap();

@@ -359,7 +359,6 @@ fn connecting_menu(stage: launcher::menu::view::JoinStage) -> (MenuRuntime, Sess
     let mut controller = SessionController::default();
     controller.set_connecting(true);
     let mut menu = MenuRuntime::new(true, 2, "Player".to_owned());
-    menu_fixture::suppress_catalog(&mut menu);
     menu.show_connecting();
     menu.observe_session(controller.status());
     menu_fixture::set_join_stage(&mut menu, stage);
@@ -432,8 +431,6 @@ fn back_during_the_realm_lookup_keeps_joining() {
 fn leaving_then_immediately_rejoining_advances_authority_without_old_transfer_controls() {
     for address in ["old.example:19132", "other.example:19132"] {
         let mut menu = MenuRuntime::new(true, 2, "Player".into());
-        menu_fixture::suppress_catalog(&mut menu);
-        menu_fixture::use_missing_core(&mut menu);
         menu.request_connect("old.example:19132".into());
         menu.take_join_intent();
         menu.show_world();
@@ -449,7 +446,9 @@ fn leaving_then_immediately_rejoining_advances_authority_without_old_transfer_co
                 decode_error_count: 0,
             })
             .unwrap();
-        let mut app = drive_once((menu, SessionController::default()), network);
+        let controller = SessionController::default()
+            .with_client_random_id(Some(protocol::ClientRandomId::new(1).unwrap()));
+        let mut app = drive_once((menu, controller), network);
         let left = app.world().resource::<UiRuntimeResource>().session_id();
         assert!(old_ingress.is_closed());
         assert!(app.world().resource::<MenuRuntime>().is_visible());
@@ -480,6 +479,17 @@ fn leaving_then_immediately_rejoining_advances_authority_without_old_transfer_co
                 .is_err()
         );
         let view = app.world().resource::<MenuRuntime>().view();
-        assert!(view.disconnect_message.as_ref().unwrap().contains(address));
+        assert_eq!(
+            view.disconnect_message.as_deref(),
+            Some(
+                crate::args::ArgsError::NativeNetworkingUnavailable
+                    .to_string()
+                    .as_str()
+            )
+        );
+        assert!(view.can_reconnect);
+        let mut menu = app.world_mut().resource_mut::<MenuRuntime>();
+        menu.activate(MenuAction::Reconnect);
+        assert_eq!(menu.take_join_intent().unwrap().address, address);
     }
 }

@@ -36,8 +36,8 @@ fn generated_groups_cover_every_fixture_value_and_preserve_wire_ids() {
 }
 
 #[test]
-fn enchantments_cover_the_vendored_codec_including_sentinels() {
-    use bedrock_protocol_1_26_60::enums::EnchantType;
+fn enchantments_cover_the_generated_codec_including_sentinels() {
+    use bedrock_protocol_contract_1_26_60::enums::EnchantType;
     for raw in u8::MIN..=u8::MAX {
         let vendor = EnchantType::from(raw);
         let named = Enchantment::from_wire(raw);

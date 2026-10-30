@@ -1,7 +1,7 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use bedrock_protocol_1_26_60::enums::LevelGameType;
-use bedrock_protocol_1_26_60::packets::{StartGame, UpdatePlayerGameType};
+use bedrock_protocol_contract_1_26_60::enums::LevelGameType;
+use bedrock_protocol_contract_1_26_60::packets::{StartGame, UpdatePlayerGameType};
 
 pub(super) fn targeted_update(packet: UpdatePlayerGameType) -> crate::UiEvent {
     crate::UiEvent::PlayerGameMode {
@@ -168,7 +168,7 @@ mod player_game_mode_tests {
                 Some(PlayerGameMode::Spectator)
             );
             let update = PlayerGameMode::update_from_game_mode(
-                bedrock_protocol_1_26_60::enums::LevelGameType::Unknown(value),
+                bedrock_protocol_contract_1_26_60::enums::LevelGameType::Unknown(value),
             );
             assert_eq!(update, crate::GameModeUpdate::LegacyViewer);
             assert_eq!(update.hud_mode(), Some(PlayerGameMode::Spectator));

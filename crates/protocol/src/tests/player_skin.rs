@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_60::packets::PlayerSkin as PlayerSkinPacket;
-use bedrock_protocol_1_26_60::types::{SerializedSkin, SerializedSkinImage};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::PlayerSkin as PlayerSkinPacket;
+use bedrock_protocol_contract_1_26_60::types::{SerializedSkin, SerializedSkinImage};
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{ActorEvent, PlayerSkin, WorldEvent, into_world_event};
 use render_api::CLASSIC_SKIN_SIDE;
 

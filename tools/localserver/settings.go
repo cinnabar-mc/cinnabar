@@ -12,6 +12,7 @@ import (
 	"github.com/df-mc/dragonfly/server/world"
 
 	extension "github.com/cinnabar-mc/cinnabar/tools/localserver/cinnabarext"
+	"github.com/cinnabar-mc/cinnabar/tools/localserver/internal/hostcontract"
 )
 
 const defaultChunkWorkers = 4
@@ -26,7 +27,7 @@ const (
 	localChunkTransactions = 64
 )
 
-const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
+const maxPlayers = hostcontract.MAX_PLAYERS // shared process cap, including local reconnects and native visitors
 
 // settings are the per-world options the core passes on the command line.
 type settings struct {
@@ -72,7 +73,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.IntVar(&s.terrainFixtureRadius, "terrain-fixture-radius", terrainDefaultRadius, "synthetic pregeneration radius in chunks")
 	flags.BoolVar(&s.primitiveShapes, "primitive-shapes", false, "emit a debug-shape gallery; /shapes, /shapes update, /shapes clear")
 	flags.StringVar(&s.dir, "dir", "", "world data directory")
-	flags.StringVar(&s.addr, "addr", "", "loopback UDP listen address")
+	flags.StringVar(&s.addr, "addr", "", "loopback NetherNet HTTP listen address")
 	flags.StringVar(&s.name, "name", "World", "world display name")
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
@@ -205,7 +206,10 @@ func (s settings) worldDifficulty() (world.Difficulty, error) {
 func (s settings) userConfig() server.UserConfig {
 	uc := server.DefaultConfig()
 	uc.Network.Address = s.addr
-	uc.Network.Transport = []string{"raknet"}
+	uc.Network.Transport = []string{"nethernet"}
+	uc.Network.NetherNet.Address = s.addr
+	uc.Network.NetherNet.KeyFile = ""
+	uc.Network.NetherNet.UDPPorts = ""
 	uc.Server.Name = s.name
 	uc.Server.AuthEnabled = false
 	uc.Server.DisableJoinQuitMessages = true

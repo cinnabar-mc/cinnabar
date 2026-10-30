@@ -1,6 +1,6 @@
 use super::*;
-use bedrock_protocol_1_26_60::packets;
-use bedrock_protocol_1_26_60::wire::{Decode, Encode};
+use bedrock_protocol_contract_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::wire::{Decode, Encode};
 
 /// Produces a created-output consumption with a current or earlier request ID.
 fn consume(id: i32) -> [StackRequestAction; 1] {

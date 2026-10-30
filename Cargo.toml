@@ -13,6 +13,7 @@ members = [
     "crates/assets",
     "crates/bridge",
     "web/transport",
+    "web/gateway",
     "web/client",
     "crates/block-transform",
     "crates/bootstrap-ui",
@@ -25,7 +26,6 @@ members = [
     "crates/gameplay",
     "crates/client-session",
     "crates/chunk-pipeline",
-    "crates/pack-json",
     "crates/pack-compiler",
     "crates/pack-compiler/input",
     "crates/pack-compiler/entity",
@@ -86,7 +86,6 @@ members = [
     "crates/update-manifest",
     "crates/update-installer",
     "tools/architecture",
-    "tools/bedrock-replay",
     "tools/devtool",
     "tools/mod-docs",
     "tools/workspace-declarations",
@@ -99,8 +98,6 @@ members = [
     "tools/cxb",
     "tools/release-manifest",
 ]
-# The vendored codec is generated and linted upstream; only `protocol` builds it.
-exclude = ["crates/protocol/vendor/bedrock-protocol-1-26-60"]
 resolver = "3"
 
 [workspace.package]
@@ -109,6 +106,14 @@ edition = "2024"
 rust-version = "1.99.0"
 
 [workspace.dependencies]
+bedrock-protocol-contract-1-26-60 = { git = "https://github.com/cinnabar-mc/protocolgen", rev = "9eed056998235e4c01e0f3befabed651021dea77" }
+bedrock-services = { git = "https://github.com/cinnabar-mc/bedrock-services", rev = "0ef085c09c0124fefc3cc935deb68dbe66ebaaaa" }
+nethernet = { git = "https://github.com/cinnabar-mc/nethernet", rev = "cfcbf4868e20650c4af78346794710568c0b1b9c" }
+nethernet-tokio = { git = "https://github.com/cinnabar-mc/nethernet", rev = "cfcbf4868e20650c4af78346794710568c0b1b9c" }
+bedrock-net = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "0d9f8fe5d71bf3bbf7daff931f18d332f4810c4c" }
+bedrock-client = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "0d9f8fe5d71bf3bbf7daff931f18d332f4810c4c" }
+bedrock-client-tokio = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "0d9f8fe5d71bf3bbf7daff931f18d332f4810c4c" }
+bedrock-packs = { git = "https://github.com/cinnabar-mc/bedrock-net", rev = "0d9f8fe5d71bf3bbf7daff931f18d332f4810c4c" }
 glam = { version = "0.33.2", default-features = false, features = ["std", "f64"] }
 # One feature set per heavy dependency: any per-crate difference rebuilds it and every dependent.
 # wayland/x11 only select winit backends on Linux; winit ignores them on other targets.
@@ -164,6 +169,9 @@ rayon = "1.11"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 mimalloc = { version = "=0.1.52", default-features = false }
 sha2 = "=0.10.9"
+rsa = { version = "0.10.0-rc.19", default-features = false, features = ["std", "sha2"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
 # Crates that generate random UUIDs add `v4`; wasm32-unknown-unknown has no source for it.
 uuid = "1"
 wasmtime = { version = "=36.0.16", default-features = false, features = ["component-model", "cranelift", "runtime", "std", "wat"] }
@@ -183,6 +191,7 @@ wit-parser = "=0.247.0"
 # Vulkan keeps logical allocation layouts separate and accepts either native image-robustness feature.
 # Every wgpu crate comes from the same rev so wgpu and the shaderpack crate share one naga.
 [patch.crates-io]
+tokio-websockets = { git = "https://github.com/cinnabar-mc/tokio-websockets", rev = "6f75363f1d892c42b853476dfba3d58e49e9d506" }
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
 naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "060bd0bdbc5975dc9e48840b391e276d5ccb4355" }

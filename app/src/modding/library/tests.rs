@@ -1033,14 +1033,7 @@ fn bevy_adapter_consumes_menu_actions_and_publishes_the_service_selection() {
     fs::write(mods.join("zoom.wasm"), b"fixture").unwrap();
     let watcher = registration::Watcher::start(config.clone()).unwrap();
     let removal = watcher.removal_client();
-    let layout = launcher::test_support::scratch_at(
-        if cfg!(windows) {
-            launcher::install_layout::Platform::Windows
-        } else {
-            launcher::install_layout::Platform::Linux
-        },
-        root.path(),
-    );
+    let layout = launcher::test_support::scratch_in(root.path());
     let menu = MenuRuntime::new_with_layout(
         false,
         None,

@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_60::packets::{LevelChunk, SubChunk};
+use bedrock_protocol_contract_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_contract_1_26_60::packets::{LevelChunk, SubChunk};
 
 use super::requests::checked_sub_chunk_position;
 use super::{

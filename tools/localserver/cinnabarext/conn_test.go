@@ -602,7 +602,7 @@ func TestInboundEnvelopeViolationsFallBack(t *testing.T) {
 }
 
 // Closing the connection ends its client part; Dragonfly's Disconnect reaches the listener with
-// the connection that listener accepted, which its default RakNet listener requires.
+// the connection that listener accepted, which its listener requires.
 func TestDisconnectEndsTheClientPart(t *testing.T) {
 	f := newConn(t, nil)
 	f.activate()

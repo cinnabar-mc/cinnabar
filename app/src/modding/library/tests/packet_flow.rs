@@ -44,7 +44,7 @@ impl protocol::PacketRelay for ChunkRelay {
         identity: &SessionIdentity,
         client_data: &str,
         startup: &[u8],
-    ) -> Vec<protocol::RelayPack> {
+    ) -> Vec<bedrock_packs::RelayPack> {
         self.observe(startup, true);
         self.guest.start(identity, client_data, startup)
     }
@@ -108,7 +108,7 @@ fn forwarding_reactor(pack: &[u8]) -> Vec<u8> {
     .unwrap()
 }
 
-/// Uses the production core schema; the bridge owns packet and frame encodings.
+/// Uses the production session schema; the bridge owns packet and frame encodings.
 async fn send_core(peer: &mut tokio::io::DuplexStream, message: CoreMessage) {
     let frame = encode_core_message(&message).unwrap();
     peer.write_u32(frame.len().try_into().unwrap())
@@ -183,22 +183,12 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         app.world().get_resource::<PacketMods>(),
         app.world().resource::<Watcher>().active_grants(),
     );
-    let layout = launcher::test_support::scratch("packet-mod-cache-mode");
-    let core_command = launcher_host::core_process::core_command_for_address(
-        &layout,
-        std::path::Path::new("core"),
-        root.path(),
-        "fixture.invalid",
-        None,
-        cache.enables_upstream_client_cache(),
-    );
-    let upstream_cache = core_command
-        .get_args()
-        .any(|arg| arg == "-upstream-client-cache");
+    let upstream_cache = cache.enables_upstream_client_cache();
     assert!(
         !upstream_cache,
-        "packet authority must disable the core's upstream cache"
+        "packet authority must disable the session's upstream cache"
     );
+    assert!(cache.cache().is_none(), "native login needs inline chunks");
     let relay = Arc::new(ChunkRelay {
         guest: relay.unwrap(),
         seen: Mutex::default(),
@@ -215,7 +205,7 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
         let connect = protocol::session_wire::decode_connect(&connect).unwrap();
         assert_eq!(
             connect.client_cache, upstream_cache,
-            "both login legs must agree"
+            "login must advertise its captured native cache mode"
         );
         let fixture = include_bytes!("../../../../../crates/protocol/fixtures/start_game.bin");
         let CoreMessage::Batch(startup) =
@@ -265,6 +255,8 @@ async fn settings_import_and_consent_reach_a_new_session_join() {
             timers: bridge::tasks::Timers::tokio(),
         },
         protocol::SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
             display_name: "Fixture",
             client_random_id: protocol::ClientRandomId::new(1).unwrap(),
             cache: cache.cache(),

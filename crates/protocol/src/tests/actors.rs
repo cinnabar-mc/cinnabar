@@ -1,19 +1,19 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ActorLinkType as VendorActorLinkType, DataItemType, LevelGameType,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
     MoveActorAbsolute as MoveActorAbsolutePacket, MoveActorDelta as MoveActorDeltaPacket,
     PlayerList as PlayerListPacket, RemoveActor as RemoveActorPacket,
     SetActorData as SetActorDataPacket, UpdateAttributes as UpdateAttributesPacket,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, AttributeData, DataItemEntry, DataItemEntryValue, EntityLink,
     MoveActorAbsoluteData, MoveActorDeltaData, PlayerInputTick, PlayerListData, PropertySyncData,
     PropertySyncDataPropertySyncFloatEntry, PropertySyncDataPropertySyncIntEntry,
     SerializedAbilitiesData, SerializedSkinRef, SkinImage, SynchedActorDataCopyableDataList,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{
     ActorEvent, ActorKind, ActorLinkType, ActorMetadataValue, ActorPositionOrigin, ActorProperty,
     PlayerListEntry, PlayerSkin, PlayerSkinUnavailable, WorldEvent, into_world_event,

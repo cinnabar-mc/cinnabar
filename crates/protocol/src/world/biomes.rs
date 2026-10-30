@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::packets::BiomeDefinitionList;
+use bedrock_protocol_contract_1_26_60::packets::BiomeDefinitionList;
 
 use super::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,

@@ -1,9 +1,9 @@
 //! Native dimension-transfer acknowledgements and correlated loading screens.
 
-use bedrock_protocol_1_26_60::enums::{PlayerActionType, ServerboundLoadingScreenType};
-use bedrock_protocol_1_26_60::packets::{PlayerAction, ServerboundLoadingScreen};
-use bedrock_protocol_1_26_60::types::ActorRuntimeID;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::{PlayerActionType, ServerboundLoadingScreenType};
+use bedrock_protocol_contract_1_26_60::packets::{PlayerAction, ServerboundLoadingScreen};
+use bedrock_protocol_contract_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use crate::{Packet, WorldEvent};
 
@@ -51,8 +51,8 @@ pub fn dimension_change_done_packet(local_runtime_id: u64) -> Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::packets;
-    use bedrock_protocol_1_26_60::types::BlockPos;
+    use bedrock_protocol_contract_1_26_60::packets;
+    use bedrock_protocol_contract_1_26_60::types::BlockPos;
 
     #[test]
     fn loading_messages_preserve_absent_zero_and_nonzero_ids() {

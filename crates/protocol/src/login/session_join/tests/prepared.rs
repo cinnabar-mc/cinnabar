@@ -74,6 +74,8 @@ async fn prepared_io_accepts_a_late_radius_reply_after_spawn_without_radius_repl
             timers: bridge::tasks::Timers::tokio(),
         },
         SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
             display_name: "Fixture",
             client_random_id: ClientRandomId::new(-7).unwrap(),
             cache: None,
@@ -151,7 +153,7 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
         view_distance_chunks: 23,
         ..Default::default()
     };
-    let target = bridge::ConnectTarget::RakNet("game.example.test:19132".into());
+    let target = bridge::ConnectTarget::Server("game.example.test:19132".into());
     let join = LoginSequence::connect_prepared(
         SessionIo {
             reader,
@@ -159,6 +161,8 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
             timers: bridge::tasks::Timers::tokio(),
         },
         SessionLogin {
+            #[cfg(not(target_arch = "wasm32"))]
+            execution: None,
             display_name: "Fixture",
             client_random_id: crate::ClientRandomId::new(-7).unwrap(),
             cache: None,

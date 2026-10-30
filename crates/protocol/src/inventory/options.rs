@@ -1,6 +1,6 @@
 //! Inventory preferences travel independently of stack transactions.
 
-use bedrock_protocol_1_26_60::{enums, packets, types};
+use bedrock_protocol_contract_1_26_60::{enums, packets, types};
 
 use super::InventoryEvent;
 use crate::Packet;

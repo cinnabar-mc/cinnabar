@@ -1,14 +1,16 @@
-use bedrock_protocol_1_26_60::enums::{ActorEventType, AnimateAction as AnimatePacketAction};
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::enums::{
+    ActorEventType, AnimateAction as AnimatePacketAction,
+};
+use bedrock_protocol_contract_1_26_60::packets::{
     ActorEvent as ActorEventPacket, AddActor as AddActorPacket, AddPlayer as AddPlayerPacket,
     Animate as AnimatePacket, AnimateEntity as AnimateEntityPacket,
     ItemRegistry as ItemRegistryPacket, MobEquipment as MobEquipmentPacket,
     NetworkSettings as NetworkSettingsPacket,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, ItemData, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
 };
-use bedrock_protocol_1_26_60::wire::{self, NetworkNbt as Nbt};
+use bedrock_protocol_contract_1_26_60::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ActorActionKind, ActorEvent, ActorHandedness, EquipmentEvent, ItemActorEvent, ItemPacketError,

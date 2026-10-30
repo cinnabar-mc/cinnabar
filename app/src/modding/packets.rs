@@ -59,7 +59,8 @@ impl PacketMods {
         cache.for_session(mod_host::ModGrants::enables_upstream_client_cache(&grants))
     }
 
-    /// Reads startup consent before the registration worker and direct connection are running.
+    /// Reads startup consent before registration admits the fixture's packet program.
+    #[cfg(test)]
     pub(crate) fn startup_cache(
         &self,
         cache: &client_runtime::blob_cache::ClientBlobCacheOwner,

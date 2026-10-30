@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_60::{
+use bedrock_protocol_contract_1_26_60::{
     enums::{TextPacketType, TitleType},
     packets::{SetTitle, Text},
     types::TextData,

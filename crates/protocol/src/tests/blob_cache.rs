@@ -3,15 +3,15 @@
 //! LevelChunk states cache participation with `cache_enabled` and always writes `SubChunkCount + 1`
 //! blob hashes; SubChunk has one entry type whose optional `blob_id` is the only cache marker.
 
-use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_contract_1_26_60::packets::{
     self, ClientCacheMissResponse, LevelChunk, SetTime, SubChunk,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ChunkPos, DimensionType, MissingBlobData, SubChunkData, SubChunkMetadata, SubChunkPos,
     SubChunkPosOffset,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{
     BlobCacheError, BlobCacheLimits, BlobCacheReady, BlobCacheResolver, BlockUpdateEvent,
     ChunkResyncEvent, ClientBlobCache, SetTimeEvent, WorldEvent, client_blob_hash,

@@ -18,7 +18,7 @@ doctest = false
 
 [target.'cfg(target_os = "ios")'.dependencies]
 anyhow.workspace = true
-cinnabar = { path = "../../../app", default-features = false }
+cinnabar = { path = "../../../app", default-features = false, features = ["native-networking"] }
 shaderpack = { path = "../../../crates/shaderpack" }
 diagnostics = { path = "../../../crates/diagnostics" }
 launcher = { path = "../../../crates/launcher" }

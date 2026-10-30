@@ -1,10 +1,17 @@
-//! What the menu and the core learn about the open world.
+//! What the menu learns about the open world.
 
-use bridge::{Backend, LocalTarget, LocalWorld, LocalWorldInfo, Transport, WorldState};
-use launcher::local_worlds::world::{World, WorldStatus};
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use bridge::{Backend, LocalTarget, Transport};
+#[cfg(test)]
+use bridge::{LocalWorld, LocalWorldInfo, WorldState};
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use launcher::local_worlds::world::World;
+use launcher::local_worlds::world::WorldStatus;
 
 use super::Manager;
-use crate::local_worlds::{lock, process::Instance};
+use crate::local_worlds::lock;
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
+use crate::local_worlds::process::Instance;
 
 impl Manager {
     /// The open world's lifecycle and the dedicated server's setup.
@@ -37,8 +44,9 @@ impl Manager {
         status
     }
 
-    /// The open world as the core routes and hosts it.
-    pub(crate) fn core_report(&self) -> LocalWorld {
+    /// Observes the visible opening and original target for owning lifecycle fixtures.
+    #[cfg(test)]
+    pub(crate) fn world_report(&self) -> LocalWorld {
         let life = lock(&self.inner.life);
         let target = match (&life.instance, &life.world) {
             (Some(instance), Some(world)) if life.state == WorldState::Running => {
@@ -63,8 +71,8 @@ impl Manager {
     }
 }
 
-/// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
-/// LAN advertisement when the server publishes one.
+/// Returns the running world's NetherNet HTTP endpoint or its advertised BDS LAN route.
+#[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
 pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget {
     let address = instance.address().to_owned();
     match (world.backend, instance.lan_address()) {
@@ -82,7 +90,7 @@ pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget 
         },
         (Backend::Dragonfly, _) => LocalTarget {
             address,
-            transport: Transport::RakNet,
+            transport: Transport::NetherNet,
             lan_address: None,
             level_name: None,
         },

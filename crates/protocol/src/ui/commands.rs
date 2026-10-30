@@ -2,9 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
-use bedrock_protocol_1_26_60::enums::CommandPermissionLevel;
-use bedrock_protocol_1_26_60::packets::AvailableCommands;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::CommandPermissionLevel;
+use bedrock_protocol_contract_1_26_60::packets::AvailableCommands;
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 use protocol_ids::{CommandArgFlag, CommandArgType};

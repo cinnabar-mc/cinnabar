@@ -1,13 +1,15 @@
-# Pinned upstream sources
+# Upstream sources
 
-`bedrock-protocol-1-26-60/` is protocolgen's generated Rust contract crate for Bedrock 1.26.60
-(protocol 2225), copied byte for byte with no local patches. Only `protocol` depends on it.
+`bedrock-protocol-contract-1-26-60` is protocolgen's generated Rust contract crate for Bedrock 1.26.60
+(protocol 2225), consumed from the exact Git dependency shared with bedrock-client.
+Only `protocol` declares this codec directly in Cinnabar; generated source is not vendored.
 
 - Generator: https://github.com/cinnabar-mc/protocolgen
-- Generator commit: `2265acd53847733ab10127646e76d575999c18d5` (`generated/1.26.60/rust-contract`)
+- Generator commit: `9eed056998235e4c01e0f3befabed651021dea77` (`generated/1.26.60/rust-contract`)
 
-The expected protocol, codec contract and manifest fingerprint are pinned once, in
-`assets/bedrock-target.json`; a protocol test fails until a re-vendored crate matches them. The client reports the target game version to match gophertunnel.
+The expected protocol, codec contract and manifest fingerprint are pinned in
+`assets/bedrock-target.json`; a protocol test checks the resolved generated crate.
+The client reports the target game version.
 
 The raw packet entries and spawn sequence (`src/raw_packet.rs`, `src/login/startup.rs`) are
 adapted from Jolyne, the Axolotl Stack client session library.

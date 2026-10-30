@@ -1,8 +1,8 @@
 use super::*;
 use crate::Packet;
-use bedrock_protocol_1_26_60::packets::{self, ClientCacheMissResponse, SetTime};
-use bedrock_protocol_1_26_60::types::MissingBlobData;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::{self, ClientCacheMissResponse, SetTime};
+use bedrock_protocol_contract_1_26_60::types::MissingBlobData;
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 
 /// Constructs one body reply without involving cache admission or transport writes.
@@ -26,7 +26,9 @@ fn ordinary(time: i32) -> Packet {
 fn terrain() -> Packet {
     Packet::new(packets::LevelChunk {
         cache_enabled: true,
-        cache_metadata: vec![bedrock_protocol_1_26_60::types::SubChunkMetadata(1)],
+        cache_metadata: vec![bedrock_protocol_contract_1_26_60::types::SubChunkMetadata(
+            1,
+        )],
         ..Default::default()
     })
 }

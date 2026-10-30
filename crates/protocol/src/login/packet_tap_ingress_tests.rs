@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
-use tokio::net::UnixListener;
 
 use super::PlaySession;
 use crate::packet_tap::{PacketDirection, PacketOutcome};
@@ -15,7 +14,7 @@ use crate::{Packet, WorldEvent};
 /// Unsupported target-version features are validated and counted in both ingress lanes.
 #[tokio::test]
 async fn unsupported_target_packets_do_not_interrupt_world_events() {
-    use bedrock_protocol_1_26_60::packets::{
+    use bedrock_protocol_contract_1_26_60::packets::{
         ClientboundMatchmakingState, ClientboundPlayAudioContent, ClientboundStonecutterSetRecipe,
         ServerboundCursorItemDrag, ServerboundMatchmakingCancel, ServerboundRegisterAudioContent,
         ServerboundStonecutterSetRecipe, SetPassengerOfBlock,
@@ -31,10 +30,7 @@ async fn unsupported_target_packets_do_not_interrupt_world_events() {
         Packet::new(ClientboundPlayAudioContent::default()),
     ];
     for cache in [None, Some(crate::ClientBlobCache::default())] {
-        let dir = tempfile::tempdir().unwrap();
-        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-        let (_peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, _peer, _writer) = crate::tests::framed::pair();
         let mut initial: Vec<_> = packets
             .iter()
             .map(crate::session_transport::tests::packet_bytes)
@@ -45,7 +41,8 @@ async fn unsupported_target_packets_do_not_interrupt_world_events() {
             },
         )));
         let transport = SessionTransport::new(reader, frames, &initial);
-        let mut session = PlaySession::new(transport, cache, 1, false);
+        let mut session =
+            PlaySession::new(transport, cache, crate::login::startup::ready_fixture(1));
         assert!(matches!(
             session.recv_world_event(0).await.unwrap(),
             WorldEvent::SetTime(_)
@@ -59,13 +56,10 @@ async fn unsupported_target_packets_do_not_interrupt_world_events() {
 /// the packets it accepted.
 #[tokio::test]
 async fn a_malformed_world_packet_is_reported_failed_with_its_body() {
-    let dir = tempfile::tempdir().unwrap();
-    let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-    let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-    let (mut peer, _) = listener.accept().await.unwrap();
+    let (reader, frames, mut peer, _writer) = crate::tests::framed::pair();
     let tap = Arc::new(RecordingTap::default());
     let transport = SessionTransport::new(reader, frames, &[]).with_tap(Some(tap.clone()));
-    let mut session = PlaySession::new(transport, None, 1, false);
+    let mut session = PlaySession::new(transport, None, crate::login::startup::ready_fixture(1));
 
     let mut frame = batch_frame(&[Packet::new(SetTime {
         time: wire::ZigZag32(5),
@@ -115,10 +109,7 @@ async fn accepted_packets_release_the_observers_batch_storage() {
             true,
         ),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-        let (_peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, _peer, _writer) = crate::tests::framed::pair();
         let tap = Arc::new(RecordingTap::default());
         let packet = crate::session_transport::tests::packet_bytes(&Packet::new(SetTime {
             time: wire::ZigZag32(5),
@@ -129,7 +120,8 @@ async fn accepted_packets_release_the_observers_batch_storage() {
         };
         let backing = raw.body().clone();
         transport.prepend(vec![raw]);
-        let mut session = PlaySession::new(transport, cache, 1, false);
+        let mut session =
+            PlaySession::new(transport, cache, crate::login::startup::ready_fixture(1));
         if world {
             session
                 .recv_world_event_mapped(0, |_| (), |_, _| ())
@@ -145,7 +137,9 @@ async fn accepted_packets_release_the_observers_batch_storage() {
 /// Cache validation reports the original rejected body before returning its recovery event.
 #[tokio::test]
 async fn cache_rejections_are_tapped_before_recovery() {
-    use bedrock_protocol_1_26_60::{packets::ClientCacheMissResponse, types::MissingBlobData};
+    use bedrock_protocol_contract_1_26_60::{
+        packets::ClientCacheMissResponse, types::MissingBlobData,
+    };
     let hash = crate::client_blob_hash(b"expected");
     let response = Packet::new(ClientCacheMissResponse {
         missing_blobs: vec![MissingBlobData {
@@ -167,18 +161,18 @@ async fn cache_rejections_are_tapped_before_recovery() {
         (Packet::new(invalid_shape), true),
         (verified, false),
     ] {
-        let dir = tempfile::tempdir().unwrap();
-        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-        let (_peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, _peer, _writer) = crate::tests::framed::pair();
         let tap = Arc::new(RecordingTap::default());
         let wire = crate::session_transport::tests::packet_bytes(&rejected);
         let mut reader_body = wire::Reader::new(&wire);
         let id = reader_body.read_var_u32().unwrap();
         let body = wire.slice(reader_body.position()..);
         let transport = SessionTransport::new(reader, frames, &[wire]).with_tap(Some(tap.clone()));
-        let mut session =
-            PlaySession::new(transport, Some(crate::ClientBlobCache::default()), 1, false);
+        let mut session = PlaySession::new(
+            transport,
+            Some(crate::ClientBlobCache::default()),
+            crate::login::startup::ready_fixture(1),
+        );
         session
             .blob_cache
             .as_mut()
@@ -215,12 +209,9 @@ async fn cache_rejections_are_tapped_before_recovery() {
 /// A rejected boundary keeps its evidence even when ingress continues to an ordinary event.
 #[tokio::test]
 async fn an_unusable_transfer_is_tapped_as_skipped() {
-    use bedrock_protocol_1_26_60::packets::Transfer;
+    use bedrock_protocol_contract_1_26_60::packets::Transfer;
     for cache in [None, Some(crate::ClientBlobCache::default())] {
-        let dir = tempfile::tempdir().unwrap();
-        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
-        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
-        let (_peer, _) = listener.accept().await.unwrap();
+        let (reader, frames, _peer, _writer) = crate::tests::framed::pair();
         let tap = Arc::new(RecordingTap::default());
         let packet = crate::session_transport::tests::packet_bytes(&Packet::new(Transfer {
             server_address: "".into(),
@@ -235,7 +226,8 @@ async fn an_unusable_transfer_is_tapped_as_skipped() {
         }));
         let transport =
             SessionTransport::new(reader, frames, &[packet, next]).with_tap(Some(tap.clone()));
-        let mut session = PlaySession::new(transport, cache, 1, false);
+        let mut session =
+            PlaySession::new(transport, cache, crate::login::startup::ready_fixture(1));
         assert!(matches!(
             session.recv_world_event(0).await.unwrap(),
             WorldEvent::SetTime(_)

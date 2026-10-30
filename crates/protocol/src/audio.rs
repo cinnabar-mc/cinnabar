@@ -2,8 +2,10 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::packets::{self, LevelEvent, LevelSoundEvent, PlaySound, StopSound};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::{
+    self, LevelEvent, LevelSoundEvent, PlaySound, StopSound,
+};
+use bedrock_protocol_contract_1_26_60::wire;
 
 use crate::WorldPacketError;
 

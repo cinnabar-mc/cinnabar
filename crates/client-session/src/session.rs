@@ -2,7 +2,6 @@ use protocol::identity::FifoSequence;
 use render_api::sub_chunk_requests::SubChunkRequestReceipt;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 use std::{
-    io::Write,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
@@ -31,10 +30,15 @@ const FINAL_CONTROL_FLUSH_TIMEOUT: Duration = Duration::from_millis(250);
 const NETWORK_PUMP_TERMINAL_MARKER: &str = "CINNABAR_NETWORK_PUMP_TERMINAL";
 
 #[cfg(not(target_arch = "wasm32"))]
-#[derive(Debug, Clone)]
 pub struct NetworkConfig {
     pub session_generation: SessionGeneration,
-    pub socket_dir: std::path::PathBuf,
+    pub endpoint: protocol::SessionEndpoint,
+    /// The caller's completion group, retained through original worker capture destruction.
+    #[cfg(feature = "native-networking")]
+    retirement: Option<tokio_util::task::TaskTracker>,
+    /// One application-owned acquisition future, polled on this session's runtime and cancelled with it.
+    #[cfg(feature = "native-networking")]
+    native_preparation: Option<NativeConnectionPreparation>,
     pub display_name: String,
     /// The user storage owner's opaque persisted login identifier.
     pub client_random_id: protocol::ClientRandomId,
@@ -47,6 +51,25 @@ pub struct NetworkConfig {
     /// Records this session's full packet capture when set.
     pub packet_capture: Option<packet_log::PacketCaptureRequest>,
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+mod config;
+
+/// One application-owned preparation that resolves its endpoint and moves the connection proof into Login.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub type NativeConnectionPreparation = std::pin::Pin<
+    Box<
+        dyn std::future::Future<
+                Output = Result<
+                    (
+                        protocol::NativeConnectionTarget,
+                        protocol::NativeAuthentication,
+                    ),
+                    std::io::Error,
+                >,
+            > + Send,
+    >,
+>;
 
 /// Prepared facts returned by the pack owner at the join bootstrap boundary.
 #[derive(Debug)]
@@ -367,6 +390,9 @@ pub struct NetworkHandle<P = ()> {
     readiness_ingress: Arc<ReadinessIngressCounter>,
     experience_gate: Arc<experience::ExperienceGate>,
     unflushed: Mutex<frame_flush::FrameFlush>,
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    packet_delay: packet_delay::Control,
+    connection_observation: observation::Observation,
     pick_trace: Option<Arc<std::sync::OnceLock<Arc<protocol::capture::PickTrace>>>>,
 }
 
@@ -615,7 +641,10 @@ impl<P> NetworkHandle<P> {
             .pending_latency_reply
             .lock()
             .expect("latency reply lock") = None;
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        self.packet_delay.clear();
         self.shutdown.send_replace(true);
+        self.connection_observation.clear();
         self.release_thread();
     }
 
@@ -662,7 +691,10 @@ fn empty_network_channels<P>() -> (
             thread: None,
             readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
             experience_gate: Arc::default(),
+            connection_observation: Default::default(),
             unflushed: Default::default(),
+            #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+            packet_delay: Default::default(),
             pick_trace: Default::default(),
         },
         physics_reanchor_rx,
@@ -671,17 +703,23 @@ fn empty_network_channels<P>() -> (
 
 impl<P> Drop for NetworkHandle<P> {
     fn drop(&mut self) {
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        self.packet_delay.clear();
         self.shutdown.send_replace(true);
+        self.connection_observation.clear();
         self.release_thread();
     }
 }
 
 pub(crate) mod execution;
+mod observation;
 mod start;
 pub use execution::{NetworkExecutor, SessionRead};
 #[cfg(not(target_arch = "wasm32"))]
 pub use start::spawn_network;
 pub use start::{PreparedLogin, prepare_network};
+#[cfg(not(target_arch = "wasm32"))]
+pub use start::{SessionCompanion, spawn_network_with_companion};
 
 /// The inbound half of a play session; its write half runs on its own task.
 trait NetworkSession: execution::SessionOwner {
@@ -690,6 +728,11 @@ trait NetworkSession: execution::SessionOwner {
 
     /// Detaches the write half before the pump starts.
     fn outbound(&mut self) -> Result<Self::Outbound, Self::Error>;
+
+    /// Completes connection teardown before the network runtime stops.
+    fn close(&mut self) -> impl execution::SessionFuture<Output = ()> {
+        std::future::ready(())
+    }
 
     fn receive_world_event(
         &mut self,
@@ -765,6 +808,14 @@ trait NetworkSession: execution::SessionOwner {
 impl<R: execution::SessionRead> NetworkSession for protocol::PlaySession<R> {
     type Error = protocol::ProtocolError;
     type Outbound = protocol::PlayOutbound;
+
+    fn close(&mut self) -> impl execution::SessionFuture<Output = ()> {
+        async move {
+            if let Err(error) = protocol::PlaySession::close(self).await {
+                tracing::debug!(%error, "connection teardown ended before graceful close");
+            }
+        }
+    }
 
     fn outbound(&mut self) -> Result<Self::Outbound, Self::Error> {
         protocol::PlaySession::outbound(self)
@@ -856,93 +907,8 @@ pub fn session_failure_display(
     }
 }
 
-fn emit_network_pump_terminal_marker(
-    stage: &'static str,
-    message: &str,
-    decode_errors: u64,
-    server_disconnect: Option<&ServerDisconnectEvent>,
-) {
-    let mut stdout = std::io::stdout().lock();
-    write_network_pump_terminal_marker(
-        &mut stdout,
-        stage,
-        message,
-        decode_errors,
-        server_disconnect,
-    );
-    let _ = stdout.flush();
-}
-
-/// Emits the durable transferred-session record so live evidence attributes
-/// the session end to the server's transfer instead of a transport failure.
-fn emit_network_pump_transfer_marker(
-    target: &SessionTransferTarget,
-    reload_world: bool,
-    decode_errors: u64,
-) {
-    let mut stdout = std::io::stdout().lock();
-    write_network_pump_transfer_marker(&mut stdout, target, reload_world, decode_errors);
-    let _ = stdout.flush();
-}
-
-fn write_network_pump_terminal_marker(
-    writer: &mut impl Write,
-    stage: &'static str,
-    message: &str,
-    decode_errors: u64,
-    server_disconnect: Option<&ServerDisconnectEvent>,
-) {
-    let mut marker = serde_json::json!({
-        "schema": "rust-mcbe-network-pump-terminal-v1",
-        "outcome": "failed",
-        "stage": stage,
-        "message": message,
-        "decode_error_count": decode_errors,
-    });
-    if let Some(disconnect) = server_disconnect {
-        marker["server_disconnect"] = serde_json::json!({
-            "reason": disconnect.reason,
-            "message": disconnect.message,
-            "filtered_message": disconnect.filtered_message,
-        });
-    }
-    let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
-}
-
-fn write_network_pump_transfer_marker(
-    writer: &mut impl Write,
-    target: &SessionTransferTarget,
-    reload_world: bool,
-    decode_errors: u64,
-) {
-    let marker = serde_json::json!({
-        "schema": "rust-mcbe-network-pump-terminal-v1",
-        "outcome": "transferred",
-        "target": { "host": target.host, "port": target.port },
-        "reload_world": reload_world,
-        "decode_error_count": decode_errors,
-    });
-    let _ = writeln!(writer, "{NETWORK_PUMP_TERMINAL_MARKER}={marker}");
-}
-
-/// Writes a transport observation immediately without making I/O failure fatal.
-fn write_stdout_marker(writer: &mut impl Write, marker: &str) {
-    let _ = writeln!(writer, "{marker}");
-    let _ = writer.flush();
-}
-
-fn emit_packet_id_trace<S: NetworkSession>(session: &mut S, observation: &SessionTrace) {
-    let Some(trace) = session.drain_packet_id_trace() else {
-        return;
-    };
-    let marker = serde_json::json!({
-        "schema": "rust-mcbe-fast-transfer-packet-trace-v1",
-        "packet_ids": trace.packet_ids,
-        "overflow": trace.overflow,
-        "timed_out": trace.timed_out,
-    });
-    (observation.packet_trace)(&marker.to_string());
-}
+mod markers;
+use markers::*;
 
 mod blob_cache_telemetry;
 #[cfg(test)]
@@ -955,6 +921,8 @@ mod frame_flush;
 pub(crate) mod handle_state;
 mod latency_reply;
 mod outbound;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod packet_delay;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod packet_log;
 use bootstrap::{send_startup_failure, start_game_inventory_authority, start_game_item_registry};
@@ -963,6 +931,8 @@ mod pump;
 use pump::*;
 mod pump_runtime;
 use pump_runtime::*;
+mod terminal;
+use terminal::TerminalOwner;
 mod disconnect_display;
 use disconnect_display::disconnect_display_reason;
 #[cfg(test)]

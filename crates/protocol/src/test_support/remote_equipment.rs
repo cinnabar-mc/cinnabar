@@ -1,6 +1,6 @@
 //! Original remote-player packets admitted through wire decoding and world normalization.
 
-use bedrock_protocol_1_26_60::{
+use bedrock_protocol_contract_1_26_60::{
     packets::{self, AddPlayer, MobArmorEquipment, MobEquipment, PlayerList, RemoveActor},
     types::{
         ActorRuntimeID, ActorUniqueID, NetworkItemStackDescriptorSerializedData, PlayerListData,
@@ -45,7 +45,7 @@ pub fn player(
             platform_online_id: Default::default(),
             build_platform: Default::default(),
             serialized_skin: Box::new(
-                bedrock_protocol_1_26_60::types::SerializedSkinRef::decode_exact(
+                bedrock_protocol_contract_1_26_60::types::SerializedSkinRef::decode_exact(
                     &skin_packet.serialized_skin.encode_to_vec().unwrap(),
                 )
                 .expect("roster and skin-change payloads share their wire representation"),

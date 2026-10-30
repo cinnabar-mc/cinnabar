@@ -94,7 +94,7 @@ pub struct ConsentInput(pub bool);
 pub struct JoinIntent {
     pub address: String,
     pub auth_cache: Option<std::path::PathBuf>,
-    /// Joins the launcher core's opened local world instead of the address.
+    /// Joins the launcher's opened local world instead of the address.
     pub local_world: bool,
 }
 
@@ -102,7 +102,6 @@ pub struct JoinIntent {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct SessionStatus {
     pub connecting: bool,
-    pub owns_directory: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]

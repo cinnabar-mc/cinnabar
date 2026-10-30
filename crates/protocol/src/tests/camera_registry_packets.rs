@@ -1,20 +1,20 @@
 use ::protocol;
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     CameraAimAssistAction, CameraAimAssistPresetOperation, CameraPresetAudioListener,
     ClientCameraAimAssistAction, TargetMode,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     self, CameraAimAssist, CameraAimAssistActorPriority, CameraAimAssistPresets, CameraInstruction,
     CameraPresets, CameraSpline,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     CameraAimAssistActorPriorityData, CameraAimAssistCategoryDefinition,
     CameraAimAssistCategoryPriorities, CameraAimAssistPresetDefinition,
     CameraAimAssistPresetExclusionDefinition, CameraInstructionData, CameraPreset,
     CameraPresetList, CameraSplineControlPoint, CameraSplineDefinition, CameraSplineInstruction,
     CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{CameraEvent, CameraSplineKind, WorldEvent, WorldPacketError, into_world_event};
 
 /// Exercises the owned wire codec before checking normalized camera data.

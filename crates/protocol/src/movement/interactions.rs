@@ -9,12 +9,14 @@
 //! those payloads; the movement snapshot itself stays a pure movement
 //! record.
 
-use bedrock_protocol_1_26_60::enums::{ItemUseInventoryTransactionActionType, PlayerActionType};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::{
+    ItemUseInventoryTransactionActionType, PlayerActionType,
+};
+use bedrock_protocol_contract_1_26_60::types::{
     BlockPos, ItemStackLegacyRequestID, PackedItemUseLegacyInventoryTransaction,
     PlayerBlockActionData,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 use crate::interaction::{BlockUsePacketError, BlockUseRequest, item_use_transaction};

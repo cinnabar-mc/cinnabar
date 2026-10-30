@@ -1,7 +1,8 @@
+use bedrock_client::spawn::SpawnReady;
 use std::collections::VecDeque;
 
-use bedrock_protocol_1_26_60::packets::{self, PacketId};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::blob_cache::ResolverReady;
@@ -22,11 +23,12 @@ mod cache_status;
 #[cfg(test)]
 mod cache_status_ingress_tests;
 mod client_data;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use client_data::{NativeDeviceProfile, ValidatedRelayData};
 mod game_data;
 mod latency_probe;
 mod ordinary_ingress;
 mod outbound;
-mod pack_handoff;
 mod packet_trace;
 mod raw_equipment;
 pub(crate) mod session_join;
@@ -34,6 +36,18 @@ mod startup;
 #[cfg(not(target_arch = "wasm32"))]
 pub use session_join::NativeJoinPreparation;
 pub use session_join::{JoinPreparation, SessionIo, SessionLogin};
+pub use startup::MAX_DEFERRED_PACKET_BYTES;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) mod native_network;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use native_network::{
+    NativeAuthentication, NativeCredential, NativeHostWorld, NativeHostedRelay,
+    NativeHostedRelayClosing, NativeHostedRelayProgress, NativeHostedUpstream,
+    NativeHostedUpstreamClosing, NativeHostingIdentity, NativeProvider, NativeRelayClosing,
+    NativeRelayConnecting, NativeRelayConnection, NativeRelayDriver, NativeRelayHandoff,
+    NativeRelayInbound, NativeRelayRetired, NativeRelaySender, NativeRelayWritten,
+    NativeServiceClock, native_host_packs,
+};
 mod unused_packets;
 mod web_handoff;
 use boundary::boundary_wakeup;
@@ -44,12 +58,11 @@ pub const WRITE_FAILURE_DRAIN: std::time::Duration = std::time::Duration::from_s
 pub use base_game_version::BaseGameVersion;
 pub use client_data::{
     ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION, LoginSettings,
-    PROTOCOL_VERSION, login_memory_tier,
+    PROTOCOL_VERSION, login_client_data, login_memory_tier,
 };
 pub use game_data::{GameData, StartupItems, StartupSettings};
 pub use latency_probe::network_stack_latency_reply;
 pub use outbound::PlayOutbound;
-pub use pack_handoff::{ResourcePackArchive, ResourcePackContentKey, ResourcePackHandoff};
 pub use packet_trace::PacketIdTraceSnapshot;
 use packet_trace::PacketIdTraceState;
 #[cfg(test)]
@@ -62,7 +75,7 @@ pub struct LoginSequence;
 pub struct PlaySession<R = bridge::FramedReader> {
     transport: SessionTransport<R>,
     identity: crate::session_wire::SessionIdentity,
-    pending_initialization: Option<u64>, // the runtime ID until loading completes
+    pending_initialization: Option<SpawnReady>,
     terrain_before_spawn: bool,
     decode_errors: u64,
     world_skips: u64,
@@ -100,6 +113,25 @@ impl WorldIngress {
 }
 
 impl<R: bridge::FrameRead> PlaySession<R> {
+    /// Returns only this spawned native connection's optional local application-delay control.
+    /// Core/browser sessions have no native capability and keep their original policy owner.
+    #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+    pub fn packet_delay(&self) -> Option<crate::NativePacketDelay> {
+        self.transport.packet_delay()
+    }
+
+    /// Observes the native transport's full RTT; Core/browser sessions have no native sample.
+    /// Reads return copied estimates without borrowing the transport or a lock.
+    pub fn observe_rtt(&self) -> Option<crate::RoundTripTime> {
+        self.transport.observe_rtt()
+    }
+
+    /// Drains accepted native writes and closes the peer before the host stops its runtime.
+    /// Core sessions retain their host-owned endpoint lifecycle.
+    pub async fn close(&mut self) -> Result<(), ProtocolError> {
+        self.transport.close().await
+    }
+
     /// Buffers raw core frames while the world consumer is full. Decoding resumes in wire
     /// order when the caller receives again. Reading stops at the shared byte bound or the
     /// session's terminal message; cancelling this wait retains every complete frame read.
@@ -127,13 +159,17 @@ impl<R: bridge::FrameRead> PlaySession<R> {
     fn new(
         transport: SessionTransport<R>,
         cache: Option<ClientBlobCache>,
-        runtime_id: u64,
-        terrain_before_spawn: bool,
+        initialization: SpawnReady,
     ) -> Self {
+        let terrain_before_spawn = initialization.terrain_received();
+        #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+        if let Some(delay) = transport.packet_delay() {
+            delay.bind(initialization.runtime_id());
+        }
         Self {
             transport,
             identity: Default::default(),
-            pending_initialization: Some(runtime_id),
+            pending_initialization: Some(initialization),
             terrain_before_spawn,
             decode_errors: 0,
             world_skips: 0,
@@ -152,7 +188,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         }
     }
 
-    /// The exact login identity handed off by the core for this server connection.
+    /// The canonical Login identity of this native connection or verified framed handoff.
     pub fn identity(&self) -> &crate::session_wire::SessionIdentity {
         &self.identity
     }

@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{TextPacketType, TitleType};
-use bedrock_protocol_1_26_60::packets::{SetTitle, Text};
-use bedrock_protocol_1_26_60::types::TextData;
+use bedrock_protocol_contract_1_26_60::enums::{TextPacketType, TitleType};
+use bedrock_protocol_contract_1_26_60::packets::{SetTitle, Text};
+use bedrock_protocol_contract_1_26_60::types::TextData;
 use protocol::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind, TitleAction, UiEvent,

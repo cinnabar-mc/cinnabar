@@ -42,6 +42,8 @@ async fn prepared_startup_does_not_wait_for_radius_but_keeps_spawn_and_registry_
                 timers: bridge::tasks::Timers::tokio(),
             },
             SessionLogin {
+                #[cfg(not(target_arch = "wasm32"))]
+                execution: None,
                 display_name: "Fixture",
                 client_random_id: ClientRandomId::new(-7).unwrap(),
                 cache: None,
@@ -49,7 +51,7 @@ async fn prepared_startup_does_not_wait_for_radius_but_keeps_spawn_and_registry_
                 settings: &settings,
                 tap: None,
                 relay: None,
-                target: Some(bridge::ConnectTarget::RakNet(
+                target: Some(bridge::ConnectTarget::Server(
                     "game.example.test:19132".into(),
                 )),
             },

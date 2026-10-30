@@ -1,5 +1,7 @@
-use bedrock_protocol_1_26_60::packets::{UpdateBlock, UpdateBlockSynced, UpdateSubChunkBlocks};
-use bedrock_protocol_1_26_60::types::{BlockPos, UpdateSubChunkNetworkBlockInfo};
+use bedrock_protocol_contract_1_26_60::packets::{
+    UpdateBlock, UpdateBlockSynced, UpdateSubChunkBlocks,
+};
+use bedrock_protocol_contract_1_26_60::types::{BlockPos, UpdateSubChunkNetworkBlockInfo};
 
 use super::{
     ActorBlockSyncMessage, BlockUpdateEvent, SyncedBlockUpdateEvent, WorldEvent, WorldPacketError,

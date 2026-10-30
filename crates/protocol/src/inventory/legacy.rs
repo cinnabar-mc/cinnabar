@@ -1,13 +1,13 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ContainerEnumName, InventorySourceInventorySourceFlags as Flags,
     InventorySourceType as SourceType,
 };
-use bedrock_protocol_1_26_60::packets::InventoryTransaction;
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::packets::InventoryTransaction;
+use bedrock_protocol_contract_1_26_60::types::{
     InventoryAction, InventorySource, InventoryTransactionData, InventoryTransactionPacketData,
     ItemStackLegacyRequestID, LegacySetSlot,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use super::{InventoryPacketError, MAX_CONTAINER_SLOTS, VerifiedNetworkItemStack};
@@ -163,7 +163,7 @@ mod tests {
         ];
         let packet = inventory_drop_transaction_packet(2, Some(-6), changes).unwrap();
         let mut decoded = crate::decode_batch(crate::encode(&packet).unwrap()).unwrap();
-        let bedrock_protocol_1_26_60::packets::Packet::InventoryTransaction(packet) =
+        let bedrock_protocol_contract_1_26_60::packets::Packet::InventoryTransaction(packet) =
             *decoded.remove(0).data
         else {
             panic!("expected inventory transaction");

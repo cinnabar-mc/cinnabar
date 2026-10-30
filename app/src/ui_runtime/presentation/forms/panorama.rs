@@ -139,8 +139,7 @@ mod tests {
     #[test]
     fn leaving_reuses_the_uploaded_menu_panorama_without_decoding_or_uploading_faces() {
         let mut app = App::new();
-        let mut menu = MenuRuntime::new(true, 2, "Player".into());
-        client_shell::menu::test_support::suppress_catalog(&mut menu);
+        let menu = MenuRuntime::new(true, 2, "Player".into());
         app.insert_resource(menu)
             .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                 1,

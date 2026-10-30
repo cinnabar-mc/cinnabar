@@ -64,7 +64,7 @@ fn item_attack_uses_zero_face_and_preserves_air_use_and_aim_fields() {
 
 #[test]
 fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
-    use bedrock_protocol_1_26_60::enums::InteractAction;
+    use bedrock_protocol_contract_1_26_60::enums::InteractAction;
     let position = [1.0, -2.0, 3.0];
     let packet = protocol::stop_riding_packet(u64::MAX, position).unwrap();
     let packets::Packet::Interact(packet) = *packet.data else {
@@ -84,18 +84,20 @@ fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
         );
     }
 }
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     AnimateAction, ContainerEnumName, InventorySourceType,
     ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
     ItemUseInventoryTransactionClientCooldownState, ItemUseInventoryTransactionPredictedResult,
     ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
     PlayerActionType, PlayerRespawnState,
 };
-use bedrock_protocol_1_26_60::packets::{self, ContainerClose, InventoryTransaction, PacketId};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::packets::{
+    self, ContainerClose, InventoryTransaction, PacketId,
+};
+use bedrock_protocol_contract_1_26_60::types::{
     InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 
 const CLICK_BLOCK: &[u8] = include_bytes!("../../fixtures/inventory_transaction_click_block.bin");
 const CLICK_BLOCK_EMPTY_HAND: &[u8] =

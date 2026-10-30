@@ -1,7 +1,7 @@
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_60::enums::PlayerActionType;
-use bedrock_protocol_1_26_60::packets::PlayerAction;
-use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_contract_1_26_60::enums::PlayerActionType;
+use bedrock_protocol_contract_1_26_60::packets::PlayerAction;
+use bedrock_protocol_contract_1_26_60::types::ActorRuntimeID;
 use bytes::Buf;
 
 use super::*;

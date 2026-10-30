@@ -255,10 +255,13 @@ pub(super) fn drive_mod(
     let modules = module_observer.capture(
         &gameplay,
         &ui,
-        world_observation.as_ref(),
+        module_observations::CaptureRequest {
+            world: world_observation.as_ref(),
+            actor_reads,
+        },
         &player_runtime,
         Some(&interaction),
-        actor_reads,
+        network.as_deref(),
     );
     let chat = if world_observation.is_some() {
         presentation_facts::chat_snapshot(&ui)

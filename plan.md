@@ -71,11 +71,86 @@ closes no gate and provides no new runtime or performance evidence.
 
 ## Phase 1 — Core service
 
-The Go core and local stream boundary are implemented. Keep authentication,
-encryption and upstream transports with the core, and client behavior with Rust.
-Changes still need current protocol conformance, bounded framing and lifecycle coverage.
-The pinned target comes from [the target manifest](assets/bedrock-target.json).
-The generated codec and Go integrations target protocol 2225. New matchmaking,
+The client uses native Rust account and network services. The separate Go client,
+account/network process, local IPC endpoint and legacy backend selection are removed.
+Integrated owner checks and a fresh macOS default-native application run qualify the
+retired-client path within that platform scope.
+Reusable service, Bedrock and NetherNet libraries own authentication, framing and protocol transitions. Transport cores are
+caller-driven state machines with explicit runtime adapters. Native menus need no
+separate networking process or control endpoint. Dragonfly and official BDS local worlds retain
+their existing server-process owners.
+
+The current 1.26.60 target uses protocol 2225. Addressed servers use HTTP-signaled
+NetherNet; LAN and service messaging retain their separate routes. Rust RakNet and
+its dependency edges are removed. Current Cinnabar owning gates and a fresh run
+through every current featured-catalogue entry remain pending. Live friend,
+advertised-hosting and active-Realm checks are deferred to a later PR.
+
+Earlier saved-account restore, complete Profile service loading and a native default desktop
+server join have passed actual application acceptance, including rendered terrain,
+entities, HUD and held item, ordinary leave and normal shutdown. Featured catalogue
+joins and several server implementations also have scoped native acceptance. These
+results retain their original versions and do not qualify the current transport graph,
+every account operation, server or platform. Native Realm catalogue
+data also reached the ordinary Realms screen. Realm joining, invitations, account switching,
+forced refresh, friends-visible presence and the remaining service and network matrix
+still need end-to-end acceptance.
+
+Provider-authenticated LAN joins require the selected account's original proof and an
+online-capable advertisement; they do not retry unsigned. Advertisement-driven
+authentication preference and fallback remain unverified. Selected own-world LAN
+joins retain their explicit offline policy. Signed-out direct LAN retains its
+original self-signed Login proof and offline advertisement selection. Incoming NetherNet associations select
+the existing encoded-batch wire allowance before peer admission. Real oversized-input
+and startup regressions pass; this does not change presentation byte credits or
+qualify every SCTP record, fragmentation and network policy.
+
+The opt-in native browser operator shares one account registry and play owner across
+HTTPS/WebSocket and paired WebTransport. Certificate replacement, joint shutdown,
+HTTP/3 control progress, blocked pack-stream cancellation and owned BDS joins have
+owning coverage. Actual browser WebSocket and QUIC WebTransport runs reached a world
+and rendered terrain, entities and HUD with control progress and original cleanup.
+Deployment, live browser accounts, supported-browser coverage, transfers/reconnect,
+input/UI, audio parity and memory/frame budgets remain open.
+
+Gateway and hosted pack acquisition use guarded public HTTP/HTTPS sources. CDN-only
+acquisition, downstream delivery and retirement have owning coverage. Hosted preloads
+retain absent upstream DataInfo and derive downstream hash/type from the same verified
+archive, preserving original in-band metadata and the existing premium policy. Opaque
+behavior/skin archives use identity validation for relay; strict rendering admission
+is unchanged and applying those archives remains unsupported.
+The renderer admits distinct versions sharing a pack UUID. Acquisition of multiple
+versions in one session remains incomplete because download state is keyed by UUID.
+
+Account replacement and sign-out wait for original session, publisher and account
+worker retirement before credential mutation. Unconfirmed original hosted membership
+continues to block replacement after its worker exits; process shutdown waits for
+the finite workers separately. Owning cancellation, contention,
+process handoff and stale-account controls pass. Ordinary native friend UI uses only
+current opaque account selections. Controlled Messaging and Legacy fixtures pass signed
+game initialization, a live marker, ordinary disconnect and exact membership/owner
+retirement, plus cancellation after membership. Controlled RTA reconnect and cancellation
+also pass under the original membership and absolute cutoff. Live retail friend joining remains
+unqualified. Advertised hosting, host messaging/renewal, WAN/device
+compatibility and retained memory/frame budgets remain open. Controlled signed hosting
+passes on actual Dragonfly and BDS backends, including BDS HTTP and selected LAN routes,
+independent visitor retirement and rejection isolation. A separate packless fixture preserves
+initialization, live traffic and normal EOF. The BDS fixture is manually imported and verified;
+these controls do not qualify installation or live advertised hosting.
+
+Android uses native networking and the platform TLS verifier; target checks and APK
+assembly are verified. Physical-device sign-in, TLS, terrain and lifecycle acceptance
+remain open. Go server integrations retain their existing process lifecycles.
+The current macOS runtime and verified Android package contain no Go client payload.
+No result here closes full source-based parity or the complete networking goal. Keep dependency
+identities shared across reusable libraries and the client. The pinned target comes
+from [the target manifest](assets/bedrock-target.json).
+Native recovery from invalid token contents in a safely owned saved cache enters
+interactive sign-in without replacing saved state. Controlled tests cover canceled
+and failed recovery, selected-account and generation fences, and terminal unsafe-file
+and filesystem failures. Diagnostics contain no credential contents. Live Windows
+recovery acceptance remains open.
+The generated codec and Go server integrations target protocol 2225. New matchmaking,
 stonecutter selection, cursor dragging, block passengers and registered audio packets
 are decoded, counted and skipped until their client features are implemented.
 The target catalog includes fire and wire connection states with empty collision;
@@ -547,6 +622,7 @@ matched overlapping-player visual qualification remains open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
+Full rig history and rendered qualification remain part of the rig completion gate below.
 Full rig history and rendered qualification remain part of the rig item below.
 Body and custom-skin composition use shared parent-first programs and caller-owned
 output, including attachable root modes and legacy attacks. Alternate render
@@ -1083,32 +1159,52 @@ acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Session transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
 retirement. Regression coverage fences immediate reconnect attempts; displayed-frame and
 reference-hardware leave latency remain unqualified.
-Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
+Native transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
-or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
-identity, digests and framing remain validated. Experience selections preserve service errors
-and wait for the account core result. Complete featured-server acceptance remains open:
-large-pack preparation can be slow or fail, and sparse startup terrain can leave loading open.
-Server language loading retains every readable English and selected-locale layer without fixed
-table, entry or process quotas, and folds inserted keys to ASCII lowercase. Unreadable sources
-and allocation failures are diagnosed without discarding other definitions. Complete pack-content
-acceptance remains open. Local imports, decompression, UI/text expansion and other admission limits
 or compressed-byte quotas. Safe member paths have no added byte cutoff; server manifests
-and default member reads retain complete declared content. Manifest subpack lists have no separate
-row-count cutoff; server and local loading share the existing field validation and device-tier
+and default member reads retain complete declared content. Declared sizes, identity,
+digests and framing remain validated. Manifest subpack lists have no separate row-count
+cutoff; server and local loading share the existing field validation and device-tier
 selection. Native runtime and device acceptance for larger subpack lists remain open.
+
+Server language loading retains every readable English and selected-locale layer without
+fixed table, entry or process quotas, and folds inserted keys to ASCII lowercase.
+Unreadable sources and allocation failures are diagnosed without discarding other
+definitions. Complete pack-content acceptance remains open.
+
+Saved server lists retain every imported entry. Experience selections preserve service
+errors and wait for the native account operation. Complete featured-server, menu and gameplay
+qualification remains open: large-pack preparation can be slow or fail, and sparse
+startup terrain can leave loading open. Explicit subscriber limits and large-content
+live and performance acceptance remain open. Local imports, decompression, UI/text
+expansion, language memory and other admission limits still need version-matched
+verification; the limit inventory closes no whole-client parity gate.
+
+Native friend serving has separate Dragonfly and BDS backend owners. Controlled signed
+hosting passes actual Login, verified pack delivery, client initialization, terrain, live
+responses and normal EOF with original transport, process-lease and membership retirement.
+BDS passes HTTP and selected LAN routes using a manually imported, verified installation;
+installer and update workflows remain unqualified. Two visitors retire independently, and
+rejecting a second Login preserves the first connection. Live advertised hosting, invitations,
+retail friend joining and WAN/device behavior remain open.
+Native desktop, public-gateway and hosted-upstream negotiation accept an actual StartGame
+without an advertised pack phase, preserving the original spawn prerequisites. Hosted
+absence uses a consumed verified Login and flushed LoginSuccess, without invented pack
+metadata or acknowledgments. Controlled two-leg startup, initialization, live traffic and
+normal EOF pass; live backend packless acceptance remains open.
 Explicit subscriber limits and large-content live and performance acceptance remain open.
 Saved server lists retain every
 imported entry. Declared sizes, identity, digests and framing remain validated. Experience
-selections preserve service errors and wait for the account core result. Complete
+selections preserve service errors and wait for the native account operation. Complete
 featured-server, menu and gameplay qualification remains open, including large-pack
 preparation and broader sparse-startup coverage.
 Server handoff keeps the advertised UUID and version for stack selection when a valid
@@ -1136,6 +1232,10 @@ import, persistence and hosting/session teardown. The accepted local-world scope
 not establish full vanilla world-generation parity. Dragonfly supports only flat terrain;
 natural terrain requires BDS.
 Create and edit forms persist BDS advanced, multiplayer and cheat options through a shared
+catalog and generated server properties and level data. Pack and experiment configuration,
+hardcore, flat presets, Education Edition, operator status for a signed-out or offline-fallback host and live
+acceptance of every option on supported platforms remain incomplete.
+Offline play of BDS worlds is a confirmed gap: without a non-loopback network interface BDS
 catalog and generated server properties and level data. Settings' in-game Game section saves
 changes and sends supported live changes through the BDS console. Metadata save failures restore
 confirmed values and show a retry message in Game; failed console writes show a next-start notice.
@@ -1227,6 +1327,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 ## Experimental hosts and extensions
 
+- Android selects the native Rust transport, initializes the platform certificate verifier,
+  packages its checked JVM dependencies/resources, and uses Android browser handoff plus
+  the existing Go local-server helper. Physical TLS/sign-in/terrain/local-world and Activity
+  lifecycle acceptance remains incomplete.
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
@@ -1308,9 +1412,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
-- The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads
-  carriers injected into the bundle. On an iPhone 18 Pro Max (iOS 27) it launches full screen,
-  renders with Metal, signs in and joins servers, including a Java shader pack; servers that
+- The iOS IPA (`docs/ios.md`) uses native Rust networking and loads carriers injected into
+  the bundle. Earlier iPhone 18 Pro Max (iOS 27) acceptance covered full-screen launch,
+  Metal rendering, sign-in and server joins, including a Java shader pack; it does not
+  qualify the current 1.26.60 transport. Servers that
   send large packs need the increased-memory-limit capability. The 120 Hz display link and
   Game Mode have no device evidence yet. Safe-area insets are not applied, so the Dynamic Island
   can cover HUD edges, and there is no render-scale option for the native 3× drawable. Touch,
@@ -1594,6 +1699,20 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Diagnostics or bounded fixtures do not establish safe general gameplay use.
   Its MSAA nametag composite blends against resolved scene colour, so labels partly
   occluded by world silhouettes get a dark edge fringe; per-sample composition is incomplete.
+- Java shader packs (Iris/OptiFine format) run behind the off-by-default `shaderpacks`
+  feature. Shader-only world sampling, GPU pipeline creation and pack-folder discovery
+  are deferred until requested. Retired loads cancel between translation programs and GPU
+  batches; rapid selections share one load worker. The Shaders library lists Off and every
+  pack in one list ending in a drop zone; the selected pack's card shows its load state and
+  holds settings, reload and confirmed removal of imported copies and their saved settings.
+  Incomplete: matched shader-feature-off versus
+  feature-on/no-pack startup, frame-time, memory and visual acceptance across supported
+  backends, including shared artwork texture views. These changes do not enable the feature
+  by default. `shaderpack` loads packs, parses `shaders.properties`, options, Iris option
+  menus, profiles and option files, evaluates custom uniforms and translates programs to
+  validated naga modules, with calls ordered after forward declarations and generated
+- Java shader packs (Iris/OptiFine format) use the `shaderpacks` Cargo feature, enabled in
+  nightly packages while tagged beta packages leave it disabled. Shaders start Off.
 - Experimental Java shader packs (Iris/OptiFine format) are built into every client channel.
   Shaders start Off. Terrain expansion currently needs nine compute storage buffers:
   six packed-chunk sources plus three job, vertex-output and atlas-remap buffers.

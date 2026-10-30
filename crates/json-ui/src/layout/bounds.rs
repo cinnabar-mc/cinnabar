@@ -4,6 +4,43 @@ use super::{LayoutEnv, Rect, ResolvedControl, measure};
 use crate::transform::Affine;
 use serde_json::Value;
 
+impl Rect {
+    pub fn new(x: f64, y: f64, w: f64, h: f64) -> Self {
+        Self { x, y, w, h }
+    }
+
+    /// The overlap of two rects, clamped so width/height never go negative.
+    pub fn intersect(self, other: Rect) -> Rect {
+        let x0 = self.x.max(other.x);
+        let y0 = self.y.max(other.y);
+        let x1 = (self.x + self.w).min(other.x + other.w);
+        let y1 = (self.y + self.h).min(other.y + other.h);
+        Rect::new(x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+    }
+
+    /// The smallest rectangle containing both rectangles.
+    pub(crate) fn union(self, other: Rect) -> Rect {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        Rect::new(
+            x,
+            y,
+            (self.x + self.w).max(other.x + other.w) - x,
+            (self.y + self.h).max(other.y + other.h) - y,
+        )
+    }
+
+    /// Extends every edge by a nonnegative coverage allowance.
+    pub(crate) fn expanded(self, padding: f64) -> Rect {
+        Rect::new(
+            self.x - padding,
+            self.y - padding,
+            self.w + 2.0 * padding,
+            self.h + 2.0 * padding,
+        )
+    }
+}
+
 /// Child paint in its parent's layout coordinates, retaining authored input and child bounds.
 pub(super) fn subtree(
     control: &ResolvedControl,

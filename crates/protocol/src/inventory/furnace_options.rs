@@ -1,6 +1,6 @@
 //! Player preferences synchronized separately for each furnace screen.
 
-use bedrock_protocol_1_26_60::{enums, packets, types};
+use bedrock_protocol_contract_1_26_60::{enums, packets, types};
 
 use super::{InventoryEvent, WindowKind};
 use crate::Packet;

@@ -8,13 +8,13 @@ use super::*;
 const CONNECT_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/connect.bin");
 const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/core_stream.bin");
 
-/// The Go core decodes exactly these Connect bytes.
+/// The session bridge decodes exactly these Connect bytes.
 #[test]
-fn connect_encoding_matches_the_core_fixture() {
+fn connect_encoding_matches_the_session_fixture() {
     let request = ConnectRequest {
         join_profile_id: None,
         protocol: 2225,
-        target: Some(ConnectTarget::RakNet("play.example.net:19132".into())),
+        target: Some(ConnectTarget::Server("play.example.net:19132".into())),
         client_cache: true,
         client_data: serde_json::json!({"DeviceOS": 7, "GameVersion": "1.26.60"}),
     };

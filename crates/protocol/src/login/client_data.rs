@@ -1,8 +1,21 @@
 //! The Bedrock login client-data claims the core presents upstream for this client. The core supplies
 //! the host device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`).
 
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod native_profile;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub use native_profile::{NativeDeviceProfile, ValidatedRelayData};
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+mod claims;
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+pub(crate) use claims::NativeClaims;
+
+/// Canonical identity field owned by the actual profile/provider overlay, not a downstream alias.
+#[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
+const DISPLAY_NAME: &str = "ThirdPartyName";
+
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bedrock_protocol_1_26_60::enums::InputMode;
+use bedrock_protocol_contract_1_26_60::enums::InputMode;
 use serde_json::{Value, json};
 use std::num::NonZeroI64;
 
@@ -12,7 +25,7 @@ use crate::PlayerInputMode;
 pub const GAME_VERSION: &str = bridge::contract::GAME_VERSION;
 
 /// The Bedrock network protocol this client speaks.
-pub const PROTOCOL_VERSION: i32 = bedrock_protocol_1_26_60::PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: i32 = bedrock_protocol_contract_1_26_60::PROTOCOL_VERSION;
 
 /// The highest Bedrock memory tier, used by desktop client-data claims.
 const SUPER_HIGH_MEMORY_TIER: u32 = 4;
@@ -90,6 +103,8 @@ pub struct LoginSettings {
     pub view_distance_chunks: u8,
     /// Trusted local archive directory, never sent in the upstream login claims.
     pub resource_pack_cache_dir: Option<std::path::PathBuf>,
+    /// Opts native archive acquisition into bounded parallel URL reads; never sent in login claims.
+    pub parallel_resource_pack_urls: bool,
 }
 
 impl Default for LoginSettings {
@@ -104,6 +119,7 @@ impl Default for LoginSettings {
             filter_profanity: false,
             view_distance_chunks: super::startup::DEFAULT_CHUNK_RADIUS,
             resource_pack_cache_dir: None,
+            parallel_resource_pack_urls: false,
         }
     }
 }
@@ -120,7 +136,7 @@ pub fn login_memory_tier(physical_bytes: u64) -> u32 {
 
 /// Builds claims with the caller's stored ID and player settings; `None` uploads the
 /// solid-white 64x64 placeholder skin.
-pub(crate) fn login_client_data(
+pub fn login_client_data(
     display_name: &str,
     client_random_id: ClientRandomId,
     skin: Option<&ClientSkin>,
@@ -294,7 +310,9 @@ mod tests {
                 .unwrap()
                 .pop()
                 .unwrap();
-            let bedrock_protocol_1_26_60::packets::Packet::PlayerSkin(packet) = *packet.data else {
+            let bedrock_protocol_contract_1_26_60::packets::Packet::PlayerSkin(packet) =
+                *packet.data
+            else {
                 panic!("skin packet")
             };
             assert_eq!(
@@ -308,19 +326,19 @@ mod tests {
         }
     }
 
-    /// A re-vendored codec fails here until the target manifest records its pin.
+    /// A generated codec update must match the target manifest contract and fingerprint.
     #[test]
-    fn vendored_codec_matches_the_target_pin() {
+    fn generated_codec_matches_the_target_pin() {
         let target: Value =
             serde_json::from_str(include_str!("../../../../assets/bedrock-target.json")).unwrap();
         assert_eq!(target["wire_protocol"], i64::from(PROTOCOL_VERSION));
         assert_eq!(
             target["codec_contract"],
-            u64::from(bedrock_protocol_1_26_60::CODEC_CONTRACT)
+            u64::from(bedrock_protocol_contract_1_26_60::CODEC_CONTRACT)
         );
         assert_eq!(
             target["codec_manifest_sha256"],
-            bedrock_protocol_1_26_60::MANIFEST_SHA256
+            bedrock_protocol_contract_1_26_60::MANIFEST_SHA256
         );
     }
 

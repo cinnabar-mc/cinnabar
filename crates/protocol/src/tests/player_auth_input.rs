@@ -1,5 +1,7 @@
-use bedrock_protocol_1_26_60::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
-use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_contract_1_26_60::enums::{
+    ClientPlayMode, InputData, InputMode, NewInteractionModel,
+};
+use bedrock_protocol_contract_1_26_60::packets::{self, PacketId};
 use protocol::{
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch, encode,
     player_auth_input,

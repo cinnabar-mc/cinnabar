@@ -6,16 +6,16 @@
 //! generated packet shapes decode to the values those bytes carry and
 //! re-encode to the identical bytes.
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     InputData, InputMode, ItemUseInventoryTransactionTriggerType, LevelGameType,
     NewInteractionModel, PacketCompressionAlgorithm, PlayerPermission,
     PlayerPositionModeComponentPositionMode,
 };
-use bedrock_protocol_1_26_60::packets::{self, PacketId};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, BlockPos, ChunkPos, DimensionType, PlayerInputTick,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::{BufMut, Bytes, BytesMut};
 use protocol::{
     GAME_VERSION, PROTOCOL_VERSION, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
@@ -115,7 +115,7 @@ fn start_game_fixture_decodes_and_round_trips_exactly() {
             assert_eq!(settings.spawn_settings.dimension.0, 0);
             assert_eq!(
                 settings.default_spawn_block_position,
-                bedrock_protocol_1_26_60::types::BlockPosition {
+                bedrock_protocol_contract_1_26_60::types::BlockPosition {
                     x: wire::ZigZag32(8),
                     y: wire::ZigZag32(64),
                     z: wire::ZigZag32(-8)
@@ -480,8 +480,8 @@ fn fixture_block_actions() -> protocol::BlockActions {
 
 #[test]
 fn player_auth_input_block_actions_fixture_decodes_and_round_trips_exactly() {
-    use bedrock_protocol_1_26_60::enums::PlayerActionType;
-    use bedrock_protocol_1_26_60::types::PlayerBlockActionData;
+    use bedrock_protocol_contract_1_26_60::enums::PlayerActionType;
+    use bedrock_protocol_contract_1_26_60::types::PlayerBlockActionData;
 
     let fixture = decode_one(PLAYER_AUTH_INPUT_BLOCK_ACTIONS, PacketId::PlayerAuthInput);
     let packets::Packet::PlayerAuthInput(input) = &*fixture.data else {
@@ -542,7 +542,7 @@ fn player_auth_input_builder_embeds_block_actions_byte_exactly() {
 
 #[test]
 fn player_auth_input_break_block_fixture_decodes_and_round_trips_exactly() {
-    use bedrock_protocol_1_26_60::enums::{
+    use bedrock_protocol_contract_1_26_60::enums::{
         ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
         ItemUseInventoryTransactionPredictedResult, ItemUseInventoryTransactionTriggerType,
     };

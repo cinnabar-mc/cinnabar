@@ -22,9 +22,9 @@ pub use npc::{
 };
 pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 
-use bedrock_protocol_1_26_60::enums::ModalFormCancelReason;
-use bedrock_protocol_1_26_60::packets::{ModalFormRequest, ModalFormResponse};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::ModalFormCancelReason;
+use bedrock_protocol_contract_1_26_60::packets::{ModalFormRequest, ModalFormResponse};
+use bedrock_protocol_contract_1_26_60::wire;
 use serde::{
     Deserializer,
     de::{DeserializeSeed, IgnoredAny},

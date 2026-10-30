@@ -14,9 +14,9 @@ impl InstallLayout {
     /// included: iOS cannot run the first-run compiler, so whoever builds the app adds the
     /// carriers they compiled, and the layout is not an installed one. Settings and data live in
     /// the container's `Documents`, which the Files app exposes, and per-run endpoints in its
-    /// `tmp`. The core is linked into `executable` and runs in-process.
+    /// `tmp`. Native account services need no helper executable; iOS has no bundled local server.
     #[must_use]
-    pub fn ios(resource_root: PathBuf, container: &Path, executable: PathBuf) -> Self {
+    pub fn ios(resource_root: PathBuf, container: &Path, _executable: PathBuf) -> Self {
         let documents = container.join("Documents");
         let runtime_root = container.join("tmp/run");
         Self {
@@ -25,7 +25,7 @@ impl InstallLayout {
                 .join("assets")
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
-            core_executable: executable,
+            local_server_executable: PathBuf::new(),
             user_config_root: documents.join("config"),
             user_data_root: documents.join("data"),
             transient_runtime_root: runtime_root.clone(),
@@ -73,7 +73,7 @@ mod tests {
             resources.join(super::super::vanilla_pack_relative())
         );
         assert!(layout.physics_registry.starts_with(&resources));
-        assert_eq!(layout.core_executable, executable);
+        assert!(layout.local_server_executable.as_os_str().is_empty());
         for written in [
             layout.user_config_root.clone(),
             layout.user_data_root.clone(),

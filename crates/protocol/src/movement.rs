@@ -1,9 +1,11 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use bedrock_protocol_1_26_60::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
-use bedrock_protocol_1_26_60::packets::PlayerAuthInput;
-use bedrock_protocol_1_26_60::types::{ActorUniqueID, PlayerInputTick};
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::{
+    ClientPlayMode, InputData, InputMode, NewInteractionModel,
+};
+use bedrock_protocol_contract_1_26_60::packets::PlayerAuthInput;
+use bedrock_protocol_contract_1_26_60::types::{ActorUniqueID, PlayerInputTick};
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 mod interactions;

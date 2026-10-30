@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     AnimateAction, ContainerEnumName, HandSlot, InteractAction, InventorySourceType,
     ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
     ItemUseInventoryTransactionClientCooldownState,
@@ -6,15 +6,15 @@ use bedrock_protocol_1_26_60::enums::{
     ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
     PlayerActionType,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     self, Animate, Interact, InventoryTransaction, PlayerAction,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, BlockPos, InventoryAction, InventorySource, InventoryTransactionData,
     InventoryTransactionPacketData, ItemStackLegacyRequestID, ItemUseInventoryTransaction,
     LegacySetSlot,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use thiserror::Error;
 
 use crate::{InventoryPacketError, VerifiedNetworkItemStack};
@@ -472,7 +472,7 @@ pub fn is_aim_assist_rotation_action(packet: &crate::Packet) -> bool {
     };
     match &packet.transaction {
         InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
-            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
+            hand: bedrock_protocol_contract_1_26_60::enums::HandSlot::Mainhand,
             action_type,
             ..
         } => *action_type == ItemReleaseInventoryTransactionActionType::Release,
@@ -499,7 +499,7 @@ pub fn release_item_packet(request: HeldItemRequest) -> Result<crate::Packet, Bl
         legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
-            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
+            hand: bedrock_protocol_contract_1_26_60::enums::HandSlot::Mainhand,
             actions: InventoryTransactionData {
                 actions: Vec::new(),
             },
@@ -543,7 +543,7 @@ pub fn use_actor_packet(request: ActorUseRequest) -> Result<crate::Packet, Actor
         legacy_request_id: ItemStackLegacyRequestID(0),
         legacy_set_item_slots: None,
         transaction: InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
-            hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
+            hand: bedrock_protocol_contract_1_26_60::enums::HandSlot::Mainhand,
             actions: InventoryTransactionData {
                 actions: Vec::new(),
             },
@@ -707,7 +707,7 @@ pub fn entity_hover_packet(target: Option<(u64, [f32; 3])>) -> crate::Packet {
 #[must_use]
 pub fn swing_arm_packet(local_runtime_id: u64, source: SwingSource) -> crate::Packet {
     crate::Packet::new(Animate {
-        hand: bedrock_protocol_1_26_60::enums::HandSlot::Mainhand,
+        hand: bedrock_protocol_contract_1_26_60::enums::HandSlot::Mainhand,
         action: AnimateAction::Swing,
         target_actor_runtime_id: ActorRuntimeID(local_runtime_id),
         data: wire::F32LE(0.0),

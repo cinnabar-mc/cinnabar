@@ -10,7 +10,7 @@
   },
   "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
   "codec_contract": 2,
-  "codec_crate": "bedrock-protocol-1-26-60",
+  "codec_crate": "bedrock-protocol-contract-1-26-60",
   "codec_manifest_sha256": "1d8da5c1bb9965f89aeef642e212aef46ce03f9ef41941537a298f91364d98da",
   "game_version": "1.26.60",
   "hashes": {
@@ -21,7 +21,7 @@
     "light_registry": "6c4019bfe51ccb06eba5e9321c6bf6d111b7e7b89276713c1e2236ea79dfafb0",
     "physics_registry": "01540f3bdedbc68fd4243ee8a7a5f33ac431f5c26d2bdf8052cda2bb93af1654"
   },
-  "protocolgen_commit": "2265acd53847733ab10127646e76d575999c18d5",
+  "protocolgen_commit": "9eed056998235e4c01e0f3befabed651021dea77",
   "schema": "cinnabar.bedrock-target.v1",
   "server_version": "1.26.60.6",
   "wire_protocol": 2225

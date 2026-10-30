@@ -1,6 +1,6 @@
 //! Joinable destinations used by desktop presence.
 /// Where a join to `address` plays and the address a Discord invite joins. Servers (by endpoint
-/// with a port), experiences and friends' worlds are joinable; a friend's world still needs the
+/// as entered), experiences and friends' worlds are joinable; a friend's world still needs the
 /// joiner to see it through Xbox. Realms carry no invite, a local world's comes from its host
 /// (see `crate::menu::MenuRuntime::hosted_world_address`), and no identifier is ever shown on the card.
 /// Known featured and public Bedrock servers to friendly names and icon URLs.
@@ -98,8 +98,8 @@ pub fn presence_target(address: &str, local_world: bool) -> rich_presence::Targe
         };
     }
     let address = address.trim();
-    let (destination, join) = match launcher_host::launcher_core::target_for(address) {
-        ConnectTarget::RakNet(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
+    let (destination, join) = match launcher_host::destination::target_for(address) {
+        ConnectTarget::Server(endpoint) => (Destination::Server(endpoint.clone()), Some(endpoint)),
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
         ConnectTarget::Realm(_) => (Destination::Realm, None),
@@ -149,16 +149,14 @@ mod tests {
         };
         assert_eq!(
             presence_target(" play.example.net ", false),
-            server(&format!(
-                "play.example.net:{}",
-                launcher::menu::DEFAULT_PORT
-            ))
+            server("play.example.net")
         );
         assert_eq!(presence_target("[::1]:19134", false), server("[::1]:19134"));
-        assert_eq!(
-            presence_target("::1", false),
-            server(&format!("[::1]:{}", launcher::menu::DEFAULT_PORT))
-        );
+        assert_eq!(presence_target("::1", false), server("::1"));
+        for address in ["https://example.test", "http://[::1]:19134"] {
+            assert_eq!(presence_target(address, false), server(address));
+            assert!(invite_joinable(address));
+        }
         assert_eq!(
             presence_target(" realm_id/123", false),
             private(Destination::Realm, None)

@@ -36,9 +36,10 @@ No Mojang assets are bundled. The release notes explain how to open unsigned bui
 make play
 ```
 
-This fetches the vanilla assets, builds the Go core and opens the launcher. Sign in with the
-Microsoft device code; the token stays in `.local/auth/`, so never share or commit it. Use
-`make play PROFILE=release` for an optimised build, and `make help` for every target.
+This fetches and compiles the vanilla assets and opens the Rust client launcher. Sign-in
+uses a Microsoft device code. Credentials remain in the private per-user account store; never
+share or commit that store. `make play PROFILE=release` builds the fully optimised binary,
+and `make help` lists every target.
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
@@ -61,27 +62,67 @@ Vanilla behaviour is the default. Everything below is extra:
 
 ## How it works
 
-```text
-cinnabar (Rust, Bevy/wgpu)  ── local socket ──  bedrock-core (Go)
-                                                        ├─ RakNet ──── servers
-                                                        └─ NetherNet ─ Realms and friend worlds
+The Rust client owns rendering, input, gameplay, accounts and network sessions. Direct servers
+use HTTP-signaled NetherNet: HTTP exchanges connection details, then WebRTC carries game traffic
+over ICE, DTLS and SCTP. The target game version and registry inputs are pinned in
+[`assets/bedrock-target.json`](assets/bedrock-target.json).
+
+Launch the menu, sign in or select a saved account, then choose a server:
+
+```sh
+cargo run -p cinnabar
 ```
 
-The Rust client owns everything you see and play. The Go core owns Xbox sign-in, encryption and
-the network transports. The target game version is pinned in `assets/bedrock-target.json`.
+Or start with a direct destination:
+
+```sh
+cargo run -p cinnabar -- --address HOST:PORT
+```
+
+A bare address uses addressed NetherNet discovery. Explicit `http://` and `https://` signaling
+URLs keep their selected scheme and port. `--native-networking nethernet-http` selects HTTP
+signaling explicitly; `--native-networking nethernet-lan` selects directed IPv4 LAN discovery.
+Release packages and the mobile hosts enable `native-networking`; builds without it cannot
+open native sessions.
+
+Microsoft sign-in and saved-account validation run in Rust through the existing account menu.
+A pending sign-in commits only after identity verification, and account changes or cancellation
+retire the original request. Joins retain the selected account and connection key through Login,
+resource packs, startup, retries and transfers. Direct servers that permit offline play can use
+an offline identity when no account is selected.
+
+Featured experiences, Realms and friend worlds retain their original account-bound selections.
+The selected service response chooses the route; legacy WebSocket and Player Messaging signaling
+remain available for service-owned NetherNet worlds. A raw `friend_xuid/<xuid>` string does not
+supply a verified world selection. See [menu services](docs/menus-services.md) and
+[control interfaces](docs/control-channel.md).
+
+Local worlds run on the independent Dragonfly server or official BDS. Both join through their
+owned loopback NetherNet route and process generation. Dragonfly remains a Go integration;
+client accounts and networking use no separate Go process. See [local worlds](docs/local-worlds.md).
+Server packs can come from CDN archives, the verified local cache or game-socket chunks.
+
+The protocol cores are sans I/O. Socket and timer adapters are separate; Cinnabar drives the
+native Tokio adapter on its application I/O runtime. NetherNet also provides a Bevy adapter for
+caller-driven outbound sessions. Browser clients connect through the
+[native gateway](web/gateway/README.md), which owns its upstream NetherNet connections.
+Android includes native networking and platform verification; physical-device acceptance and
+live friend/hosting coverage remain tracked in [plan.md](plan.md).
 
 Built on these libraries:
 
 | Library | Used for |
 | --- | --- |
-| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Generates the Bedrock packet codec vendored in `crates/protocol/vendor`. |
-| [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Jolyne (client session library), whose raw packet entries and spawn sequence `crates/protocol` adapts. MIT; see `THIRD_PARTY_NOTICES.md`. |
-| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock login, encryption, resource packs and the packet relay. |
-| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport to servers, plus server-list pings. |
-| [go-nethernet](https://github.com/df-mc/go-nethernet) | WebRTC transport for Realms and friend worlds. |
-| [go-xsapi](https://github.com/df-mc/go-xsapi) | Xbox Live identity, friends, presence and signaling. |
-| [go-playfab](https://github.com/df-mc/go-playfab) | PlayFab sign-in and the menu catalog (featured servers). |
+| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Batch framing, compression, Login, resource packs and typed client/server sessions. |
+| [bedrock-services](https://github.com/cinnabar-mc/bedrock-services) | Microsoft/Xbox authentication, Minecraft credentials, Realms, profiles, presence and signaling. |
+| [nethernet](https://github.com/cinnabar-mc/nethernet) | Sans-I/O ICE, DTLS and SCTP, with HTTP, LAN and service signaling adapters. |
+| [protocolgen](https://github.com/cinnabar-mc/protocolgen) | The pinned generated Bedrock packet codec shared with bedrock-net. |
+| [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock server sessions in the independent local-world server and Go fixture tools. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | Retained compatibility dependency of the Go reference and fixture stack. |
 | [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+
+The packet-entry and startup code in `crates/protocol` was adapted from Jolyne
+([Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack)); see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Crate-by-crate layout: [docs/architecture/workspace.md](docs/architecture/workspace.md).
 Benchmarks: [docs/benchmarks.md](docs/benchmarks.md).

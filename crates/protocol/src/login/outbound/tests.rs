@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_60::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 use bytes::Bytes;
 use futures::task::noop_waker;
 use std::time::Duration;
@@ -14,7 +14,11 @@ fn session() -> (TestSession, DuplexStream, impl Future<Output = ()>) {
         bridge::tasks::prepare_connection(tokio::io::empty(), write, bridge::MAX_FRAME_LEN);
     let transport = crate::session_transport::SessionTransport::new(reader, frames, &[]);
     (
-        PlaySession::new(transport, Some(crate::ClientBlobCache::default()), 1, false),
+        PlaySession::new(
+            transport,
+            Some(crate::ClientBlobCache::default()),
+            crate::login::startup::ready_fixture(1),
+        ),
         peer,
         writer,
     )
@@ -112,7 +116,14 @@ async fn ordinary_frames_do_not_drain_and_status_only_opportunities_combine_clas
 #[tokio::test]
 async fn reset_before_acceptance_retires_only_status_and_preserves_the_ordinary_batch() {
     let (mut session, mut peer, writer) = session();
-    let frames = session.transport.frame_queue();
+    #[cfg(feature = "native-networking")]
+    let frames = match session.transport.sender() {
+        crate::session_transport::PacketSender::Framed(frames) => frames,
+        #[cfg(feature = "native-networking")]
+        crate::session_transport::PacketSender::Native(_) => unreachable!("core fixture"),
+    };
+    #[cfg(not(feature = "native-networking"))]
+    let crate::session_transport::PacketSender::Framed(frames) = session.transport.sender();
     let mut fillers = 0;
     loop {
         let mut accept = std::pin::pin!(frames.accept(Bytes::from_static(b"filler")));
@@ -642,8 +653,8 @@ fn relay_replacements_do_not_guess_between_identical_packet_producers() {
             other.pick = None;
         }
         let packets = [captured_attack(first), other];
-        let original = crate::session_transport::batch_frame(&packets).unwrap();
-        let picks = wire::Frames::new(original.slice(1..), usize::MAX)
+        let original = crate::session_transport::batch_body(&packets).unwrap();
+        let picks = wire::Frames::new(original.clone(), usize::MAX)
             .zip([Some(first), second_state])
             .map(|(entry, state)| crate::packet_tap::PickEntry {
                 frame: entry.unwrap().frame().clone(),
@@ -651,7 +662,7 @@ fn relay_replacements_do_not_guess_between_identical_packet_producers() {
             })
             .collect::<Vec<_>>();
         let output = if replaced {
-            crate::session_transport::batch_frame(&packets[1..]).unwrap()
+            crate::session_transport::batch_body(&packets[1..]).unwrap()
         } else {
             original
         };

@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_contract_1_26_60::packets::{self, PacketId};
 
 /// One complete Bedrock 1.26.60 (protocol 2225) game packet, including its subclient header.
 ///

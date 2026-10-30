@@ -242,7 +242,7 @@ pub fn personal_craft_slot_index(identity: &ContainerIdentity, slot: u16) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_60::enums::ContainerEnumName;
+    use bedrock_protocol_contract_1_26_60::enums::ContainerEnumName;
 
     use super::*;
 

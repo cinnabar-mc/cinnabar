@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
 use super::SkinRaster;
-use bedrock_protocol_1_26_60::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
+use bedrock_protocol_contract_1_26_60::enums::{
+    PersonaAnimatedTextureType, PersonaAnimationExpression,
+};
 #[cfg(test)]
-use bedrock_protocol_1_26_60::types::AnimatedImageData;
+use bedrock_protocol_contract_1_26_60::types::AnimatedImageData;
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
@@ -62,7 +64,7 @@ pub(super) fn normalize<'a>(
             kind,
             width,
             height,
-            rgba8: raster.bytes.as_ref().into(),
+            rgba8: Arc::from(raster.bytes),
             frames: frames as u32,
             blinking: image.expression == PersonaAnimationExpression::Blinking.to_raw(),
         });
@@ -73,8 +75,8 @@ pub(super) fn normalize<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::types::SkinImage;
-    use bedrock_protocol_1_26_60::wire;
+    use bedrock_protocol_contract_1_26_60::types::SkinImage;
+    use bedrock_protocol_contract_1_26_60::wire;
 
     /// Adapts player-list fixture atlases to the shared borrowed animation input.
     fn normalize(images: &[AnimatedImageData], retained: &mut usize) -> Arc<[SkinAnimation]> {

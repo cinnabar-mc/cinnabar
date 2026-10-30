@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::{
+use bedrock_protocol_contract_1_26_60::{
     types::{SerializedSkin, SerializedSkinRef},
     wire,
 };
@@ -195,7 +195,7 @@ pub(super) fn normalize_player_skin(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::{types::SkinImage, wire};
+    use bedrock_protocol_contract_1_26_60::{types::SkinImage, wire};
 
     #[test]
     fn null_geometry_keeps_the_captured_slim_resource_patch() {

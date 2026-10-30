@@ -1,17 +1,17 @@
 //! Normalization coverage for the HUD-facing actor-state packets: mob effects,
 //! armor equipment, runtime game-mode changes, and rider links.
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ActorLinkType as VendorActorLinkType, LevelGameType, MobEffectEvent as MobEffectPacketEventId,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     MobArmorEquipment, MobEffect, SetActorLink, SetDefaultGameType, SetPlayerGameType, StartGame,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, EntityLink, NetworkItemStackDescriptorSerializedData,
     PlayerInputTick,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{
     ActorEffectAction, ActorLinkType, PlayerGameMode, UiEvent, WorldEvent, into_world_event,
 };
@@ -199,7 +199,7 @@ fn set_player_game_type_fallback_and_unknown_stay_typed_without_a_guess() {
 #[test]
 fn set_default_game_type_dispatches_as_a_default_mode_event() {
     let packet = protocol::Packet::new(SetDefaultGameType {
-        default_game_type: bedrock_protocol_1_26_60::enums::GameType::Adventure,
+        default_game_type: bedrock_protocol_contract_1_26_60::enums::GameType::Adventure,
     });
     let Some(WorldEvent::Ui(UiEvent::DefaultGameMode(event))) =
         into_world_event(packet, 0).expect("normalize default game type")

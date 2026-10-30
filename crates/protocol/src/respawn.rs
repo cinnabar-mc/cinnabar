@@ -1,9 +1,9 @@
 //! Native death-screen request and ready-to-spawn completion.
 
-use bedrock_protocol_1_26_60::enums::{PlayerActionType, PlayerRespawnState};
-use bedrock_protocol_1_26_60::packets::{PlayerAction, Respawn};
-use bedrock_protocol_1_26_60::types::ActorRuntimeID;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::{PlayerActionType, PlayerRespawnState};
+use bedrock_protocol_contract_1_26_60::packets::{PlayerAction, Respawn};
+use bedrock_protocol_contract_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_contract_1_26_60::wire;
 
 /// Requests respawn readiness with a zero position and the local player's runtime ID.
 #[must_use]
@@ -29,8 +29,8 @@ pub fn respawn_ready_packet(local_runtime_id: u64) -> crate::Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::packets;
-    use bedrock_protocol_1_26_60::types::BlockPos;
+    use bedrock_protocol_contract_1_26_60::packets;
+    use bedrock_protocol_contract_1_26_60::types::BlockPos;
 
     #[test]
     fn request_and_completion_use_the_local_actor_with_distinct_native_states() {

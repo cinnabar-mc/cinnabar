@@ -1,14 +1,14 @@
 //! CraftingData fixtures admitted through the real recipe decoder, and crafting request observations.
 
-use bedrock_protocol_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
-use bedrock_protocol_1_26_60::packets::{self, CraftingData};
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext as UnlockingContext;
+use bedrock_protocol_contract_1_26_60::packets::{self, CraftingData};
+use bedrock_protocol_contract_1_26_60::types::{
     ContainerMixDataEntry, ItemDescriptor, NetworkItemInstanceDescriptorSerializedData,
     PotionMixDataEntry, RecipeIngredientSerializedData, RecipeNetID,
     RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
     StackRequestAction as Action, StackRequestSlotInfo,
 };
-use bedrock_protocol_1_26_60::wire::{self, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Encode};
 use bytes::Bytes;
 
 use crate::{Packet, RecipeUpdate, decode_recipe_update};
@@ -274,7 +274,7 @@ pub fn recipe_update_from_batch(batch: &'static [u8]) -> RecipeUpdate {
 pub fn multi_recipe_update(identifier: u128, network_id: u32) -> RecipeUpdate {
     let packet = CraftingData {
         clear_recipes: true,
-        multi_recipes: vec![bedrock_protocol_1_26_60::types::MultiRecipe {
+        multi_recipes: vec![bedrock_protocol_contract_1_26_60::types::MultiRecipe {
             multi_recipe_uuid: uuid::Uuid::from_u128(identifier),
             net_id: RecipeNetID(network_id),
         }],

@@ -300,12 +300,16 @@ impl FarTerrain {
             self.retire_stream(stream);
         }
         let now = Instant::now();
+        bevy::log::info!(shutdown_phase = "far_terrain_summary_drain_begin");
         self.drain_retiring_until(
             now,
             Some(now + EXIT_SUMMARY_WAIT),
             &mut SummaryBudget::new(usize::MAX, usize::MAX),
         );
+        bevy::log::info!(shutdown_phase = "far_terrain_summary_drain_done");
+        bevy::log::info!(shutdown_phase = "far_terrain_disk_sync_begin");
         self.cache.finish();
+        bevy::log::info!(shutdown_phase = "far_terrain_disk_sync_done");
     }
 }
 

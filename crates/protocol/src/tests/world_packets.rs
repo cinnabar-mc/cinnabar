@@ -15,19 +15,19 @@ mod move_player;
 mod weather_cycle;
 #[path = "world_packets/world_clocks.rs"]
 mod world_clocks;
-use bedrock_protocol_1_26_60::enums::{PlayerRespawnState, SubChunkRequestResult};
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::enums::{PlayerRespawnState, SubChunkRequestResult};
+use bedrock_protocol_contract_1_26_60::packets::{
     self, BiomeDefinitionList, ChangeDimension, ChunkRadiusUpdated, GameRulesChanged, LevelChunk,
     LevelEvent, NetworkChunkPublisherUpdate, Respawn, SetTime, StartGame, SubChunk, UpdateBlock,
     UpdateSubChunkBlocks,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorRuntimeID, BiomeDefinitionData, BiomeStringList, BlockPos, ChunkPos, DimensionType,
     GameRule, GameRuleValue, GameRulesChangedData, LevelGameRule, LevelGameRuleValue, SubChunkData,
     SubChunkPos, SubChunkPosOffset, UpdateSubChunkBlocksChangedInfo,
     UpdateSubChunkNetworkBlockInfo,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
@@ -256,7 +256,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
     game_data.start_game.runtime_id = ActorRuntimeID(0x1_0000_0001);
     game_data.start_game.position = [1.25, 72.0, -8.5].into();
     game_data.start_game.settings.default_spawn_block_position =
-        bedrock_protocol_1_26_60::types::BlockPosition {
+        bedrock_protocol_contract_1_26_60::types::BlockPosition {
             x: wire::ZigZag32(-104),
             y: wire::ZigZag32(114),
             z: wire::ZigZag32(61),

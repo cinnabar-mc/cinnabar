@@ -17,11 +17,11 @@ fn fixture_stack(payload: &[u8]) -> Arc<resource_pack::ValidatedPackStack> {
     archive.start_file("unused.bin", options).unwrap();
     archive.write_all(payload).unwrap();
     let stack =
-        resource_pack::validate_handoff(protocol::ResourcePackHandoff::from_archives(vec![
-            protocol::ResourcePackArchive::unencrypted(
+        resource_pack::validate_handoff(bedrock_packs::ResourcePackHandoff::from_archives(vec![
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 id.parse().unwrap(),
                 "1.0.0".into(),
-                String::new(),
+                Vec::new(),
                 archive.finish().unwrap().into_inner(),
             ),
         ]));
@@ -85,7 +85,7 @@ pub(super) fn join_stack(paths: &std::ffi::OsStr) -> Arc<resource_pack::Validate
 }
 
 /// The unencrypted handoff of each archive named in `paths`, top of the stack first.
-pub(super) fn join_handoff(paths: &std::ffi::OsStr) -> protocol::ResourcePackHandoff {
+pub(super) fn join_handoff(paths: &std::ffi::OsStr) -> bedrock_packs::ResourcePackHandoff {
     let archives = std::env::split_paths(paths)
         .map(|path| {
             let bytes = std::fs::read(&path).unwrap();
@@ -93,7 +93,7 @@ pub(super) fn join_handoff(paths: &std::ffi::OsStr) -> protocol::ResourcePackHan
             let mut manifest = Vec::new();
             std::io::Read::read_to_end(&mut zip.by_name("manifest.json").unwrap(), &mut manifest)
                 .unwrap();
-            let manifest: serde_json::Value = pack_json::parse_jsonc(&manifest).unwrap();
+            let manifest: serde_json::Value = bedrock_packs::jsonc::parse_jsonc(&manifest).unwrap();
             let header = &manifest["header"];
             let version = header["version"]
                 .as_array()
@@ -102,15 +102,15 @@ pub(super) fn join_handoff(paths: &std::ffi::OsStr) -> protocol::ResourcePackHan
                 .map(|part| part.as_u64().unwrap().to_string())
                 .collect::<Vec<_>>()
                 .join(".");
-            protocol::ResourcePackArchive::unencrypted(
+            bedrock_packs::ResourcePackArchive::unencrypted(
                 header["uuid"].as_str().unwrap().parse().unwrap(),
-                version,
-                String::new(),
+                version.into_bytes(),
+                Vec::new(),
                 bytes,
             )
         })
         .collect();
-    protocol::ResourcePackHandoff::from_archives(archives)
+    bedrock_packs::ResourcePackHandoff::from_archives(archives)
 }
 
 /// Icon keys a server registry would send: every item texture the stack names.

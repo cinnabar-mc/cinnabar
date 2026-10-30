@@ -419,7 +419,7 @@ pub fn ui_slot_request_container(slot: u8) -> Option<StackRequestContainer> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_60::enums::ContainerEnumName as Name;
+    use bedrock_protocol_contract_1_26_60::enums::ContainerEnumName as Name;
 
     use super::*;
 

@@ -68,22 +68,23 @@ fn late_packet_selection_waits_for_a_connection_with_inline_chunks() {
 }
 
 #[test]
-fn sessions_without_packet_mods_keep_the_core_cache_enabled() {
-    let layout = launcher::test_support::scratch("ordinary-session-cache");
+fn sessions_without_packet_mods_keep_the_native_cache_enabled() {
     let owner = ClientBlobCacheOwner::default();
     let cache = PacketMods::connection_cache(&owner, None, [ModGrants::default()]);
-    let command = launcher_host::core_process::core_command_for_address(
-        &layout,
-        Path::new("core"),
-        &layout.runtime_root,
-        "fixture.invalid",
-        None,
-        cache.enables_upstream_client_cache(),
-    );
-    assert!(
-        command
-            .get_args()
-            .any(|arg| arg == "-upstream-client-cache")
-    );
+    assert!(cache.enables_upstream_client_cache());
     assert!(cache.cache().is_some());
+    let packet_cache = PacketMods::connection_cache(
+        &owner,
+        None,
+        [ModGrants {
+            packets: true,
+            ..Default::default()
+        }],
+    );
+    assert!(!packet_cache.enables_upstream_client_cache());
+    assert!(packet_cache.cache().is_none());
+    assert!(
+        owner.cache().is_some(),
+        "a packet session must not disable the shared cache owner"
+    );
 }

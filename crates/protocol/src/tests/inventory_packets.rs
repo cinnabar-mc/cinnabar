@@ -1,20 +1,20 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ContainerEnumName as FullContainerNameContainerName,
     ItemStackNetResult as ItemStackResponseInfoResult,
 };
-use bedrock_protocol_1_26_60::packets::{
+use bedrock_protocol_contract_1_26_60::packets::{
     self, ContainerClose as ContainerClosePacket, ContainerOpen as ContainerOpenPacket,
     ContainerSetData as ContainerSetDataPacket, InventoryContent as InventoryContentPacket,
     InventorySlot as InventorySlotPacket, ItemStackResponse as ItemStackResponsePacket,
     PlayerHotbar as PlayerHotbarPacket,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     ActorUniqueID, BedrockSafetyRedactableString, BlockPos, FullContainerName, ItemStackNetID,
     ItemStackRequestID, ItemStackResponseContainerInfo, ItemStackResponseInfo,
     ItemStackResponseSlotInfo, NetworkItemStackDescriptorSerializedData as ItemStackDescriptor,
     StructureEditorData, StructureRedactableName,
 };
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
 use protocol::inventory::{
     normalize_container_close, normalize_container_data, normalize_container_open,
@@ -334,7 +334,7 @@ fn structure_editor_name_is_a_bounded_redactable_string() {
     assert!(matches!(
         StructureEditorData::decode(&mut wire::Reader::new(&[0, 1, 5, b'x'])),
         Err(wire::DecodeError::LengthNotRepresentable {
-            field: bedrock_protocol_1_26_60::fields::STRUCTURE_REDACTABLE_NAME_REDACTED,
+            field: bedrock_protocol_contract_1_26_60::fields::STRUCTURE_REDACTABLE_NAME_REDACTED,
             needed: 5,
             remaining: 1
         })

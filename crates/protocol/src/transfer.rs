@@ -1,15 +1,9 @@
-use bedrock_protocol_1_26_60::packets;
-
-/// Longest retained transfer host, in bytes.
-///
-/// DNS names cap at 253 octets and literal IPv6 at 45 characters, so this
-/// bounds every legitimate target while refusing unbounded wire strings.
-pub const MAX_TRANSFER_HOST_BYTES: usize = 255;
+use bedrock_protocol_contract_1_26_60::packets;
 
 /// Bounded record of a server-directed transfer target.
 ///
 /// The host is trimmed and checked for well-formedness only; following it is a policy
-/// decision above the protocol layer, and vanilla servers transfer across unrelated hosts.
+/// decision above the protocol layer; unrelated target hosts are permitted.
 /// The optional gatherings configuration is not retained: nothing consumes it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerTransferEvent {
@@ -52,31 +46,27 @@ impl ServerTransferEvent {
         port: u16,
         reload_world: bool,
     ) -> Result<Self, ServerTransferRejection> {
-        let host = address.trim();
-        if host.is_empty() {
-            return Err(ServerTransferRejection::EmptyHost);
-        }
-        if host.len() > MAX_TRANSFER_HOST_BYTES {
-            return Err(ServerTransferRejection::HostTooLong { bytes: host.len() });
-        }
-        if host.chars().any(is_forbidden_host_character) {
-            return Err(ServerTransferRejection::InvalidHostCharacter);
-        }
-        if port == 0 {
-            return Err(ServerTransferRejection::ZeroPort);
-        }
-        Ok(Self {
-            host: host.to_owned(),
-            port,
-            reload_world,
-        })
+        bedrock_client::transfer::TransferTarget::from_target(address, port, reload_world)
+            .map(|target| Self {
+                host: target.host,
+                port: target.port,
+                reload_world: target.reload_world,
+            })
+            .map_err(|reason| match reason {
+                bedrock_client::transfer::TransferRejection::EmptyHost => {
+                    ServerTransferRejection::EmptyHost
+                }
+                bedrock_client::transfer::TransferRejection::HostTooLong { bytes } => {
+                    ServerTransferRejection::HostTooLong { bytes }
+                }
+                bedrock_client::transfer::TransferRejection::InvalidHostCharacter => {
+                    ServerTransferRejection::InvalidHostCharacter
+                }
+                bedrock_client::transfer::TransferRejection::ZeroPort => {
+                    ServerTransferRejection::ZeroPort
+                }
+            })
     }
-}
-
-/// Rejects ASCII control characters and interior spaces: a well-formedness floor, not a
-/// hostname grammar, so unusual but dialable hosts fail visibly when dialled instead.
-fn is_forbidden_host_character(character: char) -> bool {
-    matches!(character, '\0'..='\x1f' | '\x7f' | ' ')
 }
 
 impl crate::ProtocolError {
@@ -94,8 +84,9 @@ impl crate::ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::packets::Transfer;
-    use bedrock_protocol_1_26_60::wire;
+    use bedrock_client::transfer::MAX_TRANSFER_HOST_BYTES;
+    use bedrock_protocol_contract_1_26_60::packets::Transfer;
+    use bedrock_protocol_contract_1_26_60::wire;
 
     fn transfer_data(address: &str, port: u16) -> packets::Packet {
         packets::Packet::Transfer(Transfer {

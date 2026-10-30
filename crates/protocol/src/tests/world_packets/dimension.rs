@@ -2,8 +2,8 @@ use super::*;
 
 #[test]
 fn dimension_ack_is_selected_by_subclient_without_requiring_the_action_actor_id() {
-    use bedrock_protocol_1_26_60::enums::PlayerActionType;
-    use bedrock_protocol_1_26_60::packets::PlayerAction;
+    use bedrock_protocol_contract_1_26_60::enums::PlayerActionType;
+    use bedrock_protocol_contract_1_26_60::packets::PlayerAction;
     for runtime_id in [0, 42, u64::MAX] {
         let action = PlayerAction {
             player_runtime_id: ActorRuntimeID(runtime_id),

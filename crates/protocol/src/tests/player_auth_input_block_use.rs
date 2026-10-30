@@ -1,9 +1,9 @@
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     InputData, ItemUseInventoryTransactionActionType,
     ItemUseInventoryTransactionClientCooldownState, ItemUseInventoryTransactionPredictedResult,
     ItemUseInventoryTransactionTriggerType,
 };
-use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use protocol::{
     BlockItemInteraction, BlockUseRequest, NetworkItemStack, PlayerAuthInputInteractions,
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
@@ -206,7 +206,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
     assert_eq!(transaction.item.stack_size.0, 37);
     assert_eq!(
         transaction.item.net_id_variant,
-        Some(bedrock_protocol_1_26_60::wire::ZigZag32(41))
+        Some(bedrock_protocol_contract_1_26_60::wire::ZigZag32(41))
     );
     assert_eq!(transaction.item.block_runtime_id.0, 0x8765_4321);
     assert!(transaction.actions.actions.is_empty());

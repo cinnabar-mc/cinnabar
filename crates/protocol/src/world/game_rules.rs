@@ -1,7 +1,7 @@
 //! The world rules the client reads from StartGame and GameRulesChanged.
 
-use bedrock_protocol_1_26_60::packets::StartGame;
-use bedrock_protocol_1_26_60::{
+use bedrock_protocol_contract_1_26_60::packets::StartGame;
+use bedrock_protocol_contract_1_26_60::{
     types::{GameRule, GameRuleValue, LevelGameRule, LevelGameRuleValue},
     wire,
 };
@@ -117,7 +117,7 @@ impl crate::CraftingRules {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_60::wire;
+    use bedrock_protocol_contract_1_26_60::wire;
 
     #[test]
     fn death_rules_preserve_absent_and_non_boolean_values() {

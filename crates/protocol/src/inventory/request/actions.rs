@@ -2,15 +2,15 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{
+use bedrock_protocol_contract_1_26_60::enums::{
     ContainerEnumName as Name, ItemDescriptorType as DescriptorKind,
     ItemStackRequestActionType as Kind,
 };
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     FullContainerName, ItemDescriptor, ItemInstance, RecipeIngredient, RecipeNetID,
     StackRequestAction as Item, StackRequestSlotInfo,
 };
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use super::super::InventoryPacketError;
 use super::super::container_policy::{ContainerWindow, container_window};
@@ -406,8 +406,8 @@ fn open_window_name(code: u8) -> Option<Name> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_60::packets::{self, ItemStackRequest};
-    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
+    use bedrock_protocol_contract_1_26_60::packets::{self, ItemStackRequest};
+    use bedrock_protocol_contract_1_26_60::wire::{Decode, Encode};
 
     use super::super::item_stack_request_packet;
     use super::*;

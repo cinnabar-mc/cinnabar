@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_60::enums::{InputData, ItemStackRequestActionType};
-use bedrock_protocol_1_26_60::packets::{self, ItemRegistry, StartGame};
-use bedrock_protocol_1_26_60::types::StackRequestAction;
-use bedrock_protocol_1_26_60::wire::Encode;
+use bedrock_protocol_contract_1_26_60::enums::{InputData, ItemStackRequestActionType};
+use bedrock_protocol_contract_1_26_60::packets::{self, ItemRegistry, StartGame};
+use bedrock_protocol_contract_1_26_60::types::StackRequestAction;
+use bedrock_protocol_contract_1_26_60::wire::Encode;
 use bytes::Bytes;
 use protocol::{
     BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,

@@ -1,11 +1,11 @@
 use ::protocol::{RecipeCatalog, decode_recipe_update};
-use bedrock_protocol_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext;
-use bedrock_protocol_1_26_60::packets::CraftingData;
-use bedrock_protocol_1_26_60::types::{
+use bedrock_protocol_contract_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext;
+use bedrock_protocol_contract_1_26_60::packets::CraftingData;
+use bedrock_protocol_contract_1_26_60::types::{
     MultiRecipe, NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData,
     RecipeNetID, RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
 };
-use bedrock_protocol_1_26_60::wire::{self, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Encode};
 
 /// A placeholder result aux the encoder accepts, as its varint.
 const RESULT_AUX_PLACEHOLDER: (u32, &[u8]) = (12_345, &[0xb9, 0x60]);

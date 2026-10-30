@@ -1,8 +1,8 @@
 //! LevelChunk payloads decode as slices of the received buffer rather than copies.
 
-use bedrock_protocol_1_26_60::packets::LevelChunk;
-use bedrock_protocol_1_26_60::types::SubChunkMetadata;
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::packets::LevelChunk;
+use bedrock_protocol_contract_1_26_60::types::SubChunkMetadata;
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
 
 fn packet(payload_len: usize) -> LevelChunk {

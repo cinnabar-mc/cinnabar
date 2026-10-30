@@ -1,5 +1,4 @@
-//! The bundle supplies the read-only resources and the app container the writable roots; the Go
-//! core is linked into this executable and runs in-process.
+//! The bundle supplies read-only resources and the app container the native client's writable roots.
 
 use std::{fs, io::Write, path::PathBuf};
 
@@ -12,11 +11,6 @@ struct Runtime {
     /// The bundle directory mirroring `.local/`. iOS reads a top-level `Resources` or
     /// `Contents` directory, in any case, as bundle structure and then rejects the app.
     resource_dir: String,
-}
-
-unsafe extern "C" {
-    /// Returns once the linked Go runtime has initialized (`core/cmd/bedrock-core/embed_ios.go`).
-    fn CinnabarCoreInit();
 }
 
 pub(crate) fn main() {
@@ -52,12 +46,7 @@ fn run_client() -> Result<()> {
         &container,
         executable.clone(),
     );
-    // Bridge endpoints whose socket path would not fit sun_path are relative to the working
-    // directory, which must be this private runtime root before any core starts. Go's runtime
-    // moves the working directory to the bundle while it initializes on a thread of its own, so
-    // wait for it first; otherwise the cores race that move and fail to bind in the bundle.
-    // SAFETY: the export takes no arguments and only waits for runtime initialization.
-    unsafe { CinnabarCoreInit() };
+    // Keep relative runtime output inside the app's private container.
     let runtime_root = layout.transient_runtime_root();
     fs::create_dir_all(runtime_root)
         .with_context(|| format!("create {}", runtime_root.display()))?;

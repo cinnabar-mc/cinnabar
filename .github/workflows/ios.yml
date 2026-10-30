@@ -36,8 +36,6 @@ jobs:
         ~/.cargo/git/db
         ~/.cargo/build
         target/aarch64-apple-ios
-        ~/go/pkg/mod
-        ~/Library/Caches/go-build
     steps:
       - uses: actions/checkout@v6
         with:
@@ -46,11 +44,7 @@ jobs:
         run: |
           rustup toolchain install
           rustup target add aarch64-apple-ios
-      - uses: actions/setup-go@v6
-        with:
-          go-version: 'stable'
-          cache: false
-      # Forks keep their own Rust and Go build cache between `ios/*` pushes, saved even when the
+      # Forks keep their own Rust build cache between `ios/*` pushes, saved even when the
       # build fails so the next push resumes it. The upstream shared cache has no budget for this
       # lane (.github/actions/build-cache/budgets.json), so upstream runs skip it.
       - name: Restore the fork build cache
@@ -59,9 +53,9 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ env.FORK_CACHE_PATHS }}
-          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'core/go.sum') }}-${{ github.sha }}
+          key: ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-${{ github.sha }}
           restore-keys: |
-            ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'core/go.sum') }}-
+            ios-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}-
             ios-${{ runner.os }}-
       - name: Install the icon renderer
         run: brew install librsvg

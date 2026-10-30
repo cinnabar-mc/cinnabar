@@ -254,7 +254,9 @@ impl Drop for DiskCache {
     fn drop(&mut self) {
         self.tx = None;
         if let Some(thread) = self.thread.take() {
+            tracing::info!(shutdown_phase = "far_terrain_disk_join_begin");
             let _ = thread.join();
+            tracing::info!(shutdown_phase = "far_terrain_disk_join_done");
         }
     }
 }

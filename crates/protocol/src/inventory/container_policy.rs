@@ -38,7 +38,7 @@ pub const fn container_window(name: u8) -> Option<ContainerWindow> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_60::enums::ContainerEnumName as Name;
+    use bedrock_protocol_contract_1_26_60::enums::ContainerEnumName as Name;
 
     use super::*;
 

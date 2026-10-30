@@ -3,9 +3,9 @@
 //! `minecraft/protocol/ability.go` at b725d82563e9.
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{CommandPermissionLevel, PlayerPermissionLevel};
-use bedrock_protocol_1_26_60::types::SerializedAbilitiesData;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::{CommandPermissionLevel, PlayerPermissionLevel};
+use bedrock_protocol_contract_1_26_60::types::SerializedAbilitiesData;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use crate::ProtocolError;
 

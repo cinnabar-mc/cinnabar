@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::enums::{TextPacketType, TitleType};
-use bedrock_protocol_1_26_60::packets::{SetTitle, Text};
-use bedrock_protocol_1_26_60::types::TextData;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::enums::{TextPacketType, TitleType};
+use bedrock_protocol_contract_1_26_60::packets::{SetTitle, Text};
+use bedrock_protocol_contract_1_26_60::types::TextData;
+use bedrock_protocol_contract_1_26_60::wire;
 
 use super::{MAX_CHAT_PARAMETERS, MAX_TEXT_MESSAGE_BYTES, UiEvent, UiPacketError, bounded_text};
 

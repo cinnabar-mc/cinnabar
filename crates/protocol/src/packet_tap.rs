@@ -14,7 +14,7 @@
 
 use std::fmt;
 
-use bedrock_protocol_1_26_60::packets::PacketId;
+use bedrock_protocol_contract_1_26_60::packets::PacketId;
 use bytes::Bytes;
 
 /// Which way a packet travelled relative to this client. The discriminant is its wire value
@@ -234,8 +234,18 @@ pub(crate) struct PacketOrigin {
 
 /// Reports each packet of an encoded Batch frame, `[kind][length][header][body]...`, to `tap`
 /// as serverbound. Reads only lengths and headers; bodies stay views of `frame`.
+#[cfg(test)]
 pub(crate) fn record_serverbound(tap: &dyn PacketTap, frame: &Bytes) {
-    let mut offset = 1;
+    record_serverbound_entries(tap, frame, 1);
+}
+
+/// Reports encoded Bedrock entries without depending on a transport envelope.
+pub(crate) fn record_serverbound_body(tap: &dyn PacketTap, frame: &Bytes) {
+    record_serverbound_entries(tap, frame, 0);
+}
+
+/// Reports entries starting at `offset`, keeping bodies borrowed from `frame`.
+fn record_serverbound_entries(tap: &dyn PacketTap, frame: &Bytes, mut offset: usize) {
     while offset < frame.len() {
         let Some((length, length_bytes)) = read_varuint32(&frame[offset..]) else {
             return;
@@ -281,7 +291,7 @@ pub(crate) struct PickEntry {
     pub(crate) state: Option<crate::capture::PickState>,
 }
 
-/// Records final relay output and attaches picks only to unchanged original packet entries.
+/// Records final relay batch-body output, attaching picks only to unchanged original entries.
 pub(crate) fn record_serverbound_picks(
     tap: &dyn PacketTap,
     frame: &Bytes,
@@ -289,7 +299,8 @@ pub(crate) fn record_serverbound_picks(
     replaced: bool,
 ) {
     let mut used = vec![false; picks.len()];
-    for entry in bedrock_protocol_1_26_60::wire::Frames::new(frame.slice(1..), usize::MAX).flatten()
+    for entry in
+        bedrock_protocol_contract_1_26_60::wire::Frames::new(frame.clone(), usize::MAX).flatten()
     {
         let original = picks
             .iter()

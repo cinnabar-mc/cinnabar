@@ -1,6 +1,6 @@
 //! Startup item fixtures pass through the same wire and login projection as a real join.
 
-use bedrock_protocol_1_26_60::{
+use bedrock_protocol_contract_1_26_60::{
     enums::ItemVersion,
     packets::{ItemRegistry, StartGame},
     types::ItemData,

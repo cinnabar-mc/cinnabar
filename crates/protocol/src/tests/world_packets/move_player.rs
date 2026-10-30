@@ -1,8 +1,8 @@
 use super::*;
-use bedrock_protocol_1_26_60::enums::PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
-use bedrock_protocol_1_26_60::packets::MovePlayer;
-use bedrock_protocol_1_26_60::types::{MovePlayerTeleportData, PlayerInputTick};
-use bedrock_protocol_1_26_60::wire::{Decode, Encode};
+use bedrock_protocol_contract_1_26_60::enums::PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode;
+use bedrock_protocol_contract_1_26_60::packets::MovePlayer;
+use bedrock_protocol_contract_1_26_60::types::{MovePlayerTeleportData, PlayerInputTick};
+use bedrock_protocol_contract_1_26_60::wire::{Decode, Encode};
 use protocol::MovePlayerEvent;
 
 #[test]

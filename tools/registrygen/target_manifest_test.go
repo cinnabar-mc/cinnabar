@@ -216,7 +216,7 @@ func checkBedrockTargetCarriers(t *testing.T, root string) bedrockTargetManifest
 	if err := json.Unmarshal(payload, &target); err != nil {
 		t.Fatal(err)
 	}
-	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.60" || target.WireProtocol != 2225 || target.CodecCrate != "bedrock-protocol-1-26-60" {
+	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.60" || target.WireProtocol != 2225 || target.CodecCrate != "bedrock-protocol-contract-1-26-60" {
 		t.Fatalf("unexpected target identity: %+v", target)
 	}
 	for name, path := range target.Artifacts {

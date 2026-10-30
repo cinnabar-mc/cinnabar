@@ -1,7 +1,7 @@
 //! The world's sleep status, which servers send as a generic level event.
 
-use bedrock_protocol_1_26_60::packets::LevelEventGeneric;
-use bedrock_protocol_1_26_60::wire;
+use bedrock_protocol_contract_1_26_60::packets::LevelEventGeneric;
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 use protocol::{SleepStatusEvent, UiEvent, WorldEvent, into_world_event};
 

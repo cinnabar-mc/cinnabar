@@ -202,6 +202,7 @@ fn vacant_hit() -> HitRegion {
         kind: crate::input::HitKind::Button,
         rect: none,
         clip: none,
+        anim: None,
         layer: 0,
         order: 0,
         pressed: None,

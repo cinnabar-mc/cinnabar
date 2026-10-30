@@ -14,7 +14,13 @@ pub fn scratch(label: &str) -> InstallLayout {
         "cinnabar-layout-{label}-{}-{nonce}-{call}",
         std::process::id()
     ));
-    scratch_at(host_platform(), &base)
+    scratch_in(&base)
+}
+
+/// Resolves a test installation beneath a caller-owned absolute directory on this host.
+/// Use [`scratch_at`] to exercise another platform's logical path rules.
+pub fn scratch_in(base: &std::path::Path) -> InstallLayout {
+    scratch_at(host_platform(), base)
 }
 
 /// The checkout's development layout. Resolved from the crate source, not the test binary, so a

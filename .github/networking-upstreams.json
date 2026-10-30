@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "references": {
+    "bedrock-rs": {
+      "repository": "bedrock-crustaceans/bedrock-rs",
+      "revision": "ab7bb9521af078d4094c86da8b127d5f53cf0d31"
+    },
+    "gophertunnel-parallel-pack-downloads": {
+      "repository": "HashimTheArab/gophertunnel",
+      "revision": "bdc937334fd64fda588971a24bbdcd93754c4db2"
+    }
+  },
+  "watches": [
+    {"repository": "HashimTheArab/gophertunnel", "refs": ["resource-pack-changes", "lunar"], "baseline": {"go_module": "github.com/sandertv/gophertunnel"}},
+    {"repository": "lunar-bedrock/go-raknet", "refs": ["lunar"], "baseline": {"go_module": "github.com/sandertv/go-raknet"}},
+    {"repository": "HashimTheArab/go-nethernet", "refs": ["lunar"], "baseline": {"go_module": "github.com/df-mc/go-nethernet"}},
+    {"repository": "df-mc/go-nethernet", "refs": ["main"], "baseline": {"go_module": "github.com/df-mc/go-nethernet"}},
+    {"repository": "HashimTheArab/go-xsapi", "refs": ["lunar"], "baseline": {"go_module": "github.com/df-mc/go-xsapi/v2"}},
+    {"repository": "df-mc/go-xsapi", "refs": ["main"], "baseline": {"go_module": "github.com/df-mc/go-xsapi/v2"}},
+    {"repository": "HashimTheArab/go-playfab", "refs": ["main"], "baseline": {"go_module": "github.com/df-mc/go-playfab/v2"}},
+    {"repository": "df-mc/go-playfab", "refs": ["main"], "baseline": {"go_module": "github.com/df-mc/go-playfab/v2"}},
+    {"repository": "bedrock-crustaceans/bedrock-rs", "refs": ["main"], "baseline": {"reference": "bedrock-rs"}},
+    {"repository": "cinnabar-mc/protocolgen", "refs": ["main"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/protocolgen"}},
+    {"repository": "cinnabar-mc/bedrock-net", "refs": ["dev"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/bedrock-net"}},
+    {"repository": "cinnabar-mc/bedrock-services", "refs": ["dev"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/bedrock-services"}},
+    {"repository": "cinnabar-mc/nethernet", "refs": ["main"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/nethernet"}}
+  ],
+  "pull_requests": [
+    {"repository": "HashimTheArab/gophertunnel", "number": 221, "reference": "gophertunnel-parallel-pack-downloads", "observed_at": "2026-10-18T21:15:27Z"}
+  ]
+}
