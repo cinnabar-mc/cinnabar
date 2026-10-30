@@ -51,6 +51,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         clip: rect,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: pressed.map(str::to_owned),
         control_name: None,
         collection_index: None,

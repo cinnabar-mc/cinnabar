@@ -827,6 +827,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Unmapped cursor-following buttons pass held-stack presses through to inventory and
+  container backgrounds, allowing outside clicks to drop items.
   Native closed inventory binding, text measurement and layout run on a worker. Closed frames
   serve a fixed allowance of texture metadata queries, and opening finishes pending work
   before painting. Revision checks retain prepared results until their sources change.

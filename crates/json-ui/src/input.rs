@@ -130,6 +130,8 @@ pub struct HitRegion {
     pub order: usize,
     /// Where `button.menu_select` routes when pressed (`$pressed_button_name`).
     pub pressed: Option<String>,
+    /// Whether the control is positioned at the pointer by `follows_cursor`.
+    pub follows_cursor: bool,
     /// `toggle_name` / `slider_name` / `text_box_name` / `dropdown_name`, and a scroll view's
     /// `scroll_view_name`, which server Experiences' modals report.
     pub control_name: Option<String>,
@@ -368,6 +370,7 @@ pub(crate) fn region(
         layer: node.layer,
         order: *order,
         pressed,
+        follows_cursor: widgets::bound_bool(control, "follows_cursor").unwrap_or(false),
         control_name,
         collection_index,
         collection,
