@@ -166,6 +166,11 @@ impl ModUi {
             if !same_shape {
                 let transitions = (current.owner == owner && current.open)
                     .then(|| std::mem::take(&mut current.motion.transitions));
+                let scroll = if current.owner == owner {
+                    std::mem::take(&mut current.view.scroll)
+                } else {
+                    Default::default()
+                };
                 current.text_events.clear();
                 current.field_events.clear();
                 current.owner = owner;
@@ -178,7 +183,10 @@ impl ModUi {
                 current.scroll_drag = None;
                 current.items.clear();
                 current.projected.clear();
-                current.view = ViewState::default();
+                current.view = ViewState {
+                    scroll,
+                    ..ViewState::default()
+                };
                 current.motion = motion::PanelMotion::default();
                 if let Some(transitions) = transitions {
                     current.motion.transitions = transitions;
@@ -572,11 +580,7 @@ impl ModUi {
                         Arc::make_mut(&mut frame.hits),
                     );
                 }
-                for (key, metrics) in &frame.report.scrolls {
-                    if let Some(offset) = panel.view.scroll.get_mut(key) {
-                        *offset = metrics.offset;
-                    }
-                }
+                scrolling::reconcile_scroll(&mut panel.view, &frame.report);
                 panel.frame = Some(frame);
             }
             result => {

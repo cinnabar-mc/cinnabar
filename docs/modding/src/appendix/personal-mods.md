@@ -131,6 +131,10 @@ patch `{"show_gameplay_hud":true}` changes it, so one panel can show the HUD on
 only some of its routes. The flag lasts until another patch changes it or
 `set-content` replaces the panel.
 
+A route change keeps each scroll view offset shared by layout key, clamped to the
+new content; absent keys are discarded. Closing or removing the panel resets its
+scroll positions.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the

@@ -145,3 +145,15 @@ impl ModPanel {
 fn along(metrics: &ScrollMetrics, point: [f64; 2]) -> f64 {
     point[usize::from(!metrics.horizontal)]
 }
+
+/// Keeps only scroll views present in this layout, using their clamped offsets.
+pub(super) fn reconcile_scroll(view: &mut json_ui::ViewState, report: &json_ui::LayoutReport) {
+    view.scroll.retain(|key, offset| {
+        if let Some(metrics) = report.scrolls.get(key) {
+            *offset = metrics.offset;
+            true
+        } else {
+            false
+        }
+    });
+}
