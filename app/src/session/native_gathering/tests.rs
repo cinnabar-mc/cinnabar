@@ -2,7 +2,7 @@ use super::*;
 use bevy::prelude::{App, Update};
 use client_shell::ui_resources::UiRuntimeResource;
 use client_ui::ui_runtime::UiRuntime;
-use launcher::{accounts::AccountStore, install_layout::Platform};
+use launcher::accounts::AccountStore;
 use std::sync::Arc;
 
 #[derive(Resource)]
@@ -35,7 +35,7 @@ fn stream() -> chunk_pipeline::WorldStream {
 #[test]
 fn native_gathering_replacement_restores_destination_for_world_consumers() {
     let root = tempfile::tempdir().unwrap();
-    let layout = launcher::test_support::scratch_at(Platform::Linux, root.path());
+    let layout = launcher::test_support::scratch_in(root.path());
     let account = Arc::new(launcher_host::native_account::NativeAccount::new(
         AccountStore::new(layout.auth_cache()),
         layout.device_profile_file(),

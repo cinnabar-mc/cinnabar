@@ -5,8 +5,7 @@ use std::{fs, io::Write};
 /// Keeps every account file beneath an owned temporary installation.
 fn installation() -> (tempfile::TempDir, InstallLayout) {
     let root = tempfile::tempdir().unwrap();
-    let layout =
-        launcher::test_support::scratch_at(launcher::install_layout::Platform::Linux, root.path());
+    let layout = launcher::test_support::scratch_in(root.path());
     (root, layout)
 }
 

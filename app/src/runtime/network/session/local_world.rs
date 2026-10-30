@@ -136,10 +136,7 @@ mod preparation_tests {
             return;
         };
         let directory = tempfile::tempdir().unwrap();
-        let mut layout = launcher::test_support::scratch_at(
-            launcher::install_layout::Platform::Linux,
-            directory.path(),
-        );
+        let mut layout = launcher::test_support::scratch_in(directory.path());
         layout.local_server_executable = server.into();
         assert!(layout.local_server_executable.is_absolute());
         assert!(layout.local_server_executable.is_file());

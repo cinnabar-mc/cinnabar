@@ -4,7 +4,6 @@ use super::*;
 use bevy::prelude::{App, AppExit, Update};
 use client_shell::{menu::test_support::friend as menu_friend, ui_resources::UiRuntimeResource};
 use client_ui::ui_runtime::UiRuntime;
-use launcher::install_layout::Platform;
 use launcher_host::native_account::test_support::friend::Fixture;
 
 pub(super) struct Original {
@@ -18,7 +17,7 @@ impl Original {
     /// Acquires the actual sealed account, then drives the ordinary catalogue worker into its menu.
     pub(super) async fn open(legacy: bool, deadline: Instant) -> Self {
         let root = tempfile::tempdir().unwrap();
-        let layout = launcher::test_support::scratch_at(Platform::Linux, root.path());
+        let layout = launcher::test_support::scratch_in(root.path());
         let service = if legacy {
             Fixture::legacy(layout.auth_cache(), layout.device_profile_file(), deadline).await
         } else {
