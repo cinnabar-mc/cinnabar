@@ -56,6 +56,8 @@ pub(super) struct ModPanel {
     vector_drag: Option<vector::Drag>,
     scroll_drag: Option<(String, f64)>,
     view: ViewState,
+    /// Offsets carried across a route change, which the next layout prunes to its scroll views.
+    carried_scroll: bool,
     data: Arc<DataSource>,
     pointer: Option<[f32; 2]>,
     held: bool,
@@ -166,7 +168,8 @@ impl ModUi {
             if !same_shape {
                 let transitions = (current.owner == owner && current.open)
                     .then(|| std::mem::take(&mut current.motion.transitions));
-                let scroll = if current.owner == owner {
+                current.carried_scroll = current.owner == owner;
+                let scroll = if current.carried_scroll {
                     std::mem::take(&mut current.view.scroll)
                 } else {
                     Default::default()
@@ -221,6 +224,7 @@ impl ModUi {
                 vector_drag: None,
                 scroll_drag: None,
                 view: ViewState::default(),
+                carried_scroll: false,
                 data: Arc::new({
                     let mut data = control_data(panel);
                     surface::viewport(&mut data, [0.0; 2]);
@@ -580,7 +584,11 @@ impl ModUi {
                         Arc::make_mut(&mut frame.hits),
                     );
                 }
-                scrolling::reconcile_scroll(&mut panel.view, &frame.report);
+                scrolling::reconcile_scroll(
+                    &mut panel.view,
+                    &frame.report,
+                    std::mem::take(&mut panel.carried_scroll),
+                );
                 panel.frame = Some(frame);
             }
             result => {
@@ -712,6 +720,7 @@ impl ModPanel {
         }
         self.frame = None;
         self.view = ViewState::default();
+        self.carried_scroll = false;
         self.motion = motion::PanelMotion::default();
         self.collection_reveals = reveal::CollectionReveals::default();
         if reset_feedback {

@@ -59,7 +59,11 @@ fn render(ui: &mut ModUi) -> &FormRender {
             &panel.view,
         )
         .unwrap();
-    scrolling::reconcile_scroll(&mut panel.view, &rendered.report);
+    scrolling::reconcile_scroll(
+        &mut panel.view,
+        &rendered.report,
+        std::mem::take(&mut panel.carried_scroll),
+    );
     let mut hits = rendered.hits.to_vec();
     surface::resolve_collection_hits(&panel.panel.surface, &mut hits);
     panel.frame = Some(EngineFrame {
