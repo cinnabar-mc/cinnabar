@@ -183,10 +183,6 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   draw their inward-facing cutout interior. Piston bodies remain full cubes: the native
   three-quarter body and its separately drawn head are incomplete. Native-server captures
   remain.
-  plane and top art with its direction. Observers, crafters, dispensers, droppers and piston
-  bodies select each face's slot, UV turn and texture variant from their state. Piston bodies
-  remain full cubes: the native three-quarter body and its separately drawn head are
-  incomplete. Jigsaw and vault faces, carved pumpkins and native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
