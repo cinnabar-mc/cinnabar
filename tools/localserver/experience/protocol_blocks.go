@@ -242,6 +242,18 @@ var gameModes = []GameMode{GameModeSurvival, GameModeCreative, GameModeAdventure
 func (m GameMode) MarshalJSON() ([]byte, error)     { return marshalEnum(m, gameModes) }
 func (m *GameMode) UnmarshalJSON(data []byte) error { return unmarshalEnum(data, m, gameModes) }
 
+// PlayerPose is where a player faces and how it moves: Yaw in degrees in (-180, 180], 0 facing
+// +z and 90 facing -x, and Pitch in degrees in [-90, 90], positive looking down.
+type PlayerPose struct {
+	Yaw       float64 `json:"yaw"`
+	Pitch     float64 `json:"pitch"`
+	OnGround  bool    `json:"on_ground"`
+	Sneaking  bool    `json:"sneaking"`
+	Sprinting bool    `json:"sprinting"`
+	Swimming  bool    `json:"swimming"`
+	Gliding   bool    `json:"gliding"`
+}
+
 // Network is the network around a callback's anchor: its loaded members, which the snapshot
 // holds, and whether its bounds cut it short.
 type Network struct {
