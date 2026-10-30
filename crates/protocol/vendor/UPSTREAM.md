@@ -1,11 +1,11 @@
 # Upstream sources
 
-`bedrock-protocol-1-26-60` is protocolgen's generated Rust contract crate for Bedrock 1.26.60
+`bedrock-protocol-contract-1-26-60` is protocolgen's generated Rust contract crate for Bedrock 1.26.60
 (protocol 2225), consumed from the exact Git dependency shared with bedrock-client.
 Only `protocol` declares this codec directly in Cinnabar; generated source is not vendored.
 
 - Generator: https://github.com/cinnabar-mc/protocolgen
-- Generator commit: `d47f818fc6511ef622a4f37bada23e0cf14ca889` (`generated/1.26.60/rust-contract`)
+- Generator commit: `9eed056998235e4c01e0f3befabed651021dea77` (`generated/1.26.60/rust-contract`)
 
 The expected protocol, codec contract and manifest fingerprint are pinned in
 `assets/bedrock-target.json`; a protocol test checks the resolved generated crate.
