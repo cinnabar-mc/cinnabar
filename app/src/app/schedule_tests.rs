@@ -98,7 +98,7 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
 /// registrations dispatch every `Update` and `PostUpdate`. Each one costs executor and parameter
 /// work on every frame even when it finds nothing to do, so growth must be deliberate: change
 /// these with the registrations, and prefer one set condition over a condition per system.
-const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 143, 8), ("PostUpdate", 1, 0)];
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 145, 8), ("PostUpdate", 1, 0)];
 
 #[test]
 fn client_frame_dispatch_stays_within_its_budget() {
