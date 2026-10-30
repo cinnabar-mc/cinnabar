@@ -673,7 +673,7 @@ fn panels_without_an_exit_to_play_close_at_once() {
 }
 
 /// A binding update keeps an exit going; a route change ends it, so a closed panel never
-/// shows a route it did not display.
+/// shows a route it did not display, and clears its scroll like any completed close.
 #[test]
 fn route_changes_end_an_exit_and_binding_updates_continue_it() {
     use ui::mod_panel::SurfaceValue;
@@ -702,6 +702,11 @@ fn route_changes_end_an_exit_and_binding_updates_continue_it() {
         .unwrap();
     assert!(!ui.mod_panel_painting());
     assert!(!ui.mod_panel_motion_active());
+    ui.set_mod_panel_open(true);
+    assert_eq!(
+        ui.mod_panel.as_ref().unwrap().view.scroll_offset("list"),
+        0.0
+    );
 }
 
 /// Host-authored fallback controls retain only their admitted schema between packet updates.

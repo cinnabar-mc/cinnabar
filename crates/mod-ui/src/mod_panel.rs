@@ -168,7 +168,8 @@ impl ModUi {
             if !same_shape {
                 let transitions = (current.owner == owner && current.open)
                     .then(|| std::mem::take(&mut current.motion.transitions));
-                current.carried_scroll = current.owner == owner;
+                // A closed panel's exit ends here, so only an open panel carries its offsets.
+                current.carried_scroll = current.owner == owner && current.open;
                 let scroll = if current.carried_scroll {
                     std::mem::take(&mut current.view.scroll)
                 } else {
