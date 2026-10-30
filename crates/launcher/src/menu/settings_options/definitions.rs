@@ -359,6 +359,8 @@ macro_rules! settings {
 }
 
 settings! {
+    DisableBackButton => "disable_back_button", toggle("Disable Back Button", true),
+        [(SettingPanel::General, 1)], [], None, None;
     MacroModifier => "macro_modifier", dropdown("Macro Modifier", super::macro_modifier::MacroModifier::CHOICES, super::macro_modifier::MacroModifier::Alt as i32),
         [(SettingPanel::Keyboard, 4)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),

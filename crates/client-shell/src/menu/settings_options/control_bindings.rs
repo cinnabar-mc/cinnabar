@@ -1,5 +1,5 @@
 //! Bevy device adapters for the launcher's persisted physical bindings.
-use launcher::menu::settings_options::BindingId;
+use launcher::menu::settings_options::{BindingId, SettingId};
 use semantic_input::PhysicalControl;
 
 /// Resolves every inventory hotbar shortcut in action registration order.
@@ -123,6 +123,9 @@ pub fn menu_cancel_button(
     menu: Option<&crate::menu::MenuRuntime>,
     button: bevy::prelude::MouseButton,
 ) -> bool {
+    if menu.is_some_and(|m| m.settings_snapshot().0.value(SettingId::DisableBackButton) != 0) {
+        return false;
+    }
     button == crate::physical_input::PLATFORM_BACK
         || crate::physical_input::mouse_button_code(button)
             .is_some_and(|code| is_menu_cancel(menu, PhysicalControl::MouseButton(code)))
