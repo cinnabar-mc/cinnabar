@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, sync::OnceLock};
 
-pub const ITEM_ARMOUR_SOURCE_PATH: &str = "registry/item-armour-v2193.json";
-pub const ITEM_ARMOUR_SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-armour-v2193.json");
+pub const ITEM_ARMOUR_SOURCE_PATH: &str = "registry/item-armour-v2225.json";
+pub const ITEM_ARMOUR_SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-armour-v2225.json");
 
 /// Armour facts admitted for an item; unresolved data is never a zero-value claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]

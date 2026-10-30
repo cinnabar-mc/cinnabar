@@ -43,7 +43,7 @@ impl NativeGatheringSelection {
                 bridge::contract::GATHERING_TARGET_PREFIX,
                 self.experience
             ),
-            protocol::NativeTransport::RakNet,
+            protocol::NativeTransport::NetherNetHttp,
         )
     }
 

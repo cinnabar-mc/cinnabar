@@ -109,6 +109,8 @@ pub enum NetworkControlEvent<P = ()> {
         /// The login identity for this connection, independent of actor display names.
         identity: protocol::session_wire::SessionIdentity,
         world: WorldBootstrap,
+        /// Initial local-player pitch and yaw in degrees.
+        player_rotation: [f32; 2],
         environment: WorldEnvironmentBootstrap,
         custom_blocks: CustomBlocks,
         inventory: InventoryEvent,

@@ -9,7 +9,7 @@ use bedrock_client::server::{
 use bedrock_client_tokio::server::AcceptingConnection;
 use bedrock_net::login::provider::ProviderVerifier;
 use bedrock_net::login::{LoginError, LoginVerifier, TrustedIdentity};
-use bedrock_protocol_1_26_51::{packets, types::ActorRuntimeID};
+use bedrock_protocol_contract_1_26_60::{packets, types::ActorRuntimeID};
 use p384::ecdsa::SigningKey;
 use std::{
     io,

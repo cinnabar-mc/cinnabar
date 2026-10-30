@@ -226,7 +226,7 @@ fn equipment_enchantment_conditions_read_the_whole_equipment_mask() {
     let fire_aspect = enchantment_id("fire_aspect").unwrap();
     assert_eq!(
         fire_aspect,
-        protocol_ids::Enchantment::Fireaspect.wire_value()
+        protocol_ids::Enchantment::FireAspect.wire_value()
     );
     assert_eq!(enchantment_id("minecraft:fire_aspect"), Some(fire_aspect));
     assert_eq!(enchantment_id("fixture:missing"), None);

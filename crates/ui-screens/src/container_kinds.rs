@@ -407,4 +407,12 @@ mod tests {
             Some(InventoryCellHit::Craft(2))
         );
     }
+
+    #[test]
+    fn hopper_screen_uses_the_container_name() {
+        assert_eq!(
+            window_kind(WindowKind::Hopper).unwrap().title_key,
+            "container.hopper"
+        );
+    }
 }

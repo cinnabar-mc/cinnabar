@@ -8,7 +8,9 @@
 use std::time::Duration;
 
 use bedrock_client::spawn::{SpawnError, SpawnNegotiation, SpawnReady, SpawnUpdate};
-use bedrock_protocol_1_26_51::packets::{self, Disconnect, ItemRegistry, PacketId, StartGame};
+use bedrock_protocol_contract_1_26_60::packets::{
+    self, Disconnect, ItemRegistry, PacketId, StartGame,
+};
 
 use crate::codec::SessionFailure;
 use crate::disconnect::{delivered_texts, disconnect_reason, join_disconnect, packet_texts};
@@ -231,22 +233,22 @@ fn spawn_failure(error: SpawnError) -> ProtocolError {
 pub(super) fn ready_fixture(runtime_id: u64) -> SpawnReady {
     let radius = i32::from(DEFAULT_CHUNK_RADIUS);
     let mut negotiation = SpawnNegotiation::new(packets::RequestChunkRadius {
-        chunk_radius: bedrock_protocol_1_26_51::wire::ZigZag32(radius),
-        max_chunk_radius: bedrock_protocol_1_26_51::wire::U8(DEFAULT_CHUNK_RADIUS),
+        chunk_radius: bedrock_protocol_contract_1_26_60::wire::ZigZag32(radius),
+        max_chunk_radius: bedrock_protocol_contract_1_26_60::wire::U8(DEFAULT_CHUNK_RADIUS),
     })
     .unwrap();
     let mut ready = None;
     for packet in [
         packets::Packet::StartGame(Box::new(StartGame {
-            runtime_id: bedrock_protocol_1_26_51::types::ActorRuntimeID(runtime_id),
+            runtime_id: bedrock_protocol_contract_1_26_60::types::ActorRuntimeID(runtime_id),
             ..Default::default()
         })),
         packets::Packet::ItemRegistry(ItemRegistry::default()),
         packets::Packet::ChunkRadiusUpdated(packets::ChunkRadiusUpdated {
-            chunk_radius: bedrock_protocol_1_26_51::wire::ZigZag32(radius),
+            chunk_radius: bedrock_protocol_contract_1_26_60::wire::ZigZag32(radius),
         }),
         packets::Packet::PlayStatus(packets::PlayStatus {
-            status: bedrock_protocol_1_26_51::enums::PlayStatusType::Playerspawn,
+            status: bedrock_protocol_contract_1_26_60::enums::PlayStatusType::PlayerSpawn,
         }),
     ] {
         ready = negotiation.receive(packet).unwrap().ready.or(ready);

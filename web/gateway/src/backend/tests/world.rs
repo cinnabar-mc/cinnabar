@@ -96,7 +96,7 @@ async fn accepted_play_reaches_owned_bds_world() {
                     tap: None,
                     #[cfg(not(target_arch = "wasm32"))]
                     relay: None,
-                    target: Some(bridge::ConnectTarget::RakNet(address.to_string())),
+                    target: Some(bridge::ConnectTarget::Server(address.to_string())),
                 },
                 join,
                 async { Ok(None::<tokio::io::Empty>) },
@@ -185,10 +185,11 @@ async fn unscoped_loopback_is_refused(
         .unwrap();
     let result = crate::upstream::connect(
         &lease,
-        Some(bridge::ConnectTarget::RakNet(address.to_string())),
+        Some(bridge::ConnectTarget::Server(address.to_string())),
         Instant::now()
             .checked_add(protocol::NATIVE_JOIN_TIMEOUT)
             .unwrap(),
+        None,
     )
     .await;
     drop(lease);

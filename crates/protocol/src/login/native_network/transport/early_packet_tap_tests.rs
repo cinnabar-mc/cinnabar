@@ -8,7 +8,9 @@ use crate::session_transport::{
 use bedrock_net::{
     BatchCodec, BatchLimits, CompressionAlgorithm, CompressionSettings, DecodeOutcome,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{
+    enums::PlayStatusType, packets, types::ActorRuntimeID, wire,
+};
 use nethernet_tokio::{AcceptedSession, NetherServer, ServerData};
 use std::{sync::Arc, time::Duration};
 
@@ -85,6 +87,10 @@ async fn tapped_native_join() {
     let mut listener = NetherServer::bind_with(
         signaling,
         ConnectionConfig {
+            identity: Some(Arc::new(
+                nethernet::identity::ServerIdentity::generate("self", std::time::SystemTime::now())
+                    .unwrap(),
+            )),
             allow_unsigned_answers: true,
             ..Default::default()
         },
@@ -99,7 +105,7 @@ async fn tapped_native_join() {
     };
     let startup = [
         crate::Packet::new(packets::PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         }),
         time(1),
         time(2),
@@ -142,7 +148,7 @@ async fn tapped_native_join() {
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
+                    status: PlayStatusType::LoginSuccess,
                 }),
                 crate::Packet::new(packets::ResourcePacksInfo::default()),
             ],

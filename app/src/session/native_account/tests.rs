@@ -53,7 +53,7 @@ fn raw_target() -> protocol::SessionEndpoint {
             bridge::contract::NETHERNET_TARGET_PREFIX,
             bridge::contract::NETHERNET_SIGNALING_WEBSOCKET
         ),
-        protocol::NativeTransport::RakNet,
+        protocol::NativeTransport::NetherNetHttp,
     ))
 }
 
@@ -110,7 +110,7 @@ fn startup_account_preserves_offline_scope_and_rejects_a_lost_selected_cache() {
     let mut controller = SessionController::default();
     let direct = protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
         "127.0.0.1:19132".into(),
-        protocol::NativeTransport::RakNet,
+        protocol::NativeTransport::NetherNetHttp,
     ));
     assert!(
         controller

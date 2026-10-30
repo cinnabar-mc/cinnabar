@@ -36,7 +36,7 @@ pub(super) fn png(state: &State, dir: &Path, view: TouchUtilityView) -> Result<V
     runtime.set_lang_catalog(Arc::new(carriers.lang));
     match view {
         TouchUtilityView::PlayerList => {
-            runtime.player_roster.set_entries(
+            runtime.session.player_roster.set_entries(
                 [
                     "Alex", "Blair", "Casey", "Drew", "Emery", "Jordan", "Morgan", "Riley",
                 ]

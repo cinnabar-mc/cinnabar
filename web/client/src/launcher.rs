@@ -253,7 +253,7 @@ pub fn addressed_target(address: &str) -> Result<ConnectTarget, &'static str> {
     if url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() {
         return Err("Enter a valid server address.");
     }
-    Ok(ConnectTarget::RakNet(format!(
+    Ok(ConnectTarget::Server(format!(
         "{}:{port}",
         url.host().ok_or("Enter a valid server address.")?
     )))

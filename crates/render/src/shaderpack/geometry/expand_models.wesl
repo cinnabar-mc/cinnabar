@@ -20,7 +20,7 @@ fn expand_models(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_work
 /// fail validation.
 fn model_face(job: vec4<u32>) -> JobFace {
     let quad = model_quad_at(job.x, job.w & JOB_MODEL_QUAD_MASK, job.y);
-    if (!quad.valid) {
+    if (quad.valid == 0u) {
         var invalid: JobFace;
         return invalid;
     }
@@ -58,7 +58,7 @@ fn model_face(job: vec4<u32>) -> JobFace {
     var source: FaceSource;
     source.normal = normal;
     source.tint = vec4(tint, 1.0);
-    source.face_shade = material_face_shade(model_shade_normal(quad, authored), (samples[0] & 2048u) != 0u, material.flags);
+    source.face_shade = material_face_shade(model_shade_normal(authored, samples[0]), (samples[0] & 2048u) != 0u, material.flags);
     source.block = quad.block_position;
     source.chunk_origin = quad.chunk_origin.xyz;
     source.material_id = quad.selected_material_id;

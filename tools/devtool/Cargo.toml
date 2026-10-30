@@ -22,7 +22,6 @@ reads = [
 ]
 
 [dependencies]
-env-compat = { path = "../../crates/env-compat" }
 cinnabar-cxb = { path = "../cxb" }
 render-api = { path = "../../crates/render-api" }
 

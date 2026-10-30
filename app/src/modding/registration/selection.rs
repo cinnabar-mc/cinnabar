@@ -334,6 +334,9 @@ pub(in crate::modding) fn forget(
 fn write_selection(path: &Path, registration: Registration) -> Result<Receipt, String> {
     registration.validate()?;
     let bytes = serde_json::to_vec(&registration).map_err(|error| error.to_string())?;
+    if bytes.len() > super::MAX_BYTES {
+        return Err("The mod list is too large to save.".into());
+    }
     let fingerprint = Sha256::digest(&bytes).into();
     write_json(path, &registration)
         .map_err(|error| format!("Could not save the mod selection: {error}"))?;

@@ -37,19 +37,19 @@ fn active_content_registry_protocol() -> u32 {
 }
 
 const BREG_V1001: &[u8] = include_bytes!("../../../../assets/data/block-registry-v1001.bin");
-const BREG_V2193: &[u8] = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
+const BREG_V2225: &[u8] = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
 
 /// Encodes current compiled facts or a legacy fixture bound to the supplied identities.
 fn synthetic_preg(protocol: u32, breg: &[u8], records: &[assets::RegistryRecord]) -> Vec<u8> {
     if protocol != active_content_registry_protocol() {
         return legacy_synthetic_preg(protocol, breg, records);
     }
-    let original = assets::read_registry_for_protocol(BREG_V2193, 2193).unwrap();
+    let original = assets::read_registry_for_protocol(BREG_V2225, 2225).unwrap();
     let compiled = assets::read_physics_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
-        BREG_V2193,
+        include_bytes!("../../../../assets/data/block-physics-v2225.bin"),
+        BREG_V2225,
         &original,
-        2193,
+        2225,
     )
     .unwrap();
     let facts: Vec<_> = records
@@ -159,9 +159,9 @@ fn custom_block(name: &str, state_count: u32) -> protocol::CustomBlock {
 #[test]
 fn custom_sound_components_follow_registered_states_in_both_id_spaces() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
-    let preg = synthetic_preg(protocol, BREG_V2193, &records);
-    let mut registries = bind(BREG_V2193, &preg, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
+    let preg = synthetic_preg(protocol, BREG_V2225, &records);
+    let mut registries = bind(BREG_V2225, &preg, protocol).unwrap();
     let mut block = custom_block("test:sound_block", 1);
     block.sound = Some("wood".into());
     let hash = block.hashed_states()[0].hash;
@@ -186,10 +186,10 @@ fn custom_sound_components_follow_registered_states_in_both_id_spaces() {
 #[test]
 fn camera_block_tags_follow_both_identity_spaces_and_session_reset() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -233,10 +233,10 @@ fn camera_block_tags_follow_both_identity_spaces_and_session_reset() {
 #[test]
 fn noncolliding_plants_have_vanilla_pick_shapes_in_both_id_spaces() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
     let registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, &records),
         protocol,
     )
     .unwrap();
@@ -328,18 +328,18 @@ fn noncolliding_plants_have_vanilla_pick_shapes_in_both_id_spaces() {
 #[test]
 fn remote_palette_omits_unsupplied_vanilla_definitions() {
     let records =
-        assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol()).unwrap();
-    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
-    let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
+        assets::read_registry_for_protocol(BREG_V2225, active_content_registry_protocol()).unwrap();
+    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2225, &records);
+    let mut registries = bind(BREG_V2225, &preg, active_content_registry_protocol()).unwrap();
     let (_, remap) = registries
         .begin_session_custom_blocks(&protocol::CustomBlocks::default())
         .unwrap();
     for (wire, name) in [
-        (15_844, "minecraft:air"),
+        (17_713, "minecraft:air"),
         (3_219, "minecraft:stone"),
-        (9_650, "minecraft:polished_blackstone_bricks"),
-        (19_595, "minecraft:brown_terracotta"),
-        (17_951, "minecraft:gray_concrete"),
+        (10_956, "minecraft:polished_blackstone_bricks"),
+        (21_464, "minecraft:brown_terracotta"),
+        (19_820, "minecraft:gray_concrete"),
     ] {
         let resolved = records
             .iter()
@@ -353,9 +353,9 @@ fn remote_palette_omits_unsupplied_vanilla_definitions() {
 #[test]
 fn session_custom_blocks_append_after_vanilla_ids() {
     let records =
-        assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol()).unwrap();
-    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
-    let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
+        assets::read_registry_for_protocol(BREG_V2225, active_content_registry_protocol()).unwrap();
+    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2225, &records);
+    let mut registries = bind(BREG_V2225, &preg, active_content_registry_protocol()).unwrap();
     let first = u32::try_from(records.len()).unwrap();
     let vanilla_blocks = assets::server_defined_blocks()
         .iter()
@@ -427,10 +427,10 @@ fn session_custom_blocks_append_after_vanilla_ids() {
 #[test]
 fn remote_palette_rebuilds_admission_and_custom_order_each_session() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, &records),
         protocol,
     )
     .unwrap();
@@ -477,9 +477,9 @@ fn remote_palette_rebuilds_admission_and_custom_order_each_session() {
 #[test]
 fn session_hashed_custom_blocks_register_and_reset() {
     let records =
-        assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol()).unwrap();
-    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2193, &records);
-    let mut registries = bind(BREG_V2193, &preg, active_content_registry_protocol()).unwrap();
+        assets::read_registry_for_protocol(BREG_V2225, active_content_registry_protocol()).unwrap();
+    let preg = synthetic_preg(active_content_registry_protocol(), BREG_V2225, &records);
+    let mut registries = bind(BREG_V2225, &preg, active_content_registry_protocol()).unwrap();
     let custom = protocol::CustomBlocks {
         blocks: vec![custom_block("test:hashed", 1)].into(),
         vanilla_blocks: Default::default(),
@@ -505,7 +505,7 @@ fn session_hashed_custom_blocks_register_and_reset() {
 fn valid_wrong_protocol_preg_fails_with_typed_cross_carrier_mismatch() {
     let legacy_records = assets::read_registry(BREG_V1001).unwrap();
     let preg_v1001 = synthetic_preg(1001, BREG_V1001, &legacy_records);
-    let error = bind(BREG_V2193, &preg_v1001, active_content_registry_protocol())
+    let error = bind(BREG_V2225, &preg_v1001, active_content_registry_protocol())
         .expect_err("a flipped physics registry must fail startup");
 
     let PhysicsCollisionRegistryError::ProtocolMismatch {
@@ -517,7 +517,7 @@ fn valid_wrong_protocol_preg_fails_with_typed_cross_carrier_mismatch() {
     else {
         panic!("expected ProtocolMismatch, got {error:?}");
     };
-    assert_eq!(*expected_protocol, 2193);
+    assert_eq!(*expected_protocol, 2225);
     assert_eq!(*actual_protocol, 1001);
     assert_eq!(
         physics_registry_path,
@@ -529,7 +529,7 @@ fn valid_wrong_protocol_preg_fails_with_typed_cross_carrier_mismatch() {
     );
     let message = format!("{error}");
     assert!(
-        message.contains("1001") && message.contains("2193"),
+        message.contains("1001") && message.contains("2225"),
         "{message}"
     );
     assert!(message.contains("block-physics.bin"), "{message}");
@@ -558,11 +558,11 @@ fn legacy_fixture_keeps_decoding_with_unresolved_movement() {
 #[test]
 fn coherent_active_protocol_pair_binds_completely() {
     let registries = bind(
-        BREG_V2193,
+        BREG_V2225,
         &synthetic_preg(
-            2193,
-            BREG_V2193,
-            &assets::read_registry_for_protocol(BREG_V2193, 2193).expect("checked-in v2193 BREG"),
+            2225,
+            BREG_V2225,
+            &assets::read_registry_for_protocol(BREG_V2225, 2225).expect("checked-in v2225 BREG"),
         ),
         active_content_registry_protocol(),
     )
@@ -579,12 +579,12 @@ fn coherent_active_protocol_pair_binds_completely() {
 #[test]
 fn mutating_the_authority_flips_the_binding_decision() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
-    let preg = synthetic_preg(protocol, BREG_V2193, &records);
-    assert!(bind(BREG_V2193, &preg, protocol).is_ok());
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
+    let preg = synthetic_preg(protocol, BREG_V2225, &records);
+    assert!(bind(BREG_V2225, &preg, protocol).is_ok());
     assert!(matches!(
         bind(
-            BREG_V2193,
+            BREG_V2225,
             &preg,
             assets::registry_header_protocol(BREG_V1001).unwrap()
         ),
@@ -595,9 +595,9 @@ fn mutating_the_authority_flips_the_binding_decision() {
 #[test]
 fn held_placement_intention_uses_the_held_block_family_in_both_id_spaces() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
-    let preg = synthetic_preg(protocol, BREG_V2193, &records);
-    let registry = bind(BREG_V2193, &preg, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
+    let preg = synthetic_preg(protocol, BREG_V2225, &records);
+    let registry = bind(BREG_V2225, &preg, protocol).unwrap();
     for (name, expected) in [
         ("minecraft:stone", true),
         ("minecraft:oak_leaves", true),
@@ -643,10 +643,10 @@ mod placement;
 #[test]
 fn bootstrap_registration_preserves_palette_mapping_and_replaces_custom_collisions() {
     let version = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, version).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, version).unwrap();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(version, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(version, BREG_V2225, &records),
         version,
     )
     .unwrap();
@@ -684,8 +684,8 @@ fn bootstrap_registration_preserves_palette_mapping_and_replaces_custom_collisio
 fn session_registry_snapshots_share_carrier_tables_and_isolate_custom_mutation() {
     let version = active_content_registry_protocol();
     let base = bind(
-        BREG_V2193,
-        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2225,
+        include_bytes!("../../../../assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();
@@ -730,8 +730,8 @@ fn session_registry_snapshots_share_carrier_tables_and_isolate_custom_mutation()
     ));
     assert!(Arc::ptr_eq(&base.state_ids, &pending.state_ids));
     let unrelated = bind(
-        BREG_V2193,
-        include_bytes!("../../../../assets/data/block-physics-v2193.bin"),
+        BREG_V2225,
+        include_bytes!("../../../../assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();

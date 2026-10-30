@@ -1,8 +1,8 @@
 # Local worlds
 
-Single-player worlds run on a local server behind the same core and session endpoint as online play.
+Single-player worlds run on a local server through the same native Rust session pipeline as online play.
 The launcher (`crates/launcher-host/src/local_worlds`) owns the world store, the BDS download and the
-server processes; the core only routes sessions to the open world. Full scope: `plan.md` Phase 7.
+server processes; the native session retains the exact opening and route. Full scope: `plan.md` Phase 7.
 
 ## Backends
 
@@ -133,7 +133,7 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   `/time set <ticks|sunrise|day|noon|sunset|night|midnight>` sets the world's time of day and stops its
   daylight cycle so captures see the same sky; `/time cycle` resumes it. The local server's
   `-time <ticks|name>` flag opens every world at that time, frozen.
-- **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
+- **Login:** signed in, the native session presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account
   services fail before the transport opens or the server reports missing account verification keys.
@@ -143,22 +143,29 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
 - **Offline:** the client includes loopback ICE candidates for both local HTTP and LAN joins, so
   its transport can use same-device routes with external interfaces down. This does not create a
   missing server route: native BDS gathers ICE candidates only from non-loopback interfaces and has no other
-  transport, so on a device with no network its SDP answer carries no candidate. The core fails such
+  transport, so on a device with no network its SDP answer carries no candidate. The native session fails such
   a join at once with `cinnabar.disconnect.localWorldOffline` rather than waiting for a candidate.
   The Android translator supplies an additional route over the existing loopback interface and
   passes offline transport, signed-out login and spawn in the emulator sandbox. This does not
   change native desktop BDS. Initial Android server/runtime downloads require a connection;
   full-APK and physical-phone offline acceptance remain open.
 
-## Core route
+## Native session route
 
-The launcher reports the open world to the core with `local_world.v1`: `state` (`idle`, `starting`,
-`running`, `stopping`, `failed`), `world` (`id`, `name`, `game_mode`, `backend`), `target` while running
-(`address`, `transport` = `raknet` | `nethernet` | `nethernet-lan`, `lan_address`, `level_name`) and a path-free
-`error` while failed. The menu treats a world as ready only once the core has acknowledged the running server's exact route. A session waits while the world starts, fails while it stops or has failed, and falls
-through to other routes only when idle. A world that begins opening clears any `connect.v1` selection and
-pending transfer. When multiplayer is enabled, the core hosts a running BDS world to Xbox friends
-and serves `world_invite.v1` for it.
+The launcher captures the selected world's `HostOpening`. Its status supplies the running
+world and the route returned by that exact server process. Dragonfly and BDS use loopback
+HTTP-signaled NetherNet; a BDS opening may instead retain its advertised LAN address and
+level name. The generated transport values are `nethernet` and `nethernet-lan`.
+
+The session waits for that opening to become ready and verifies its generation before using
+the route. Leaving, account retirement or another opening cancels the original join. A stale
+world card or arbitrary loopback address cannot replace the selected process. Local HTTP
+admission and the local offline-identity retry apply only to this owned opening.
+
+When enabled, native friend hosting retains the same running world and account. The menu
+queues invitations through that captured hosting owner. These services use in-process Rust
+interfaces; no `local_world.v1` control endpoint or Go client core sits between the launcher
+and the session.
 
 ## Client
 

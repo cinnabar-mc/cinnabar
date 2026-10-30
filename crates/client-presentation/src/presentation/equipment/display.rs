@@ -5,7 +5,7 @@ use render_model::RenderBoneTransform;
 use render_model::equipment::ItemDisplay;
 use render_model::equipment::sprite_item_transform;
 
-pub(super) const LAYER_OFF_HAND: u8 = 2;
+pub(crate) const LAYER_OFF_HAND: u8 = 2;
 pub(super) const LAYER_HELMET: u8 = 3;
 pub(super) const LAYER_CHESTPLATE: u8 = 4;
 pub(super) const LAYER_LEGGINGS: u8 = 5;

@@ -81,8 +81,8 @@ mod pack_url_parallel_tests;
 #[path = "transport/inbox_actor_tests.rs"]
 mod inbox_actor_tests;
 #[cfg(test)]
-#[path = "transport/raknet/tests.rs"]
-mod raknet_tests;
+#[path = "transport/nethernet_pressure_tests.rs"]
+mod nethernet_pressure_tests;
 
 /// Checks fixture advertisements against the selected library's LAN wire default.
 #[test]

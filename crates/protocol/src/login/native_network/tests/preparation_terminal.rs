@@ -12,7 +12,7 @@ use crate::{ClientRandomId, LoginSettings, Packet, ProtocolError, SessionLogin};
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
 };
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::{ConnectionDisconnectFailReason, PlayStatusType},
     packets,
     types::{ActorRuntimeID, DisconnectMessages},
@@ -30,7 +30,7 @@ use tokio::sync::oneshot;
 #[tokio::test]
 async fn native_disconnect_during_held_preparation_keeps_reason_and_accepted_fifo() {
     let terminal = Packet::new(packets::Disconnect {
-        reason: ConnectionDisconnectFailReason::Serverfull,
+        reason: ConnectionDisconnectFailReason::ServerFull,
         messages: DisconnectMessages::DisconnectPacketMessages {
             message: "presentation interrupted".into(),
             filtered_message: "filtered presentation interrupted".into(),
@@ -43,7 +43,7 @@ async fn native_disconnect_during_held_preparation_keeps_reason_and_accepted_fif
     let disconnect = error
         .server_disconnect()
         .expect("original Disconnect reason");
-    assert_eq!(disconnect.reason, "Serverfull");
+    assert_eq!(disconnect.reason, "ServerFull");
     assert_eq!(
         disconnect.message.as_deref(),
         Some("presentation interrupted")
@@ -77,7 +77,7 @@ async fn native_transfer_during_held_preparation_keeps_target_and_accepted_fifo(
 #[tokio::test]
 async fn received_native_disconnect_supersedes_held_preparation_without_consuming_its_fifo() {
     let terminal = Packet::new(packets::Disconnect {
-        reason: ConnectionDisconnectFailReason::Serverfull,
+        reason: ConnectionDisconnectFailReason::ServerFull,
         messages: DisconnectMessages::DisconnectPacketMessages {
             message: "buffered presentation interrupted".into(),
             filtered_message: "".into(),
@@ -88,7 +88,7 @@ async fn received_native_disconnect_supersedes_held_preparation_without_consumin
         .expect("already received native Disconnect must supersede held preparation")
         .expect_err("a disconnected startup must not succeed");
     let disconnect = error.server_disconnect().expect("original Disconnect");
-    assert_eq!(disconnect.reason, "Serverfull");
+    assert_eq!(disconnect.reason, "ServerFull");
     assert_eq!(
         disconnect.message.as_deref(),
         Some("buffered presentation interrupted")
@@ -183,7 +183,7 @@ impl PacketRelay for TerminalRelay {
 /// Supplies a real generated Disconnect for both selected relay policies.
 fn relay_disconnect() -> Packet {
     Packet::new(packets::Disconnect {
-        reason: ConnectionDisconnectFailReason::Serverfull,
+        reason: ConnectionDisconnectFailReason::ServerFull,
         messages: DisconnectMessages::DisconnectPacketMessages {
             message: "original upstream reason".into(),
             filtered_message: "".into(),
@@ -222,7 +222,7 @@ async fn held_relay_preparation(
             Packet::new(packets::ResourcePackStack::default()),
             deferred.clone(),
             Packet::new(packets::PlayStatus {
-                status: PlayStatusType::Playerspawn,
+                status: PlayStatusType::PlayerSpawn,
             }),
             Packet::new(packets::StartGame {
                 runtime_id: ActorRuntimeID(42),
@@ -282,7 +282,7 @@ async fn held_relay_preparation(
                 &codec,
                 &[
                     Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     Packet::new(packets::ResourcePacksInfo::default()),
                 ],

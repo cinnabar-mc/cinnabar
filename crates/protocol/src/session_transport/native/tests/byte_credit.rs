@@ -5,7 +5,7 @@ use crate::{
     packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap},
     session_transport::Inbound,
 };
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 
 #[tokio::test]
 async fn channel_byte_credit_survives_read_ahead_and_the_last_packet_borrow() {

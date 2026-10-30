@@ -6,7 +6,10 @@ use nethernet_tokio::{ClientIceConfig, ConnectionConfig};
 use std::{io, net::SocketAddr};
 
 /// Retains actual selected proof/trust and the original direct online/offline wire policy.
-pub(super) fn direct_options(identity: Option<&TransportIdentity>) -> DirectedLanConfig {
+pub(super) fn direct_options(
+    identity: Option<&TransportIdentity>,
+    selection: LanSelection,
+) -> DirectedLanConfig {
     let mut connection = ConnectionConfig {
         max_incoming_message_bytes: bedrock_net::BatchLimits::default().max_encoded_bytes,
         allow_unsigned_answers: true,
@@ -25,11 +28,7 @@ pub(super) fn direct_options(identity: Option<&TransportIdentity>) -> DirectedLa
     }
     DirectedLanConfig {
         connection,
-        selection: if identity.is_some() {
-            LanSelection::Online
-        } else {
-            LanSelection::SelfSigned
-        },
+        selection,
         max_nonce_bytes: crate::MAX_NATIVE_JOIN_NONCE_BYTES,
         credential_expires: identity.and_then(|identity| identity.expires),
     }
@@ -40,6 +39,7 @@ pub(in crate::login::native_network) async fn connect_local(
     address: SocketAddr,
     level: &str,
     discovery_budget: std::time::Duration,
+    identity: &TransportIdentity,
     deadline: tokio::time::Instant,
 ) -> io::Result<(Transport, u64)> {
     if !address.is_ipv4()
@@ -47,6 +47,7 @@ pub(in crate::login::native_network) async fn connect_local(
         || address.port() == 0
         || level.is_empty()
         || discovery_budget.is_zero()
+        || identity.expires.is_some()
     {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -63,7 +64,7 @@ pub(in crate::login::native_network) async fn connect_local(
                 ice: Default::default(),
                 bind_addr: Some(SocketAddr::new(address.ip(), 0)),
             }),
-            ..direct_options(None).connection
+            ..direct_options(Some(identity), LanSelection::SelfSigned).connection
         },
         selection: LanSelection::Local {
             level: level.to_owned(),

@@ -6,7 +6,7 @@ use crate::login::native_network::{
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
 };
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::ConnectionDisconnectFailReason, packets, types::DisconnectMessages, wire,
 };
 use futures::FutureExt;
@@ -149,7 +149,7 @@ async fn attempts(first_reason: ConnectionDisconnectFailReason) -> Attempts {
                     && identity.claimed_playfab_title_id().is_empty()
             });
             let offline = offline.is_some();
-            reject(&second, &codec, ConnectionDisconnectFailReason::Serverfull).await;
+            reject(&second, &codec, ConnectionDisconnectFailReason::ServerFull).await;
             let count = tokio::select! {
                 peer = listener.accept() => {
                     drop(peer.unwrap().close());
@@ -195,7 +195,7 @@ async fn attempts(first_reason: ConnectionDisconnectFailReason) -> Attempts {
 
 #[tokio::test]
 async fn local_http_keyless_retry_retires_original_and_remains_offline_and_bounded() {
-    let attempt = attempts(ConnectionDisconnectFailReason::Hostwithoutkeys).await;
+    let attempt = attempts(ConnectionDisconnectFailReason::HostWithoutKeys).await;
     assert_eq!(
         attempt.count, 2,
         "a typed keyless local rejection must retry exactly once"
@@ -214,15 +214,15 @@ async fn local_http_keyless_retry_retires_original_and_remains_offline_and_bound
         "offline retry must preserve the original player UUID without account claims"
     );
     assert_eq!(
-        attempt.reason, "Serverfull",
+        attempt.reason, "ServerFull",
         "the second rejection must be returned without another retry"
     );
 }
 
 #[tokio::test]
 async fn local_http_disconnect_text_does_not_authorize_offline_retry() {
-    let attempt = attempts(ConnectionDisconnectFailReason::Serverfull).await;
+    let attempt = attempts(ConnectionDisconnectFailReason::ServerFull).await;
     assert_eq!(attempt.count, 1);
     assert!(attempt.authenticated);
-    assert_eq!(attempt.reason, "Serverfull");
+    assert_eq!(attempt.reason, "ServerFull");
 }

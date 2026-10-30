@@ -8,9 +8,6 @@ use std::{
     sync::{Mutex, PoisonError},
 };
 
-/// Environment keys shared by client layout and tooling.
-pub mod markers;
-
 /// Prefix every renamed variable now carries.
 pub const PREFIX: &str = "CINNABAR_";
 const LEGACY_PREFIX: &str = "RUST_MCBE_";

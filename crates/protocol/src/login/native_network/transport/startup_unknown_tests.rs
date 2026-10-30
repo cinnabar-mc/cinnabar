@@ -6,7 +6,9 @@ use crate::{LoginSequence, Packet, ProtocolError, SessionLogin};
 use bedrock_net::{
     BatchCodec, BatchLimits, BatchPhase, CompressionAlgorithm, CompressionSettings, DecodeOutcome,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{
+    enums::PlayStatusType, packets, types::ActorRuntimeID, wire,
+};
 use nethernet_tokio::AcceptedSession;
 use std::time::Duration;
 
@@ -199,7 +201,7 @@ async fn serve_compressed(
         Stage::Offer,
         &[
             Packet::new(packets::PlayStatus {
-                status: PlayStatusType::Loginsuccess,
+                status: PlayStatusType::LoginSuccess,
             }),
             Packet::new(packets::ResourcePacksInfo::default()),
         ],
@@ -221,7 +223,7 @@ async fn serve_compressed(
         Stage::Stack,
         &[
             Packet::new(packets::PlayStatus {
-                status: PlayStatusType::Playerspawn,
+                status: PlayStatusType::PlayerSpawn,
             }),
             time(1),
             Packet::new(packets::ResourcePackStack::default()),

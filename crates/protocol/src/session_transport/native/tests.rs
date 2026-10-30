@@ -15,7 +15,7 @@ struct ReplayConnection {
 
 #[tokio::test]
 async fn a_permit_committed_after_receive_error_cannot_strand_its_receipt() {
-    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_contract_1_26_60::packets;
     let (incoming, receive) = mpsc::channel(1);
     let mut transport = SessionTransport::from_native(
         ReplayConnection {
@@ -51,7 +51,7 @@ async fn a_permit_committed_after_receive_error_cannot_strand_its_receipt() {
 
 #[tokio::test]
 async fn a_permit_committed_after_failure_is_rejected_without_waiting_for_ingress() {
-    use bedrock_protocol_1_26_51::packets;
+    use bedrock_protocol_contract_1_26_60::packets;
     let (incoming, receive) = mpsc::channel(QUEUED_BATCHES + 1);
     let (fifth_read, received_fifth) = oneshot::channel();
     let transport = SessionTransport::from_native(
@@ -148,7 +148,7 @@ impl PacketIo for ReplayConnection {
 
 #[tokio::test]
 async fn write_failure_keeps_a_received_transfer_behind_full_ingress() {
-    use bedrock_protocol_1_26_51::{packets, wire};
+    use bedrock_protocol_contract_1_26_60::{packets, wire};
     let (incoming, receive) = mpsc::channel(QUEUED_BATCHES + 1);
     let (fifth_read, received_fifth) = oneshot::channel();
     let mut transport = SessionTransport::from_native(
@@ -253,7 +253,7 @@ pub(crate) mod service;
 
 #[tokio::test]
 async fn graceful_close_keeps_the_actual_pending_fifth_ingress_body() {
-    use bedrock_protocol_1_26_51::{packets, wire};
+    use bedrock_protocol_contract_1_26_60::{packets, wire};
     let (incoming, receive) = mpsc::channel(QUEUED_BATCHES + 1);
     let (fifth_read, received_fifth) = oneshot::channel();
     let (closed, observed_close) = oneshot::channel();

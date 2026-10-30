@@ -75,7 +75,7 @@ async fn tiny_relay_startup_detaches_from_discarded_batch_backing() {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

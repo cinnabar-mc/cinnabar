@@ -20,9 +20,7 @@ pub trait NativeServerTrust: Send + Sync {
 #[derive(Clone)]
 pub(crate) struct AddressedRoute {
     address: String,
-    pub(crate) host: String,
-    pub(crate) port: Option<u16>,
-    pub(crate) ipv6: bool,
+    pub(crate) endpoints: Vec<String>,
     pub(crate) trust: Arc<dyn NativeServerTrust>,
 }
 
@@ -36,40 +34,16 @@ impl NativeConnectionTarget {
     /// Binds one addressed endpoint to its original application's trust capability before any I/O.
     ///
     /// # Errors
-    /// Rejects empty, malformed, URL or service input; a bare server host may omit its port.
+    /// Rejects empty, malformed or service input; a bare server host may omit its port; explicit HTTP/HTTPS URLs retain their scheme.
     pub fn addressed(address: String, trust: Arc<dyn NativeServerTrust>) -> io::Result<Self> {
-        if address.is_empty()
-            || address.contains(['/', '\\', '?', '#', '@'])
-            || address
-                .chars()
-                .any(|value| value.is_whitespace() || value.is_control())
-        {
-            return Err(invalid());
-        }
-        let (host, explicit, ipv6) = if let Some((host, port)) = ipv6_authority(&address)? {
-            (host.to_owned(), port, true)
-        } else {
-            let url = url::Url::parse(&format!("http://{address}")).map_err(|_| invalid())?;
-            (
-                url.host().ok_or_else(invalid)?.to_string(),
-                address.rsplit_once(':').map(|(_, port)| port),
-                false,
-            )
-        };
-        let port = explicit
-            .map(str::parse::<u16>)
-            .transpose()
-            .map_err(|_| invalid())?
-            .filter(|port| *port != 0);
+        let endpoints = native_http_endpoints(&address)?;
         Ok(Self {
             address: address.clone(),
             transport: NativeTransport::Addressed,
             local_lan: None,
             addressed: Some(AddressedRoute {
                 address,
-                host,
-                port,
-                ipv6,
+                endpoints,
                 trust,
             }),
         })
@@ -89,17 +63,87 @@ impl NativeConnectionTarget {
     }
 }
 
-impl AddressedRoute {
-    /// Builds the original explicit RakNet fallback without resolving or changing the route.
-    pub(crate) fn raknet_target(&self) -> NativeConnectionTarget {
-        let port = self.port.unwrap_or(bridge::contract::DEFAULT_BEDROCK_PORT);
-        let address = if self.ipv6 {
-            format!("[{}]:{port}", self.host)
-        } else {
-            format!("{}:{port}", self.host)
-        };
-        NativeConnectionTarget::new(address, NativeTransport::RakNet)
+/// Produces HTTP signaling candidates without resolving DNS or opening a connection.
+/// Explicit HTTP/HTTPS URLs retain their scheme; bare addresses try HTTPS before HTTP.
+/// An omitted port tries the Bedrock port and then the scheme's default port.
+///
+/// # Errors
+/// Rejects malformed addresses, service identifiers, credentials, paths and queries.
+pub fn native_http_endpoints(address: &str) -> io::Result<Vec<String>> {
+    if address.contains("://") {
+        let url = url::Url::parse(address).map_err(|_| invalid())?;
+        if !matches!(url.scheme(), "http" | "https")
+            || url.host().is_none()
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || !matches!(url.path(), "" | "/")
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || url.port_or_known_default().is_none_or(|port| port == 0)
+        {
+            return Err(invalid());
+        }
+        return Ok(vec![url.origin().ascii_serialization()]);
     }
+    if address.is_empty()
+        || address.contains(['/', '\\', '?', '#', '@'])
+        || address
+            .chars()
+            .any(|value| value.is_whitespace() || value.is_control())
+    {
+        return Err(invalid());
+    }
+    let (host, explicit, ipv6) = if let Some((host, port)) = ipv6_authority(address)? {
+        (host.to_owned(), port, true)
+    } else {
+        let url = url::Url::parse(&format!("http://{address}")).map_err(|_| invalid())?;
+        (
+            url.host().ok_or_else(invalid)?.to_string(),
+            address.rsplit_once(':').map(|(_, port)| port),
+            false,
+        )
+    };
+    let port = explicit
+        .map(str::parse::<u16>)
+        .transpose()
+        .map_err(|_| invalid())?;
+    if port == Some(0) {
+        return Err(invalid());
+    }
+    let authority = if ipv6 { format!("[{host}]") } else { host };
+    let mut endpoints = Vec::new();
+    for scheme in ["https", "http"] {
+        if let Some(port) = port {
+            endpoints.push(format!("{scheme}://{authority}:{port}"));
+        } else {
+            endpoints.push(format!(
+                "{scheme}://{authority}:{}",
+                bridge::contract::DEFAULT_BEDROCK_PORT
+            ));
+            endpoints.push(format!("{scheme}://{authority}"));
+        }
+    }
+    Ok(endpoints)
+}
+
+/// Formats Login metadata for one selected HTTP origin, retaining its logical host and effective port.
+/// This performs no DNS lookup and supplies no socket, server trust or account authority.
+///
+/// # Errors
+/// Rejects input that is not one explicit HTTP/HTTPS origin admitted by [`native_http_endpoints`].
+pub fn native_http_login_address(endpoint: &str) -> io::Result<String> {
+    let endpoints = native_http_endpoints(endpoint)?;
+    let [selected] = endpoints.as_slice() else {
+        return Err(invalid());
+    };
+    let url = url::Url::parse(selected).map_err(|_| invalid())?;
+    let port = url.port_or_known_default().ok_or_else(invalid)?;
+    let host = match url.host().ok_or_else(invalid)? {
+        url::Host::Domain(host) => host.to_owned(),
+        url::Host::Ipv4(address) => address.to_string(),
+        url::Host::Ipv6(address) => format!("[{address}]"),
+    };
+    Ok(format!("{}://{host}:{port}", url.scheme()))
 }
 
 /// Retains a numeric IPv6 host's optional interface zone independently of HTTP URL syntax.

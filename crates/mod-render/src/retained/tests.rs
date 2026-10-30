@@ -4,7 +4,7 @@ mod sdk;
 pub(super) mod work;
 
 /// Makes a reusable unit triangle with distinct vertex colours.
-fn mesh() -> GeometrySpec {
+pub(super) fn mesh() -> GeometrySpec {
     GeometrySpec::Triangles {
         vertices: [[0., 0., 0.], [1., 0., 0.], [0., 1., 0.]]
             .map(|position| Vertex {
@@ -18,10 +18,11 @@ fn mesh() -> GeometrySpec {
     }
 }
 /// Makes an identity instance referencing the caller's admitted geometry.
-fn drawing(geometry: Handle) -> Instance {
+pub(super) fn drawing(geometry: Handle) -> Instance {
     Instance {
         geometry,
         material: None,
+        clip: None,
         params: mod_api::materials::Preset::default().0,
         anchor: Anchor::World {
             dimension: 0,

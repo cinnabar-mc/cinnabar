@@ -3,7 +3,7 @@
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 mod addressed;
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
-pub use addressed::NativeServerTrust;
+pub use addressed::{NativeServerTrust, native_http_endpoints, native_http_login_address};
 
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 mod raw_nethernet;
@@ -21,10 +21,10 @@ pub const NATIVE_JOIN_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// Native direct transport selected by application composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeTransport {
-    /// Addressed-server HTTP discovery followed by its selected NetherNet or RakNet transport.
+    /// Addressed-server HTTP discovery followed by its selected NetherNet transport.
     Addressed,
-    /// Reliable ordered UDP with application batch encryption.
-    RakNet,
+    /// HTTP/full-ICE signaling to an explicitly selected server URL.
+    NetherNetHttp,
     /// Directed LAN discovery and ICE/DTLS/SCTP with caller-selected Login authentication.
     NetherNetLan,
     /// Protected Player Messaging with signed SDP and explicit friend or service admission.
@@ -123,23 +123,19 @@ mod tests {
         }
     }
 
-    /// A valid scoped native socket must survive addressed selection into the actual RakNet fallback.
+    /// The selected numeric family and scope remain part of the original addressed route.
     #[test]
-    fn addressed_scoped_ipv6_retains_its_original_family_and_scope_for_raknet() {
+    fn addressed_scoped_ipv6_retains_its_original_family_and_scope() {
         use std::{net::SocketAddr, sync::Arc};
         for address in ["[::1%3]:19132", "[fe80::1%7]:19133"] {
             let original: SocketAddr = address.parse().unwrap();
             let target = NativeConnectionTarget::addressed(address.into(), Arc::new(RefuseTrust))
-                .expect("a valid scoped native endpoint was rejected as an HTTP URL");
+                .expect("a valid scoped native endpoint was rejected");
             target.validate().unwrap();
+            let route = target.addressed_route().unwrap();
             assert_eq!(target.address, address);
-            let fallback = target.addressed_route().unwrap().raknet_target();
-            assert_eq!(fallback.transport, NativeTransport::RakNet);
-            assert_eq!(
-                fallback.address.parse::<SocketAddr>().unwrap(),
-                original,
-                "addressed RakNet fallback lost the original IPv6 scope"
-            );
+            assert_eq!(route.endpoints[0], format!("https://{original}"));
+            assert_eq!(route.endpoints[1], format!("http://{original}"));
         }
     }
 
@@ -149,11 +145,12 @@ mod tests {
         use std::sync::Arc;
         for address in [
             "",
-            "http://host:19132",
+            "http://host:19132/path",
             "user@host:19132",
             "host/path:19132",
             "host\\path:19132",
             "host:65536",
+            "host:0",
             "host\n:19132",
             "[bad]:19132",
         ] {
@@ -169,7 +166,7 @@ mod tests {
             changed.address.push('x');
             assert!(changed.validate().is_err());
             let mut changed = target;
-            changed.transport = NativeTransport::RakNet;
+            changed.transport = NativeTransport::NetherNetHttp;
             assert!(changed.validate().is_err());
         }
         assert!(
@@ -177,6 +174,25 @@ mod tests {
                 .validate()
                 .is_err()
         );
+    }
+
+    /// Explicit signaling URLs and numeric families use the same shared selection policy.
+    #[test]
+    fn http_endpoints_preserve_explicit_scheme_port_and_ipv6_authority() {
+        assert_eq!(
+            native_http_endpoints("http://example.invalid:19133").unwrap(),
+            ["http://example.invalid:19133"]
+        );
+        assert_eq!(
+            native_http_endpoints("https://example.invalid").unwrap(),
+            ["https://example.invalid"]
+        );
+        assert_eq!(
+            native_http_endpoints("[::1]:19133").unwrap(),
+            ["https://[::1]:19133", "http://[::1]:19133"]
+        );
+        assert!(native_http_endpoints("http://user@example.invalid").is_err());
+        assert!(native_http_endpoints("http://example.invalid?route=other").is_err());
     }
 
     /// Local policy cannot be fabricated or redirected by changing the public endpoint projection.
@@ -209,7 +225,7 @@ mod tests {
         changed.address = "127.0.0.1:4321".into();
         assert!(changed.validate().is_err());
         let mut changed = original;
-        changed.transport = NativeTransport::RakNet;
+        changed.transport = NativeTransport::NetherNetHttp;
         assert!(changed.validate().is_err());
     }
 

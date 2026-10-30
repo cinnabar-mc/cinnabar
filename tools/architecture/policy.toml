@@ -19,11 +19,11 @@ forbidden_artifacts = [
 # Original art, never Mojang content.
 [[owned_artifacts]]
 path = "examples/mods/cosmic/assets/moon.png"
-ownership_record = "docs/mod-projects.md"
+ownership_record = "docs/modding/src/appendix/paired-projects.md"
 
 [[owned_artifacts]]
 path = "examples/experiences/terminal-client/assets/terminal.png"
-ownership_record = "docs/mod-projects.md"
+ownership_record = "docs/modding/src/appendix/paired-projects.md"
 
 [[owned_artifacts]]
 path = "assets/panorama/"
@@ -51,20 +51,20 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
-path = "crates/assets/data/entity-facts-v2193.bin"
+path = "crates/assets/data/entity-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/item-facts-v2193.bin"
+path = "crates/assets/data/item-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/java-mapping-v2193.bin"
+path = "crates/assets/data/java-mapping-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 # Generated packet models remain a direct dependency of `protocol` only.
 [[dependency_owners]]
-package = "bedrock-protocol-1-26-51"
+package = "bedrock-protocol-contract-1-26-60"
 owner = "protocol"
 
 [[crates]]
@@ -235,7 +235,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "pack-
 [[crates]]
 name = "inventory"
 path = "crates/inventory"
-allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids"]
+allowed_dependencies = ["simulation-clock", "assets", "protocol", "protocol-ids", "test-alloc"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "ui", "json-ui", "render", "bevy", "bevy_*", "wgpu*", "client-world", "world"]
 
@@ -264,7 +264,7 @@ test_support_features = ["test-support"]
 name = "launcher"
 path = "crates/launcher"
 test_support_features = ["test-support"]
-allowed_dependencies = ["cosmetics", "assets", "bridge", "env-compat", "json-ui", "render-api", "resource-pack", "semantic-input", "shaderpack", "ui", "update-manifest"]
+allowed_dependencies = ["cosmetics", "assets", "bridge", "json-ui", "render-api", "resource-pack", "semantic-input", "shaderpack", "ui", "update-manifest"]
 forbidden_dependencies = ["protocol", "server-experience"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "client-ui", "player-state", "inventory", "client-world", "world", "sim", "render", "asset-compiler", "pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "bevy", "bevy_*", "wgpu*"]
 
@@ -406,7 +406,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "c
 [[crates]]
 name = "particles"
 path = "crates/particles"
-allowed_dependencies = ["assets", "render-model"]
+allowed_dependencies = ["pack-json", "assets", "render-model", "protocol-ids"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "render", "protocol", "client-world", "chunk-pipeline", "bevy", "bevy_*", "wgpu*"]
 
@@ -468,8 +468,8 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "mod-render"
 path = "crates/mod-render"
-allowed_dependencies = ["mod-api", "test-alloc"]
-forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+allowed_dependencies = ["assets", "meshing", "world", "mod-api", "test-alloc"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol"]
 forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*"]
 
 [[crates]]
@@ -493,6 +493,12 @@ forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 [[crates]]
 name = "time-changer-mod"
 path = "examples/mods/time-changer"
+allowed_dependencies = ["mod-api"]
+forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+[[crates]]
+name = "portal-view-mod"
+path = "examples/mods/portal-view"
 allowed_dependencies = ["mod-api"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
 
@@ -595,7 +601,7 @@ forbidden_dependencies = ["bevy", "wgpu"]
 [[crates]]
 name = "devtool"
 path = "tools/devtool"
-allowed_dependencies = ["cinnabar-cxb", "render-api", "crash-report", "diagnostics", "env-compat", "test-time", "workspace-declarations"]
+allowed_dependencies = ["cinnabar-cxb", "render-api", "crash-report", "diagnostics", "test-time", "workspace-declarations"]
 
 forbidden_dependencies = ["bevy", "wgpu"]
 
@@ -901,8 +907,20 @@ consumer = "crates/acceptance/src/movement_evidence.rs"
 [[markers]]
 literal = "CINNABAR_USER_ROOT"
 kind = "environment_variable"
-producer = "crates/env-compat/src/markers.rs"
+producer = "crates/render-api/src/lib.rs"
 consumer = "crates/launcher/src/install_layout.rs"
+
+[[markers]]
+literal = "CINNABAR_STARTUP"
+kind = "parsed"
+producer = "crates/render-api/src/lib.rs"
+consumer = "tools/devtool/src/startup.rs"
+
+[[markers]]
+literal = "CINNABAR_STARTUP_BENCHMARK"
+kind = "environment_variable"
+producer = "crates/render-api/src/lib.rs"
+consumer = "app/src/app/startup/timing.rs"
 
 [[markers]]
 literal = "CINNABAR_ERROR_COUNTERS"
@@ -1313,7 +1331,7 @@ name = "launcher-host"
 path = "crates/launcher-host"
 # Optional account services acquire protected messaging upgrades on this runtime/storage edge.
 # The external networking adapter owns socket/signaling composition; protocol owns native admission.
-# Native row pings drive canonical RakNet's configured sans-I/O endpoint on this existing edge.
+# Native row pings query HTTP signaling on this existing runtime edge.
 # The optional product API owns its verified WebSocket and borrows the selected NativeAccount mint.
 # Its socket future joins the existing event worker; domain policy and bridge records remain Bevy-free.
 # Native accepting Login performs UDP host/service admission through optional dns-lookup on this OS edge.
@@ -1368,6 +1386,26 @@ path = "crates/experience-sdk/src/lib.rs"
 exports = ["experience_macros::client", "experience_macros::server"]
 
 # Production identity decisions move to the facts owners; unlisted files have a zero budget.
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:air"
+reason = "The standalone guest example supplies a concrete named-state palette without host registry dependencies."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:netherrack"
+reason = "The standalone guest example supplies a concrete named-state palette without host registry dependencies."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:lava"
+reason = "The standalone guest example demonstrates an animated liquid in a named-state palette."
+
+[[identifier_literal_exceptions]]
+path = "examples/mods/portal-view/src/lib.rs"
+literal = "minecraft:obsidian"
+reason = "The standalone guest example supplies a concrete named block for its retained frame."
+
 [identifier_literals]
 owners = [
     "crates/asset-compiler/src/registry_policy/",
@@ -1375,13 +1413,13 @@ owners = [
     "crates/json-ui/src/vanilla.rs",
 ]
 vocabularies = [
-    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_items_1_26_50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_actors_1_26_50.txt", column = 0 },
-    { path = "crates/protocol/data/retail_biomes_1_26_50.txt", column = 0 },
+    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_items_1_26_60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_actors_1_26_60.txt", column = 0 },
+    { path = "crates/protocol/data/retail_biomes_1_26_60.txt", column = 0 },
     { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
-block_registries = ["crates/assets/data/block-registry-v2193.bin"]
+block_registries = ["crates/assets/data/block-registry-v2225.bin"]
 # The provisional PBR texture-name table stays: the pinned Java/Bedrock mapping has no texture
 # names, so it waits for a model-derived source (plan.md).
 baselines = [
@@ -2201,3 +2239,50 @@ name = "experience-space-client"
 path = "examples/experiences/space-client"
 allowed_dependencies = ["experience-sdk"]
 forbidden_dependencies = ["bevy", "wgpu", "protocol", "world"]
+
+# Standalone modding book and its checked WIT reference.
+[[crates]]
+name = "mod-docs"
+path = "tools/mod-docs"
+allowed_dependencies = ["mod-api", "mod-host", "server-experience", "ui"]
+forbidden_dependencies = ["bevy", "wgpu"]
+
+[[identifier_literal_exceptions]]
+path = "tools/mod-docs/src/types.rs"
+literal = "string"
+reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "bottom"
+reason = "A vertical-half property value, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/gameplay/src/placement_state.rs"
+literal = "bottom"
+reason = "A vertical-half property value used when joining slab states."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/native_boat.rs"
+literal = "bottom"
+reason = "An authored boat bone name, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/fire_admission.rs"
+literal = "bottom"
+reason = "A vertical-half property value used to resolve the lower block face."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks/states.rs"
+literal = "bottom"
+reason = "A built-in vertical-half trait value in the protocol state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/pbr/sources/names.rs"
+literal = "bottom"
+reason = "A door texture suffix in the existing provisional PBR name conversion."
+
+[[identifier_literal_exceptions]]
+path = "tools/jsonui-editor/src/figma/convert/button.rs"
+literal = "locked"
+reason = "A button state name in the editor conversion contract, independent of pack asset identifiers."

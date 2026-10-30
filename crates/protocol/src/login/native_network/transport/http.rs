@@ -106,7 +106,10 @@ pub(super) fn client(deadline: tokio::time::Instant) -> io::Result<reqwest::Clie
 }
 
 /// Supplies the original proof, trust, incoming bound and explicit ICE binding without dialing.
-pub(super) fn config(identity: &TransportIdentity, bind: Option<SocketAddr>) -> ConnectionConfig {
+pub(in crate::login::native_network) fn config(
+    identity: &TransportIdentity,
+    bind: Option<SocketAddr>,
+) -> ConnectionConfig {
     ConnectionConfig {
         max_incoming_message_bytes: bedrock_net::BatchLimits::default().max_encoded_bytes,
         identity: Some(Arc::clone(&identity.identity)),

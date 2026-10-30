@@ -71,7 +71,7 @@ async fn completed_handoff_releases_the_consumed_start_game_backing() {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

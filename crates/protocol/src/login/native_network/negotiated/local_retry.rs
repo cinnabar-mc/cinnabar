@@ -3,7 +3,7 @@
 use super::*;
 use crate::session_wire::CoreMessage;
 use bedrock_client_tokio::PacketIo;
-use bedrock_protocol_1_26_51::enums::ConnectionDisconnectFailReason;
+use bedrock_protocol_contract_1_26_60::enums::ConnectionDisconnectFailReason;
 
 /// Recognizes only the original failed Login's actual typed keyless disconnect.
 pub(super) fn is_keyless(connection: &Connection, error: &ProtocolError) -> bool {
@@ -12,7 +12,7 @@ pub(super) fn is_keyless(connection: &Connection, error: &ProtocolError) -> bool
             super::super::connection::current_terminal(connection),
             Ok(Some(CoreMessage::Disconnect(disconnect)))
                 if crate::disconnect::disconnect_reason(disconnect.reason)
-                    == ConnectionDisconnectFailReason::Hostwithoutkeys
+                    == ConnectionDisconnectFailReason::HostWithoutKeys
         )
 }
 

@@ -538,7 +538,7 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
             tint_kind,
             in.material_flags,
             in.biome_record,
-            in.local_position - in.normal * 0.001,
+            in.local_position - quad_shape_normal(in.quad_shape) * 0.001,
             in.world_position - in.local_position,
         ).rgb;
     }

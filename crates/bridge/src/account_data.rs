@@ -331,7 +331,7 @@ pub struct LiveEvent {
     pub event_image: Artwork,
 }
 
-/// One server's RakNet pong; `online` is false when it did not answer.
+/// One server's NetherNet status; `online` is false when it did not answer.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
 pub struct ServerPing {
     #[serde(default)]

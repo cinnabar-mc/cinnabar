@@ -10,6 +10,8 @@ use glam::Mat4;
 pub struct StaticItemPlacement {
     pub identifier: Arc<str>,
     pub metadata: u32,
+    /// Cloth colors and masks retained from the contained shield stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// A retained sequential block identity whose dedicated pot-content model is drawn.
     /// `None` selects the ordinary carried model or item sprite.
     pub potted_block: Option<u32>,

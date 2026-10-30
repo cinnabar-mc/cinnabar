@@ -79,18 +79,26 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
+          NATIVE_MACOS_ARTIFACT: ${{ inputs.native_macos_artifact }}
           REPO: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
           SHA: ${{ github.sha }}
         run: |
           full=false run=true
           if [ "$EVENT" != pull_request ]; then full=true; fi
+          # An explicit acceptance artifact build runs its independent producer only.
+          if [ "$EVENT" = workflow_dispatch ] && [ "$NATIVE_MACOS_ARTIFACT" = true ]; then run=false; fi
           # A scheduled run is skipped only when a full run already passed on this commit, so failed
           # or interrupted runs are retried.
           if [ "$EVENT" = schedule ]; then
-            passed=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success&per_page=50" \
-              --jq "[.workflow_runs[] | select(.id != $RUN_ID and .event != \"pull_request\")] | length")
-            if [ "$passed" -gt 0 ]; then run=false; fi
+            candidates=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$SHA&status=success&per_page=50" \
+              --jq ".workflow_runs[] | select(.id != $RUN_ID and .event != \"pull_request\") | .id")
+            for candidate in $candidates; do
+              # Artifact-only runs skip preflight and cannot stand in for a full run.
+              preflight=$(gh api --paginate "repos/$REPO/actions/runs/$candidate/jobs?filter=latest&per_page=100" \
+                --jq '.jobs[] | select(.name == "preflight" and .conclusion == "success") | .id')
+              if [ -n "$preflight" ]; then run=false; break; fi
+            done
           fi
           if [ "$full" = true ]; then
             os='["ubuntu-latest","windows-latest","macos-latest"]'

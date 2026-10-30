@@ -1,7 +1,7 @@
 //! Actual Login can hand over StartGame without any advertised resource-pack phase.
 
 use super::*;
-use bedrock_protocol_1_26_51::enums::ServerboundLoadingScreenType;
+use bedrock_protocol_contract_1_26_60::enums::ServerboundLoadingScreenType;
 
 /// Drives the original settings, Login, spawn and Initialized exchange without pack packets.
 async fn serve_packless(peer: &mut AcceptedSession, early_spawn: bool) -> io::Result<()> {
@@ -34,11 +34,11 @@ async fn serve_packless(peer: &mut AcceptedSession, early_spawn: bool) -> io::Re
         return Err(io::Error::other("expected original Login"));
     }
     let spawn = Packet::new(packets::PlayStatus {
-        status: PlayStatusType::Playerspawn,
+        status: PlayStatusType::PlayerSpawn,
     });
     let mut startup = vec![
         Packet::new(packets::PlayStatus {
-            status: PlayStatusType::Loginsuccess,
+            status: PlayStatusType::LoginSuccess,
         }),
         time(1),
     ];
@@ -64,7 +64,7 @@ async fn serve_packless(peer: &mut AcceptedSession, early_spawn: bool) -> io::Re
     if !matches!(
         receive(peer, &codec).await?.as_slice(),
         [packets::Packet::RequestChunkRadius(_), packets::Packet::ServerboundLoadingScreen(start)]
-            if start.loading_screen_packet_type == ServerboundLoadingScreenType::Startloadingscreen
+            if start.loading_screen_packet_type == ServerboundLoadingScreenType::StartLoadingScreen
     ) {
         return Err(io::Error::other(
             "packless startup invented a pack response or lost the radius/loading request",
@@ -76,7 +76,7 @@ async fn serve_packless(peer: &mut AcceptedSession, early_spawn: bool) -> io::Re
     if !matches!(
         receive(peer, &codec).await?.as_slice(),
         [packets::Packet::ServerboundLoadingScreen(end), packets::Packet::SetLocalPlayerAsInitialized(initialized)]
-            if end.loading_screen_packet_type == ServerboundLoadingScreenType::Endloadingscreen
+            if end.loading_screen_packet_type == ServerboundLoadingScreenType::EndLoadingScreen
                 && initialized.player_id.0 == 42
     ) {
         return Err(io::Error::other(

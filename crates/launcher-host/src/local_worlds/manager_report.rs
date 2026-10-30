@@ -71,8 +71,7 @@ impl Manager {
     }
 }
 
-/// Where the core dials the running world: RakNet for Dragonfly, NetherNet for BDS, through its
-/// LAN advertisement when the server publishes one.
+/// Returns the running world's NetherNet HTTP endpoint or its advertised BDS LAN route.
 #[cfg(any(test, all(feature = "native-networking", not(target_arch = "wasm32"))))]
 pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget {
     let address = instance.address().to_owned();
@@ -91,7 +90,7 @@ pub(super) fn target_for(world: &World, instance: &dyn Instance) -> LocalTarget 
         },
         (Backend::Dragonfly, _) => LocalTarget {
             address,
-            transport: Transport::RakNet,
+            transport: Transport::NetherNet,
             lan_address: None,
             level_name: None,
         },

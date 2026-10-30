@@ -12,7 +12,7 @@ func TestHistoricalFamilyNamesMatchPinnedRegistries(t *testing.T) {
 		version  string
 		protocol uint32
 	}{
-		{"v1001", registryProtocol}, {"v2193", v2193BlockProtocol},
+		{"v1001", registryProtocol}, {"v2225", v2225BlockProtocol},
 	} {
 		data, err := readAssetData(".", fmt.Sprintf("block-registry-%s.bin", target.version))
 		if err != nil {
@@ -28,7 +28,7 @@ func TestHistoricalFamilyNamesMatchPinnedRegistries(t *testing.T) {
 			}
 		}
 	}
-	states, err := readV2193BlockStates()
+	states, err := readV2225BlockStates()
 	if err != nil {
 		t.Fatal(err)
 	}

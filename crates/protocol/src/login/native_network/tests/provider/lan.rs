@@ -6,7 +6,7 @@ use crate::login::native_network::{
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
 };
-use bedrock_protocol_1_26_51::{packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{packets, types::ActorRuntimeID, wire};
 use bytes::Bytes;
 use futures::FutureExt;
 use nethernet::identity::{SdpIdentity, TokenTrust};
@@ -143,7 +143,7 @@ async fn signed_lan_public_join_keeps_provider_proof_nonce_startup_and_bidirecti
                     &codec,
                     &[
                         crate::Packet::new(packets::PlayStatus {
-                            status: PlayStatusType::Loginsuccess,
+                            status: PlayStatusType::LoginSuccess,
                         }),
                         crate::Packet::new(packets::ResourcePacksInfo::default()),
                     ],
@@ -171,7 +171,7 @@ async fn signed_lan_public_join_keeps_provider_proof_nonce_startup_and_bidirecti
                             chunk_radius: wire::ZigZag32(8),
                         }),
                         crate::Packet::new(packets::PlayStatus {
-                            status: PlayStatusType::Playerspawn,
+                            status: PlayStatusType::PlayerSpawn,
                         }),
                     ],
                 )

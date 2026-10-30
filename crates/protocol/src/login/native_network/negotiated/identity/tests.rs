@@ -31,8 +31,10 @@ impl TokenVerifier for OriginalProof {
 #[tokio::test]
 async fn local_http_ready_connection_preserves_original_proof_and_bidirectional_input() {
     tokio::time::timeout(crate::NATIVE_JOIN_TIMEOUT, async {
-        let credentials = Credentials::new(None).unwrap();
-        let proof = TokenTrust::Provider(Arc::new(OriginalProof(*credentials.key.verifying_key())));
+        let transport_key = Arc::new(SigningKey::try_generate_from_rng(&mut SysRng).unwrap());
+        let credentials =
+            Credentials::with_transport_proof(None, Arc::clone(&transport_key)).unwrap();
+        let proof = TokenTrust::Provider(Arc::new(OriginalProof(*transport_key.verifying_key())));
         let signaling = Arc::new(
             HttpSignalingServer::bind(
                 "127.0.0.1:0".parse().unwrap(),

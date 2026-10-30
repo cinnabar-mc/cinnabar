@@ -164,7 +164,7 @@ fn quads(faces: [u32; 6], candle: u32) -> Vec<ModelQuad> {
             positions,
             uvs: [[0, 1280], [0, 1536], [256, 1536], [256, 1280]],
             material: candle,
-            flags: 0,
+            flags: assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
         };
         quads.push(quad);
         let mut back = quad;

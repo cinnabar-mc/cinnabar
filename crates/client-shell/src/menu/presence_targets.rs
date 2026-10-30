@@ -24,7 +24,7 @@ impl MenuRuntime {
     pub fn destination_max_players(&self, address: &str) -> Option<u32> {
         let target = target_for(address);
         let max = match &target {
-            ConnectTarget::RakNet(_) => self
+            ConnectTarget::Server(_) => self
                 .feeds
                 .pings
                 .iter()

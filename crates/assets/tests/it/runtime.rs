@@ -700,7 +700,11 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
         "unknown template flags",
     );
     mutate(quads + 40, 2, "quad material ID");
-    mutate(quads + 44, 0x80, "quad unknown flags");
+    mutate(
+        quads + 44,
+        assets::MODEL_QUAD_FLAG_INHERITED_SHADE << 1,
+        "quad unknown flags",
+    );
     mutate(animations, 1, "noncanonical animation start");
     mutate(animations + 8, 0, "zero animation ticks");
     mutate(animations + 20, 0, "zero animation replication");

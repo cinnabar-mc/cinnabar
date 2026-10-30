@@ -1,6 +1,6 @@
 //! Generated negotiation fixtures for real external transport tests.
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::{PlayStatusType, TextPacketType},
     packets,
     types::{ActorRuntimeID, TextData},
@@ -22,11 +22,7 @@ pub enum ClientPacket {
 
 /// Decodes the complete generated body and rejects trailing bytes before classifying it.
 pub fn client_packet(frame: &Bytes) -> ClientPacket {
-    let mut reader = wire::Reader::from_shared(frame);
-    let header = wire::PacketHeader::from_raw(reader.read_var_u32().unwrap());
-    let id = packets::PacketId::from_raw(header.id).unwrap();
-    let packet = packets::Packet::decode_body(id, &mut reader).unwrap();
-    reader.expect_consumed().unwrap();
+    let (id, packet) = decoded_client_packet(frame);
     match packet {
         packets::Packet::RequestNetworkSettings(_) => ClientPacket::RequestNetworkSettings,
         packets::Packet::Login(_) => ClientPacket::Login,
@@ -34,6 +30,24 @@ pub fn client_packet(frame: &Bytes) -> ClientPacket {
         packets::Packet::ResourcePackClientResponse(_) => ClientPacket::ResourcePackClientResponse,
         _ => ClientPacket::Other(PacketKind(id)),
     }
+}
+
+/// Returns the original Login request after validating its complete generated packet body.
+pub fn client_login_request(frame: &Bytes) -> Vec<u8> {
+    let (_, packets::Packet::Login(login)) = decoded_client_packet(frame) else {
+        panic!("expected the actual client Login packet")
+    };
+    login.connection_request.to_vec()
+}
+
+/// Uses the generated decoder once for both classification and signed Login assertions.
+fn decoded_client_packet(frame: &Bytes) -> (packets::PacketId, packets::Packet) {
+    let mut reader = wire::Reader::from_shared(frame);
+    let header = wire::PacketHeader::from_raw(reader.read_var_u32().unwrap());
+    let id = packets::PacketId::from_raw(header.id).unwrap();
+    let packet = packets::Packet::decode_body(id, &mut reader).unwrap();
+    reader.expect_consumed().unwrap();
+    (id, packet)
 }
 
 /// Builds actual NetworkSettings with the requested compression threshold.
@@ -48,7 +62,7 @@ pub fn network_settings(threshold: u16) -> Packet {
 pub fn login_success_and_pack_info() -> [Packet; 2] {
     [
         Packet::new(packets::PlayStatus {
-            status: PlayStatusType::Loginsuccess,
+            status: PlayStatusType::LoginSuccess,
         }),
         Packet::new(packets::ResourcePacksInfo::default()),
     ]

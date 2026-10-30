@@ -5,7 +5,7 @@
 
 use std::fmt;
 
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_contract_1_26_60::packets::PacketId;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroize;
@@ -78,7 +78,7 @@ pub fn encode_batch<P: AsRef<[u8]>>(
     Ok(frame.freeze())
 }
 
-/// The first byte of a Bedrock game batch as RakNet frames it; Batch frames replace it with their kind.
+/// The internal prefixed batch marker; bridge Batch frames replace it with their kind.
 const BEDROCK_BATCH_PREFIX: u8 = 0xfe;
 
 /// Returns the Batch frame for an uncompressed Bedrock batch framed as `0xfe` then length-prefixed packets.

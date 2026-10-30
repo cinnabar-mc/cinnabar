@@ -20,6 +20,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 pub(super) const STATES: &[State] = &[
+    asset_free("crosshair-coverage-before", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: false }
+    }),
+    asset_free("crosshair-coverage", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: true }
+    }),
     State {
         name: "profile-overview-fallback",
         size: TALL_SIZE,
@@ -399,6 +405,18 @@ pub(super) const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::Loading(ui::LoadingStage::BuildingTerrain),
+    },
+    State {
+        name: "resource-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
+    },
+    State {
+        name: "resource-pack-loading-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
     },
     State {
         name: "disconnect",

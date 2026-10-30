@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::codec::SessionFailure;
-use bedrock_protocol_1_26_51::types::DisconnectMessages;
+use bedrock_protocol_contract_1_26_60::types::DisconnectMessages;
 
 #[derive(Clone, Copy)]
 enum LiveCase {

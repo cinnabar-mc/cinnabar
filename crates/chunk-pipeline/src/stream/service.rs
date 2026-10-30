@@ -41,6 +41,36 @@ impl WorldStream {
         (report, idle)
     }
 
+    /// Whether a service slice could advance anything the frame's own poll left: admitted
+    /// commits, ingress awaiting decode, worker jobs that are queued, running or waiting to be
+    /// accepted, staged meshes, air removals, urgent work, and retention, full-detail or
+    /// far-summary maintenance. Without any of these a slice finds nothing to do and no worker
+    /// result can arrive to change that. Request deadlines, recoveries and retries are left
+    /// out: their second-scale timers lose nothing waiting for the next frame's poll.
+    pub(super) fn has_service_work(&self) -> bool {
+        self.order.admitted_count() != 0
+            || self.order.deferred_count() != 0
+            || !self.deferred_ingress.is_empty()
+            || !self.pending_decode.is_empty()
+            || self.in_flight_decode_jobs != 0
+            || !self.decode_rx.is_empty()
+            || !self.lighting.jobs.pending.is_empty()
+            || !self.lighting.jobs.in_flight.is_empty()
+            || self.lighting.running_jobs.load(Ordering::Acquire) != 0
+            || !self.lighting.rx.is_empty()
+            || !self.mesh_jobs.pending.is_empty()
+            || !self.mesh_jobs.in_flight.is_empty()
+            || self.admitted_mesh_jobs.load(Ordering::Acquire) != 0
+            || !self.mesh_rx.is_empty()
+            || !self.staged_mesh_completions.is_empty()
+            || !self.air_removals.is_empty()
+            || self.urgent_work_due
+            || !self.urgent_mesh_in_flight.is_empty()
+            || self.retention_due
+            || self.has_pending_full_detail()
+            || !self.far_summaries_idle()
+    }
+
     /// Worker result channels an idle service sleeps on; mesh results only while none queue,
     /// since queued ones wait on capacity only the frame frees.
     fn idle_wait(&self) -> IdleWait {
@@ -168,6 +198,9 @@ pub struct WorldStreamService {
     shared: Arc<Shared>,
     wake: Sender<()>,
     servicing: bool,
+    /// Loans that woke the service thread.
+    #[cfg(test)]
+    wakes: usize,
     handoff_id: u64,
     thread: Option<JoinHandle<()>>,
 }
@@ -193,6 +226,8 @@ impl WorldStreamService {
             shared,
             wake,
             servicing: false,
+            #[cfg(test)]
+            wakes: 0,
             handoff_id: 0,
             thread: Some(thread),
         })
@@ -206,6 +241,10 @@ impl WorldStreamService {
 
     /// Lends `stream` to the service thread, which polls it until the next reclaim.
     ///
+    /// The thread is woken only when the stream has work a slice could advance; an idle loan
+    /// leaves it asleep, so the reclaim finds the stream unserviced and the next frame's poll
+    /// keeps every commit, as it does whenever the service is not scheduled in time.
+    ///
     /// # Panics
     ///
     /// If the service already holds a stream.
@@ -216,6 +255,7 @@ impl WorldStreamService {
         max_mesh_jobs: usize,
     ) {
         assert!(!self.servicing, "the service already holds a stream");
+        let wake = stream.has_service_work();
         // Its next service run reaches any retention request before the frame's next poll.
         stream.between_frames_service = true;
         self.handoff_id = self.handoff_id.wrapping_add(1);
@@ -235,7 +275,13 @@ impl WorldStreamService {
                 serving_since: None,
             });
         }
-        let _ = self.wake.try_send(());
+        if wake {
+            let _ = self.wake.try_send(());
+            #[cfg(test)]
+            {
+                self.wakes += 1;
+            }
+        }
         self.servicing = true;
     }
 

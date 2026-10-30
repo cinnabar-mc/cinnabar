@@ -1,4 +1,4 @@
-//! The local-world routes 1.26.50 draws with OreUI: Create New World (`/create-new-world`),
+//! The local-world routes 1.26.60 draws with OreUI: Create New World (`/create-new-world`),
 //! Edit world (`/edit-world`) and Create From Template (`/start-from-template`). Each is the
 //! header with back, a side menu in four of twelve columns (preview, hero button, tab list)
 //! and the tab's controls in eight. Unsupported settings remain visibly disabled.

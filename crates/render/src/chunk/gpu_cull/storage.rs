@@ -2,7 +2,7 @@
 
 use super::model::{
     CullRecord, CullViewUniform, OFFSET_ENTRY_BYTES, PHASE_COUNT, STREAM_COUNT, args_words,
-    cull_workgroup, draw_offset_bytes, group_count,
+    cull_workgroup, draw_offset_bytes, enabled_words, group_count,
 };
 use crate::queue_writes::ProfiledQueue as _;
 
@@ -69,6 +69,7 @@ fn growth_capacity<const N: usize>(
 pub struct CullStorage {
     pub capacity: u32,
     pub records: wgpu::Buffer,
+    /// Slot enabled bits, then from [`super::model::order_base`] the slot visited at each rank.
     pub enabled: wgpu::Buffer,
     pub history: wgpu::Buffer,
     pub record_draws: wgpu::Buffer,
@@ -104,8 +105,8 @@ impl CullStorage {
                 U::STORAGE | U::COPY_DST,
             ),
             buffer(
-                "terrain cull enabled bits",
-                slots.div_ceil(32) * 4,
+                "terrain cull enabled bits and draw order",
+                enabled_words(capacity) * 4,
                 U::STORAGE | U::COPY_DST,
             ),
             buffer(
@@ -193,6 +194,15 @@ impl CullStorage {
             0,
             bytemuck::bytes_of(uniform),
         );
+    }
+
+    /// Writes the slots the count and emit kernels visit from rank `first` on.
+    pub fn write_order(&self, queue: &wgpu::Queue, first: u32, slots: &[u32]) {
+        if slots.is_empty() {
+            return;
+        }
+        let word = u64::from(super::model::order_base(self.capacity)) + u64::from(first);
+        queue.profiled_write_buffer(&self.enabled, word * 4, bytemuck::cast_slice(slots));
     }
 }
 

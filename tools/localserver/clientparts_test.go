@@ -302,12 +302,12 @@ func startServer(t *testing.T, args []string) func() {
 // freeAddr is a loopback UDP address nothing listens on.
 func freeAddr(t *testing.T) string {
 	t.Helper()
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	pc, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer pc.Close()
-	return pc.LocalAddr().String()
+	return pc.Addr().String()
 }
 
 // readUntil reads packets until match takes one, failing on a disconnect or after 10 seconds.
@@ -327,14 +327,14 @@ func readUntil(t *testing.T, conn *minecraft.Conn, what string, match func(packe
 	}
 }
 
-// Over real RakNet, a joined player's Hello gets the signed Accept from Dragonfly's wrapped
+// Over real NetherNet, a joined player's Hello gets the signed Accept from Dragonfly's wrapped
 // connection; a violation afterwards falls back without disconnecting the player.
-func TestClientPartHandshakeOverRakNet(t *testing.T) {
+func TestClientPartHandshakeOverNetherNet(t *testing.T) {
 	dir, addr := t.TempDir(), freeAddr(t)
 	startServer(t, append([]string{"-dir", dir, "-addr", addr}, clientPartFlags(t, addr)...))
 	offer, digest := offered(t, dir)
 
-	conn, err := minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "Steve"}}.DialTimeout("raknet", addr, 20*time.Second)
+	conn, err := minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "Steve"}}.DialTimeout("nethernet", "http://"+addr, 20*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

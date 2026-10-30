@@ -157,7 +157,7 @@ impl MenuRuntime {
     pub(super) fn request_external_connect(&mut self, address: String) {
         if !matches!(
             super::target_for(&address),
-            bridge::contract::ConnectTarget::RakNet(_)
+            bridge::contract::ConnectTarget::Server(_)
         ) {
             self.show_notice(SERVICE_JOINS_UNAVAILABLE);
             return;

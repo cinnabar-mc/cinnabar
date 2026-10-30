@@ -217,7 +217,13 @@ impl Playing {
                 .try_send(claims.clone())
                 .expect("fixture prepared-claims capacity");
         });
-        let connected = upstream::connect(&self.lease, request.target, deadline).await?;
+        let connected = upstream::connect(
+            &self.lease,
+            request.target,
+            deadline,
+            authentication.as_ref(),
+        )
+        .await?;
         self.socket = Some(Socket::Connecting(connected));
         self.negotiate_with(
             reader,

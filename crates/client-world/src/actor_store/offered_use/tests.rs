@@ -338,7 +338,7 @@ fn leveled_extra(count: i16, last: i16, level: i16) -> Vec<u8> {
 
 #[test]
 fn equipment_enchantments_include_entries_past_the_tooltip_prefix() {
-    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let fire_aspect = protocol_ids::Enchantment::FireAspect.wire_value();
     let late = enchanted_extra(40, i16::from(fire_aspect));
     let mask = crate::equipment_enchantments([Some(&late[..]), Some(&[][..])]).unwrap();
     assert_ne!(mask & 1 << fire_aspect, 0);
@@ -350,7 +350,7 @@ fn equipment_enchantments_include_entries_past_the_tooltip_prefix() {
 
 #[test]
 fn a_level_zero_enchantment_entry_cannot_satisfy_a_negated_enchantment_filter_falsely() {
-    let fire_aspect = protocol_ids::Enchantment::Fireaspect.wire_value();
+    let fire_aspect = protocol_ids::Enchantment::FireAspect.wire_value();
     let definition = EntityUseAdmission::Components {
         source: 0,
         offerings: Box::from([ComponentUse {

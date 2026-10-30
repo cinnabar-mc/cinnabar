@@ -308,6 +308,7 @@ fn run(
             generation,
         );
     }
+    prepare_offer(&lease, &keys, check, generation);
     if (!preferences.checks && !switch_now && mode != FetchMode::Manual) || !active(generation) {
         return Ok(());
     }
@@ -488,8 +489,47 @@ fn run(
             verified,
             generation,
         );
+        prepare_offer(&lease, &keys, check, generation);
         record(&stamp_path, stamp_check, now_secs())
     })
+}
+
+/// Unpacks the writable offer beside its installation, so Restart only has to swap it in.
+fn prepare_offer(
+    lease: &update_installer::lease::Lease,
+    keys: &TrustedKeys,
+    check: Check<'_>,
+    generation: u64,
+) {
+    if !update_installer::apply::PREPARES {
+        return;
+    }
+    let _preparing = PREPARING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Checked under the lock: once Restart is accepted, the exit handoff waits only for work already started.
+    let Some(ready) = STATE
+        .lock()
+        .ok()
+        .filter(|state| state.accepts_worker(generation))
+        .and_then(|state| state.ready.clone())
+        .filter(|ready| ready.notice.writable)
+    else {
+        return;
+    };
+    let result = handoff::apply_target(&ready).and_then(|target| {
+        update_installer::apply::prepare(
+            &ready.stage,
+            &target,
+            keys,
+            check,
+            OffsetDateTime::now_utc(),
+            lease,
+        )
+    });
+    if let Err(error) = result {
+        tracing::debug!("prepare update: {error:#}");
+    }
 }
 
 /// Publishes worker progress only while its channel and consent are still current.

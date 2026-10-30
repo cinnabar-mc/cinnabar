@@ -89,11 +89,11 @@ python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$pinned_protocolgen_co
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-canonical = ('bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", '
+canonical = ('bedrock-protocol-contract-1-26-60 = { git = "https://github.com/cinnabar-mc/protocolgen", '
              f'rev = "{sys.argv[2]}" }}')
-renamed = ('"wire" = { package = "bedrock-protocol-1-26-51", '
+renamed = ('"wire" = { package = "bedrock-protocol-contract-1-26-60", '
            f'git = "https://github.com/cinnabar-mc/protocolgen", rev = "{sys.argv[2]}" }}')
-text = text.replace('bedrock-protocol-1-26-51.workspace = true', canonical, 1)
+text = text.replace('bedrock-protocol-contract-1-26-60.workspace = true', canonical, 1)
 if canonical not in text:
     raise SystemExit("protocol fixture did not find the canonical Git dependency")
 text = text.replace(canonical, renamed, 1)
@@ -111,7 +111,7 @@ python3 - "$protocol_fixture/crates/protocol/Cargo.toml" "$pinned_protocolgen_co
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 extra = ("\n[target.'cfg(unix)'.dependencies]\n"
-         'bedrock-protocol-1-26-51 = { git = "https://github.com/cinnabar-mc/protocolgen", '
+         'bedrock-protocol-contract-1-26-60 = { git = "https://github.com/cinnabar-mc/protocolgen", '
          f'rev = "{sys.argv[2]}" }}\n')
 path.write_text(path.read_text(encoding="utf-8") + extra, encoding="utf-8")
 PY
@@ -126,7 +126,7 @@ python3 - "$protocol_fixture/Cargo.lock" <<'PY'
 import pathlib, sys
 path = pathlib.Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
-needle = 'name = "bedrock-protocol-1-26-51"\nversion = "0.1.0"'
+needle = 'name = "bedrock-protocol-contract-1-26-60"\nversion = "0.1.0"'
 replacement = needle + '\n   checksum = "' + ('2' * 64) + '"'
 if needle not in text:
     raise SystemExit('Bash checksum fixture did not find the codec lock package')

@@ -305,12 +305,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut weather = client_presentation::environment::WeatherState::default();
     client_presentation::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = assets::pinned_block_registry_bytes();
-    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+    let records = assets::read_registry_for_protocol(breg, 2225).unwrap();
     let collisions = client_interaction::movement::PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
-        2193,
+        include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin"),
+        2225,
     )
     .unwrap();
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();

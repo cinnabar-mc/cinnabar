@@ -1,10 +1,13 @@
 # iOS (experimental)
 
-The iOS client is the desktop client built for arm64 iPhones and iPads on iOS 17+, rendering
-with Metal. iOS lets an app neither start other programs nor compile code at run time, so the Go
-core links into the app itself, and there is no prep kit: the IPA cannot prepare game assets on
-the device. You sideload it yourself; it is not on the App Store. It has run on an iPhone 18 Pro
-Max: menus, sign-in, joining servers and shader packs work; touch input is lightly tested.
+The iOS client builds the shared Rust client for arm64 iPhones and iPads on iOS 17+,
+rendering with Metal. Its [iOS host](../packaging/ios/client/Cargo.toml) enables native Rust
+networking. The IPA carries no helper executables or preparation kit, so compile game assets
+on your computer before sideloading. It is not on the App Store.
+
+Earlier iPhone 18 Pro Max runs covered menus, sign-in, server joins and shader packs, with
+limited touch testing. Physical-device acceptance of the current 1.26.60 networking path
+remains pending.
 
 ## Get the IPA
 
@@ -12,15 +15,16 @@ The iOS workflow builds `Cinnabar-<version>-unsigned.ipa` and attaches it to the
 `cinnabar-ios-unsigned`. To get one, push a branch named `ios/<anything>` to your fork of the
 repository (enable Actions on the fork first) or run the iOS workflow by hand, then download it
 with `gh run download <run id> -R <you>/cinnabar -n cinnabar-ios-unsigned`. On a Mac with
-Xcode 26, the iOS Rust target (`rustup target add aarch64-apple-ios`), Go and librsvg or
+Xcode 26, the pinned Rust toolchain, the iOS target (`rustup target add aarch64-apple-ios`), and librsvg or
 ImageMagick, build it locally instead:
 
 ```sh
 bash packaging/ios/build-ipa.sh
 ```
 
-The IPA lands in `target/ios/`. Pinned values (bundle id, deployment target, Xcode major) live in
-`packaging/ios/runtime.json`.
+The [build script](../packaging/ios/build-ipa.sh) compiles the `cinnabar-ios` Rust host and
+stages shared resources. The IPA lands in `target/ios/`. Pinned values (bundle id,
+deployment target, Xcode major) live in [runtime.json](../packaging/ios/runtime.json).
 
 ## Add your assets
 

@@ -184,6 +184,10 @@ fn resource_pack_icons_sheet_replaces_the_crosshair() {
             [(width * scale) as u16, (height * scale) as u16]
         );
         assert_eq!(node.bounds().width(), width as f32 * px);
+        let (normal, _) = draw(&engine, true, ui::UiBlendMode::Alpha);
+        assert!(normal.iter().any(|node| matches!(node.visual(),
+            UiVisual::RgbCoverageSprite { texture_page: page, uv: region, .. }
+                if page == texture_page && region == uv)));
     }
 }
 

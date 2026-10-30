@@ -67,7 +67,7 @@ async fn paired_play_reaches_owned_bds_with_its_original_pack_uni() {
                         tap: None,
                         #[cfg(not(target_arch = "wasm32"))]
                         relay: None,
-                        target: Some(bridge::ConnectTarget::RakNet(address.to_string())),
+                        target: Some(bridge::ConnectTarget::Server(address.to_string())),
                     },
                     join,
                     async { Ok(Some(peer.pack_stream().await)) },

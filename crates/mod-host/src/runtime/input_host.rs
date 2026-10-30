@@ -21,6 +21,15 @@ impl cinnabar::extension::input::Host for State {
         Ok(self.pressed)
     }
 
+    fn read_bindings(
+        &mut self,
+        after: Option<u64>,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Result<Option<crate::InputBindings>, String>> {
+        super::input_bindings::read(self, after, offset, limit)
+    }
+
     fn read_controls(&mut self) -> Result<Result<crate::ControlFrame, String>> {
         controls::read(self)
     }

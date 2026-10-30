@@ -1,7 +1,7 @@
 //! Requested stack-latency acknowledgments remain live before PlayerSpawn.
 
 use super::*;
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, types::ActorRuntimeID};
+use bedrock_protocol_contract_1_26_60::{enums::PlayStatusType, types::ActorRuntimeID};
 use futures::StreamExt;
 use std::io;
 
@@ -106,7 +106,7 @@ async fn requested_latency_before_player_spawn_replies_without_losing_deferred_c
             .send(
                 batch_frame(&[
                     Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Playerspawn,
+                        status: PlayStatusType::PlayerSpawn,
                     }),
                     time(4),
                 ])

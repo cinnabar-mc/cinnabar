@@ -2,7 +2,7 @@
 
 use bedrock_net::{BatchCodec, BatchHeader, BatchLimits, DecodeOutcome};
 use bedrock_net::{BatchPhase, CompressionAlgorithm, CompressionSettings};
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::{PlayStatusType, ServerboundLoadingScreenType},
     packets,
     types::ActorRuntimeID,
@@ -132,7 +132,7 @@ async fn run_with_prefix(
         &codec,
         &[
             packets::PlayStatus {
-                status: PlayStatusType::Loginsuccess,
+                status: PlayStatusType::LoginSuccess,
             }
             .into(),
             packets::SetTime {
@@ -167,7 +167,7 @@ async fn run_with_prefix(
                 packets::Packet::ServerboundLoadingScreen(screen)
                     if !loading
                         && screen.loading_screen_packet_type
-                            == ServerboundLoadingScreenType::Startloadingscreen =>
+                            == ServerboundLoadingScreenType::StartLoadingScreen =>
                 {
                     loading = true
                 }
@@ -188,7 +188,7 @@ async fn run_with_prefix(
             }
             .into(),
             packets::PlayStatus {
-                status: PlayStatusType::Playerspawn,
+                status: PlayStatusType::PlayerSpawn,
             }
             .into(),
         ],
@@ -202,7 +202,7 @@ async fn run_with_prefix(
                 packets::Packet::ServerboundLoadingScreen(screen)
                     if !loading_done
                         && screen.loading_screen_packet_type
-                            == ServerboundLoadingScreenType::Endloadingscreen =>
+                            == ServerboundLoadingScreenType::EndLoadingScreen =>
                 {
                     loading_done = true
                 }

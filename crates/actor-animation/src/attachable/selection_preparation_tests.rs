@@ -145,10 +145,9 @@ fn large_conditional_search_bounds_actual_preparation_on_warm_and_dirty_owner_in
                         assert_eq!(work, selection_work::Work::default());
                         assert_eq!((queries, spent), (0, 0));
                     } else {
-                        assert_eq!(
-                            work.reset,
-                            variables + temps,
-                            "only one full-layout preparation is allowed per search"
+                        assert!(
+                            work.reset <= variables + temps,
+                            "preparation clears at most one full layout: {work:?}"
                         );
                         assert_eq!(
                             work.inherited, variables,

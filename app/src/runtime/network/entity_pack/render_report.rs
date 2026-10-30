@@ -371,7 +371,7 @@ fn measure_pages(
         assets::RuntimeActorCatalog::decode(&read("vanilla-v1.mcbeact"), &entities).unwrap();
     let equipment = assets::RuntimeEquipmentCatalog::decode(&read("vanilla-v1.mcbeeqp")).ok();
     let icons = assets::RuntimeIconCatalog::decode(&read("vanilla-v1.mcbeico")).unwrap();
-    let world = std::fs::read(dir.join("vanilla-v2193.mcbea"))
+    let world = std::fs::read(dir.join("vanilla-v2225.mcbea"))
         .ok()
         .and_then(|bytes| RuntimeAssets::decode(&bytes).ok());
     let block_entities = std::fs::read(dir.join("vanilla-v1.mcbeben"))

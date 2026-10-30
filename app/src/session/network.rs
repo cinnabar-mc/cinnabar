@@ -108,7 +108,8 @@ pub(super) fn poll_join(
         crate::runtime::network::session_registries::RegistryBase::new(
             &session.state.client_world.runtime_assets,
             collisions,
-        ),
+        )
+        .with_entity_assets(session.state.client_world.entity_assets.clone()),
     ) {
         controller.fail_join(menu, format!("Could not connect: {error}"));
     }

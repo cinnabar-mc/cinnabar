@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, wire};
+use bedrock_protocol_contract_1_26_60::{enums::PlayStatusType, wire};
 mod preparation_terminal;
 pub(super) mod provider;
 
@@ -96,7 +96,7 @@ impl PacketIo for PendingPackets {
 async fn negotiation_write_failure_preserves_a_received_redirect() {
     let body = crate::session_transport::batch_body(&[
         crate::Packet::new(packets::PlayStatus {
-            status: PlayStatusType::Loginsuccess,
+            status: PlayStatusType::LoginSuccess,
         }),
         crate::Packet::new(packets::Transfer {
             server_address: "target.example".into(),
@@ -117,10 +117,11 @@ async fn negotiation_write_failure_preserves_a_received_redirect() {
 #[tokio::test]
 async fn negotiation_write_failure_preserves_received_disconnect_text() {
     let body = crate::session_transport::batch_body(&[crate::Packet::new(packets::Disconnect {
-        messages: bedrock_protocol_1_26_51::types::DisconnectMessages::DisconnectPacketMessages {
-            message: "peer reason".into(),
-            filtered_message: "".into(),
-        },
+        messages:
+            bedrock_protocol_contract_1_26_60::types::DisconnectMessages::DisconnectPacketMessages {
+                message: "peer reason".into(),
+                filtered_message: "".into(),
+            },
         ..Default::default()
     })])
     .unwrap();

@@ -20,7 +20,7 @@ async fn raw_preparation_cancellation_and_invalid_syntax_preserve_the_selected_o
         bridge::contract::NETHERNET_SIGNALING_WEBSOCKET
     );
     let mut preparing = Box::pin(Arc::clone(&account).prepare_connection(
-        protocol::NativeConnectionTarget::new(address, protocol::NativeTransport::RakNet),
+        protocol::NativeConnectionTarget::new(address, protocol::NativeTransport::NetherNetHttp),
         serde_json::json!({}),
         protocol::ClientRandomId::new(1).unwrap(),
     ));
@@ -41,7 +41,7 @@ async fn raw_preparation_cancellation_and_invalid_syntax_preserve_the_selected_o
         bridge::contract::NETHERNET_SIGNALING_WEBSOCKET
     );
     let mut preparing = Box::pin(Arc::clone(&account).prepare_connection(
-        protocol::NativeConnectionTarget::new(invalid, protocol::NativeTransport::RakNet),
+        protocol::NativeConnectionTarget::new(invalid, protocol::NativeTransport::NetherNetHttp),
         serde_json::json!({}),
         protocol::ClientRandomId::new(1).unwrap(),
     ));

@@ -820,7 +820,7 @@ fn ends_session(next: &Option<Result<ReadItem, SessionError>>) -> bool {
 /// Borrows only terminal metadata; unrelated bodies and unknown IDs remain undecoded.
 #[cfg(all(feature = "native-networking", not(target_arch = "wasm32")))]
 fn native_batch_terminal(body: &Bytes) -> Result<Option<Terminal>, SessionError> {
-    use bedrock_protocol_1_26_51::{packets::PacketId, wire};
+    use bedrock_protocol_contract_1_26_60::{packets::PacketId, wire};
 
     if body.len() > MAX_SESSION_BATCH_BYTES {
         return Err(SessionFailure::BatchTooLarge {
@@ -851,7 +851,7 @@ fn native_batch_terminal(body: &Bytes) -> Result<Option<Terminal>, SessionError>
 
 /// Projects one usable server control using its ordinary decoder and target/text policies.
 fn packet_terminal(packet: &RawPacket) -> Result<Option<Terminal>, SessionError> {
-    use bedrock_protocol_1_26_51::{packets, types::DisconnectMessages};
+    use bedrock_protocol_contract_1_26_60::{packets, types::DisconnectMessages};
 
     if !matches!(
         packet.id,

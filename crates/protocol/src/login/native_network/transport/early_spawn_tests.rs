@@ -3,7 +3,14 @@ use super::*;
 use bedrock_net::{
     BatchCodec, BatchLimits, CompressionAlgorithm, CompressionSettings, DecodeOutcome,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{
+    enums::PlayStatusType, packets, types::ActorRuntimeID, wire,
+};
+use nethernet::identity::{
+    TokenTrust, TokenVerifier,
+    error::IdentityError,
+    jwt::{Claims, Jws},
+};
 use nethernet_tokio::{AcceptedSession, NetherServer, ServerData};
 use std::sync::Arc;
 use std::time::Duration;
@@ -71,10 +78,38 @@ pub(in crate::login::native_network) enum Route {
     LocalHttp,
 }
 
+#[derive(Default)]
+struct OfflineProof(std::sync::Mutex<Option<p384::ecdsa::VerifyingKey>>);
+
+impl TokenVerifier for OfflineProof {
+    /// Requires a real self-signed offer and records the key that the later Login must retain.
+    fn verify(
+        &self,
+        token: &str,
+        now: std::time::SystemTime,
+    ) -> nethernet::identity::error::Result<Claims> {
+        let jws = Jws::parse(token)?;
+        let claims = jws.claims()?;
+        claims.check_expiry(now)?;
+        let key = claims.client_public_key()?;
+        jws.verify_es384(&key)?;
+        let mut original = self.0.lock().unwrap();
+        if original.is_some_and(|original| original != key) {
+            return Err(IdentityError::Untrusted(
+                "offline proof changed before Login".into(),
+            ));
+        }
+        *original = Some(key);
+        Ok(claims)
+    }
+}
+
 /// Exercises the same original Login, packs and live owner for each actual selected transport.
 async fn pack_deferred_spawn(route: Route) {
     tokio::time::timeout(Duration::from_secs(20), async {
-        let FixtureRoute { mut listener, address, target, http, approval } = fixture_route(route).await;
+        let proof = Arc::new(OfflineProof::default());
+        let FixtureRoute { mut listener, address, target, http, approval } =
+            fixture_route_with_trust(route, Some(TokenTrust::Provider(proof.clone()))).await;
         let first = crate::Packet::new(packets::SetTime {
             time: wire::ZigZag32(1),
         });
@@ -117,17 +152,26 @@ async fn pack_deferred_spawn(route: Route) {
             };
             let expected_address = match route {
                 Route::LocalLan => "31".into(),
-                Route::AddressedHttp | Route::LocalHttp => format!("http://{address}:{}", address.port()),
+                Route::AddressedHttp | Route::LocalHttp => format!("http://{address}"),
                 Route::Lan => address.to_string(),
             };
             let nonce = if matches!(route, Route::AddressedHttp | Route::LocalHttp) { "" } else { "synthetic-nonce" };
             let identity = offline_login_identity(login, &expected_address, nonce);
+            let verified = bedrock_net::login::parse_offline_request(
+                &login.connection_request,
+                std::time::SystemTime::now(),
+                BatchLimits::default().max_decoded_bytes,
+                |_| Ok(()),
+            ).unwrap();
+            let original = proof.0.lock().unwrap().expect("anonymous signaling admitted the fixture");
+            assert!(verified.signing_key().as_p384().unwrap() == &original, "Login metadata changed the original SDP key");
+            assert_eq!(verified.exchange_key().as_p384(), Some(&original));
             send(
                 &peer,
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],
@@ -146,7 +190,7 @@ async fn pack_deferred_spawn(route: Route) {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Playerspawn,
+                        status: PlayStatusType::PlayerSpawn,
                     }),
                     first.clone(),
                     second.clone(),
@@ -194,7 +238,7 @@ async fn pack_deferred_spawn(route: Route) {
             let packets::Packet::Text(chat) = &mut *expected[1].data else {
                 unreachable!();
             };
-            let bedrock_protocol_1_26_51::types::TextData::AuthorAndMessage { player_name, .. } = &mut chat.body else {
+            let bedrock_protocol_contract_1_26_60::types::TextData::AuthorAndMessage { player_name, .. } = &mut chat.body else {
                 unreachable!();
             };
             *player_name = "Fixture".into();
@@ -292,6 +336,11 @@ impl crate::NativeServerTrust for HttpApproval {
 
 /// Reuses the original finite server owner and actual wire script; only route acquisition differs.
 pub(in crate::login::native_network) async fn fixture_route(route: Route) -> FixtureRoute {
+    fixture_route_with_trust(route, None).await
+}
+
+/// Keeps bare transport fixtures separate from the full Login fixture's required client proof.
+async fn fixture_route_with_trust(route: Route, trust: Option<TokenTrust>) -> FixtureRoute {
     if matches!(route, Route::AddressedHttp | Route::LocalHttp) {
         use nethernet_tokio::signaling::http::{HttpServerConfig, HttpSignalingServer};
         let identity = std::sync::Arc::new(
@@ -299,9 +348,18 @@ pub(in crate::login::native_network) async fn fixture_route(route: Route) -> Fix
                 .unwrap(),
         );
         let signaling = std::sync::Arc::new(
-            HttpSignalingServer::bind("127.0.0.1:0".parse().unwrap(), HttpServerConfig::default())
-                .await
-                .unwrap(),
+            HttpSignalingServer::bind(
+                "127.0.0.1:0".parse().unwrap(),
+                HttpServerConfig {
+                    signaler: nethernet::prelude::HttpSignalerConfig {
+                        token_trust: trust.clone(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap(),
         );
         signaling.set_server_data(ServerData::new("Fixture".into(), "World".into()));
         let address = signaling.local_addr();
@@ -309,6 +367,7 @@ pub(in crate::login::native_network) async fn fixture_route(route: Route) -> Fix
             std::sync::Arc::clone(&signaling),
             ConnectionConfig {
                 identity: Some(identity.clone()),
+                token_trust: trust,
                 server_ice: Some(nethernet_tokio::ServerIceConfig {
                     turn_streams: Vec::new(),
                     turn_tls: None,
@@ -375,6 +434,11 @@ pub(in crate::login::native_network) async fn fixture_route(route: Route) -> Fix
     let listener = NetherServer::bind_with(
         signaling,
         ConnectionConfig {
+            identity: Some(Arc::new(
+                nethernet::identity::ServerIdentity::generate("self", std::time::SystemTime::now())
+                    .unwrap(),
+            )),
+            token_trust: trust,
             allow_unsigned_answers: true,
             ..Default::default()
         },
@@ -430,12 +494,12 @@ pub(in crate::login::native_network) fn offline_login_identity(
 
 /// Exercises the synthetic local skin identity, chat correction, and unchanged nonchat/FIFO headers.
 fn identity_packets() -> Vec<crate::Packet> {
-    use bedrock_protocol_1_26_51::enums::TextPacketType;
-    use bedrock_protocol_1_26_51::types::{SerializedSkinRef, SkinImage, TextData};
+    use bedrock_protocol_contract_1_26_60::enums::TextPacketType;
+    use bedrock_protocol_contract_1_26_60::types::{SerializedSkin, SerializedSkinImage, TextData};
     let mut skin = crate::Packet::new(packets::PlayerSkin {
         uuid: uuid::Uuid::nil(),
-        serialized_skin: SerializedSkinRef {
-            image_data: SkinImage {
+        serialized_skin: SerializedSkin {
+            image_data: SerializedSkinImage {
                 width: wire::U32LE(render_api::CLASSIC_SKIN_SIDE as u32),
                 height: wire::U32LE(render_api::CLASSIC_SKIN_SIDE as u32),
                 image_bytes: vec![
@@ -453,7 +517,7 @@ fn identity_packets() -> Vec<crate::Packet> {
     let chat = crate::chat_text_packet("Synthetic", "123", "same message").unwrap();
     let system = crate::Packet::new(packets::Text {
         body: TextData::MessageOnly {
-            message_type: TextPacketType::Systemmessage,
+            message_type: TextPacketType::SystemMessage,
             message: "unchanged".into(),
         },
         sender_xuid: "456".into(),

@@ -114,6 +114,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
     let (mut old, ingress) = NetworkHandle::<Pack>::stub_with_control_sender();
     ingress
         .try_send(NetworkControlEvent::Bootstrap {
+            player_rotation: [0.0, 180.0],
             session_generation: simulation_clock::identity::SessionGeneration::new(1),
             identity: Default::default(),
             world: protocol::WorldBootstrap {

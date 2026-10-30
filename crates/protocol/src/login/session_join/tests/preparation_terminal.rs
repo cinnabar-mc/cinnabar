@@ -98,7 +98,7 @@ async fn disconnect_during_held_preparation_retains_its_display_policy() {
             .expect("disconnect must not wait for preparation")
             .expect_err("a disconnected startup must not succeed");
         let disconnect = error.server_disconnect().expect("the server disconnect");
-        assert_eq!(disconnect.reason, "Serverfull");
+        assert_eq!(disconnect.reason, "ServerFull");
         assert_eq!(
             disconnect.message.as_deref(),
             (!hide_screen).then_some("full")

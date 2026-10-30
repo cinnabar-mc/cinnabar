@@ -30,12 +30,9 @@ impl EquipmentRuntime {
         if let Some(meshes) = self.map_meshes {
             return meshes;
         }
-        let meshes = std::array::from_fn(|index| {
-            let id = item_mesh_rig_id(
-                (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES + index)
-                    .try_into()
-                    .expect("reserved map mesh IDs fit u32"),
-            );
+        let meshes =
+            [ReservedItemMesh::MapPaper, ReservedItemMesh::MapImage].map(ReservedItemMesh::rig);
+        for (index, id) in meshes.into_iter().enumerate() {
             let (min, max, z) = if index == 0 {
                 (-7.0, 135.0, 0.0)
             } else {
@@ -57,8 +54,7 @@ impl EquipmentRuntime {
             self.pending.push(
                 ActorRigGeometry::new(id, vertices, vec![[0.0; 3]]).expect("finite map planes"),
             );
-            id
-        });
+        }
         self.map_meshes = Some(meshes);
         meshes
     }

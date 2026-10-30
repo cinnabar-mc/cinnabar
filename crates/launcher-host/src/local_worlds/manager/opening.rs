@@ -185,8 +185,9 @@ impl HostOpening {
             );
         }
         let transport = match (self.world().backend, local.transport) {
-            (Backend::Dragonfly, Transport::RakNet) => protocol::NativeTransport::RakNet,
-            (Backend::Bds, Transport::NetherNet) => protocol::NativeTransport::LocalNetherNetHttp,
+            (Backend::Dragonfly | Backend::Bds, Transport::NetherNet) => {
+                protocol::NativeTransport::LocalNetherNetHttp
+            }
             _ => {
                 return Err(io::Error::new(
                     io::ErrorKind::Unsupported,

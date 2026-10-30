@@ -36,7 +36,7 @@ mod tests {
         );
         for parallel in [false, true] {
             for direct in [false, true] {
-                let mut arguments = vec!["client", "--native-networking", "raknet"];
+                let mut arguments = vec!["client", "--native-networking", "nethernet-http"];
                 if direct {
                     arguments.extend(["--address", "127.0.0.1:19132"]);
                 }

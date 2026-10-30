@@ -2,11 +2,11 @@
 
 use std::{collections::BTreeMap, sync::OnceLock};
 
-const SOURCE: &str = include_str!("../../data/item-name-identities-1.26.50.tsv");
+const SOURCE: &str = include_str!("../../data/item-name-identities-1.26.60.tsv");
 /// The pinned item registry table, retained as an entity carrier source.
 pub const SOURCE_BYTES: &[u8] = SOURCE.as_bytes();
 /// Logical source identity retained in an entity carrier.
-pub const SOURCE_PATH: &str = "registry/item-name-identities-1.26.50.tsv";
+pub const SOURCE_PATH: &str = "registry/item-name-identities-1.26.60.tsv";
 
 /// Every pinned registry item, sorted; a superset of the creative inventory.
 pub fn identifiers() -> impl Iterator<Item = &'static str> {

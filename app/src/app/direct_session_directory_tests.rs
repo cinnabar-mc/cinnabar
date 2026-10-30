@@ -33,7 +33,7 @@ fn native_addressed_startup_retains_its_original_trust_owner_and_optional_port()
 /// Native command-line connections use the same endpoint grammar as saved menu destinations.
 #[cfg(feature = "native-networking")]
 #[test]
-fn native_cli_endpoint_normalizes_bare_host_and_ipv6_addresses() {
+fn native_cli_endpoint_retains_bare_host_and_ipv6_addresses() {
     for address in [
         "play.example.net:19133",
         "[2001:db8::7]:19134",
@@ -46,18 +46,18 @@ fn native_cli_endpoint_normalizes_bare_host_and_ipv6_addresses() {
             "--address",
             address,
             "--native-networking",
-            "raknet",
+            "nethernet-http",
         ]);
-        let bridge::ConnectTarget::RakNet(expected) =
+        let bridge::ConnectTarget::Server(expected) =
             launcher_host::destination::target_for(address)
         else {
             panic!("direct fixture must use the ordinary endpoint owner");
         };
         let protocol::SessionEndpoint::Native(target) = parsed.session_endpoint().unwrap();
-        assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+        assert_eq!(target.transport, protocol::NativeTransport::NetherNetHttp);
         assert_eq!(
             target.address, expected,
-            "native command-line endpoint lost existing normalization for {address}"
+            "native command-line endpoint changed the original selection for {address}"
         );
     }
 }
@@ -76,18 +76,18 @@ fn native_cli_services_preserve_account_selection_authority() {
         "--address",
         &address,
         "--native-networking",
-        "raknet",
+        "nethernet-http",
     ]);
     let protocol::SessionEndpoint::Native(target) = parsed.session_endpoint().unwrap();
     assert_eq!(target.address, address);
-    assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+    assert_eq!(target.transport, protocol::NativeTransport::NetherNetHttp);
     let friend = format!("{}123", bridge::contract::FRIEND_TARGET_PREFIX);
     let parsed = run_args(&[
         "client",
         "--address",
         &friend,
         "--native-networking",
-        "raknet",
+        "nethernet-http",
     ]);
     assert!(matches!(
         parsed.session_endpoint(),
@@ -117,7 +117,7 @@ fn native_cli_realms_keep_opaque_locators_for_account_resolution() {
         ]);
         let protocol::SessionEndpoint::Native(target) = parsed.session_endpoint().unwrap();
         assert_eq!(target.address, address.trim());
-        assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+        assert_eq!(target.transport, protocol::NativeTransport::NetherNetHttp);
     }
 }
 

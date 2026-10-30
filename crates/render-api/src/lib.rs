@@ -10,6 +10,8 @@ mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
 mod publication;
+mod shield;
+pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
 mod vsync;
 pub use pose_generation::PoseGeneration;
 mod skin;
@@ -64,6 +66,9 @@ pub const STARTUP_TIMING_MARKER: &str = "CINNABAR_STARTUP";
 /// Requests an acceptance client to exit after reporting its first completed menu frame.
 pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
 
+/// Absolute directory that replaces the platform's user config and data roots.
+pub const USER_ROOT_ENV: &str = "CINNABAR_USER_ROOT";
+
 /// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;
 
@@ -72,3 +77,6 @@ pub const UI_STYLE_ALPHA_TEST: u32 = 1 << 4;
 
 /// Selects a retained model vertex whose position and normal use a GPU bone palette.
 pub const UI_STYLE_MODEL_VERTEX: u32 = 1 << 17;
+
+/// Uses the brightest sampled RGB channel as coverage, multiplied by texture alpha.
+pub const UI_STYLE_RGB_COVERAGE: u32 = 1 << 18;

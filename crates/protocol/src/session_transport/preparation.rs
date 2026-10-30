@@ -7,7 +7,7 @@ use super::{
 };
 use crate::raw_packet::RawPacket;
 use crate::{Packet, ProtocolError, SessionError};
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_contract_1_26_60::packets::{self, PacketId};
 use std::future::poll_fn;
 
 /// Keeps input failures distinct from writes that permit the existing startup terminal drain.

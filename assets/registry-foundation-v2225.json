@@ -1,0 +1,34 @@
+{
+  "schema": "cinnabar.registry-foundation.v1",
+  "status": "ready",
+  "game_version": "1.26.60",
+  "protocol": 2225,
+  "formats": {
+    "block": "BREG1003",
+    "light": "LREG1001",
+    "biome": "BIOREG01"
+  },
+  "outputs": {
+    "block": "crates/assets/data/block-registry-v2225.bin",
+    "light": "crates/assets/data/block-light-registry-v2225.bin",
+    "biome": "crates/assets/data/biome-registry-v2225.bin"
+  },
+  "sources": {
+    "protocolgen": {
+      "module": "github.com/cinnabar-mc/protocolgen/generated/data",
+      "source_lock_sha256": "a1c1c5faa367c92257dd19aa4521033e707f93868035cec568a6cc70a82dd953",
+      "cloudburst_ref": "293c848098cc636a2758937fb6610b8bed1f12c5"
+    }
+  },
+  "projection_bindings": {
+    "block": {
+      "sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266"
+    },
+    "biome": {
+      "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
+    },
+    "light": {
+      "sha256": "6c4019bfe51ccb06eba5e9321c6bf6d111b7e7b89276713c1e2236ea79dfafb0"
+    }
+  }
+}

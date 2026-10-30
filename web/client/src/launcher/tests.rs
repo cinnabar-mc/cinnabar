@@ -210,7 +210,7 @@ fn launcher_addressed_servers_get_default_port_and_other_targets_are_refused() {
         ("2001:db8::1", format!("[2001:db8::1]:{port}")),
         ("example.invalid:20000", "example.invalid:20000".into()),
     ] {
-        assert_eq!(addressed_target(input), Ok(ConnectTarget::RakNet(expected)));
+        assert_eq!(addressed_target(input), Ok(ConnectTarget::Server(expected)));
     }
     for input in [
         "",

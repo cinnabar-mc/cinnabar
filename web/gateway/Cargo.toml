@@ -49,7 +49,11 @@ x509-parser = { version = "0.18", optional = true }
 tokio = { workspace = true, features = ["net"] }
 protocol = { path = "../../crates/protocol", features = ["native-networking"] }
 bedrock-services.workspace = true
-bedrock-net = { workspace = true, features = ["raknet", "login"] }
+bedrock-net = { workspace = true, features = ["login"] }
+nethernet-tokio.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+url = "2"
+webpki-roots = "1"
 p384 = { version = "0.14", default-features = false, features = ["std", "ecdsa"] }
 rand = "0.10"
 httparse = "1"
@@ -58,7 +62,6 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc
 tokio-websockets = { version = "0.13", default-features = false, features = ["server", "aws_lc_rs"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-raknet.workspace = true
 protocol = { path = "../../crates/protocol", features = ["test-support"] }
 rcgen = "0.14"
 test-time = { path = "../../crates/test-time" }

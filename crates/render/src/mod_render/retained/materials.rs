@@ -221,6 +221,7 @@ mod tests {
             hdr: false,
             always: false,
             additive: false,
+            clipped: false,
         };
         let layout = app
             .world()
@@ -334,6 +335,7 @@ mod tests {
             hdr: false,
             always: false,
             additive: false,
+            clipped: false,
         };
         let variants = [
             key,

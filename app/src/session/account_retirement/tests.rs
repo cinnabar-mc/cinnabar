@@ -95,7 +95,7 @@ fn account_storage_waits_for_original_session_cleanup() {
         simulation_clock::identity::SessionGeneration::new(1),
         protocol::SessionEndpoint::Native(protocol::NativeConnectionTarget::new(
             "unused.invalid:19132".into(),
-            protocol::NativeTransport::RakNet,
+            protocol::NativeTransport::NetherNetHttp,
         )),
         "Cleanup fixture".into(),
         protocol::ClientRandomId::new(1).unwrap(),

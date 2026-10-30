@@ -1,7 +1,6 @@
 //! Resolved alternatives share the original join cutoff and own their actual connection attempts.
 
 use super::{NativeConnectionTarget, NativeTransport, Transport, lan};
-use bedrock_net::raknet::RakNetOptions;
 use std::{future::Future, io};
 use tokio::time::Instant;
 
@@ -11,19 +10,26 @@ pub(super) async fn connect(
     identity: Option<&super::identity::TransportIdentity>,
     deadline: Instant,
 ) -> io::Result<Transport> {
+    if target.transport == NativeTransport::NetherNetHttp {
+        let identity = identity.ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTP transport requires its original Login proof",
+            )
+        })?;
+        return super::addressed::connect_explicit(&target.address, identity, deadline).await;
+    }
     let addresses = before_deadline(deadline, tokio::net::lookup_host(&target.address)).await?;
     match target.transport {
-        NativeTransport::RakNet => {
-            bedrock_client_tokio::connect::raknet::connect_resolved(
-                addresses,
-                RakNetOptions::default(),
-                deadline,
-            )
-            .await
-        }
         NativeTransport::NetherNetLan => {
             let _ = rustls::crypto::ring::default_provider().install_default();
-            let options = lan::direct_options(identity);
+            // Only provider credentials carry an expiry; a self-signed proof keeps offline discovery.
+            let selection = if identity.is_some_and(|identity| identity.expires.is_some()) {
+                bedrock_client_tokio::connect::lan::LanSelection::Online
+            } else {
+                bedrock_client_tokio::connect::lan::LanSelection::SelfSigned
+            };
+            let options = lan::direct_options(identity, selection);
             bedrock_client_tokio::connect::lan::connect_resolved(addresses, &options, deadline)
                 .await
         }

@@ -55,7 +55,7 @@ async fn prepared_io_accepts_a_late_radius_reply_after_spawn_without_radius_repl
         batch_frame(&[
             Packet::new(ItemRegistry::default()),
             Packet::new(PlayStatus {
-                status: PlayStatusType::Playerspawn,
+                status: PlayStatusType::PlayerSpawn,
             }),
         ]),
     ] {
@@ -153,7 +153,7 @@ async fn prepared_io_joins_an_addressed_server_and_retains_spawn_and_transfer() 
         view_distance_chunks: 23,
         ..Default::default()
     };
-    let target = bridge::ConnectTarget::RakNet("game.example.test:19132".into());
+    let target = bridge::ConnectTarget::Server("game.example.test:19132".into());
     let join = LoginSequence::connect_prepared(
         SessionIo {
             reader,

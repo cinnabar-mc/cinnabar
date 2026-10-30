@@ -516,6 +516,7 @@ fn check_stack_enchantment_selection(condition: &str) {
                     use_animation: assets::item_use::ItemUseAnimation::None,
                     grip: assets::item::grip::ItemGrip::Unresolved,
                     map_id: None,
+                    shield_pattern: None,
                     charged_projectile: None,
                     charged_projectile_role: assets::item_use::ItemProjectileRole::None,
                     damage: None,

@@ -19,7 +19,7 @@ Builds without it cannot open native server connections.
 
 Options:
   --address <HOST:PORT>       Directly join a server
-  --native-networking <KIND>  Select Rust transport: addressed, raknet or nethernet-lan
+  --native-networking <KIND>  Select Rust transport: addressed, nethernet-http or nethernet-lan
   --parallel-resource-pack-urls
                                Opt native pack URL downloads into bounded parallel reads
   --import-pack <PATH>        Import an optional global resource pack
@@ -31,8 +31,8 @@ Options:
   --metrics-out <PATH>         Deterministic JSON metrics output path
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
   --metrics-sample-seconds <N> Freeze frame metrics after N post-warmup seconds
-  --auto-fly                   Fly the camera automatically for acceptance
-  --freecam                    Use non-authoritative free-camera movement
+  --auto-fly                   Developer/acceptance builds: fly the camera automatically
+  --freecam                    Developer/acceptance builds: use non-authoritative free-camera movement
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Allow tearing and disable display-rate synchronization
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
@@ -118,8 +118,9 @@ pub struct ClientArgs {
     pub metrics_out: Option<PathBuf>,
     pub metrics_warmup_seconds: u64,
     pub metrics_sample_seconds: Option<u64>,
+    /// Fly automatically in developer-control or acceptance builds.
     pub auto_fly: bool,
-    /// Use non-authoritative camera movement instead of local physics.
+    /// Use non-authoritative camera movement in developer-control or acceptance builds.
     pub freecam: bool,
     pub force_vsync: bool,
     pub no_vsync: bool,
@@ -207,7 +208,7 @@ pub enum ArgsError {
     NativeNetworkingUnavailable,
     #[error("native friend-world startup requires a verified friend selection")]
     NativeFriendSelectionRequired,
-    #[error("--native-networking must be addressed, raknet or nethernet-lan")]
+    #[error("--native-networking must be addressed, nethernet-http or nethernet-lan")]
     InvalidNativeTransport,
     #[error("--parallel-resource-pack-urls requires --native-networking")]
     ParallelPackUrlsRequireNativeNetworking,
@@ -314,6 +315,17 @@ impl ClientArgs {
         Ok(())
     }
 
+    /// Rejects non-authoritative camera options unless developer or acceptance support is built in.
+    pub(crate) fn validate_camera_support(&self, available: bool) -> Result<(), ArgsError> {
+        if !available && self.freecam {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--freecam"));
+        }
+        if !available && self.auto_fly {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--auto-fly"));
+        }
+        Ok(())
+    }
+
     pub fn parse_env() -> Result<ParseOutcome, ArgsError> {
         Self::parse_from(std::env::args_os())
     }
@@ -354,7 +366,7 @@ impl ClientArgs {
                     let value = next_value(&mut arguments, "--native-networking")?;
                     parsed.native_transport = Some(match value.to_str() {
                         Some("addressed") => protocol::NativeTransport::Addressed,
-                        Some("raknet") => protocol::NativeTransport::RakNet,
+                        Some("nethernet-http") => protocol::NativeTransport::NetherNetHttp,
                         Some("nethernet-lan") => protocol::NativeTransport::NetherNetLan,
                         _ => return Err(ArgsError::InvalidNativeTransport),
                     });
@@ -563,6 +575,10 @@ impl ClientArgs {
         }
         parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
         parsed.validate_developer_support(cfg!(feature = "developer-control"))?;
+        parsed.validate_camera_support(cfg!(any(
+            feature = "developer-control",
+            feature = "acceptance"
+        )))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 
@@ -601,6 +617,10 @@ where
 {
     arguments.next().ok_or(ArgsError::MissingValue { flag })
 }
+
+#[cfg(test)]
+#[path = "args/camera_tests.rs"]
+mod camera_tests;
 
 #[cfg(test)]
 mod tests;

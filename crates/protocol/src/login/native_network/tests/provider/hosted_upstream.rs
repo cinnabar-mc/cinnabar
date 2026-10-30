@@ -24,7 +24,7 @@ use bedrock_client::{
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings, DecodeOutcome,
 };
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::PlayStatusType,
     packets,
     types::{ActorRuntimeID, PackInfoData, PackInstanceId},
@@ -114,7 +114,7 @@ async fn original_upstream_with_retirement(
         has_scripts: true,
         has_addon_packs: true,
         force_disable_vibrant_visuals: true,
-        world_template_id_and_version: bedrock_protocol_1_26_51::types::PackIdVersion {
+        world_template_id_and_version: bedrock_protocol_contract_1_26_60::types::PackIdVersion {
             pack_uuid: uuid::Uuid::from_u128(99),
             ..Default::default()
         },
@@ -160,7 +160,7 @@ async fn original_upstream_with_retirement(
         };
         let label = match route {
             Route::LocalLan => "31".into(),
-            Route::LocalHttp => format!("http://{address}:{}", address.port()),
+            Route::LocalHttp => format!("http://{address}"),
             _ => unreachable!(),
         };
         assert_eq!(
@@ -181,7 +181,7 @@ async fn original_upstream_with_retirement(
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
+                    status: PlayStatusType::LoginSuccess,
                 }),
                 crate::Packet::new(info.clone()),
             ],
@@ -201,7 +201,7 @@ async fn original_upstream_with_retirement(
             assert!(matches!(
                 &*response[0].data,
                 packets::Packet::ResourcePackClientResponse(packets::ResourcePackClientResponse {
-                    response: bedrock_protocol_1_26_51::types::ResourcePackClientResponseData::DownloadingFinished { .. },
+                    response: bedrock_protocol_contract_1_26_60::types::ResourcePackClientResponseData::DownloadingFinished { .. },
                 })
             ));
         } else {
@@ -246,7 +246,7 @@ async fn original_upstream_with_retirement(
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Playerspawn,
+                    status: PlayStatusType::PlayerSpawn,
                 }),
                 crate::Packet::new(stack.clone()),
                 secondary,
@@ -853,7 +853,7 @@ async fn local_bds_startup_detaches_from_a_discarded_secondary_batch_sibling() {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

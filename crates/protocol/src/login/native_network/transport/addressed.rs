@@ -1,6 +1,6 @@
 //! Address discovery and first-use authorization on the original native join lifetime.
 
-use super::{Transport, endpoint, http, identity::TransportIdentity};
+use super::{Transport, http, identity::TransportIdentity};
 use crate::NativeConnectionTarget;
 mod cache;
 #[cfg(test)]
@@ -34,7 +34,7 @@ pub(in crate::login::native_network) async fn connect(
         .map_or(deadline, |expires| deadline.min(expires.into()));
     check(cutoff, identity.expires)?;
     let client = http::client(cutoff)?;
-    let key = format!("{}:{}", route.host, route.port.unwrap_or(0));
+    let key = target.address.clone();
     let cached = probes()
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -42,28 +42,24 @@ pub(in crate::login::native_network) async fn connect(
     let choice = match cached {
         Some(choice) => choice,
         None => {
-            let choice = if route.ipv6 {
-                None
-            } else {
-                probe(&client, &route.host, route.port, cutoff).await
-            };
+            let choice = probe(&client, &route.endpoints, cutoff).await;
             check(cutoff, identity.expires)?;
-            let now = Instant::now();
-            let mut cache = probes().lock().unwrap_or_else(|error| error.into_inner());
-            cache.store(key.clone(), choice.clone(), now);
+            let choice = choice.ok_or_else(unsupported)?;
+            probes()
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .store(key.clone(), choice.clone(), Instant::now());
             choice
         }
     };
-    let result = match choice {
-        Some(url) => connect_http(&url, &identity, &client, route.trust.as_ref(), cutoff).await,
-        None => {
-            let target = route.raknet_target();
-            let address = target.address.clone();
-            endpoint::connect(&target, None, cutoff)
-                .await
-                .map(|transport| (transport, address))
-        }
-    };
+    let result = connect_http(
+        &choice,
+        &identity,
+        &client,
+        Some(route.trust.as_ref()),
+        cutoff,
+    )
+    .await;
     // Dropping a canceled caller never reaches this invalidation or starts a replacement attempt.
     if result.is_err() {
         probes()
@@ -77,46 +73,37 @@ pub(in crate::login::native_network) async fn connect(
 /// Tests HTTPS before HTTP under one shared probe cutoff; only a complete 2xx response answers.
 async fn probe(
     client: &reqwest::Client,
-    host: &str,
-    port: Option<u16>,
+    endpoints: &[String],
     caller: tokio::time::Instant,
 ) -> Option<String> {
-    // Selected Go does not successfully probe IPv6 literals. Keep that observed family limit explicit.
-    if host.parse::<std::net::Ipv6Addr>().is_ok() {
-        return None;
-    }
     let deadline = caller.min(tokio::time::Instant::now() + PROBE_TIMEOUT);
     let probing = async {
-        for scheme in ["https", "http"] {
-            let candidates = match port {
-                Some(port) => vec![format!("{scheme}://{host}:{port}")],
-                None => vec![
-                    format!(
-                        "{scheme}://{host}:{}",
-                        bridge::contract::DEFAULT_BEDROCK_PORT
-                    ),
-                    format!("{scheme}://{host}"),
-                ],
+        for candidate in endpoints {
+            let request = format!(
+                "{candidate}{}",
+                nethernet::signaling::http::join::STATUS_PATH
+            );
+            let Ok(mut response) = client
+                .get(request)
+                .header(
+                    reqwest::header::USER_AGENT,
+                    nethernet::signaling::http::join::CLIENT_USER_AGENT,
+                )
+                .send()
+                .await
+            else {
+                continue;
             };
-            for candidate in candidates {
-                let request = format!(
-                    "{candidate}{}",
-                    nethernet::signaling::http::join::STATUS_PATH
-                );
-                let Ok(mut response) = client.get(request).send().await else {
-                    continue;
-                };
-                let success = response.status().is_success();
-                let complete = loop {
-                    match response.chunk().await {
-                        Ok(Some(_)) => {}
-                        Ok(None) => break true,
-                        Err(_) => break false,
-                    }
-                };
-                if success && complete {
-                    return Some(candidate);
+            let success = response.status().is_success();
+            let complete = loop {
+                match response.chunk().await {
+                    Ok(Some(_)) => {}
+                    Ok(None) => break true,
+                    Err(_) => break false,
                 }
+            };
+            if success && complete {
+                return Some(candidate.clone());
             }
         }
         None
@@ -130,27 +117,56 @@ async fn probe(
         .flatten()
 }
 
+/// Connects one explicit HTTP URL using the caller's existing SDP proof and deadline.
+/// The application that selects this route owns its operator trust policy.
+pub(super) async fn connect_explicit(
+    selected: &str,
+    identity: &TransportIdentity,
+    deadline: tokio::time::Instant,
+) -> io::Result<Transport> {
+    let cutoff = identity
+        .expires
+        .map_or(deadline, |expires| deadline.min(expires.into()));
+    check(cutoff, identity.expires)?;
+    let client = http::client(cutoff)?;
+    let endpoints = crate::native_http_endpoints(selected)?;
+    let endpoint = if endpoints.len() == 1 {
+        endpoints.into_iter().next().expect("one explicit endpoint")
+    } else {
+        probe(&client, &endpoints, cutoff)
+            .await
+            .ok_or_else(unsupported)?
+    };
+    check(cutoff, identity.expires)?;
+    connect_http(&endpoint, identity, &client, None, cutoff)
+        .await
+        .map(|(transport, _)| transport)
+}
+
 /// Authorizes only an already verified Ready key, retaining its exact selected URL and original proof.
 async fn connect_http(
     selected: &str,
     identity: &TransportIdentity,
     http_client: &reqwest::Client,
-    trust: &dyn crate::NativeServerTrust,
+    trust: Option<&dyn crate::NativeServerTrust>,
     deadline: tokio::time::Instant,
 ) -> io::Result<(Transport, String)> {
     let url = url::Url::parse(selected).map_err(|_| invalid())?;
-    let port = url.port_or_known_default().ok_or_else(invalid)?;
-    let endpoint = format!(
-        "{}://{}:{port}",
-        url.scheme(),
-        url.host_str().ok_or_else(invalid)?
-    );
+    if !matches!(url.scheme(), "http" | "https")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err(invalid());
+    }
+    let login_address = crate::native_http_login_address(selected)?;
     // Keep explicit loopback routes local; otherwise retain Nether's original interface selection.
-    let bind = url
-        .host_str()
-        .and_then(|host| host.parse::<IpAddr>().ok())
-        .filter(IpAddr::is_loopback)
-        .map(|ip| SocketAddr::new(ip, 0));
+    let bind = match url.host() {
+        Some(url::Host::Ipv4(address)) => Some(IpAddr::V4(address)),
+        Some(url::Host::Ipv6(address)) => Some(IpAddr::V6(address)),
+        _ => None,
+    }
+    .filter(IpAddr::is_loopback)
+    .map(|ip| SocketAddr::new(ip, 0));
     let mut trusted = Vec::new();
     loop {
         check(deadline, identity.expires)?;
@@ -160,7 +176,7 @@ async fn connect_http(
         );
         let client = bedrock_client_tokio::connect::http::connect(
             signaling,
-            endpoint.clone(),
+            selected.to_owned(),
             http::config(identity, bind),
             deadline,
             identity.expires,
@@ -170,7 +186,7 @@ async fn connect_http(
             drop(client.close());
             return Err(untrusted());
         };
-        if !trusted.contains(key) {
+        if let Some(trust) = trust.filter(|_| !trusted.contains(key)) {
             let started = Instant::now();
             let decision =
                 tokio::time::timeout_at(deadline, trust.trust(selected, key, deadline.into_std()))
@@ -187,8 +203,7 @@ async fn connect_http(
                 continue;
             }
         }
-        let address = format!("{endpoint}:{port}");
-        return Ok((Transport::from_http(client), address));
+        return Ok((Transport::from_http(client), login_address));
     }
 }
 
@@ -217,4 +232,12 @@ fn untrusted() -> io::Error {
 /// Keeps the original join timeout finite through discovery and user decisions.
 fn expired() -> io::Error {
     io::Error::new(io::ErrorKind::TimedOut, "native addressed join timed out")
+}
+
+/// Rejects endpoints that do not expose the supported transport without changing their route.
+fn unsupported() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Unsupported,
+        "server does not expose NetherNet HTTP signaling",
+    )
 }

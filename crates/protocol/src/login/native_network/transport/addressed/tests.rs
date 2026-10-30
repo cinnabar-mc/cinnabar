@@ -42,6 +42,7 @@ async fn actual_probe_orders_https_before_http_and_waits_for_the_complete_body()
         let address = listener.local_addr().unwrap();
         let deadline = tokio::time::Instant::now() + PROBE_TIMEOUT;
         let client = http::client(deadline).unwrap();
+        let endpoints = crate::native_http_endpoints(&address.to_string()).unwrap();
         let (sent, received) = tokio::sync::oneshot::channel();
         let (finish, ready) = tokio::sync::oneshot::channel();
         let server = async {
@@ -53,7 +54,7 @@ async fn actual_probe_orders_https_before_http_and_waits_for_the_complete_body()
             peer.write_all(b"b").await.unwrap();
         };
         let selection = async {
-            let mut selection = Box::pin(probe(&client, "127.0.0.1", Some(address.port()), deadline));
+            let mut selection = Box::pin(probe(&client, &endpoints, deadline));
             tokio::select! { biased;
                 result = selection.as_mut() => panic!("probe completed before the body barrier: {result:?}"),
                 result = received => result.unwrap(),
@@ -76,6 +77,7 @@ async fn actual_probe_rejects_redirects_without_contacting_the_destination() {
         let destination = redirect.local_addr().unwrap();
         let deadline = tokio::time::Instant::now() + PROBE_TIMEOUT;
         let client = http::client(deadline).unwrap();
+        let endpoints = crate::native_http_endpoints(&address.to_string()).unwrap();
         let server = async {
             let mut peer = http_probe(&listener).await;
             peer.write_all(format!("HTTP/1.1 302 Found\r\nLocation: http://{destination}/must-not-follow\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").as_bytes()).await.unwrap();
@@ -83,7 +85,7 @@ async fn actual_probe_rejects_redirects_without_contacting_the_destination() {
         let selection = async {
             tokio::select! { biased;
                 _ = redirect.accept() => panic!("native discovery followed a redirect"),
-                result = probe(&client, "127.0.0.1", Some(address.port()), deadline) => assert_eq!(result, None),
+                result = probe(&client, &endpoints, deadline) => assert_eq!(result, None),
             }
         };
         tokio::join!(server, selection);

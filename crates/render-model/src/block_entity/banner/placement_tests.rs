@@ -1,7 +1,7 @@
 use super::*;
 
-/// An original blank atlas at either stock or replacement-texture resolution.
-fn atlas(side: u32) -> BlockEntityAtlas {
+/// Original blank banner artwork at stock or replacement-texture resolution.
+fn artwork(side: u32) -> assets::RuntimeBlockEntityAssets {
     let placements: Vec<_> = ["base", "stripe_bottom"]
         .into_iter()
         .enumerate()
@@ -21,7 +21,12 @@ fn atlas(side: u32) -> BlockEntityAtlas {
         &placements,
     )
     .unwrap();
-    BlockEntityAtlas::from_assets(&assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap())
+    assets::RuntimeBlockEntityAssets::decode(&bytes).unwrap()
+}
+
+/// An original blank atlas at either stock or replacement-texture resolution.
+fn atlas(side: u32) -> BlockEntityAtlas {
+    BlockEntityAtlas::from_assets(&artwork(side))
 }
 
 /// Compares emitted cloth corners with the mounted, animated attachment contract.
@@ -43,7 +48,8 @@ fn cloth_attaches_to_crossbar_for_every_mount_and_wave_phase() {
                 layers: vec![BannerLayer {
                     pattern: "stripe_bottom",
                     color: [0.0, 1.0, 0.0],
-                }],
+                }]
+                .into(),
             };
             let (origin, yaw) = match mount {
                 BannerMount::Standing { rotation_degrees } => {
@@ -109,4 +115,106 @@ fn cloth_attaches_to_crossbar_for_every_mount_and_wave_phase() {
             }
         }
     }
+}
+
+/// One patterned banner whose animation changes its geometry between publications.
+fn patterned_banner() -> BannerModel {
+    BannerModel {
+        mount: BannerMount::Standing {
+            rotation_degrees: 0.0,
+        },
+        base: [1.0, 0.0, 0.0],
+        layers: std::iter::once(BannerLayer {
+            pattern: "stripe_bottom",
+            color: [0.0, 1.0, 0.0],
+        })
+        .collect(),
+    }
+}
+
+#[test]
+fn retained_banner_layers_clone_without_allocating() {
+    let banner = patterned_banner();
+    let (copy, allocations) = test_alloc::count(|| banner.clone());
+    assert_eq!(allocations, 0);
+    assert_eq!(copy, banner);
+}
+
+#[test]
+fn warmed_banner_emission_reuses_texture_names() {
+    let atlas = atlas(64);
+    let model = patterned_banner();
+    let mut builder = MeshBuilder::new(atlas.size());
+    for ticks in [0.0, 1.0] {
+        builder.reset(atlas.size());
+        emit(&mut builder, &atlas, [0; 3], &model, SceneClock { ticks });
+    }
+    let (_, allocations) = test_alloc::count(|| {
+        builder.reset(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &model,
+            SceneClock { ticks: 2.0 },
+        );
+    });
+    assert_eq!(allocations, 0);
+    let mut expected = MeshBuilder::new(atlas.size());
+    emit(
+        &mut expected,
+        &atlas,
+        [0; 3],
+        &model,
+        SceneClock { ticks: 2.0 },
+    );
+    assert_eq!(builder.solid, expected.solid);
+    assert!(!builder.solid.is_empty());
+}
+
+#[test]
+fn warmed_banner_publications_reuse_arrays_and_preserve_retained_frames() {
+    use crate::{BlockEntityKind, BlockEntityScene, BlockEntitySubmission};
+    use std::sync::Arc;
+
+    let assets = artwork(crate::block_entity::MIN_DYNAMIC_ATLAS_WIDTH);
+    let submissions = [BlockEntitySubmission {
+        block: [0; 3],
+        light: 1.0.into(),
+        kind: BlockEntityKind::Banner(patterned_banner()),
+    }];
+    let mut scene = BlockEntityScene::default();
+    scene.install_assets(&assets);
+    let held = scene
+        .update(SceneClock { ticks: 0.0 }, &[], &submissions)
+        .clone();
+    let weak = Arc::downgrade(&held.solid);
+    let original = bytemuck::cast_slice::<_, u8>(&held.solid).to_vec();
+    for ticks in 1..10 {
+        scene.update(
+            SceneClock {
+                ticks: f64::from(ticks),
+            },
+            &[],
+            &submissions,
+        );
+    }
+    let (frame, allocations) = test_alloc::count(|| {
+        scene
+            .update(SceneClock { ticks: 10.0 }, &[], &submissions)
+            .clone()
+    });
+    assert_eq!(allocations, 0);
+    assert!(!frame.solid.is_empty());
+    assert_eq!(bytemuck::cast_slice::<_, u8>(&held.solid), original);
+    assert!(Arc::ptr_eq(&weak.upgrade().unwrap(), &held.solid));
+    let mut reference = BlockEntityScene::default();
+    reference.install_assets(&assets);
+    let expected = reference.update(SceneClock { ticks: 10.0 }, &[], &submissions);
+    assert_eq!(frame.solid, expected.solid);
+    assert_eq!(frame.overlay, expected.overlay);
+    assert_eq!(frame.crack, expected.crack);
+    assert_eq!(frame.portal, expected.portal);
+    assert_eq!(frame.additive, expected.additive);
+    assert_eq!(frame.dynamic_rgba8, expected.dynamic_rgba8);
 }

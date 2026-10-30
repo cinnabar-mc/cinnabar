@@ -132,7 +132,7 @@ fn isolated_user_root_rejects_relative_and_empty_paths() {
             assert!(matches!(
                 InstallLayout::resolve(platform, &env),
                 Err(LayoutError::InvalidUserRoot {
-                    variable: env_compat::markers::USER_ROOT,
+                    variable: render_api::USER_ROOT_ENV,
                     ..
                 })
             ));
@@ -163,7 +163,7 @@ fn resolves_development_layout_from_target_ancestor() {
     .unwrap();
     assert_eq!(
         layout.world_assets(),
-        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2193.mcbea")
+        PathBuf::from("/work/cinnabar/.local/assets/compiled/vanilla-v2225.mcbea")
     );
     assert_eq!(
         layout.physics_registry,

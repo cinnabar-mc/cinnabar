@@ -9,28 +9,34 @@ and what each crate and package owns. The crate layering rules are in
 ```text
 cinnabar (Rust)
   ├─ bedrock-services ── account and online services
-  ├─ bedrock-net ─────── RakNet / NetherNet sessions
+  ├─ bedrock-net ─────── Bedrock sessions over NetherNet
   └─ local worlds ───── Dragonfly (Go) or official BDS
 ```
 
-Desktop and Android builds enable `native-networking`. Rust owners perform authentication,
-encryption, menu services and RakNet/NetherNet sessions directly. There is no separate Go client
-process or control endpoint. A build without the native socket capability cannot start a desktop
+Desktop and mobile hosts enable `native-networking`. Rust owners perform authentication,
+menu services and Bedrock sessions over NetherNet directly. Direct servers use HTTP signaling;
+service-owned worlds retain their selected legacy or Player Messaging signaling.
+There is no separate Go client process or control endpoint. A build without the native socket capability cannot start a desktop
 connection. Local worlds retain their Dragonfly or official BDS process owners. See the
 [native launch instructions](../../README.md#how-it-works).
 
 | Library | Used for |
 | --- | --- |
-| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Native framing, encryption, Login, resource packs and typed session lifecycle. |
-| [bedrock-client-tokio](https://github.com/cinnabar-mc/bedrock-net/tree/dev/crates/bedrock-client-tokio) | Native-only retained connection/codec/cipher/FIFO and established transport I/O. The separate bedrock-client typestates stay runtime-free on every target. |
+| [bedrock-net](https://github.com/cinnabar-mc/bedrock-net) | Batch framing, compression, Login, resource packs and typed client/server sessions. |
+| [bedrock-client-tokio](https://github.com/cinnabar-mc/bedrock-net/tree/main/crates/bedrock-client-tokio) | Native-only retained connection/codec/cipher/FIFO and established transport I/O. The separate bedrock-client typestates stay runtime-free on every target. |
 | [bedrock-services](https://github.com/cinnabar-mc/bedrock-services) | Native Microsoft/Xbox authentication, Realms, profiles, presence and signaling. |
-| [raknet](https://github.com/cinnabar-mc/raknet) | Native RakNet protocol core and its runtime adapter. |
 | [nethernet](https://github.com/cinnabar-mc/nethernet) | Native ICE, DTLS and SCTP with explicit Tokio and Bevy adapters. |
 | [protocolgen](https://github.com/cinnabar-mc/protocolgen) | Owns the pinned generated Bedrock packet codec shared by the client and bedrock-net. |
 | [Axolotl Stack](https://github.com/axolotl-stack/axolotl-stack) | Earlier Jolyne session integration; its MIT attribution remains in `THIRD_PARTY_NOTICES.md`. The current session owner uses bedrock-net. |
 | [gophertunnel](https://github.com/Sandertv/gophertunnel) | Bedrock protocol support for the Dragonfly local-server integration and Go fixture tools. |
-| [go-raknet](https://github.com/Sandertv/go-raknet) | RakNet transport for the Go local-server integration. |
+| [go-raknet](https://github.com/Sandertv/go-raknet) | Retained compatibility dependency of the Go reference and fixture stack. |
 | [dragonfly](https://github.com/df-mc/dragonfly) | The built-in local-world server in `tools/localserver`. |
+
+HTTP signaling selects a NetherNet connection; game traffic then uses ICE/DTLS/SCTP.
+The sans-I/O cores own protocol state. Native Tokio adapters own socket/timer I/O on
+the application runtime, and the NetherNet Bevy adapter supports caller-driven sessions.
+Within this workspace, only `protocol` directly depends on the generated packet contract,
+enforced by the architecture policy.
 
 Mojang assets are never committed or embedded. `make assets` fetches Mojang's official
 `bedrock-samples` pack (EULA-gated) and compiles it into carriers under the ignored `.local/`.
@@ -58,7 +64,7 @@ coordinates work that crosses these owners.
 | `web/transport` | `web-transport` | Browser WebTransport and WebSocket channels, bounded control and reconnect state; the browser host drives timers and passes prepared play I/O to the existing session. | `bridge` owns framing and the shared relay contract. |
 | `web/gateway` | `web-gateway` | Native browser relay and optional operator; supply accepted connections to `Gateway` or enable the `operator` feature. | `protocol` owns native Login and play; `bridge` owns relay framing; `bedrock-services` owns account services. |
 | `packaging/android/client` | `cinnabar-android` | Android NativeActivity entry and setup-activity natives; build it with `packaging/android/build-apk.sh`. | `cinnabar` runs the client; `launcher` owns the Android install layout; `first-run` prepares carriers. |
-| `packaging/ios/client` | `cinnabar-ios` | iOS app executable: resolves the bundle and container layout, then runs the client with the Go core linked in; build it with `packaging/ios/build-ipa.sh`. | `cinnabar` runs the client; `launcher` owns the iOS install layout; `launcher-host` runs cores in-process. |
+| `packaging/ios/client` | `cinnabar-ios` | iOS app executable: resolves the bundle and container layout, then runs the native Rust client; build it with `packaging/ios/build-ipa.sh`. | `cinnabar` runs the client; `launcher` owns the iOS install layout; `launcher-host` owns platform services. |
 | `crates/client-state` | `client-state` | Shared ECS resource wrappers, frame sets and observations; use these contracts to connect plugins. | Domain crates own transitions; the other `client-*` crates own systems. |
 | `crates/client-runtime` | `client-runtime` | Transport resources, world servicing and session lifecycle adapters; use its runtime plugin and ingress/publication APIs. | `client-session` owns transport; `client-world` and `chunk-pipeline` own world work. |
 | `crates/client-session` | `client-session` | Session transport, join bootstrap and separate bounded control/world FIFOs; use its network handle and sequenced events. | `pack-runtime` prepares packs; presentation owners interpret the opaque prepared payload. |
@@ -106,7 +112,7 @@ coordinates work that crosses these owners.
 | `crates/asset-compiler` | `asset-compiler` | The `assetc` executable for runtime carrier preparation; use its CLI from asset setup. | the pack compiler owners implement compilation; `protocol-ids` validates generated event routes; `first-run` coordinates initial preparation. |
 | `crates/pack-runtime` | `pack-runtime` | Runtime pack admission, compilation cache and reload dependencies; use its pack preparation and reload APIs. | `resource-pack` admits archives; `pack-entity-compiler` compiles entities; client adapters install the results. |
 
-`assets` owns `crates/assets/data/item-facts-v2193.bin`, generated by `registryc` from
+`assets` owns `crates/assets/data/item-facts-v2225.bin`, generated by `registryc` from
 the pinned item tables and typed rules. It contains identifiers and behavior metadata,
 with a checked schema and hash, rather than artwork or executable code. Regenerate it
 through the item-facts compiler; runtime pack carriers remain local inputs.
@@ -121,12 +127,12 @@ A consumer conformance check binds its behavioral baseline to the pinned Gophert
 reference used by the retained Dragonfly integration. Login, connection, resource packs
 and spawn use the native typed session owners.
 
-`assets` also owns `crates/assets/data/entity-facts-v2193.bin`, generated by `registryc`
+`assets` also owns `crates/assets/data/entity-facts-v2225.bin`, generated by `registryc`
 from pinned entity component metadata and typed compatibility rules. It contains
 identifiers and constructor facts with a checked schema and hash. Runtime artwork
 and pack carriers remain local inputs.
 
-`assets` also owns `crates/assets/data/java-mapping-v2193.bin`, generated by `registryc --kind
+`assets` also owns `crates/assets/data/java-mapping-v2225.bin`, generated by `registryc --kind
 java-mapping` from the GeyserMC mappings and Geyser sources pinned in
 `assets/geyser-mappings-source.json`. It maps block-registry states to Java block states, lists
 Java block tags, the Java biome registry (climate values and sky, fog and water fog colour
@@ -205,6 +211,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `examples/mods/hello` | `hello-mod` | Minimal retained HUD label and keybind example; use it as a personal-mod template. | `mod-api` supplies imports; `mod-host` runs it. |
 | `examples/mods/time-changer` | `time-changer-mod` | Local visual-time override example; build it to exercise host environment controls. | `mod-api` defines the imports; `client-extensions` applies the visual output. |
 | `examples/mods/render-sample` | `render-sample-mod` | Post-pass and world-decal example; build it to exercise guest rendering. | `mod-render` validates outputs; `render` draws them. |
+| `examples/mods/portal-view` | `portal-view-mod` | Retained block-grid and geometry-clip example; build it to display a three-by-three chunk portal view. | `mod-api` supplies imports; `mod-render` validates grids and clips; `render` submits them. |
 | `examples/mods/screen-probe` | `screen-probe-mod` | Player-mod screen fixture for events, data reads and traps; build it for host contract tests. | `mod-api` defines screens; `mod-host` executes callbacks; `mod-ui` draws them. |
 
 ### Diagnostics, tests and tools
@@ -219,6 +226,7 @@ the SDK for their own host contract; they do not import client runtime authority
 | `crates/test-alloc` | `test-alloc` | Per-thread allocation request counting for tests, benchmarks and opt-in runtime diagnostics; optional process totals compose with the chosen allocator. | Owning crates define allocation contracts for their own hot paths. |
 | `tools/architecture` | `architecture` | Repository gate for boundaries, ownership docs, source limits and declarations; run its `check` command. | `policy.toml` defines rules; `workspace-declarations` shares metadata with `devtool`. |
 | `tools/devtool` | `devtool` | Affected verification, CI planning, captures, worktree tools and offline crash symbolication; use its commands for scoped checks and artifacts. | `architecture` enforces boundaries; `workspace-declarations` supplies metadata and path matching; `crash-report` owns the crash folders `symbolicate` reads. |
+| `tools/mod-docs` | `mod-docs` | Generate and check the standalone modding API book. | `mod-api`, `mod-host`, `server-experience`, `ui` |
 | `tools/workspace-declarations` | `workspace-declarations` | Shared Cargo metadata keys and repository path matching; use these declarations in gates and CI selection. | `architecture` validates metadata; `devtool` selects affected packages. |
 | `tools/dist` | `dist-local` | Distribution staging, layout and hashes; use its CLI to assemble distributable bundles. | `launcher` owns install layout; `release-manifest` signs the published update manifest. |
 | `tools/release-manifest` | `release-manifest` | Release key generation and manifest signing; use its CLI in release publishing. | `update-manifest` owns the format and verification; `dist-local` stages artifacts. |

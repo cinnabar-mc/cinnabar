@@ -1,6 +1,6 @@
 use super::*;
 use bedrock_client::packs::{PackEvent, PackOffer, PackTransferLimits};
-use bedrock_protocol_1_26_51::{packets, types::PackInfoData, wire};
+use bedrock_protocol_contract_1_26_60::{packets, types::PackInfoData, wire};
 use resource_pack::test_support::archive_bytes;
 use std::io;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -92,7 +92,7 @@ async fn cdn_accepts_original_archive_and_cache_hit_avoids_http_while_bad_body_f
     let PackEvent::Finished(complete) = negotiation
         .receive(
             packets::ResourcePackStack {
-                texture_pack_list: vec![bedrock_protocol_1_26_51::types::PackInstanceId {
+                texture_pack_list: vec![bedrock_protocol_contract_1_26_60::types::PackInstanceId {
                     pack_id: id.to_string().into(),
                     version: "1.0.0".into(),
                     ..Default::default()

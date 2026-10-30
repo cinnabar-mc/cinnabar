@@ -20,7 +20,7 @@ func TestServerStopsWithoutExperiencesWithConnectedPlayer(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			addr := freeAddr(t)
 			stop := startServer(t, []string{"-dir", t.TempDir(), "-addr", addr})
-			conn, err := (minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "ShutdownFixture"}}).DialTimeout("raknet", addr, 20*time.Second)
+			conn, err := (minecraft.Dialer{IdentityData: login.IdentityData{DisplayName: "ShutdownFixture"}}).DialTimeout("nethernet", "http://"+addr, 20*time.Second)
 			if err != nil {
 				t.Fatal(err)
 			}

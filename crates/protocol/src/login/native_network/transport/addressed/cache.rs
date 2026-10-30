@@ -8,7 +8,7 @@ use std::{
 const TTL: Duration = Duration::from_secs(10 * 60);
 
 struct Entry {
-    endpoint: Option<String>,
+    endpoint: String,
     expires: Instant,
 }
 
@@ -18,8 +18,8 @@ pub(super) struct ProbeCache {
 }
 
 impl ProbeCache {
-    /// Distinguishes an absent/expired entry from a retained negative RakNet choice.
-    pub(super) fn lookup(&self, key: &str, now: Instant) -> Option<Option<String>> {
+    /// Distinguishes an absent/expired entry from a retained successful HTTP endpoint.
+    pub(super) fn lookup(&self, key: &str, now: Instant) -> Option<String> {
         self.entries
             .get(key)
             .filter(|entry| now < entry.expires)
@@ -27,7 +27,7 @@ impl ProbeCache {
     }
 
     /// Keeps the original choice lifetime and prunes expired addresses during actual insertion.
-    pub(super) fn store(&mut self, key: String, endpoint: Option<String>, now: Instant) {
+    pub(super) fn store(&mut self, key: String, endpoint: String, now: Instant) {
         self.entries.retain(|_, entry| now < entry.expires);
         self.entries.insert(
             key,
@@ -49,26 +49,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn positive_and_negative_choices_expire_at_the_original_cutoff_and_failure_forgets_only_its_address()
-     {
+    fn http_choices_expire_at_the_original_cutoff_and_failure_forgets_only_its_address() {
         let now = Instant::now();
         let mut cache = ProbeCache::default();
-        cache.store(
-            "first".into(),
-            Some("https://fixture.invalid:19132".into()),
-            now,
-        );
-        cache.store("second".into(), None, now);
+        cache.store("first".into(), "https://fixture.invalid:19132".into(), now);
+        cache.store("second".into(), "http://other.invalid:19132".into(), now);
         assert!(
             cache
                 .lookup("first", now + TTL - Duration::from_nanos(1))
-                .unwrap()
                 .is_some()
         );
-        assert_eq!(cache.lookup("second", now), Some(None));
+        assert_eq!(
+            cache.lookup("second", now).as_deref(),
+            Some("http://other.invalid:19132")
+        );
         assert_eq!(cache.lookup("first", now + TTL), None);
         cache.remove("first");
         assert_eq!(cache.lookup("first", now), None);
-        assert_eq!(cache.lookup("second", now), Some(None));
+        assert_eq!(
+            cache.lookup("second", now).as_deref(),
+            Some("http://other.invalid:19132")
+        );
     }
 }

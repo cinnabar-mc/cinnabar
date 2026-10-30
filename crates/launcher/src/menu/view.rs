@@ -182,7 +182,7 @@ pub struct MenuFeeds {
     pub selected_saved: Option<usize>,
     /// The Realm the Realms tab's details show.
     pub selected_realm: Option<usize>,
-    /// RakNet pongs keyed by the address the row joins.
+    /// Server status keyed by the address the row joins.
     pub pings: HashMap<String, PingInfo>,
     /// The info panel's description and news are expanded past "read more".
     pub description_expanded: bool,

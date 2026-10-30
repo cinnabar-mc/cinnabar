@@ -17,6 +17,7 @@ pub mod test_support;
 mod tests;
 
 pub use display::FirstPersonHand;
+pub(crate) use display::LAYER_OFF_HAND;
 /// Rig layer identity used by the main-hand equipment submission.
 pub(crate) const LAYER_MAIN_HAND: u8 = 1;
 pub use input::{local_input, remote_input};

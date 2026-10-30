@@ -86,11 +86,11 @@ fn checked_in_reserved_states_have_neutral_light() {
 
 #[test]
 fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
-    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(breg).unwrap();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let lights = assets::read_light_registry_for_protocol(
-        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        include_bytes!("../../data/block-light-registry-v2225.bin"),
         breg,
         records.len(),
         protocol,
@@ -115,11 +115,11 @@ fn shipped_trial_spawners_follow_all_twelve_state_combinations() {
 
 #[test]
 fn shipped_snow_layers_do_not_dampen_light_at_any_height() {
-    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(breg).unwrap();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let lights = assets::read_light_registry_for_protocol(
-        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        include_bytes!("../../data/block-light-registry-v2225.bin"),
         breg,
         records.len(),
         protocol,
@@ -140,11 +140,11 @@ fn shipped_snow_layers_do_not_dampen_light_at_any_height() {
 
 #[test]
 fn shipped_ice_light_dampening_distinguishes_translucent_from_packed() {
-    let breg = include_bytes!("../../data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(breg).unwrap();
     let records = assets::read_registry_for_protocol(breg, protocol).unwrap();
     let lights = assets::read_light_registry_for_protocol(
-        include_bytes!("../../data/block-light-registry-v2193.bin"),
+        include_bytes!("../../data/block-light-registry-v2225.bin"),
         breg,
         records.len(),
         protocol,

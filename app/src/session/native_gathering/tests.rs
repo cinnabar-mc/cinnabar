@@ -56,7 +56,7 @@ fn native_gathering_replacement_restores_destination_for_world_consumers() {
     );
     menu.show_world();
     let mut controller = SessionController::default()
-        .with_native_transport(Some(protocol::NativeTransport::RakNet))
+        .with_native_transport(Some(protocol::NativeTransport::NetherNetHttp))
         .with_client_random_id(Some(protocol::ClientRandomId::new(1).unwrap()))
         .with_address(Some("previous.example:19132"));
     controller.trust = Some(Box::new(

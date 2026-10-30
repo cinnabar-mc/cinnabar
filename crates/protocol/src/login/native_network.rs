@@ -35,7 +35,7 @@ use crate::{GameData, ProtocolError};
 use crate::{NativeConnectionTarget, NativeTransport};
 use bedrock_client::handshake::HandshakeError;
 use bedrock_packs::ResourcePackHandoff;
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use std::io;
 
 /// Retains a decoded negotiation boundary when a response write fails.

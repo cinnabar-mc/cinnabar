@@ -2,7 +2,7 @@
 
 use bedrock_client::server::session::ServerPackContent;
 use bedrock_packs::ResourcePackArchive;
-use bedrock_protocol_1_26_51::types::PackInfoData;
+use bedrock_protocol_contract_1_26_60::types::PackInfoData;
 use resource_pack::ArchiveKind;
 use sha2::{Digest, Sha256};
 use std::io;

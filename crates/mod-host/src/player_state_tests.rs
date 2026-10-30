@@ -828,3 +828,106 @@ fn combat_lives_follow_event_grants_bounds_order_and_callback_lifetime() {
     state.player_state.clear_presentation();
     assert_eq!(state.read_combat_lives(vec![2]).unwrap().unwrap(), [None]);
 }
+
+/// Identifier queries omit unknown cells and preserve unknown offhand identity separately.
+#[test]
+fn compact_equipment_queries_are_exact_granted_and_session_bound() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let mut input = snapshot();
+    let item = crate::PlayerStateItem {
+        identifier: Some("test:match".into()),
+        network_id: 6,
+        metadata: 0,
+        count: 1,
+        block: false,
+        damage: None,
+        max_durability: None,
+    };
+    input.inventory[35] = PlayerStateSlot {
+        known: true,
+        item: Some(item.clone()),
+    };
+    input.offhand = PlayerStateSlot {
+        known: false,
+        item: None,
+    };
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let answer = state
+        .read_equipment_matches("test:match".into())
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer.inventory, [35]);
+    assert_eq!(answer.offhand, None);
+    assert_eq!(answer.revisions.session, input.session);
+    input.offhand = PlayerStateSlot {
+        known: true,
+        item: Some(item),
+    };
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    assert_eq!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .offhand,
+        Some(true)
+    );
+    assert!(
+        state
+            .read_equipment_matches("test:mat".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .inventory
+            .is_empty()
+    );
+    input.offhand.item.as_mut().unwrap().identifier = None;
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(input)).unwrap();
+    assert_eq!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .offhand,
+        None
+    );
+    state.player_state.begin_frame();
+    assert!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        state
+            .read_equipment_matches(String::new())
+            .unwrap()
+            .is_err()
+    );
+    state.grants.player_state = false;
+    assert!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .is_err()
+    );
+}

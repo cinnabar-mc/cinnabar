@@ -50,6 +50,8 @@ type entityAppearance struct {
 	Yaw        *float32                   `json:"yaw"`
 	AttachFace *uint8                     `json:"attach_face"`
 	Peek       *int32                     `json:"peek"`
+	// CarriedBlock names a property-free block an enderman holds, synced as its carried block.
+	CarriedBlock string `json:"carried_block"`
 }
 
 // entityCloudAppearance supplies the typed state needed to display a lingering cloud.
@@ -390,6 +392,11 @@ func (a entityAppearance) metadata() protocol.EntityMetadata {
 		metadata[protocol.EntityDataKeyDataParticle] = a.Cloud.Particle
 		metadata[protocol.EntityDataKeyEffectColor] = a.Cloud.Color
 		metadata[protocol.EntityDataKeyDataChangeRate] = float32(0)
+	}
+	if a.CarriedBlock != "" {
+		if b, ok := world.BlockByName(a.CarriedBlock, nil); ok {
+			metadata[protocol.EntityDataKeyCarryBlockRuntimeID] = int32(world.BlockRuntimeID(b))
+		}
 	}
 	return metadata
 }

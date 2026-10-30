@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::login::native_network::packs::PUBLIC_CDN_ENDPOINT;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_contract_1_26_60::types::{
     PackInfoData, PackInstanceId, ResourcePackClientResponseData,
 };
 use resource_pack::test_support::archive_bytes;
@@ -100,7 +100,7 @@ async fn relay_acquires_cdn_only_archive_without_requesting_any_game_chunks() {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo {
                         resource_packs: vec![offer],

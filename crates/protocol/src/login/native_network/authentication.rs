@@ -109,7 +109,7 @@ impl NativeCredential {
 /// policy. This handoff moves the private key into the connection and keeps the
 /// credential out of Debug output. Verification is pure; HTTP remains provider-owned.
 pub struct NativeAuthentication {
-    pub(super) key: SigningKey,
+    pub(super) key: Arc<SigningKey>,
     pub(super) token: Zeroizing<String>,
     pub(super) claims: NativeClaims,
     pub(super) expires: Instant,
@@ -188,7 +188,7 @@ impl NativeAuthentication {
                 .expect("qualified identity has name"),
         )?;
         Ok(Self {
-            key,
+            key: Arc::new(key),
             token: credential.token,
             claims,
             expires,
@@ -261,9 +261,47 @@ impl NativeAuthentication {
         self.expires
     }
 
+    /// Shares the original connection proof with transport setup without copying private material.
+    pub fn signing_key(&self) -> Arc<SigningKey> {
+        Arc::clone(&self.key)
+    }
+
+    /// Supplies HTTP signaling with the original provider token, proof and calibrated peer trust.
+    /// This performs no I/O and does not extend the original admission deadline.
+    ///
+    /// # Errors
+    /// Rejects expired credentials or a handoff reserved for a messaging recipient.
+    pub fn http_config(&self) -> io::Result<nethernet_tokio::ConnectionConfig> {
+        ensure_current(self.expires, Instant::now())?;
+        if self.messaging.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "HTTP transport cannot consume messaging admission",
+            ));
+        }
+        let (identity, trust) = identity_policy(
+            Arc::clone(&self.key),
+            &self.token,
+            self.clock,
+            Arc::clone(&self.verifier),
+            self.expires,
+        )?;
+        let nethernet::identity::TokenTrust::Provider(provider) = trust else {
+            unreachable!("qualified identity retains its configured provider");
+        };
+        Ok(super::transport::http::config(
+            &super::transport::identity::TransportIdentity {
+                identity,
+                trust: nethernet::identity::TokenTrust::ServerAnswer(provider),
+                expires: Some(self.expires),
+            },
+            None,
+        ))
+    }
+
     /// Retains the sole proof key, original service clock and configured peer verifier during SDP.
     pub(super) fn into_handoff(self) -> io::Result<AuthenticationHandoff> {
-        let key = Arc::new(self.key);
+        let key = self.key;
         let messaging = self
             .messaging
             .map(|(prepared, target)| {

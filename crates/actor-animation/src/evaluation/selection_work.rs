@@ -1,6 +1,6 @@
 //! Actual slot visits during owner-selection preparation and mutation restoration.
 
-/// Slot work counted at the operations that reset, inherit, assign, and restore values.
+/// Slot work counted where values are reset, inherited, assigned, restored, or copied.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct Work {
     pub reset: usize,
@@ -8,11 +8,12 @@ pub(crate) struct Work {
     pub assigned: usize,
     pub saved: usize,
     pub restored: usize,
+    pub copied: usize,
 }
 
 thread_local! {
     static WORK: std::cell::Cell<Work> = const { std::cell::Cell::new(Work {
-        reset: 0, inherited: 0, assigned: 0, saved: 0, restored: 0,
+        reset: 0, inherited: 0, assigned: 0, saved: 0, restored: 0, copied: 0,
     }) };
 }
 

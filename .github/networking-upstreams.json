@@ -5,10 +5,6 @@
       "repository": "bedrock-crustaceans/bedrock-rs",
       "revision": "ab7bb9521af078d4094c86da8b127d5f53cf0d31"
     },
-    "raknet-pr8-replacement": {
-      "repository": "bedrock-crustaceans/raknet",
-      "revision": "701e0e59b02f3a76b6d8b721b4b6da9a7fa3263b"
-    },
     "gophertunnel-parallel-pack-downloads": {
       "repository": "HashimTheArab/gophertunnel",
       "revision": "bdc937334fd64fda588971a24bbdcd93754c4db2"
@@ -25,11 +21,11 @@
     {"repository": "df-mc/go-playfab", "refs": ["main"], "baseline": {"go_module": "github.com/df-mc/go-playfab/v2"}},
     {"repository": "bedrock-crustaceans/bedrock-rs", "refs": ["main"], "baseline": {"reference": "bedrock-rs"}},
     {"repository": "cinnabar-mc/protocolgen", "refs": ["main"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/protocolgen"}},
-    {"repository": "bedrock-crustaceans/raknet", "refs": ["main"], "baseline": {"reference": "raknet-pr8-replacement"}},
-    {"repository": "cinnabar-mc/raknet", "refs": ["main"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/raknet"}}
+    {"repository": "cinnabar-mc/bedrock-net", "refs": ["dev"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/bedrock-net"}},
+    {"repository": "cinnabar-mc/bedrock-services", "refs": ["dev"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/bedrock-services"}},
+    {"repository": "cinnabar-mc/nethernet", "refs": ["main"], "baseline": {"cargo_git": "https://github.com/cinnabar-mc/nethernet"}}
   ],
   "pull_requests": [
-    {"repository": "bedrock-crustaceans/raknet", "number": 8, "reference": "raknet-pr8-replacement", "observed_at": "2026-10-18T17:16:49Z"},
     {"repository": "HashimTheArab/gophertunnel", "number": 221, "reference": "gophertunnel-parallel-pack-downloads", "observed_at": "2026-10-18T21:15:27Z"}
   ]
 }

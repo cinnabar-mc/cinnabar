@@ -127,9 +127,9 @@ mod preparation_tests {
         }
     }
 
-    /// The actual Dragonfly opening must reach preparation through its original RakNet route.
+    /// The actual Dragonfly opening must reach preparation through its HTTP signaling route.
     #[tokio::test]
-    async fn dragonfly_local_world_admits_native_raknet_preparation() {
+    async fn dragonfly_local_world_admits_native_nethernet_preparation() {
         const SERVER: &str = "CINNABAR_NATIVE_LOCAL_PREPARATION_SERVER";
         let Some(server) = std::env::var_os(SERVER) else {
             eprintln!("missing fixture: {SERVER} (build tools/localserver)");
@@ -160,7 +160,7 @@ mod preparation_tests {
         let selection = world.0.native_local_world(&saved.id).unwrap();
         assert_eq!(
             selection.connection_target().unwrap().transport,
-            protocol::NativeTransport::RakNet
+            protocol::NativeTransport::LocalNetherNetHttp
         );
         let mut companion = LocalWorldCompanion {
             selection,
@@ -178,7 +178,7 @@ mod preparation_tests {
         });
         assert!(
             prepared
-                .expect("the original Dragonfly RakNet route must admit preparation")
+                .expect("the Dragonfly HTTP route must admit preparation")
                 .is_none()
         );
         original_running.unwrap();

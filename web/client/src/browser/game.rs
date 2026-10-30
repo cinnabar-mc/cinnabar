@@ -113,10 +113,10 @@ impl Game {
 
     /// Starts a fresh manual join, cancelling the previous play task and its writer.
     pub fn join(&mut self, page: &Page, address: &str) -> Result<(), JsError> {
-        let bridge::ConnectTarget::RakNet(address) =
+        let bridge::ConnectTarget::Server(address) =
             crate::launcher::addressed_target(address).map_err(JsError::new)?
         else {
-            unreachable!("addressed_target accepts only RakNet servers");
+            unreachable!("addressed_target accepts only direct servers");
         };
         page.account.borrow_mut().begin_join();
         self.disconnect();

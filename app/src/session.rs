@@ -4,8 +4,13 @@
 
 use crate::runtime::network::resource_packs::PackApplication;
 use bevy::{
-    ecs::system::SystemParam,
-    prelude::{AppExit, Commands, MessageReader, MessageWriter, ParamSet, Res, ResMut, Resource},
+    ecs::system::{NonSendMarker, SystemParam},
+    prelude::{
+        AppExit, Commands, Entity, MessageReader, MessageWriter, ParamSet, Query, Res, ResMut,
+        Resource, With,
+    },
+    window::PrimaryWindow,
+    winit::WINIT_WINDOWS,
 };
 use client_runtime::network::NetworkHandle;
 use client_runtime::session::{format_transfer_address, transfer_handoff_address};
@@ -282,7 +287,7 @@ impl SessionController {
                 if auth_cache.is_some()
                     && !matches!(
                         target.transport,
-                        protocol::NativeTransport::RakNet
+                        protocol::NativeTransport::NetherNetHttp
                             | protocol::NativeTransport::Addressed
                             | protocol::NativeTransport::NetherNetLan
                     )
@@ -462,6 +467,26 @@ pub(crate) fn login_settings(
         resource_pack_cache_dir: Some(menu.layout().resource_pack_cache_dir()),
         parallel_resource_pack_urls,
     }
+}
+
+/// Hides the window before an exit's blocking teardown, so a quit or update restart
+/// never shows a frozen frame.
+pub(crate) fn hide_window_before_exit(
+    menu: Res<MenuRuntime>,
+    windows: Query<Entity, With<PrimaryWindow>>,
+    _main_thread: NonSendMarker,
+) {
+    if !menu.exit_requested() {
+        return;
+    }
+    let Ok(window) = windows.single() else {
+        return;
+    };
+    WINIT_WINDOWS.with_borrow(|windows| {
+        if let Some(window) = windows.get_window(window) {
+            window.set_visible(false);
+        }
+    });
 }
 
 /// Acts on the menu's session intents and advances the pending join.
@@ -702,7 +727,11 @@ mod tests {
     fn native_routing_preserves_gathering_and_friend_provisioning_owners() {
         fn selected(address: &str, local_world: bool) -> bool {
             !matches!(
-                destination::classify(address, protocol::NativeTransport::RakNet, local_world),
+                destination::classify(
+                    address,
+                    protocol::NativeTransport::NetherNetHttp,
+                    local_world
+                ),
                 destination::Destination::LocalWorld
             )
         }
@@ -744,7 +773,7 @@ mod tests {
             client_shell::player_skin::LocalPlayerSkin::generated_default("Direct"),
         );
         let mut controller = SessionController::default()
-            .with_native_transport(Some(protocol::NativeTransport::RakNet));
+            .with_native_transport(Some(protocol::NativeTransport::NetherNetHttp));
         for address in [
             "play.example.net:19133",
             "[2001:db8::7]:19134",
@@ -752,7 +781,7 @@ mod tests {
             "2001:db8::7",
             " play.example.net ",
         ] {
-            let bridge::ConnectTarget::RakNet(expected) =
+            let bridge::ConnectTarget::Server(expected) =
                 launcher_host::destination::target_for(address)
             else {
                 panic!("direct fixture must use the ordinary endpoint owner");
@@ -760,7 +789,7 @@ mod tests {
             let protocol::SessionEndpoint::Native(target) = controller
                 .prepare_endpoint(&menu, address, None, None)
                 .expect("direct native provisioning must not start a Go process");
-            assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+            assert_eq!(target.transport, protocol::NativeTransport::NetherNetHttp);
             assert_eq!(
                 target.address, expected,
                 "native provisioning lost the existing endpoint grammar for {address}"

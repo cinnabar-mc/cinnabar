@@ -43,6 +43,10 @@ pub struct State {
 pub enum Fixture {
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
+    /// Opaque black-backed cursor art on contrasting backgrounds.
+    CrosshairCoverage {
+        fixed: bool,
+    },
     /// Original sprite samples before and after alpha-only outline shading.
     SpriteOutline {
         outline: bool,
@@ -82,6 +86,8 @@ pub enum Fixture {
         raised: bool,
     },
     Loading(ui::LoadingStage),
+    /// The client-owned cover shown while a resource-pack snapshot is published.
+    ResourcePackLoading,
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
@@ -105,6 +111,11 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An answered form after immediate retirement or during its visual handoff.
+    #[cfg(feature = "test-support")]
+    FormHandoff {
+        retained: bool,
+    },
     /// A script form shown through data-driven UI.
     #[cfg(feature = "test-support")]
     DataDriven(protocol::ddui::ScriptedScreen),

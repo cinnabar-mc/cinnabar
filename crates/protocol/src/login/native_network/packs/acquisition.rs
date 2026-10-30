@@ -4,7 +4,7 @@ mod http;
 
 pub(super) use http::{Client, http_client, public_http_client};
 
-use bedrock_protocol_1_26_51::types::PackInfoData;
+use bedrock_protocol_contract_1_26_60::types::PackInfoData;
 use resource_pack::cache::{ArchiveCache, ArchiveCacheKey, DEFAULT_CACHE_QUOTA};
 use std::{
     collections::BTreeMap,
@@ -242,4 +242,4 @@ fn invalid(message: &'static str) -> io::Error {
 mod service_tests;
 
 #[cfg(test)]
-mod raknet_tests;
+mod nethernet_tests;

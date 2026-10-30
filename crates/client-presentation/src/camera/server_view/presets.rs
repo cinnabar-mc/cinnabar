@@ -7,6 +7,11 @@ use super::{
     target::{TargetFocus, TargetSettings},
 };
 use protocol::{CameraAimAssistPresetSettings, CameraPreset};
+use semantic_input::PerspectiveMode;
+
+const FIRST_PERSON: &str = "minecraft:first_person";
+const THIRD_PERSON: &str = "minecraft:third_person";
+const THIRD_PERSON_FRONT: &str = "minecraft:third_person_front";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PresetKind {
@@ -96,11 +101,20 @@ impl ResolvedPreset {
 pub(super) fn preset_kind_from_name(name: &str) -> Option<PresetKind> {
     match name {
         "minecraft:free" => Some(PresetKind::Free),
-        "minecraft:first_person" => Some(PresetKind::FirstPerson),
-        "minecraft:third_person" | "minecraft:follow_orbit" | "minecraft:fixed_boom" => {
+        FIRST_PERSON => Some(PresetKind::FirstPerson),
+        THIRD_PERSON | "minecraft:follow_orbit" | "minecraft:fixed_boom" => {
             Some(PresetKind::ThirdPerson)
         }
-        "minecraft:third_person_front" => Some(PresetKind::ThirdPersonFront),
+        THIRD_PERSON_FRONT => Some(PresetKind::ThirdPersonFront),
         _ => None,
+    }
+}
+
+/// Names the vanilla camera that each local perspective activates.
+pub(super) const fn perspective_camera_name(perspective: PerspectiveMode) -> &'static str {
+    match perspective {
+        PerspectiveMode::FirstPerson => FIRST_PERSON,
+        PerspectiveMode::ThirdPersonBack => THIRD_PERSON,
+        PerspectiveMode::ThirdPersonFront => THIRD_PERSON_FRONT,
     }
 }

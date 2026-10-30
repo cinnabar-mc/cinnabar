@@ -1,45 +1,51 @@
-# Control channel
+# Control interfaces
 
-`-control-status` binds a local JSON-RPC 2.0 endpoint (4-byte big-endian length frames, one request per
-connection). Every result carries `schema_version: 1`. Errors are sanitized: fixed messages, never paths or
-upstream text. Rust clients: `crates/bridge`, re-exported by `protocol::launcher_control` and
-`protocol::world_control`.
+Native menu services, developer automation and browser relay control have separate owners.
+The old Go client's `-control-status` endpoint and `*.v1` JSON-RPC methods are retired.
 
-| Method | Params | Result |
-| --- | --- | --- |
-| `status.v1` | none | lifecycle, pack admission, optional `transfer` |
-| `pack_application.v1` | `attempt_id`, `applied` | status |
-| `local_world.v1` | the launcher's open world, see `docs/local-worlds.md` | empty |
-| `world_invite.v1` | `xuid` | empty; invites a friend to the hosted local world |
-| `realms_list.v1` | none | `realms: [{name, state, target, address?}]` |
-| `friends_list.v1` | none | `friends: [{gamertag, xuid, world_name, members, max_members, handle_id?, address?}]` |
-| `connect.v1` | `kind` = `raknet` (`host:port`), `realm` (id), `friend` (xuid); `value` | empty; next client connection dials it |
-| `account_status.v1` | none | `account` |
-| `sign_out.v1` | none | `account`; deletes cached tokens |
-| `events.v1` | none | `auth`, `disconnect?`, `transfer?`, `pack_download?`, `cinnabar_release?` |
-| `featured_servers.v1` | none | `servers: [{name, address, caption, description?, news_title?, news?, logo, screenshots, games}]` |
-| `profile.v1` | none | `profile: {gamertag, xuid, gamerpic, real_name?, presence_text?, gamerscore, friends, followers}` |
-| `home.v1` | none | `home: {messages, inbox, treatments, realm_invites, live_events, persona_head}` |
-| `message_event.v1` | `event_type`, `instance_id?`, `report_id?`, `button_id?` | empty |
-| `ping.v1` | `addresses` (at most 64) | `servers: [{address, online, players, max_players, ping_ms, motd?}]` |
-| `cinnabar_api.v1` | `client_version`, `channel`, `visible` | empty; see `docs/cinnabar-api.md` |
-| `cinnabar_lookup.v1` | `xuids` (at most 128) | `cinnabar`: the visible Cinnabar players among them |
+## Native menu and sessions
 
-Artwork fields are `{url, path?}`: an HTTPS URL the client downloads and caches; `path` is set only
-for persona art the core renders. Realms also
-carry `owner`, `motd`, `world_type`, `online_players`, `max_players`, `days_left`, `expired`, `member`.
-Feed sources: `docs/menus-services.md`.
+The menu calls [`launcher-host::account_control::AccountControl`](../crates/launcher-host/src/account_control.rs)
+and consumes worker snapshots. The native account owner handles sign-in, catalogue reads,
+profile, presence and explicit service joins through bedrock-services. The local-world manager
+retains its selected process opening. These interfaces run in the Rust process and need no
+control socket.
 
-`account` / `auth`: `state` is `offline | signed_out | awaiting_code | signed_in | failed`, with
-`verification_uri` and `user_code` while awaiting a code, `gamertag` when signed in, `reason` on failure.
-`disconnect`: `{reason, message, sequence}` and `transfer`: `{host, port, sequence}` stay until the next
-connection attempt begins; poll and compare `sequence`. `pack_download`: `{received_bytes, total_bytes}` while the
-newest attempt downloads the server's packs (chunk bytes against the admitted offer).
+[`bridge::ConnectTarget`](../crates/bridge/src/contract.rs) carries a direct `server` address or
+an opaque Realm, friend or Gathering destination. Direct servers use HTTP-signaled NetherNet.
+Service joins retain their original account-bound selection and returned signaling route;
+display names, cached cards and raw friend identifiers do not grant connection authority.
+The canonical wire definitions come from
+[`crates/bridge/data/contract.json`](../crates/bridge/data/contract.json).
 
-Errors: `-32020` not signed in, `-32021` service unavailable, `-32022` invalid target, `-32023` launcher services
-disabled, `-32024` Cinnabar lookup rate limited, `-32602` invalid params. Precedence for the next connection: pending server transfer, `connect.v1`
-selection, open local world, `-upstream`. A local world that begins opening clears the selection and any pending
-transfer.
+## Developer automation
 
-Limits: after `sign_out.v1` the running core stops using the account; signing in again needs the device-code
-flow (`-auth-events`) and a core restart. Catalog calls can take tens of seconds; requests are served concurrently.
+Build with `developer-control` to enable the authenticated loopback endpoint in
+[`crates/developer-control`](../crates/developer-control/src/lib.rs). Set
+`CINNABAR_DEVELOPER_CONTROL` to the endpoint-file path before launch. The client binds an
+OS-assigned port on `127.0.0.1` and writes the port, token and owning PID to that private file.
+Dropping the server removes the file.
+
+The wire is newline-delimited JSON. Each request carries a token, request ID and command;
+its reply carries the same ID, `ok`, and a result or error. Use the crate's client and
+[`protocol`](../crates/developer-control/src/protocol.rs) types rather than copying command
+schemas. Commands enter the existing frame/input/session seams. State, input, connection,
+condition waits, captures and ordinary disconnect/Quit share those owners.
+
+[`cinnabar-mcp`](../tools/cinnabar-mcp) exposes this interface over stdio JSON-RPC for developer
+tools. It owns its launched client and uses the endpoint token internally. See
+[client MCP](agents/client-mcp.md) for launching, input and capture workflows. Release packages
+opt out of developer-control.
+
+## Browser relay
+
+Browser clients use the typed control messages in
+[`bridge::relay_control`](../crates/bridge/src/relay_control.rs) and the framed play contract.
+A control connection creates or resumes a capability and generation; its separate play
+connection must present that same authority. Account requests and connection progress stay
+with the control's service owner.
+
+The native gateway accepts WebSocket or paired WebTransport and opens the upstream
+HTTP-signaled NetherNet session. Public-address checks apply separately to signaling and
+negotiated media destinations. See [web/gateway/README.md](../web/gateway/README.md) for its
+listener, certificate, origin and shutdown contracts.

@@ -1,7 +1,7 @@
 //! Terminal metadata does not validate unused bodies or weaken ordinary batch framing.
 
 use super::*;
-use bedrock_protocol_1_26_51::{packets, types::DisconnectMessages};
+use bedrock_protocol_contract_1_26_60::{packets, types::DisconnectMessages};
 
 #[test]
 fn native_terminal_projection_skips_unknown_unused_and_invalid_transfer_before_first_cause() {

@@ -24,7 +24,9 @@ pub(super) async fn continue_join<P: Send + 'static>(
     let packs = if let Some(relay) = &login.relay {
         let last = deferred
             .iter()
-            .position(|packet| packet.id == bedrock_protocol_1_26_51::packets::PacketId::StartGame)
+            .position(|packet| {
+                packet.id == bedrock_protocol_contract_1_26_60::packets::PacketId::StartGame
+            })
             .expect("the original deferred prefix reached first StartGame");
         let startup: Vec<_> = deferred[..=last]
             .iter()

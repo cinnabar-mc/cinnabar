@@ -10,7 +10,7 @@ use bedrock_client_tokio::packs::PackIo;
 #[cfg(test)]
 use bedrock_client_tokio::packs::wait_io;
 use bedrock_packs::ResourcePackHandoff;
-use bedrock_protocol_1_26_51::types::PackInfoData;
+use bedrock_protocol_contract_1_26_60::types::PackInfoData;
 use futures::{StreamExt, stream};
 use resource_pack::cache::ArchiveCache;
 use std::{collections::BTreeMap, path::Path, sync::Arc};

@@ -85,7 +85,7 @@ fn parallel_pack_urls_require_the_selected_native_backend() {
             ClientArgs::parse_from([
                 "client",
                 "--native-networking",
-                "raknet",
+                "nethernet-http",
                 "--parallel-resource-pack-urls",
             ]),
             Err(ArgsError::NativeNetworkingUnavailable)
@@ -95,7 +95,7 @@ fn parallel_pack_urls_require_the_selected_native_backend() {
 
 #[test]
 fn native_networking_allows_menu_selection_and_rejects_ambiguous_endpoints() {
-    let menu = ClientArgs::parse_from(["client", "--native-networking", "raknet"]);
+    let menu = ClientArgs::parse_from(["client", "--native-networking", "nethernet-http"]);
     if cfg!(all(
         feature = "native-networking",
         not(target_arch = "wasm32")
@@ -106,7 +106,7 @@ fn native_networking_allows_menu_selection_and_rejects_ambiguous_endpoints() {
         assert!(!menu.connection_requested());
         assert_eq!(
             menu.native_transport,
-            Some(protocol::NativeTransport::RakNet)
+            Some(protocol::NativeTransport::NetherNetHttp)
         );
     } else {
         assert!(matches!(menu, Err(ArgsError::NativeNetworkingUnavailable)));
@@ -115,7 +115,7 @@ fn native_networking_allows_menu_selection_and_rejects_ambiguous_endpoints() {
         ClientArgs::parse_from([
             "client",
             "--native-networking",
-            "raknet",
+            "nethernet-http",
             "--acceptance-seconds",
             "1"
         ]),
@@ -133,7 +133,7 @@ fn native_networking_allows_menu_selection_and_rejects_ambiguous_endpoints() {
 fn explicit_native_friend_startup_never_selects_core_from_a_display_target() {
     let address = format!("{}2535", bridge::contract::FRIEND_TARGET_PREFIX);
     let mut outcomes = Vec::new();
-    for mode in ["addressed", "raknet", "nethernet-lan"] {
+    for mode in ["addressed", "nethernet-http", "nethernet-lan"] {
         let ParseOutcome::Run(native) = ClientArgs::parse_from([
             "client",
             "--address",

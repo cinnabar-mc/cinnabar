@@ -2,7 +2,7 @@
 
 use super::invalid;
 use bedrock_client::server::session::ServerWorld;
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 use bridge::host_world::contract::{
     MAX_CONTROL_BYTES, MAX_PACKET_BYTES, MAX_PACKET_COUNT, WorldPolicy,
 };

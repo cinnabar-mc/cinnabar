@@ -1,7 +1,7 @@
 //! New-feature controls on the original native pump and read-ahead FIFO, without a cipher model.
 use super::*;
 use crate::session_transport::{Inbound, MAX_READ_AHEAD_BYTES};
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 use std::task::Poll;
 
 /// The existing packet-connection boundary with independently observed original input and writes.
@@ -199,7 +199,7 @@ async fn native_delay_keeps_original_deadlines_and_releases_old_backlog() {
 
 /// Builds a mixed original body; only the last finite own movement may advance its witness.
 fn movement_body() -> Bytes {
-    use bedrock_protocol_1_26_51::{
+    use bedrock_protocol_contract_1_26_60::{
         enums::PlayerPositionModeComponentPositionMode, types::ActorRuntimeID,
     };
     crate::session_transport::batch_body(&[
@@ -216,7 +216,7 @@ fn movement_body() -> Bytes {
         crate::Packet::new(packets::MovePlayer {
             player_runtime_id: ActorRuntimeID(42),
             position: [80.0; 3].into(),
-            position_mode: PlayerPositionModeComponentPositionMode::Onlyheadrot,
+            position_mode: PlayerPositionModeComponentPositionMode::OnlyHeadRot,
             ..Default::default()
         }),
         crate::Packet::new(packets::PlayerAuthInput {

@@ -432,6 +432,10 @@ impl MenuRuntime {
         requested
     }
 
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
+    }
+
     pub fn take_exit_request(&mut self) -> bool {
         let requested = std::mem::take(&mut self.intents.exit);
         #[cfg(feature = "native-networking")]

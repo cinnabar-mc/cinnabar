@@ -12,13 +12,13 @@ use std::{error::Error, io, io::Write, time::Duration};
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut args = std::env::args().skip(1);
     let transport = match args.next().as_deref() {
-        Some("raknet") => NativeTransport::RakNet,
+        Some("nethernet-http") => NativeTransport::NetherNetHttp,
         Some("nethernet-lan") => NativeTransport::NetherNetLan,
         Some("local-nethernet-http") => NativeTransport::LocalNetherNetHttp,
         _ => {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
-                "usage: native-join <raknet|nethernet-lan|local-nethernet-http> HOST:PORT",
+                "usage: native-join <nethernet-http|nethernet-lan|local-nethernet-http> ENDPOINT",
             )
             .into());
         }

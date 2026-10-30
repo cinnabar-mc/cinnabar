@@ -240,7 +240,10 @@ pub const NATIVE_DEVICE_PLATFORM_MOBILE: i32 = 1;
 pub const NATIVE_DEVICE_PLATFORM_DESKTOP: i32 = 0;
 
 /// Game version reported by the client.
-pub const GAME_VERSION: &str = "1.26.50";
+pub const GAME_VERSION: &str = "1.26.60";
+
+/// Dedicated server version used by integration fixtures.
+pub const BDS_VERSION: &str = "1.26.60.6";
 
 /// Default port for an addressed Bedrock server.
 pub const DEFAULT_BEDROCK_PORT: u16 = 19132;
@@ -618,12 +621,10 @@ pub enum WorldState {
     Failed,
 }
 
-/// How the core dials the open world's server.
+/// How the client connects to the open world's server.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub enum Transport {
-    #[serde(rename = "raknet")]
-    RakNet,
-    /// BDS's loopback HTTP signaling.
+    /// Loopback HTTP signaling.
     #[serde(rename = "nethernet")]
     NetherNet,
     /// BDS found through its loopback LAN discovery advertisement.
@@ -705,9 +706,9 @@ pub enum PackApplication {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "value", deny_unknown_fields)]
 pub enum ConnectTarget {
-    /// A `host:port` server.
-    #[serde(rename = "raknet")]
-    RakNet(String),
+    /// A server host or HTTP signaling URL.
+    #[serde(rename = "server")]
+    Server(String),
     /// A Realm id from the Realm target (`realm_id/<id>` → `<id>`).
     #[serde(rename = "realm")]
     Realm(String),

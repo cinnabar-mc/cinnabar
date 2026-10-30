@@ -8,7 +8,7 @@ use super::early_spawn_tests::{receive, send};
 use super::pack_url_policy_tests::{VERSION, http_archive, offer};
 use super::*;
 use bedrock_net::{BatchCodec, BatchLimits, CompressionAlgorithm, CompressionSettings};
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::PlayStatusType,
     packets,
     types::{ActorRuntimeID, PackInstanceId, ResourcePackClientResponseData},
@@ -78,6 +78,10 @@ async fn parallel_urls() {
     let mut listener = NetherServer::bind_with(
         signaling,
         ConnectionConfig {
+            identity: Some(std::sync::Arc::new(
+                nethernet::identity::ServerIdentity::generate("self", std::time::SystemTime::now())
+                    .unwrap(),
+            )),
             allow_unsigned_answers: true,
             ..Default::default()
         },
@@ -113,7 +117,7 @@ async fn parallel_urls() {
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
+                    status: PlayStatusType::LoginSuccess,
                 }),
                 crate::Packet::new(packets::ResourcePacksInfo {
                     resource_packs: offers.to_vec(),
@@ -137,7 +141,7 @@ async fn parallel_urls() {
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Playerspawn,
+                    status: PlayStatusType::PlayerSpawn,
                 }),
                 crate::Packet::new(packets::ResourcePackStack {
                     texture_pack_list: ids
@@ -214,13 +218,13 @@ async fn parallel_urls() {
         let last_ready = ready.pop().unwrap();
         let first_ready = join_all(ready);
         tokio::select! {
-            result = &mut joining => { drop(result); panic!("real HTTP archive bodies remain held"); }
+            result = &mut joining => { panic!("real HTTP archive bodies remain held; join failure: {:?}", result.err()); }
             results = first_ready => { for result in results { result.unwrap(); } }
         }
         let before_release = std::iter::from_fn(|| observed.try_recv().ok()).collect::<Vec<_>>();
         release[0].take().unwrap().send(()).unwrap();
         tokio::select! {
-            result = &mut joining => { drop(result); panic!("the remaining real HTTP bodies remain held"); }
+            result = &mut joining => { panic!("the remaining real HTTP bodies remain held; join failure: {:?}", result.err()); }
             result = last_ready => result.unwrap(),
         }
         let after_one = std::iter::from_fn(|| observed.try_recv().ok()).collect::<Vec<_>>();

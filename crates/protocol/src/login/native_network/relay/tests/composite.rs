@@ -80,7 +80,7 @@ async fn deferred_and_unread_siblings_reframe_within_the_original_packet_bound()
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

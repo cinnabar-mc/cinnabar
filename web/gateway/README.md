@@ -1,7 +1,7 @@
 # Native browser gateway
 
 `web-gateway` serves browser control and play streams through the native Rust networking stack.
-[`Gateway`] owns ephemeral account sessions and their connections. Your application supplies
+[`Gateway`](src/lib.rs) owns ephemeral account sessions and their connections. Your application supplies
 certificates, an accepted TCP stream and a Tokio runtime with I/O and timers enabled.
 
 ```rust,no_run
@@ -25,13 +25,24 @@ async fn serve(
 }
 ```
 
-The gateway accepts TLS 1.3 HTTP/1.1 upgrades for the generated
-[`control`](bridge::contract::RELAY_CONTROL_PATH) and
-[`play`](bridge::contract::RELAY_PLAY_PATH) routes with the
-[shared WebSocket subprotocol](bridge::contract::RELAY_SOCKET_PROTOCOL).
+The gateway accepts TLS 1.3 HTTP/1.1 upgrades for the generated control and play routes,
+using the WebSocket subprotocol from the [shared bridge contract](../../crates/bridge/src/contract.rs).
 A control connection issues the capability and generation used by its separate play connection;
-play runs native RakNet login, resource-pack transfer and the shared web-session handoff.
-Upstream connections use the existing public-address admission policy.
+play runs Bedrock Login, resource-pack transfer and the shared web-session handoff over
+HTTP-signaled NetherNet. Browser WebSocket and WebTransport describe the browser-to-gateway
+leg; the gateway's upstream game connection uses ICE, DTLS and SCTP.
+
+Only direct `ConnectTarget::Server` destinations are admitted upstream. The shared
+`protocol::native_http_endpoints` parser handles bare hosts, default-port candidates and
+explicit HTTP(S) URLs. The gateway resolves and bounds candidate addresses, rejects nonpublic
+or scoped destinations, pins each HTTP connection to its admitted numeric address, and keeps
+TLS hostname verification. Signaling disables ambient proxies and redirects.
+
+Negotiated media addresses have their own NetherNet egress policy. Public ICE or configured
+TURN endpoints can differ from the signaling address; they are checked before UDP traffic
+is sent. Production has no loopback exception. The same connection proof and provider key
+bind signaling and Login.
+
 Advertised pack HTTP/HTTPS URLs use the same public numeric address policy at DNS resolution
 and before following redirects, with ambient proxies disabled. Verified archives enter the existing
 pack handoff; URL failures retain game-chunk fallback. This path uses no desktop filesystem cache.
@@ -60,7 +71,7 @@ cargo run -p web-gateway --features operator --bin bedrock-web-relay -- \
 
 The certificate must cover `--hostname` and be within its validity interval. The key must match
 the certificate and be unencrypted PEM. The operator checks both files before binding and retries
-them at the [shared reload interval](bridge::contract::RELAY_CERTIFICATE_RELOAD_SECONDS).
+them at the shared `RELAY_CERTIFICATE_RELOAD_SECONDS` interval in the bridge contract.
 A valid replacement affects new handshakes; a failed replacement retains the last valid pair
 and active control/play connections continue. `--origins` accepts comma-separated exact origins;
 omitting it preserves the same-authority policy. SIGINT or SIGTERM stops admission and awaits

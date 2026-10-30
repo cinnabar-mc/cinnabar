@@ -9,7 +9,9 @@ use crate::{LoginSequence, Packet, SessionLogin};
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings, Negotiated,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{
+    enums::PlayStatusType, packets, types::ActorRuntimeID, wire,
+};
 use nethernet_tokio::AcceptedSession;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -81,7 +83,7 @@ async fn negotiate_packs(
         &codec,
         &[
             Packet::new(packets::PlayStatus {
-                status: PlayStatusType::Loginsuccess,
+                status: PlayStatusType::LoginSuccess,
             }),
             Packet::new(packets::ResourcePacksInfo::default()),
         ],
@@ -205,7 +207,7 @@ async fn native_relay_start_observes_late_first_start_game_before_original_order
             Packet::new(packets::ItemRegistry::default()),
             radius.clone(),
             Packet::new(packets::PlayStatus {
-                status: PlayStatusType::Playerspawn,
+                status: PlayStatusType::PlayerSpawn,
             }),
             last.clone(),
         ];

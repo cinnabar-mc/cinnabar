@@ -82,7 +82,7 @@ func testBedrockTargetCarrierAutocrlfUpgrade(t *testing.T, attributeLineEnding s
 	if err != nil {
 		t.Fatal(err)
 	}
-	carrierPath := "crates/assets/data/block-item-routes-v2193.json"
+	carrierPath := "crates/assets/data/block-item-routes-v2225.json"
 	manifestPath := "assets/bedrock-target.json"
 	attributePath := ".gitattributes"
 	readSource := func(path string) []byte {
@@ -216,12 +216,12 @@ func checkBedrockTargetCarriers(t *testing.T, root string) bedrockTargetManifest
 	if err := json.Unmarshal(payload, &target); err != nil {
 		t.Fatal(err)
 	}
-	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.50" || target.WireProtocol != 2193 || target.CodecCrate != "bedrock-protocol-1-26-51" {
+	if target.Schema != "cinnabar.bedrock-target.v1" || target.GameVersion != "1.26.60" || target.WireProtocol != 2225 || target.CodecCrate != "bedrock-protocol-1-26-60" {
 		t.Fatalf("unexpected target identity: %+v", target)
 	}
 	for name, path := range target.Artifacts {
-		if !strings.Contains(path, "2193") || strings.Contains(path, "1001") {
-			t.Fatalf("target artifact %s is not protocol-2193-only: %s", name, path)
+		if !strings.Contains(path, "2225") || strings.Contains(path, "1001") {
+			t.Fatalf("target artifact %s is not protocol-2225-only: %s", name, path)
 		}
 	}
 	for name, expected := range target.Hashes {
@@ -254,12 +254,12 @@ func checkBedrockTargetConsumers(t *testing.T, root string, target bedrockTarget
 	t.Helper()
 	consumers := map[string][]string{
 		"Makefile":                                       {"assets/bedrock-target.json", "physics-assets"},
-		"crates/assets/src/carriers.rs":                  {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2193.mcbea"},
-		"crates/assets/src/pinned_content.rs":            {"block-registry-v2193.bin", "block-light-registry-v2193.bin", "biome-registry-v2193.bin", "bedrock-target.json"},
+		"crates/assets/src/carriers.rs":                  {target.Artifacts["block_registry"], target.Artifacts["light_registry"], target.Artifacts["biome_registry"], "vanilla-v2225.mcbea"},
+		"crates/assets/src/pinned_content.rs":            {"block-registry-v2225.bin", "block-light-registry-v2225.bin", "biome-registry-v2225.bin", "bedrock-target.json"},
 		"crates/launcher/src/install_layout.rs":          {"carriers::physics_registry_basename", "carriers::WORLD"},
 		"tools/dist/src/layout.rs":                       {"carriers::physics_registry_basename", "carriers::required"},
-		"crates/pack-compiler/entity/src/entity/item.rs": {"pinned_block_registry_bytes", "block-item-routes-v2193.json"},
-		"crates/asset-compiler/src/bin/assetc/cli.rs":    {"vanilla-v2193.mcbea"},
+		"crates/pack-compiler/entity/src/entity/item.rs": {"pinned_block_registry_bytes", "block-item-routes-v2225.json"},
+		"crates/asset-compiler/src/bin/assetc/cli.rs":    {"vanilla-v2225.mcbea"},
 		"crates/protocol/Cargo.toml":                     {target.CodecCrate},
 		"crates/launcher-host/src/local_worlds/mod.rs":   {"bedrock-target.json", "server_version", "bds_container_image"},
 	}
@@ -302,7 +302,7 @@ func checkBedrockTargetConsumers(t *testing.T, root string, target bedrockTarget
 				t.Fatalf("acceptance consumer %s does not derive %s from the target manifest or registry", path, value)
 			}
 		}
-		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2193") {
+		if strings.Contains(string(contents), "v1001") || strings.Contains(string(contents), "v2225") {
 			t.Fatalf("acceptance consumer %s hard-codes a versioned carrier instead of deriving the target", path)
 		}
 	}
@@ -313,7 +313,7 @@ func checkBedrockTargetConsumers(t *testing.T, root string, target bedrockTarget
 	if !strings.Contains(string(workflow), "make physics-assets") {
 		t.Fatal("CI does not exercise the manifest-owned physics target")
 	}
-	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2193"} {
+	for _, carrier := range []string{"block-physics-v1001", "block-physics-v2225"} {
 		if strings.Contains(string(workflow), carrier) {
 			t.Fatalf("CI hard-codes %s instead of using the manifest-owned Make target", carrier)
 		}

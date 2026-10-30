@@ -71,6 +71,7 @@ impl Instance {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
         FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        super::legacy_input::link(engine, &component, &mut linker)?;
         exports::Exports::check(&linker.instantiate_pre(&component)?)
     }
 
@@ -125,6 +126,7 @@ impl Instance {
             state.render.masks.bind(session);
         }
         state.controls.bundle = panel_bundle.filter(|_| state.grants.controls);
+        super::legacy_input::link(engine, component, &mut linker)?;
         let pre = linker.instantiate_pre(component)?;
         exports::Exports::check(&pre)?;
         Self::instantiate(pre, state)

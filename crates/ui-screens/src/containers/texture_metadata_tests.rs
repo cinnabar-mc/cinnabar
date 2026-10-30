@@ -53,6 +53,7 @@ fn texture_refresh_remeasures_inventory_and_preserves_once_bindings() {
         .unwrap()
     };
     let old = render(&mut cache, &data);
+    cache.as_mut().unwrap().live = true;
     assert_eq!(
         old.nodes.iter().find(|n| n.name == "sheet").unwrap().dest.w,
         20.0

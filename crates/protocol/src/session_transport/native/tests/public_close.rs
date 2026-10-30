@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::session_transport::Inbound;
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 
 mod process_stop;
 

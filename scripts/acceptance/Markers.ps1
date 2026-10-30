@@ -213,7 +213,7 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        'bedrock-protocol-1-26-51' = @()
+        'bedrock-protocol-contract-1-26-60' = @()
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -254,7 +254,7 @@ function Assert-ProtocolDependencyProvenance {
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.51/rust-contract``)"
+    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.60/rust-contract``)"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
@@ -282,7 +282,7 @@ function Assert-ProtocolDependencyProvenance {
     foreach ($packageBlock in $packageBlocks) {
         $body = $packageBlock.Groups['body'].Value
         $nameMatch = [regex]::Match($body, '(?m)^\s*name\s*=\s*"(?<name>[^"]+)"\r?$')
-        if (-not $nameMatch.Success -or $nameMatch.Groups['name'].Value -cne 'bedrock-protocol-1-26-51') { continue }
+        if (-not $nameMatch.Success -or $nameMatch.Groups['name'].Value -cne 'bedrock-protocol-contract-1-26-60') { continue }
         $name = $nameMatch.Groups['name'].Value
         $resolvedPackages.Add($name)
         if ([regex]::IsMatch($body, '(?m)^\s*checksum\s*=')) {

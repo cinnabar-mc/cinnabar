@@ -439,7 +439,7 @@ fn raw_packet(radius: i32) -> Bytes {
     let packet = protocol::test_support::packets::chunk_radius_updated_packet(radius);
     let batch = protocol::encode(&packet).unwrap();
     let DecodeOutcome::Packets { mut packets, .. } =
-        BatchCodec::new(BatchHeader::RakNet, BatchLimits::default())
+        BatchCodec::new(BatchHeader::Prefixed, BatchLimits::default())
             .decode(batch)
             .unwrap()
     else {

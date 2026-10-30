@@ -16,6 +16,14 @@ use std::{
 };
 use tokio::net::UdpSocket;
 
+/// Uses the same credential owner as a real offline Login to sign local signaling.
+fn offline_identity() -> TransportIdentity {
+    crate::login::native_network::negotiated::Credentials::new(None)
+        .unwrap()
+        .transport_identity()
+        .unwrap()
+}
+
 /// Owns the same real LAN discovery and accepting peer used by selected local joins.
 async fn listener(
     offline: bool,
@@ -66,10 +74,12 @@ async fn selected_local_lan_skips_another_level_and_keeps_the_actual_selected_re
     tokio::time::timeout(Duration::from_secs(20), async {
         let neighbor = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = neighbor.local_addr().unwrap();
+        let identity = offline_identity();
         let mut connecting = Box::pin(crate::login::native_network::transport::lan::connect_local(
             address,
             "World",
             crate::NATIVE_JOIN_TIMEOUT,
+            &identity,
             tokio::time::Instant::now() + crate::NATIVE_JOIN_TIMEOUT,
         ));
         let mut datagram = [0; 2048];
@@ -113,10 +123,12 @@ async fn selected_local_lan_skips_another_level_and_keeps_the_actual_selected_re
 async fn selected_local_lan_refuses_an_online_only_advertisement() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let (mut server, address) = listener(false, None).await;
+        let identity = offline_identity();
         let result = crate::login::native_network::transport::lan::connect_local(
             address,
             "World",
             crate::NATIVE_JOIN_TIMEOUT,
+            &identity,
             tokio::time::Instant::now() + crate::NATIVE_JOIN_TIMEOUT,
         )
         .await;
@@ -143,10 +155,12 @@ impl SdpIdentity for MalformedIdentity {
 async fn selected_local_lan_does_not_treat_a_malformed_present_identity_as_anonymous() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let (mut server, address) = listener(true, Some(Arc::new(MalformedIdentity))).await;
+        let identity = offline_identity();
         let result = crate::login::native_network::transport::lan::connect_local(
             address,
             "World",
             crate::NATIVE_JOIN_TIMEOUT,
+            &identity,
             tokio::time::Instant::now() + crate::NATIVE_JOIN_TIMEOUT,
         )
         .await;
@@ -175,10 +189,12 @@ async fn selected_local_lan_cancellation_and_original_cutoff_retire_the_actual_d
         let blackhole = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let address = blackhole.local_addr().unwrap();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        let identity = offline_identity();
         let mut connecting = Box::pin(crate::login::native_network::transport::lan::connect_local(
             address,
             "World",
             crate::NATIVE_JOIN_TIMEOUT,
+            &identity,
             deadline,
         ));
         let mut datagram = [0; 2048];

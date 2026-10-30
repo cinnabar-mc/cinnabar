@@ -11,7 +11,7 @@ autotests = false
 platform-specific = ["windows", "macos"]
 reads = [
     "assets/bedrock-target.json",
-    "assets/block-projection-v2193.json",
+    "assets/block-projection-v2225.json",
     "crates/protocol-ids/data/protocol-ids.json",
     "crates/protocol-ids/data/actor-data-extensions.json",
     "crates/protocol-ids/data/movement-contract.json",
@@ -56,20 +56,20 @@ tracing.workspace = true
 web-time.workspace = true
 uuid = { workspace = true, features = ["v4"] }
 xxhash-rust = { version = "0.8.15", features = ["xxh64"] }
-bedrock-protocol-1-26-51.workspace = true
+bedrock-protocol-contract-1-26-60.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 uuid = { workspace = true, features = ["js"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-bedrock-client-tokio = { workspace = true, features = ["raknet", "nethernet"], optional = true }
+bedrock-client-tokio = { workspace = true, features = ["nethernet"], optional = true }
 provider_http = { package = "reqwest", version = "0.12", default-features = false, features = ["rustls-tls"], optional = true }
 url = { version = "2", optional = true }
 md-5 = { version = "0.10", optional = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"], optional = true }
 cap-std = "3.4.5"
 cap-fs-ext = "3.4.5"
-bedrock-net = { workspace = true, features = ["raknet", "login", "messaging", "provider-verification"], optional = true }
+bedrock-net = { workspace = true, features = ["login", "messaging", "provider-verification"], optional = true }
 p384 = { version = "0.14", default-features = false, features = ["std", "ecdsa", "ecdh", "pkcs8"], optional = true }
 rand = { version = "0.10", optional = true }
 nethernet-tokio = { workspace = true, optional = true }
@@ -80,7 +80,6 @@ webpki-roots = { version = "1", optional = true }
 [dev-dependencies]
 tokio-util = { workspace = true, features = ["codec"] }
 rsa.workspace = true
-raknet.workspace = true
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util", "process"] }
 test-alloc = { path = "../test-alloc" }

@@ -261,15 +261,10 @@ impl cinnabar::extension::gameplay::Host for State {
         self.world.pending_control_modes = modes;
         Ok(Ok(()))
     }
-    fn read_movement(&mut self) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
-        self.gameplay_reads += 1;
-        if self.gameplay_reads > MAX_IMPORT_WRITES {
-            bail!("gameplay read budget exhausted");
-        }
-        if !self.grants.movement {
-            return Ok(Err("movement capability denied".into()));
-        }
-        Ok(Ok(self.motion.snapshot))
+    fn read_movement(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::gameplay::MovementSnapshot>, String>> {
+        Ok(read_movement(self)?.map(|value| value.map(Into::into)))
     }
 
     fn cancel_jump(&mut self) -> Result<Result<(), String>> {
@@ -350,21 +345,10 @@ impl cinnabar::extension::gameplay::Host for State {
             .filter(|_| self.snapshot.is_some())))
     }
 
-    fn read_frame(&mut self) -> Result<Result<Option<GameplaySnapshot>, String>> {
-        self.gameplay_reads += 1;
-        if self.gameplay_reads > MAX_IMPORT_WRITES {
-            bail!("gameplay read budget exhausted");
-        }
-        if !(self.grants.players || self.grants.terrain) {
-            return Ok(Err("local pose capability denied".into()));
-        }
-        let mut snapshot = self.snapshot.clone();
-        if !self.grants.players
-            && let Some(frame) = snapshot.as_mut()
-        {
-            frame.players.clear();
-        }
-        Ok(Ok(snapshot))
+    fn read_frame(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::gameplay::Snapshot>, String>> {
+        Ok(read_frame(self)?.map(|value| value.map(Into::into)))
     }
 
     fn read_mobs(&mut self) -> Result<Result<Vec<GameplayMob>, String>> {
@@ -456,6 +440,38 @@ impl cinnabar::extension::gameplay::Host for State {
         self.pending_camera = Some(next);
         Ok(Ok(()))
     }
+}
+
+/// Reads the bounded, grant-filtered host snapshot before selecting a guest record shape.
+pub(super) fn read_frame(state: &mut State) -> Result<Result<Option<GameplaySnapshot>, String>> {
+    state.gameplay_reads += 1;
+    if state.gameplay_reads > MAX_IMPORT_WRITES {
+        bail!("gameplay read budget exhausted");
+    }
+    if !(state.grants.players || state.grants.terrain) {
+        return Ok(Err("local pose capability denied".into()));
+    }
+    let mut snapshot = state.snapshot.clone();
+    if !state.grants.players
+        && let Some(frame) = snapshot.as_mut()
+    {
+        frame.players.clear();
+    }
+    Ok(Ok(snapshot))
+}
+
+/// Reads walking facts with the same authority and allowance for every guest generation.
+pub(super) fn read_movement(
+    state: &mut State,
+) -> Result<Result<Option<GameplayMovementSnapshot>, String>> {
+    state.gameplay_reads += 1;
+    if state.gameplay_reads > MAX_IMPORT_WRITES {
+        bail!("gameplay read budget exhausted");
+    }
+    if !state.grants.movement {
+        return Ok(Err("movement capability denied".into()));
+    }
+    Ok(Ok(state.motion.snapshot))
 }
 
 #[cfg(test)]

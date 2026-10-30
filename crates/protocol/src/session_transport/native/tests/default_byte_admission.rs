@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::session_transport::Inbound;
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[tokio::test]

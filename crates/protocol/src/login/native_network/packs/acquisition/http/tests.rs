@@ -1,6 +1,6 @@
 use super::*;
 use crate::login::native_network::packs::{PUBLIC_CDN_ENDPOINT, acquisition};
-use bedrock_protocol_1_26_51::{types::PackInfoData, wire};
+use bedrock_protocol_contract_1_26_60::{types::PackInfoData, wire};
 use resource_pack::test_support::archive_bytes;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

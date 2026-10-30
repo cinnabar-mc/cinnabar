@@ -9,7 +9,9 @@ use crate::{LoginSequence, Packet, ProtocolError, SessionLogin};
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID, wire};
+use bedrock_protocol_contract_1_26_60::{
+    enums::PlayStatusType, packets, types::ActorRuntimeID, wire,
+};
 use bytes::Bytes;
 use std::{sync::Arc, time::Duration};
 
@@ -98,7 +100,7 @@ async fn native_relay_preserves_unrelated_known_raw_body_before_late_start_game(
                 &codec,
                 &[
                     Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     Packet::new(packets::ResourcePacksInfo::default()),
                 ],
@@ -132,7 +134,7 @@ async fn native_relay_preserves_unrelated_known_raw_body_before_late_start_game(
                 })),
                 packet_bytes(&Packet::new(packets::ItemRegistry::default())),
                 packet_bytes(&Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Playerspawn,
+                    status: PlayStatusType::PlayerSpawn,
                 })),
                 originals[3].clone(),
             ];

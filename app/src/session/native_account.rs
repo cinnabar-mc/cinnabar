@@ -23,7 +23,7 @@ impl SessionController {
         };
         if !matches!(
             target.transport,
-            protocol::NativeTransport::RakNet
+            protocol::NativeTransport::NetherNetHttp
                 | protocol::NativeTransport::Addressed
                 | protocol::NativeTransport::NetherNetLan
         ) {

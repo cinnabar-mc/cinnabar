@@ -4,7 +4,7 @@
 use crate::{Packet, packet::GameHeader};
 use bedrock_client_tokio::{connection::Connection, error::DeferredLimit, transport::Transport};
 use bedrock_net::BatchLimits;
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use std::io;
 
 /// Applies the desktop's original upstream input and startup-prefix policies.

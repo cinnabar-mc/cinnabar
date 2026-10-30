@@ -9,10 +9,13 @@ use protocol::{
     CameraInstructionEvent, CameraPreset, CameraSetInstruction, CameraShakeAction,
     CameraShakeEvent, CameraShakeType, CameraSpline,
 };
+use semantic_input::PerspectiveMode;
 
 use super::{
     fade::FadeState,
-    presets::{PresetKind, PresetOverrides, ResolvedPreset, preset_kind_from_name},
+    presets::{
+        PresetKind, PresetOverrides, ResolvedPreset, perspective_camera_name, preset_kind_from_name,
+    },
     spline::SplinePlayback,
     target::{TargetFocus, TargetSettings},
 };
@@ -644,6 +647,16 @@ impl ServerCameraView {
     /// Identifies the vanilla base preset independently of its inherited custom name.
     pub fn active_base_preset_name(&self) -> Option<&str> {
         self.active_base_preset_name.as_deref()
+    }
+
+    /// Returns the server preset configuring a perspective's own camera: the last root preset
+    /// with that camera's name. Without one the perspective camera carries no preset.
+    pub fn perspective_preset(&self, perspective: PerspectiveMode) -> Option<&CameraPreset> {
+        let name = perspective_camera_name(perspective);
+        self.presets
+            .iter()
+            .rev()
+            .find(|preset| preset.inherit_from.is_empty() && &*preset.name == name)
     }
 
     /// Returns the inherited control scheme selected by the camera preset.

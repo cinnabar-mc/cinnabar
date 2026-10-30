@@ -133,6 +133,17 @@ fn prepare(
         if placement.is_some() && observed.selection.item.count() > 0 {
             local_use = LocalUse::Place;
         }
+        // A predicted placement can become the next ray hit before the release edge reaches
+        // this thread. Do not turn that same press into a container interaction with the block
+        // we just placed; adjacent held placements remain eligible for bridging.
+        if attempt.trigger == ItemUseTrigger::SimulationTick
+            && local_use == LocalUse::Interact
+            && runtime
+                .intention
+                .suppress_post_place_interaction(observed.target.position)
+        {
+            local_use = LocalUse::Nothing;
+        }
         let destination = placement.as_ref().map_or_else(
             || {
                 surroundings
@@ -256,6 +267,15 @@ pub(crate) fn advance(
         runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
         return false;
     }
+    // Ordered presses can precede block maintenance. Refresh the authority and selected-item
+    // history before admission so stale publication cannot reject the new placement.
+    swings.sync_ticks_for_item(
+        movement.interaction_authority_identity(),
+        movement.completed_tick(),
+        &context.effects,
+        crate::melee::selected_attack_timing(player_runtime, &context.client_world)
+            .and_then(|timing| timing.swing_duration_ticks),
+    );
     if !runtime.may_attempt(tick, plan.local_use, swings) {
         return false;
     }

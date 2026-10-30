@@ -5,7 +5,7 @@ use bedrock_client::{
     packs::{PackTransferLimits, builtin_packs},
     server::session::{ServerPackContent, ServerPackSnapshot},
 };
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     packets,
     types::{PackInfoData, PackInstanceId},
     wire,

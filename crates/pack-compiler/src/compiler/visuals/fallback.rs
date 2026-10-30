@@ -34,8 +34,8 @@ const EMBEDDED_TABLES: [EmbeddedTable; 2] = [
         bytes: include_bytes!("../../../data/vanilla-fallback-v1001.bin"),
     },
     EmbeddedTable {
-        protocol: 2193,
-        bytes: include_bytes!("../../../../assets/data/vanilla-fallback-v2193.bin"),
+        protocol: 2225,
+        bytes: include_bytes!("../../../../assets/data/vanilla-fallback-v2225.bin"),
     },
 ];
 
@@ -462,11 +462,11 @@ mod tests {
 
     #[test]
     fn embedded_inventories_are_sorted_unique_and_bounded() {
-        // Protocol 2193 fans the 16 trip wire states out to their 256 connection variants.
+        // The current inventory includes expanded tripwire and redstone connection states.
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 2_271])
+            .zip([2_031, 3_550])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -523,11 +523,11 @@ mod tests {
     #[test]
     fn generated_current_inventory_matches_only_the_checked_in_current_registry_identities() {
         let records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
-        let table = inventory(2193).expect("resolve the current-stamped inventory");
+        .expect("decode checked-in protocol-2225 registry");
+        let table = inventory(2225).expect("resolve the current-stamped inventory");
         let matched = records
             .iter()
             .filter(|record| table.entry_unfiltered(record).is_some())
@@ -537,8 +537,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 2_271);
-        assert_eq!(names.len(), 335);
+        assert_eq!(matched.len(), 3_550);
+        assert_eq!(names.len(), 334);
         assert!(
             matched
                 .iter()
@@ -562,11 +562,11 @@ mod tests {
             .expect("every legacy entry resolves against the legacy registry");
 
         let current_records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
-        inventory(2193)
+        .expect("decode checked-in protocol-2225 registry");
+        inventory(2225)
             .expect("resolve the current-stamped inventory")
             .validate_coverage(&current_records)
             .expect("every current entry resolves against the current registry");
@@ -575,14 +575,14 @@ mod tests {
     #[test]
     fn selection_binds_each_supported_protocol_to_its_own_stamped_inventory() {
         let legacy = inventory(1001).expect("resolve the legacy-stamped inventory");
-        let current = inventory(2193).expect("resolve the current-stamped inventory");
+        let current = inventory(2225).expect("resolve the current-stamped inventory");
         assert!(!std::ptr::eq(legacy, current));
 
         let error = inventory(9999).expect_err("an unstamped protocol must fail closed");
         let message = error.to_string();
         assert!(message.contains("9999"), "{message}");
         assert!(message.contains("1001"), "{message}");
-        assert!(message.contains("2193"), "{message}");
+        assert!(message.contains("2225"), "{message}");
     }
 
     #[test]
@@ -623,10 +623,10 @@ mod tests {
         stale[HEADER_BYTES + 4] ^= 1;
         let table = FallbackInventory::parse(&stale).expect("a stale copy keeps a valid format");
         let records = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
-            2193,
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
         )
-        .expect("decode checked-in protocol-2193 registry");
+        .expect("decode checked-in protocol-2225 registry");
 
         let error = table
             .validate_coverage(&records)

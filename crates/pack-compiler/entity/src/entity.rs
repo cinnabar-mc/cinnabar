@@ -311,7 +311,7 @@ fn compile_with_behavior(
     {
         return Err(invalid("entity source-byte total or count exceeds bound"));
     }
-    let route_path: Box<str> = "registry/block-item-routes-v2193.json".into();
+    let route_path: Box<str> = "registry/block-item-routes-v2225.json".into();
     sources.push(EntityAssetSource {
         path: route_path.clone(),
         source_bytes: route_bytes.len() as u32,

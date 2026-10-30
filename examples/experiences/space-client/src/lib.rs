@@ -104,6 +104,7 @@ fn instance(
     draw::Instance {
         geometry,
         material: Some(material),
+        clip: None,
         params: vec![
             if sky { 1. } else { 0. },
             -translation[0] / scale,

@@ -7,14 +7,14 @@ use crate::{NativeConnectionTarget, NativeTransport};
 use bedrock_net::{
     BatchCodec, BatchHeader, BatchLimits, CompressionAlgorithm, CompressionSettings,
 };
-use bedrock_protocol_1_26_51::{enums::PlayStatusType, packets, types::ActorRuntimeID};
+use bedrock_protocol_contract_1_26_60::{enums::PlayStatusType, packets, types::ActorRuntimeID};
 use nethernet_tokio::{ConnectionConfig, LanConfig, LanSignaling, NetherServer, ServerData};
 use std::time::Duration;
 
 mod retention;
 
 /// Uses a real native Login peer to prove the shared prefix and browser wire boundary; no ready owner is forged.
-/// Exact gateway RakNet admission and application account/controller authority are separate qualification gates.
+/// Exact gateway HTTP admission and application account/controller authority are separate qualification gates.
 #[tokio::test]
 async fn relay_handoff_preserves_raw_startup_siblings_and_consuming_close() {
     tokio::time::timeout(Duration::from_secs(20), async {
@@ -47,7 +47,7 @@ async fn relay_handoff_preserves_raw_startup_siblings_and_consuming_close() {
         .await
         .unwrap();
         let mut spawn = crate::Packet::new(packets::PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         });
         spawn.header.from_subclient = 1;
         spawn.header.to_subclient = 2;
@@ -95,7 +95,7 @@ async fn relay_handoff_preserves_raw_startup_siblings_and_consuming_close() {
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

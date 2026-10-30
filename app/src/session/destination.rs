@@ -23,11 +23,11 @@ pub(crate) fn classify(
     {
         return Destination::Network(NativeConnectionTarget::new(
             address.trim().to_owned(),
-            NativeTransport::RakNet,
+            NativeTransport::NetherNetHttp,
         ));
     }
     match launcher_host::destination::target_for(address) {
-        bridge::ConnectTarget::RakNet(normalized) => {
+        bridge::ConnectTarget::Server(normalized) => {
             let address = if transport == NativeTransport::Addressed {
                 address.trim().to_owned()
             } else {
@@ -38,7 +38,7 @@ pub(crate) fn classify(
         bridge::ConnectTarget::Gathering(_) | bridge::ConnectTarget::Realm(_) => {
             Destination::Network(NativeConnectionTarget::new(
                 address.trim().to_owned(),
-                NativeTransport::RakNet,
+                NativeTransport::NetherNetHttp,
             ))
         }
         bridge::ConnectTarget::Friend(_) => Destination::FriendSelectionRequired,
@@ -60,7 +60,8 @@ mod tests {
             (bridge::contract::NETHERNET_SIGNALING_WEBSOCKET, "00042"),
         ] {
             let address = format!("{}{tag}/{id}", bridge::contract::NETHERNET_TARGET_PREFIX);
-            let Destination::Network(target) = classify(&address, NativeTransport::RakNet, false)
+            let Destination::Network(target) =
+                classify(&address, NativeTransport::NetherNetHttp, false)
             else {
                 panic!("explicit service route remained on Core");
             };
@@ -68,7 +69,7 @@ mod tests {
                 target.address, address,
                 "service grammar was normalized as a DNS endpoint"
             );
-            assert_eq!(target.transport, NativeTransport::RakNet);
+            assert_eq!(target.transport, NativeTransport::NetherNetHttp);
         }
     }
 }

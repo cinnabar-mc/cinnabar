@@ -8,7 +8,7 @@ use crate::session_transport::{
 };
 use bedrock_client::packs::{PackEvent, PackOffer, PackTransferLimits};
 use bedrock_client_tokio::PacketIo;
-use bedrock_protocol_1_26_51::{packets, types::PackInstanceId, wire};
+use bedrock_protocol_contract_1_26_60::{packets, types::PackInstanceId, wire};
 use futures::{StreamExt, stream};
 use resource_pack::test_support::archive_bytes;
 use std::time::Duration;

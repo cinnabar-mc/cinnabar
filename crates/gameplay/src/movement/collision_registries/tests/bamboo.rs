@@ -1,12 +1,12 @@
-use super::{BREG_V2193, active_content_registry_protocol, bind, synthetic_preg};
+use super::{BREG_V2225, active_content_registry_protocol, bind, synthetic_preg};
 
 #[test]
 fn bamboo_registry_admits_displaced_picking_in_both_runtime_id_spaces() {
     let protocol = active_content_registry_protocol();
-    let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+    let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
     let registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, &records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, &records),
         protocol,
     )
     .unwrap();

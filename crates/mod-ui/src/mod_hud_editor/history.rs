@@ -90,27 +90,6 @@ impl History {
         [!self.undo.is_empty(), !self.redo.is_empty()]
     }
 
-    /// Reconciles live IDs without promoting an unfinished gesture to the completed baseline.
-    pub(super) fn refresh(&mut self, hud: &Hud, hidden: &HashSet<String>) {
-        let mut next = Layout::capture(hud, hidden, self.current.reset);
-        for placement in &mut next.placements {
-            if let Some(old) = self
-                .current
-                .placements
-                .iter()
-                .find(|old| old.id == placement.id)
-            {
-                placement.clone_from(old);
-                if self.current.hidden.contains(&placement.id) {
-                    next.hidden.insert(placement.id.clone());
-                } else {
-                    next.hidden.remove(&placement.id);
-                }
-            }
-        }
-        self.current = next;
-    }
-
     /// Restores one completed edit without recording the restoration as a new edit.
     fn step(
         &mut self,

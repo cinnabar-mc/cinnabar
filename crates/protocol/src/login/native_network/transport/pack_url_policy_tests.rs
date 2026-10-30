@@ -4,7 +4,7 @@ use super::super::{LoginSequence, SessionLogin, packs::HTTP_ATTEMPTS};
 use super::early_spawn_tests::{receive, send};
 use super::*;
 use bedrock_net::{BatchCodec, BatchLimits, CompressionAlgorithm, CompressionSettings};
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     enums::PlayStatusType,
     packets,
     types::{ActorRuntimeID, PackInfoData, PackInstanceId, ResourcePackClientResponseData},
@@ -106,6 +106,10 @@ async fn default_urls() {
     let mut listener = NetherServer::bind_with(
         signaling,
         ConnectionConfig {
+            identity: Some(std::sync::Arc::new(
+                nethernet::identity::ServerIdentity::generate("self", std::time::SystemTime::now())
+                    .unwrap(),
+            )),
             allow_unsigned_answers: true,
             ..Default::default()
         },
@@ -141,7 +145,7 @@ async fn default_urls() {
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
+                    status: PlayStatusType::LoginSuccess,
                 }),
                 crate::Packet::new(packets::ResourcePacksInfo {
                     resource_packs: offers.to_vec(),
@@ -165,7 +169,7 @@ async fn default_urls() {
             &codec,
             &[
                 crate::Packet::new(packets::PlayStatus {
-                    status: PlayStatusType::Playerspawn,
+                    status: PlayStatusType::PlayerSpawn,
                 }),
                 crate::Packet::new(packets::ResourcePackStack {
                     texture_pack_list: ids
@@ -236,7 +240,7 @@ async fn default_urls() {
         );
         tokio::pin!(joining);
         tokio::select! {
-            result = &mut joining => { drop(result); panic!("the first real HTTP body is still held"); }
+            result = &mut joining => { panic!("the first real HTTP body is still held; join failure: {:?}", result.err()); }
             result = ready => result.unwrap(),
         }
         let mut before_release = Vec::new();

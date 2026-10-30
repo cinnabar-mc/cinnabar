@@ -37,10 +37,10 @@ async fn prehandoff_terminal_forwarding_keeps_the_original_join_cutoff() {
     .expect("actual terminal forwarding fixture stalled");
 }
 
-/// Uses actual UDP negotiation and a one-byte duplex writer, without fabricating a terminal owner.
+/// Uses actual NetherNet negotiation and a one-byte duplex writer, without fabricating a terminal owner.
 async fn forward(expire: bool) -> Observation {
     let peer = peer::Peer::new().await;
-    let address = peer.socket.local_addr().unwrap();
+    let address = peer.address;
     let registry = Registry::new();
     let attachment = registry
         .open_control(
@@ -55,10 +55,8 @@ async fn forward(expire: bool) -> Observation {
     let generation = attachment.generation;
     let lease = session.begin_play(generation, 1).await.unwrap();
     let forwarding = async {
-        let connection = RakNetConnection::connect(address, RakNetOptions::default())
-            .await
-            .unwrap();
-        let connection = NativeRelayConnecting::from_raknet(connection, address.to_string());
+        let (connection, key, _) = peer::connect(address).await;
+        let connection = NativeRelayConnecting::from_http(connection, address.to_string(), key);
         let mut playing = Playing {
             socket: Some(Socket::Connecting(connection)),
             lease,
@@ -101,7 +99,7 @@ async fn forward(expire: bool) -> Observation {
                 () = &mut writer => panic!("actual frame writer ended before backpressure"),
             }
             if expire {
-                // Real UDP/Settings/Login and the terminal write have already happened.
+                // Real DTLS/Settings/Login and the terminal write have already happened.
                 tokio::time::pause();
                 let remaining =
                     deadline.saturating_duration_since(tokio::time::Instant::now().into_std());

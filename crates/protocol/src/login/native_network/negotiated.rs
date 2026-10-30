@@ -21,7 +21,7 @@ mod local_retry;
 #[cfg(test)]
 mod local_retry_tests;
 
-/// Moves the same codec, ciphers, unread FIFO and selected archives into startup.
+/// Moves the same codec, unread FIFO and selected archives into startup.
 pub(super) struct NegotiatedConnection {
     pub(super) connection: Connection,
     pub(super) packs: ResourcePackHandoff,
@@ -80,9 +80,10 @@ async fn attempt(
     ) {
         let (transport, address) = connect_local(target, &credentials, deadline).await?;
         (Ok(transport), address)
-    } else if target.transport == crate::NativeTransport::NetherNetLan
-        && credentials.authentication.is_some()
-    {
+    } else if matches!(
+        target.transport,
+        crate::NativeTransport::NetherNetHttp | crate::NativeTransport::NetherNetLan
+    ) {
         let identity = credentials
             .transport_identity()
             .map_err(ProtocolError::Authentication)?;
@@ -185,6 +186,22 @@ impl Credentials {
 
     /// Qualifies the original handoff before any connection is admitted or protocol output sent.
     pub(super) fn new(authentication: Option<NativeAuthentication>) -> Result<Self, ProtocolError> {
+        Self::create(authentication, None)
+    }
+
+    /// Reuses the established SDP proof and rejects a different authenticated Login key.
+    pub(super) fn with_transport_proof(
+        authentication: Option<NativeAuthentication>,
+        key: Arc<SigningKey>,
+    ) -> Result<Self, ProtocolError> {
+        Self::create(authentication, Some(key))
+    }
+
+    /// Constructs one credential owner while retaining any already-established transport proof.
+    fn create(
+        authentication: Option<NativeAuthentication>,
+        transport_key: Option<Arc<SigningKey>>,
+    ) -> Result<Self, ProtocolError> {
         let (key, authentication, messaging, identity, sdp) = match authentication {
             Some(authentication) => {
                 authentication::ensure_current(authentication.expires, std::time::Instant::now())
@@ -192,6 +209,15 @@ impl Credentials {
                 let handoff = authentication
                     .into_handoff()
                     .map_err(ProtocolError::Authentication)?;
+                if transport_key
+                    .as_ref()
+                    .is_some_and(|key| key.verifying_key() != handoff.key.verifying_key())
+                {
+                    return Err(ProtocolError::Authentication(io::Error::new(
+                        io::ErrorKind::PermissionDenied,
+                        "relay SDP proof does not match Login credential",
+                    )));
+                }
                 (
                     handoff.key,
                     Some((handoff.token, handoff.claims, handoff.expires)),
@@ -201,11 +227,14 @@ impl Credentials {
                 )
             }
             None => (
-                Arc::new(
-                    SigningKey::try_generate_from_rng(&mut SysRng)
-                        .map_err(io::Error::other)
-                        .map_err(failure)?,
-                ),
+                match transport_key {
+                    Some(key) => key,
+                    None => Arc::new(
+                        SigningKey::try_generate_from_rng(&mut SysRng)
+                            .map_err(io::Error::other)
+                            .map_err(failure)?,
+                    ),
+                },
                 None,
                 None,
                 None,
@@ -232,9 +261,13 @@ pub(super) async fn connect_local(
     let (transport, label) = match target.transport {
         crate::NativeTransport::LocalNetherNetLan => {
             let (address, level, budget) = target.local_lan_route().map_err(failure)?;
-            let (transport, id) = transport::lan::connect_local(address, level, budget, deadline)
-                .await
-                .map_err(failure)?;
+            let identity = credentials
+                .transport_identity()
+                .map_err(ProtocolError::Authentication)?;
+            let (transport, id) =
+                transport::lan::connect_local(address, level, budget, &identity, deadline)
+                    .await
+                    .map_err(failure)?;
             (transport, id.to_string())
         }
         crate::NativeTransport::LocalNetherNetHttp => {
@@ -251,7 +284,9 @@ pub(super) async fn connect_local(
                         failure(error)
                     }
                 })?;
-            (connected, format!("http://{address}:{}", address.port()))
+            let label =
+                crate::native_http_login_address(&format!("http://{address}")).map_err(failure)?;
+            (connected, label)
         }
         _ => {
             return Err(failure(io::Error::new(
@@ -300,7 +335,7 @@ pub(super) async fn negotiate_connected(
     if messaging.is_some() {
         return Err(failure(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "prepared messaging cannot use a preconnected RakNet socket",
+            "prepared messaging cannot use a preconnected transport",
         )));
     }
     let configured = ClientHandshake::new(

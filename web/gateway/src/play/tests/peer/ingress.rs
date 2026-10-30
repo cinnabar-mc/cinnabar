@@ -91,7 +91,7 @@ fn entry(packet: &Packet) -> Bytes {
 impl Peer {
     /// Uses the unchanged actual handshake and client acknowledgments, then waits for physical close.
     async fn ingress(mut self, case: Case) {
-        let codec = BatchCodec::new(BatchHeader::RakNet, BatchLimits::default());
+        let codec = BatchCodec::new(BatchHeader::NetherNet, BatchLimits::default());
         assert!(matches!(
             self.packet(&codec).await,
             ClientPacket::RequestNetworkSettings
@@ -121,22 +121,19 @@ impl Peer {
         );
         for message in messages {
             self.session
-                .as_mut()
+                .as_ref()
                 .expect("genuinely negotiated peer")
-                .send(
-                    message.to_vec().into_boxed_slice(),
-                    RakReliability::ReliableOrdered,
-                    RakPriority::Normal,
-                    std::time::Instant::now(),
-                )
+                .session
+                .send(message)
+                .await
                 .unwrap();
         }
-        assert!(self.drain().await.is_none());
         assert!(matches!(
             self.packet(&codec).await,
             ClientPacket::ResourcePackClientResponse
         ));
         assert!(matches!(self.next().await, Input::Closed));
+        self.shutdown().await;
     }
 }
 
@@ -223,17 +220,12 @@ async fn retired(connection: protocol::NativeRelayConnection, startup: Vec<Bytes
 async fn exercise(case: Case) -> Observed {
     tokio::time::timeout(Duration::from_secs(20), async {
         let peer = Peer::new().await;
-        let address = peer.socket.local_addr().unwrap();
+        let address = peer.address;
         let mut client_address: Option<SocketAddr> = None;
         let client = async {
-            let actual = bedrock_net::raknet::RakNetConnection::connect(
-                address,
-                bedrock_net::raknet::RakNetOptions::default(),
-            )
-            .await
-            .unwrap();
-            client_address = Some(actual.local_addr());
-            let mut joining = NativeRelayConnecting::from_raknet(actual, address.to_string());
+            let (actual, key, local) = super::connect(address).await;
+            client_address = Some(local);
+            let mut joining = NativeRelayConnecting::from_http(actual, address.to_string(), key);
             let claims = protocol::login_client_data(
                 "Fixture",
                 protocol::ClientRandomId::new(1).unwrap(),

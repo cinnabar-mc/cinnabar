@@ -9,6 +9,7 @@ use mod_host::{ModGrants, ModHost};
 use std::{hint::black_box, path::Path, time::Instant};
 
 mod packet_bench;
+mod packing;
 
 /// Dispatches packaging, an input smoke test, or the bounded callback benchmark.
 fn main() -> Result<()> {
@@ -16,12 +17,10 @@ fn main() -> Result<()> {
     match args.as_slice() {
         [command] if command == "server-helper" => mod_host::helper::serve_developer()?,
         [command, source, output] if command == "pack" => {
-            let bytes = std::fs::read(source)?;
-            let component = wit_component::ComponentEncoder::default()
-                .module(&bytes)?
-                .validate(true)
-                .encode()?;
-            std::fs::write(output, component)?;
+            packing::pack(source, output, None)?;
+        }
+        [command, flag, grants, source, output] if command == "pack" && flag == "--grants" => {
+            packing::pack(source, output, Some(grants))?;
         }
         [command, path] if command == "probe" || command == "probe-environment" => {
             let mut host = ModHost::load_with_grants(
@@ -58,7 +57,7 @@ fn main() -> Result<()> {
         }
         [command, path] if command == "probe-render" => probe_render(Path::new(path))?,
         _ => bail!(
-            "usage: mod-host pack [--world packet-mod] CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm | bench-packets COMPONENT.wasm CAPTURE"
+            "usage: mod-host pack [--grants REQUEST.json | --world packet-mod] CORE.wasm COMPONENT.wasm | probe[-environment] COMPONENT.wasm | probe-render COMPONENT.wasm | bench COMPONENT.wasm | bench-packets COMPONENT.wasm CAPTURE"
         ),
     }
     Ok(())

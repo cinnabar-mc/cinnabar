@@ -1,5 +1,5 @@
 //! Opt-in witness from the same plaintext batch at its original successful write boundary.
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_contract_1_26_60::packets;
 use bytes::Bytes;
 
 /// Returns only the last finite own movement anchor decoded by the existing packet owner.

@@ -309,8 +309,12 @@ pub fn drive_menu_input(
                 .collect()
         })
         .unwrap_or_default();
+    let pack_cover = runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.resource_pack_loading());
     if driven.is_none()
         && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
+        || pack_cover
         || !menu.is_visible()
         || consent.as_ref().is_some_and(|consent| consent.0)
         || runtime.as_ref().is_some_and(|runtime| {
@@ -329,7 +333,7 @@ pub fn drive_menu_input(
         menu.advance_death_controls(time.delta_secs_f64());
     }
     menu.settings.slider_hovered = None;
-    if consent.is_some_and(|consent| consent.0) {
+    if consent.is_some_and(|consent| consent.0) || pack_cover {
         presentation.cancel_touch_editor_pointer();
         gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
@@ -347,6 +351,10 @@ pub fn drive_menu_input(
         menu.hovered = None;
         menu.pointer_down = false;
         *modifiers = MenuModifiers::default();
+        if pack_cover {
+            keys.reset_all();
+            mouse_buttons.reset_all();
+        }
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if let Some(messages) = mouse_messages.as_deref() {

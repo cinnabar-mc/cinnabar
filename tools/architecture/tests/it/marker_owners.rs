@@ -63,6 +63,39 @@ fn extracted_owner_preserves_the_symbolic_marker_contract() {
     );
 }
 
+/// The constant's owning crate may expose it directly rather than through a markers module.
+#[test]
+fn extracted_owner_accepts_a_qualified_contract_constant() {
+    let temp = fixture();
+    write(
+        temp.path(),
+        "crates/screens/src/observer.rs",
+        "fn observe() { let _ = std::env::var(render_api::READY); }\n",
+    );
+    assert_eq!(
+        check_repository(temp.path(), &temp.path().join("policy.toml")).unwrap(),
+        Vec::<String>::new()
+    );
+}
+
+/// A Rust parser consumes the same canonical constant instead of repeating its wire text.
+#[test]
+fn extracted_owner_accepts_a_parsed_symbolic_contract() {
+    let temp = fixture();
+    let policy = temp.path().join("policy.toml");
+    let source = fs::read_to_string(&policy).unwrap();
+    fs::write(&policy, source.replace("environment_variable", "parsed")).unwrap();
+    write(
+        temp.path(),
+        "crates/screens/src/observer.rs",
+        "fn observe(line: &str) { let _ = line.split_once(render_api::READY); }\n",
+    );
+    assert_eq!(
+        check_repository(temp.path(), &policy).unwrap(),
+        Vec::<String>::new()
+    );
+}
+
 #[test]
 fn extracted_owner_rejects_undeclared_markers_in_its_registry() {
     let temp = fixture();
@@ -97,15 +130,19 @@ fn extracted_owner_permits_environment_variables_outside_its_registry() {
 #[test]
 fn extracted_owner_requires_the_declared_consumer_to_use_the_symbol() {
     let temp = fixture();
-    write(
-        temp.path(),
-        "crates/screens/src/observer.rs",
+    for source in [
         "fn observe() {}\n",
-    );
-    let diagnostics = check_repository(temp.path(), &temp.path().join("policy.toml")).unwrap();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|line| line.contains("has no symbolic use in declared consumer"))
-    );
+        "fn observe() { let _ = render_api::READY_EXTRA; }\n",
+        "fn observe() { let _ = \"render_api::READY\"; }\n",
+        "// render_api::READY\nfn observe() {}\n",
+    ] {
+        write(temp.path(), "crates/screens/src/observer.rs", source);
+        let diagnostics = check_repository(temp.path(), &temp.path().join("policy.toml")).unwrap();
+        assert!(
+            diagnostics
+                .iter()
+                .any(|line| line.contains("has no symbolic use in declared consumer")),
+            "non-use satisfied the marker contract: {source}"
+        );
+    }
 }

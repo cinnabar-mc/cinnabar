@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_51::{packets, types::DisconnectMessages};
+use bedrock_protocol_contract_1_26_60::{packets, types::DisconnectMessages};
 
 #[tokio::test]
 async fn the_real_frame_cursor_preserves_prefix_and_terminal_after_driver_channel_completion() {

@@ -9,14 +9,14 @@ use crate::{
     },
 };
 use bedrock_net::login::client_data::RawClientData;
-use bedrock_net::raknet::RakNetConnection;
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_contract_1_26_60::{
     packets::{Packet, PacketId},
     wire,
 };
 use bytes::Bytes;
+use p384::ecdsa::SigningKey;
 use sha2::{Digest, Sha256};
-use std::io;
+use std::{io, sync::Arc};
 
 mod pump;
 pub use pump::{
@@ -24,7 +24,7 @@ pub use pump::{
     NativeRelayWritten,
 };
 
-/// An already-established RakNet socket retained through one caller-polled Login and pack attempt.
+/// An already-established NetherNet HTTP session retained through one caller-polled Login and pack attempt.
 ///
 /// The application must admit the exact socket address, account, controller and deadline before
 /// constructing this owner. This type performs no DNS or application authorization. There is no
@@ -32,6 +32,7 @@ pub use pump::{
 #[must_use]
 pub struct NativeRelayConnecting {
     connection: Connection,
+    proof: Option<Arc<SigningKey>>,
     address: String,
     started: bool,
     complete: Option<NativeRelayHandoff>,
@@ -64,21 +65,29 @@ pub struct NativeRelayRetired {
 }
 
 impl NativeRelayConnecting {
-    /// Takes the caller's actual established numeric socket; `address` is Login metadata only.
+    /// Takes the established HTTP session and the exact proof key used in its SDP offer.
+    /// `address` is Login metadata only; the same proof is retained for the Login JWT.
     /// Admission, original overall deadline and controller cancellation remain the caller's job.
     /// Only primary-player input reaches the raw handoff/play; typed Login skips unused IDs.
-    pub fn from_raknet(connection: RakNetConnection, address: String) -> Self {
+    pub fn from_http(
+        connection: nethernet_tokio::NetherClient,
+        address: String,
+        proof: Arc<SigningKey>,
+    ) -> Self {
         let mut connection = crate::login::native_network::connection::upstream(
-            bedrock_client_tokio::transport::Transport::from_raknet(connection),
+            bedrock_client_tokio::transport::Transport::from_http(connection),
         );
         connection.primary_only();
-        Self::from_connection(connection, address)
+        let mut connecting = Self::from_connection(connection, address);
+        connecting.proof = Some(proof);
+        connecting
     }
 
     /// Starts the same private protocol owner on an actual already-established transport.
     fn from_connection(connection: Connection, address: String) -> Self {
         Self {
             connection,
+            proof: None,
             address,
             started: false,
             complete: None,
@@ -122,7 +131,10 @@ impl NativeRelayConnecting {
         client_cache: bool,
         authentication: Option<NativeAuthentication>,
     ) -> Result<(), ProtocolError> {
-        let credentials = negotiated::Credentials::new(authentication)?;
+        let credentials = match self.proof.take() {
+            Some(proof) => negotiated::Credentials::with_transport_proof(authentication, proof)?,
+            None => negotiated::Credentials::new(authentication)?,
+        };
         let (packs, identity) = negotiated::negotiate_connected(
             &mut self.connection,
             &self.address,
@@ -354,7 +366,7 @@ pub(super) fn terminal(raw: &Bytes) -> io::Result<Option<CoreMessage>> {
                 filtered_message,
                 hide_screen: matches!(
                     packet.messages,
-                    bedrock_protocol_1_26_51::types::DisconnectMessages::Empty
+                    bedrock_protocol_contract_1_26_60::types::DisconnectMessages::Empty
                 ),
             })))
         }

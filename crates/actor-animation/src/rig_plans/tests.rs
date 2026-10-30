@@ -364,3 +364,30 @@ fn simultaneous_same_key_requests_publish_one_shared_constructor_plan() {
 
 mod bindings;
 mod sparse;
+
+/// A new world reuses immutable templates while discarding every mutable actor and pack.
+#[test]
+fn restart_reuses_base_catalog_plans_with_fresh_actor_state() {
+    let assets = crate::test_support::counting_random_assets();
+    let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+    store.insert(1, 0, &TestActor::default());
+    let template = store.layout.rig_plan(&assets, 0, 0).unwrap();
+    store.rigs.values_mut().next().unwrap().current[0].translation_scale[0] = 99.0;
+    store.stats.unrigged_spawns = 3;
+    store.set_pack(Some((Arc::clone(&assets), vec![0])));
+
+    let mut restarted = store.restart();
+    assert!(restarted.rigs.is_empty());
+    assert!(restarted.pack.is_none());
+    assert_eq!(restarted.stats(), ActorAnimationStats::default());
+    restarted.insert(2, 1, &TestActor::default());
+    assert_ne!(
+        restarted.rigs.values().next().unwrap().current[0].translation_scale[0],
+        99.0
+    );
+    assert_eq!(restarted.layout.plans.rig_builds.load(Ordering::Relaxed), 1);
+    assert!(Arc::ptr_eq(
+        &template,
+        &restarted.layout.rig_plan(&assets, 0, 0).unwrap()
+    ));
+}

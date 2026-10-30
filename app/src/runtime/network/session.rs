@@ -117,7 +117,7 @@ pub fn spawn_network(
     #[cfg(feature = "native-networking")]
     let native_preparation = if config.native_account.is_some() || config.native_gathering.is_some()
     {
-        if !matches!(&config.endpoint, protocol::SessionEndpoint::Native(target) if matches!(target.transport, protocol::NativeTransport::RakNet | protocol::NativeTransport::Addressed | protocol::NativeTransport::NetherNetLan))
+        if !matches!(&config.endpoint, protocol::SessionEndpoint::Native(target) if matches!(target.transport, protocol::NativeTransport::NetherNetHttp | protocol::NativeTransport::Addressed | protocol::NativeTransport::NetherNetLan))
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,

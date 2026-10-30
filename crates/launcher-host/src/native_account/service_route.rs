@@ -91,7 +91,7 @@ impl ResolvedServiceRoute {
             ),
             None => protocol::NativeConnectionTarget::new(
                 self.address,
-                protocol::NativeTransport::RakNet,
+                protocol::NativeTransport::NetherNetHttp,
             ),
         }
     }

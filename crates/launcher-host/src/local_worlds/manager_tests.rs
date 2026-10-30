@@ -87,7 +87,7 @@ fn open_runs_the_world_and_close_stops_its_server() {
     let target = report.target.expect("running target");
     assert_eq!(
         (target.address.as_str(), target.transport),
-        ("127.0.0.1:1", Transport::RakNet)
+        ("127.0.0.1:1", Transport::NetherNet)
     );
     manager
         .open(&world.id, None)
@@ -584,7 +584,7 @@ fn bds_targets_use_lan_discovery_when_the_server_advertises() {
     );
     assert_eq!(target.address, "127.0.0.1:1");
     world.backend = Backend::Dragonfly;
-    assert_eq!(target_for(&world, &lan).transport, Transport::RakNet);
+    assert_eq!(target_for(&world, &lan).transport, Transport::NetherNet);
 }
 
 /// The actual manager handoff retains the selected BDS level, rather than its HTTP projection.

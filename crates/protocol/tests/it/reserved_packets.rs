@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_contract_1_26_60::packets::PacketId;
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 use protocol::{ProtocolError, decode_batch};
 
@@ -100,8 +100,8 @@ fn unassigned_packet_cannot_consume_an_adjacent_frame() {
         },
         usize::MAX,
         |writer| {
-            bedrock_protocol_1_26_51::packets::Packet::SetTime(
-                bedrock_protocol_1_26_51::packets::SetTime {
+            bedrock_protocol_contract_1_26_60::packets::Packet::SetTime(
+                bedrock_protocol_contract_1_26_60::packets::SetTime {
                     time: wire::ZigZag32(42),
                 },
             )

@@ -24,7 +24,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         $script:RunId = '0123456789abcdef0123456789abcdef'
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-movement-identity-v2'; build_commit = $script:BuildCommit
-            target = 'Lbsg'; protocol = 2193; session_generation = 7
+            target = 'Lbsg'; protocol = 2225; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true; source_dirty = $false; run_id = $script:RunId
             endpoint = 'play.lbsg.net:19132'; app_process_id = 42
@@ -283,7 +283,7 @@ Describe 'FastTransferWitness focused LBSG acceptance' {
         return Assert-FastTransferWitnessEvidence @Artifacts `
             -ExpectedBuildCommit $script:BuildCommit -ExpectedPregSha256 $script:PregSha256 `
             -ExpectedBregSha256 $script:BregSha256 `
-            -ExpectedProtocol 2193 `
+            -ExpectedProtocol 2225 `
             -ExpectedAppSha256 $script:AppSha256 -ExpectedAssetsSha256 $script:AssetsSha256 `
             -ExpectedRunId $script:RunId `
             -ExpectedAppProcessId 42 -ExpectedPresentMode Fifo

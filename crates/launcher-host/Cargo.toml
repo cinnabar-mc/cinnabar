@@ -15,7 +15,7 @@ reads = [
 
 [features]
 test-support = ["bedrock-services?/test-support", "protocol/test-support", "dep:rsa", "dep:nethernet"]
-native-networking = ["dep:bedrock-client-tokio", "dep:bedrock-services", "dep:p384", "dep:rand", "dep:uuid", "dep:zeroize", "dep:base64", "dep:image", "bedrock-services/signaling-tokio", "dep:bedrock-net", "dep:bedrock-client", "dep:nethernet-tokio", "dep:bytes", "dep:raknet", "dep:futures", "dep:tokio-websockets", "dep:tokio-rustls", "dep:webpki-roots", "dep:httpdate", "dep:dns-lookup", "protocol/native-networking"]
+native-networking = ["dep:bedrock-client-tokio", "dep:bedrock-services", "dep:p384", "dep:rand", "dep:uuid", "dep:zeroize", "dep:base64", "dep:image", "bedrock-services/signaling-tokio", "dep:bedrock-net", "dep:bedrock-client", "dep:nethernet-tokio", "dep:bytes", "dep:futures", "dep:tokio-websockets", "dep:tokio-rustls", "dep:webpki-roots", "dep:httpdate", "dep:dns-lookup", "protocol/native-networking"]
 
 [dependencies]
 bedrock-packs.workspace = true
@@ -52,7 +52,6 @@ zip = { version = "7", default-features = false, features = ["deflate-flate2-zli
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 dns-lookup = { version = "=3.0.1", optional = true }
 bedrock-client-tokio = { workspace = true, features = ["nethernet"], optional = true }
-raknet = { workspace = true, optional = true }
 futures = { workspace = true, optional = true }
 bedrock-client = { workspace = true, optional = true }
 nethernet-tokio = { workspace = true, optional = true }

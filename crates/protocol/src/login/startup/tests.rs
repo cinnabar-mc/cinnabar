@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{LevelChunk, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_contract_1_26_60::packets::{LevelChunk, SetTime};
+use bedrock_protocol_contract_1_26_60::wire;
 use bytes::Bytes;
 
 use super::*;
@@ -107,11 +107,11 @@ fn deferred_packets_are_detached_and_bounded() {
 mod session {
     use std::future::Future;
 
-    use bedrock_protocol_1_26_51::packets::{
+    use bedrock_protocol_contract_1_26_60::packets::{
         ChunkRadiusUpdated, NetworkChunkPublisherUpdate, PlayStatus, Transfer,
     };
-    use bedrock_protocol_1_26_51::types::ItemData;
-    use bedrock_protocol_1_26_51::{enums::PlayStatusType, types::ActorRuntimeID};
+    use bedrock_protocol_contract_1_26_60::types::ItemData;
+    use bedrock_protocol_contract_1_26_60::{enums::PlayStatusType, types::ActorRuntimeID};
 
     use super::*;
     use crate::raw_packet::MAX_RAW_BATCH_PACKETS;
@@ -145,7 +145,7 @@ mod session {
 
     fn player_spawn() -> Packet {
         Packet::new(PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         })
     }
 
@@ -493,7 +493,7 @@ mod session {
         );
         assert!(
             matches!(sent.next().unwrap(), packets::Packet::ServerboundLoadingScreen(loading)
-            if loading.loading_screen_packet_type == bedrock_protocol_1_26_51::enums::ServerboundLoadingScreenType::Startloadingscreen)
+            if loading.loading_screen_packet_type == bedrock_protocol_contract_1_26_60::enums::ServerboundLoadingScreenType::StartLoadingScreen)
         );
         let more = tokio::time::timeout(Duration::from_millis(100), peer.read_u8()).await;
         assert!(more.is_err(), "the radius request is sent once");
@@ -525,7 +525,7 @@ mod session {
     /// A refusal wins over later packets without waiting for PlayerSpawn; successful startup keeps its FIFO.
     #[tokio::test]
     async fn spawn_reports_login_refusal_before_a_later_disconnect() {
-        let status = PlayStatusType::LoginfailedServerfullsubclient;
+        let status = PlayStatusType::LoginFailedServerFullSubClient;
         for (name, mut batch) in [
             ("spawn-refusal-early", Vec::new()),
             (
@@ -552,7 +552,7 @@ mod session {
             "spawn-status-success",
             &[vec![
                 Packet::new(PlayStatus {
-                    status: PlayStatusType::Loginsuccess,
+                    status: PlayStatusType::LoginSuccess,
                 }),
                 set_time(1),
                 registry("minecraft:shield", 355),
@@ -659,7 +659,7 @@ mod session {
                     Ok(_) => panic!("a startup disconnect spawned"),
                     Err(error) => error.server_disconnect().expect("a server disconnect"),
                 };
-            assert_eq!(disconnect.reason, "Serverfull");
+            assert_eq!(disconnect.reason, "ServerFull");
             let expected = (!hide_screen).then_some("full");
             assert_eq!(disconnect.message.as_deref(), expected);
         }

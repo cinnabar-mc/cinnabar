@@ -1,8 +1,7 @@
-//! Actual public UDP negotiation and browser TCP EOF under real output backpressure.
+//! Actual signed NetherNet negotiation and browser TCP EOF under real output backpressure.
 
 use super::*;
 use bedrock_net::login::client_data::RawClientData;
-use bedrock_net::raknet::{RakNetConnection, RakNetOptions};
 use bridge::{BridgeCodec, contract::KIND_HANDOFF};
 use futures::StreamExt;
 use std::{
@@ -30,7 +29,7 @@ mod upload;
 async fn empty_upload_half_eof_retires_the_actual_pump_while_output_is_blocked() {
     tokio::time::timeout(Duration::from_secs(20), async {
         let peer = peer::Peer::new().await;
-        let address = peer.socket.local_addr().unwrap();
+        let address = peer.address;
         let listener = TcpSocket::new_v4().unwrap();
         listener.set_send_buffer_size(1024).unwrap();
         listener.bind((Ipv4Addr::LOCALHOST, 0).into()).unwrap();
@@ -53,8 +52,8 @@ async fn empty_upload_half_eof_retires_the_actual_pump_while_output_is_blocked()
         let generation = attachment.generation;
         let lease = session.begin_play(generation, 1).await.unwrap();
         let serving = async {
-            let connection = RakNetConnection::connect(address, RakNetOptions::default()).await.unwrap();
-            let connection = NativeRelayConnecting::from_raknet(connection, address.to_string());
+            let (connection, key, _) = peer::connect(address).await;
+            let connection = NativeRelayConnecting::from_http(connection, address.to_string(), key);
             let mut playing = Playing { socket: Some(Socket::Connecting(connection)), lease };
             let random = protocol::ClientRandomId::new(1).unwrap();
             let value = protocol::login_client_data("Fixture", random, None, &protocol::LoginSettings::default());
@@ -96,9 +95,7 @@ async fn empty_upload_half_eof_retires_the_actual_pump_while_output_is_blocked()
             observed_retirement.await.unwrap();
             drop(frames);
         };
-        let (socket, (), ()) = tokio::join!(peer.serve(), serving, browser);
-        // The receipt ACK precedes peer retirement, but the client still owns its graceful close.
-        drop(socket);
+        let ((), (), ()) = tokio::join!(peer.serve(), serving, browser);
         drop(attachment);
         registry.close();
     }).await.expect("real native/browser pump EOF fixture stalled");

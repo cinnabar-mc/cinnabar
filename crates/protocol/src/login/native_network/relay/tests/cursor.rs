@@ -137,7 +137,7 @@ async fn one_incoming_batch_cursor_survives_pack_replay_and_bounded_handoff_read
                 &codec,
                 &[
                     crate::Packet::new(packets::PlayStatus {
-                        status: PlayStatusType::Loginsuccess,
+                        status: PlayStatusType::LoginSuccess,
                     }),
                     crate::Packet::new(packets::ResourcePacksInfo::default()),
                 ],

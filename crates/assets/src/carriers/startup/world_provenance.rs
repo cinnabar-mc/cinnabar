@@ -3,7 +3,7 @@
 //! Startup validates every compiled world blob against these expectations so
 //! structurally valid carriers built from stale or foreign sources fail
 //! closed instead of reaching gameplay. The registry bytes are embedded at
-//! compile time from the checked-in protocol-2193 inputs, exactly like the
+//! compile time from the checked-in protocol-2225 inputs, exactly like the
 //! collision consumer, so validation never depends on the process working
 //! directory or installed layout.
 
@@ -131,13 +131,13 @@ mod tests {
             .expect("the checked-in pins must satisfy the shipped authority");
 
         let error = verify_pinned_registries_bind(1001)
-            .expect_err("a legacy authority must reject the protocol-2193 pins");
+            .expect_err("a legacy authority must reject the protocol-2225 pins");
         assert!(
             matches!(
                 error,
                 crate::carriers::startup::AssetStartupError::PinnedRegistryProtocolMismatch {
                     expected: 1001,
-                    actual: 2193
+                    actual: 2225
                 }
             ),
             "unexpected error {error:?}"

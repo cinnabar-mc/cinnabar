@@ -18,7 +18,7 @@ use bedrock_client::server::session::{
 };
 use bedrock_client_tokio::server::AcceptingConnection;
 use bedrock_net::login::{AuthenticatedLogin, LoginVerifier};
-use bedrock_protocol_1_26_51::{packets, wire};
+use bedrock_protocol_contract_1_26_60::{packets, wire};
 use bytes::Bytes;
 use p384::ecdsa::VerifyingKey;
 use sha2::{Digest, Sha256};

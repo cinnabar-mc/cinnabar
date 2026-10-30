@@ -13,7 +13,10 @@ fn local_selection_leaves_its_original_opening_and_cannot_stop_a_replacement() {
         target.address,
         world.manager.world_report().target.unwrap().address
     );
-    assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+    assert_eq!(
+        target.transport,
+        protocol::NativeTransport::LocalNetherNetHttp
+    );
     selection.request_leave();
     assert_eq!(
         selection.validate().unwrap_err().kind(),

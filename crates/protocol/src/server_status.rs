@@ -1,4 +1,4 @@
-//! Bedrock's application payload inside a RakNet unconnected pong.
+//! Bedrock's semicolon-separated legacy server advertisement payload.
 
 use std::io;
 

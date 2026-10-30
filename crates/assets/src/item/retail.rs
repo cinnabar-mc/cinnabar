@@ -4,11 +4,11 @@ use crate::facts::LEGACY_ITEM_ALIASES;
 use std::{collections::BTreeSet, sync::OnceLock};
 
 /// The existing protocol inventory included in descriptor carrier fingerprints.
-pub const SOURCE_BYTES: &[u8] = include_bytes!("../../../protocol/data/retail_items_1_26_50.tsv");
+pub const SOURCE_BYTES: &[u8] = include_bytes!("../../../protocol/data/retail_items_1_26_60.tsv");
 /// Logical source identity retained in an entity carrier.
-pub const SOURCE_PATH: &str = "registry/retail-items-v2193.tsv";
+pub const SOURCE_PATH: &str = "registry/retail-items-v2225.tsv";
 /// Checkout input read by the entity carrier recipe.
-pub const INPUT_PATH: &str = "crates/protocol/data/retail_items_1_26_50.tsv";
+pub const INPUT_PATH: &str = "crates/protocol/data/retail_items_1_26_60.tsv";
 
 /// Reads the separately maintained identity inventory once, outside rendering paths.
 pub fn identifiers() -> &'static BTreeSet<&'static str> {

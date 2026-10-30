@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-expected_bds_sha256='19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'
-expected_bds_release='1.26.52.3'
+expected_bds_sha256=${BEDROCK_BDS_SHA256:-}
 pinned_axolotl_stack_commit='c4540512dc47833bb40363da7ad1161110d64b67'
 pinned_jolyne_license_sha256='62c75fcb256604584191434b605dc3fe661d938a94b2c35836ef55011bf24184'
 
@@ -235,7 +234,7 @@ if len(protocol_packages) != 1:
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
 expected_dependencies = {
-    "bedrock-protocol-1-26-51": [],
+    "bedrock-protocol-contract-1-26-60": [],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
@@ -290,7 +289,7 @@ for dependency_name, expected_features in expected_dependencies.items():
 upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [
     f"- Axolotl Stack merge revision: `{axolotl_stack_revision}`",
-    f"- Generator commit: `{protocolgen_revision}` (`generated/1.26.51/rust-contract`)",
+    f"- Generator commit: `{protocolgen_revision}` (`generated/1.26.60/rust-contract`)",
     f"- Retained license normalized SHA-256: `{license_sha256}`",
 ]
 for line in metadata_lines:
@@ -311,7 +310,7 @@ expected_lock_source = (
 )
 for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     name_match = re.search(r'(?m)^\s*name\s*=\s*"([^"]+)"\s*$', block)
-    if not name_match or name_match.group(1) != "bedrock-protocol-1-26-51":
+    if not name_match or name_match.group(1) != "bedrock-protocol-contract-1-26-60":
         continue
     name = name_match.group(1)
     resolved.append(name)
@@ -320,7 +319,7 @@ for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     sources = re.findall(r'(?m)^\s*source\s*=\s*"([^"]+)"\s*$', block)
     if sources != [expected_lock_source]:
         raise SystemExit(f"Cargo.lock Git package {name} must resolve the exact canonical revision")
-if resolved != ["bedrock-protocol-1-26-51"]:
+if resolved != ["bedrock-protocol-contract-1-26-60"]:
     raise SystemExit("Cargo.lock must contain exactly one pinned generated codec package")
 
 PY
@@ -628,6 +627,13 @@ PY
 
 project_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 pinned_protocolgen_commit=$(resolve_pinned_protocolgen_commit "$project_root") || die 'protocolgen target policy is invalid'
+expected_bds_release=$(python3 - "$project_root/assets/bedrock-target.json" <<'PYCODE'
+import json
+import pathlib
+import sys
+print(json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))["server_version"])
+PYCODE
+)
 
 if [[ ${CINNABAR_ACCEPTANCE_TEST_LIBRARY_ONLY:-} == 1 ]]; then
     return 0 2>/dev/null || exit 0
@@ -721,6 +727,7 @@ if [[ $dry_run == true ]]; then
 fi
 
 if [[ -n $bds_dir ]]; then
+    [[ $expected_bds_sha256 =~ ^[0-9a-f]{64}$ ]] || die 'BEDROCK_BDS_SHA256 must supply the reviewed executable SHA-256'
     source_bds_hash=$(sha256_file "$bds_dir/$bds_executable_name")
     [[ $source_bds_hash == "$expected_bds_sha256" ]] || die "BDS executable SHA-256 is $source_bds_hash, want $expected_bds_sha256"
 fi

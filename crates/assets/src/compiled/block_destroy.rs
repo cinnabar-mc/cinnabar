@@ -5,7 +5,7 @@ use std::{collections::BTreeMap, sync::OnceLock};
 use sha2::{Digest, Sha256};
 
 /// The single generated hardness and provisional tool source.
-pub const DESTROY_SOURCE: &str = include_str!("../../data/block-destroy-v2193.tsv");
+pub const DESTROY_SOURCE: &str = include_str!("../../data/block-destroy-v2225.tsv");
 
 /// Hashes destroy source text with LF endings for carrier encoding and admission.
 pub(crate) fn destroy_source_sha256(source: &str) -> [u8; 32] {

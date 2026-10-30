@@ -10,6 +10,8 @@ mod core;
 mod limits;
 pub(crate) mod native_capabilities;
 mod native_frame;
+mod native_observation;
+pub use native_observation::NativeFrame;
 pub mod native_menu;
 mod native_render;
 mod wasi;
@@ -115,6 +117,7 @@ pub struct CompiledPacketMod {
     engine: Engine,
     ticker: Arc<execution::EpochTicker>,
     program: Program,
+    current_frame_wire: bool,
 }
 
 impl CompiledPacketMod {
@@ -149,6 +152,7 @@ impl CompiledPacketMod {
                     engine,
                     ticker: Arc::new(ticker),
                     program,
+                    current_frame_wire: native_observation::current_wire(bytes)?,
                 },
                 image_bytes,
             ))
@@ -165,6 +169,7 @@ impl CompiledPacketMod {
         .context("initialize packet mod")?;
         Ok(PacketMod {
             guest,
+            current_frame_wire: self.current_frame_wire,
             status: Status::Active,
             menu_input_extensions: mod_api::native_menu::InputExtensions::default(),
             call_deadline: PACKET_MOD_CALL_DEADLINE,
@@ -183,6 +188,7 @@ enum Status {
 /// One session's packet-mod instance. Every call is synchronous and bounded by a deadline.
 pub struct PacketMod {
     guest: Box<dyn Guest>,
+    current_frame_wire: bool,
     status: Status,
     menu_input_extensions: mod_api::native_menu::InputExtensions,
     call_deadline: Duration,

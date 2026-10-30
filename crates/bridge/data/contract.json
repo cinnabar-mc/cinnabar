@@ -81,6 +81,7 @@
     {"rust_name": "NATIVE_DEVICE_PLATFORM_MOBILE", "go_name": "NativeDevicePlatformMobile", "value": 1, "rust_type": "i32", "doc": "Mobile login platform category."},
     {"rust_name": "NATIVE_DEVICE_PLATFORM_DESKTOP", "go_name": "NativeDevicePlatformDesktop", "value": 0, "rust_type": "i32", "doc": "Desktop login platform category."},
     {"rust_name": "GAME_VERSION", "go_name": "GameVersion", "rust_type": "str", "doc": "Game version reported by the client.", "source": {"path": "assets/bedrock-target.json", "field": "game_version"}},
+    {"rust_name": "BDS_VERSION", "go_name": "BDSVersion", "rust_type": "str", "doc": "Dedicated server version used by integration fixtures.", "source": {"path": "assets/bedrock-target.json", "field": "server_version"}},
     {"rust_name": "DEFAULT_BEDROCK_PORT", "go_name": "DefaultBedrockPort", "value": 19132, "rust_type": "u16", "doc": "Default port for an addressed Bedrock server."},
     {"rust_name": "DEFAULT_BEDROCK_PORT_TEXT", "go_name": "DefaultBedrockPortText", "rust_type": "str", "doc": "Text form of the default Bedrock server port.", "from_constant": "DEFAULT_BEDROCK_PORT"},
     {"rust_name": "CONTROL_UNIX_ENDPOINT_NAME", "go_name": "ControlUnixEndpointName", "value": "control.sock", "rust_type": "str", "doc": "Control endpoint name on Unix."},
@@ -261,11 +262,10 @@
     },
     {
       "rust_name": "Transport",
-      "doc": "How the core dials the open world's server.",
+      "doc": "How the client connects to the open world's server.",
       "derive": ["Clone", "Copy", "Debug", "Eq", "PartialEq", "Serialize", "Deserialize"],
       "variants": [
-        {"rust_name": "RakNet", "go_name": "TransportRakNet", "value": "raknet"},
-        {"rust_name": "NetherNet", "go_name": "TransportNetherNet", "value": "nethernet", "doc": "BDS's loopback HTTP signaling."},
+        {"rust_name": "NetherNet", "go_name": "TransportNetherNet", "value": "nethernet", "doc": "Loopback HTTP signaling."},
         {"rust_name": "NetherNetLan", "go_name": "TransportNetherNetLan", "value": "nethernet-lan", "doc": "BDS found through its loopback LAN discovery advertisement."}
       ]
     },
@@ -332,7 +332,7 @@
       "tag": "kind",
       "content": "value",
       "variants": [
-        {"rust_name": "RakNet", "go_name": "TargetRakNet", "value": "raknet", "doc": "A `host:port` server."},
+        {"rust_name": "Server", "go_name": "TargetServer", "value": "server", "doc": "A server host or HTTP signaling URL."},
         {"rust_name": "Realm", "go_name": "TargetRealm", "value": "realm", "doc": "A Realm id from the Realm target (`realm_id/<id>` \u2192 `<id>`)."},
         {"rust_name": "Friend", "go_name": "TargetFriend", "value": "friend", "doc": "A friend's XUID from the friend XUID."},
         {"rust_name": "Gathering", "go_name": "TargetGathering", "value": "gathering", "doc": "A featured experience's ID, from a `gathering/<id>` featured server address."}

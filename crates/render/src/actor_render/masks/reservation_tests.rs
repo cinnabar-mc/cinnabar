@@ -55,6 +55,7 @@ fn owner_mask_reservation_combines_geometry_views_and_multisampling() {
             ledger: mod_render::GpuLedger::new(0),
             primitives: Default::default(),
             passes: Vec::new(),
+            retained_triangle_limit: None,
         }],
         ..Default::default()
     };

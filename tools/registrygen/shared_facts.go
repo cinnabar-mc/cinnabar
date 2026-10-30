@@ -30,8 +30,23 @@ func validateSharedTarget() error {
 	if registry.SourceLockSHA256 != shared.SourceLockSHA256 {
 		return fmt.Errorf("shared registry and property catalog have different source locks")
 	}
-	if shared.MinecraftVersion != v2193GameVersion || shared.ProtocolVersion != v2193BlockProtocol || sharedblock.StateCount() != v2193BlockStateCount {
-		return fmt.Errorf("shared catalog target %s/%d with %d states does not match carrier %s/%d with %d states", shared.MinecraftVersion, shared.ProtocolVersion, sharedblock.StateCount(), v2193GameVersion, v2193BlockProtocol, v2193BlockStateCount)
+	if shared.MinecraftVersion != v2225GameVersion || shared.ProtocolVersion != v2225BlockProtocol || sharedblock.StateCount() != v2225BlockStateCount {
+		return fmt.Errorf("shared catalog target %s/%d with %d states does not match carrier %s/%d with %d states", shared.MinecraftVersion, shared.ProtocolVersion, sharedblock.StateCount(), v2225GameVersion, v2225BlockProtocol, v2225BlockStateCount)
 	}
 	return nil
+}
+
+// sharedCollision returns source shapes and the verified empty collision of fire and wire.
+func sharedCollision(record Record, properties sharedblock.Properties) (uint16, []sharedblock.Box, bool) {
+	if boxes, ok := sharedblock.Shape(properties.CollisionShape); ok {
+		return properties.CollisionShape, boxes, true
+	}
+	if record.Name == "minecraft:fire" || record.Name == "minecraft:redstone_wire" {
+		for index := 1; index <= 65535; index++ {
+			if boxes, ok := sharedblock.Shape(uint16(index)); ok && len(boxes) == 0 {
+				return uint16(index), boxes, true
+			}
+		}
+	}
+	return 0, nil, false
 }

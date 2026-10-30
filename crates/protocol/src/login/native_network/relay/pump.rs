@@ -3,7 +3,7 @@
 use super::{NativeRelayConnection, packet_header, terminal};
 use crate::session_transport::native::{self, DriverEnd, IncomingBody, NativeSender, PreparedPump};
 use crate::session_wire::CoreMessage;
-use bedrock_protocol_1_26_51::{packets::PacketId, wire};
+use bedrock_protocol_contract_1_26_60::{packets::PacketId, wire};
 use bytes::Bytes;
 use std::{
     future::Future,

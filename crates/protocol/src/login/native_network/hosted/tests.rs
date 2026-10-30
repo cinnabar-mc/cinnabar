@@ -1,6 +1,6 @@
 use super::*;
 use bedrock_client::packs::{PackEvent, PackOffer, PackTransferLimits};
-use bedrock_protocol_1_26_51::types::{PackInfoData, PackInstanceId};
+use bedrock_protocol_contract_1_26_60::types::{PackInfoData, PackInstanceId};
 mod guest;
 
 /// Uses the real preload/final-stack owner, retaining the absence of upstream chunk metadata.

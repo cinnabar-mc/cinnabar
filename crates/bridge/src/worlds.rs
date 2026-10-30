@@ -85,8 +85,6 @@ mod tests {
                            "lan_address": "127.0.0.1:7551", "level_name": "0123456789abcdef"},
             })
         );
-        let raknet = serde_json::to_value(Transport::RakNet).expect("encode");
-        assert_eq!(raknet, serde_json::json!("raknet"));
         let http = serde_json::to_value(Transport::NetherNet).expect("encode");
         assert_eq!(http, serde_json::json!("nethernet"));
     }

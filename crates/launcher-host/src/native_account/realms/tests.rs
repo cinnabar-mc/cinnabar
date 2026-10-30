@@ -24,7 +24,7 @@ fn realm_transport_and_catalog_metadata_follow_the_service() {
     .unwrap();
     let target = resolved_route(address).unwrap().into_target();
     assert_eq!(target.address, "[2001:db8::8]:19132");
-    assert_eq!(target.transport, protocol::NativeTransport::RakNet);
+    assert_eq!(target.transport, protocol::NativeTransport::NetherNetHttp);
     let unknown: RealmAddress = serde_json::from_value(
         serde_json::json!({"address":"123", "networkProtocol":"FUTURE_PROTOCOL"}),
     )
@@ -152,7 +152,7 @@ async fn realm_preparation_cancellation_preserves_the_existing_account_owner() {
     let held = account.begin().unwrap();
     let target = protocol::NativeConnectionTarget::new(
         format!("{}7", bridge::contract::REALM_TARGET_PREFIX),
-        protocol::NativeTransport::RakNet,
+        protocol::NativeTransport::NetherNetHttp,
     );
     let random_id = protocol::ClientRandomId::new(1).unwrap();
     let mut cancelled = Box::pin(Arc::clone(&account).prepare_connection(

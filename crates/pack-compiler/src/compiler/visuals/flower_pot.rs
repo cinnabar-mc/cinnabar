@@ -101,7 +101,7 @@ mod tests {
     fn flower_pots_have_an_upward_dirt_floor_inside_the_rim() {
         let protocol = assets::active_content_registry_protocol();
         let registry = assets::read_registry_for_protocol(
-            include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
             protocol,
         )
         .unwrap();

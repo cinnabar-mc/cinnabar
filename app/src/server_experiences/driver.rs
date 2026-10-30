@@ -68,6 +68,7 @@ pub(crate) fn configure(app: &mut App) {
         (
             super::drawing::present,
             crate::modding::anchors::publish_frame,
+            crate::modding::block_geometry::prepare,
         )
             .chain()
             .after(crate::modding::DrawingPublication)

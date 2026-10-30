@@ -13,7 +13,7 @@ assets/ui-font-source.json text eol=lf
 assets/cinnangles-*-source.json text eol=lf
 assets/oreui-icons-source.json text eol=lf
 assets/fonts/*.ttf binary
-assets/hud-source-v2193.json text eol=lf
+assets/hud-source-v*.json text eol=lf
 assets/licenses/Monocraft-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
 assets/licenses/NotoSansCJK-OFL-1.1.txt text eol=lf whitespace=-blank-at-eol
 assets/block-entity-renderers-v*.json text eol=lf

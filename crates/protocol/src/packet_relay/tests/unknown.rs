@@ -3,7 +3,7 @@
 use super::*;
 use crate::codec::SessionFailure;
 use crate::session_transport::SessionTransport;
-use bedrock_protocol_1_26_51::types::DisconnectMessages;
+use bedrock_protocol_contract_1_26_60::types::DisconnectMessages;
 use futures::StreamExt;
 
 /// Derives an unused ID from the actual generated table and keeps its original subclient header.

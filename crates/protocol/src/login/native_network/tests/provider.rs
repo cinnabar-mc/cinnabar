@@ -15,7 +15,7 @@ use rsa::{
 };
 use serde_json::{Value, json, value::RawValue};
 use std::{
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 
@@ -245,7 +245,10 @@ async fn native_provider_expired_handoff_cannot_start_a_connection() {
     let settings = crate::LoginSettings::default();
     let observed = Instant::now().checked_sub(Duration::from_secs(61)).unwrap();
     let result = LoginSequence::connect_native_authenticated(
-        &NativeConnectionTarget::new("unresolved.invalid:0".into(), NativeTransport::RakNet),
+        &NativeConnectionTarget::new(
+            "unresolved.invalid:0".into(),
+            NativeTransport::NetherNetHttp,
+        ),
         SessionLogin {
             #[cfg(not(target_arch = "wasm32"))]
             execution: None,
@@ -466,4 +469,32 @@ fn native_hosting_identity_keeps_selected_proof_and_service_validity() {
             .is_err()
         );
     }
+}
+
+/// An admitted relay cannot attach another transport proof to the selected account's Login.
+#[test]
+fn relay_transport_rejects_a_different_authenticated_proof_before_login() {
+    let observed = Instant::now();
+    let client = RawValue::from_string(r#"{"ThirdPartyName":"Synthetic"}"#.into()).unwrap();
+    let authentication = NativeAuthentication::new(
+        key(),
+        credential(
+            signed(claims(), "synthetic"),
+            observed,
+            Duration::from_secs(5),
+        ),
+        &client,
+        &verifier(),
+        XUID,
+        observed,
+    )
+    .unwrap();
+    let other_key = Arc::new(SigningKey::from_slice(&[2; 48]).unwrap());
+    let result = crate::login::native_network::negotiated::Credentials::with_transport_proof(
+        Some(authentication),
+        other_key,
+    );
+    assert!(
+        matches!(result, Err(ProtocolError::Authentication(error)) if error.kind() == io::ErrorKind::PermissionDenied)
+    );
 }
