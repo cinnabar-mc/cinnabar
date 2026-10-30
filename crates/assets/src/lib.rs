@@ -15,6 +15,7 @@ pub mod block_entity_geometry;
 mod block_names;
 pub mod block_presentation_state;
 pub mod block_shapes;
+pub mod candle;
 pub mod carriers;
 pub mod compiled;
 pub mod door;

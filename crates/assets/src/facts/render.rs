@@ -87,6 +87,8 @@ pub enum BlockRenderKind {
     StainedGlass,
     CopperGrate,
     CandleCake,
+    /// One to four placed candles, each with its crossed wick.
+    Candle,
     Shelf,
     LightningRod,
     CopperBulb,
@@ -218,6 +220,7 @@ impl BlockRenderKind {
             | R::RespawnAnchor
             | R::Shelf
             | R::SeaPickle
+            | R::Candle
             | R::BrewingStand
             | R::Campfire
             | R::Hopper

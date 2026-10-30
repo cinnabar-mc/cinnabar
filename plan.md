@@ -191,8 +191,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   with stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close cake presentation at representative bite states, with stable exact
   model-stream witnesses and zero contamination counters.
-- [ ] Close candle-cake flame-particle and native-world presentation acceptance;
+- [ ] Close candle and candle-cake native-world presentation acceptance, including smoke and
+  flame placement against a native view; the ambient sampler emits their particles, but
   isolated composite geometry and texture fixtures do not establish the full result.
+- [ ] Voice the lit candle's ambient crackle. The callback consumes the shared roll, but no
+  ambient block callback routes a sound to the audio engine yet.
 - [ ] Close farmland presentation at representative moisture states, with matched
   native views, stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
@@ -200,7 +203,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
 - [ ] Select terrain-array entries for the remaining block classes. Pumpkins, cave vines,
   pale hanging moss and mangrove propagules follow their native class; the families in the
-  input crate's open-array check (candles, copper bulbs, cocoa, eggs, nether wart and others)
+  input crate's open-array check (copper bulbs, cocoa, eggs, nether wart and others)
   still draw entry zero until each class's variant source is verified.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
@@ -255,8 +258,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
-  stonecutter saw do this. Standalone candles are not compiled yet; their wicks need the same
-  marking when they are. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
+  stonecutter saw and candle wicks do this. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
   corner instead of interpolating across the face with the stalk's random offset, so the
   inherited light can differ from native.
 

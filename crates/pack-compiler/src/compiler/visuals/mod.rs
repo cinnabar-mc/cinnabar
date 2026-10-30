@@ -11,6 +11,7 @@ pub(in crate::compiler) mod button;
 pub(in crate::compiler) mod cactus;
 pub(in crate::compiler) mod cake;
 pub(in crate::compiler) mod campfire;
+pub(in crate::compiler) mod candle;
 pub(in crate::compiler) mod candle_cake;
 pub(in crate::compiler) mod carpets;
 pub(in crate::compiler) mod chains;
