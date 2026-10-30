@@ -899,6 +899,11 @@ impl Instance {
         self.last_fuel
     }
 
+    /// Reports the current successful callback's granted direction override.
+    pub(super) fn omni_sprint(&self) -> bool {
+        self.is_active() && self.store.data().grants.movement && self.store.data().world.omni_sprint
+    }
+
     /// Returns only the movement intents committed by the current successful frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.store.data().world.movement_intents

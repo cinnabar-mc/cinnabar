@@ -16,6 +16,9 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
+    /// Direction eligibility override committed for one successful callback.
+    pub omni_sprint: bool,
+    pending_omni_sprint: bool,
     /// Sprint and sneak held for the current frame only.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
@@ -39,6 +42,8 @@ pub(super) struct WorldState {
 impl WorldState {
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
+        self.omni_sprint = false;
+        self.pending_omni_sprint = false;
         self.movement_intents = None;
         self.pending_movement_intents = None;
         self.control_modes = None;
@@ -62,6 +67,7 @@ impl WorldState {
     }
 
     pub fn commit(&mut self) {
+        self.omni_sprint = std::mem::take(&mut self.pending_omni_sprint);
         self.movement_intents = self.pending_movement_intents.take();
         self.control_modes = self.pending_control_modes.take();
         if let Some(rig) = self.pending_rig.take() {
@@ -231,6 +237,23 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    /// Stages direction eligibility without changing ordinary sprint restrictions or holds.
+    fn set_omni_sprint(&mut self, enabled: bool) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if enabled
+            && !(self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open)
+        {
+            return Ok(Err("omni sprint requires focused gameplay".into()));
+        }
+        self.world.pending_omni_sprint = enabled;
+        Ok(Ok(()))
+    }
+
     /// Stages sprint and sneak holds for this focused gameplay frame; none releases both.
     fn set_movement_intents(
         &mut self,

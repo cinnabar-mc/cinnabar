@@ -686,6 +686,8 @@ pub fn collect_frame_outputs(runtime: &mut ModHosts) -> Merged {
 /// One frame's combined output; for single-valued outputs the earliest mod wins.
 #[derive(Default)]
 pub struct Merged {
+    /// Any active, granted mod may renew all-direction sprint eligibility.
+    pub omni_sprint: bool,
     pub rig: Option<GameplayCameraRig>,
     pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
@@ -708,6 +710,7 @@ pub struct Merged {
 impl Merged {
     /// Consumes `host`'s committed output, in load order.
     pub fn absorb(&mut self, host: &mut ModHost) {
+        self.omni_sprint |= host.omni_sprint();
         self.jump_pulse |= host.take_jump_pulse();
         self.jump_cancel |= host.take_jump_cancel();
         if let Some(intents) = host.movement_intents() {

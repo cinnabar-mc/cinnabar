@@ -88,6 +88,25 @@ pub(super) fn look_delta(
 }
 
 impl super::gameplay::GameplayContext<'_> {
+    /// Releases direction eligibility whenever gameplay no longer owns the current input.
+    pub(super) fn apply_omni_sprint(&mut self, enabled: bool, input_owned: bool) {
+        let eligible = enabled
+            && input_owned
+            && self
+                .world
+                .as_ref()
+                .and_then(|world| world.stream.as_ref())
+                .is_some()
+            && self
+                .input
+                .as_ref()
+                .and_then(|input| input.snapshot())
+                .is_some_and(|input| !input.authority_released);
+        if let Some(published) = self.omni_sprint.as_mut() {
+            published.0 = eligible;
+        }
+    }
+
     /// Both native callback adapters finish camera rotation before resolving world-relative walking.
     pub(super) fn apply_native_controls(
         &mut self,
@@ -271,6 +290,21 @@ mod tests {
             })
             .unwrap();
         assert_eq!(world.resource::<ModControlModes>().0, None);
+    }
+
+    /// A retained override must be cleared when no gameplay world or input owner is present.
+    #[test]
+    fn omni_sprint_releases_without_gameplay_ownership() {
+        use super::super::ModOmniSprint;
+        use bevy::ecs::system::RunSystemOnce;
+        let mut world = World::new();
+        world.insert_resource(ModOmniSprint(true));
+        world
+            .run_system_once(|mut gameplay: super::super::gameplay::GameplayContext| {
+                gameplay.apply_omni_sprint(true, true);
+            })
+            .unwrap();
+        assert!(!world.resource::<ModOmniSprint>().0);
     }
 
     #[test]

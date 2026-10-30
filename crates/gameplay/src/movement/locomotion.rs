@@ -43,6 +43,8 @@ impl RideKind {
 /// Render-frame facts the tick-level selector cannot derive from simulation.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct ModeIntent {
+    /// Allows the sprint trigger to admit any nonzero movement direction.
+    pub omni_sprint: bool,
     /// Spectator flight stays active independently of the ordinary flight toggle.
     pub spectator: bool,
     /// Terrain collision is independent of the selected travel mode.

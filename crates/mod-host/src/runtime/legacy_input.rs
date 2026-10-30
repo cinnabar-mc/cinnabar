@@ -121,6 +121,7 @@ pub(super) fn link(
                 })?;
             };
         }
+        forward!("set-omni-sprint", set_omni_sprint, enabled: bool);
         forward!("cancel-jump", cancel_jump);
         forward!("pulse-jump", pulse_jump);
         forward!("set-movement-intents", set_movement_intents, intents: Option<gameplay::MovementIntents>);

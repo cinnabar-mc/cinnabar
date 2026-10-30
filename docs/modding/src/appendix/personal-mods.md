@@ -285,3 +285,12 @@ Native-frame guests must be rebuilt with the current SDK, including guests using
 only the legacy `frame` callback. The version-one JSON payload now includes look,
 movement and elapsed-time fields; older strict decoders reject these added fields
 even though the version number is unchanged.
+
+### All-direction sprint
+
+With the `movement` grant, renew `gameplay::set_omni_sprint(true)` on each focused
+gameplay frame to admit sprinting in any movement direction. Request the sprint
+hold separately with `set_movement_intents`. The override preserves movement and
+camera direction, hunger, item-use and collision restrictions, and server authority.
+Passing `false`, omitting renewal, unloading the mod or leaving gameplay releases
+the override. Older hosts cannot load components importing this operation.

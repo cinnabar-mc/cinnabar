@@ -49,6 +49,8 @@ pub struct PhysicsFrameInput {
     pub input_authority_released: bool,
     /// Mod-held controls bypass physical toggle latches.
     pub resolved_movement: bool,
+    /// Opt-in direction eligibility; ordinary sprint restrictions still apply.
+    pub omni_sprint: bool,
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
@@ -192,11 +194,17 @@ impl LocomotionState {
             let retain_sprint = physics
                 .retains_swim_sprint(world)
                 .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
+            let omni_sprint = frame.omni_sprint && active && !frame.input_authority_released;
+            let sprint_direction = if omni_sprint {
+                [0.0, movement[0].hypot(movement[1])]
+            } else {
+                movement
+            };
             let controlled = self.controls.update(ControlObservation {
                 now,
                 resolved_movement: frame.resolved_movement,
-                forward: movement[1],
-                sideways: movement[0],
+                forward: sprint_direction[1],
+                sideways: sprint_direction[0],
                 touch_input: input_mode == protocol::PlayerInputMode::Touch,
                 sprint_pressed: sprint.pressed && sprint_allowed,
                 sprint_held: sprint.held && sprint_allowed,
@@ -220,7 +228,7 @@ impl LocomotionState {
                 controlled.sprint_request,
                 frame.item_use_modifier,
             );
-            if retain_sprint {
+            if retain_sprint || omni_sprint {
                 input.sprinting = controlled.sprint_request;
             }
             if !active {
@@ -245,6 +253,7 @@ impl LocomotionState {
                     raw_move_vector: raw_movement,
                     analogue_move_vector: analogue_movement,
                     mode_intent: ModeIntent {
+                        omni_sprint,
                         spectator: facts.spectator,
                         no_clip: facts.no_clip,
                         ride: facts.ride,

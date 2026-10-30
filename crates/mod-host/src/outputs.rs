@@ -40,6 +40,10 @@ impl ModHost {
     pub fn queue_touch_press(&mut self, id: &str) -> bool {
         self.instance.queue_touch_press(id)
     }
+    /// Direction eligibility override from the current successful callback only.
+    pub fn omni_sprint(&self) -> bool {
+        self.instance.omni_sprint()
+    }
     /// Sprint and sneak held as if bound, from the current successful frame only.
     pub fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.instance.movement_intents()

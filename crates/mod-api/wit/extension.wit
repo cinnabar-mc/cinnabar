@@ -560,6 +560,10 @@ interface gameplay {
     cancel-jump: func() -> result<_, string>;
     /// True holds the control as if its binding were held; false adds nothing to physical input.
     record movement-intents { sprint: bool, sneak: bool }
+    /// Allows sprinting in any movement direction while renewed each focused gameplay frame.
+    /// Requires movement authority; hunger, item use, collision and server authority still apply.
+    /// This changes direction eligibility only; request sprint separately with movement intents.
+    set-omni-sprint: func(enabled: bool) -> result<_, string>;
     /// Renew every focused gameplay frame; omission releases both intents. Requires movement
     /// authority; server movement, hunger and item-use restrictions still apply.
     set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;

@@ -538,3 +538,34 @@ fn movement_snapshot_rejects_nonfinite_or_foreign_authority() {
         assert!(validate_movement(Some(&snapshot()), Some(&bad)).is_err());
     }
 }
+
+/// Direction overrides commit atomically, expire, and cannot acquire input from a menu.
+#[test]
+fn omni_sprint_is_granted_focused_and_frame_scoped() {
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(denied.set_omni_sprint(true).unwrap().is_err());
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    assert!(state.set_omni_sprint(true).unwrap().is_err());
+    assert!(state.set_omni_sprint(false).unwrap().is_ok());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.controls.frame.panel_open = true;
+    assert!(state.set_omni_sprint(true).unwrap().is_err());
+    state.controls.frame.panel_open = false;
+    state.set_omni_sprint(true).unwrap().unwrap();
+    assert!(!state.world.omni_sprint);
+    state.world.commit();
+    assert!(state.world.omni_sprint);
+    state.world.begin_frame();
+    state.world.commit();
+    assert!(!state.world.omni_sprint);
+    state.set_omni_sprint(true).unwrap().unwrap();
+    state.set_omni_sprint(false).unwrap().unwrap();
+    state.world.commit();
+    assert!(!state.world.omni_sprint);
+}
