@@ -6,6 +6,7 @@ package cinnabar:session@0.1.0;
 /// The session's items as the vanilla creative screen and recipe book know them: the server's
 /// creative content in its order, then every other item the item registry names, by network id.
 /// Every function errs only when the `items` permission is denied.
+/// Grants: `items`.
 interface items {
     /// An item by identifier and aux value (metadata).
     record item-key {
@@ -30,6 +31,7 @@ interface items {
         command-only,
     }
 
+    /// One catalog entry, retaining creative placement only when the server supplied it.
     record item {
         key: item-key,
         icon: s64,
@@ -46,9 +48,11 @@ interface items {
 
     /// Changes whenever the creative content or the item registry is resent.
     revision: func() -> result<u64, string>;
+    /// Returns the number of entries in the current session catalog.
     count: func() -> result<u32, string>;
     /// Up to `count` items from `start`, cut to the host's per-call cap.
     page: func(start: u32, count: u32) -> result<list<item>, string>;
+    /// Looks up an exact identifier and aux pair; none means it is absent from this catalog.
     lookup: func(key: item-key) -> result<option<item>, string>;
     /// The identifiers in an item tag: the registry's, else the vanilla tag table's.
     tag-members: func(tag: string) -> result<list<string>, string>;
@@ -56,9 +60,11 @@ interface items {
 
 /// The recipes the server sent that the client decodes, as the vanilla recipe book and the
 /// station screens use them. Every function errs only when the `recipes` permission is denied.
+/// Grants: `recipes`.
 interface recipes {
     use items.{item-key, stack};
 
+    /// An exact item, an identifier accepting any aux value, or an item tag.
     variant ingredient-kind {
         item(item-key),
         /// Any aux value of this identifier (aux 32767 on the wire).
@@ -67,11 +73,13 @@ interface recipes {
         tag(string),
     }
 
+    /// One required ingredient and its stack count; empty shaped cells are represented outside this record.
     record ingredient {
         kind: ingredient-kind,
         count: u8,
     }
 
+    /// The recipe station or transformation family, preserving its distinct ingredient ordering.
     enum category {
         crafting,
         stonecutter,
@@ -85,6 +93,7 @@ interface recipes {
         brewing,
     }
 
+    /// One decoded recipe with station-specific input order and resolved output stacks.
     record recipe {
         network-id: u32,
         category: category,
@@ -102,6 +111,7 @@ interface recipes {
 
     /// Changes whenever the server resends its recipes.
     revision: func() -> result<u64, string>;
+    /// Returns the number of currently decoded session recipes.
     count: func() -> result<u32, string>;
     /// Up to `count` recipes from `start`, cut to the host's per-call cap.
     page: func(start: u32, count: u32) -> result<list<recipe>, string>;

@@ -9,7 +9,7 @@ import (
 )
 
 func TestReadyFoundationFollowsTargetBlockPin(t *testing.T) {
-	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "assets", "registry-foundation-v2193.json"))
+	payload, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "assets", "registry-foundation-v2225.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,6 +17,7 @@ func TestReadyFoundationFollowsTargetBlockPin(t *testing.T) {
 		ProjectionBindings struct {
 			Block struct{ SHA256 string } `json:"block"`
 			Light struct{ SHA256 string } `json:"light"`
+			Biome struct{ SHA256 string } `json:"biome"`
 		} `json:"projection_bindings"`
 	}
 	if err := json.Unmarshal(payload, &ready); err != nil {
@@ -29,7 +30,7 @@ func TestReadyFoundationFollowsTargetBlockPin(t *testing.T) {
 		t.Fatal(err)
 	}
 	target, err := json.Marshal(map[string]any{"hashes": map[string]string{
-		"block_registry": changed, "light_registry": ready.ProjectionBindings.Light.SHA256,
+		"block_registry": changed, "light_registry": ready.ProjectionBindings.Light.SHA256, "biome_registry": ready.ProjectionBindings.Biome.SHA256,
 	}})
 	if err != nil {
 		t.Fatal(err)

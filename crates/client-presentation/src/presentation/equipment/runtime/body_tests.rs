@@ -48,6 +48,7 @@ fn item(name: &str) -> WornItem {
         variant: Default::default(),
         charged_projectile: None,
         map_id: None,
+        shield_pattern: None,
         use_facts: Default::default(),
         grip: assets::item::grip::ItemGrip::Unresolved,
     }

@@ -55,7 +55,7 @@ Vanilla behaviour is the default. Everything below is extra:
 | **Custom skins** | Import custom-geometry (4D/5D) skins and skin packs. See [docs/custom-skins.md](docs/custom-skins.md). |
 | **Discord** | Rich presence, plus joining and inviting friends through Discord. See [docs/discord.md](docs/discord.md). |
 | **Cinnabar players** | A badge on other Cinnabar players in the tab list, and update notices as soon as a release ships. See [docs/cinnabar-api.md](docs/cinnabar-api.md). |
-| **Mods** *(preview)* | Personal WebAssembly mods with reload and explicit grants, plus paired server/client mods with declared blocks, items and typed messages. Start with [the mod guide](docs/mods/README.md); server client-code execution currently requires the developer switch. |
+| **Mods** *(preview)* | Personal WebAssembly mods with reload and explicit grants, plus paired server/client mods with declared blocks, items and typed messages. Start with [the mod guide](docs/modding/src/appendix/paired-mods.md); server client-code execution currently requires the developer switch. |
 | **JSON-UI editor** | Preview and edit pack UI exactly as Cinnabar renders it, at [jsonui.cinnabar.gg](https://jsonui.cinnabar.gg/). |
 | **Figma to JSON-UI** | A Figma plugin that turns a frame into a JSON-UI screen and resource pack. [Download it](https://jsonui.cinnabar.gg/figma-plugin.zip), or see [tools/figma-plugin](tools/figma-plugin/README.md). |
 

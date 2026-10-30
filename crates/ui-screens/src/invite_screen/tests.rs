@@ -47,6 +47,7 @@ fn region(kind: HitKind, pressed: Option<&str>, collection: Option<(&str, usize)
         clip: rect,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: pressed.map(str::to_owned),
         control_name: None,
         collection_index: collection.map(|(_, index)| index),

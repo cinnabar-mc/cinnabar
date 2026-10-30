@@ -2,7 +2,7 @@
 use super::*;
 use crate::presentation::{
     actors::ActorPresentationBatch, cape::CapeState, entity_layers::LayerPoseCache,
-    equipment::ActorEquipmentInput, skin_layers::SkinLayerCache, skin_rig::SkinRigCache,
+    equipment::ActorEquipmentInput, skin_layers::ActorLayerCache, skin_rig::SkinRigCache,
 };
 
 /// Sampled actor poses used by equipment, capes and skin layers.
@@ -36,7 +36,7 @@ pub(super) struct LayerCaches<'a> {
     pub layer_poses: &'a mut LayerPoseCache,
     pub equipment: Option<&'a mut EquipmentRuntime>,
     pub cape_state: &'a mut CapeState,
-    pub skin_layers: &'a mut SkinLayerCache,
+    pub skin_layers: &'a mut ActorLayerCache,
     pub skin_rigs: &'a mut SkinRigCache,
 }
 
@@ -68,13 +68,14 @@ pub(super) fn attach(
     } = poses;
     let LayerCaches {
         layer_poses,
-        equipment,
+        mut equipment,
         cape_state,
         skin_layers,
         skin_rigs,
     } = caches;
     let (partial_tick, delta_seconds, glint_settings) = frame;
-    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment, stream) {
+    let wearing_elytra = if let (Some(equipment), Some(stream)) = (equipment.as_deref_mut(), stream)
+    {
         equipment_layers::attach(
             batch,
             equipment,
@@ -196,6 +197,31 @@ pub(super) fn attach(
             },
             skin_rigs,
             |geometry| new_geometries.push(geometry),
+            |draw, location| {
+                let slot = match draw.input.identity.layer {
+                    crate::presentation::equipment::LAYER_MAIN_HAND => 0,
+                    crate::presentation::equipment::LAYER_OFF_HAND => 1,
+                    _ => return None,
+                };
+                let remote;
+                let input = if draw.input.identity.runtime_id == local_runtime_id {
+                    poses.local_equipment
+                } else {
+                    remote = crate::presentation::equipment::remote_input(
+                        stream,
+                        draw.input.identity.runtime_id,
+                    );
+                    &remote
+                };
+                let item = if slot == 0 {
+                    input.main.as_ref()
+                } else {
+                    input.off.as_ref()
+                }?;
+                equipment
+                    .as_deref_mut()?
+                    .shield_raster(item, artwork, location?, draw.input.rig)
+            },
         )
     {
         scene.configure_artwork(pages);

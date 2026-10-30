@@ -21,7 +21,7 @@ pub struct CachedScreen {
     virtual_grids: std::collections::BTreeMap<String, usize>,
     laid: Option<Laid>,
     measures: json_ui::MeasureCache,
-    /// Bind+layout passes run, for cache tests and profiling.
+    /// Layout passes run after binding or display inputs change, for work regressions.
     pub passes: usize,
     /// Screens resolved on the frame rather than found prepared.
     #[cfg(any(test, feature = "test-support"))]
@@ -217,12 +217,12 @@ impl CachedScreen {
                     && laid.texture_metadata == texture_metadata
             });
             let bound = match previous {
-                Some(laid) => {
+                Some(mut laid) => {
                     let mut bound = laid.render.bound;
                     if !same_frame {
                         self.measures = json_ui::MeasureCache::default();
                     }
-                    rebind(
+                    let changed = rebind(
                         tree,
                         &data,
                         &library,
@@ -230,6 +230,12 @@ impl CachedScreen {
                         &mut bound,
                         &mut self.measures,
                     );
+                    if !changed && same_frame && laid.view == *view {
+                        laid.render.bound = bound;
+                        laid.data = data;
+                        self.laid = Some(laid);
+                        return self.laid.as_ref().map(|laid| &laid.render);
+                    }
                     bound
                 }
                 None => {

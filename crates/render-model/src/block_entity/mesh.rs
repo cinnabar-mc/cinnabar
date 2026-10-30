@@ -75,6 +75,8 @@ pub struct MeshBuilder {
     pub(super) actor_light: u32,
     /// Whether a required model texture was absent from the atlas.
     pub(super) missing_required_texture: bool,
+    /// Reused when layered models construct an atlas texture name.
+    pub(super) texture_name: String,
     pub rejected_quads: u64,
 }
 
@@ -91,6 +93,7 @@ impl MeshBuilder {
             light: 1.0,
             actor_light: 0,
             missing_required_texture: false,
+            texture_name: String::new(),
             rejected_quads: 0,
         }
     }
@@ -109,12 +112,14 @@ impl MeshBuilder {
             layer.clear();
         }
         let [solid, overlay, crack, portal, additive] = layers;
+        let texture_name = std::mem::take(&mut self.texture_name);
         *self = Self {
             solid,
             overlay,
             crack,
             portal,
             additive,
+            texture_name,
             ..Self::new(atlas_size)
         };
     }

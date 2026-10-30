@@ -213,7 +213,7 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        'bedrock-protocol-1-26-51' = @()
+        'bedrock-protocol-1-26-60' = @()
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
@@ -260,7 +260,7 @@ function Assert-ProtocolDependencyProvenance {
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.51/rust-contract``)"
+    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.60/rust-contract``)"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
@@ -289,7 +289,7 @@ function Assert-ProtocolDependencyProvenance {
         $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
         if (-not $nameMatch.Success) { continue }
         $name = $nameMatch.Groups['name'].Value
-        if ($name -ceq 'bedrock-protocol-1-26-51') {
+        if ($name -ceq 'bedrock-protocol-1-26-60') {
             $null = $resolvedLocalPackages.Add($name)
             $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
             if ($resolutionKey.Success) {
@@ -297,7 +297,7 @@ function Assert-ProtocolDependencyProvenance {
             }
         }
     }
-    foreach ($dependency in @('bedrock-protocol-1-26-51')) {
+    foreach ($dependency in @('bedrock-protocol-1-26-60')) {
         if (-not $resolvedLocalPackages.Contains($dependency)) {
             throw "Cargo.lock does not contain local package $dependency"
         }

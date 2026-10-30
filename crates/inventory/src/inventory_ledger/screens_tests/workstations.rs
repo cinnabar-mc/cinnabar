@@ -177,7 +177,7 @@ fn server_derived_screens_send_no_result_list() {
                 aux: 0,
                 count: 1,
                 block_runtime_id: 0,
-                empty_envelope: false,
+                user_data: protocol::RecipeOutputData::Absent,
             };
             if window_type == protocol::WINDOW_TYPE_CARTOGRAPHY {
                 ScreenCraft::Cartography {
@@ -239,7 +239,7 @@ fn smithing_takes_consume_the_template_first() {
                 aux: 0,
                 count: 1,
                 block_runtime_id: 0,
-                empty_envelope: false,
+                user_data: protocol::RecipeOutputData::Absent,
             },
         })
         .unwrap();
@@ -441,7 +441,7 @@ fn unmaterialized_recipe_results_only_fill_empty_cells() {
             aux: 0,
             count: 1,
             block_runtime_id: 0,
-            empty_envelope: false,
+            user_data: protocol::RecipeOutputData::Absent,
         };
         let craft = if materialized {
             ScreenCraft::Predicted {

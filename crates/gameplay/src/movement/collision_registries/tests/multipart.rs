@@ -4,11 +4,11 @@ use assets::RegistryRecord;
 use serde_json::{Map, Value};
 
 use super::super::multipart::second_part_offset;
-use super::{BREG_V2193, active_content_registry_protocol};
+use super::{BREG_V2225, active_content_registry_protocol};
 
 /// Loads the retained registry for the active protocol.
 fn records() -> Box<[RegistryRecord]> {
-    assets::read_registry_for_protocol(BREG_V2193, active_content_registry_protocol()).unwrap()
+    assets::read_registry_for_protocol(BREG_V2225, active_content_registry_protocol()).unwrap()
 }
 
 /// Parses a registry record's canonical state fields.

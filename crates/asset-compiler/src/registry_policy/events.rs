@@ -28,7 +28,7 @@ pub fn write(out: &Path) -> Result<()> {
         "event rules require explicit provisional status",
     )?;
     let particles: BTreeSet<_> =
-        include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_str!("../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
             .lines()
             .filter_map(|row| row.strip_prefix("particle\t"))
             .collect();

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId, StartGame};
+use bedrock_protocol_1_26_60::packets::{self, PacketId, StartGame};
 use thiserror::Error;
 
 use crate::{
@@ -406,7 +406,7 @@ world_packets! {
     )),
     TakeItemActor(packet) => WorldEvent::Actor(crate::actor::normalize_take_item_actor(packet)),
     ActorEvent(packet) => {
-        if packet.event_id == bedrock_protocol_1_26_51::enums::ActorEventType::StartAttacking {
+        if packet.event_id == bedrock_protocol_1_26_60::enums::ActorEventType::StartAttacking {
             WorldEvent::ItemActor(normalize_actor_attack(packet.target_runtime_id)?)
         } else {
             let Some(event) = crate::actor::normalize_actor_event(packet) else {
@@ -440,7 +440,7 @@ world_packets! {
     })),
     UpdatePlayerGameType(packet) => WorldEvent::Ui(game_mode::targeted_update(packet)),
     SetDefaultGameType(packet) => WorldEvent::Ui(UiEvent::DefaultGameMode(GameModeEvent {
-        update: PlayerGameMode::update_from_game_mode(packet.default_game_type),
+        update: PlayerGameMode::update_from_game_mode(bedrock_protocol_1_26_60::enums::LevelGameType::from(packet.default_game_type.to_raw())),
     })),
     InventoryContent(packet) => WorldEvent::Inventory(normalize_content(packet)?),
     CreativeContent(packet) => {
@@ -505,7 +505,7 @@ world_packets! {
     BiomeDefinitionList(packet) => {
         WorldEvent::BiomeDefinitions(biomes::normalize_biome_definitions(packet)?)
     },
-    LevelChunk(packet) => WorldEvent::LevelChunk(level_chunk::normalize_level_chunk(packet)?),
+    LevelChunk(packet) => WorldEvent::LevelChunk(level_chunk::normalize_level_chunk(*packet)?),
     SubChunk(packet) => WorldEvent::SubChunks(level_chunk::normalize_sub_chunks(packet)?),
     DimensionData(packet) => {
         WorldEvent::DimensionHeights(diagnostics::normalize_dimension_data(packet))
@@ -587,7 +587,7 @@ world_packets! {
     SetTime(packet) => WorldEvent::SetTime(SetTimeEvent { time: packet.time.0 }),
     SetSpawnPosition(packet) => {
         // Player respawn points are not carried; compasses only read the world spawn.
-        if packet.spawn_position_type != bedrock_protocol_1_26_51::enums::SpawnPositionType::Worldspawn {
+        if packet.spawn_position_type != bedrock_protocol_1_26_60::enums::SpawnPositionType::WorldSpawn {
             return Ok(None);
         }
         WorldEvent::WorldSpawn(WorldSpawnEvent {

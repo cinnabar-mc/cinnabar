@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{TextPacketType, TitleType};
-use bedrock_protocol_1_26_51::packets::{SetTitle, Text};
-use bedrock_protocol_1_26_51::types::TextData;
+use bedrock_protocol_1_26_60::enums::{TextPacketType, TitleType};
+use bedrock_protocol_1_26_60::packets::{SetTitle, Text};
+use bedrock_protocol_1_26_60::types::TextData;
 use protocol::{
     MAX_RAW_TEXT_COMPONENTS, MAX_RAW_TEXT_DEPTH, MAX_RAW_TEXT_INPUT_BYTES, MAX_RAW_TEXT_NODES,
     MAX_RAW_TEXT_OUTPUT_BYTES, RawTextComponent, RawTextResolution, TextKind, TitleAction, UiEvent,
@@ -25,9 +25,9 @@ fn message_only(body: TextData) -> Text {
 fn message_only_body(kind: TextKind, message: String) -> TextData {
     let message_type = match kind {
         TextKind::Raw => TextPacketType::Raw,
-        TextKind::Json => TextPacketType::Textobject,
-        TextKind::JsonWhisper => TextPacketType::Textobjectwhisper,
-        TextKind::JsonAnnouncement => TextPacketType::Textobjectannouncement,
+        TextKind::Json => TextPacketType::TextObject,
+        TextKind::JsonWhisper => TextPacketType::TextObjectWhisper,
+        TextKind::JsonAnnouncement => TextPacketType::TextObjectAnnouncement,
         other => panic!("unsupported message-only text kind: {other:?}"),
     };
     TextData::MessageOnly {
@@ -428,9 +428,9 @@ fn json_packet_translation_remains_typed_and_never_becomes_source_json() {
 #[test]
 fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
     for (wire, expected) in [
-        (TitleType::Titletextobject, TitleAction::SetTitleJson),
-        (TitleType::Subtitletextobject, TitleAction::SetSubtitleJson),
-        (TitleType::Actionbartextobject, TitleAction::ActionBarJson),
+        (TitleType::TitleTextObject, TitleAction::SetTitleJson),
+        (TitleType::SubtitleTextObject, TitleAction::SetSubtitleJson),
+        (TitleType::ActionbarTextObject, TitleAction::ActionBarJson),
     ] {
         let literal =
             normalize_title_object(wire, r#"{"rawtext":[{"text":"Human title"}]}"#).unwrap();
@@ -466,7 +466,7 @@ fn title_object_actions_retain_typed_raw_text_without_json_leakage() {
 fn malformed_title_object_raw_text_fails_closed() {
     assert!(matches!(
         normalize_title_object(
-            TitleType::Titletextobject,
+            TitleType::TitleTextObject,
             r#"{"rawtext":[{"text":"ok","selector":"@a"}]}"#,
         ),
         Err(UiPacketError::InvalidRawText)

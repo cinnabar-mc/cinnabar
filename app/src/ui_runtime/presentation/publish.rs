@@ -1,7 +1,7 @@
 //! Per-frame HUD observation and publication.
 use std::sync::Arc;
 
-use crate::runtime::network::resource_packs::PackApplication;
+use crate::runtime::network::{PackReload, resource_packs::PackApplication};
 use bevy::prelude::{Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
@@ -64,6 +64,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     clock: Res<'w, client_presentation::environment::WorldClock>,
     weather: Res<'w, client_presentation::environment::WeatherState>,
     network: Res<'w, NetworkHandle<PackApplication>>,
+    pack_reload: Option<Res<'w, PackReload>>,
     glint_settings: Option<ResMut<'w, render_scene::UiGlintSettings>>,
     item_use: Res<'w, client_interaction::item_use::ItemUseRuntime>,
     melee: Res<'w, client_interaction::melee::MeleeRuntime>,
@@ -115,6 +116,7 @@ pub(crate) fn prepare_ui_runtime(
         clock,
         weather,
         network,
+        pack_reload,
         glint_settings,
         item_use,
         melee,
@@ -144,6 +146,11 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
+    runtime.set_resource_pack_loading(
+        pack_reload
+            .as_deref()
+            .is_some_and(PackReload::loading_screen),
+    );
     let mod_presentation = std::sync::Arc::clone(presentation.mod_ui().mod_presentation());
     runtime
         .session
@@ -154,6 +161,7 @@ pub(crate) fn prepare_ui_runtime(
         ));
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);
+    runtime.advance_form_handoff(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]

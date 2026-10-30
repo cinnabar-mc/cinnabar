@@ -670,13 +670,6 @@ fn panels_without_an_exit_to_play_close_at_once() {
     ui.configure_motion(false);
     open_painted(&mut ui, &exiting_panel(Some(0.0)));
     assert!(closed_at_once(&mut ui));
-
-    let mut ui = ModUi::default();
-    open_painted(&mut ui, &exiting_panel(Some(0.0)));
-    ui.open_mod_hud_editor(&ui::mod_hud::Hud::default())
-        .unwrap();
-    assert!(closed_at_once(&mut ui));
-    assert!(!ui.mod_hud_editor_open());
 }
 
 /// A binding update keeps an exit going; a route change ends it, so a closed panel never

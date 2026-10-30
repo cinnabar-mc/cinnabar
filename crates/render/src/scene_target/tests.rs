@@ -673,3 +673,47 @@ fn scaled_allocation_failure_keeps_msaa_disabled_until_the_scaled_size_changes()
             .contains_key(&view)
     );
 }
+
+#[test]
+fn retained_passes_refuse_fallback_colour_while_the_msaa_scene_is_unavailable() {
+    let (mut world, view, mut schedule) = msaa_view_fixture();
+    schedule.run(&mut world);
+    assert_eq!(
+        world
+            .get::<SceneTarget>(view)
+            .unwrap()
+            .texture
+            .sample_count(),
+        4
+    );
+    for encoded in [false, true] {
+        let target = world.get::<ViewTarget>(view).unwrap();
+        let attachment = retained_color_attachment(&world, view, target, encoded).unwrap();
+        assert!(std::ptr::eq(
+            attachment.view,
+            &**world.get::<SceneTarget>(view).unwrap().color_view(encoded)
+        ));
+    }
+    world
+        .entity_mut(view)
+        .remove::<SceneTarget>()
+        .insert(SceneTargetUnavailable);
+    for encoded in [false, true] {
+        assert!(
+            retained_color_attachment(
+                &world,
+                view,
+                world.get::<ViewTarget>(view).unwrap(),
+                encoded
+            )
+            .is_none()
+        );
+    }
+    world.entity_mut(view).remove::<SceneTargetUnavailable>();
+    let target = world.get::<ViewTarget>(view).unwrap();
+    let attachment = retained_color_attachment(&world, view, target, false).unwrap();
+    assert!(std::ptr::eq(
+        attachment.view,
+        target.get_color_attachment().view
+    ));
+}

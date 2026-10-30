@@ -8,6 +8,9 @@ use assets::block_entity_geometry::heads::HeadModel;
 mod cache;
 use cache::{CachedSubmission, PreviousFragments};
 
+/// Retired arrays cover multiple draw layers and overlapping render frames.
+type LayerBuffers = crate::FrameBuffers<BlockEntityVertex, 16>;
+
 use super::{
     artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork},
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
@@ -213,6 +216,8 @@ pub struct BlockEntityScene {
     spare_submissions: Vec<Option<Box<CachedSubmission>>>,
     /// Layer buffers kept between rebuilds; each frame copies them into its shared layers.
     mesh: Option<MeshBuilder>,
+    /// Immutable layer arrays available again after their last reader releases them.
+    buffers: LayerBuffers,
     #[cfg(test)]
     static_rebuilds: usize,
 }
@@ -434,11 +439,11 @@ impl BlockEntityScene {
             } else {
                 Arc::clone(&self.frame.dynamic_rgba8)
             },
-            solid: shared_layer(&self.frame.solid, &builder.solid),
-            overlay: shared_layer(&self.frame.overlay, &builder.overlay),
-            crack: shared_layer(&self.frame.crack, &builder.crack),
-            portal: shared_layer(&self.frame.portal, &builder.portal),
-            additive: shared_layer(&self.frame.additive, &builder.additive),
+            solid: shared_layer(&self.frame.solid, &builder.solid, &mut self.buffers),
+            overlay: shared_layer(&self.frame.overlay, &builder.overlay, &mut self.buffers),
+            crack: shared_layer(&self.frame.crack, &builder.crack, &mut self.buffers),
+            portal: shared_layer(&self.frame.portal, &builder.portal, &mut self.buffers),
+            additive: shared_layer(&self.frame.additive, &builder.additive, &mut self.buffers),
             portal_star_rect: self.frame.portal_star_rect,
             portal_time_seconds: self.frame.portal_time_seconds,
         };
@@ -471,15 +476,21 @@ impl BlockEntityScene {
 }
 
 /// `previous` itself when it holds exactly the bytes of `vertices`, so consumers that compare
-/// allocations skip an unchanged layer; otherwise a new shared copy of `vertices`.
+/// allocations skip an unchanged layer; otherwise publishes a reusable exclusive array.
 fn shared_layer(
     previous: &Arc<[BlockEntityVertex]>,
     vertices: &[BlockEntityVertex],
+    buffers: &mut LayerBuffers,
 ) -> Arc<[BlockEntityVertex]> {
     if bytemuck::cast_slice::<_, u8>(previous) == bytemuck::cast_slice::<_, u8>(vertices) {
         Arc::clone(previous)
     } else {
-        Arc::from(vertices)
+        buffers
+            .write(vertices.len(), |output| {
+                output.copy_from_slice(vertices);
+                Ok::<_, std::convert::Infallible>(())
+            })
+            .expect("infallible layer copy")
     }
 }
 

@@ -74,7 +74,9 @@ const (
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
 	// GameVersion: Game version reported by the client.
-	GameVersion = "1.26.50"
+	GameVersion = "1.26.60"
+	// BDSVersion: Dedicated server version used by integration fixtures.
+	BDSVersion = "1.26.60.6"
 	// DefaultBedrockPort: Default port for an addressed Bedrock server.
 	DefaultBedrockPort = 19132
 	// DefaultBedrockPortText: Text form of the default Bedrock server port.

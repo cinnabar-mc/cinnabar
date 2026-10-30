@@ -9,7 +9,7 @@ use render_scene::greedy_texture_uv;
 fn shader() -> String {
     let source = crate::shader_source::preprocess(include_str!("../../src/chunk.wesl"), &[]);
     let corners = source.split_once("fn quad_corner(").unwrap().1;
-    let corners = corners.split_once("\nfn face_normal(").unwrap().0;
+    let corners = corners.split_once("\nfn greedy_uv(").unwrap().0;
     let uv = source.split_once("fn greedy_uv(").unwrap().1;
     let uv = uv.split_once("\n@vertex").unwrap().0;
     format!("fn quad_corner({corners}\nfn greedy_uv({uv}\n{FIXTURE}")
@@ -28,7 +28,7 @@ fn production_leaf_uv_shader_is_valid() {
 
 #[test]
 fn native_cube_axes_are_applied_before_all_pack_rotations_and_reflections() {
-    // Current 1.26.50.26 cube tessellator: West/East and North/South reverse U;
+    // Current 1.26.60.26 cube tessellator: West/East and North/South reverse U;
     // Down reverses V relative to Up. These are coordinates at shared points,
     // not a comparison of differently ordered face vertices.
     let corners = [

@@ -111,6 +111,59 @@ pub fn binding_mouse_button(
         if crate::physical_input::mouse_button_code(button) == Some(code))
 }
 
+/// Whether `control` is the player's Menu Cancel (`key.menuCancel`) binding. Screens cancel on it
+/// as on their fixed Escape and platform Back keys.
+pub fn is_menu_cancel(menu: Option<&crate::menu::MenuRuntime>, control: PhysicalControl) -> bool {
+    named_control(menu, BindingId::MenuCancel) == Some(control)
+}
+
+/// Whether a mouse press cancels a screen: the platform Back key's press, or the button bound to
+/// Menu Cancel.
+pub fn menu_cancel_button(
+    menu: Option<&crate::menu::MenuRuntime>,
+    button: bevy::prelude::MouseButton,
+) -> bool {
+    button == crate::physical_input::PLATFORM_BACK
+        || crate::physical_input::mouse_button_code(button)
+            .is_some_and(|code| is_menu_cancel(menu, PhysicalControl::MouseButton(code)))
+}
+
+/// Whether a key is bound to Menu Cancel. Callers skip it while a text box takes typed keys.
+pub fn menu_cancel_key(
+    menu: Option<&crate::menu::MenuRuntime>,
+    key: bevy::prelude::KeyCode,
+) -> bool {
+    crate::physical_input::keyboard_usage(key)
+        .is_some_and(|code| is_menu_cancel(menu, PhysicalControl::KeyboardUsage(code)))
+}
+
+/// The mouse button newly pressed this frame that cancels screens, which a screen that acts on it
+/// clears so later owners do not see it.
+pub fn menu_cancel_mouse(
+    menu: Option<&crate::menu::MenuRuntime>,
+    mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
+) -> Option<bevy::prelude::MouseButton> {
+    mouse
+        .get_just_pressed()
+        .copied()
+        .find(|button| menu_cancel_button(menu, *button))
+}
+
+/// Whether this frame pressed Menu Cancel: a cancelling mouse button, or the bound key unless
+/// `typing` says a text box takes typed keys. Escape stays with each screen's own key handling.
+pub fn menu_cancel_pressed(
+    menu: Option<&crate::menu::MenuRuntime>,
+    keys: &bevy::prelude::ButtonInput<bevy::prelude::KeyCode>,
+    mouse: &bevy::prelude::ButtonInput<bevy::prelude::MouseButton>,
+    typing: bool,
+) -> bool {
+    menu_cancel_mouse(menu, mouse).is_some()
+        || (!typing
+            && keys
+                .get_just_pressed()
+                .any(|key| menu_cancel_key(menu, *key)))
+}
+
 /// Reads a gamepad UI action from the same persisted layout as the settings grid.
 pub fn binding_gamepad(
     menu: Option<&crate::menu::MenuRuntime>,

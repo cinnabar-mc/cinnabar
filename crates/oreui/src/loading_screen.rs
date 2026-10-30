@@ -7,6 +7,14 @@ use ui::{IconRef, LoadingStage, UiNode};
 use super::{Look, OreUiScreen, paint::Canvas, progress, theme};
 use ui_engine::engine::screen::{PaintError, PaintFrame};
 
+/// Shared copy for the client-owned resource-pack transition and its snapshots.
+pub const RESOURCE_PACK_WORDS: [&str; 2] = [
+    "Applying resource packs…",
+    "Preparing textures, models and UI…",
+];
+/// Opaque backdrop used while a complete resource-pack snapshot is published.
+pub const RESOURCE_PACK_BACKGROUND: [u8; 4] = [8, 10, 14, 255];
+
 /// What one loading paint reads.
 pub struct LoadingInput<'a> {
     pub stage: LoadingStage,

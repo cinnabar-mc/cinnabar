@@ -42,6 +42,7 @@ pub(in crate::compiler) mod grindstone;
 pub(in crate::compiler) mod heavy_core;
 pub(in crate::compiler) mod hollow_containers;
 pub(in crate::compiler) mod honey;
+pub(in crate::compiler) mod hopper;
 pub(in crate::compiler) mod kelp;
 pub(in crate::compiler) mod ladders;
 pub(in crate::compiler) mod lantern;

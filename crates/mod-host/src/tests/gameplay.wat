@@ -6,7 +6,7 @@
     (export "player" (type $player (eq $p)))
     (type $s (record (field "session" u64) (field "dimension" s32)
       (field "eye" $vector3) (field "yaw" f32) (field "pitch" f32)
-      (field "attack-held" bool) (field "frame-seconds" f32) (field "players" (list $player))))
+      (field "frame-seconds" f32) (field "players" (list $player))))
     (export "snapshot" (type $snapshot (eq $s)))
     (export "read-frame" (func (result (result (option $snapshot) (error string)))))
     (export "cancel-jump" (func (result (result (error string)))))

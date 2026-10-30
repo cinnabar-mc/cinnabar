@@ -1,13 +1,13 @@
 use std::fmt::Debug;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ActorEventType, ActorType, ConnectionDisconnectFailReason, ContainerEnumName,
     ItemStackRequestActionType, LegacyTelemetryType, PhotoType, PlayStatusType,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     BookEditAction, EventData, ResourcePackClientResponseData, StackRequestAction,
 };
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 
 fn assert_wire<T>(value: T, expected: &[u8])
 where
@@ -30,43 +30,43 @@ fn generated_unknown_enum_values_keep_their_wire_numbers() {
 
 #[test]
 fn education_telemetry_values_keep_their_wire_numbers() {
-    assert_wire(LegacyTelemetryType::AgentcommandObsolete, &[16]);
-    assert_wire(LegacyTelemetryType::Agentcreated, &[18]);
+    assert_wire(LegacyTelemetryType::AgentCommandObsolete, &[16]);
+    assert_wire(LegacyTelemetryType::AgentCreated, &[18]);
 }
 
 #[test]
 fn education_shared_enum_values_keep_their_wire_numbers() {
     assert_wire(
-        PlayStatusType::LoginfailedEditionmismatchedutovanilla,
+        PlayStatusType::LoginFailedEditionMismatchEduToVanilla,
         &[0, 0, 0, 5],
     );
     assert_wire(
-        PlayStatusType::LoginfailedEditionmismatchvanillatoedu,
+        PlayStatusType::LoginFailedEditionMismatchVanillaToEdu,
         &[0, 0, 0, 6],
     );
     assert_wire(
-        ConnectionDisconnectFailReason::Edulevelsettingsmissing,
+        ConnectionDisconnectFailReason::EduLevelSettingsMissing,
         &[22],
     );
     assert_wire(
-        ConnectionDisconnectFailReason::Editionmismatchvanillatoedu,
+        ConnectionDisconnectFailReason::EditionMismatchVanillaToEdu,
         &[0x86, 0x02],
     );
     assert_wire(
-        ConnectionDisconnectFailReason::Editionmismatchedutovanilla,
+        ConnectionDisconnectFailReason::EditionMismatchEduToVanilla,
         &[0x88, 0x02],
     );
     assert_wire(ActorType::Chalkboard, &[0x9c, 0x01]);
     assert_wire(ActorType::Balloon, &[0xd6, 0x01]);
     assert_wire(ActorType::Agent, &[0xf0, 0x04]);
-    assert_wire(ActorType::Tripodcamera, &[0xfc, 0x04]);
-    assert_wire(ActorType::Icebomb, &[0xd4, 0x81, 0x80, 0x04]);
+    assert_wire(ActorType::TripodCamera, &[0xfc, 0x04]);
+    assert_wire(ActorType::IceBomb, &[0xd4, 0x81, 0x80, 0x04]);
     assert_wire(ActorType::Npc, &[0xe6, 0x04]);
     assert_wire(ActorEventType::AgentSwingArm, &[36]);
     assert_wire(ActorEventType::BalloonPop, &[71]);
     assert_wire(ActorEventType::SummonAgent, &[73]);
     assert_wire(PhotoType::Portfolio, &[0]);
-    assert_wire(PhotoType::Photoitem, &[1]);
+    assert_wire(PhotoType::PhotoItem, &[1]);
     assert_wire(PhotoType::Book, &[2]);
     assert_eq!(PhotoType::default(), PhotoType::Portfolio);
 }
@@ -163,10 +163,10 @@ fn education_container_names_round_trip() {
 /// distinct from the retail mine-block action.
 #[test]
 fn lab_table_stack_action_keeps_both_wire_tags() {
-    assert_wire(ItemStackRequestActionType::Screenlabtablecombine, &[9]);
+    assert_wire(ItemStackRequestActionType::ScreenLabTableCombine, &[9]);
     assert_wire(
         StackRequestAction::LabTableCombineActionData {
-            action_type: ItemStackRequestActionType::Screenlabtablecombine,
+            action_type: ItemStackRequestActionType::ScreenLabTableCombine,
         },
         &[7, 9],
     );
@@ -185,8 +185,8 @@ fn lab_table_stack_action_keeps_both_wire_tags() {
 /// Code Builder telemetry keeps its enum values and its union selectors 18 and 19.
 #[test]
 fn code_builder_telemetry_keeps_enum_and_union_selectors() {
-    assert_wire(LegacyTelemetryType::Codebuilderruntimeaction, &[52]);
-    assert_wire(LegacyTelemetryType::Codebuilderscoreboard, &[54]);
+    assert_wire(LegacyTelemetryType::CodeBuilderRuntimeAction, &[52]);
+    assert_wire(LegacyTelemetryType::CodeBuilderScoreboard, &[54]);
     assert_wire(
         EventData::CodeBuilderRuntimeAction {
             code_builder_runtime_action: wire::Str::default(),

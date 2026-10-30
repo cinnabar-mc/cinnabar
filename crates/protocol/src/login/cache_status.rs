@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-use bedrock_protocol_1_26_51::{packets::ClientCacheBlobStatus, wire};
+use bedrock_protocol_1_26_60::{packets::ClientCacheBlobStatus, wire};
 use futures::task::AtomicWaker;
 use simulation_clock::Moment;
 

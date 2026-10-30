@@ -58,6 +58,8 @@ pub struct RopeView {
     pub kind: RopeKind,
     /// Runtime id of the actor holding a fishing rod; leads do not have an owner.
     pub owner_runtime_id: Option<u64>,
+    /// Runtime id and interpolated feet of the actor a lead holds, whose light shades the lead.
+    pub leashed: Option<(u64, [f32; 3])>,
     pub from: [f32; 3],
     pub to: [f32; 3],
 }
@@ -234,6 +236,7 @@ impl ActorStore {
                 ropes.push(RopeView {
                     kind: RopeKind::Lead,
                     owner_runtime_id: None,
+                    leashed: Some((actor.runtime_id, interpolated(actor, alpha))),
                     from: attach(actor),
                     to: attach(holder),
                 });
@@ -253,6 +256,7 @@ impl ActorStore {
             ropes.push(RopeView {
                 kind: RopeKind::FishingLine,
                 owner_runtime_id: Some(owner.runtime_id),
+                leashed: None,
                 from: [
                     base[0] - sine * ROD_TIP_FORWARD + cosine * ROD_TIP_RIGHT,
                     base[1] + ROD_TIP_HEIGHT,
@@ -329,6 +333,32 @@ mod tests {
             ropes[0].from,
             [ROD_TIP_RIGHT, ROD_TIP_HEIGHT, ROD_TIP_FORWARD]
         );
+        assert_eq!(ropes[0].leashed, None);
+    }
+
+    #[test]
+    fn lead_names_the_leashed_actor_and_its_feet() {
+        let mut store = ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut holder) = super::super::tests::spawn(1, 10) else {
+            unreachable!()
+        };
+        holder.position = [4.0, 0.0, 0.0];
+        store.apply(1, 1, ActorEvent::Spawn(holder));
+        let ActorEvent::Spawn(mut leashed) = super::super::tests::spawn(2, 20) else {
+            unreachable!()
+        };
+        leashed.position = [1.0, 2.0, 3.0];
+        leashed.metadata = Arc::from([ActorMetadata {
+            key: ActorDataKey::LeashHolder.wire_value(),
+            value: ActorMetadataValue::Long(10),
+        }]);
+        store.apply(1, 2, ActorEvent::Spawn(leashed));
+
+        let ropes = store.ropes(0.0);
+        assert_eq!(ropes.len(), 1);
+        assert_eq!(ropes[0].kind, RopeKind::Lead);
+        assert_eq!(ropes[0].leashed, Some((2, [1.0, 2.0, 3.0])));
+        assert_eq!(ropes[0].from, [1.0, 2.0 + LEASH_ATTACH_HEIGHT, 3.0]);
     }
 }
 

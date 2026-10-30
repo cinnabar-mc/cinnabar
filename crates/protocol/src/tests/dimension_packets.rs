@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_51::enums::{PlayerActionType, ServerboundLoadingScreenType};
-use bedrock_protocol_1_26_51::packets::{self, ChangeDimension};
-use bedrock_protocol_1_26_51::types::{BlockPos, DimensionType};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{PlayerActionType, ServerboundLoadingScreenType};
+use bedrock_protocol_1_26_60::packets::{self, ChangeDimension};
+use bedrock_protocol_1_26_60::types::{BlockPos, DimensionType};
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     LoadingScreenPhase, WorldEvent, dimension_change_done_packet, into_world_event,
     loading_screen_packet,
@@ -39,7 +39,7 @@ fn dimension_completion_packet_uses_action_fourteen_and_empty_block_coordinates(
         panic!("player action packet");
     };
     assert_eq!(action.player_runtime_id.0, 42);
-    assert_eq!(action.action, PlayerActionType::Changedimensionack);
+    assert_eq!(action.action, PlayerActionType::ChangeDimensionAck);
     assert_eq!(action.block_position, BlockPos::default());
     assert_eq!(action.result_pos, BlockPos::default());
     assert_eq!(action.face.0, 0);
@@ -59,9 +59,9 @@ fn dimension_loading_pair_preserves_absent_zero_and_full_width_identifiers() {
             assert_eq!(
                 loading.loading_screen_packet_type,
                 if phase == LoadingScreenPhase::Start {
-                    ServerboundLoadingScreenType::Startloadingscreen
+                    ServerboundLoadingScreenType::StartLoadingScreen
                 } else {
-                    ServerboundLoadingScreenType::Endloadingscreen
+                    ServerboundLoadingScreenType::EndLoadingScreen
                 }
             );
         }

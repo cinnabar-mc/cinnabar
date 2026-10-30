@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::types::DynamicValue;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::DynamicValue;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// One data store property value: a JSON-like tree carried as a wire `DynamicValue`.

@@ -98,15 +98,9 @@ pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<Screen
     scene.set_textures(textures);
 }
 
+/// Finds the same first fire state as the full registry reader, borrowing its shared index.
 fn pinned_fire_state() -> Option<u32> {
-    assets::read_registry_for_protocol(
-        assets::pinned_block_registry_bytes(),
-        assets::active_content_registry_protocol(),
-    )
-    .ok()?
-    .iter()
-    .find(|state| state.name.as_ref() == assets::facts::VanillaBlock::Fire.identifier())
-    .map(|state| state.sequential_id)
+    assets::pinned_block_state_by_name(assets::facts::VanillaBlock::Fire.identifier())
 }
 
 pub fn publish_screen_overlays(
@@ -159,6 +153,17 @@ mod tests {
     #[test]
     fn camera_fire_binding_uses_the_active_pinned_registry_protocol() {
         assert!(pinned_fire_state().is_some());
+    }
+
+    #[test]
+    fn fire_state_lookup_does_not_rebuild_registry_facts() {
+        let expected = pinned_fire_state().expect("pinned fire state");
+        let (actual, allocations) = test_alloc::count(pinned_fire_state);
+        assert_eq!(actual, Some(expected));
+        assert_eq!(
+            allocations, 0,
+            "a repeated identity lookup must borrow its index"
+        );
     }
 
     #[test]

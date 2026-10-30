@@ -49,16 +49,32 @@ pub(super) enum PoseStep {
 
 impl ActorAnimationStore {
     pub fn diagnostic() -> Self {
-        Self::new(None)
+        Self::with_catalog(None, Arc::default())
     }
 
-    pub fn with_assets(assets: Arc<RuntimeEntityAssets>) -> Self {
-        Self::new(Some(assets))
+    /// Starts independent actor state, reusing analysis when the caller supplies a prepared catalog.
+    pub fn with_assets(assets: impl Into<ActorAnimationCatalog>) -> Self {
+        let catalog = assets.into();
+        Self::with_catalog(Some(catalog.assets), catalog.layout)
     }
 
-    fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
+    /// Shares base-carrier analysis without sharing actors, ticks, pack bindings or compiler state.
+    pub fn catalog(&self) -> Option<ActorAnimationCatalog> {
+        Some(ActorAnimationCatalog {
+            assets: Arc::clone(self.assets.as_ref()?),
+            layout: Arc::clone(&self.layout),
+        })
+    }
+
+    /// Starts independent actor state using this base catalog's existing immutable analysis.
+    pub fn restart(self) -> Self {
+        Self::with_catalog(self.assets, self.layout)
+    }
+
+    /// Creates fresh mutable state without repeating the supplied catalog's analysis.
+    fn with_catalog(assets: Option<Arc<RuntimeEntityAssets>>, layout: Arc<VariableLayout>) -> Self {
         let mut store = Self {
-            layout: Arc::new(assets.as_ref().map(VariableLayout::new).unwrap_or_default()),
+            layout,
             assets,
             pack: None,
             server_compiler: None,

@@ -149,16 +149,39 @@ fn blocked_far_notifications_allow_geometry_during_camera_refresh() {
 fn notified_mesh_retains_retry_history_until_queued_work_is_cleared() {
     let mut stream = lit_stream(1);
     let view = stream.scheduler_view([8.0; 3]);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(view, &mut stream.mesh_jobs.lanes, None, |_, _| true);
     let key = SubChunkKey::new(1, 12, 0, 0);
     queue_mesh(&mut stream, view, key, false);
     let pending = stream.mesh_jobs.pending[&key];
     for _ in 0..4 {
         stream.mesh_jobs.retries.block(key, pending.revision);
     }
+    queue_mesh(&mut stream, view, SubChunkKey::new(1, -64, 0, 0), true);
+    stream.mark_light_dirty_exact(key).unwrap();
     for _ in 0..32 {
         let direct = stream.lighting.direct_sky[&key].clone();
         stream.finish_accepted_light_completion(key, 0, &direct, [false; 6], false);
     }
+    let after = stream.scheduler_view([40.0, 8.0, 8.0]);
+    stream.mesh_jobs.refresh.refresh(
+        after,
+        &mut stream.mesh_jobs.lanes,
+        Some(Instant::now()),
+        |_, _| true,
+    );
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    stream.poll_deadline = Some(Instant::now());
+    let mut budget = MAX_PENDING_SCHEDULER_SCANS_PER_POLL;
+    stream.promote_mesh_dependency_wakeups(after, &HashSet::new(), None, &mut budget);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 1);
+    assert!(!stream.mesh_jobs.has_dependency_notification(
+        RESIDENT_MESH_LANE,
+        key,
+        pending.revision,
+    ));
     stream.mesh_jobs.retries.begin_poll();
     let retry = stream.mesh_jobs.retries.pop().unwrap();
     assert_eq!(retry.key, key);
@@ -217,9 +240,14 @@ fn previous_generation_notifications_coalesce_and_make_progress() {
     stream.accept_mesh_completion(completion);
     assert_eq!(
         meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get),
-        0,
-        "a previous-generation notification was duplicated or checked by the retry rotation"
+        1,
+        "a previous-generation notification must receive one coalesced readiness check"
     );
+    assert!(!stream.mesh_jobs.has_dependency_notification(
+        RESIDENT_MESH_LANE,
+        visible,
+        stream.mesh_jobs.pending[&visible].revision,
+    ));
 
     stream.poll_deadline = None;
     let mut settled = false;
@@ -237,7 +265,19 @@ fn previous_generation_notifications_coalesce_and_make_progress() {
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_ne!(completion.key, visible);
     stream.accept_mesh_completion(completion);
-    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 1);
+    // The consumed wake rejoins the existing bounded FIFO rotation rather than jumping its age.
+    let retry_polls = stream
+        .mesh_jobs
+        .pending
+        .len()
+        .div_ceil(MAX_PENDING_SCHEDULER_SCANS_PER_POLL);
+    for _ in 0..retry_polls {
+        drop(stream.mesh_retry_candidates(after, &HashSet::new()));
+        if meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get) != 1 {
+            break;
+        }
+    }
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 2);
     assert!(stream.mesh_jobs.pending.contains_key(&visible));
 
     install_current_light(&mut stream, visible, 0, 0, false);
@@ -246,6 +286,134 @@ fn previous_generation_notifications_coalesce_and_make_progress() {
     let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(completion.key, visible);
     stream.accept_mesh_completion(completion);
+}
+
+/// A ready dependency wake must dispatch while unrelated work still belongs to an old view.
+#[test]
+fn ready_notification_dispatches_before_unrelated_view_refresh() {
+    let mut stream = lit_stream(1);
+    let before = stream.scheduler_view([8.0; 3]);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(before, &mut stream.mesh_jobs.lanes, None, |_, _| true);
+    let visible = SubChunkKey::new(1, 12, 0, 0);
+    queue_mesh(&mut stream, before, visible, false);
+    let pending = stream.mesh_jobs.pending[&visible];
+    for _ in 0..4 {
+        stream.mesh_jobs.retries.block(visible, pending.revision);
+    }
+    for offset in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 3 {
+        let key = SubChunkKey::new(1, -64 - i32::try_from(offset).unwrap(), 0, 0);
+        queue_mesh(&mut stream, before, key, true);
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    stream.mesh_jobs.scan.clear();
+    let direct = stream.lighting.direct_sky[&visible].clone();
+    stream.finish_accepted_light_completion(visible, 0, &direct, [false; 6], false);
+    let after = stream.scheduler_view([40.0, 8.0, 8.0]);
+    stream.mesh_jobs.refresh.refresh(
+        after,
+        &mut stream.mesh_jobs.lanes,
+        Some(Instant::now()),
+        |_, _| true,
+    );
+    assert!(!scheduler::mesh_is_near(after, visible));
+    for _ in 0..32 {
+        stream.finish_accepted_light_completion(visible, 0, &direct, [false; 6], false);
+    }
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(
+        stream.dispatch_mesh_jobs(after.position, 1),
+        1,
+        "a ready dependency wake waited for unrelated view refresh"
+    );
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, visible);
+    assert_eq!(completion.revision, pending.revision);
+    assert_eq!(
+        stream.revisions.dirty(visible).unwrap().since,
+        pending.since
+    );
+    assert_eq!(
+        meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get),
+        1,
+        "coalesced notifications must not repeat readiness work"
+    );
+    assert!(!stream.mesh_jobs.has_dependency_notification(
+        RESIDENT_MESH_LANE,
+        visible,
+        pending.revision,
+    ));
+    assert!(
+        stream
+            .mesh_jobs
+            .deferred_candidate(RESIDENT_MESH_LANE, visible)
+            .is_none()
+    );
+    let replacement = stream.mark_dirty_exact(visible, Instant::now());
+    stream.accept_mesh_completion(completion);
+    assert_ne!(replacement, pending.revision);
+    assert_eq!(stream.stats.stale_mesh_jobs, 1);
+    assert_eq!(stream.mesh_jobs.pending[&visible].revision, replacement);
+    assert!(stream.take_mesh_changes().is_empty());
+}
+
+/// Reranking a wake behind another generation must expose the better wake before ordinary work.
+#[test]
+fn notification_rerank_compares_both_views_before_ordinary_geometry() {
+    let mut stream = lit_stream(1);
+    let before = stream.scheduler_view([8.0; 3]);
+    stream
+        .mesh_jobs
+        .refresh
+        .refresh(before, &mut stream.mesh_jobs.lanes, None, |_, _| true);
+    let old_best = SubChunkKey::new(1, 8, 0, 0);
+    let new_best = SubChunkKey::new(1, 24, 0, 0);
+    for key in [old_best, new_best] {
+        queue_mesh(&mut stream, before, key, false);
+    }
+    for offset in 0..MAX_PENDING_SCHEDULER_SCANS_PER_POLL * 3 {
+        let key = SubChunkKey::new(1, -64 - i32::try_from(offset).unwrap(), 0, 0);
+        queue_mesh(&mut stream, before, key, true);
+        stream.mark_light_dirty_exact(key).unwrap();
+    }
+    let direct = stream.lighting.direct_sky[&old_best].clone();
+    stream.finish_accepted_light_completion(old_best, 0, &direct, [false; 6], false);
+    let middle = stream.scheduler_view([72.0, 8.0, 8.0]);
+    stream.mesh_jobs.refresh.refresh(
+        middle,
+        &mut stream.mesh_jobs.lanes,
+        Some(Instant::now()),
+        |_, _| true,
+    );
+    let direct = stream.lighting.direct_sky[&new_best].clone();
+    stream.finish_accepted_light_completion(new_best, 0, &direct, [false; 6], false);
+    let after = stream.scheduler_view([488.0, 8.0, 8.0]);
+    let ordinary = SubChunkKey::new(1, 22, 0, 0);
+    queue_mesh(&mut stream, after, ordinary, true);
+    stream.mesh_jobs.scan.clear();
+    assert!(!scheduler::mesh_is_near(after, new_best));
+    meshing::MESH_READINESS_CHECKS.with(|checks| checks.set(0));
+    stream.poll_deadline = Some(Instant::now());
+    assert_eq!(stream.dispatch_mesh_jobs(after.position, 1), 1);
+    let completion = stream.mesh_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(completion.key, new_best);
+    assert_eq!(meshing::MESH_READINESS_CHECKS.with(std::cell::Cell::get), 1);
+    stream.accept_mesh_completion(completion);
+    assert!(stream.mesh_jobs.pending.contains_key(&old_best));
+    assert!(stream.mesh_jobs.pending.contains_key(&ordinary));
+    assert!(stream.mesh_jobs.has_dependency_notification(
+        RESIDENT_MESH_LANE,
+        old_best,
+        stream.mesh_jobs.pending[&old_best].revision,
+    ));
+    assert!(!stream.mesh_jobs.has_dependency_notification(
+        RESIDENT_MESH_LANE,
+        new_best,
+        stream.revisions.dirty(new_best).unwrap().revision,
+    ));
 }
 
 /// Adds a current geometry revision to one lane without scheduler ingress or worker activity.

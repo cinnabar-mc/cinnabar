@@ -74,8 +74,14 @@ fn key(name: &str, state: &str) -> String {
 /// Removes only neighbour-derived properties from a canonical source state.
 fn reduced(state: &str) -> Result<String> {
     let mut fields: BTreeMap<String, serde_json::Value> = serde_json::from_str(state)?;
-    fields
-        .retain(|name, _| !name.starts_with("minecraft:connection_") && name != "minecraft:corner");
+    fields.retain(|name, _| {
+        !name.starts_with("minecraft:connection_")
+            && name != "minecraft:corner"
+            && !matches!(
+                name.as_str(),
+                "redstone_east" | "redstone_north" | "redstone_south" | "redstone_west"
+            )
+    });
     Ok(serde_json::to_string(&fields)?)
 }
 
@@ -89,6 +95,10 @@ fn fingerprint(hash: &mut Sha256, f: &BlockFact) {
 
 /// Converts exact source boxes into the existing fixed-point carrier coordinates.
 pub(super) fn collision(f: &BlockFact) -> Result<CollisionSeed> {
+    check(
+        f.shape_id != 0,
+        format!("collision shape unavailable for {}", f.name),
+    )?;
     let mut boxes = Vec::new();
     for raw in f.boxes.iter().flatten() {
         let mut v = [0i32; 6];
@@ -241,7 +251,9 @@ pub(super) fn project(
             let exact = old.get(&key(&f.name, &f.state));
             let reduced = reduced(&f.state)?;
             let reduced_match = old.get(&key(&f.name, &reduced));
-            let adopted = if let Some(record) = exact {
+            let adopted = if policy.unresolved_retail.contains(&f.name) {
+                None
+            } else if let Some(record) = exact {
                 stats.legacy_exact_states += 1;
                 Some(*record)
             } else if let Some(record) = reduced_match {

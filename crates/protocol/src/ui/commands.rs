@@ -2,9 +2,9 @@
 
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
-use bedrock_protocol_1_26_51::enums::CommandPermissionLevel;
-use bedrock_protocol_1_26_51::packets::AvailableCommands;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::CommandPermissionLevel;
+use bedrock_protocol_1_26_60::packets::AvailableCommands;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 use protocol_ids::{CommandArgFlag, CommandArgType};
@@ -79,7 +79,7 @@ mod id_tests;
 /// Resolves the permission name to the generated wire permission level.
 fn permission_level(name: &str) -> u8 {
     match name {
-        "gamedirectors" => CommandPermissionLevel::Gamedirectors,
+        "gamedirectors" => CommandPermissionLevel::GameDirectors,
         "admin" => CommandPermissionLevel::Admin,
         "host" => CommandPermissionLevel::Host,
         "owner" => CommandPermissionLevel::Owner,

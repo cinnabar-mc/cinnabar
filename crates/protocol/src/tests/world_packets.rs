@@ -15,18 +15,19 @@ mod move_player;
 mod weather_cycle;
 #[path = "world_packets/world_clocks.rs"]
 mod world_clocks;
-use bedrock_protocol_1_26_51::enums::{PlayerRespawnState, SubChunkRequestResult};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{PlayerRespawnState, SubChunkRequestResult};
+use bedrock_protocol_1_26_60::packets::{
     self, BiomeDefinitionList, ChangeDimension, ChunkRadiusUpdated, GameRulesChanged, LevelChunk,
     LevelEvent, NetworkChunkPublisherUpdate, Respawn, SetTime, StartGame, SubChunk, UpdateBlock,
     UpdateSubChunkBlocks,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, BiomeDefinitionData, BiomeStringList, BlockPos, ChunkPos, DimensionType,
-    GameRule, GameRuleValue, GameRulesChangedData, SubChunkData, SubChunkPos, SubChunkPosOffset,
-    UpdateSubChunkBlocksChangedInfo, UpdateSubChunkNetworkBlockInfo,
+    GameRule, GameRuleValue, GameRulesChangedData, LevelGameRule, LevelGameRuleValue, SubChunkData,
+    SubChunkPos, SubChunkPosOffset, UpdateSubChunkBlocksChangedInfo,
+    UpdateSubChunkNetworkBlockInfo,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     BiomeDefinitionEvent, BiomeDefinitionsEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, HudRules, LevelChunkMode, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
@@ -102,6 +103,15 @@ fn bool_rule(name: &str, value: bool) -> GameRule {
         rule_name: name.into(),
         rule_can_be_modified: true,
         rule_value: GameRuleValue::Bool(value),
+    }
+}
+
+/// Builds a boolean rule carried by StartGame's level settings.
+fn level_bool_rule(name: &str, value: bool) -> LevelGameRule {
+    LevelGameRule {
+        rule_name: name.into(),
+        rule_can_be_modified: true,
+        rule_value: LevelGameRuleValue::Variant1(value),
     }
 }
 
@@ -245,7 +255,12 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
     game_data.start_game.settings.spawn_settings.dimension = wire::ZigZag32(1);
     game_data.start_game.runtime_id = ActorRuntimeID(0x1_0000_0001);
     game_data.start_game.position = [1.25, 72.0, -8.5].into();
-    game_data.start_game.settings.default_spawn_block_position = block_pos(-104, 114, 61);
+    game_data.start_game.settings.default_spawn_block_position =
+        bedrock_protocol_1_26_60::types::BlockPosition {
+            x: wire::ZigZag32(-104),
+            y: wire::ZigZag32(114),
+            z: wire::ZigZag32(61),
+        };
     game_data.start_game.settings.day_cycle_stop_time = wire::ZigZag32(18_000);
     game_data.start_game.level_current_time = wire::U64LE(123_456);
     game_data
@@ -253,7 +268,7 @@ fn normalizes_start_game_bootstrap_without_generated_types() {
         .settings
         .rule_data
         .rules_list
-        .push(bool_rule("DoDaylightCycle", false));
+        .push(level_bool_rule("DoDaylightCycle", false));
     game_data.start_game.settings.rain_level = wire::F32LE(0.25);
     game_data.start_game.settings.lightning_level = wire::F32LE(0.75);
     game_data.start_game.block_network_ids_are_hashes = true;
@@ -304,10 +319,10 @@ fn start_game_daylight_cycle_defaults_enabled_and_requires_a_boolean_rule() {
         .settings
         .rule_data
         .rules_list
-        .push(GameRule {
+        .push(LevelGameRule {
             rule_name: "DODAYLIGHTCYCLE".into(),
             rule_can_be_modified: false,
-            rule_value: GameRuleValue::Int32(wire::I32LE(0)),
+            rule_value: LevelGameRuleValue::Variant2(wire::I32LE(0)),
         });
     assert!(
         WorldEnvironmentBootstrap::from_start_game(&game_data.start_game).daylight_cycle_enabled,
@@ -509,10 +524,10 @@ fn resolves_non_cached_sub_chunk_entries_to_absolute_keys() {
                 SubChunkRequestResult::Success,
                 Some(vec![9, 0, 0xff]),
             ),
-            sub_chunk_entry([0, 1, 0], SubChunkRequestResult::Successallair, None),
+            sub_chunk_entry([0, 1, 0], SubChunkRequestResult::SuccessAllAir, None),
             sub_chunk_entry(
                 [1, 0, 0],
-                SubChunkRequestResult::Levelchunkdoesntexist,
+                SubChunkRequestResult::LevelChunkDoesntExist,
                 None,
             ),
         ],
@@ -563,7 +578,7 @@ fn rejects_cached_sub_chunks_and_checked_origin_overflow() {
         center_pos: sub_chunk_pos(i32::MAX, 0, 0),
         sub_chunk_data: vec![sub_chunk_entry(
             [1, 0, 0],
-            SubChunkRequestResult::Successallair,
+            SubChunkRequestResult::SuccessAllAir,
             None,
         )],
         ..Default::default()
@@ -697,7 +712,7 @@ fn normalizes_respawn_as_a_local_position_authority_change() {
     let packet = Respawn {
         position: [8.5, 71.620_01, -4.25].into(),
         // gophertunnel packet/respawn.go: ReadyToSpawn is wire value 1.
-        state: PlayerRespawnState::Readytospawn,
+        state: PlayerRespawnState::ReadyToSpawn,
         player_runtime_id: ActorRuntimeID(42),
     };
     let Some(WorldEvent::Respawn(respawn)) =
@@ -800,7 +815,7 @@ fn normalizes_the_hud_text_rules_beside_the_daylight_cycle() {
         .settings
         .rule_data
         .rules_list
-        .push(bool_rule("showcoordinates", true));
+        .push(level_bool_rule("showcoordinates", true));
     assert_eq!(
         HudRules::from_start_game(&game_data.start_game).show_coordinates,
         Some(true)

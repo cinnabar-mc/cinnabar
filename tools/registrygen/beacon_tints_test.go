@@ -21,16 +21,16 @@ func TestBeaconTintTableLoadsFromAnyCheckoutDirectory(t *testing.T) {
 }
 
 func TestGlassStatesHaveCompiledBeaconTints(t *testing.T) {
-	data, err := os.ReadFile("../../crates/assets/data/block-registry-v2193.bin")
+	data, err := os.ReadFile("../../crates/assets/data/block-registry-v2225.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, records, err := decodeBREGRecords(data, v2193BlockProtocol)
+	_, records, err := decodeBREGRecords(data, v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The independent canonical palette supplies the complete admitted identity inventory.
-	source, err := v2193SourceRecords()
+	source, err := v2225SourceRecords()
 	if err != nil {
 		t.Fatal(err)
 	}

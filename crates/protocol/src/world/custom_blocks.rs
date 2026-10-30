@@ -8,7 +8,7 @@ mod states;
 use states::MAX_STATES_PER_BLOCK;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_60::packets::StartGame;
 
 use crate::nbt_tree::{Nbt, read_root};
 #[cfg(test)]

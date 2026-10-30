@@ -240,7 +240,7 @@ impl MemoryCarriers {
             let protocol = active_content_registry_protocol();
             let records = read_registry_for_protocol(registry, protocol)?;
             if format!("{:x}", Sha256::digest(self.read(&carriers::BLOCK_PHYSICS)?))
-                != include_str!("../../../data/block-physics-v2193.sha256").trim()
+                != include_str!("../../../data/block-physics-v2225.sha256").trim()
             {
                 return Err("physics carrier does not match its startup pin".into());
             }

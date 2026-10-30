@@ -15,7 +15,7 @@ import (
 	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 )
 
-type v2193BlockProjectionManifest struct {
+type v2225BlockProjectionManifest struct {
 	Schema      string `json:"schema"`
 	GameVersion string `json:"game_version"`
 	Protocol    uint32 `json:"protocol"`
@@ -53,33 +53,33 @@ type v2193BlockProjectionManifest struct {
 	} `json:"light"`
 }
 
-type v2193ProjectionStats struct {
+type v2225ProjectionStats struct {
 	legacy, reduced, twins, additions, denied, education, authored int
 	deniedFingerprint, additionFingerprint                         string
 }
 
 // Projection classes recorded per canonical source key.
 const (
-	v2193ClassDenied byte = iota
-	v2193ClassLegacyExact
-	v2193ClassAddition
-	v2193ClassLegacyReduced
-	v2193ClassTwin
-	v2193ClassEducation
-	v2193ClassAuthored
+	v2225ClassDenied byte = iota
+	v2225ClassLegacyExact
+	v2225ClassAddition
+	v2225ClassLegacyReduced
+	v2225ClassTwin
+	v2225ClassEducation
+	v2225ClassAuthored
 )
 
-// v2193Projection records, per source index, the projected record, its class,
+// v2225Projection records, per source index, the projected record, its class,
 // and the protocol-1001 record index that supplied its facts (-1 if none).
-type v2193Projection struct {
+type v2225Projection struct {
 	records []Record
 	classes []byte
 	facts   []int
 }
 
-func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v2193Projection, v2193ProjectionStats, error) {
-	if len(source) != v2193BlockStateCount {
-		return v2193Projection{}, v2193ProjectionStats{}, errors.New("v2193 block source count does not match")
+func projectV2225Blocks(source, legacy []Record, allowed map[string]struct{}) (v2225Projection, v2225ProjectionStats, error) {
+	if len(source) != v2225BlockStateCount {
+		return v2225Projection{}, v2225ProjectionStats{}, errors.New("v2225 block source count does not match")
 	}
 	legacyByKey := make(map[string]int, len(legacy))
 	for index, record := range legacy {
@@ -88,14 +88,14 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 		}
 		legacyByKey[canonicalRecordKey(record.Name, record.StateJSON)] = index
 	}
-	projection := v2193Projection{
+	projection := v2225Projection{
 		records: make([]Record, len(source)), classes: make([]byte, len(source)),
 		facts: make([]int, len(source)),
 	}
 	projected := projection.records
 	deniedHash := sha256.New()
 	additionHash := sha256.New()
-	stats := v2193ProjectionStats{}
+	stats := v2225ProjectionStats{}
 	adopt := func(index int, identity Record, legacyIndex int, class byte) {
 		facts := legacy[legacyIndex]
 		facts.SequentialID, facts.NetworkHash = identity.SequentialID, identity.NetworkHash
@@ -107,67 +107,68 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 	for index, identity := range source {
 		projection.facts[index] = -1
 		if record, matched, err := educationRenderRecord(identity); err != nil {
-			return v2193Projection{}, v2193ProjectionStats{}, err
+			return v2225Projection{}, v2225ProjectionStats{}, err
 		} else if matched {
 			projected[index] = record
-			projection.classes[index] = v2193ClassEducation
+			projection.classes[index] = v2225ClassEducation
 			stats.education++
 			continue
 		}
 		if _, retail := allowed[identity.Name]; retail && (identity.Name == "minecraft:shelf_mushroom" || identity.Name == "minecraft:straw_bed") {
 			projected[index] = identity
-			projection.classes[index] = v2193ClassAuthored
+			projection.classes[index] = v2225ClassAuthored
 			stats.authored++
 			continue
 		}
+		unresolved := slices.Contains(v2225UnresolvedRetail, identity.Name)
 		key := canonicalRecordKey(identity.Name, identity.StateJSON)
-		if old, ok := legacyByKey[key]; ok {
-			adopt(index, identity, old, v2193ClassLegacyExact)
+		if old, ok := legacyByKey[key]; ok && !unresolved {
+			adopt(index, identity, old, v2225ClassLegacyExact)
 			stats.legacy++
 			continue
 		}
-		reduced, err := v2193ReducedState(identity.StateJSON)
+		reduced, err := v2225ReducedState(identity.StateJSON)
 		if err != nil {
-			return v2193Projection{}, v2193ProjectionStats{}, fmt.Errorf("runtime ID %d: %w", identity.SequentialID, err)
+			return v2225Projection{}, v2225ProjectionStats{}, fmt.Errorf("runtime ID %d: %w", identity.SequentialID, err)
 		}
-		if old, ok := legacyByKey[canonicalRecordKey(identity.Name, reduced)]; ok {
-			adopt(index, identity, old, v2193ClassLegacyReduced)
+		if old, ok := legacyByKey[canonicalRecordKey(identity.Name, reduced)]; ok && !unresolved {
+			adopt(index, identity, old, v2225ClassLegacyReduced)
 			stats.reduced++
 			continue
 		}
-		twin, twinned := v2193TwinFor(identity.Name)
+		twin, twinned := v2225TwinFor(identity.Name)
 		item := identity.Name
 		if twinned {
 			item = twin.item
 		}
 		_, retail := allowed[item]
-		if !retail || slices.Contains(v2193UnresolvedRetail, identity.Name) {
+		if !retail || unresolved {
 			projected[index] = Record{
 				SequentialID: identity.SequentialID, NetworkHash: identity.NetworkHash,
 				Name: retailReservedName, StateJSON: reservedStateJSON(identity.SequentialID),
 				ContributorRole: ContributorPrimary, Provenance: ProvenanceDragonfly,
 			}
 			stats.denied++
-			writeV2193Fingerprint(deniedHash, identity, key)
+			writeV2225Fingerprint(deniedHash, identity, key)
 			continue
 		}
 		if twinned {
 			old, found := legacyByKey[canonicalRecordKey(twin.twin, reduced)]
 			if !found {
-				return v2193Projection{}, v2193ProjectionStats{}, fmt.Errorf("reviewed twin %s has no protocol-1001 state for %s %s", twin.twin, identity.Name, reduced)
+				return v2225Projection{}, v2225ProjectionStats{}, fmt.Errorf("reviewed twin %s has no protocol-1001 state for %s %s", twin.twin, identity.Name, reduced)
 			}
-			adopt(index, identity, old, v2193ClassTwin)
+			adopt(index, identity, old, v2225ClassTwin)
 			stats.twins++
 			continue
 		}
 		projected[index] = identity
-		projection.classes[index] = v2193ClassAddition
+		projection.classes[index] = v2225ClassAddition
 		stats.additions++
-		writeV2193Fingerprint(additionHash, identity, key)
+		writeV2225Fingerprint(additionHash, identity, key)
 	}
 	for index := range projected {
 		if err := applyFamilyRouting(&projected[index]); err != nil {
-			return v2193Projection{}, v2193ProjectionStats{}, err
+			return v2225Projection{}, v2225ProjectionStats{}, err
 		}
 	}
 	stats.deniedFingerprint = fmt.Sprintf("%x", deniedHash.Sum(nil))
@@ -175,7 +176,7 @@ func projectV2193Blocks(source, legacy []Record, allowed map[string]struct{}) (v
 	return projection, stats, nil
 }
 
-func writeV2193Fingerprint(hash io.Writer, identity Record, key string) {
+func writeV2225Fingerprint(hash io.Writer, identity Record, key string) {
 	var raw [8]byte
 	binary.LittleEndian.PutUint32(raw[:4], identity.SequentialID)
 	binary.LittleEndian.PutUint32(raw[4:], identity.NetworkHash)
@@ -198,12 +199,12 @@ func encodeResolvedLightRegistryForProtocol(protocol uint32, breg []byte, record
 	return append(encoded, payloadDigest[:]...), nil
 }
 
-// writeV2193BlockProjection combines shared facts with the client's reviewed rendering and retail admission policy.
-func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, lightOutputPath, manifestPath string) error {
+// writeV2225BlockProjection combines shared facts with the client's reviewed rendering and retail admission policy.
+func writeV2225BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, lightOutputPath, manifestPath string) error {
 	if lightOutputPath == "" {
-		return errors.New("v2193 block projection requires -light-out")
+		return errors.New("v2225 block projection requires -light-out")
 	}
-	source, err := v2193SourceRecords()
+	source, err := v2225SourceRecords()
 	if err != nil {
 		return err
 	}
@@ -215,19 +216,19 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	if err != nil {
 		return err
 	}
-	allowed, err := parseV2193RetailItems(allowlistPath)
+	allowed, err := parseV2225RetailItems(allowlistPath)
 	if err != nil {
 		return err
 	}
-	projection, stats, err := projectV2193Blocks(source, legacy, allowed)
+	projection, stats, err := projectV2225Blocks(source, legacy, allowed)
 	if err != nil {
 		return err
 	}
 	if stats.additions != 0 {
-		return fmt.Errorf("v2193 projection has %d retail states without reviewed facts (fingerprint %s)", stats.additions, stats.additionFingerprint)
+		return fmt.Errorf("v2225 projection has %d retail states without reviewed facts (fingerprint %s)", stats.additions, stats.additionFingerprint)
 	}
-	if stats.education != v2193EducationStateCount() {
-		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2193EducationStateCount())
+	if stats.education != v2225EducationStateCount() {
+		return fmt.Errorf("Education construction palette contains %d states, want %d", stats.education, v2225EducationStateCount())
 	}
 	projected := projection.records
 	if err := applyBeaconTints(projected, source); err != nil {
@@ -238,39 +239,39 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 		return err
 	}
 	metadata := metadataForRecords(projected)
-	metadata.Protocol = v2193BlockProtocol
+	metadata.Protocol = v2225BlockProtocol
 	encoded, err := encodeWithMetadata(metadata, projected)
 	if err != nil {
 		return err
 	}
 
-	light, err := encodeResolvedLightRegistryForProtocol(v2193BlockProtocol, encoded, projected, properties)
+	light, err := encodeResolvedLightRegistryForProtocol(v2225BlockProtocol, encoded, projected, properties)
 	if err != nil {
 		return err
 	}
 
-	twinNames := make([]string, 0, len(v2193Twins))
-	for name := range v2193Twins {
+	twinNames := make([]string, 0, len(v2225Twins))
+	for name := range v2225Twins {
 		twinNames = append(twinNames, name)
 	}
 	sort.Strings(twinNames)
 	twinHash := sha256.New()
 	for _, name := range twinNames {
-		fmt.Fprintf(twinHash, "%s\x00%s\x00%s\x00", name, v2193Twins[name].twin, v2193Twins[name].item)
+		fmt.Fprintf(twinHash, "%s\x00%s\x00%s\x00", name, v2225Twins[name].twin, v2225Twins[name].item)
 	}
-	manifest := v2193BlockProjectionManifest{Schema: v2193BlockManifestSchema, GameVersion: v2193GameVersion, Protocol: v2193BlockProtocol}
+	manifest := v2225BlockProjectionManifest{Schema: v2225BlockManifestSchema, GameVersion: v2225GameVersion, Protocol: v2225BlockProtocol}
 	manifest.Source.Module = shared.ModulePath
 	manifest.Source.SourceLockSHA256, manifest.Source.CloudburstRef = shared.SourceLockSHA256, shared.CloudburstRef
-	manifest.Allowlist.Path, manifest.Allowlist.SHA256 = v2193RetailItemsPath, v2193RetailItemsSHA256
+	manifest.Allowlist.Path, manifest.Allowlist.SHA256 = v2225RetailItemsPath, v2225RetailItemsSHA256
 	manifest.Projection.States, manifest.Projection.LegacyExactStates = len(projected), stats.legacy
 	manifest.Projection.LegacyReducedStates, manifest.Projection.TwinStates = stats.reduced, stats.twins
 	manifest.Projection.TwinNames, manifest.Projection.TwinFingerprint = len(twinNames), fmt.Sprintf("%x", twinHash.Sum(nil))
-	manifest.Projection.UnresolvedRetail = append([]string{}, v2193UnresolvedRetail...)
+	manifest.Projection.UnresolvedRetail = append([]string{}, v2225UnresolvedRetail...)
 	manifest.Projection.DeniedCount, manifest.Projection.DeniedFingerprint = stats.denied, stats.deniedFingerprint
 	manifest.Projection.EducationStates = stats.education
 	manifest.Projection.AuthoredStates = stats.authored
-	manifest.Output.Format, manifest.Output.Path, manifest.Output.SHA256 = registryHeader, v2193BlockOutputPath, fmt.Sprintf("%x", sha256.Sum256(encoded))
-	manifest.Light.Format, manifest.Light.Path, manifest.Light.SHA256 = lightRegistryHeader, v2193LightOutputPath, fmt.Sprintf("%x", sha256.Sum256(light))
+	manifest.Output.Format, manifest.Output.Path, manifest.Output.SHA256 = registryHeader, v2225BlockOutputPath, fmt.Sprintf("%x", sha256.Sum256(encoded))
+	manifest.Light.Format, manifest.Light.Path, manifest.Light.SHA256 = lightRegistryHeader, v2225LightOutputPath, fmt.Sprintf("%x", sha256.Sum256(light))
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return err
@@ -297,15 +298,15 @@ func writeV2193BlockProjectionOracle(legacyBREGPath, allowlistPath, outputPath, 
 	return os.WriteFile(manifestPath, manifestBytes, 0o644)
 }
 
-// v2193Twin names the protocol-1001 block whose identical state schema and
-// shape supply facts for a retail 1.26.50 block, and the retail item that
+// v2225Twin names the protocol-1001 block whose identical state schema and
+// shape supply facts for a retail 1.26.60 block, and the retail item that
 // admits it.
-type v2193Twin struct{ twin, item string }
+type v2225Twin struct{ twin, item string }
 
-// v2193Twins covers every retail 1.26.50 block without a protocol-1001 state.
+// v2225Twins covers every retail 1.26.60 block without a protocol-1001 state.
 // Model, collision, light and friction follow the twin; the identity and the
 // resource-pack visual name stay the new block's.
-var v2193Twins = map[string]v2193Twin{
+var v2225Twins = map[string]v2225Twin{
 	"minecraft:black_concrete_double_slab":      {twin: "minecraft:smooth_stone_double_slab", item: "minecraft:black_concrete_slab"},
 	"minecraft:black_concrete_slab":             {twin: "minecraft:smooth_stone_slab", item: "minecraft:black_concrete_slab"},
 	"minecraft:black_concrete_stairs":           {twin: "minecraft:stone_stairs", item: "minecraft:black_concrete_stairs"},
@@ -427,11 +428,11 @@ var v2193Twins = map[string]v2193Twin{
 	"minecraft:yellow_wool_stairs":              {twin: "minecraft:stone_stairs", item: "minecraft:yellow_wool_stairs"},
 }
 
-// v2193UnresolvedRetail are retail 1.26.50 blocks with no schema-identical
+// v2225UnresolvedRetail are retail 1.26.60 blocks with no schema-identical
 // twin; they stay reserved until a reviewed fact source exists.
-var v2193UnresolvedRetail = []string{}
+var v2225UnresolvedRetail = []string{"minecraft:chorus_plant", "minecraft:disc_press", "minecraft:ice_crystal", "minecraft:icicle"}
 
-func v2193TwinFor(name string) (v2193Twin, bool) {
-	twin, ok := v2193Twins[name]
+func v2225TwinFor(name string) (v2225Twin, bool) {
+	twin, ok := v2225Twins[name]
 	return twin, ok
 }

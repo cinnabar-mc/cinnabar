@@ -68,6 +68,7 @@ mod tests {
             clip: rect,
             layer: 0,
             order: 0,
+            follows_cursor: false,
             pressed: None,
             control_name: Some("gui_scale".into()),
             collection_index: None,

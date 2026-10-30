@@ -47,14 +47,13 @@ impl UiPresentationRuntime {
             return;
         }
         self.gui_models.clear_selected_hands();
-        let placed = !self.gui_models.pack_equipment.pages.is_empty();
+        self.gui_models.shield_icons.clear();
+        self.inventory_cache = Some(Default::default());
         self.gui_models.pack_equipment = PackEquipment {
             source: catalog,
             ..Default::default()
         };
-        if placed {
-            self.rebuild_dynamic_textures();
-        }
+        self.rebuild_dynamic_textures();
     }
 
     /// Records the pack texture each armor slot wears, placing them when the worn set changes;

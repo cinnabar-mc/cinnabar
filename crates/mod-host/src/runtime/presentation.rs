@@ -66,6 +66,21 @@ impl State {
         self.render
             .update_entities(context.candidates.clone(), &removed)
             .map_err(|error| anyhow::anyhow!("drawing entities: {}", error.detail))?;
+        for status in &context.blocks {
+            if let Some(block) = self
+                .render
+                .retained
+                .snapshot()
+                .geometry
+                .get(&status.handle)
+                .and_then(|geometry| geometry.blocks())
+            {
+                block.accept_status(status.revision, status.result);
+            }
+            if let Some(clip) = self.render.retained.snapshot().clips.get(&status.handle) {
+                clip.status.complete(status.result);
+            }
+        }
         self.render.masks.publish_targets(&context.targets);
         Ok(())
     }

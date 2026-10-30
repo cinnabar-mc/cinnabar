@@ -1,6 +1,6 @@
 //! Exact local vanilla BDS pickup body, captured 2026-10-02. No assets or tokens.
 
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 
 use crate::{InventoryEvent, WorldEvent};

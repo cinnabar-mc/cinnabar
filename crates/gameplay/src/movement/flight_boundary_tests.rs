@@ -264,6 +264,7 @@ fn flight_frame(
         active,
         input_authority_released: !active,
         resolved_movement: false,
+        movement_override: false,
         movement: [0.0, forward],
         raw_movement: [0.0, forward],
         analogue_movement: [0.0, forward],

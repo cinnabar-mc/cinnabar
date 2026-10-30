@@ -76,6 +76,9 @@ impl PlayerInventoryLedger {
         }) else {
             return Ok(None);
         };
+        if self.personal_request_waits_for_open(request) {
+            return Ok(None);
+        }
         normal_inventory_transaction_packet(self.legacy_changes(request, None)?)
             .map(Some)
             .map_err(|_| InventoryGestureError::InvalidRequest)

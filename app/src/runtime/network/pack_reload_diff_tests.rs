@@ -25,7 +25,7 @@ fn aim_highlight_overrides_track_only_their_texture_inputs() {
     assert!(textures[1].is_none());
     let previous = PackApplication {
         admission: PackAdmission::Validated(before),
-        dependencies,
+        dependencies: dependencies.into(),
         aim_assist_textures: textures,
         ..Default::default()
     };

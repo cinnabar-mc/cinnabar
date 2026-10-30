@@ -1,0 +1,42 @@
+{
+  "schema": "cinnabar.block-projection.v2",
+  "game_version": "1.26.60",
+  "protocol": 2225,
+  "source": {
+    "module": "github.com/cinnabar-mc/protocolgen/generated/data",
+    "source_lock_sha256": "a1c1c5faa367c92257dd19aa4521033e707f93868035cec568a6cc70a82dd953",
+    "cloudburst_ref": "293c848098cc636a2758937fb6610b8bed1f12c5"
+  },
+  "allowlist": {
+    "path": "crates/protocol/data/retail_items_1_26_60.tsv",
+    "sha256": "4d9b95a973180279fba6c45e115c5327f995d5b50ac828aad278d6ca2a16946c"
+  },
+  "projection": {
+    "states": 23960,
+    "legacy_exact_states": 15930,
+    "authored_states": 24,
+    "legacy_reduced_states": 5248,
+    "twin_states": 2026,
+    "twin_names": 119,
+    "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
+    "unresolved_retail": [
+      "minecraft:chorus_plant",
+      "minecraft:disc_press",
+      "minecraft:ice_crystal",
+      "minecraft:icicle"
+    ],
+    "denied_count": 552,
+    "denied_fingerprint": "d38d32e6aae6b2ba4257bae087783db0613280a3174cb87fbb52ef4195cc43ae",
+    "education_states": 180
+  },
+  "output": {
+    "format": "BREG1005",
+    "path": "crates/assets/data/block-registry-v2225.bin",
+    "sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266"
+  },
+  "light": {
+    "format": "LREG1001",
+    "path": "crates/assets/data/block-light-registry-v2225.bin",
+    "sha256": "6c4019bfe51ccb06eba5e9321c6bf6d111b7e7b89276713c1e2236ea79dfafb0"
+  }
+}

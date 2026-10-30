@@ -1,5 +1,7 @@
 mod action_filter;
+mod input_bindings;
 mod input_host;
+pub(crate) mod legacy_input;
 mod output_lifecycle;
 mod presentation;
 mod recovery;
@@ -58,6 +60,7 @@ mod item_use;
 mod loading;
 #[path = "masks.rs"]
 mod masks;
+mod permissions;
 pub(crate) mod player_mod;
 #[path = "player_state.rs"]
 mod player_state;
@@ -894,6 +897,15 @@ impl Instance {
 
     pub(super) fn last_fuel(&self) -> u64 {
         self.last_fuel
+    }
+
+    /// Returns the current successful callback's granted complete movement input.
+    pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
+        self.store
+            .data()
+            .world
+            .movement_input
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     /// Returns only the movement intents committed by the current successful frame.

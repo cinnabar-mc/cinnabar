@@ -552,6 +552,7 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         template_id,
         rotation,
+        u32::MAX,
         surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
@@ -562,6 +563,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     template_id: u32,
     rotation: u32,
+    visible: u32,
     emitting_block: bool,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
@@ -598,33 +600,8 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
             )
         })
         .collect();
-    if template.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
-        inherit_bamboo_leaf_lighting(quads, &mut lighting);
-    }
+    detail::inherit_detail_lighting(quads, rotation, visible, &mut lighting);
     Some(lighting)
-}
-
-/// Native tessellation draws bamboo leaves straight after the stem without setting a new
-/// vertex light, so every leaf vertex repeats the stem's final vertex: the top, +Z corner of
-/// [`assets::bamboo::LEAF_SHADE_FACE`]. Templates without that stem face keep their bake.
-fn inherit_bamboo_leaf_lighting(quads: &[ModelQuad], lighting: &mut [PackedQuadLighting]) {
-    let stem = assets::bamboo::LEAF_SHADE_FACE as usize;
-    let (Some(face), Some(&baked)) = (quads.get(stem), lighting.get(stem)) else {
-        return;
-    };
-    let Some(corner) = (0..4).max_by_key(|&corner| {
-        let [_, y, z] = face.positions[corner];
-        (y, z)
-    }) else {
-        return;
-    };
-    let inherited = PackedQuadLighting::new([baked.samples()[corner]; 4]);
-    for leaf in lighting
-        .iter_mut()
-        .skip(assets::bamboo::FIRST_LEAF_QUAD as usize)
-    {
-        *leaf = inherited;
-    }
 }
 
 /// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
@@ -846,6 +823,9 @@ const fn rotate_face(mut face: Option<Face>, rotation: u32) -> Option<Face> {
         (other, _) => other,
     }
 }
+
+#[path = "lighting/detail.rs"]
+mod detail;
 
 #[cfg(test)]
 #[path = "lighting/flat_tests.rs"]

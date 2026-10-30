@@ -76,13 +76,6 @@ pub(super) struct ModPanel {
     layout: Option<ui::mod_hud::PanelLayout>,
 }
 
-impl ModPanel {
-    /// The guest's current controls, including values changed by host input.
-    pub(super) fn controls(&self) -> &[Control] {
-        &self.panel.controls
-    }
-}
-
 impl ModUi {
     /// Drains committed native text edits once for the active personal-panel owner.
     pub fn take_mod_panel_text_events(
@@ -107,7 +100,6 @@ impl ModUi {
 
     /// Drops the panel's laid-out text and pointer capture after its private font changed.
     pub fn invalidate_mod_panel_font(&mut self) {
-        self.cancel_mod_hud_editor();
         for owner in self.prepared_panel_ui.values_mut() {
             for screen in &mut owner.screens {
                 *screen = None;
@@ -126,7 +118,6 @@ impl ModUi {
 
     /// Releases all panel catalogs and input when the last local instance leaves.
     pub fn clear_mod_panels(&mut self) {
-        self.cancel_mod_hud_editor();
         self.mod_panel = None;
         self.prepared_panel_ui.clear();
     }
@@ -144,7 +135,6 @@ impl ModUi {
                 .as_ref()
                 .is_some_and(|panel| panel.owner == owner)
             {
-                self.cancel_mod_hud_editor();
                 self.mod_panel = None;
             }
             return Ok(());
@@ -167,9 +157,6 @@ impl ModUi {
             panel.validate_values()?;
         } else {
             panel.validate()?;
-        }
-        if !same_shape {
-            self.cancel_mod_hud_editor();
         }
         if let Some(current) = self.mod_panel.as_mut() {
             let data_changed = !same_shape || !data::same_values(&current.panel, panel);
@@ -260,14 +247,10 @@ impl ModUi {
 
     /// Changes visibility once per transition and restores animated feedback when closing.
     /// Closing releases input at once; a painted surface whose transitions declare exit values
-    /// keeps drawing until they settle, including authored HUD editor chrome.
+    /// keeps drawing until they settle, including authored panel chrome.
     /// Reopening during that exit eases back from the displayed values.
     pub fn set_mod_panel_open(&mut self, open: bool) {
-        let editor_owned = self.mod_hud_editor_open();
-        let exit = !self.reduced_motion && !editor_owned;
-        if !open && let Some(editor) = self.mod_hud_editor.as_mut() {
-            editor.close(!self.reduced_motion);
-        }
+        let exit = !self.reduced_motion;
         if let Some(panel) = self.mod_panel.as_mut() {
             if open {
                 panel.open = true;
@@ -287,22 +270,17 @@ impl ModUi {
     }
 
     /// The open panel's owner and where it was last laid out over the HUD root, for
-    /// `panel.read-layout`; none while no panel is open or the HUD editor draws instead.
+    /// `panel.read-layout`; none while no panel is open.
     pub fn mod_panel_layout(&self) -> Option<(PanelUiOwner, ui::mod_hud::PanelLayout)> {
-        if self.mod_hud_editor_painting() {
-            return None;
-        }
         let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
         Some((panel.owner, panel.layout?))
     }
 
     /// Whether the active panel retains resource-pack HUD content for placement or inspection.
     pub fn mod_panel_shows_gameplay_hud(&self) -> bool {
-        self.mod_hud_editor_painting()
-            || self
-                .mod_panel
-                .as_ref()
-                .is_some_and(|panel| panel.open && panel.panel.show_gameplay_hud)
+        self.mod_panel
+            .as_ref()
+            .is_some_and(|panel| panel.open && panel.panel.show_gameplay_hud)
     }
 
     /// Whether focused keys are owned by guest behavior instead of the native close shortcut.
@@ -314,23 +292,20 @@ impl ModUi {
 
     /// Whether the panel draws: open, or closed while bindings ease to their exit values.
     pub fn mod_panel_painting(&self) -> bool {
-        self.mod_hud_editor_painting()
-            || self
-                .mod_panel
-                .as_ref()
-                .is_some_and(|panel| panel.open || panel.exiting())
+        self.mod_panel
+            .as_ref()
+            .is_some_and(|panel| panel.open || panel.exiting())
     }
 
     /// Native feedback, surface transitions and exits need frames only while they are moving.
     pub fn mod_panel_motion_active(&self) -> bool {
-        self.mod_hud_editor_motion_active()
-            || self.mod_panel.as_ref().is_some_and(|panel| {
-                panel.exiting()
-                    || panel.open
-                        && (panel.motion.active()
-                            || panel.motion_data_dirty && panel.animated()
-                            || matches!(panel.edit, Some(edit::Editor::Field { .. })))
-            })
+        self.mod_panel.as_ref().is_some_and(|panel| {
+            panel.exiting()
+                || panel.open
+                    && (panel.motion.active()
+                        || panel.motion_data_dirty && panel.animated()
+                        || matches!(panel.edit, Some(edit::Editor::Field { .. })))
+        })
     }
 
     /// Explicitly overrides mod surface motion, independently of built-in screen preferences.
@@ -343,10 +318,6 @@ impl ModUi {
         self.reduced_motion = reduced_motion;
         if !enabled && let Some(panel) = self.mod_panel.as_mut() {
             panel.snap_motion();
-        }
-        if !enabled && let Some(editor) = self.mod_hud_editor.as_mut().filter(|editor| !editor.open)
-        {
-            editor.stop_exit();
         }
     }
 
@@ -363,31 +334,13 @@ impl ModUi {
         pressed: bool,
         held: bool,
     ) -> Vec<Event> {
-        let controls = self
-            .mod_panel
-            .as_mut()
-            .map_or(&mut [][..], |panel| panel.panel.controls.as_mut_slice());
-        if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
-            let events = editor.pointer(position, pressed, held, controls);
-            if !events.is_empty()
-                && let Some(panel) = self.mod_panel.as_mut()
-            {
-                panel.refresh_data();
-            }
-            let editor = self.mod_hud_editor.as_ref().expect("retained editor");
-            if editor.close_requested {
-                self.set_mod_panel_open(false);
-            }
-            return events;
-        }
         let exit = !self.reduced_motion;
         self.mod_panel.as_mut().map_or_else(Vec::new, |panel| {
             panel.pointer_events(position, pressed, held, exit)
         })
     }
 
-    /// Draws the open or exiting panel, fitted to its authored reference size; the caller draws
-    /// the HUD editor instead while it owns the panel surface.
+    /// Draws the open or exiting panel, fitted to its authored reference size.
     pub fn paint_mod_panel(
         &mut self,
         engine: Option<&FormEngine>,

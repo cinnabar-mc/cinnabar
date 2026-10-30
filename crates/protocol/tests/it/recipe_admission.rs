@@ -1,11 +1,11 @@
 use ::protocol::{RecipeCatalog, decode_recipe_update};
-use bedrock_protocol_1_26_51::enums::RecipeUnlockingRequirementUnlockingContext;
-use bedrock_protocol_1_26_51::packets::CraftingData;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::RecipeUnlockingRequirementUnlockingContext;
+use bedrock_protocol_1_26_60::packets::CraftingData;
+use bedrock_protocol_1_26_60::types::{
     MultiRecipe, NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData,
     RecipeNetID, RecipeUnlockRequirementSerializedData, ShapedRecipe, ShapelessRecipe,
 };
-use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Encode};
 
 /// A placeholder result aux the encoder accepts, as its varint.
 const RESULT_AUX_PLACEHOLDER: (u32, &[u8]) = (12_345, &[0xb9, 0x60]);
@@ -217,7 +217,7 @@ fn nested_declared_work_and_string_userdata_limits_refuse_atomically() {
     cases.push(r);
     let mut r = recipe(1);
     r.unlocking_requirement = Some(RecipeUnlockRequirementSerializedData {
-        unlocking_context: RecipeUnlockingRequirementUnlockingContext::Alwaysunlocked,
+        unlocking_context: RecipeUnlockingRequirementUnlockingContext::AlwaysUnlocked,
         unlocking_ingredients: Some(vec![base.ingredients[0].clone(); 65]),
     });
     cases.push(r);
@@ -258,4 +258,45 @@ fn all_well_formed_unavailable_families_are_traversed_without_activation() {
     catalog.apply(1, 1, &update);
     assert!(catalog.recipe(1).is_none());
     assert!(catalog.recipe(2).is_none());
+}
+
+/// A plain shield result still has the shield's trailing blocking timestamp.
+#[test]
+fn shield_blocking_timestamp_does_not_remove_its_crafting_recipe() {
+    for tick in [0i64, 123, i64::MIN, i64::MAX] {
+        let mut shield = recipe(1);
+        shield.recipe_id = "minecraft:shield".into();
+        let mut data = vec![0; 10];
+        data.extend_from_slice(&tick.to_le_bytes());
+        shield.results[0].user_data_buffer = data.into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![shield], true)));
+        let output = catalog.recipe(1).expect("shield recipe").output();
+        let mut expected = vec![0; 10];
+        expected.extend_from_slice(&tick.to_le_bytes());
+        assert_eq!(output.user_data.bytes().as_ref(), expected);
+    }
+}
+
+#[test]
+fn shield_recipe_data_requires_complete_unrestricted_plain_envelopes() {
+    for len in (1..=25).filter(|len| !matches!(len, 10 | 18)) {
+        let mut result = recipe(1);
+        result.results[0].user_data_buffer = vec![0; len].into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![result], true)));
+        assert!(catalog.recipe(1).is_none(), "extra length {len}");
+    }
+    for index in 0..10 {
+        let mut result = recipe(1);
+        let mut extra = vec![0; 18];
+        extra[index] = 1;
+        result.results[0].user_data_buffer = extra.into();
+        let mut catalog = RecipeCatalog::default();
+        catalog.begin_session(1);
+        assert!(catalog.apply(1, 1, &update(vec![result], true)));
+        assert!(catalog.recipe(1).is_none(), "nonempty header byte {index}");
+    }
 }

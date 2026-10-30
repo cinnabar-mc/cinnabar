@@ -406,6 +406,7 @@ fn raster_mesh(presentation: &UiPresentationRuntime, mesh: Arc<ui::UiMesh>) -> i
             safe_area: ui::SafeArea::ZERO,
         },
         models,
+        &mut Default::default(),
     )
     .unwrap();
     super::super::super::forms::snapshot::rasterize(&input)

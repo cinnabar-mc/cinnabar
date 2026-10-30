@@ -4,7 +4,7 @@ mod wire;
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::PacketType;
+use bedrock_protocol_1_26_60::enums::PacketType;
 
 use super::budget::Permit;
 
@@ -28,10 +28,10 @@ impl RecipeUnlockOperation {
     pub fn from_index(index: u32) -> Self {
         match PacketType::from(index) {
             PacketType::Empty => Self::Empty,
-            PacketType::Initiallyunlockedrecipes => Self::Initial,
-            PacketType::Newlyunlockedrecipes => Self::New,
-            PacketType::Removeunlockedrecipes => Self::Remove,
-            PacketType::Removeallunlockedrecipes => Self::Clear,
+            PacketType::InitiallyUnlockedRecipes => Self::Initial,
+            PacketType::NewlyUnlockedRecipes => Self::New,
+            PacketType::RemoveUnlockedRecipes => Self::Remove,
+            PacketType::RemoveAllUnlockedRecipes => Self::Clear,
             PacketType::Unknown(value) => Self::Unknown(value),
         }
     }

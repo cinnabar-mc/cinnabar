@@ -42,7 +42,7 @@ mod tests {
         BlobCacheReady, BlobCacheResolver, BlockUpdateEvent, ClientBlobCache, Packet, WorldEvent,
         client_blob_hash,
     };
-    use bedrock_protocol_1_26_51::{
+    use bedrock_protocol_1_26_60::{
         packets::ClientCacheMissResponse, types::MissingBlobData, wire,
     };
 

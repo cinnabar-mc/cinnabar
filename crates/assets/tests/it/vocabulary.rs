@@ -20,7 +20,7 @@ impl Vocabulary {
     /// Loads positive registries and keeps pack, retail and legacy domains distinct.
     fn load(root: &Path) -> Self {
         let mut domains: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-        let text = include_str!("../../data/vanilla-pack-vocabulary-1.26.50.tsv");
+        let text = include_str!("../../data/vanilla-pack-vocabulary-1.26.60.tsv");
         assert!(text.lines().zip(text.lines().skip(1)).all(|(a, b)| a < b));
         for row in text.lines() {
             let (domain, identifier) = row.split_once('\t').expect("vocabulary row");
@@ -49,13 +49,13 @@ impl Vocabulary {
         );
         domains.insert(
             "retail_item".into(),
-            include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
+            include_str!("../../../protocol/data/retail_items_1_26_60.tsv")
                 .lines()
                 .map(|row| row.split_once('\t').unwrap().1.to_owned())
                 .collect(),
         );
         let actors: BTreeSet<String> =
-            include_str!("../../../protocol/data/retail_actors_1_26_50.txt")
+            include_str!("../../../protocol/data/retail_actors_1_26_60.txt")
                 .lines()
                 .map(str::to_owned)
                 .collect();
@@ -77,7 +77,7 @@ impl Vocabulary {
         domains.insert("entity_actor".into(), fact_actors);
         for (version, block_domain, property_domain) in [
             ("v1001", "legacy_block", "legacy_property"),
-            ("v2193", "registry_block", "registry_property"),
+            ("v2225", "registry_block", "registry_property"),
         ] {
             let records =
                 registry(&root.join(format!("crates/assets/data/block-registry-{version}.bin")));
@@ -190,18 +190,17 @@ fn rule_refs(
 fn table_domain(file: &str) -> &'static str {
     match file {
         "entity-material-states.json" => "entity_material",
-        "entity-components-1.26.50.json" => "actor",
-        "block-properties-v2193.json" => "property",
+        "entity-components-1.26.60.json" => "actor",
+        "block-properties-v2225.json" => "property",
         "item-use-profiles.json"
-        | "item-armour-v2193.json"
-        | "item-durability-v2193.json"
-        | "default-sprite-bindings-1.26.50.json" => "retail_item",
+        | "item-armour-v2225.json"
+        | "item-durability-v2225.json"
+        | "default-sprite-bindings-1.26.60.json" => "retail_item",
         "block-item-routes-v1001.json"
         | "block-entities-v1001.json"
-        | "visual-coverage-v1001.json"
         | "visual-invisible-v1001.json" => "legacy_block",
-        "block-entities-v2193.json"
-        | "block-item-routes-v2193.json"
+        "block-entities-v2225.json"
+        | "block-item-routes-v2225.json"
         | "native-materials.json"
         | "block-family-routing.json"
         | "registry-policy.json" => "block",
@@ -258,7 +257,7 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     "VanillaItem" if file == "registry-policy.json" => "retail_item",
                     "VanillaEntity" if file == "registry-policy.json" => "actor",
                     "state_property" | "state_properties" | "state_values" => "property",
-                    "blocks" if file == "block-properties-v2193.json" => "block",
+                    "blocks" if file == "block-properties-v2225.json" => "block",
                     "identifier" if file.starts_with("block-item-routes-") => "item",
                     "entity_rules" | "entity_compatibility" if file == "registry-policy.json" => {
                         "actor"
@@ -305,8 +304,7 @@ fn walk(refs: &mut BTreeSet<Reference>, file: &str, value: &Value, path: &str, d
                     )
                     || (key == "name"
                         && (file == "registry-policy.json"
-                            || file == "block-properties-v2193.json"
-                            || file == "visual-coverage-v1001.json"
+                            || file == "block-properties-v2225.json"
                             || path.contains("/backing_blocks/")));
                 if identity_field {
                     if let Some(identifier) = value.as_str() {
@@ -406,7 +404,7 @@ fn beacon_refs(refs: &mut BTreeSet<Reference>, document: &Value) {
 
 /// Checks every TSV identity column and the sprite keys of retained legacy routes.
 fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
-    if file == "item-facts-expansion-v2193.tsv" {
+    if file == "item-facts-expansion-v2225.tsv" {
         for (index, line) in text.lines().skip(1).enumerate() {
             let fields: Vec<_> = line.split('\t').collect();
             let domain = if fields.last() == Some(&"missing_retail_id") {
@@ -419,17 +417,17 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         return;
     }
     let domain = match file {
-        "item-name-identities-1.26.50.tsv" => "item",
-        "item-fuel-v2193.tsv"
-        | "item-glint-v2193.tsv"
-        | "item-grips-v2193.tsv"
+        "item-name-identities-1.26.60.tsv" => "item",
+        "item-fuel-v2225.tsv"
+        | "item-glint-v2225.tsv"
+        | "item-grips-v2225.tsv"
         | "legacy-icon-routes-26.30.tsv" => "retail_item",
-        "entity-facts-expansion-v2193.tsv" => "entity_actor",
-        "server-defined-blocks-v2193.tsv"
-        | "block-destroy-v2193.tsv"
-        | "block-components-v2193.tsv"
-        | "facts-expansion-v2193.tsv"
-        | "block-placement-v2193.tsv" => "block",
+        "entity-facts-expansion-v2225.tsv" => "entity_actor",
+        "server-defined-blocks-v2225.tsv"
+        | "block-destroy-v2225.tsv"
+        | "block-components-v2225.tsv"
+        | "facts-expansion-v2225.tsv"
+        | "block-placement-v2225.tsv" => "block",
         "block-aux-state-owners.tsv" => "any_block",
         _ => panic!("missing identifier policy for {file}"),
     };
@@ -444,7 +442,7 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
         .enumerate()
     {
         let fields: Vec<_> = line.split('\t').collect();
-        let domain = if file == "facts-expansion-v2193.tsv"
+        let domain = if file == "facts-expansion-v2225.tsv"
             && fields
                 .get(3)
                 .is_some_and(|value| value.split(',').any(|status| status == "historical-render"))
@@ -454,7 +452,7 @@ fn tsv_refs(refs: &mut BTreeSet<Reference>, file: &str, text: &str) {
             domain
         };
         add(refs, file, &format!("/{i}/0"), domain, fields[0]);
-        if file == "block-placement-v2193.tsv" && fields[3] != "-" {
+        if file == "block-placement-v2225.tsv" && fields[3] != "-" {
             add(refs, file, &format!("/{i}/3"), "block", fields[3]);
         }
         if file == "legacy-icon-routes-26.30.tsv" {
@@ -479,8 +477,8 @@ fn references(root: &Path) -> BTreeSet<Reference> {
                         beacon_refs(&mut refs, &document);
                     }
                 }
-                "tsv" if file == "vanilla-pack-vocabulary-1.26.50.tsv" => {}
-                "txt" if file == "vocabulary-v2193.txt" => {}
+                "tsv" if file == "vanilla-pack-vocabulary-1.26.60.tsv" => {}
+                "txt" if file == "vocabulary-v2225.txt" => {}
                 "tsv" => tsv_refs(&mut refs, file, &fs::read_to_string(&path).unwrap()),
                 "bin" if file == assets::facts::entity::FILENAME => {
                     let facts = assets::facts::entity::EntityFacts::decode(
@@ -609,7 +607,7 @@ fn committed_data_identifiers_belong_to_their_pinned_vocabularies() {
     let mut vocabulary = Vocabulary::load(&root);
     vocabulary.domains.insert(
         "biome".into(),
-        include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+        include_str!("../../../protocol/data/retail_biomes_1_26_60.txt")
             .lines()
             .map(str::to_owned)
             .collect(),
@@ -628,10 +626,10 @@ fn pack_vocabulary_has_the_pinned_projection_fingerprint() {
         format!(
             "{:x}",
             Sha256::digest(include_bytes!(
-                "../../data/vanilla-pack-vocabulary-1.26.50.tsv"
+                "../../data/vanilla-pack-vocabulary-1.26.60.tsv"
             ))
         ),
-        "0ff03cd80e7098ffc11ee0a443a94c2162155c2026f9c37ced615d5111c14d30"
+        "c34c0992d44c3478925d5554c1190f1c59db64fb8a5416508b5ae32b1786f5cf"
     );
 }
 
@@ -753,7 +751,7 @@ fn facts_migration_presentation_references_use_item_block_and_biome_domains() {
     let mut vocabulary = Vocabulary::load(&root);
     vocabulary.domains.insert(
         "biome".into(),
-        include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+        include_str!("../../../protocol/data/retail_biomes_1_26_60.txt")
             .lines()
             .map(str::to_owned)
             .collect(),

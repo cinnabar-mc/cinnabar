@@ -24,6 +24,8 @@ mod native_tests;
 #[cfg(test)]
 mod remote_body_tests;
 #[cfg(test)]
+mod shield_tests;
+#[cfg(test)]
 mod spear_tests;
 #[cfg(test)]
 mod third_person_tests;
@@ -55,6 +57,33 @@ pub(super) fn hand_camera_from_rig(scale: f32, motion: Mat4) -> [[f32; 4]; 3] {
 pub(super) fn camera_space_rows(matrix: Mat4) -> [[f32; 4]; 3] {
     let composed = matrix.transpose().to_cols_array_2d();
     [composed[0], composed[1], composed[2]]
+}
+
+/// Resolves one hand's actual sheet, including shield cloth on either animation route.
+pub(super) fn decorated_item_atlas(
+    equipment: &mut EquipmentRuntime,
+    item: &crate::presentation::equipment::WornItem,
+    layer: &mut FirstPersonItem,
+    artwork: &render_model::ActorArtworkPages,
+) -> Option<HandItemAtlas> {
+    if let Some((raster, rig)) = equipment.shield_raster(
+        item,
+        artwork,
+        layer.presentation.location,
+        layer.presentation.submission.input.rig,
+    ) {
+        layer.presentation.submission.input.rig = rig;
+        layer.presentation.location.layer = 0;
+        layer.presentation.submission.texture_layer = 0;
+        Some(HandItemAtlas {
+            width: raster.width,
+            height: raster.height,
+            layers: 1,
+            rgba8: raster.rgba8,
+        })
+    } else {
+        item_atlas(layer, artwork)
+    }
 }
 
 /// Builds and publishes the local player's first-person rig for the near-camera pass, or clears
@@ -346,7 +375,7 @@ pub(super) fn vanilla_hand_source(
                 None,
             )
         });
-        let layer = modern.or_else(|| {
+        let mut layer = modern.or_else(|| {
             if index == 0 {
                 if icon_fallback {
                     equipment.first_person_item_icon_with_use(
@@ -403,7 +432,7 @@ pub(super) fn vanilla_hand_source(
                 equipment.first_person_offhand(&presentation.submission, item)
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     let maps = maps::layers(

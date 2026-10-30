@@ -159,6 +159,23 @@ impl WorldAuthority {
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
+        Self::new_with_actor_catalog(
+            bootstrap,
+            runtime_assets,
+            entity_assets.map(actor_animation::ActorAnimationCatalog::new),
+            current_position,
+            existing_anchor,
+        )
+    }
+
+    /// Starts session authority using entity analysis completed before bootstrap publication.
+    pub fn new_with_actor_catalog(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
         let resolved_server_position =
             resolve_server_position(bootstrap.player_position, current_position, existing_anchor);
         let resolved_biome_tints = Arc::new(

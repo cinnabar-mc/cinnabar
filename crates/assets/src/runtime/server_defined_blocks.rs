@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-const TABLE: &str = include_str!("../../data/server-defined-blocks-v2193.tsv");
+const TABLE: &str = include_str!("../../data/server-defined-blocks-v2225.tsv");
 
 /// Canonical states admitted to a remote palette only by server block definitions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -165,7 +165,7 @@ mod tests {
     }
 
     #[test]
-    fn dense_palette_omission_preserves_captured_remote_block_identities() {
+    fn dense_palette_omission_preserves_active_registry_identities() {
         let bytes = pinned_block_registry_bytes();
         let records =
             read_registry_for_protocol(bytes, active_content_registry_protocol()).unwrap();
@@ -183,14 +183,22 @@ mod tests {
             .map(|record| record.sequential_id)
             .collect::<Vec<_>>();
         let wire_count = mapping.len() as u32;
+        let cases = [
+            "minecraft:air",
+            "minecraft:stone",
+            "minecraft:polished_blackstone_bricks",
+            "minecraft:brown_terracotta",
+            "minecraft:gray_concrete",
+        ]
+        .map(|name| {
+            let wire = mapping
+                .iter()
+                .position(|id| records[*id as usize].name.as_ref() == name)
+                .unwrap() as u32;
+            (wire, name)
+        });
         let remap = SequentialIdRemap::from_palette(mapping, records.len() as u32);
-        for (wire, name) in [
-            (15_844, "minecraft:air"),
-            (3_219, "minecraft:stone"),
-            (9_650, "minecraft:polished_blackstone_bricks"),
-            (19_595, "minecraft:brown_terracotta"),
-            (17_951, "minecraft:gray_concrete"),
-        ] {
+        for (wire, name) in cases {
             let internal = remap.to_internal(wire);
             assert_eq!(records[internal as usize].name.as_ref(), name);
             assert_eq!(remap.to_wire(internal), wire);

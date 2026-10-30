@@ -34,7 +34,7 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
     let terrain = terrain();
     let slots = terrain.records.len();
     let enabled = enabled_words(|slot| slot != 7, slots);
-    let culler = Culler::new(&gpu, &terrain.records, &enabled);
+    let mut culler = Culler::new(&gpu, &terrain.records, &enabled);
     let mut random = Lcg(3);
     let mut history = (0..slots)
         .filter(|_| random.next(2) == 0)
@@ -66,6 +66,10 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
             (Vec3::from_array(terrain.chunks[slot].0.map(|v| v as f32)) - camera.eye).length()
         };
         front_to_back.sort_by(|&a, &b| depth(a).total_cmp(&depth(b)));
+        // Production visits slots nearest first too.
+        let mut nearest_first = (0..slots as u32).collect::<Vec<_>>();
+        nearest_first.sort_by(|&a, &b| depth(a as usize).total_cmp(&depth(b as usize)));
+        culler.set_order(nearest_first);
 
         // CPU path: facing solid runs front to back, then the cutout tails.
         let cpu = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);

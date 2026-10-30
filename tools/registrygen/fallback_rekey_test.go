@@ -68,11 +68,11 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2193.bin"))
+	currentBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2225.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, current, err := decodeBREGRecords(currentBytes, v2193BlockProtocol)
+	_, current, err := decodeBREGRecords(currentBytes, v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,19 +80,23 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, stats, err := rekeyFallbackInventory(input, legacy, current)
+	source, err := v2225SourceRecords()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The 16 trip wire states fan out to their 16 connection variants each.
-	if stats.InputEntries != 2_031 || stats.OutputEntries != 2_271 || stats.ReservedExcluded != 0 || stats.ConnectedVariants != 256 {
+	output, stats, err := rekeyFallbackInventory(input, legacy, current, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Tripwire and redstone-wire states fan out to their connection variants; reserved chorus is excluded.
+	if stats.InputEntries != 2_031 || stats.OutputEntries != 3_550 || stats.ReservedExcluded != 1 || stats.ConnectedVariants != 1552 {
 		t.Fatalf("rekey counts = in %d out %d reserved-excluded %d connected %d", stats.InputEntries, stats.OutputEntries, stats.ReservedExcluded, stats.ConnectedVariants)
 	}
 	count, err := parseFallbackInventoryHeader(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 2_271 {
+	if count != 3_550 {
 		t.Fatalf("output header count = %d", count)
 	}
 	currentByHash := make(map[uint32]Record, len(current))
@@ -120,10 +124,10 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 		previousHash = hash
 		record, ok := currentByHash[hash]
 		if !ok {
-			t.Fatalf("output entry %d has no v2193 registry record", index)
+			t.Fatalf("output entry %d has no v2225 registry record", index)
 		}
 		if fingerprint := fallbackIdentityFingerprint(record.Name, record.StateJSON); fingerprint != binary.LittleEndian.Uint64(entry[4:12]) {
-			t.Fatalf("output entry %d fingerprint does not match the v2193 identity %s", index, record.Name)
+			t.Fatalf("output entry %d fingerprint does not match the v2225 identity %s", index, record.Name)
 		}
 		if _, ok := inputEnvelopes[fmt.Sprintf("%x", entry[12:25])]; !ok {
 			t.Fatalf("output entry %d carries an envelope absent from the input", index)
@@ -138,13 +142,13 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 			t.Fatalf("payload identity %s preserved %d times, want %d", key, got, want)
 		}
 	}
-	if len(outputPayloads) != len(inputPayloads)-16 {
-		t.Fatalf("unchanged payload identities = %d, want %d", len(outputPayloads), len(inputPayloads)-16)
+	if len(outputPayloads) != len(inputPayloads)-33 {
+		t.Fatalf("unchanged payload identities = %d, want %d", len(outputPayloads), len(inputPayloads)-33)
 	}
-	if stats.DistinctNames != 335 || stats.ZeroVolume != 5 {
+	if stats.DistinctNames != 334 || stats.ZeroVolume != 5 {
 		t.Fatalf("preserved-envelope counts = names %d zero-volume %d", stats.DistinctNames, stats.ZeroVolume)
 	}
-	regenerated, regeneratedStats, err := rekeyFallbackInventory(input, legacy, current)
+	regenerated, regeneratedStats, err := rekeyFallbackInventory(input, legacy, current, source)
 	if err != nil || regeneratedStats != stats {
 		t.Fatalf("regeneration diverged: %v / %+v vs %+v", err, regeneratedStats, stats)
 	}
@@ -191,24 +195,24 @@ func TestRekeySidecarDigestMatchesToleratesLFAndCRLFSidecars(t *testing.T) {
 	}
 }
 
-// TestCheckedInV2193FallbackInventoryIsRekeyedAndHashBound pins the committed
-// v2193 fallback artifact in the biome-pin precedent style: its exact bytes
+// TestCheckedInV2225FallbackInventoryIsRekeyedAndHashBound pins the committed
+// v2225 fallback artifact in the biome-pin precedent style: its exact bytes
 // must match the tracked sidecar digest and must be reproducible byte-for-byte
 // by rekeying the checked-in v1001 input against both checked-in registries,
 // so a stale or hand-edited artifact fails instead of drifting silently.
-func TestCheckedInV2193FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
+func TestCheckedInV2225FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 	root := filepath.Join("..", "..")
-	inventory, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2193.bin"))
+	inventory, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2225.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	sidecar, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2193.sha256"))
+	sidecar, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "vanilla-fallback-v2225.sha256"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	digest := fmt.Sprintf("%x\n", sha256.Sum256(inventory))
 	if !rekeySidecarDigestMatches(sidecar, digest) {
-		t.Fatalf("checked-in v2193 fallback SHA-256 %s does not match sidecar %q", digest, sidecar)
+		t.Fatalf("checked-in v2225 fallback SHA-256 %s does not match sidecar %q", digest, sidecar)
 	}
 	// The tracked sidecar is LF inside git but may be rewritten to CRLF by an
 	// autocrlf checkout, which previously failed this pin spuriously even
@@ -225,11 +229,11 @@ func TestCheckedInV2193FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	currentBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2193.bin"))
+	currentBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2225.bin"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, currentRecords, err := decodeBREGRecords(currentBytes, v2193BlockProtocol)
+	_, currentRecords, err := decodeBREGRecords(currentBytes, v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -237,12 +241,16 @@ func TestCheckedInV2193FallbackInventoryIsRekeyedAndHashBound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rekeyed, _, err := rekeyFallbackInventory(input, legacyRecords, currentRecords)
+	source, err := v2225SourceRecords()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rekeyed, _, err := rekeyFallbackInventory(input, legacyRecords, currentRecords, source)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(inventory, rekeyed) {
-		t.Fatal("checked-in v2193 fallback inventory is not a fresh byte-exact rekey of the v1001 input")
+		t.Fatal("checked-in v2225 fallback inventory is not a fresh byte-exact rekey of the v1001 input")
 	}
 }
 
@@ -255,7 +263,7 @@ func TestRekeyFallbackRejectsMutatedFingerprintNamingTheEntry(t *testing.T) {
 		binary.LittleEndian.PutUint64(entry[4:12], fingerprint^1)
 		return entry
 	}())
-	_, _, err := rekeyFallbackInventory(input, legacy, current)
+	_, _, err := rekeyFallbackInventory(input, legacy, current, nil)
 	if err == nil {
 		t.Fatal("mutated identity fingerprint was accepted")
 	}
@@ -277,7 +285,7 @@ func TestRekeyFallbackRejectsUnmatchedEntriesSorted(t *testing.T) {
 		rekeyTestEntry(t, 10, "minecraft:kept", legacyState, [3]int16{}, [3]int16{16, 16, 16}, 1),
 		rekeyTestEntry(t, 11, "minecraft:dropped_new", `{}`, [3]int16{}, [3]int16{16, 16, 16}, 1),
 	)
-	_, _, err := rekeyFallbackInventory(input, legacy, current)
+	_, _, err := rekeyFallbackInventory(input, legacy, current, nil)
 	if err == nil {
 		t.Fatal("unmatched entries were accepted")
 	}
@@ -312,7 +320,7 @@ func TestRekeyFallbackExcludesReservedCollisionsAndCountsThem(t *testing.T) {
 		rekeyTestEntry(t, 100, retailReservedName, reservedState, [3]int16{}, [3]int16{16, 16, 16}, 1),
 		rekeyTestEntry(t, 101, "minecraft:kept", `{}`, [3]int16{1, 2, 3}, [3]int16{15, 14, 13}, 2),
 	)
-	output, stats, err := rekeyFallbackInventory(input, legacy, current)
+	output, stats, err := rekeyFallbackInventory(input, legacy, current, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +354,7 @@ func TestRekeyFallbackRejectsWrongVersionBREGs(t *testing.T) {
 	if err := os.WriteFile(inputPath, rekeyTestTable(rekeyTestEntry(t, 100, "minecraft:kept", `{}`, [3]int16{}, [3]int16{16, 16, 16}, 1)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, v2193BlockProtocol, legacyRecords), 0o644); err != nil {
+	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, v2225BlockProtocol, legacyRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, registryProtocol, currentRecords), 0o644); err != nil {
@@ -354,13 +362,13 @@ func TestRekeyFallbackRejectsWrongVersionBREGs(t *testing.T) {
 	}
 	_, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
 	if err == nil || !strings.Contains(err.Error(), "protocol-1001") {
-		t.Fatalf("v2193 bytes in the legacy slot were accepted: %v", err)
+		t.Fatalf("v2225 bytes in the legacy slot were accepted: %v", err)
 	}
 	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, registryProtocol, legacyRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	_, err = writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, "")
-	if err == nil || !strings.Contains(err.Error(), "protocol-2193") {
+	if err == nil || !strings.Contains(err.Error(), "protocol-2225") {
 		t.Fatalf("protocol-1001 bytes in the new slot were accepted: %v", err)
 	}
 }
@@ -389,7 +397,7 @@ func TestRekeyFallbackManifestMirrorsSourceSchema(t *testing.T) {
 	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, registryProtocol, legacyRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2193BlockProtocol, currentRecords), 0o644); err != nil {
+	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2225BlockProtocol, currentRecords), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, manifestPath); err != nil {
@@ -421,7 +429,7 @@ func TestRekeyFallbackManifestMirrorsSourceSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Schema != "cinnabar-vanilla-fallback-source-v1" || manifest.Protocol != v2193BlockProtocol ||
+	if manifest.Schema != "cinnabar-vanilla-fallback-source-v1" || manifest.Protocol != v2225BlockProtocol ||
 		manifest.Status != "provisional-vanilla-fallback" {
 		t.Fatalf("manifest identity = %+v", manifest)
 	}
@@ -466,7 +474,7 @@ func TestRekeyFallbackRejectsMalformedInventoryHeaders(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			table := append([]byte(nil), valid...)
-			if _, _, err := rekeyFallbackInventory(test.mutate(table), legacy, current); err == nil {
+			if _, _, err := rekeyFallbackInventory(test.mutate(table), legacy, current, nil); err == nil {
 				t.Fatal("malformed fallback inventory header was accepted")
 			} else if !strings.Contains(err.Error(), "fallback inventory") {
 				t.Fatalf("header error does not name the inventory: %v", err)
@@ -487,7 +495,7 @@ func TestRekeyFallbackWritesTheOutputChecksumSidecar(t *testing.T) {
 	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, registryProtocol, []Record{rekeyTestRecord(0, 100, "minecraft:kept", `{}`)}), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2193BlockProtocol, []Record{rekeyTestRecord(0, 200, "minecraft:kept", `{}`)}), 0o644); err != nil {
+	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2225BlockProtocol, []Record{rekeyTestRecord(0, 200, "minecraft:kept", `{}`)}), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writeRekeyedFallback(inputPath, legacyPath, currentPath, outputPath, ""); err != nil {
@@ -526,7 +534,7 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 	if err := os.WriteFile(legacyPath, rekeyEncodeTestBREG(t, registryProtocol, []Record{rekeyTestRecord(0, 100, "minecraft:kept", `{}`)}), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2193BlockProtocol, []Record{rekeyTestRecord(0, 200, "minecraft:kept", `{}`)}), 0o644); err != nil {
+	if err := os.WriteFile(currentPath, rekeyEncodeTestBREG(t, v2225BlockProtocol, []Record{rekeyTestRecord(0, 200, "minecraft:kept", `{}`)}), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	rekeyArgs := []string{"-fallback-rekey-in", inputPath, "-legacy-breg", legacyPath, "-new-breg", currentPath, "-fallback-rekey-out", outputPath}
@@ -585,5 +593,21 @@ func TestFallbackRekeyCommandModeIsMutuallyExclusive(t *testing.T) {
 		if _, err := os.Stat(outputPath); err != nil {
 			t.Fatalf("%s did not write the output: %v", test.name, err)
 		}
+	}
+}
+
+// TestRekeyFallbackExcludesReservedConnectionStates prevents old envelopes reaching unresolved new states.
+func TestRekeyFallbackExcludesReservedConnectionStates(t *testing.T) {
+	legacy := []Record{rekeyTestRecord(1, 100, "minecraft:chorus_plant", "{}")}
+	state := `{"minecraft:connection_north":{"type":"byte","value":0}}`
+	source := []Record{rekeyTestRecord(7, 200, "minecraft:chorus_plant", state)}
+	current := []Record{rekeyTestRecord(7, 200, retailReservedName, string(reservedStateJSON(7)))}
+	input := rekeyTestTable(rekeyTestEntry(t, 100, "minecraft:chorus_plant", "{}", [3]int16{}, [3]int16{16, 16, 16}, 1))
+	_, stats, err := rekeyFallbackInventory(input, legacy, current, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stats.ReservedExcluded != 1 || stats.OutputEntries != 0 {
+		t.Fatalf("reserved exclusion stats = %+v", stats)
 	}
 }

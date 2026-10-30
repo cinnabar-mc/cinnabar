@@ -2,6 +2,7 @@
 
 use inventory::inventory_ledger::{InventoryTarget, PlayerInventoryLedger};
 use protocol::NetworkItemStack;
+use sha2::Digest;
 use std::{collections::HashMap, sync::Arc};
 use ui::IconRef;
 
@@ -138,14 +139,20 @@ pub fn crafting_output(
     ledger: &PlayerInventoryLedger,
     matched: inventory::CraftGridMatch,
 ) -> Option<(NetworkItemStack, bool)> {
+    if let inventory::CraftGridMatch::Shield(recipe) = &matched {
+        return Some((recipe.output().clone(), false));
+    }
     if let inventory::CraftGridMatch::Unique(recipe) = matched {
         let output = recipe.output();
+        let extra_data = output.user_data.bytes();
         Some((
             NetworkItemStack {
                 network_id: output.network_id,
                 metadata: u32::from(output.aux),
                 count: u16::from(output.count),
                 block_runtime_id: output.block_runtime_id as i32,
+                nbt_digest: sha2::Sha256::digest(&extra_data).into(),
+                extra_data,
                 ..NetworkItemStack::empty()
             },
             false,

@@ -8,8 +8,8 @@ use std::{
     path::Path,
 };
 
-pub const COMPONENTS_PATH: &str = "crates/asset-compiler/data/entity-components-1.26.50.json";
-const ACTORS_PATH: &str = "crates/protocol/data/retail_actors_1_26_50.txt";
+pub const COMPONENTS_PATH: &str = "crates/asset-compiler/data/entity-components-1.26.60.json";
+const ACTORS_PATH: &str = "crates/protocol/data/retail_actors_1_26_60.txt";
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -144,24 +144,20 @@ fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
     let aux = reader.uint()?;
     let block = reader.int()?;
     let extra = reader.opaque()?;
-    // The existing validator is unchanged. The candidate accepts only the
-    // independently parsed no-NBT/no-place/no-break envelope, or absent data.
-    let empty = super::canonical_empty_extra(extra);
+    let user_data = super::crafting::RecipeOutputData::decode(extra);
     // Block items carry negative network ids; only 0 (air) makes nothing.
-    Ok(
-        (id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32 && empty).then_some(
-            Output {
-                id,
-                aux: aux as u16,
-                count: count as u8,
-                // The recipe descriptor transports block identity as signed
-                // ZigZag32; inventory item descriptors retain its raw u32 bits.
-                // Hashed block identities may have bit 31 set.
-                block: u32::from_ne_bytes(block.to_ne_bytes()),
-                empty_envelope: !extra.is_empty(),
-            },
-        ),
-    )
+    Ok(user_data
+        .filter(|_| id != 0 && (1..=255).contains(&count) && aux <= u16::MAX as u32)
+        .map(|user_data| Output {
+            id,
+            aux: aux as u16,
+            count: count as u8,
+            // The recipe descriptor transports block identity as signed
+            // ZigZag32; inventory item descriptors retain its raw u32 bits.
+            // Hashed block identities may have bit 31 set.
+            block: u32::from_ne_bytes(block.to_ne_bytes()),
+            user_data,
+        }))
 }
 
 /// Reads discovery context without using it as a recipe admission gate.

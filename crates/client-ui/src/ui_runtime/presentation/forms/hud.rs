@@ -217,7 +217,6 @@ impl UiPresentationRuntime {
         let drawn = self.screens.hud.paint(
             renderer,
             HudInput {
-                capture_keep_out: self.screens.mod_ui.mod_hud_editor_open(),
                 renderers_unchanged,
                 crosshair,
                 catalog: &catalog,
@@ -244,7 +243,6 @@ impl UiPresentationRuntime {
                 .observe_hud(self.screens.hud.hud.nodes(), &drawn_elements);
             // Touch selects hotbar slots through the HUD's own laid-out cells.
             self.screens.touch.hud_session = drawn.as_ref().map(|_| runtime.session_id());
-            self.screens.touch.hud_keep_out = self.screens.hud.editor_keep_out;
             self.screens.touch.hud = drawn;
         }
         // A reused paint ran no player renderer; the pose it asked for still holds.

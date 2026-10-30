@@ -20,7 +20,9 @@ impl WorldStream {
             if examined && self.poll_budget_exhausted() {
                 break;
             }
-            let Some(mut notification) = self.mesh_jobs.lanes[RESIDENT_MESH_LANE].notified.pop()
+            let Some(mut notification) = self
+                .mesh_jobs
+                .pop_dependency_notification(RESIDENT_MESH_LANE)
             else {
                 break;
             };
@@ -36,26 +38,24 @@ impl WorldStream {
                 continue;
             };
             notification.refresh_rank(view);
-            if other_best.is_some_and(|ready| ready >= notification) {
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .notified
-                    .push(notification);
-                break;
-            }
-            if self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                .notified
-                .peek()
-                .is_some_and(|next| *next > notification)
+            if self
+                .mesh_jobs
+                .peek_dependency_notification(RESIDENT_MESH_LANE)
+                .is_some_and(|next| next > notification)
             {
-                self.mesh_jobs.lanes[RESIDENT_MESH_LANE]
-                    .notified
-                    .push(notification);
+                self.mesh_jobs
+                    .requeue_dependency_notification(RESIDENT_MESH_LANE, notification);
                 continue;
+            }
+            if other_best.is_some_and(|ready| ready >= notification) {
+                self.mesh_jobs
+                    .requeue_dependency_notification(RESIDENT_MESH_LANE, notification);
+                break;
             }
             examined = true;
             if self.mesh_retry_is_ready(candidate.key, candidate.revision, now) {
                 self.mesh_jobs
-                    .wake_deferred(RESIDENT_MESH_LANE, candidate.key);
+                    .wake_deferred(RESIDENT_MESH_LANE, candidate.key, view);
                 break;
             }
         }

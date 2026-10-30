@@ -27,7 +27,7 @@ fn enchantment_names_resolve_complete_keys_and_level_fallbacks() {
     assert_eq!(
         inventory_tooltip::enchantment_name(
             &runtime,
-            i16::from(protocol_ids::Enchantment::Fireaspect.wire_value()),
+            i16::from(protocol_ids::Enchantment::FireAspect.wire_value()),
             2,
         ),
         "Fire Aspect II",

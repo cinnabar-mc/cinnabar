@@ -59,8 +59,8 @@ impl NativeCamera {
         &mut self,
         view: Option<&LocalViewPose>,
         seconds: f32,
-        frame: Option<mod_api::native_frame::Frame>,
-    ) -> Option<mod_api::native_frame::Frame> {
+        frame: Option<mod_host::NativeFrame>,
+    ) -> Option<mod_host::NativeFrame> {
         if let (Some(carrier), Some(view)) = (self.carrier, view)
             && view.freelook_held()
             && view.look_rotation() != carrier.rotation
@@ -201,8 +201,8 @@ mod tests {
     }
 
     /// A connected input-owned frame with no look or time of its own.
-    fn frame() -> mod_api::native_frame::Frame {
-        mod_api::native_frame::Frame {
+    fn frame() -> mod_host::NativeFrame {
+        mod_host::NativeFrame {
             version: mod_api::native_frame::VERSION,
             session: 1,
             dimension: 0,

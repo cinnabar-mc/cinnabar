@@ -265,6 +265,7 @@ fn optional_imports_deny_without_explicit_grants() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .unwrap()
@@ -380,6 +381,7 @@ fn control_frame() -> ControlFrame {
         panel_open: true,
         keys_pressed: vec!["ShiftLeft".into(), "KeyB".into(), "KeyA".into()],
         keys_held: vec!["KeyC".into(), "KeyB".into(), "ShiftLeft".into()],
+        keys_admitted: vec!["KeyB".into(), "ShiftLeft".into()],
         events: vec![
             crate::ControlEvent {
                 id: "enabled".into(),
@@ -406,6 +408,7 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()
@@ -416,18 +419,21 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyB".into(), "ShiftLeft".into(), "KeyB".into()]),
             keys_held: Some(vec!["ShiftLeft".into(), "KeyC".into(), "KeyZ".into()]),
+            keys_admitted: Some(vec!["ShiftLeft".into(), "KeyZ".into()]),
             events: false,
         })
         .unwrap()
         .unwrap();
     assert_eq!(selected.keys_pressed, ["ShiftLeft", "KeyB"]);
     assert_eq!(selected.keys_held, ["KeyC", "ShiftLeft"]);
+    assert_eq!(selected.keys_admitted, ["ShiftLeft"]);
     assert!(selected.events.is_empty());
     assert_eq!(
         selected,
         ControlFrame {
             keys_pressed: selected.keys_pressed.clone(),
             keys_held: selected.keys_held.clone(),
+            keys_admitted: selected.keys_admitted.clone(),
             events: Vec::new(),
             ..all.clone()
         }
@@ -438,11 +444,16 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(Vec::new()),
             keys_held: Some(Vec::new()),
+            keys_admitted: Some(Vec::new()),
             events: true,
         })
         .unwrap()
         .unwrap();
-    assert!(empty.keys_pressed.is_empty() && empty.keys_held.is_empty());
+    assert!(
+        empty.keys_pressed.is_empty()
+            && empty.keys_held.is_empty()
+            && empty.keys_admitted.is_empty()
+    );
     assert_eq!(empty.events, all.events);
 }
 
@@ -463,6 +474,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             let selection = Selection {
                 keys_pressed: pressed.then(|| names.clone()),
                 keys_held: (!pressed).then(|| names.clone()),
+                keys_admitted: Some(Vec::new()),
                 events: false,
             };
             assert!(state.read_selected_controls(selection).unwrap().is_err());
@@ -474,6 +486,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyA".into(); mod_api::MAX_CONTROL_KEYS]),
             keys_held: Some(vec!["x".repeat(mod_api::MAX_CONTROL_KEY_BYTES)]),
+            keys_admitted: Some(Vec::new()),
             events: false,
         })
         .unwrap()
@@ -490,6 +503,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
                 .read_selected_controls(Selection {
                     keys_pressed: None,
                     keys_held: Some(Vec::new()),
+                    keys_admitted: Some(Vec::new()),
                     events: false,
                 })
                 .unwrap()
@@ -501,6 +515,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .is_err()
@@ -510,6 +525,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()

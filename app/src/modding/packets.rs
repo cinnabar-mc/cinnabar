@@ -83,7 +83,7 @@ impl PacketMods {
     /// Exchanges native input and local effects without waiting for the packet worker.
     pub(super) fn native_frame(
         &self,
-        frame: Option<mod_api::native_frame::Frame>,
+        frame: Option<mod_host::NativeFrame>,
     ) -> Option<client_extensions::modding::packet_relay::FrameOutput> {
         self.loader.native_frame(frame)
     }

@@ -1,8 +1,8 @@
 use super::*;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     InventorySource, InventoryTransactionData, NetworkItemStackDescriptorSerializedData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 fn action(window: i32, slot: u32, count: u16) -> InventoryAction {
     InventoryAction {

@@ -152,8 +152,11 @@ fn drive(
                 worker.snapshot = snapshot;
                 snapshot_changed = true;
             }
-            worker::Event::Apply(stack, selection) => {
-                let revision = reload.request_globals(stack);
+            worker::Event::Apply(stack, selection, origin) => {
+                let revision = match origin {
+                    worker::ApplyOrigin::Startup => reload.request_globals_initial(stack),
+                    worker::ApplyOrigin::User => reload.request_globals(stack),
+                };
                 worker.awaiting = Some((revision, selection));
             }
         }

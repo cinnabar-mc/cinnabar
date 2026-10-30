@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::tree::ResolvedControl;
 use crate::widgets;
 
-/// 1.26.50's `ui::FontSize` scales: small, normal, large, extra_large.
+/// 1.26.60's `ui::FontSize` scales: small, normal, large, extra_large.
 const FONT_SIZE_SCALES: [f64; 4] = [0.5, 1.0, 2.0, 4.0];
 
 /// Label options the text painter needs besides colour and alignment.

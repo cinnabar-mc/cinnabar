@@ -677,22 +677,29 @@ pub fn attach_layers<Context>(
 /// keeps drawing unlit rather than black.
 pub fn light_bodies(batch: &mut ActorPresentationBatch, stream: &chunk_pipeline::WorldStream) {
     for submission in &mut batch.submissions {
-        let feet = submission.world_from_actor.map(|row| row[3]);
-        let light = stream
-            .authority()
-            .actor(submission.input.identity.runtime_id)
-            .map_or_else(
-                || stream.solved_light_at(feet),
-                |actor| {
-                    let position =
-                        ModelFrame::of(actor).actor_position(&submission.world_from_actor);
-                    stream.actor_light_at(actor, position)
-                },
-            );
-        if let Some((block, sky)) = light {
+        if let Some((block, sky)) = body_light(submission, stream) {
             submission.light = render_model::pack_actor_light(block, sky);
         }
     }
+}
+
+/// The `(block, sky)` light a body draws with: its actor's collision-box endpoints at the
+/// placed feet, or the feet alone without an actor. `None` while light is unsolved.
+pub fn body_light(
+    submission: &ActorRigSubmission,
+    stream: &chunk_pipeline::WorldStream,
+) -> Option<(u8, u8)> {
+    let feet = submission.world_from_actor.map(|row| row[3]);
+    stream
+        .authority()
+        .actor(submission.input.identity.runtime_id)
+        .map_or_else(
+            || stream.solved_light_at(feet),
+            |actor| {
+                let position = ModelFrame::of(actor).actor_position(&submission.world_from_actor);
+                stream.actor_light_at(actor, position)
+            },
+        )
 }
 
 /// Places a rig-frame model, which faces -Z with its right side at +X, so it faces the

@@ -113,7 +113,7 @@ fn bamboo_quads(stem: u32, leaf: u32, width: i16, leaf_size: u8) -> Vec<ModelQua
                 positions,
                 uvs: [[inner_u, 0], [outer_u, 0], [outer_u, 4096], [inner_u, 4096]],
                 material: leaf,
-                flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+                flags: assets::MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
             });
         }
     }

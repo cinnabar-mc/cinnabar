@@ -65,7 +65,7 @@ fn fixture(beacon_count: usize, eye: Vec3, fill_portals: bool) -> World {
     let collisions = PhysicsCollisionRegistries::from_assets(
         bytes,
         &records,
-        include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();

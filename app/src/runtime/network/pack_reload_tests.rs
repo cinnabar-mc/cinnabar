@@ -114,7 +114,9 @@ fn terrain_identity_only_reload_resummarizes_settled_columns() {
     app.world_mut()
         .resource_mut::<PackReload>()
         .request_globals(stack(&[]));
+    assert!(app.world().resource::<PackReload>().loading_screen());
     settle(&mut app, 1);
+    assert!(!app.world().resource::<PackReload>().loading_screen());
     let mut payload = vec![1, 0];
     let sections = protocol::vanilla_dimension_range(0)
         .unwrap()
@@ -219,6 +221,13 @@ fn terrain_identity_only_reload_resummarizes_settled_columns() {
 }
 
 #[test]
+fn initial_global_pack_load_does_not_show_the_in_session_cover() {
+    let mut reload = PackReload::default();
+    reload.request_globals_initial(stack(&[]));
+    assert!(!reload.loading_screen());
+}
+
+#[test]
 fn optional_reload_reuses_unchanged_subscribers_and_removes_absent_ui() {
     let definition = br#"{"namespace":"reload_fixture","panel":{"type":"panel","size":[23,17]}}"#;
     let first = resource_packs::prepare_validated_application(
@@ -309,10 +318,9 @@ fn live_reload_removal_releases_old_snapshot_and_keeps_world_identity() {
             .server_ui()
             .is_none()
     );
-    assert!(
-        old.upgrade().is_none(),
-        "old presentation snapshot must be released"
-    );
+    test_time::eventually("old presentation snapshot is released", || {
+        old.upgrade().is_none()
+    });
     assert_eq!(
         app.world()
             .resource::<ClientWorld>()

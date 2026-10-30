@@ -140,11 +140,9 @@ fn check_selector_pack(missing_stem: bool) {
         assert_eq!(stem_points.clone().map(|point| point[0]).min(), Some(128));
         assert_eq!(stem_points.map(|point| point[0]).max(), Some(128 + width));
         if quads.len() > 6 {
-            assert!(
-                quads[6..]
-                    .iter()
-                    .all(|quad| quad.material != stem && quad.flags & 8 != 0)
-            );
+            assert!(quads[6..].iter().all(|quad| quad.material != stem
+                && quad.flags & 8 != 0
+                && quad.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE != 0));
             assert!(
                 quads[6..]
                     .iter()

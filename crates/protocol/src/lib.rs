@@ -1,4 +1,4 @@
-//! Bedrock 1.26.50 (protocol 2193) packets, coded by the generated contract crate.
+//! Bedrock 1.26.60 (protocol 2225) packets, coded by the generated contract crate.
 
 mod actor;
 mod audio;
@@ -114,10 +114,10 @@ pub use inventory::recipes::{
     BrewingItem, BrewingMix, BrewingMixItem, BrewingRecipe, MAX_RECIPE_INGREDIENTS, MultiRecipe,
     RECIPE_ANY_AUX, RECIPE_OWNED_BYTES, RecipeCatalog, RecipeDefinition, RecipeHandle,
     RecipeIdentity, RecipeIdentityHandle, RecipeIngredient, RecipeIngredientView, RecipeOutput,
-    RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate, RecipeUnlockingContext,
-    RecipeUpdate, ScreenIngredient, ScreenRecipe, ScreenRecipeKind, ScreenRecipes,
-    decode_recipe_unlocks, decode_recipe_update, empty_recipe_extra, recipe_binding_supported,
-    vanilla_tag_contains,
+    RecipeOutputData, RecipeUnlockOperation, RecipeUnlockState, RecipeUnlockUpdate,
+    RecipeUnlockingContext, RecipeUpdate, ScreenIngredient, ScreenRecipe, ScreenRecipeKind,
+    ScreenRecipes, decode_recipe_unlocks, decode_recipe_update, empty_recipe_extra,
+    recipe_binding_supported, vanilla_tag_contains,
 };
 pub use inventory::{
     ARMOR_SLOTS, ARMOR_WINDOW_ID, AutoCraftIngredient, CONTAINER_NAME_CREATED_OUTPUT,
@@ -178,19 +178,20 @@ pub use inventory::{
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
     DiggerSpeed, DiggerStates, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent,
-    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBannerPattern, ItemBlockList,
-    ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError,
-    ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemShooter, ItemStackFacts,
-    ItemStackFactsCache, ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES,
-    MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, book_init_extra, book_needs_init, edit_item_extra,
-    held_items_match, item_anvil_data, item_banner_patterns, item_banner_type, item_block_list,
-    item_book, item_bundle_id, item_charged_projectile, item_custom_color, item_custom_name,
-    item_display, item_enchantment_level, item_enchantment_level_value, item_enchantment_mask,
-    item_extra_damage, item_extra_damage_integer, item_extra_damage_value, item_extra_lock,
-    item_extra_slot_locked, item_extra_unbreakable, item_filtered_custom_name,
-    item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id, item_repair_cost,
-    item_stack_damage, item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
+    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBlockList, ItemBook, ItemComponents,
+    ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
+    ItemRegistryVersion, ItemShooter, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown,
+    KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
+    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
+    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, apply_banner_to_shield, book_init_extra,
+    book_needs_init, edit_item_extra, held_items_match, item_anvil_data, item_banner_patterns,
+    item_banner_type, item_block_list, item_book, item_bundle_id, item_charged_projectile,
+    item_custom_color, item_custom_name, item_display, item_enchantment_level,
+    item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
+    item_extra_damage_integer, item_extra_damage_value, item_extra_lock, item_extra_slot_locked,
+    item_extra_unbreakable, item_filtered_custom_name, item_has_enchantment_list, item_has_trim,
+    item_id_aux, item_map_id, item_repair_cost, item_shield_pattern, item_stack_damage,
+    item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
     select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};

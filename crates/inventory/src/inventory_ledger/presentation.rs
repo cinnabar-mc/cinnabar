@@ -30,7 +30,11 @@ impl InventoryPresentationSnapshot {
                 .iter()
                 .enumerate()
                 .all(|(slot, stack)| stack.as_ref() == ledger.furnace_ghost_stack(slot as u8))
-            && self.crafting_ghosts == crafting_ghosts(ledger)
+            && self
+                .crafting_ghosts
+                .iter()
+                .map(Option::as_ref)
+                .eq(crafting_ghosts(ledger))
     }
 }
 
@@ -44,19 +48,20 @@ impl PlayerInventoryLedger {
             grid: self.crafting_grid(),
             registry: self.item_registry.clone(),
             ghosts: std::array::from_fn(|slot| self.furnace_ghost_stack(slot as u8).cloned()),
-            crafting_ghosts: crafting_ghosts(self),
+            crafting_ghosts: crafting_ghosts(self).map(|stack| stack.cloned()).collect(),
         }
     }
 }
 
 /// The grid's ghost cells followed by the ghost result.
-fn crafting_ghosts(ledger: &PlayerInventoryLedger) -> Vec<Option<NetworkItemStack>> {
+fn crafting_ghosts(
+    ledger: &PlayerInventoryLedger,
+) -> impl Iterator<Item = Option<&NetworkItemStack>> {
     ledger
         .crafting_grid()
         .slots()
-        .map(|slot| ledger.crafting_ghost_stack(slot).cloned())
-        .chain(std::iter::once(ledger.crafting_ghost_output().cloned()))
-        .collect()
+        .map(|slot| ledger.crafting_ghost_stack(slot))
+        .chain(std::iter::once(ledger.crafting_ghost_output()))
 }
 
 /// Compares retained optional allocation identities, including absence.

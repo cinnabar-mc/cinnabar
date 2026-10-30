@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
 use std::sync::{Mutex as StdMutex, PoisonError};
 
-use bedrock_protocol_1_26_51::packets::{self, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use tokio::io::AsyncReadExt;
 
 use super::*;

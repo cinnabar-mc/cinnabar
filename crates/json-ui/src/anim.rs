@@ -1,4 +1,4 @@
-//! Animations as the 1.26.50 `UIAnimationComponent` runs them. Resolution links
+//! Animations as the 1.26.60 `UIAnimationComponent` runs them. Resolution links
 //! each control's `@ns.anim` references (in `alpha`/`offset`/`size`/`uv`/`color`/
 //! `clip_ratio` or `anims`, by name or inline) into an [`AnimGraph`]; layout gives
 //! offset/size ends pixels; a caller-held [`Animator`] ticks each control's

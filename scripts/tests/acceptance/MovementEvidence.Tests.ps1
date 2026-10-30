@@ -27,7 +27,7 @@ Describe 'Movement production marker evidence validation' {
         $script:AppSha256 = '44' * 32
         $script:Identity = [ordered]@{
             schema = 'rust-mcbe-movement-identity-v1'; build_commit = $script:BuildCommit
-            target = 'Bds'; protocol = 2193; session_generation = 7
+            target = 'Bds'; protocol = 2225; session_generation = 7
             preg_sha256 = $script:PregSha256; breg_sha256 = $script:BregSha256
             candidate_physics = $true
             source_dirty = $false; run_id = $script:RunId; endpoint = $script:Endpoint

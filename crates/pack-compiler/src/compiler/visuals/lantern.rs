@@ -90,7 +90,7 @@ fn lantern_quads(material: u32, hanging: bool) -> Vec<ModelQuad> {
             positions: positions.map(|position| position.map(|value| value * 16)),
             uvs: uvs.map(|uv| uv.map(|value| value * 256)),
             material,
-            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
         };
         quads.push(quad);
     }

@@ -26,8 +26,8 @@ Options:
   --metrics-out <PATH>         Deterministic JSON metrics output path
   --metrics-warmup-seconds <N> Exclude the first N timed-session seconds from frame metrics
   --metrics-sample-seconds <N> Freeze frame metrics after N post-warmup seconds
-  --auto-fly                   Fly the camera automatically for acceptance
-  --freecam                    Use non-authoritative free-camera movement
+  --auto-fly                   Developer/acceptance builds: fly the camera automatically
+  --freecam                    Developer/acceptance builds: use non-authoritative free-camera movement
   --vsync                      Force FIFO presentation and disable driver workarounds
   --no-vsync                   Allow tearing and disable display-rate synchronization
   --frame-cap <FPS>            Cap acceptance updates to 1-1000 FPS
@@ -112,8 +112,9 @@ pub struct ClientArgs {
     pub metrics_out: Option<PathBuf>,
     pub metrics_warmup_seconds: u64,
     pub metrics_sample_seconds: Option<u64>,
+    /// Fly automatically in developer-control or acceptance builds.
     pub auto_fly: bool,
-    /// Use non-authoritative camera movement instead of local physics.
+    /// Use non-authoritative camera movement in developer-control or acceptance builds.
     pub freecam: bool,
     pub force_vsync: bool,
     pub no_vsync: bool,
@@ -290,6 +291,17 @@ impl ClientArgs {
         }
         if !available && self.hide_toasts {
             return Err(ArgsError::DeveloperControlFeatureRequired("--hide-toasts"));
+        }
+        Ok(())
+    }
+
+    /// Rejects non-authoritative camera options unless developer or acceptance support is built in.
+    pub(crate) fn validate_camera_support(&self, available: bool) -> Result<(), ArgsError> {
+        if !available && self.freecam {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--freecam"));
+        }
+        if !available && self.auto_fly {
+            return Err(ArgsError::DeveloperControlFeatureRequired("--auto-fly"));
         }
         Ok(())
     }
@@ -526,6 +538,10 @@ impl ClientArgs {
         }
         parsed.validate_acceptance_support(cfg!(feature = "acceptance"))?;
         parsed.validate_developer_support(cfg!(feature = "developer-control"))?;
+        parsed.validate_camera_support(cfg!(any(
+            feature = "developer-control",
+            feature = "acceptance"
+        )))?;
         Ok(ParseOutcome::Run(Box::new(parsed)))
     }
 
@@ -544,6 +560,10 @@ where
 {
     arguments.next().ok_or(ArgsError::MissingValue { flag })
 }
+
+#[cfg(test)]
+#[path = "args/camera_tests.rs"]
+mod camera_tests;
 
 #[cfg(test)]
 mod tests {

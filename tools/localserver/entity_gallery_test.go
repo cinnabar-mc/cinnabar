@@ -18,7 +18,7 @@ import (
 )
 
 func TestEntityGalleryCoversTheRetailRegistryAcrossPages(t *testing.T) {
-	registry := "../../crates/protocol/data/retail_actors_1_26_50.txt"
+	registry := "../../crates/protocol/data/retail_actors_1_26_60.txt"
 	gallery, err := loadEntityGallery(registry, "")
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestEntityGalleryRejectsStaleAppearancesAndFiltersBeforePaging(t *testing.T
 	if err := os.WriteFile(path, []byte(`[{"identifier":"minecraft:removed","name":"baby"}]`), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_50.txt", path); err == nil {
+	if _, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_60.txt", path); err == nil {
 		t.Fatal("stale appearance accepted")
 	}
 	gallery := []entityAppearance{{Identifier: "minecraft:pig"}, {Identifier: "minecraft:sheep", Name: "baby"}}
@@ -299,7 +299,7 @@ func TestInvalidEntityGalleryFailsBeforeExperiencesStart(t *testing.T) {
 			if input == "registry" {
 				args = append(args, "-entity-gallery", invalid)
 			} else {
-				args = append(args, "-entity-gallery", "../../crates/protocol/data/retail_actors_1_26_50.txt", "-entity-gallery-appearances", invalid)
+				args = append(args, "-entity-gallery", "../../crates/protocol/data/retail_actors_1_26_60.txt", "-entity-gallery-appearances", invalid)
 			}
 			var stdout bytes.Buffer
 			err := run(args, strings.NewReader("stop\n"), &stdout, io.Discard)
@@ -345,7 +345,7 @@ func TestEntityGallerySupportsEveryProtocolFlag(t *testing.T) {
 	if err := os.WriteFile(path, data, 0600); err != nil {
 		t.Fatal(err)
 	}
-	gallery, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_50.txt", path)
+	gallery, err := loadEntityGallery("../../crates/protocol/data/retail_actors_1_26_60.txt", path)
 	if err != nil {
 		t.Fatal(err)
 	}

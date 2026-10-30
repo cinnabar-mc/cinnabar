@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::{packets, types, wire};
+use bedrock_protocol_1_26_60::{packets, types, wire};
 use bytes::Bytes;
 
 /// Both absolute decoders must retain local authority independently of interpolation.

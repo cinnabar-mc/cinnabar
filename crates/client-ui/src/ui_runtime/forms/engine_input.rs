@@ -50,6 +50,8 @@ pub struct EngineInput<'a> {
     /// Pressed keys this frame with their produced text.
     /// Key presses with their text and whether the OS auto-repeated them.
     pub typed: Vec<(KeyboardKey, Option<String>, bool)>,
+    /// The key bound to Menu Cancel, which raises the form's cancel button like Escape.
+    pub menu_cancel: Option<KeyboardKey>,
     /// Seconds on the app clock.
     pub now: f64,
     /// The form's animator: button events play and reset its animations.
@@ -180,10 +182,12 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         engine_scroll::wheel(runtime, frame, point, &input.wheel);
     }
     for (key, text, repeat) in input.typed {
+        let editing = editing(runtime, frame);
         // Held keys repeat text into an edit box, but never re-press a control.
-        if repeat && !editing(runtime, frame) {
+        if repeat && !editing {
             continue;
         }
+        let key = menu_cancel_as_escape(key, input.menu_cancel, editing);
         events.extend(keyboard(
             runtime,
             frame,
@@ -207,7 +211,12 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         }
     }
     if let Some(action) = action {
-        let _ = runtime.respond_to_server_form(identity, action);
+        let now_millis = if input.now.is_finite() && input.now.is_sign_positive() {
+            (input.now * 1_000.0).min(u64::MAX as f64) as u64
+        } else {
+            0
+        };
+        let _ = runtime.respond_to_server_form_at(identity, action, now_millis);
     }
 }
 
@@ -300,6 +309,20 @@ fn pointer_button(
             },
         },
     )
+}
+
+/// The key a press raises: the Menu Cancel key acts as Escape unless a selected edit box owns
+/// typed keys, where it keeps its own typing, deletion and paste.
+fn menu_cancel_as_escape(
+    key: KeyboardKey,
+    menu_cancel: Option<KeyboardKey>,
+    editing: bool,
+) -> KeyboardKey {
+    if !editing && menu_cancel == Some(key) {
+        KeyboardKey::Escape
+    } else {
+        key
+    }
 }
 
 /// Whether the selected component is an edit box taking typed text.

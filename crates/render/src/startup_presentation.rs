@@ -3,7 +3,7 @@
 #[path = "startup_presentation/engine.rs"]
 mod engine;
 #[path = "startup_presentation/timing.rs"]
-mod timing;
+pub(crate) mod timing;
 
 use bevy::{
     prelude::{
@@ -138,6 +138,7 @@ fn observe_presentation(
         })
     {
         probe.offscreen_submitted = true;
+        timing.mark("content_submitted");
         let timing = timing.clone();
         let admission = admission.clone();
         crate::device_poll::on_frame_complete(&queue, move || {
@@ -161,6 +162,9 @@ fn observe_presentation(
         })
     {
         probe.content_submitted = Some(epoch);
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.mark("content_submitted");
+        }
         let feedback = feedback.clone();
         let admission = admission.clone();
         crate::device_poll::on_frame_complete(&queue, move || {
@@ -173,7 +177,12 @@ fn observe_presentation(
     }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || feedback.record_completed_frame());
+        crate::device_poll::on_frame_complete(&queue, move || {
+            if let Some(timing) = render_scene::startup_timing::current() {
+                timing.mark("first_gpu_complete");
+            }
+            feedback.record_completed_frame();
+        });
     }
 }
 

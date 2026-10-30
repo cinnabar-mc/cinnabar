@@ -37,6 +37,7 @@
     {"rust_name": "RELAY_EVENT_CONNECT", "go_name": "RelayEventConnect", "value": "connect", "rust_type": "str", "doc": "Report the latest join progress."},
     {"rust_name": "RELAY_EVENT_ERROR", "go_name": "RelayEventError", "value": "error", "rust_type": "str", "doc": "Report a bounded public refusal code."},
     {"rust_name": "GAME_VERSION", "go_name": "GameVersion", "rust_type": "str", "doc": "Game version reported by the client.", "source": {"path": "assets/bedrock-target.json", "field": "game_version"}},
+    {"rust_name": "BDS_VERSION", "go_name": "BDSVersion", "rust_type": "str", "doc": "Dedicated server version used by integration fixtures.", "source": {"path": "assets/bedrock-target.json", "field": "server_version"}},
     {"rust_name": "DEFAULT_BEDROCK_PORT", "go_name": "DefaultBedrockPort", "value": 19132, "rust_type": "u16", "doc": "Default port for an addressed Bedrock server."},
     {"rust_name": "DEFAULT_BEDROCK_PORT_TEXT", "go_name": "DefaultBedrockPortText", "rust_type": "str", "doc": "Text form of the default Bedrock server port.", "from_constant": "DEFAULT_BEDROCK_PORT"},
     {"rust_name": "CONTROL_UNIX_ENDPOINT_NAME", "go_name": "ControlUnixEndpointName", "value": "control.sock", "rust_type": "str", "doc": "Control endpoint name on Unix."},

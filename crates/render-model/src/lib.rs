@@ -10,7 +10,9 @@ mod entity_shadow;
 pub mod equipment;
 mod font_atlas;
 pub mod font_shading;
+mod frame_buffers;
 mod frame_latency;
+pub use frame_buffers::FrameBuffers;
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{
@@ -97,12 +99,13 @@ pub use ui::{
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
-    MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-    UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
-    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_SIDE,
-    UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
-    UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+    MAX_UI_SHIELD_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE,
+    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE,
+    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET,
+    UI_PARTICLE_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET,
+    UI_SESSION_GLYPH_PAGE_SIDE, UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET,
+    UI_SHIELD_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation,
+    UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -231,9 +234,10 @@ pub use celestial::{
 };
 pub use dropped_item::ItemMeshVertex;
 pub use dropped_item::{
-    DroppedItemInstance, DroppedItemModel, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
-    MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE, MIN_ITEM_ATLAS_SIDE, TerrainItemInstance,
-    TerrainItemTransition, WHITE_LAYER, dropped_item_transform,
+    DYNAMIC_LIGHT_LEVELS, DroppedItemInstance, DroppedItemModel, DynamicLightRun,
+    MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MAX_ITEM_LAYERS, MAX_ITEM_SPRITE_SIDE,
+    MIN_ITEM_ATLAS_SIDE, TerrainItemInstance, TerrainItemTransition, WHITE_LAYER,
+    dropped_item_transform,
 };
 pub use dropped_item::{DroppedItemShape, DroppedItemSpawnPose, native_dropped_item_transform};
 pub use dropped_item::{rope_color, rope_point, rope_ribbon};

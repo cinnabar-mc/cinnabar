@@ -7,50 +7,6 @@ const HEADER: f64 = 18.;
 #[cfg(test)]
 mod tests;
 
-/// Compares only card template inputs, without cloning unrelated HUD presentation data.
-pub(in super::super) fn same_cards_shape(a: &[Card], b: &[Card]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(left, right)| {
-            left.id == right.id
-                && left.scale == right.scale
-                && left.row_layout == right.row_layout
-                && left.width == right.width
-                && left.editor_size == right.editor_size
-                && left.row_height == right.row_height
-                && left.icon_size == right.icon_size
-                && left.text_scale == right.text_scale
-                && left.font == right.font
-                && left.shadow == right.shadow
-                && left.title.is_empty() == right.title.is_empty()
-                && left.compass.is_some() == right.compass.is_some()
-                && left.crosshair == right.crosshair
-                && left.text_plate.is_some() == right.text_plate.is_some()
-                && left.background_radius == right.background_radius
-                && left
-                    .text_plate
-                    .as_ref()
-                    .map(|p| (p.style.border_width, p.style.radius))
-                    == right
-                        .text_plate
-                        .as_ref()
-                        .map(|p| (p.style.border_width, p.style.radius))
-                && left.cells.len() == right.cells.len()
-                && left.cells.iter().zip(&right.cells).all(|(a, b)| {
-                    a.rect == b.rect
-                        && a.shadow == b.shadow
-                        && a.value.is_empty() == b.value.is_empty()
-                })
-                && left.rows.len() == right.rows.len()
-                && left.rows.iter().zip(&right.rows).all(|(a, b)| {
-                    a.effect_id == b.effect_id
-                        && a.localized == b.localized
-                        && a.item.is_some() == b.item.is_some()
-                        && a.progress.is_some() == b.progress.is_some()
-                        && (left.row_layout != RowLayout::IconRight
-                            || a.label.is_empty() == b.label.is_empty())
-                })
-        })
-}
 pub(super) fn named(name: &str, node: Value) -> Value {
     json!({name: node})
 }
@@ -112,10 +68,6 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
             )],
         );
     }
-    if card.text_plate.is_some() {
-        *row_index += card.rows.len();
-        return super::text_plate::control(card, card_index);
-    }
     let k = f64::from(card.scale);
     let width = f64::from(card.width);
     let row_height = f64::from(card.row_height);
@@ -156,13 +108,6 @@ fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value 
     controls[0]["surface"]["bindings"] = json!([{ "binding_name":format!("#card_{card_index}_background"),"binding_name_override":"#color" }]);
     if card.title.is_empty() {
         controls.truncate(1);
-    }
-    if card.compass.is_some() {
-        controls.push(named(
-            "compass",
-            super::compass::control(card, card_index, header),
-        ));
-        return panel_for_card(card_index, size, controls);
     }
     if !card.cells.is_empty() {
         controls.extend(super::cells::controls(card, card_index, header));
@@ -386,8 +331,6 @@ pub(super) fn card_data(
         Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
     );
     super::cells::data(data, card, n);
-    super::text_plate::data(data, card, n, viewport);
-    super::compass::data(data, card, n);
     for row in &card.rows {
         data.set_global(
             format!("#row_{index}_label"),
@@ -417,17 +360,6 @@ pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
     }
     if card.crosshair.is_some() {
         return [f64::from(card.width * card.scale); 2];
-    }
-    if card.text_plate.is_some() {
-        return super::text_plate::dimensions(card);
-    }
-    if card.compass.is_some() {
-        return [
-            f64::from(card.width * card.scale),
-            (if card.title.is_empty() { 0. } else { HEADER }
-                + f64::from(ui::mod_hud::COMPASS_HEIGHT))
-                * f64::from(card.scale),
-        ];
     }
     if card.row_layout == RowLayout::Grid {
         return [

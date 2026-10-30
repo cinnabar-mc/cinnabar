@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     PlayerPositionModeComponentPositionMode as MovePlayerPacketPositionMode, RewindType,
 };
 
@@ -296,7 +296,7 @@ impl From<MovePlayerPacketPositionMode> for MovePlayerMode {
             MovePlayerPacketPositionMode::Normal => Self::Normal,
             MovePlayerPacketPositionMode::Respawn => Self::Reset,
             MovePlayerPacketPositionMode::Teleport => Self::Teleport,
-            MovePlayerPacketPositionMode::Onlyheadrot => Self::Rotation,
+            MovePlayerPacketPositionMode::OnlyHeadRot => Self::Rotation,
             MovePlayerPacketPositionMode::Unknown(value) => Self::Unknown(value),
         }
     }

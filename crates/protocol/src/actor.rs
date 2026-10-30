@@ -1,20 +1,20 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ActorLinkType as VendorActorLinkType, MobEffectEvent as MobEffectPacketEventId,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     AddActor as AddActorPacket, AddPlayer as AddPlayerPacket, MobEffect as MobEffectPacket,
     MoveActorAbsolute as MoveActorAbsolutePacket, MoveActorDelta as MoveActorDeltaPacket,
     PlayerList as PlayerListPacket, RemoveActor as RemoveActorPacket,
     SetActorData as SetActorDataPacket, SetActorLink as SetActorLinkPacket,
     UpdateAttributes as UpdateAttributesPacket,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     AttributeData, DataItemEntryValue, EntityLink as VendorActorLink, PlayerListData,
     PropertySyncData, SyncedAttribute, SynchedActorDataCopyableDataList,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::{NetworkItemStack, item::normalize_item};

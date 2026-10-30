@@ -1011,7 +1011,7 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
     ] {
         let guest = format!(
             r#"(component
-            (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+            (import "cinnabar:world-draw/drawing@0.2.0" (instance $drawing
                 (type $flags (flags "world-draw" "entity-observe" "entity-highlight" "render-through-walls" "render-material" "render-post"))
                 (export "permissions" (type $permissions (eq $flags)))
                 (export "capabilities" (func (result $permissions)))))
@@ -1051,7 +1051,7 @@ fn canonical_drawing_import_reports_only_bundle_grants() {
 #[test]
 fn epoch_callback_observes_entities_and_resolves_mask_targets() {
     let guest = r#"(component
-        (import "cinnabar:world-draw/drawing@0.1.0" (instance $drawing
+        (import "cinnabar:world-draw/drawing@0.2.0" (instance $drawing
             (type $handle (record (field "owner" u64) (field "generation" u64) (field "slot" u64)))
             (export "handle" (type $h (eq $handle)))
             (type $code (enum "denied" "invalid" "budget-exceeded" "stale-handle" "unsupported" "in-use"))
@@ -1063,7 +1063,7 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             (export "observe-entities" (func (result (result (list $o) (error $e)))))))
         (alias export $drawing "handle" (type $h))
         (alias export $drawing "draw-error" (type $e))
-        (import "cinnabar:world-draw/masks@0.1.0" (instance $masks
+        (import "cinnabar:world-draw/masks@0.2.0" (instance $masks
             (export "handle" (type (eq $h)))
             (export "draw-error" (type (eq $e)))
             (export "entity" (func (param "runtime-id" u64) (result (result $h (error $e)))))))
@@ -1135,6 +1135,7 @@ fn epoch_callback_observes_entities_and_resolves_mask_targets() {
             candidates: vec![actor],
             live: vec![actor],
             targets: vec![(target, 3)],
+            blocks: Vec::new(),
         };
         host.dispatch(&Event::Epoch, 2, &context)
             .unwrap()

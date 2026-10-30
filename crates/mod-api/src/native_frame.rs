@@ -2,11 +2,28 @@
 
 use serde::{Deserialize, Serialize};
 
-/// JSON contract version, independent of the packet relay's existing WIT version.
-/// Version 1 includes look and movement input and elapsed time. Rebuild older native-frame
-/// guests with the current SDK, including guests using only the legacy `frame` callback:
-/// their strict decoders reject the added fields despite the unchanged version number.
-pub const VERSION: u32 = 1;
+// One declaration supplies the public wire constants and the reactor's literal section attribute.
+macro_rules! wire_contract {
+    ($version:literal, $section:literal) => {
+        /// JSON contract version, independent of the packet relay's existing WIT version.
+        /// Built guests without the current wire marker retain their original record.
+        pub const VERSION: u32 = $version;
+        /// Custom section selecting the current native frame wire, containing its version byte.
+        pub const WIRE_SECTION: &str = $section;
+
+        /// Selects the current native frame JSON contract for a native packet reactor.
+        /// Put this invocation at module scope when decoding `native_frame::Frame`.
+        #[macro_export]
+        macro_rules! current_native_frames {
+            () => {
+                #[used]
+                #[unsafe(link_section = $section)]
+                static CINNABAR_NATIVE_FRAME_WIRE: [u8; 1] = [$version];
+            };
+        }
+    };
+}
+wire_contract!(2, "cinnabar:extension/native-frame-wire");
 /// A host can supply input-owned player frames and accept local camera deltas.
 pub const CAMERA_PLAYERS: u32 = 1;
 /// Maximum JSON input or output bytes in one native frame callback.
@@ -30,7 +47,6 @@ pub struct Frame {
     pub eye: [f32; 3],
     pub yaw: f32,
     pub pitch: f32,
-    pub attack_held: bool,
     pub seconds: f32,
     /// Look the host applied to the captured view since the last delivered frame, as yaw and
     /// pitch radians; zero without `capture_look`.
@@ -65,7 +81,7 @@ impl Frame {
                 .move_axes
                 .iter()
                 .all(|value| value.is_finite() && (-1.0..=1.0).contains(value))
-            && (!self.suspended || !self.attack_held && self.players.is_empty())
+            && (!self.suspended || self.players.is_empty())
             && self.players.len() <= crate::MAX_GAMEPLAY_PLAYERS
             && self.players.iter().all(|player| {
                 player.runtime_id != 0 && player.feet.iter().all(|value| value.is_finite())
@@ -98,7 +114,7 @@ mod tests {
     #[test]
     fn shared_wire_fixture_matches_the_sdk() {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../native-frame-v1.json")).unwrap();
+            serde_json::from_str(include_str!("../native-frame-v2.json")).unwrap();
         assert_eq!(fixture["version"], VERSION);
         assert_eq!(fixture["capabilities"], CAMERA_PLAYERS);
         assert_eq!(fixture["max_bytes"], MAX_BYTES);

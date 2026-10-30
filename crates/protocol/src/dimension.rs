@@ -1,9 +1,9 @@
 //! Native dimension-transfer acknowledgements and correlated loading screens.
 
-use bedrock_protocol_1_26_51::enums::{PlayerActionType, ServerboundLoadingScreenType};
-use bedrock_protocol_1_26_51::packets::{PlayerAction, ServerboundLoadingScreen};
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{PlayerActionType, ServerboundLoadingScreenType};
+use bedrock_protocol_1_26_60::packets::{PlayerAction, ServerboundLoadingScreen};
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 
 use crate::{Packet, WorldEvent};
 
@@ -12,7 +12,7 @@ pub(crate) fn normalize_ack(
     from_subclient: u32,
     to_subclient: u32,
 ) -> Option<WorldEvent> {
-    (action.action == PlayerActionType::Changedimensionack
+    (action.action == PlayerActionType::ChangeDimensionAck
         && from_subclient == 0
         && to_subclient == 0)
         .then_some(WorldEvent::DimensionChangeAck {
@@ -31,8 +31,8 @@ pub enum LoadingScreenPhase {
 pub fn loading_screen_packet(phase: LoadingScreenPhase, loading_screen_id: Option<u32>) -> Packet {
     crate::Packet::new(ServerboundLoadingScreen {
         loading_screen_packet_type: match phase {
-            LoadingScreenPhase::Start => ServerboundLoadingScreenType::Startloadingscreen,
-            LoadingScreenPhase::End => ServerboundLoadingScreenType::Endloadingscreen,
+            LoadingScreenPhase::Start => ServerboundLoadingScreenType::StartLoadingScreen,
+            LoadingScreenPhase::End => ServerboundLoadingScreenType::EndLoadingScreen,
         },
         loading_screen_id: loading_screen_id.map(wire::U32LE),
     })
@@ -43,7 +43,7 @@ pub fn loading_screen_packet(phase: LoadingScreenPhase, loading_screen_id: Optio
 pub fn dimension_change_done_packet(local_runtime_id: u64) -> Packet {
     crate::Packet::new(PlayerAction {
         player_runtime_id: ActorRuntimeID(local_runtime_id),
-        action: PlayerActionType::Changedimensionack,
+        action: PlayerActionType::ChangeDimensionAck,
         ..Default::default()
     })
 }
@@ -51,8 +51,8 @@ pub fn dimension_change_done_packet(local_runtime_id: u64) -> Packet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::packets;
-    use bedrock_protocol_1_26_51::types::BlockPos;
+    use bedrock_protocol_1_26_60::packets;
+    use bedrock_protocol_1_26_60::types::BlockPos;
 
     #[test]
     fn loading_messages_preserve_absent_zero_and_nonzero_ids() {
@@ -67,9 +67,9 @@ mod tests {
                 assert_eq!(
                     packet.loading_screen_packet_type,
                     if phase == LoadingScreenPhase::Start {
-                        ServerboundLoadingScreenType::Startloadingscreen
+                        ServerboundLoadingScreenType::StartLoadingScreen
                     } else {
-                        ServerboundLoadingScreenType::Endloadingscreen
+                        ServerboundLoadingScreenType::EndLoadingScreen
                     }
                 );
             }
@@ -82,7 +82,7 @@ mod tests {
             panic!("expected player action packet");
         };
         assert_eq!(packet.player_runtime_id.0, 77);
-        assert_eq!(packet.action, PlayerActionType::Changedimensionack);
+        assert_eq!(packet.action, PlayerActionType::ChangeDimensionAck);
         assert_eq!(packet.block_position, BlockPos::default());
         assert_eq!(packet.result_pos, BlockPos::default());
         assert_eq!(packet.face.0, 0);

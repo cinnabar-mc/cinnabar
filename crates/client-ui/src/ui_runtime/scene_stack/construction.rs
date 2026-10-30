@@ -179,6 +179,12 @@ impl UiRuntime {
                 json(Some(ui_screens::credits_screen::CREDITS_SCREEN)),
             );
         }
+        // A global-pack edit gets a stable client-owned cover. It is deliberately separate from
+        // world-entry loading so session handoffs keep their normal readiness contract, and the
+        // old pack remains visible until the replacement is complete.
+        if self.resource_pack_loading() && host.loading.is_none() {
+            visit(Scene::ResourcePackLoading, loading_settings());
+        }
     }
 
     /// Tests developer-overlay eligibility using the same scene construction as rendering.

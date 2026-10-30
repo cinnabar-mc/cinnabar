@@ -68,19 +68,12 @@ type foundationOutputs struct {
 
 type foundationSources struct {
 	Protocolgen sharedFoundationSource `json:"protocolgen"`
-	BDS         bdsFoundationSource    `json:"bds"`
 }
 
 type sharedFoundationSource struct {
 	Module           string `json:"module"`
 	SourceLockSHA256 string `json:"source_lock_sha256"`
 	CloudburstRef    string `json:"cloudburst_ref"`
-}
-
-type bdsFoundationSource struct {
-	ArchiveSHA256    string `json:"archive_sha256"`
-	ExecutableSHA256 string `json:"executable_sha256"`
-	OverlaySHA256    string `json:"overlay_sha256"`
 }
 
 type projectionBindings struct {
@@ -130,21 +123,25 @@ func validateFoundationFields(foundation registryFoundation) error {
 	if foundation.Schema != "cinnabar.registry-foundation.v1" {
 		return errors.New("registry foundation schema must be cinnabar.registry-foundation.v1")
 	}
-	if foundation.GameVersion != "1.26.50" || foundation.Protocol != 2193 {
-		return errors.New("registry foundation must target game 1.26.50 and protocol 2193")
+	if foundation.GameVersion != shared.MinecraftVersion || foundation.Protocol != shared.ProtocolVersion {
+		return errors.New("registry foundation must match the shared catalog target")
 	}
 	if foundation.Formats != (foundationFormats{Block: "BREG1003", Light: "LREG1001", Biome: "BIOREG01"}) {
 		return errors.New("registry foundation format labels do not match the stable formats")
 	}
 	wantOutputs := foundationOutputs{
-		Block: "crates/assets/data/block-registry-v2193.bin",
-		Light: "crates/assets/data/block-light-registry-v2193.bin",
-		Biome: "crates/assets/data/biome-registry-v2193.bin",
+		Block: fmt.Sprintf("crates/assets/data/block-registry-v%d.bin", shared.ProtocolVersion),
+		Light: fmt.Sprintf("crates/assets/data/block-light-registry-v%d.bin", shared.ProtocolVersion),
+		Biome: fmt.Sprintf("crates/assets/data/biome-registry-v%d.bin", shared.ProtocolVersion),
 	}
 	if foundation.Outputs != wantOutputs {
-		return errors.New("registry foundation outputs must use the exact v2193 filenames")
+		return errors.New("registry foundation outputs must use the exact v2225 filenames")
 	}
 	if err := validateFoundationSources(foundation.Sources); err != nil {
+		return err
+	}
+	biomeHash, err := targetpin.Hash("biome_registry")
+	if err != nil {
 		return err
 	}
 	switch foundation.Status {
@@ -158,7 +155,7 @@ func validateFoundationFields(foundation registryFoundation) error {
 		}
 		if foundation.ProjectionBindings == nil || foundation.ProjectionBindings.Block != nil ||
 			foundation.ProjectionBindings.Light != nil || foundation.ProjectionBindings.Biome == nil ||
-			foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
+			foundation.ProjectionBindings.Biome.SHA256 != biomeHash {
 			return errors.New("blocked registry foundation must bind only the exact biome projection")
 		}
 	case FoundationReady:
@@ -169,7 +166,7 @@ func validateFoundationFields(foundation registryFoundation) error {
 			foundation.ProjectionBindings.Biome == nil || foundation.ProjectionBindings.Light == nil {
 			return errors.New("ready registry foundation requires three projection bindings")
 		}
-		if foundation.ProjectionBindings.Biome.SHA256 != "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a" {
+		if foundation.ProjectionBindings.Biome.SHA256 != biomeHash {
 			return errors.New("ready registry foundation must preserve the exact biome projection binding")
 		}
 		blockHash, err := targetpin.BlockHash()
@@ -204,17 +201,7 @@ func validateFoundationSources(sources foundationSources) error {
 	if catalog.Module != shared.ModulePath || catalog.SourceLockSHA256 != shared.SourceLockSHA256 || catalog.CloudburstRef != shared.CloudburstRef {
 		return errors.New("registry foundation shared catalog identity does not match the pinned module")
 	}
-	bds := sources.BDS
-	if bds.ArchiveSHA256 != "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825" ||
-		bds.ExecutableSHA256 != "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443" ||
-		bds.OverlaySHA256 != "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339" {
-		return errors.New("registry foundation BDS source does not match the audited public identities")
-	}
-	for _, digest := range []string{bds.ArchiveSHA256, bds.ExecutableSHA256, bds.OverlaySHA256} {
-		if !validLowerHex(digest, 32) {
-			return errors.New("registry foundation BDS hashes must be lowercase hexadecimal")
-		}
-	}
+
 	return nil
 }
 

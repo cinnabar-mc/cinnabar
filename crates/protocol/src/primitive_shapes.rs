@@ -1,11 +1,11 @@
 //! Lenient normalization of server-driven debug drawing changes.
 
-use bedrock_protocol_1_26_51::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as WireKind;
-use bedrock_protocol_1_26_51::packets::PrimitiveShapes;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as WireKind;
+use bedrock_protocol_1_26_60::packets::PrimitiveShapes;
+use bedrock_protocol_1_26_60::types::{
     MceColor, PrimitiveShape, PrimitiveShapeExtraShapeData as Extra,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use render_api::primitive_shapes::{
     PrimitiveShapeChange, PrimitiveShapeData, PrimitiveShapeKind, PrimitiveShapeUpdate,
     PrimitiveShapesEvent, PrimitiveText,

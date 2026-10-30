@@ -36,7 +36,8 @@ pub(crate) fn storage_buffers(
         .count() as u32
 }
 
-/// Applies the renderer's storage limits, allocator policy and the platform's device policy.
+/// Applies the renderer's storage limits, allocator and label policy and the platform's device
+/// policy.
 pub fn configure(settings: &mut WgpuSettings) {
     #[cfg(target_arch = "wasm32")]
     {
@@ -57,6 +58,20 @@ pub fn configure(settings: &mut WgpuSettings) {
     settings.memory_hints = wgpu::MemoryHints::Manual {
         suballocated_device_memory_block_size: SUBALLOCATED_BLOCK_BYTES,
     };
+    // Applied after Bevy's environment read, so the environment is read again to keep its override.
+    settings.instance_flags = backend_labels(settings.instance_flags).with_env();
+}
+
+/// Drops backend object names unless backend debugging or validation is on. A name costs a driver
+/// call (DX12 `SetName`, Metal `setLabel`) for every command list, pass encoder and resource,
+/// about fifty command lists a frame on DX12, and only graphics debuggers and validation layers
+/// read it. `WGPU_DISCARD_HAL_LABELS=0` keeps names for a named capture.
+fn backend_labels(flags: wgpu::InstanceFlags) -> wgpu::InstanceFlags {
+    if flags.intersects(wgpu::InstanceFlags::DEBUG | wgpu::InstanceFlags::VALIDATION) {
+        flags
+    } else {
+        flags | wgpu::InstanceFlags::DISCARD_HAL_LABELS
+    }
 }
 
 /// Where Windows installs and development builds place DXC: beside the client executable.
@@ -112,6 +127,26 @@ mod tests {
             "{:?}",
             settings.memory_hints
         );
+    }
+
+    #[test]
+    fn backend_names_are_kept_only_while_backend_debugging_or_validating() {
+        use wgpu::InstanceFlags;
+        assert_eq!(
+            backend_labels(InstanceFlags::empty()),
+            InstanceFlags::DISCARD_HAL_LABELS
+        );
+        assert_eq!(
+            backend_labels(InstanceFlags::VALIDATION_INDIRECT_CALL),
+            InstanceFlags::VALIDATION_INDIRECT_CALL | InstanceFlags::DISCARD_HAL_LABELS
+        );
+        for debugging in [
+            InstanceFlags::DEBUG,
+            InstanceFlags::VALIDATION,
+            InstanceFlags::debugging(),
+        ] {
+            assert_eq!(backend_labels(debugging), debugging);
+        }
     }
 
     #[test]

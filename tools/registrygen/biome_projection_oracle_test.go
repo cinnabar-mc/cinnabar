@@ -18,69 +18,69 @@ import (
 )
 
 const (
-	v2193RetailBiomeCount = 89
-	v2193BiomeAllowSHA256 = "6127c74c17455273bb5226f1e05e98709bc247c05a0137a8827cb97756c3b198"
+	v2225RetailBiomeCount = 89
+	v2225BiomeAllowSHA256 = "6127c74c17455273bb5226f1e05e98709bc247c05a0137a8827cb97756c3b198"
 )
 
-type v2193BiomeProjectionStats struct {
+type v2225BiomeProjectionStats struct {
 	SourceCount        int
 	IgnoredCount       int
 	IgnoredFingerprint string
 }
 
-type v2193BiomeProjectionManifest struct {
+type v2225BiomeProjectionManifest struct {
 	Schema      string                      `json:"schema"`
 	GameVersion string                      `json:"game_version"`
 	Protocol    uint32                      `json:"protocol"`
-	Sources     v2193BiomeProjectionSources `json:"sources"`
-	Allowlist   v2193BiomeProjectionAllow   `json:"allowlist"`
-	Projection  v2193BiomeProjectionSummary `json:"projection"`
-	Output      v2193BiomeProjectionOutput  `json:"output"`
+	Sources     v2225BiomeProjectionSources `json:"sources"`
+	Allowlist   v2225BiomeProjectionAllow   `json:"allowlist"`
+	Projection  v2225BiomeProjectionSummary `json:"projection"`
+	Output      v2225BiomeProjectionOutput  `json:"output"`
 }
 
-type v2193BiomeProjectionSources struct {
-	SharedCatalog v2193BiomeCatalogSource `json:"shared_catalog"`
+type v2225BiomeProjectionSources struct {
+	SharedCatalog v2225BiomeCatalogSource `json:"shared_catalog"`
 }
 
-type v2193BiomeCatalogSource struct {
+type v2225BiomeCatalogSource struct {
 	Module           string `json:"module"`
 	SourceLockSHA256 string `json:"source_lock_sha256"`
 	BiomeCount       int    `json:"biome_count"`
 }
 
-type v2193BiomeProjectionAllow struct {
+type v2225BiomeProjectionAllow struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 	Count  int    `json:"count"`
 }
 
-type v2193BiomeProjectionSummary struct {
+type v2225BiomeProjectionSummary struct {
 	Retained           int    `json:"retained"`
 	IgnoredCount       int    `json:"ignored_count"`
 	IgnoredFingerprint string `json:"ignored_fingerprint"`
 }
 
-type v2193BiomeProjectionOutput struct {
+type v2225BiomeProjectionOutput struct {
 	Format string `json:"format"`
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
 }
 
-// parseV2193BiomeAllowlist accepts only the reviewed, sorted retail name set.
-func parseV2193BiomeAllowlist(data []byte) (map[string]struct{}, error) {
-	if digest := fmt.Sprintf("%x", sha256.Sum256(data)); digest != v2193BiomeAllowSHA256 {
-		return nil, fmt.Errorf("v2193 biome allowlist SHA-256 %s does not match pinned identity", digest)
+// parseV2225BiomeAllowlist accepts only the reviewed, sorted retail name set.
+func parseV2225BiomeAllowlist(data []byte) (map[string]struct{}, error) {
+	if digest := fmt.Sprintf("%x", sha256.Sum256(data)); digest != v2225BiomeAllowSHA256 {
+		return nil, fmt.Errorf("v2225 biome allowlist SHA-256 %s does not match pinned identity", digest)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	if len(lines) != v2193RetailBiomeCount {
-		return nil, fmt.Errorf("v2193 biome allowlist contains %d names, want %d", len(lines), v2193RetailBiomeCount)
+	if len(lines) != v2225RetailBiomeCount {
+		return nil, fmt.Errorf("v2225 biome allowlist contains %d names, want %d", len(lines), v2225RetailBiomeCount)
 	}
 	allowed := make(map[string]struct{}, len(lines))
 	previous := ""
 	for index, raw := range lines {
 		name := strings.TrimSuffix(raw, "\r")
 		if !strings.HasPrefix(name, "minecraft:") || len(name) > maxBiomeNameBytes || (index != 0 && name <= previous) {
-			return nil, fmt.Errorf("v2193 biome allowlist is invalid at entry %d", index)
+			return nil, fmt.Errorf("v2225 biome allowlist is invalid at entry %d", index)
 		}
 		allowed[name] = struct{}{}
 		previous = name
@@ -88,20 +88,20 @@ func parseV2193BiomeAllowlist(data []byte) (map[string]struct{}, error) {
 	return allowed, nil
 }
 
-// readV2193BiomeAllowlist loads the local admission policy without changing shared facts.
-func readV2193BiomeAllowlist(path string) (map[string]struct{}, error) {
+// readV2225BiomeAllowlist loads the local admission policy without changing shared facts.
+func readV2225BiomeAllowlist(path string) (map[string]struct{}, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read v2193 biome allowlist: %w", err)
+		return nil, fmt.Errorf("read v2225 biome allowlist: %w", err)
 	}
-	return parseV2193BiomeAllowlist(data)
+	return parseV2225BiomeAllowlist(data)
 }
 
-// projectV2193BiomeRecords keeps allowlisted shared IDs and fingerprints excluded records.
-func projectV2193BiomeRecords(source []sharedbiome.Biome, allowed map[string]struct{}) ([]BiomeRecord, v2193BiomeProjectionStats, error) {
-	stats := v2193BiomeProjectionStats{SourceCount: len(source)}
-	if len(source) > maxBiomeRecordCount || len(allowed) != v2193RetailBiomeCount {
-		return nil, stats, errors.New("v2193 biome source or allowlist count is outside the carrier scope")
+// projectV2225BiomeRecords keeps allowlisted shared IDs and fingerprints excluded records.
+func projectV2225BiomeRecords(source []sharedbiome.Biome, allowed map[string]struct{}) ([]BiomeRecord, v2225BiomeProjectionStats, error) {
+	stats := v2225BiomeProjectionStats{SourceCount: len(source)}
+	if len(source) > maxBiomeRecordCount || len(allowed) != v2225RetailBiomeCount {
+		return nil, stats, errors.New("v2225 biome source or allowlist count is outside the carrier scope")
 	}
 	retained := make([]BiomeRecord, 0, len(allowed))
 	ignored := make([]BiomeRecord, 0)
@@ -129,7 +129,7 @@ func projectV2193BiomeRecords(source []sharedbiome.Biome, allowed map[string]str
 		}
 	}
 	if len(retained) != len(allowed) {
-		return nil, stats, fmt.Errorf("v2193 biome projection is missing %d retained names", len(allowed)-len(retained))
+		return nil, stats, fmt.Errorf("v2225 biome projection is missing %d retained names", len(allowed)-len(retained))
 	}
 	sort.Slice(retained, func(i, j int) bool { return retained[i].ID < retained[j].ID })
 	sort.Slice(ignored, func(i, j int) bool { return ignored[i].ID < ignored[j].ID })
@@ -144,62 +144,62 @@ func projectV2193BiomeRecords(source []sharedbiome.Biome, allowed map[string]str
 	return retained, stats, nil
 }
 
-// encodeV2193BiomeProjection writes the existing binary format and shared source identity.
-func encodeV2193BiomeProjection(records []BiomeRecord, stats v2193BiomeProjectionStats) ([]byte, []byte, error) {
+// encodeV2225BiomeProjection writes the existing binary format and shared source identity.
+func encodeV2225BiomeProjection(records []BiomeRecord, stats v2225BiomeProjectionStats) ([]byte, []byte, error) {
 	carrier, err := encodeBiomeRegistry(records)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(records) != v2193RetailBiomeCount || stats.IgnoredCount < 0 || stats.SourceCount != len(records)+stats.IgnoredCount || len(stats.IgnoredFingerprint) != 64 {
-		return nil, nil, errors.New("v2193 biome projection metadata is incomplete")
+	if len(records) != v2225RetailBiomeCount || stats.IgnoredCount < 0 || stats.SourceCount != len(records)+stats.IgnoredCount || len(stats.IgnoredFingerprint) != 64 {
+		return nil, nil, errors.New("v2225 biome projection metadata is incomplete")
 	}
-	manifest := v2193BiomeProjectionManifest{
+	manifest := v2225BiomeProjectionManifest{
 		Schema: "cinnabar.biome-projection.v3", GameVersion: shared.MinecraftVersion, Protocol: shared.ProtocolVersion,
-		Sources: v2193BiomeProjectionSources{SharedCatalog: v2193BiomeCatalogSource{
+		Sources: v2225BiomeProjectionSources{SharedCatalog: v2225BiomeCatalogSource{
 			Module: shared.ModulePath, SourceLockSHA256: shared.SourceLockSHA256, BiomeCount: stats.SourceCount,
 		}},
-		Allowlist:  v2193BiomeProjectionAllow{Path: v2193BiomeAllowlistPath, SHA256: v2193BiomeAllowSHA256, Count: v2193RetailBiomeCount},
-		Projection: v2193BiomeProjectionSummary{Retained: len(records), IgnoredCount: stats.IgnoredCount, IgnoredFingerprint: stats.IgnoredFingerprint},
-		Output:     v2193BiomeProjectionOutput{Format: biomeRegistryHeader, Path: v2193BiomeOutputPath, SHA256: fmt.Sprintf("%x", sha256.Sum256(carrier))},
+		Allowlist:  v2225BiomeProjectionAllow{Path: v2225BiomeAllowlistPath, SHA256: v2225BiomeAllowSHA256, Count: v2225RetailBiomeCount},
+		Projection: v2225BiomeProjectionSummary{Retained: len(records), IgnoredCount: stats.IgnoredCount, IgnoredFingerprint: stats.IgnoredFingerprint},
+		Output:     v2225BiomeProjectionOutput{Format: biomeRegistryHeader, Path: v2225BiomeOutputPath, SHA256: fmt.Sprintf("%x", sha256.Sum256(carrier))},
 	}
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
-		return nil, nil, fmt.Errorf("encode v2193 biome manifest: %w", err)
+		return nil, nil, fmt.Errorf("encode v2225 biome manifest: %w", err)
 	}
 	return carrier, append(manifestBytes, '\n'), nil
 }
 
-// writeV2193BiomeProjection projects shared IDs into Cinnabar's allowlisted biome carrier.
-func writeV2193BiomeProjectionOracle(allowlistPath, outputPath, manifestPath string) error {
+// writeV2225BiomeProjection projects shared IDs into Cinnabar's allowlisted biome carrier.
+func writeV2225BiomeProjectionOracle(allowlistPath, outputPath, manifestPath string) error {
 	if err := validateSharedBiomeTarget(); err != nil {
 		return err
 	}
-	allowed, err := readV2193BiomeAllowlist(allowlistPath)
+	allowed, err := readV2225BiomeAllowlist(allowlistPath)
 	if err != nil {
 		return err
 	}
-	projected, stats, err := projectV2193BiomeRecords(sharedbiome.All(), allowed)
+	projected, stats, err := projectV2225BiomeRecords(sharedbiome.All(), allowed)
 	if err != nil {
 		return err
 	}
-	carrier, manifest, err := encodeV2193BiomeProjection(projected, stats)
+	carrier, manifest, err := encodeV2225BiomeProjection(projected, stats)
 	if err != nil {
 		return err
 	}
 	for _, path := range []string{outputPath, manifestPath} {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-			return fmt.Errorf("create v2193 biome output directory: %w", err)
+			return fmt.Errorf("create v2225 biome output directory: %w", err)
 		}
 	}
 	if err := os.WriteFile(outputPath, carrier, 0o644); err != nil {
-		return fmt.Errorf("write v2193 biome registry: %w", err)
+		return fmt.Errorf("write v2225 biome registry: %w", err)
 	}
 	shaPath := strings.TrimSuffix(outputPath, filepath.Ext(outputPath)) + ".sha256"
 	if err := os.WriteFile(shaPath, []byte(fmt.Sprintf("%x\n", sha256.Sum256(carrier))), 0o644); err != nil {
-		return fmt.Errorf("write v2193 biome checksum: %w", err)
+		return fmt.Errorf("write v2225 biome checksum: %w", err)
 	}
 	if err := os.WriteFile(manifestPath, manifest, 0o644); err != nil {
-		return fmt.Errorf("write v2193 biome manifest: %w", err)
+		return fmt.Errorf("write v2225 biome manifest: %w", err)
 	}
 	return nil
 }
