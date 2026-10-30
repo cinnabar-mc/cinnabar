@@ -59,8 +59,8 @@ impl MessagingTarget {
         }
     }
 
-    /// Explicit raw targets and legacy service routes permit only an absent answer identity.
-    /// Joined friends retain their original nonce; present assertions still use provider trust.
+    /// Explicit raw targets and legacy routes permit an absent answer identity.
+    /// This does not bypass verification of any present assertion.
     pub(in crate::login::native_network) fn allow_anonymous_answers(&self) -> bool {
         let recipient = match self {
             Self::Joined(target) => target.recipient(),
@@ -68,6 +68,16 @@ impl MessagingTarget {
             Self::Raw(_) => return true,
         };
         matches!(recipient, Recipient::Legacy(_))
+    }
+
+    /// Authenticated service destinations receive server proofs; other peers retain provider policy.
+    pub(in crate::login::native_network) fn answer_trust(&self, trust: TokenTrust) -> TokenTrust {
+        match (self, trust) {
+            (Self::Service(_), TokenTrust::Provider(provider)) => {
+                TokenTrust::ServerAnswer(provider)
+            }
+            (_, trust) => trust,
+        }
     }
 }
 
@@ -83,6 +93,7 @@ impl MessagingAdmission {
         expires: Instant,
     ) -> io::Result<Self> {
         let (identity, trust) = identity_policy(key, token, clock, verifier, expires)?;
+        let trust = target.answer_trust(trust);
         Ok(Self {
             prepared,
             target,
@@ -139,9 +150,10 @@ impl TokenVerifier for PeerVerifier {
     /// Checks the remote peer's own signed claims; local selected XUID/proof binding is never applied.
     fn verify(&self, token: &str, _now: SystemTime) -> Result<Claims> {
         let now = self.clock.now(Instant::now()).map_err(|_| rejected())?;
-        self.verifier
-            .verify_peer(token, now)
-            .map_err(|_| rejected())
+        self.verifier.verify_peer(token, now).map_err(|_| {
+            tracing::warn!("native peer provider validation refused");
+            rejected()
+        })
     }
 }
 

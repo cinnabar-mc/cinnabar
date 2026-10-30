@@ -24,6 +24,7 @@ pub(in crate::login::native_network) const XUID: &str = "123";
 pub(in crate::login::native_network) const SERVICE_SECONDS: u64 = 1_900_000_000;
 
 mod lan;
+mod service_answers;
 
 /// Generates an original synthetic issuer once; no real credential or private fixture is loaded.
 fn issuer() -> &'static pkcs1v15::SigningKey<Sha256> {

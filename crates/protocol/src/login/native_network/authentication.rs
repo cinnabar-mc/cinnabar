@@ -221,7 +221,8 @@ impl NativeAuthentication {
     /// The caller must have obtained this exact recipient from a successful authenticated
     /// Realm or Gathering join on the same acquired account. This method checks transport
     /// consistency, not membership. These services do not supply a joined-friend admission nonce.
-    /// Present answers retain provider verification and the originally minted key.
+    /// Present answers require a provider identity or a self-signed server proof bound to the SDP.
+    /// The local offer retains its originally minted key and provider credential.
     /// Legacy service routes may omit their answer identity.
     pub fn with_service_messaging(
         mut self,
