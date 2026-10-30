@@ -4,7 +4,7 @@ use crate::compile::{CompiledStage, OutputMap, compile};
 use crate::diagnostics::{Diagnostic, Phase};
 use crate::options::{OptionKind, OptionValues, PackOption};
 use crate::preprocess::{ConstDirective, LineMap, Preprocessed, expand, preprocess};
-use crate::programs::{ProgramKind, ProgramSource, StageKind};
+use crate::programs::{LINE_PROGRAM, ProgramKind, ProgramSource, StageKind};
 use crate::properties::ProgramRule;
 use crate::reflect::{StageNames, reflect};
 use crate::reflection::ProgramReflection;
@@ -335,6 +335,7 @@ fn compile_stages(
             normalize_legacy: normalize_legacy(out.stages[*i].stage, pp),
             geometry,
             vertex_clip: true,
+            bound_core_inputs: bound_core_inputs(&out.program.name, pp),
         };
         match transform(pp, out.stages[*i].stage, &mut iface, &names) {
             Ok(draft) => drafts.push((*i, draft, pp.map.clone())),
@@ -385,4 +386,12 @@ fn normalize_legacy(stage: StageKind, source: &Preprocessed) -> bool {
     stage == StageKind::Compute
         || source.profile.as_deref() != Some("core")
             && (source.version < 150 || source.profile.as_deref() == Some("compatibility"))
+}
+
+/// Whether declared core-profile vertex inputs (`vaPosition`, …) read vertex data. Iris's
+/// core-profile transformer, which also compiles the line program whatever its version,
+/// renames them to the inputs it binds; its compatibility-profile transformers leave them as
+/// declared and bind nothing to them.
+pub(crate) fn bound_core_inputs(program: &str, source: &Preprocessed) -> bool {
+    program == LINE_PROGRAM || !normalize_legacy(StageKind::Vertex, source)
 }
