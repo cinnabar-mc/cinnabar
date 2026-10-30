@@ -30,6 +30,50 @@ pub fn target_for(address: &str) -> ConnectTarget {
     ConnectTarget::Server(address.to_owned())
 }
 
+/// Matches catalog and ping metadata without changing either connection's original input.
+/// Bare servers use the menu's default port; explicit HTTP origins retain their effective port
+/// and, when both sides specify one, their scheme. This performs no DNS lookup or admission.
+pub fn same_presentation_destination(left: &str, right: &str) -> bool {
+    match (target_for(left), target_for(right)) {
+        (ConnectTarget::Server(left), ConnectTarget::Server(right)) => {
+            let (
+                Some(url::Origin::Tuple(left_scheme, left_host, left_port)),
+                Some(url::Origin::Tuple(right_scheme, right_host, right_port)),
+            ) = (presentation_origin(&left), presentation_origin(&right))
+            else {
+                return false;
+            };
+            left_host == right_host
+                && left_port == right_port
+                && (!left.contains("://") || !right.contains("://") || left_scheme == right_scheme)
+        }
+        (left, right) => left == right,
+    }
+}
+
+/// Projects a display address onto a parsed origin while preserving the shared menu port.
+fn presentation_origin(address: &str) -> Option<url::Origin> {
+    let url = if address.contains("://") {
+        url::Url::parse(address).ok()?
+    } else {
+        let (host, port) = launcher::menu::split_address(address);
+        let host = if host.contains(':') {
+            format!("[{host}]")
+        } else {
+            host
+        };
+        url::Url::parse(&format!("http://{host}:{port}")).ok()?
+    };
+    (matches!(url.scheme(), "http" | "https")
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(url.path(), "" | "/")
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && url.port_or_known_default().is_some_and(|port| port != 0))
+    .then(|| url.origin())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

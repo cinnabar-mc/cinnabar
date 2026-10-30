@@ -354,31 +354,57 @@ mod tests {
 
     #[test]
     fn a_join_to_a_featured_server_carries_its_logo_however_the_address_is_written() {
-        let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
-        menu.featured = vec![MenuServerCard {
-            name: "The Hive".into(),
-            address: "geo.hivebedrock.network".into(),
-            caption: String::new(),
-            image_path: String::new(),
-            icon: None,
-        }]
-        .into();
-        menu.feeds.details.insert(
-            "geo.hivebedrock.network".into(),
-            ServerDetails {
-                logo_url: "https://cdn.example/hive.png".into(),
-                ..Default::default()
-            },
-        );
-        let badge = menu
-            .featured_badge("geo.hivebedrock.network:19132")
-            .unwrap();
-        assert_eq!(
-            (badge.image_url.as_str(), badge.name.as_str()),
-            ("https://cdn.example/hive.png", "The Hive")
-        );
-        assert!(menu.featured_badge("play.example.net").is_none());
-        menu.feeds.details.clear();
-        assert!(menu.featured_badge("geo.hivebedrock.network").is_none());
+        let port = launcher::menu::DEFAULT_PORT;
+        for (listed, aliases) in [
+            (
+                "geo.hivebedrock.network",
+                vec![
+                    format!("geo.hivebedrock.network:{port}"),
+                    format!("https://GEO.HIVEBEDROCK.NETWORK:{port}"),
+                ],
+            ),
+            (
+                "2001:db8::7",
+                vec![
+                    format!("[2001:db8::7]:{port}"),
+                    format!("http://[2001:db8::7]:{port}"),
+                ],
+            ),
+            (
+                "https://featured.example",
+                vec!["https://featured.example:443".into()],
+            ),
+            (
+                "http://featured.example",
+                vec!["http://featured.example:80".into()],
+            ),
+        ] {
+            let mut menu = MenuRuntime::new(true, 2, "Steve".to_owned());
+            menu.featured = vec![MenuServerCard {
+                name: "Featured".into(),
+                address: listed.into(),
+                caption: String::new(),
+                image_path: String::new(),
+                icon: None,
+            }]
+            .into();
+            menu.feeds.details.insert(
+                listed.into(),
+                ServerDetails {
+                    logo_url: "https://cdn.example/server.png".into(),
+                    ..Default::default()
+                },
+            );
+            for alias in aliases {
+                let badge = menu.featured_badge(&alias).expect(&alias);
+                assert_eq!(
+                    (badge.image_url.as_str(), badge.name.as_str()),
+                    ("https://cdn.example/server.png", "Featured")
+                );
+            }
+            assert!(menu.featured_badge("play.example.net").is_none());
+            menu.feeds.details.clear();
+            assert!(menu.featured_badge(listed).is_none());
+        }
     }
 }
