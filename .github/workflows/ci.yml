@@ -532,7 +532,8 @@ jobs:
       && needs.preflight.result == 'success'
       && (needs.preflight.outputs.macos == 'true' || needs.preflight.outputs.windows == 'true')
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    # Match the full Windows test job's budget for cold compilation and tests.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 150 || 90 }}
     strategy:
       fail-fast: false
       matrix:
