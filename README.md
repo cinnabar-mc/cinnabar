@@ -42,6 +42,11 @@ Microsoft device code; the token stays in `.local/auth/`, so never share or comm
 
 On Debian/Ubuntu, install `libwayland-dev` and `libudev-dev` first.
 
+Addressed HTTP NetherNet joins use [Cloudflare's public STUN service](https://developers.cloudflare.com/realtime/turn/)
+to gather public connection addresses. Loopback joins omit external gathering.
+RakNet and the dedicated local-world, friend and Realm transports retain their
+existing connection providers. Address discovery sends no Minecraft account credentials.
+
 ## What's different
 
 Vanilla behaviour is the default. Everything below is extra:

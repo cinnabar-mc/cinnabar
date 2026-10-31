@@ -83,8 +83,11 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 // A nil trust joins any NetherNet server.
 func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust) addressedServerNetwork {
 	return addressedServerNetwork{minecraft.AddressNetwork{
-		RakNet:      remoteRakNet(),
-		NetherNet:   minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		RakNet: remoteRakNet(),
+		NetherNet: minecraft.NetherNet{Dialer: nethernet.Dialer{
+			Log: logger, AllowIdentitylessServer: true,
+			Credentials: addressedICECredentials,
+		}},
 		ServerTrust: trust,
 	}}
 }

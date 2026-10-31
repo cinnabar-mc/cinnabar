@@ -1172,6 +1172,11 @@ acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Addressed HTTP NetherNet joins gather public STUN candidates, including when
+signaling supplies no ICE credentials. Signed-in and signed-out loopback joins
+omit external gathering; other transports retain their providers. The addressed
+factory passes an outside-host transport fixture. Broader NAT and relay-only
+acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
