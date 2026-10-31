@@ -970,6 +970,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  Items with a registry `minecraft:seed` rule predict planting on a declared block's
+  declared face into air: the swing, place sound, consumed item and the crop's default
+  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
+  block-name aliases such as `grass` remain incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;

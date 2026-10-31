@@ -31,6 +31,7 @@ The pages below come from the WIT contract. Grants authorize calls; importing an
 - [Session: items](session-items.md)
 - [Session: recipes](session-recipes.md)
 - [Settings](settings.md)
+- [Sound filter](sound-filter.md)
 - [Terrain](terrain.md)
 - [Touch](touch.md)
 - [World drawing: assets](world-draw-assets.md)

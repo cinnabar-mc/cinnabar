@@ -349,3 +349,91 @@ fn stop_named_cancels_matching_voices() {
     engine.stop_named("dig.stone");
     assert!(sources[0].next().is_none());
 }
+
+/// Requests are observed independently with their position before cancelled ones can start.
+#[test]
+fn sound_filter_cancels_events_and_preserves_unrelated_audio() {
+    let mut engine = engine(&[("fixture.one", "player"), ("fixture.two", "player")]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.one").at([1., 2., 3.]));
+    engine.enqueue(SoundRequest::new("fixture.two"));
+    let started = engine.pump_filtered(
+        Some(Listener {
+            position: [0.; 3],
+            right: [1., 0., 0.],
+        }),
+        0.01,
+        &settings,
+        |events| {
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].name.as_ref(), "fixture.one");
+            assert_eq!(events[0].position, Some([1., 2., 3.]));
+            assert!(!events[0].looping);
+            Some(vec![false, true])
+        },
+    );
+    assert_eq!(started.len(), 1);
+    assert_eq!(engine.voices[0].name.as_ref(), "fixture.two");
+    assert!(
+        engine.pump(None, 0.01, &settings).is_empty(),
+        "cancelled sounds do not play late"
+    );
+    engine.enqueue(SoundRequest::new("fixture.one"));
+    assert_eq!(engine.pump(None, 0.01, &settings).len(), 1);
+}
+
+/// Managed loops offer each attempted start, including a later retry after cancellation.
+#[test]
+fn sound_filter_observes_loop_starts_without_reoffering_playing_voices() {
+    let mut engine = engine(&[("fixture.loop", "ambient")]);
+    let settings = AudioSettings::default();
+    engine.set_loop(
+        "fixture",
+        Some(LoopSpec {
+            name: "fixture.loop".into(),
+            volume: 1.,
+        }),
+    );
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |events| {
+                assert!(events[0].looping);
+                Some(vec![false])
+            })
+            .is_empty()
+    );
+    let active = engine.pump_filtered(None, 0.01, &settings, |_| Some(vec![true]));
+    assert_eq!(active.len(), 1);
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| panic!(
+                "playing loop was reoffered"
+            ))
+            .is_empty()
+    );
+    drop(active);
+}
+
+/// Cancelled requests never enter the decoding backlog; invalid verdicts leave audio audible.
+#[test]
+fn sound_filter_cancels_before_decoding_and_invalid_verdicts_fail_open() {
+    let (mut engine, path) = engine_with_encoded("fixture.pending", "player");
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.pending"));
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| Some(vec![false]))
+            .is_empty()
+    );
+    assert!(engine.pending.is_empty());
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    std::fs::remove_file(path).unwrap();
+    let mut engine = self::engine(&[("fixture.ready", "player")]);
+    engine.enqueue(SoundRequest::new("fixture.ready"));
+    assert_eq!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| Some(vec![]))
+            .len(),
+        1
+    );
+}

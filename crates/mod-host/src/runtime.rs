@@ -1,4 +1,5 @@
 mod action_filter;
+mod audio;
 mod input_bindings;
 pub(super) mod input_host;
 pub(crate) mod legacy_input;
@@ -31,7 +32,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/filtered-player-mod@0.1.0",
+    world: "cinnabar:extension/audio-filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
     with: { "cinnabar:extension/budget@0.1.0": crate::runtime::budget_host },

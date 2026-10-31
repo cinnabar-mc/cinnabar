@@ -41,6 +41,7 @@ pub(crate) fn recovery_edit_guest(panel: &str, patch: bool) -> String {
 mod camera;
 mod collection_reveal;
 use super::*;
+mod audio;
 mod drawing_policy;
 mod embedded_assets;
 mod fuel_recovery;

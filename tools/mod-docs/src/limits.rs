@@ -15,6 +15,11 @@ pub(super) fn render() -> String {
             page.push('\n');
         }};
     }
+    section!("Sound events",
+        mod_api::TOTAL_SOUND_FILTER_FUEL => "Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped.",
+        mod_api::MAX_SOUND_FILTER_EVENTS => "New playback observations offered per audio frame; excess requests play normally.",
+        mod_api::MAX_SOUND_NAME_BYTES => "Bytes in one offered sound-definition name."
+    );
     section!("Execution and packages",
         mod_host::FRAME_FUEL => "Fuel for one personal-mod frame; also the action filter's independent fuel allowance.",
         mod_api::TOTAL_MOD_FRAME_FUEL => "Ordinary frame fuel shared by all local mods.",
