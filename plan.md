@@ -295,7 +295,6 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Full cave searches run on immutable connectivity snapshots off the frame thread.
   Invalidated or failed proofs restore hidden sections; retained proofs process openings
   inline while a full search is pending.
-  Matched-output frame-time and movement qualification remain incomplete.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
   current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
   subset leaves colour writes off; the late pass retains each CPU stream's colour
