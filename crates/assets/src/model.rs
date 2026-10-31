@@ -118,6 +118,8 @@ pub const MODEL_TEMPLATE_FLAG_HEAVY_CORE: u32 = 1 << 21;
 pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 /// Azalea templates select a separate stem and canopy for inventory previews.
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
+/// First of a chorus plant's template bank, indexed by `chorus::template_offset`.
+pub const MODEL_TEMPLATE_FLAG_CHORUS_PLANT: u32 = 1 << 27;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -194,6 +196,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_HEAVY_CORE
             | MODEL_TEMPLATE_FLAG_SHELF
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_CHORUS_PLANT
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

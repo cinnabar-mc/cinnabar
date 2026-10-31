@@ -175,6 +175,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close chorus visuals. Plants grow arms toward chorus neighbours and end stone below, with
+  position-selected stubs elsewhere, and flowers draw their three bars. The connection block states
+  added in 1.26.60 are not read: placement selects from the neighbours, as the 26.30 reference does,
+  so whether the 1.26.60 client reads those states instead is unverified.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their

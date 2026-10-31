@@ -11,6 +11,7 @@ use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
 mod bubble_column;
+mod chorus;
 mod door;
 mod fire;
 use crate::{
@@ -37,6 +38,7 @@ pub(crate) enum ModelTemplateSelection {
     BubbleColumn,
     Fire,
     Portal,
+    ChorusPlant,
     Pane,
     Fence(u32),
     Stair,
@@ -54,6 +56,8 @@ pub(crate) fn model_template_selection(kind: VisualKind, flags: u32) -> ModelTem
         ModelTemplateSelection::Fire
     } else if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
         ModelTemplateSelection::Portal
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT != 0 {
+        ModelTemplateSelection::ChorusPlant
     } else if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
         ModelTemplateSelection::Pane
     } else if flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0 {
@@ -101,6 +105,9 @@ pub(crate) fn select_model_templates<'a>(
                         != 0
                 });
             entry.model_template + u32::from(legacy_axis_x)
+        }
+        ModelTemplateSelection::ChorusPlant => {
+            chorus::select_template(context, facts, neighbour_facts, coordinate, entry)
         }
         ModelTemplateSelection::Pane => {
             let mask = connected_model_mask(

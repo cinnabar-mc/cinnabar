@@ -146,6 +146,7 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
+    chorus_templates: super::chorus::Templates,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
@@ -473,6 +474,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.honey_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::chorus::compile_rule(
+            record,
+            inputs,
+            &mut self.chorus_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -825,6 +835,7 @@ pub(in crate::compiler) fn compile_visuals(
                     }
                     super::snowy_grass::apply(record, &mut visual, &inputs);
                     super::fire_admission::apply(record, &mut visual);
+                    super::chorus::apply_root_flag(record, &mut visual);
                     super::potted_plants::apply(
                         record,
                         &mut visual,
