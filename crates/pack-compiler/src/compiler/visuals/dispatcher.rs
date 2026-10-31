@@ -156,7 +156,7 @@ struct VisualCompiler {
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
-    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
+    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6], bool), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,

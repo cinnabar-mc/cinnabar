@@ -177,10 +177,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
-  plane and top art with its direction. Observers, crafters, dispensers, droppers and piston
-  bodies select each face's slot, UV turn and texture variant from their state. Piston bodies
-  remain full cubes: the native three-quarter body and its separately drawn head are
-  incomplete. Jigsaw and vault faces, carved pumpkins and native-server captures remain.
+  plane and top art with its direction. Pumpkins pick their face slot and variant from their
+  direction and class. Observers, crafters, dispensers, droppers, piston bodies, jigsaws and
+  vaults select each face's slot, UV turn and texture variant from their state; vaults also
+  draw their inward-facing cutout interior. Piston bodies remain full cubes: the native
+  three-quarter body and its separately drawn head are incomplete. Native-server captures
+  remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -589,6 +591,11 @@ and rendered qualification remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Classic and slim skins take the built-in skin pack's models, which are not in the fetched
+  pack, so they derive from its `geometry.humanoid.custom` and `geometry.humanoid.customSlim`.
+  The slim left leg drops the fetched copy's mirror to match in-game output and the newest
+  identified public copy of that skin pack; public copies disagree on this flag, and the target
+  version's own `skin_packs/vanilla/geometry.json` is unverified.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified, and the other native
@@ -1308,7 +1315,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
-  import or rejection. Mod update downloads stage in app-owned storage. Mod installation uses a
+  import or rejection. Mod update downloads stage in app-owned storage. Revision-aware mod
+  declarations select compatible releases through the API using the native build's
+  full stamped commit and supported mod API revisions. New capabilities append a revision
+  while retaining older supported revisions; unsupported APIs and catalogue failures
+  do not fall back to latest;
+  bounded digest-checked downloads retain registration, settings and grants. Live published
+  catalogue and reload acceptance remain open. Mod installation uses a
   no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
   chosen documents into app cache storage before importing them. Mod installation and resource-pack
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
@@ -1370,11 +1383,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
-  normal polls) to catch writes with unchanged metadata on every platform. Local frame fuel
+  normal polls) to catch writes with unchanged metadata on every platform. Authority changes
+  and completed admissions wake the loader directly. Identical panel bundles share immutable
+  resolved catalogs while a presenter retains them; each reload gets fresh publisher and
+  input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
   resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Unmeasured shared
+  qualification remains incomplete. Host-observed world entry admits one larger frame
+  callback per mod and session, with one extra slot shared across mods per update and
+  unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
+  and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;
