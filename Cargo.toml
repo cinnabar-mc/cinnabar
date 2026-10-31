@@ -178,7 +178,11 @@ wit-parser = "=0.247.0"
 
 # Keep Metal display-link delivery, bounded submissions and indirect validation on wgpu 30.0.1,
 # plus naga GLSL frontend fixes for Java shader packs: constant `?:` and indexing,
-# missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction.
+# missing returns, scalar swizzles, atomics and barriers, SPIR-V `fma` NoContraction,
+# wrapping constant left shifts and standalone struct arrays with correct interface transfers.
+# Metal HDR colour-space globals are dereferenced before creating colour spaces,
+# and GLSL structs keep one identity across macro expansions.
+# Queue writes reuse staging buffers, and empty transit lists and submissions are skipped.
 # A lost device is a `PollError` instead of a poll panic, and queue-write staging OOM is recoverable.
 # FXC (DX12) gets `[loop]` on loops with implicit-derivative operations instead of failing to unroll them.
 # Vulkan keeps logical allocation layouts separate, accepts either native image-robustness feature,
@@ -187,13 +191,13 @@ wit-parser = "=0.247.0"
 [patch.crates-io]
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
-naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
-wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
-wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
-wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
-wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
+naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
+wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
+wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
+wgpu-hal = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
+wgpu-types = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
 
-wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "e79d28e885792f306412fb090a4188d9e86c17e3" }
+wgpu-naga-bridge = { git = "https://github.com/cinnabar-mc/wgpu", rev = "4741c39da699b31c1cae7aa53be8c62172593bec" }
 
 # Keep every Bevy crate on the same renderer fork revision. CI checks the locked graph.
 bevy = { git = "https://github.com/cinnabar-mc/bevy", rev = "35c49889b6c04a1aa86744ecba09586c392c2a31" }
