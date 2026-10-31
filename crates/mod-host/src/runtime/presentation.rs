@@ -21,7 +21,6 @@ impl State {
         cinnabar::world_draw::assets::add_to_linker::<_, HasSelf<_>>(linker, get)?;
         cinnabar::extension::render::add_to_linker::<_, HasSelf<_>>(linker, get)?;
         cinnabar::extension::environment::add_to_linker::<_, HasSelf<_>>(linker, get)?;
-        cinnabar::extension::audio::add_to_linker::<_, HasSelf<_>>(linker, get)?;
         Ok(())
     }
 
@@ -34,8 +33,6 @@ impl State {
                 .bind_session(session.connection, session.dimension);
             self.render.masks.bind(session);
         }
-        self.environment.muted_sounds.clear();
-        self.environment.pending_muted_sounds = None;
         self.environment.time_override = None;
         self.environment.weather_override = None;
         self.environment.fullbright = false;
@@ -92,7 +89,6 @@ impl State {
     pub(crate) fn begin_presentation(&mut self) {
         self.render.begin_frame();
         self.environment.begin_callback();
-        self.environment.pending_muted_sounds = None;
         self.environment.pending_weather = None;
         self.environment.pending_time = None;
         self.environment.pending_fullbright = None;

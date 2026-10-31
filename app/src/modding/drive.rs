@@ -6,7 +6,6 @@ use super::*;
 #[derive(SystemParam)]
 pub(super) struct ModObservation<'w, 's> {
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
-    audio: Option<ResMut<'w, client_audio::audio::AudioEngine>>,
     action_filter: Local<'s, semantic_input::action_filter::ActionFilterState>,
     action_scope: Local<'s, Option<(u64, i32)>>,
     packets: Option<Res<'w, packets::PacketMods>>,
@@ -56,7 +55,6 @@ pub(super) fn drive_mod(
 ) {
     let ModObservation {
         mut weather,
-        mut audio,
         mut action_filter,
         mut action_scope,
         packets,
@@ -74,10 +72,6 @@ pub(super) fn drive_mod(
         mut bindings,
         input_settings,
     } = observation;
-    // Every early exit releases authority from absent or suspended components.
-    if let Some(audio) = audio.as_deref_mut() {
-        audio.set_muted_sounds(Default::default());
-    }
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
     if let Some(weather) = weather.as_deref_mut() {
@@ -517,9 +511,6 @@ pub(super) fn drive_mod(
             native_source,
             now,
         );
-    }
-    if let Some(audio) = audio.as_deref_mut() {
-        audio.set_muted_sounds(merged.muted_sounds);
     }
     time_override.0 = merged.time_override;
     if let Some(weather) = weather.as_deref_mut() {

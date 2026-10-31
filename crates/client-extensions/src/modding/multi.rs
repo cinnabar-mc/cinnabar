@@ -385,6 +385,37 @@ impl ModHosts {
         false
     }
 
+    /// Admitted sound filters see the same observations; any cancellation wins.
+    /// A failing filter is quarantined and contributes no cancellations to this batch.
+    pub fn filter_sounds(&mut self, events: &[mod_host::SoundEvent]) -> Vec<bool> {
+        let mut accepted = vec![true; events.len()];
+        let mut remaining = mod_api::TOTAL_SOUND_FILTER_FUEL;
+        for host in &mut self.hosts {
+            // Preserve the full callback allowance; later observers pass through this frame.
+            if remaining < mod_host::FRAME_FUEL {
+                break;
+            }
+            if !host.has_sound_filter() {
+                continue;
+            }
+            match host.filter_sounds(events.to_vec()) {
+                Ok(verdict) => {
+                    for (accepted, play) in accepted.iter_mut().zip(verdict) {
+                        *accepted &= play;
+                    }
+                }
+                Err(error) => bevy::log::warn!("Mod sound filter failed: {error:#}"),
+            }
+            remaining = remaining.saturating_sub(host.last_fuel_used());
+        }
+        accepted
+    }
+
+    /// Avoids constructing observations when no active component opted in.
+    pub fn has_sound_filters(&self) -> bool {
+        self.hosts.iter().any(ModHost::has_sound_filter)
+    }
+
     /// Only the earliest active, granted, explicitly exporting component filters actions.
     pub fn action_filter_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&i| self.host(i).action_filter_identity().is_some())
@@ -695,8 +726,6 @@ pub struct Merged {
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
     pub weather_override: Option<[f32; 2]>,
-    /// Union of exact sound-definition names suppressed by active components.
-    pub muted_sounds: std::collections::BTreeSet<String>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
@@ -746,8 +775,6 @@ impl Merged {
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());
         self.weather_override = self.weather_override.or(host.weather_override());
-        self.muted_sounds
-            .extend(host.muted_sounds().iter().cloned());
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }

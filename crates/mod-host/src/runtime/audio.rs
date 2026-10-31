@@ -1,89 +1,58 @@
-//! Transactional, bounded named-sound suppression.
+//! Independent, return-value-only sound cancellation callbacks.
 use super::*;
 
-impl cinnabar::extension::audio::Host for State {
-    /// Stages a complete set without altering committed audio on admission failure.
-    fn set_muted_sounds(&mut self, mut names: Vec<String>) -> Result<Result<(), String>> {
-        self.environment.write()?;
-        if !self.grants.audio {
-            return Ok(Err("audio capability denied".into()));
-        }
-        if names.len() > mod_api::MAX_MUTED_SOUNDS
-            || names.iter().any(|name| {
-                name.is_empty()
-                    || name.len() > mod_api::MAX_SOUND_NAME_BYTES
-                    || !name
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"_.:/-".contains(&b))
-            })
-        {
-            return Ok(Err("invalid sound names".into()));
-        }
-        names.sort_unstable();
-        names.dedup();
-        self.environment.pending_muted_sounds = Some(names);
-        Ok(Ok(()))
-    }
-}
 impl Instance {
-    /// Only active, authorized instances can contribute sound suppression.
-    pub(crate) fn muted_sounds(&self) -> &[String] {
-        if self.is_active() && self.store.data().grants.audio {
-            &self.store.data().environment.muted_sounds
-        } else {
-            &[]
-        }
+    /// Only running, authorized components with the export receive sounds.
+    pub(crate) fn has_sound_filter(&self) -> bool {
+        self.status == InstanceStatus::Running
+            && self.store.data().grants.audio
+            && self.exports.has_sound_filter()
     }
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cinnabar::extension::audio::Host as _;
-
-    /// Denial and malformed names never change a valid staged replacement.
-    #[test]
-    fn sound_suppression_is_granted_bounded_and_transactional() {
-        let mut state = State::new(Default::default(), "{}".into(), Default::default());
-        assert!(
-            state
-                .set_muted_sounds(vec!["fixture.one".into()])
-                .unwrap()
-                .is_err()
+    /// Bounds observations before lowering; guest failures quarantine without cancelling audio.
+    pub(crate) fn filter_sounds(&mut self, events: Vec<crate::SoundEvent>) -> Result<Vec<bool>> {
+        self.last_fuel = 0;
+        anyhow::ensure!(self.has_sound_filter(), "sound filter authority denied");
+        anyhow::ensure!(
+            events.len() <= mod_api::MAX_SOUND_FILTER_EVENTS,
+            "too many sound events"
         );
-        state.grants.audio = true;
-        state
-            .set_muted_sounds(vec!["fixture.one".into(), "fixture.one".into()])
-            .unwrap()
-            .unwrap();
-        for invalid in [
-            vec!["".into()],
-            vec!["bad\nname".into()],
-            vec!["a".repeat(mod_api::MAX_SOUND_NAME_BYTES + 1)],
-            vec!["a".into(); mod_api::MAX_MUTED_SOUNDS + 1],
-        ] {
-            assert!(state.set_muted_sounds(invalid).unwrap().is_err());
+        anyhow::ensure!(
+            events
+                .iter()
+                .all(|event| event.name.len() <= mod_api::MAX_SOUND_NAME_BYTES
+                    && event
+                        .position
+                        .as_ref()
+                        .is_none_or(|p| p.x.is_finite() && p.y.is_finite() && p.z.is_finite())),
+            "invalid sound observation"
+        );
+        let count = events.len();
+        crate::execution::arm(&mut self.store, FRAME_FUEL, false)?;
+        self.store.call_hook(|_, hook| {
+            anyhow::ensure!(
+                !matches!(hook, wasmtime::CallHook::CallingHost),
+                "sound filters cannot call host imports"
+            );
+            Ok(())
+        });
+        let result = self
+            .exports
+            .filter_sounds(&mut self.store, events)
+            .and_then(|verdict| {
+                anyhow::ensure!(
+                    verdict.len() == count,
+                    "sound verdict length differs from observations"
+                );
+                Ok(verdict)
+            });
+        self.store.call_hook(|_, _| Ok(()));
+        self.last_fuel = FRAME_FUEL - self.store.get_fuel().unwrap_or(0).min(FRAME_FUEL);
+        if result.is_err() {
+            self.quarantine();
         }
-        assert!(state.environment.muted_sounds.is_empty());
-        state.environment.commit();
-        assert_eq!(state.environment.muted_sounds, ["fixture.one"]);
-        state.environment.begin_frame();
-        state.environment.begin_callback();
-        state.environment.commit();
-        assert_eq!(state.environment.muted_sounds, ["fixture.one"]);
-        state.set_muted_sounds(vec![]).unwrap().unwrap();
-        state.environment.rollback();
-        state.environment.commit();
-        assert_eq!(state.environment.muted_sounds, ["fixture.one"]);
-        state.set_muted_sounds(vec![]).unwrap().unwrap();
-        state.environment.commit();
-        assert!(state.environment.muted_sounds.is_empty());
-        state
-            .set_muted_sounds(vec!["fixture.two".into()])
-            .unwrap()
-            .unwrap();
-        state.environment.revoke();
-        state.environment.commit();
-        assert!(state.environment.muted_sounds.is_empty());
+        result
     }
 }
+
+impl cinnabar::extension::sound_filter::Host for State {}

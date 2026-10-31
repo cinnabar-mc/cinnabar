@@ -5,7 +5,6 @@
 The pages below come from the WIT contract. Grants authorize calls; importing an interface grants nothing. See [limits](limits.md) and [worlds and callbacks](worlds.md).
 
 - [Action filter](action-filter.md)
-- [Audio](audio.md)
 - [Budget](budget.md)
 - [Camera](camera.md)
 - [Clock](clock.md)
@@ -32,6 +31,7 @@ The pages below come from the WIT contract. Grants authorize calls; importing an
 - [Session: items](session-items.md)
 - [Session: recipes](session-recipes.md)
 - [Settings](settings.md)
+- [Sound filter](sound-filter.md)
 - [Terrain](terrain.md)
 - [Touch](touch.md)
 - [World drawing: assets](world-draw-assets.md)

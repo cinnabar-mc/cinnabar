@@ -31,10 +31,6 @@ impl Instance {
     ) {
         let state = self.store.data_mut();
         state.render.revoke();
-        if !grants.audio {
-            state.environment.muted_sounds.clear();
-            state.environment.pending_muted_sounds = None;
-        }
         state.grants = grants;
         state.drawing_policy = Some(session);
         state
@@ -74,7 +70,10 @@ impl Instance {
     pub(crate) fn check(engine: &Engine, bytes: &[u8]) -> Result<()> {
         let component = Component::new(engine, bytes)?;
         let mut linker = Linker::new(engine);
-        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        AudioFilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
         super::legacy_input::link(engine, &component, &mut linker)?;
         exports::Exports::check(&linker.instantiate_pre(&component)?)
     }
@@ -118,7 +117,10 @@ impl Instance {
             |session| grants.for_drawing_session(session),
         );
         let mut linker = Linker::new(engine);
-        FilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(&mut linker, |state: &mut State| state)?;
+        AudioFilteredPlayerMod::add_to_linker::<_, HasSelf<_>>(
+            &mut linker,
+            |state: &mut State| state,
+        )?;
         let mut state = State::new(grants, settings, declared);
         state.drawing_policy = policy;
         if let Some(mut session) = policy {

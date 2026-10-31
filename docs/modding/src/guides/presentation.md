@@ -61,18 +61,26 @@ The client merges loaded mods in load order:
 
 So a mod loaded later cannot restyle what an earlier mod owns, but its tooltip lines still show. Design for coexistence: set only the policies your feature needs, because claiming the nametag style to change one colour also blocks every later mod's style.
 
-## Sound suppression
+## Sound events
 
-The `audio` grant allows `cinnabar:extension/audio.set-muted-sounds` to replace a
-component's set of exact sound-definition names. An empty list clears its set.
-Names are case sensitive, 1–128 ASCII letters, digits or `_.:/-`, with at most
-64 entries per call. Invalid calls leave the previous set intact. Calls share
-the environment import allowance.
+Opt into `sound-filtered-player-mod` (or `audio-filtered-player-mod` when also using
+action filtering) and request the `audio` grant to
+receive `filter-sounds` callbacks. Each observation carries its exact routed
+sound-definition name, optional world position and loop flag. Return one boolean
+per event: true plays it, false cancels that request. Sound selection and conditions
+belong in the component. Every admitted authorized filter sees the same batch;
+any cancellation wins.
 
-The host commits replacements only after successful callbacks. World changes,
-unload, quarantine and grant revocation release suppression. Active components'
-sets combine by union, so one component cannot unmute another's sounds.
-Suppression covers queued and decoding starts, active voices and managed loops.
-Clearing it allows future one-shots and managed loops to start normally; discarded
-one-shots are not replayed. Resource packs that route an event to another definition
-need that definition's exact name to suppress it.
+The callback runs before new sounds enter decoding or playback, once per audio
+frame with at most 256 observations and 128 bytes per name. It cannot call host
+imports and has bounded fuel, with a shared audio-frame pool. Observers run in load
+order with their full callback allowance, or are skipped for that frame when the
+pool cannot admit another full callback. Cache any other facts during ordinary
+frame callbacks. Missing grants, absent callbacks, traps and malformed results
+leave audio playing; failing components are quarantined. Excess or oversized
+observations pass through. Unloading immediately removes the observer.
+
+Cancellation discards a one-shot rather than delaying it. Previously approved
+decodes are not offered again, and playing sounds are not stopped. Managed loops
+offer a new start when they need one, so a later callback may admit a previously
+cancelled loop. Resource packs are observed after routing to their sound definitions.

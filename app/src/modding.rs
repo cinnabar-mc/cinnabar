@@ -81,6 +81,11 @@ pub(crate) struct ModRuntime {
 }
 
 impl ModRuntime {
+    /// Borrows sound observers only while personal components are running and opted in.
+    pub(crate) fn sound_filters(&mut self) -> Option<&mut ModHosts> {
+        (!self.suspended && self.hosts.has_sound_filters()).then_some(&mut self.hosts)
+    }
+
     /// Starts a runtime with one host and its stable presentation metadata.
     fn new(host: ModHost, metadata: registration::HostMetadata) -> Self {
         Self {
