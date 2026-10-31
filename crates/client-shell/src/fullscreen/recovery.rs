@@ -58,6 +58,9 @@ fn initialize(
 impl FullscreenTransition {
     /// Retains the newest input while the preceding durable write is still running.
     pub(super) fn request(&mut self, fullscreen: bool) {
+        if self.guard.is_some() && !self.armed {
+            self.blocked = false;
+        }
         self.requested = Some(fullscreen);
     }
 

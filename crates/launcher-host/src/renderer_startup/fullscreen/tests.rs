@@ -68,3 +68,19 @@ fn a_live_transition_cannot_be_consumed_by_another_client() {
     assert_eq!(video_settings::load(dir.path()).unwrap(), settings);
     guard.clear().unwrap();
 }
+
+#[test]
+fn idle_clients_release_the_lease_and_cannot_clear_another_transition() {
+    let dir = tempfile::tempdir().unwrap();
+    saved(dir.path());
+    let mut first = FullscreenGuard::open(dir.path()).unwrap();
+    let mut second = FullscreenGuard::open(dir.path()).unwrap();
+    first.begin().unwrap();
+    first.clear().unwrap();
+    second.begin().unwrap();
+    first.clear().unwrap();
+    assert!(first.begin().is_err());
+    drop(first);
+    drop(second);
+    assert!(FullscreenGuard::open(dir.path()).unwrap().recovered);
+}
