@@ -6,7 +6,7 @@ use super::geometry::vanilla_cuboid_quads;
 use super::torches::{TorchKind, TorchPlacement, torch_quads};
 use assets::facts::pack::PackBlock as B;
 use assets::facts::{BlockProperty, BlockRenderKind as R, block_render_fact};
-use {super::super::*, assets::BlockFace};
+use {super::super::*, assets::BlockFace, assets::MODEL_QUAD_FLAG_FACE_MASK};
 
 /// Plate height in 1/256 block; the torches stop at it.
 const PLATE_TOP: i16 = 32;
@@ -209,15 +209,24 @@ pub(in crate::compiler) fn compile_rule(
         let mut quads = plate_quads(materials, direction);
         for ([x, drop, z], lit) in torches(pose) {
             if let Some(material) = torch_materials.pick(lit) {
-                quads.extend(torch_quads(
-                    material,
-                    TorchKind::Redstone,
-                    TorchPlacement {
-                        origin: [x, drop, z],
-                        tilt: [0.0; 2],
-                        floor: PLATE_FLOOR,
-                    },
-                ));
+                // Native lights the torches from the diode's own cell and only the plate from its
+                // neighbours; a quad with no face takes that own-cell path.
+                quads.extend(
+                    torch_quads(
+                        material,
+                        TorchKind::Redstone,
+                        TorchPlacement {
+                            origin: [x, drop, z],
+                            tilt: [0.0; 2],
+                            floor: PLATE_FLOOR,
+                        },
+                    )
+                    .into_iter()
+                    .map(|quad| ModelQuad {
+                        flags: quad.flags & !MODEL_QUAD_FLAG_FACE_MASK,
+                        ..quad
+                    }),
+                );
             }
         }
         let template = push_model_template(quads, 0, storage.templates, storage.quads)?;

@@ -261,6 +261,25 @@ fn comparator_torches_follow_direction_and_mode() {
     assert_eq!(material(subtracting, 2), lit);
 }
 
+/// Only a plate samples its neighbours' light; a quad with no face takes the diode's own cell.
+#[test]
+fn diode_torches_carry_no_face_so_they_light_from_their_own_cell() {
+    let (compiled, records) = compile_fixture(is_diode_or_redstone_torch);
+    let quads = state_quads(
+        &compiled,
+        &records,
+        "minecraft:unpowered_repeater",
+        &[
+            ("minecraft:cardinal_direction", "south"),
+            ("repeater_delay", "0"),
+        ],
+    );
+    assert!(quads.len() > 6);
+    let face = |quad: &ModelQuad| quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK;
+    assert!(quads[..6].iter().all(|quad| face(quad) != 0));
+    assert!(quads[6..].iter().all(|quad| face(quad) == 0));
+}
+
 #[test]
 fn diode_plates_are_two_pixels_tall_and_turn_their_top_art() {
     let (compiled, records) = compile_fixture(is_diode_or_redstone_torch);
