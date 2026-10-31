@@ -8,6 +8,7 @@ use bevy::{
     },
 };
 
+/// Releases inactive and suspended camera outputs before Bevy repairs a window surface.
 pub(crate) fn install(render_app: &mut SubApp) {
     render_app.add_systems(
         Render,
@@ -17,7 +18,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
     );
 }
 
-/// Inactive and zero-size cameras lose `ExtractedCamera` during extraction, but Bevy
+/// Inactive, zero-size and oversized cameras lose `ExtractedCamera` during extraction, but Bevy
 /// retains their `ViewTarget`. Its output view must drop before DXGI resizes the window.
 /// Bevy's ordinary resize cleanup only sees targets with an extracted camera.
 fn release_orphan_targets<T: Component>(
@@ -47,6 +48,7 @@ mod tests {
     #[derive(Resource)]
     struct SurfaceOwner(Weak<()>);
 
+    /// Asserts that deferred removal released every retained output before configuration.
     fn configure_surface(owner: Res<SurfaceOwner>) {
         assert!(
             owner.0.upgrade().is_none(),
@@ -54,6 +56,7 @@ mod tests {
         );
     }
 
+    /// Builds an extracted camera without allocating GPU resources.
     fn camera() -> ExtractedCamera {
         ExtractedCamera {
             target: None,

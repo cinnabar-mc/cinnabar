@@ -118,7 +118,11 @@ Menus, HUD and inventory previews retain native output pixels; the hand, world-s
 nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
 If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
-Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+Lost surfaces are recreated on the existing device after retained outputs are released.
+Repeated acquisition validation failures escalate from configuration to recreation.
+Zero-size and oversized windows suspend window rendering and resume at a valid size.
+Displayed recovery on Vulkan, DX12 and Wayland, oversized native-window resize,
+displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
 ### Terrain, materials and biome acceptance
 
