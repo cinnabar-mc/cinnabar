@@ -10,7 +10,8 @@ const HEAD_FOOT_X: i16 = 192;
 const HEAD_FOOT_Y: i16 = 26;
 const HEAD_TOP_Y: i16 = 282;
 
-fn is_record(record: &RegistryRecord) -> bool {
+/// Whether the record is either half of a sunflower.
+pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
     record.name.as_ref() == B::Sunflower.identifier()
 }
 

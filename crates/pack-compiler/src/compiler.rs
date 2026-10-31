@@ -507,6 +507,7 @@ fn compile_pack_sources(
             || is_liquid(record)
             || visuals::fire::is_record(record)
             || visuals::potted_plants::is_record(record)
+            || visuals::sunflower::is_record(record)
         {
             &BlockFace::ALL
         } else if is_aquatic_cross(record) {
