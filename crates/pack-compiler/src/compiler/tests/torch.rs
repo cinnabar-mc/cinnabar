@@ -137,11 +137,18 @@ fn state_quads<'a>(
         [template.quad_start as usize..(template.quad_start + template.quad_count) as usize]
 }
 
+/// Whether a torch quad after the six plate faces is a cap: level and above the plate. Diode
+/// torch quads carry no face, so only their geometry tells them apart.
+fn is_torch_cap(quad: &ModelQuad) -> bool {
+    let y = quad.positions[0][1];
+    y > 32 && quad.positions.iter().all(|position| position[1] == y)
+}
+
 /// Centres of each torch's top cap above the plate, as `[x, y, z]` in 1/256 block.
 fn torch_caps(quads: &[ModelQuad]) -> Vec<[i16; 3]> {
     quads[6..]
         .iter()
-        .filter(|quad| quad.flags == 2)
+        .filter(|quad| is_torch_cap(quad))
         .map(|quad| {
             let sum = |axis: usize| quad.positions.iter().map(|p| p[axis]).sum::<i16>() / 4;
             [sum(0), sum(1), sum(2)]
@@ -234,7 +241,7 @@ fn comparator_torches_follow_direction_and_mode() {
     let material = |quads: &[ModelQuad], index: usize| {
         quads[6..]
             .iter()
-            .filter(|quad| quad.flags == 2)
+            .filter(|quad| is_torch_cap(quad))
             .nth(index)
             .unwrap()
             .material
