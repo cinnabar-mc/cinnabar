@@ -2,7 +2,7 @@
 
 use std::{
     ffi::OsString,
-    fs,
+    fs::{self, File},
     io::{self, Write},
     path::{Path, PathBuf},
     process::{Child, Command, ExitStatus, Stdio},
@@ -10,7 +10,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use assets::carriers;
 use diagnostics::session_log::SharedLog;
 use serde::Deserialize;
@@ -81,6 +81,8 @@ pub(super) struct Compiler<'a> {
     /// helper it stays in the helper's group instead, so a rollback stops it too.
     #[cfg(unix)]
     pub own_group: bool,
+    /// Runs at the lowest CPU and I/O priority, beside a game that must keep its frame rate.
+    pub background: bool,
 }
 
 impl Compiler<'_> {
@@ -141,6 +143,53 @@ impl Compiler<'_> {
         }
     }
 
+    /// Rebuilds the stale carriers in `out` on at most `jobs` workers as a tracked child, which
+    /// every client exit path stops; both output streams go to `log`.
+    pub(super) fn prepare_in_background(&self, out: &Path, jobs: usize, log: File) -> Result<()> {
+        if self.cancel.load(Ordering::Relaxed) {
+            return Err(Cancelled.into());
+        }
+        let mut command = self.command();
+        command
+            .args(self.prepare_args(out))
+            .args(["--jobs".into(), jobs.to_string(), "--lifeline".into()])
+            // Recipes that parallelise internally stay within the same bound.
+            .env("RAYON_NUM_THREADS", jobs.to_string())
+            .current_dir(&self.workspace)
+            .stdin(Stdio::piped())
+            .stdout(log.try_clone()?)
+            .stderr(log);
+        fs::create_dir_all(&self.workspace)?;
+        let child = launcher_host::lifecycle::children::spawn(&mut command)
+            .context("start the asset compiler")?;
+        let status = loop {
+            if self.cancel.load(Ordering::Relaxed) {
+                child.stop(Duration::ZERO);
+                return Err(Cancelled.into());
+            }
+            match child.try_wait() {
+                Ok(Some(status)) => break status,
+                Ok(None) => std::thread::park_timeout(CANCEL_POLL),
+                Err(error) => {
+                    child.stop(Duration::ZERO);
+                    return Err(error).context("wait for the asset compiler");
+                }
+            }
+        };
+        ensure!(status.success(), "the asset compiler exited with {status}");
+        Ok(())
+    }
+
+    /// The compiler program; a background run starts at the lowest priority.
+    fn command(&self) -> Command {
+        let compiler = carriers::kit_compiler(&self.kit);
+        if self.background {
+            background_command(&compiler)
+        } else {
+            Command::new(compiler)
+        }
+    }
+
     fn log_writer(&self) -> Box<dyn Write + Send> {
         match &self.log {
             Some(log) => Box::new(log.clone()),
@@ -164,7 +213,7 @@ impl Compiler<'_> {
         if self.cancel.load(Ordering::Relaxed) {
             return Err(Cancelled.into());
         }
-        let mut command = Command::new(carriers::kit_compiler(&self.kit));
+        let mut command = self.command();
         command.args(args);
         #[cfg(all(windows, not(debug_assertions)))]
         launcher_host::desktop::windows::hide_console(&mut command);
@@ -215,6 +264,43 @@ impl Compiler<'_> {
     }
 }
 
+/// The system tool that runs a program under macOS's background policy.
+#[cfg(target_os = "macos")]
+const TASKPOLICY: &str = "/usr/sbin/taskpolicy";
+/// The weakest Unix scheduling priority; Linux also derives the lowest I/O priority from it.
+#[cfg(unix)]
+const LOWEST_NICE: i32 = 19;
+
+/// `compiler` at the lowest CPU and I/O priority; macOS's background policy also keeps it on
+/// efficiency cores.
+#[cfg(unix)]
+fn background_command(compiler: &Path) -> Command {
+    use std::os::unix::process::CommandExt;
+    #[cfg(target_os = "macos")]
+    let mut command = if Path::new(TASKPOLICY).is_file() {
+        let mut command = Command::new(TASKPOLICY);
+        command.arg("-b").arg(compiler);
+        command
+    } else {
+        Command::new(compiler)
+    };
+    #[cfg(not(target_os = "macos"))]
+    let mut command = Command::new(compiler);
+    // SAFETY: the hook makes one setpriority system call, which is safe between fork and exec.
+    unsafe {
+        command.pre_exec(|| {
+            rustix::process::setpriority_process(None, LOWEST_NICE).map_err(io::Error::from)
+        });
+    }
+    command
+}
+
+/// Windows installs updates with its MSI, so no background run starts there.
+#[cfg(not(unix))]
+fn background_command(compiler: &Path) -> Command {
+    Command::new(compiler)
+}
+
 /// Copies the published carriers into `staged` so carriers that are still current carry over.
 pub(super) fn seed(prepared: &Path, staged: &Path) -> Result<()> {
     if prepared.is_dir() {
@@ -223,7 +309,8 @@ pub(super) fn seed(prepared: &Path, staged: &Path) -> Result<()> {
     Ok(())
 }
 
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+/// Copies every file below `from` to the same relative path below `to`.
+pub(super) fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     fs::create_dir_all(to).with_context(|| format!("create {}", to.display()))?;
     for entry in fs::read_dir(from).with_context(|| format!("read {}", from.display()))? {
         let entry = entry?;
@@ -312,6 +399,7 @@ mod tests {
             )),
             cancel,
             own_group: true,
+            background: false,
         }
     }
 

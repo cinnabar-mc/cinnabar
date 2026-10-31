@@ -10,7 +10,11 @@ carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). 
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
 pack archive and extracted resource versions are kept so carrier-only updates skip downloading
 and unpacking cached resources, even when the archive was removed. Extracted caches are bound to
-the pinned archive's SHA-256, independently of the Cinnabar version. Status: `logs/first-run-status.json`;
+the pinned archive's SHA-256, independently of the Cinnabar version. On macOS and extracted Linux
+AppDirs the running client builds a staged update's carriers at the lowest priority into
+`prepare/next/` (log: `logs/first-run-next.log`), which the update's first launch promotes when
+current; a new pack pin, an unfinished build or a Windows MSI update prepares at launch instead,
+resuming any partial set. Status: `logs/first-run-status.json`;
 details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
 whether or not a terminal is attached. Each launch archives the previous session as
 `client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues
