@@ -30,7 +30,7 @@ pub(super) struct ModObservation<'w, 's> {
     bindings: Local<'s, bindings::Bindings>,
     input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
     #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
-    pointer_isolation: Option<ResMut<'w, crate::developer_control::PointerIsolation>>,
+    pointer_isolation: Option<ResMut<'w, crate::developer_control::cursor_isolation::Isolation>>,
 }
 
 #[allow(
@@ -222,7 +222,7 @@ pub(super) fn drive_mod(
         .and_then(|(window, _)| window.cursor_position())
         .map(|point| point.to_array());
     let container = observed_container_screen(&player_runtime, &ui);
-    let pointer_focused = focused && focus.as_ref().is_none_or(|focus| focus.available());
+    let pointer_focused = pointer_focus_available(focused, focus.as_deref(), driven.is_some());
     let pointer_available = container_pointer_available(
         &player_runtime,
         &ui,
@@ -457,12 +457,16 @@ pub(super) fn drive_mod(
     }
     if let Some([x, y]) = pointer
         && let Ok((mut window, _)) = windows.single_mut()
-        && window.focused
+        && (driven.is_some() || window.focused)
         && container.is_some()
         && !extension
             .hosts
             .host(extension.hosts.panel_owner())
             .panel_open()
+        && !extension
+            .hosts
+            .screen_owner()
+            .is_some_and(|owner| extension.hosts.host(owner).screens().view.is_some())
         && container_pointer_available(
             &player_runtime,
             &ui,
@@ -476,7 +480,7 @@ pub(super) fn drive_mod(
             (y * window.height()).min((window.height() - 1.0).max(0.0)),
         );
         #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
-        crate::developer_control::position_pointer(
+        crate::developer_control::cursor_isolation::position_pointer(
             &mut window,
             pointer_isolation.as_deref_mut(),
             driven.is_some(),
@@ -672,6 +676,15 @@ fn observed_container_screen(
         .flatten()
 }
 
+/// Driven input owns virtual focus independently of occluded or unfocused desktop windows.
+fn pointer_focus_available(
+    focused: bool,
+    focus: Option<&client_state::CursorFocus>,
+    driven: bool,
+) -> bool {
+    driven || (focused && focus.is_none_or(|focus| focus.available()))
+}
+
 /// Restricts pointer writes to the top container scene and authoritative desktop focus.
 fn container_pointer_available(
     player: &player_state::PlayerState,
@@ -695,7 +708,7 @@ fn container_pointer_available(
 
 #[cfg(test)]
 mod pointer_observation_tests {
-    use super::{container_pointer_available, observed_container_screen};
+    use super::{container_pointer_available, observed_container_screen, pointer_focus_available};
     /// A default personal layout is not evidence that its inventory is open.
     #[test]
     fn container_observation_follows_inventory_lifetime() {
@@ -727,8 +740,10 @@ mod pointer_observation_tests {
             false,
             true
         ));
-        let mut focus = semantic_input::cursor_focus::CursorFocus::default();
+        let mut focus = client_state::CursorFocus(Default::default());
         focus.occlusion_changed(true);
+        assert!(!pointer_focus_available(true, Some(&focus), false));
+        assert!(pointer_focus_available(false, Some(&focus), true));
         assert!(!container_pointer_available(
             &player,
             &ui,
