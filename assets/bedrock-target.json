@@ -12,6 +12,7 @@
   "codec_contract": 2,
   "codec_crate": "bedrock-protocol-1-26-60",
   "codec_manifest_sha256": "44bb0819bd92c863eb6050309e3c78b275fb5a1e3ce4369c97f07e62c44e2732",
+  "codec_package": "bedrock-protocol-contract-1-26-60",
   "game_version": "1.26.60",
   "hashes": {
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
