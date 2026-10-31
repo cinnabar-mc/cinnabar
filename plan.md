@@ -1362,7 +1362,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
-  normal polls) to catch writes with unchanged metadata on every platform. Local frame fuel
+  normal polls) to catch writes with unchanged metadata on every platform. Authority changes
+  and completed admissions wake the loader directly. Identical panel bundles share immutable
+  resolved catalogs while a presenter retains them; each reload gets fresh publisher and
+  input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
   resets the count. Other guest traps still quarantine immediately. Live overrun recovery
