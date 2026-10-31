@@ -143,20 +143,40 @@ fn worker_streams_survive_publication_extraction_and_retirement_without_payload_
         )
         .unwrap();
     assert_shared_mesh(&mesh, &extracted);
+    let replacement_mesh =
+        mixed_mesh().with_transparent_model_draw_refs(vec![PackedModelDrawRef::new(0, 0)]);
     let replacement = instance.clone().with_resource_mesh(
-        mesh.clone(),
+        replacement_mesh.clone(),
         PackedBiomeRecord::fallback(),
         ChunkBiomeTintIdentity::default(),
     );
-    assert_shared_mesh(&mesh, &replacement);
-    drop(replacement);
+    assert_shared_mesh(&replacement_mesh, &replacement);
+    assert_ne!(mesh.cube_quads().as_ptr(), replacement.cube_quads.as_ptr());
+    assert_ne!(
+        mesh.transparent_model_draw_refs(),
+        replacement.transparent_model_draw_refs()
+    );
+    app.world_mut().entity_mut(entity).insert(replacement);
+    drop(replacement_mesh);
+    drop(mesh);
     app.world_mut()
         .resource_mut::<render_scene::ChunkRenderQueue>()
         .reset_session();
     app.update();
     assert!(app.world().get::<ChunkRenderInstance>(entity).is_none());
     drop(app);
-    assert_shared_mesh(&mesh, &extracted);
+    let expected = mixed_mesh();
+    assert_eq!(expected.cube_quads(), extracted.cube_quads());
+    assert_eq!(expected.cube_lighting(), extracted.cube_lighting());
+    assert_eq!(expected.model_refs(), extracted.model_refs());
+    assert_eq!(expected.model_lighting(), extracted.model_lighting());
+    assert_eq!(expected.model_draw_refs(), extracted.model_draw_refs());
+    assert_eq!(
+        expected.transparent_model_draw_refs(),
+        extracted.transparent_model_draw_refs()
+    );
+    assert_eq!(expected.liquid_quads(), extracted.liquid_quads());
+    assert_eq!(expected.liquid_lighting(), extracted.liquid_lighting());
 }
 
 /// Counts payload materialized by collection before it reaches mapped staging.
