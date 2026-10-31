@@ -1,12 +1,12 @@
 //! Chorus flowers are three crossed bars, drawn with withered art at their final age.
 
+use super::super::*;
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::vanilla_cuboid_quads;
 use assets::facts::pack::PackBlock as B;
-use super::super::*;
 
 /// The age at which a flower can no longer grow and shows its withered art.
 const WITHERED_AGE: u32 = 5;
