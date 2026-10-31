@@ -71,7 +71,7 @@ fn arms(record: &RegistryRecord) -> Option<Arms> {
 /// The state's power, which only the descriptor reads.
 fn signal(record: &RegistryRecord) -> Option<u32> {
     match record.property(BlockProperty::RedstoneSignal)? {
-        StateValue::Int(signal) => u32::try_from(signal).ok(),
+        StateValue::Int(signal) => u32::try_from(*signal).ok(),
         _ => None,
     }
 }
