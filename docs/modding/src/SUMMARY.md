@@ -68,3 +68,4 @@
 - [Entity masks](appendix/entity-masks.md)
 - [Native packet frames](appendix/native-frame.md)
 - [Native packet menus](appendix/native-menu.md)
+- [Shared mod list (Mods Core)](appendix/mods-core.md)
