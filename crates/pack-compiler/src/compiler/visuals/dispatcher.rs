@@ -487,6 +487,11 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.speleothem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::vine_stem::compile_rule(
             record,
             inputs,
