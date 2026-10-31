@@ -241,6 +241,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .route()
         .overrides_fallback
         || super::heavy_core::is_record(record)
+        || super::speleothem::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
