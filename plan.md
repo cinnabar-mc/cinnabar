@@ -1065,6 +1065,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Desktop fullscreen entry is journaled until a new-mode presentation completes. An
+  interrupted entry resets only fullscreen on the next launch; successful entry and
+  orderly exits preserve the preference. Native compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.

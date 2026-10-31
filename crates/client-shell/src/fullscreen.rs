@@ -5,12 +5,16 @@
 
 use bevy::{
     input::{ButtonState, keyboard::KeyboardInput},
-    prelude::{Entity, Local, MessageReader, Query, ResMut, With},
+    prelude::{Entity, Local, MessageReader, Query, Res, ResMut, With},
     window::{MonitorSelection, PrimaryWindow, Window, WindowMode},
 };
 use launcher::menu::settings_options::BindingId;
 
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
+
+pub(crate) mod recovery;
+pub use recovery::FullscreenTransition;
+use render_scene::startup_presentation::StartupPresentation;
 
 /// Read before menu input clears its keyboard state. OS key repeats must not
 /// flip fullscreen again while F11 is held, including on a visible menu.
@@ -19,6 +23,7 @@ pub fn toggle_fullscreen_hotkey(
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     mut settings: ResMut<RuntimeSettings>,
     mut menu: ResMut<MenuRuntime>,
+    mut transition: Option<ResMut<FullscreenTransition>>,
 ) {
     let Ok((entity, mut window)) = windows.single_mut() else {
         keyboard.clear();
@@ -44,10 +49,13 @@ pub fn toggle_fullscreen_hotkey(
     if !window.focused || toggles % 2 == 0 {
         return;
     }
-    let fullscreen = !menu
-        .take_fullscreen_change()
-        .unwrap_or_else(|| is_fullscreen(&window));
-    set_fullscreen(&mut window, fullscreen);
+    let fullscreen = !menu.take_fullscreen_change().unwrap_or_else(|| {
+        transition
+            .as_ref()
+            .and_then(|transition| transition.requested())
+            .unwrap_or_else(|| is_fullscreen(&window))
+    });
+    set_fullscreen(&mut window, fullscreen, transition.as_deref_mut());
     record_fullscreen(&mut settings, fullscreen);
     menu.sync_fullscreen(fullscreen);
 }
@@ -59,6 +67,8 @@ pub fn apply_runtime_fullscreen_setting(
     mut settings: ResMut<RuntimeSettings>,
     mut menu: ResMut<MenuRuntime>,
     mut observed_generation: Local<u64>,
+    mut transition: Option<ResMut<FullscreenTransition>>,
+    feedback: Option<Res<StartupPresentation>>,
 ) {
     let Ok(mut window) = windows.single_mut() else {
         return;
@@ -68,20 +78,31 @@ pub fn apply_runtime_fullscreen_setting(
         return;
     }
     if let Some(fullscreen) = menu.take_fullscreen_change() {
-        set_fullscreen(&mut window, fullscreen);
+        set_fullscreen(&mut window, fullscreen, transition.as_deref_mut());
         record_fullscreen(&mut settings, fullscreen);
     } else {
         let (generation, user_settings) = settings.user_settings_update();
         if generation > *observed_generation {
-            set_fullscreen(&mut window, user_settings.video.fullscreen);
-        } else {
-            record_fullscreen(&mut settings, is_fullscreen(&window));
+            set_fullscreen(
+                &mut window,
+                user_settings.video.fullscreen,
+                transition.as_deref_mut(),
+            );
         }
     }
+    if let Some(transition) = transition.as_deref_mut() {
+        transition.update(&mut window, feedback.as_deref());
+    }
+    let fullscreen = transition
+        .as_ref()
+        .and_then(|transition| transition.requested())
+        .unwrap_or_else(|| is_fullscreen(&window));
+    record_fullscreen(&mut settings, fullscreen);
     *observed_generation = settings.user_settings_update().0;
-    menu.sync_fullscreen(is_fullscreen(&window));
+    menu.sync_fullscreen(fullscreen);
 }
 
+/// Reports the primary window's requested native mode.
 fn is_fullscreen(window: &Window) -> bool {
     window.mode != WindowMode::Windowed
 }
@@ -98,12 +119,22 @@ pub fn window_mode(fullscreen: bool) -> WindowMode {
     }
 }
 
-fn set_fullscreen(window: &mut Window, fullscreen: bool) {
+/// Queues guarded native entry, or applies it directly for adapters without recovery.
+fn set_fullscreen(
+    window: &mut Window,
+    fullscreen: bool,
+    transition: Option<&mut FullscreenTransition>,
+) {
+    if let Some(transition) = transition {
+        transition.request(fullscreen);
+        return;
+    }
     if fullscreen != is_fullscreen(window) {
         window.mode = window_mode(fullscreen);
     }
 }
 
+/// Retains the requested mode without changing any other user settings.
 fn record_fullscreen(settings: &mut RuntimeSettings, fullscreen: bool) {
     settings.set_fullscreen(fullscreen);
 }

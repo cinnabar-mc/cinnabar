@@ -22,9 +22,39 @@ struct Content {
     epoch: u64,
     active: bool,
     presented: Option<Instant>,
+    mode_epoch: u64,
+    mode_pending: bool,
 }
 
 impl StartupPresentation {
+    /// Starts a display-mode attempt; older extracted frames cannot complete this attempt.
+    pub fn begin_mode_change(&self) -> u64 {
+        let mut content = self.0.content.lock().expect("startup content lock");
+        content.mode_epoch += 1;
+        content.mode_pending = true;
+        content.mode_epoch
+    }
+
+    /// The mode attempt for which the renderer still needs to submit a presentation callback.
+    pub fn pending_mode_change(&self) -> Option<u64> {
+        let content = self.0.content.lock().expect("startup content lock");
+        content.mode_pending.then_some(content.mode_epoch)
+    }
+
+    /// Accepts only a GPU-completed presentation extracted after this display-mode request.
+    pub fn record_mode_frame(&self, epoch: u64) {
+        let mut content = self.0.content.lock().expect("startup content lock");
+        if content.mode_epoch == epoch {
+            content.mode_pending = false;
+        }
+    }
+
+    /// Confirms that this attempt, rather than an earlier in-flight frame, completed.
+    pub fn mode_change_completed(&self, epoch: u64) -> bool {
+        let content = self.0.content.lock().expect("startup content lock");
+        content.mode_epoch == epoch && !content.mode_pending
+    }
+
     /// The first presented frame and two more establish that rendering kept making progress.
     pub const REQUIRED_FRAMES: u8 = 3;
 
@@ -114,6 +144,20 @@ mod tests {
 #[cfg(test)]
 mod surface_tests {
     use super::*;
+
+    #[test]
+    fn mode_changes_require_a_presentation_from_their_own_extracted_frame() {
+        let feedback = StartupPresentation::default();
+        feedback.record_completed_frame();
+        let old = feedback.begin_mode_change();
+        let current = feedback.begin_mode_change();
+        feedback.record_mode_frame(old);
+        assert!(!feedback.mode_change_completed(current));
+        assert_eq!(feedback.pending_mode_change(), Some(current));
+        feedback.record_mode_frame(current);
+        assert!(feedback.mode_change_completed(current));
+        assert_eq!(feedback.pending_mode_change(), None);
+    }
 
     #[test]
     fn old_surface_callbacks_and_unconsumed_readiness_do_not_survive_replacement() {
