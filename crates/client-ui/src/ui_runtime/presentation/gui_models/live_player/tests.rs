@@ -495,3 +495,35 @@ fn cosmetic_motion_and_hud_vertices_reuse_storage_on_steady_frames() {
     });
     assert_eq!(allocations, 0, "changing motion retains the equipped map");
 }
+
+// The native doll keeps the world's gliding tilt: a level glider lies face down about its feet.
+#[test]
+fn a_gliding_doll_lies_forward_about_its_feet() {
+    let catalog = player_catalog(8);
+    let stream = player_stream(Arc::clone(&catalog), catalog);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let crown = |presentation: &UiPresentationRuntime| {
+        presentation
+            .gui_models
+            .live_player
+            .parts
+            .iter()
+            .flatten()
+            .next()
+            .expect("posed biped part")
+            .transform_point3(Vec3::Y)
+    };
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+    let standing = crown(&presentation);
+
+    presentation.set_hud_glide(Some([-90.0, 0.0]));
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+    let gliding = crown(&presentation);
+    assert!(gliding.y.abs() < 1e-4, "{gliding:?}");
+    assert!((gliding.z - standing.y).abs() < 1e-4, "{gliding:?}");
+
+    presentation.set_hud_glide(None);
+    presentation.capture_hud_player_reference(Some(stream.authority().local_player_ui()), false);
+    assert_eq!(crown(&presentation), standing);
+}
