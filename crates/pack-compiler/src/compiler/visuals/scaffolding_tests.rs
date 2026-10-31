@@ -138,6 +138,25 @@ fn up_and_down_rotations_match_the_native_corner_tables() {
 }
 
 #[test]
+fn a_pole_foot_reads_its_position_in_the_bottom_art_mirrored_within_itself() {
+    let [_, poles, _] = parts(ART);
+    let foot = poles
+        .iter()
+        .find(|quad| {
+            quad.material == ART.bottom
+                && quad
+                    .positions
+                    .iter()
+                    .all(|p| p[0] <= INSET && p[2] <= INSET)
+        })
+        .expect("pole at the low corner");
+    for (position, uv) in foot.positions.iter().zip(foot.uvs) {
+        let expected_v = if position[2] == 0 { BAND } else { 0 };
+        assert_eq!(uv[1], expected_v, "{position:?}");
+    }
+}
+
+#[test]
 fn quads_are_wound_to_face_outward() {
     let [foot, poles, crown] = parts(ART);
     for quad in foot.iter().chain(&poles).chain(&crown) {

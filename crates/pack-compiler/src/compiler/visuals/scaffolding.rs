@@ -140,8 +140,8 @@ fn pole(art: Art, flip: Flip, [x, z]: [i16; 2]) -> Vec<ModelQuad> {
     BlockFace::ALL
         .into_iter()
         .map(|face| match face {
-            BlockFace::Up => textured(art.top, face, low, high, positional_up(low, high), 0),
-            BlockFace::Down => textured(art.bottom, face, low, high, positional_down(low, high), 0),
+            BlockFace::Up => textured(art.top, face, low, high, positional(low, high), 0),
+            BlockFace::Down => textured(art.bottom, face, low, high, positional(low, high), 0),
             _ => {
                 let u = if left_faces.contains(&face) {
                     [0, BAND]
@@ -186,14 +186,7 @@ fn rail(art: Art, flip: Flip, origin: [i16; 3], foot: bool) -> Vec<ModelQuad> {
             rotation,
         )
     } else {
-        textured(
-            art.top,
-            BlockFace::Up,
-            low,
-            high,
-            positional_up(low, high),
-            0,
-        )
+        textured(art.top, BlockFace::Up, low, high, positional(low, high), 0)
     };
     let down = textured(
         art.bottom,
@@ -243,14 +236,9 @@ fn plate(art: Art) -> Vec<ModelQuad> {
         .collect()
 }
 
-/// The rect that gives an Up face its position in the block.
-fn positional_up(low: [i16; 3], high: [i16; 3]) -> Rect {
+/// The rect that gives an Up or Down face its position in the block.
+fn positional(low: [i16; 3], high: [i16; 3]) -> Rect {
     [uv(low[0]), uv(high[0]), uv(low[2]), uv(high[2])]
-}
-
-/// The rect that gives a Down face its position in the block.
-fn positional_down(low: [i16; 3], high: [i16; 3]) -> Rect {
-    [uv(low[0]), uv(high[0]), uv(high[2]), uv(low[2])]
 }
 
 /// Converts a model position to a texture coordinate.
