@@ -9,6 +9,7 @@ pub(super) const SUPERSET_UPDATE_LIMIT: u32 = 16;
 /// and lost connections can only shrink what is reachable, so `visible` stays a superset of the
 /// exact result until a rebuild at most [`SUPERSET_UPDATE_LIMIT`] updates later, or at the next
 /// camera section change, whichever comes first.
+#[cfg(test)]
 pub(crate) fn update_visible(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,
@@ -16,6 +17,37 @@ pub(crate) fn update_visible(
     visible: &mut CaveVisibleSet,
     replacement: &mut CaveVisibleSet,
 ) -> bool {
+    if update_incrementally(camera, grid, scratch, visible) == RetainedUpdate::Updated {
+        return false;
+    }
+    let attempted = scratch.work;
+    fill_visible(camera, grid, scratch, replacement);
+    scratch.work.explored_exits += attempted.explored_exits;
+    scratch.work.proof_exits = attempted.proof_exits;
+    scratch.work.additions = attempted.additions;
+    true
+}
+
+/// Whether a retained traversal still proves its visibility after applying current changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum RetainedUpdate {
+    Updated,
+    /// Visibility remains a superset, but a full search is due to make it exact again.
+    Rebuild,
+    /// No current hiding proof remains; show all sections until a full search catches up.
+    Invalid,
+}
+
+/// Applies cheap changes without a full search. A rebuild may be due while the updated
+/// visible set still safely hides sections; only `Invalid` requires restoring them all.
+pub(super) fn update_incrementally(
+    camera: SubChunkKey,
+    grid: &ConnectivityGrid,
+    scratch: &mut CaveVisibilityScratch,
+    visible: &mut CaveVisibleSet,
+) -> RetainedUpdate {
+    scratch.added_visible.clear();
+    scratch.work = CaveVisibilityWork::default();
     let checkpoint = grid.checkpoint();
     // Under Sodium's rule the reached set depends on the camera's section itself, so only
     // graph additions seen from the same section extend it.
@@ -26,11 +58,8 @@ pub(crate) fn update_visible(
         || !grid.retains_changes(scratch.checkpoint.2)
         || scratch.camera_present != grid.contains_key(&camera)
     {
-        fill_visible(camera, grid, scratch, replacement);
-        return true;
+        return RetainedUpdate::Invalid;
     }
-    scratch.added_visible.clear();
-    scratch.work = CaveVisibilityWork::default();
     let previously_reached = scratch.touched.len();
     // Removals and promotions first bring every slot's state up to its current occupant, so
     // openings then seed against the current layout whatever order the changes came in.
@@ -57,19 +86,16 @@ pub(crate) fn update_visible(
         }
     }
     propagate(grid, scratch);
-    let superset_updates = scratch.superset_updates.map(|updates| updates + 1);
+    let superset_updates = scratch
+        .superset_updates
+        .map(|updates| updates.saturating_add(1));
     scratch.superset_updates = superset_updates;
     // A superset traversal cannot prove that a new camera section reaches the same region.
     let camera_moved = scratch.camera != Some(camera)
         && scratch.camera_present
         && (superset_updates.is_some() || !camera::same_region(camera, grid, scratch));
-    if camera_moved || superset_updates.is_some_and(|updates| updates >= SUPERSET_UPDATE_LIMIT) {
-        let attempted = scratch.work;
-        fill_visible(camera, grid, scratch, replacement);
-        scratch.work.explored_exits += attempted.explored_exits;
-        scratch.work.proof_exits = attempted.proof_exits;
-        scratch.work.additions = attempted.additions;
-        return true;
+    if camera_moved {
+        return RetainedUpdate::Invalid;
     }
     scratch.camera = Some(camera);
     // Defer publication until the proof succeeds so a fallback retains the old output for diffing.
@@ -90,7 +116,11 @@ pub(crate) fn update_visible(
         }
     }
     scratch.checkpoint = checkpoint;
-    false
+    if superset_updates.is_some_and(|updates| updates >= SUPERSET_UPDATE_LIMIT) {
+        RetainedUpdate::Rebuild
+    } else {
+        RetainedUpdate::Updated
+    }
 }
 
 /// Replays only the exits that could not cross into this node before it joined the graph or

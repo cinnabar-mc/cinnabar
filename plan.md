@@ -284,6 +284,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
+  Full cave searches run on immutable connectivity snapshots off the frame thread.
+  Invalidated or failed proofs restore hidden sections; retained proofs process openings
+  inline while a full search is pending.
   Matched-output frame-time and movement qualification remain incomplete.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
