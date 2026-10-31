@@ -1,24 +1,42 @@
 //! Builds bounded catalog attachments from verified geometry, texture and animation bytes.
 use super::*;
 
-/// Catalog meshes author unnormalized UVs as texel addresses, which vanilla's add-on meshes do
-/// not: it multiplies them by the texture size. Rewrites them to the normalized form that keeps
-/// their texels.
-fn resolve_catalog_pixel_uvs(model: &mut assets::SkinGeometry) {
+/// Catalog meshes keep two conventions that vanilla's add-on meshes do not share: unnormalized UVs
+/// address texels, which vanilla multiplies by the texture size, and triangle normals point the
+/// same way as quad normals, where vanilla's Y signs differ. Rewrites both to the shared mesh form.
+fn adapt_catalog_meshes(model: &mut assets::SkinGeometry) {
+    use assets::EntityGeometryScalar as Scalar;
+
     let size = [model.texture_width, model.texture_height].map(f32::from);
+    let scalar = |value| Scalar::new(value).unwrap_or(Scalar::ZERO);
     let meshes = model
         .bones
         .iter_mut()
         .filter_map(|bone| bone.poly_mesh.as_deref_mut());
-    for mesh in meshes.filter(|mesh| !mesh.normalized_uvs) {
-        for uv in &mut mesh.uvs {
-            let texel = [uv[0].get() / size[0], 1.0 - (1.0 - uv[1].get()) / size[1]];
-            *uv = texel.map(|value| {
-                assets::EntityGeometryScalar::new(value)
-                    .unwrap_or(assets::EntityGeometryScalar::ZERO)
-            });
+    for mesh in meshes {
+        if !mesh.normalized_uvs {
+            for uv in &mut mesh.uvs {
+                let texel = [uv[0].get() / size[0], 1.0 - (1.0 - uv[1].get()) / size[1]];
+                *uv = texel.map(scalar);
+            }
+            mesh.normalized_uvs = true;
         }
-        mesh.normalized_uvs = true;
+        let Ok(offset) = u32::try_from(mesh.normals.len()) else {
+            continue;
+        };
+        if mesh.triangles.is_empty() {
+            continue;
+        }
+        let mut normals = mesh.normals.to_vec();
+        normals.extend(
+            mesh.normals
+                .iter()
+                .map(|normal| [normal[0], scalar(-normal[1].get()), normal[2]]),
+        );
+        mesh.normals = normals.into();
+        for corner in mesh.triangles.iter_mut().flatten() {
+            corner[1] = corner[1].saturating_add(offset);
+        }
     }
 }
 
@@ -37,7 +55,7 @@ pub(super) fn build(
     if model.bones.is_empty() {
         return None;
     }
-    resolve_catalog_pixel_uvs(&mut model);
+    adapt_catalog_meshes(&mut model);
     let mut original = crate::skin_geometry(&model, EntityRigId(0)).ok()?;
     if original.vertices.len() > 24_576
         || original.vertices.iter().any(|vertex| {

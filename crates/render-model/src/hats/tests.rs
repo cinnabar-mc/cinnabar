@@ -416,3 +416,19 @@ fn catalog_pixel_uvs_keep_addressing_their_texels() {
         );
     }
 }
+
+/// Catalog triangles keep the outward normals they were authored with.
+#[test]
+fn catalog_triangle_normals_stay_as_authored() {
+    let authored = rig(fixture::dragon_wings()).geometry.vertices.iter();
+    let normals = authored.map(|vertex| vertex.normal).collect::<Vec<_>>();
+    // The wing's first triangle in the shipped fixture, in the rig frame.
+    let expected = [
+        -0.33321555714281875_f64,
+        -0.8885550483368754,
+        -0.31533683348612124,
+    ]
+    .map(|v| v as f32);
+    assert!(normals.contains(&expected));
+    assert!(!normals.contains(&[expected[0], -expected[1], expected[2]]));
+}
