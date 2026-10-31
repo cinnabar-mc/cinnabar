@@ -68,6 +68,8 @@ mod lightning_rod;
 mod mapped_face;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
+#[path = "tests/spore_blossom.rs"]
+mod spore_blossom;
 #[path = "tests/sea_pickle.rs"]
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
