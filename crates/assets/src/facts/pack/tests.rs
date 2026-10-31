@@ -109,6 +109,8 @@ fn pack_rules_preserve_legacy_selector_membership_and_indices() {
             "melon_stem" | "pumpkin_stem" => Some(TextureSelector::Stem),
             "carrots" | "potatoes" | "beetroot" => Some(TextureSelector::CropStages),
             "torchflower_crop" => Some(TextureSelector::Torchflower),
+            "dried_ghast_back" | "dried_ghast_bottom" | "dried_ghast_front" | "dried_ghast_left"
+            | "dried_ghast_right" | "dried_ghast_top" => Some(TextureSelector::DriedGhast),
             _ => None,
         };
         assert_eq!(rules().selector(key), expected, "{key}");
