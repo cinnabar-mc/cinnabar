@@ -55,6 +55,84 @@ fn read_buffer(device: &RenderDevice, queue: &RenderQueue, buffer: &Buffer) -> V
     readback.slice(..).get_mapped_range().unwrap().to_vec()
 }
 
+/// Builds a resident section through the ordinary CPU queue handoff.
+fn memory_instance() -> render_scene::ChunkRenderInstance {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(ChunkRenderPlugin::new(1));
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkRenderQueue>()
+        .try_insert(
+            SubChunkKey::new(0, 0, 0, 0),
+            solid_test_mesh(),
+            render_scene::ChunkUploadPriority::new(0.0),
+        )
+        .unwrap();
+    app.update();
+    let world = app.world_mut();
+    world
+        .query::<&render_scene::ChunkRenderInstance>()
+        .single(world)
+        .unwrap()
+        .clone()
+}
+
+/// Ordinary removals drain to minimal storage, and reusing the section key uploads fresh bytes.
+#[test]
+fn chunk_preparation_releases_idle_storage_and_reuploads_the_same_key() {
+    use bevy::ecs::system::RunSystemOnce;
+    let mut app = gpu_publication::noop_gpu_publication_app(
+        render_scene::ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    app.insert_resource(ChunkUploadBudget::new(8, u64::MAX));
+    let instance = memory_instance();
+    let entity = app.world_mut().spawn(instance.clone()).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    let large = app.world().resource::<ChunkGpuArena>().quad_buffer.id();
+    app.world_mut()
+        .entity_mut(entity)
+        .remove::<render_scene::ChunkRenderInstance>();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    {
+        let mut arena = app.world_mut().resource_mut::<ChunkGpuArena>();
+        assert!(arena.allocations.is_empty());
+        assert_eq!(arena.retired_allocations.len(), 1);
+        assert_eq!(arena.quad_buffer.id(), large);
+        arena.retired_allocations[0].release_epoch = Some(1);
+    }
+    let fence = app.world().resource::<TransparentRetirementFence>();
+    assert_eq!(fence.try_reserve(), Some(1));
+    assert!(fence.complete(1));
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    {
+        let arena = app.world().resource::<ChunkGpuArena>();
+        assert_eq!(arena.quad_buffer.id(), large);
+        arena
+            .idle_completion
+            .as_ref()
+            .unwrap()
+            .store(true, Ordering::Release);
+    }
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    assert_eq!(
+        app.world().resource::<ChunkGpuArena>().quad_buffer.size(),
+        PACKED_QUAD_BYTES
+    );
+    let replacement = app.world_mut().spawn(instance.clone()).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    let arena = app.world().resource::<ChunkGpuArena>();
+    assert_eq!(arena.allocations[&replacement].gpu.key, instance.key);
+    assert_eq!(arena.allocations[&replacement].gpu.metadata_index, 0);
+    let actual = read_buffer(
+        app.world().resource::<RenderDevice>(),
+        app.world().resource::<RenderQueue>(),
+        &arena.quad_buffer,
+    );
+    let expected: &[u8] = bytemuck::cast_slice(&instance.cube_quads);
+    assert_eq!(&actual[..expected.len()], expected);
+}
+
 /// Physical storage survives both retained references and unfinished submitted readers.
 #[test]
 fn idle_storage_waits_for_retirement_and_queue_completion_then_restarts_once() {
@@ -129,7 +207,7 @@ fn idle_storage_waits_for_retirement_and_queue_completion_then_restarts_once() {
     );
 }
 
-/// Reconnection and migration invalidate an earlier idle completion signal.
+/// Reconnection invalidates an earlier idle completion signal.
 #[test]
 fn new_work_cancels_idle_release_even_after_an_old_callback_completes() {
     let (device, queue, mut arena) = memory_arena(wgpu::Features::empty());
@@ -147,6 +225,23 @@ fn new_work_cancels_idle_release_even_after_an_old_callback_completes() {
         &old_completion
     ));
 
+    arena
+        .allocations
+        .insert(Entity::PLACEHOLDER, retirement_test_allocation());
+    release_idle_arena(&mut arena, &device, &queue, false);
+    assert!(arena.idle_completion.is_none());
+    arena.allocations.clear();
+    arena.pending_removals.insert(Entity::PLACEHOLDER);
+    release_idle_arena(&mut arena, &device, &queue, false);
+    assert!(arena.idle_completion.is_none());
+    assert_eq!(arena.quad_buffer.id(), large);
+}
+
+/// Leaving during growth holds both buffers until completion without finishing unused copies.
+#[test]
+fn idle_storage_retires_an_unfinished_migration() {
+    let (device, queue, mut arena) = memory_arena(wgpu::Features::empty());
+    let old = arena.quad_buffer.id();
     assert!(begin_arena_migration(
         &mut arena,
         &device,
@@ -156,10 +251,17 @@ fn new_work_cancels_idle_release_even_after_an_old_callback_completes() {
             gpu_copy_bytes: PACKED_QUAD_BYTES
         },
     ));
-    release_idle_arena(&mut arena, &device, &queue, false);
-    assert!(arena.idle_completion.is_none());
-    assert_eq!(arena.quad_buffer.id(), large);
+    assert!(release_idle_arena(&mut arena, &device, &queue, false));
+    let completion = arena.idle_completion.as_ref().unwrap().clone();
+    completion.store(false, Ordering::Release);
+    assert!(release_idle_arena(&mut arena, &device, &queue, false));
+    assert_eq!(arena.quad_buffer.id(), old);
     assert!(arena.migration.is_some());
+    completion.store(true, Ordering::Release);
+    assert!(release_idle_arena(&mut arena, &device, &queue, false));
+    assert!(arena.migration.is_none());
+    assert_eq!(arena.quad_buffer.size(), PACKED_QUAD_BYTES);
+    assert_eq!(arena.memory.idle_releases, 1);
 }
 
 /// One failed local allocation retries with an unmapped host-visible buffer and keeps data.
