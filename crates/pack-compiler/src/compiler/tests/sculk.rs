@@ -1,5 +1,7 @@
 use super::*;
-use assets::{CompiledBiomeAssets, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelQuad};
+use assets::{
+    CompiledBiomeAssets, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelQuad,
+};
 
 const ART: [(&str, u8); 10] = [
     ("sculk_sensor_side", 10),
@@ -215,7 +217,10 @@ fn sculk_shriekers_are_a_bowl_with_inner_walls_a_floor_and_a_rim() {
             .count();
         assert_eq!(culled, 8, "outer walls cull, inner walls do not");
         // Each inner wall plane stands inside the cell, facing the opposite way.
-        let north_plane = walls.iter().filter(|quad| span(quad, 2) == (32, 32)).count();
+        let north_plane = walls
+            .iter()
+            .filter(|quad| span(quad, 2) == (32, 32))
+            .count();
         assert_eq!(north_plane, 1);
 
         let floors = quads
