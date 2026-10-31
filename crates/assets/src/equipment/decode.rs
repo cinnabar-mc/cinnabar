@@ -211,11 +211,9 @@ mod tests {
     }
 
     fn read(section: &[u8], bounds: TextureBounds) -> Result<Vec<EquipmentTexture>, AssetError> {
-        read_textures(
-            &mut section.take(section.len() as u64),
-            bounds,
-            &mut |_| None,
-        )
+        read_textures(&mut section.take(section.len() as u64), bounds, &mut |_| {
+            None
+        })
     }
 
     #[test]
