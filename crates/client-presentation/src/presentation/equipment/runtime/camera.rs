@@ -82,7 +82,9 @@ impl EquipmentRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
     ) -> Option<FirstPersonItem> {
         let mesh = self.held_mesh_with_use(item, input)?;
-        self.first_person_item_from_mesh(body, item, hand, profile, input, mesh)
+        self.first_person_item_from_mesh(body, item, hand, profile, input, mesh, |runtime| {
+            runtime.held_mesh_dimensions(item, input)
+        })
     }
 
     /// Places a custom item's ordinary icon under the first-person hand stack.
@@ -102,10 +104,13 @@ impl EquipmentRuntime {
             profile,
             input,
             (mesh, location, false, span),
+            |runtime| runtime.held_icon_dimensions(item),
         )
     }
 
-    /// Places an admitted mesh under the native first-person hand transform.
+    /// Places an admitted mesh under the native first-person hand transform. `dimensions` is the
+    /// texel size of the sprite that mesh draws.
+    #[allow(clippy::too_many_arguments)]
     fn first_person_item_from_mesh(
         &mut self,
         body: &ActorRigSubmission,
@@ -114,6 +119,7 @@ impl EquipmentRuntime {
         profile: render_api::CombatVisuals,
         input: actor_animation::AttachableAnimationInput<'_>,
         (mesh, location, block, span): (EntityRigId, ActorArtworkLocation, bool, [f32; 2]),
+        dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
     ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
@@ -146,11 +152,11 @@ impl EquipmentRuntime {
         let display = if placement == HeldItemPlacement::Retail {
             super::super::display::first_person_display_for_profile(shape, hand, profile)
         } else {
-            let table = render_model::equipment::offset_sprite_matrix(
+            let table = render_model::equipment::offset_sprite_display(
                 placement,
                 HeldItemHandSide::Main,
                 HeldItemPerspective::FirstPerson,
-                self.held_mesh_dimensions(item)?,
+                dimensions(self)?,
             )?;
             super::super::display::first_person_offset_display(table, hand)
         };
@@ -180,18 +186,16 @@ impl EquipmentRuntime {
         body: &ActorRigSubmission,
         item: &WornItem,
     ) -> Option<FirstPersonItem> {
-        let (mesh, location, block, span) = self.held_mesh_with_use(
-            item,
-            actor_animation::AttachableAnimationInput {
-                off_hand: true,
-                ..Default::default()
-            },
-        )?;
+        let input = actor_animation::AttachableAnimationInput {
+            off_hand: true,
+            ..Default::default()
+        };
+        let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
         let equipped = item.grip.upright().unwrap_or(false);
         let bone = if block {
             super::super::first_person::offhand_pose(equipped, true)
         } else {
-            let dimensions = self.held_mesh_dimensions(item)?;
+            let dimensions = self.held_mesh_dimensions(item, input)?;
             offhand_sprite_bone(item, equipped, dimensions)
         }?;
         let poses = self
@@ -248,12 +252,10 @@ fn offhand_sprite_bone(
     if placement == HeldItemPlacement::Retail {
         return super::super::first_person::offhand_sprite_pose(equipped, dimensions);
     }
-    view_bone(render_model::equipment::offset_display(
-        render_model::equipment::offset_sprite_matrix(
-            placement,
-            HeldItemHandSide::Off,
-            HeldItemPerspective::FirstPerson,
-            dimensions,
-        )?,
-    ))
+    view_bone(render_model::equipment::offset_sprite_display(
+        placement,
+        HeldItemHandSide::Off,
+        HeldItemPerspective::FirstPerson,
+        dimensions,
+    )?)
 }

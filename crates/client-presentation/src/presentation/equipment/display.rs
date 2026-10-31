@@ -116,7 +116,10 @@ pub(super) fn first_person_display_for_profile(
 /// Camera-space placement of a first-person item with render offsets, whose `table` follows the
 /// swing and equip lead instead of the retail anchor and hand scale. An eat or drink use replaces
 /// the swing with its own raise.
-pub(super) fn first_person_offset_display(table: Mat4, hand: FirstPersonHand) -> ItemDisplay {
+pub(super) fn first_person_offset_display(
+    table: ItemDisplay,
+    hand: FirstPersonHand,
+) -> ItemDisplay {
     let lead = match hand.consume {
         Some((elapsed, duration)) if duration > 0.0 => {
             eating_lead(elapsed, duration, hand.aspect)
@@ -124,7 +127,7 @@ pub(super) fn first_person_offset_display(table: Mat4, hand: FirstPersonHand) ->
         }
         _ => render_model::equipment::offset_first_person_lead(hand.swing, hand.equip),
     };
-    render_model::equipment::offset_display(lead * table)
+    table.under(lead)
 }
 
 /// The eat or drink raise and bob `elapsed` ticks into a `duration`-tick use: the food bobs from
@@ -182,6 +185,13 @@ pub(super) fn head_block_display() -> ItemDisplay {
 mod tests {
     use {super::*, render_model::equipment::attach_to_bone};
 
+    const IDENTITY_TABLE: ItemDisplay = ItemDisplay {
+        rotation: Quat::IDENTITY,
+        translation: Vec3::ZERO,
+        scale: 1.0,
+        axis_scale: Vec3::ONE,
+    };
+
     /// Regression: mid-swing, an offset item follows its own arc rather than the 1.12 or modern
     /// retail hand stack, which pulled a server pick across the view centre.
     #[test]
@@ -192,7 +202,7 @@ mod tests {
             consume: None,
             aspect: 1.0,
         };
-        let display = first_person_offset_display(Mat4::IDENTITY, hand);
+        let display = first_person_offset_display(IDENTITY_TABLE, hand);
         let peak = (0.5 * std::f32::consts::PI).sin() * -0.8;
         assert!((display.translation.x - peak).abs() < 1e-5);
         assert!(display.translation.y.abs() < 1e-5);
@@ -207,7 +217,7 @@ mod tests {
             consume: Some((elapsed, duration)),
             aspect,
         };
-        let display = first_person_offset_display(Mat4::IDENTITY, hand);
+        let display = first_person_offset_display(IDENTITY_TABLE, hand);
         let expected = eating_lead(elapsed, duration, aspect);
         assert!(
             display

@@ -11,12 +11,16 @@ func TestWithHeldItemOffsetsAddsOnlyDeclaredComponents(t *testing.T) {
 	entry := func(name string) protocol.ItemEntry {
 		return protocol.ItemEntry{Name: name, Data: map[string]any{"components": map[string]any{}}}
 	}
-	entries := withHeldItemOffsets([]protocol.ItemEntry{
+	shared := []protocol.ItemEntry{
 		entry("fixture:held_tool"),
 		entry("fixture:held_scaled"),
 		entry("fixture:held_preset"),
 		entry("minecraft:apple"),
-	})
+	}
+	entries := withHeldItemOffsets(shared)
+	if components := shared[1].Data["components"].(map[string]any); len(components) != 0 {
+		t.Fatalf("shared registry entry was edited: %v", components)
+	}
 	declared := func(index int) any {
 		return entries[index].Data["components"].(map[string]any)[renderOffsetsComponent]
 	}

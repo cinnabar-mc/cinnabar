@@ -4,6 +4,8 @@ import (
 	"context"
 	"image"
 	"image/color"
+	"maps"
+	"slices"
 
 	"github.com/df-mc/dragonfly/server"
 	"github.com/df-mc/dragonfly/server/item/category"
@@ -121,24 +123,31 @@ func registerHeldItemFixture() {
 	}
 }
 
-// withHeldItemOffsets adds each spec's render offsets to its registry entry. Dragonfly has no
-// custom item hook for this component, so the fixture edits the registry the way a server plugin
-// would send it.
+// withHeldItemOffsets returns a registry with each spec's render offsets on its entry. Dragonfly
+// has no custom item hook for this component, so the fixture edits the registry the way a server
+// plugin would send it. Entries share their maps across connections, so edited ones are copied.
 func withHeldItemOffsets(entries []protocol.ItemEntry) []protocol.ItemEntry {
+	entries = slices.Clone(entries)
 	offsets := make(map[string]any, len(heldItemFixtureSpecs))
 	for _, spec := range heldItemFixtureSpecs {
 		if spec.offsets != nil {
 			offsets[spec.id] = spec.offsets
 		}
 	}
-	for _, entry := range entries {
+	for index, entry := range entries {
 		value, declared := offsets[entry.Name]
 		if !declared {
 			continue
 		}
-		if components, ok := entry.Data["components"].(map[string]any); ok {
-			components[renderOffsetsComponent] = value
+		components, ok := entry.Data["components"].(map[string]any)
+		if !ok {
+			continue
 		}
+		components = maps.Clone(components)
+		components[renderOffsetsComponent] = value
+		data := maps.Clone(entry.Data)
+		data["components"] = components
+		entries[index].Data = data
 	}
 	return entries
 }

@@ -93,7 +93,9 @@ impl EquipmentRuntime {
         let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
             return;
         };
-        let display = self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale);
+        let display = self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+            runtime.held_icon_dimensions(item)
+        });
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -295,12 +297,14 @@ impl EquipmentRuntime {
     }
 
     /// Third-person placement of a flat sprite on its item bone: its render offsets, or the retail
-    /// grip. `scale` is the actor's held item scale, which a declared table ignores.
+    /// grip. `scale` is the actor's held item scale, which a declared table ignores. `dimensions`
+    /// is the texel size of the sprite being drawn.
     pub(super) fn held_sprite_display(
         &self,
         item: &WornItem,
         off_hand: bool,
         scale: f32,
+        dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
     ) -> ItemDisplay {
         let placement = held_sprite_placement(item, false);
         let upright = item.grip.upright().unwrap_or(false);
@@ -310,7 +314,7 @@ impl EquipmentRuntime {
             render_api::HeldItemHandSide::Main
         };
         let offset = (placement != render_api::HeldItemPlacement::Retail)
-            .then(|| self.held_mesh_dimensions(item))
+            .then(|| dimensions(self))
             .flatten()
             .and_then(|dimensions| {
                 render_model::equipment::offset_held_display(placement, upright, side, dimensions)
@@ -334,9 +338,14 @@ impl EquipmentRuntime {
         Some([sprite.width, sprite.height])
     }
 
-    /// Texel size of the sprite `held_mesh_with_use` draws: native artwork when the item has it.
-    pub(super) fn held_mesh_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
-        self.native_sprite_dimensions(item)
+    /// Texel size of the sprite `held_mesh_with_use` draws for the same input: the selected native
+    /// frame when the item has native artwork.
+    pub(super) fn held_mesh_dimensions(
+        &self,
+        item: &WornItem,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions_with_use(item, input)
             .or_else(|| self.held_icon_dimensions(item))
     }
 
@@ -360,7 +369,11 @@ impl EquipmentRuntime {
             return;
         };
         let display = match override_display {
-            None if !block => self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale),
+            None if !block => {
+                self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale, |runtime| {
+                    runtime.held_icon_dimensions(item)
+                })
+            }
             override_display => {
                 let mut display = override_display
                     .unwrap_or_else(|| held_block_display_for_hand(layer == LAYER_OFF_HAND));

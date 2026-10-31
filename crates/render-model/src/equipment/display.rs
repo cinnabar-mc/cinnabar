@@ -25,6 +25,18 @@ impl ItemDisplay {
             axis_scale: Vec3::ONE,
         }
     }
+
+    /// This placement inside a `parent` frame of rotation, uniform scale and translation.
+    #[must_use]
+    pub fn under(self, parent: Mat4) -> Self {
+        let (scale, rotation, _) = parent.to_scale_rotation_translation();
+        Self {
+            rotation: (rotation * self.rotation).normalize(),
+            translation: parent.transform_point3(self.translation),
+            scale: self.scale * scale.x,
+            axis_scale: self.axis_scale,
+        }
+    }
 }
 
 /// Converts authored degrees to the radians used by matrix rotations.

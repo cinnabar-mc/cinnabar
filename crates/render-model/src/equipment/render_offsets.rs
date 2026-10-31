@@ -11,53 +11,61 @@ use super::display::{ItemDisplay, third_person_sprite_frame};
 /// Texels per block, which the default tables' icon size factor is relative to.
 const TEXELS_PER_BLOCK: f32 = 16.0;
 
-/// Native sprite space from `held_sprite_vertices` space, in units of the sprite's long side.
-/// Native extrusion writes column X, depth Y and row Z from zero; the held mesh stores
-/// `[-column, height - row, -depth] / long_side`. This proper rotation and translation preserves
-/// the UV-labelled front and back faces. `None` for an empty sprite.
-pub fn native_sprite_from_held([width, height]: [u16; 2]) -> Option<Mat4> {
-    let long_side = f32::from(width.max(height));
-    if width == 0 || height == 0 {
-        return None;
-    }
+/// Turns `held_sprite_vertices` axes into native sprite axes. Native extrusion writes column X,
+/// depth Y and row Z from zero; the held mesh stores `[-column, height - row, -depth] / long_side`.
+/// This proper rotation preserves the UV-labelled front and back faces.
+fn native_sprite_rotation() -> Quat {
+    Quat::from_rotation_y(std::f32::consts::PI) * Quat::from_rotation_x(std::f32::consts::FRAC_PI_2)
+}
+
+/// Native sprite space from held mesh space, in units of the sprite's long side. `None` for an
+/// empty sprite.
+pub fn native_sprite_from_held(dimensions: [u16; 2]) -> Option<Mat4> {
+    let height = sprite_height(dimensions)?;
     Some(
-        Mat4::from_translation(Vec3::new(0.0, 0.0, f32::from(height) / long_side))
-            * Mat4::from_rotation_y(std::f32::consts::PI)
-            * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2),
+        Mat4::from_translation(Vec3::new(0.0, 0.0, height))
+            * Mat4::from_quat(native_sprite_rotation()),
     )
 }
 
-/// Position, then Z, Y and X turns in degrees, then per-axis scale.
-fn transform_matrix(transform: &HeldItemTransform) -> Mat4 {
-    Mat4::from_translation(Vec3::from_array(transform.position))
-        * Mat4::from_rotation_z(transform.rotation[2].to_radians())
-        * Mat4::from_rotation_y(transform.rotation[1].to_radians())
-        * Mat4::from_rotation_x(transform.rotation[0].to_radians())
-        * Mat4::from_scale(Vec3::from_array(transform.scale))
+/// The sprite's height over its long side; `None` for an empty sprite.
+fn sprite_height([width, height]: [u16; 2]) -> Option<f32> {
+    (width != 0 && height != 0).then(|| f32::from(height) / f32::from(width.max(height)))
 }
 
-/// The sprite's matrix from `held_sprite_vertices` space to the frame its placement starts from.
-/// Default tables carry an icon size factor, so every icon spans the same length. A declared
-/// table scales native texels directly, so a larger icon draws larger. `None` for retail
-/// placement or an empty sprite.
-pub fn offset_sprite_matrix(
+/// The sprite's placement from `held_sprite_vertices` space to the frame its table starts from:
+/// position, then Z, Y and X turns in degrees, then per-axis scale, with the native sprite frame
+/// inside that. Default tables carry an icon size factor, so every icon spans the same length. A
+/// declared table scales native texels directly, so a larger icon draws larger. Rotation and scale
+/// stay separate because a table may scale an axis to zero. `None` for retail placement or an
+/// empty sprite.
+pub fn offset_sprite_display(
     placement: HeldItemPlacement,
     hand: HeldItemHandSide,
     perspective: HeldItemPerspective,
     dimensions: [u16; 2],
-) -> Option<Mat4> {
-    let native = native_sprite_from_held(dimensions)?;
-    let long_side = f32::from(dimensions[0].max(dimensions[1]));
+) -> Option<ItemDisplay> {
+    let height = sprite_height(dimensions)?;
     let (offsets, texels): (&ItemRenderOffsets, f32) = match &placement {
         HeldItemPlacement::Retail => return None,
         HeldItemPlacement::DefaultOffsets => (&DEFAULT_ITEM_RENDER_OFFSETS, TEXELS_PER_BLOCK),
-        HeldItemPlacement::DeclaredOffsets(offsets) => (offsets, long_side),
+        HeldItemPlacement::DeclaredOffsets(offsets) => {
+            (offsets, f32::from(dimensions[0].max(dimensions[1])))
+        }
     };
-    Some(
-        transform_matrix(offsets.transform(hand, perspective))
-            * Mat4::from_scale(Vec3::splat(texels))
-            * native,
-    )
+    let table: &HeldItemTransform = offsets.transform(hand, perspective);
+    let scale = Vec3::from_array(table.scale) * texels;
+    let turns = Quat::from_rotation_z(table.rotation[2].to_radians())
+        * Quat::from_rotation_y(table.rotation[1].to_radians())
+        * Quat::from_rotation_x(table.rotation[0].to_radians());
+    Some(ItemDisplay {
+        rotation: (turns * native_sprite_rotation()).normalize(),
+        translation: Vec3::from_array(table.position)
+            + turns * Vec3::new(0.0, 0.0, scale.z * height),
+        scale: 1.0,
+        // Native X, Y and Z are the held mesh's X, Z and Y.
+        axis_scale: Vec3::new(scale.x, scale.z, scale.y),
+    })
 }
 
 /// The first-person camera-space lead for offset items, applied before their table: the swing's
@@ -77,19 +85,6 @@ pub fn offset_first_person_lead(swing: f32, equip: f32) -> Mat4 {
         * Mat4::from_rotation_x((sine * -80.0).to_radians())
 }
 
-/// A placement whose linear part is a rotation followed by per-axis scale. Offset tables are the
-/// only placements with non-uniform scale, and each composes that way because the sprite frame
-/// conversion is an axis permutation.
-pub fn offset_display(matrix: Mat4) -> ItemDisplay {
-    let (scale, rotation, translation): (Vec3, Quat, Vec3) = matrix.to_scale_rotation_translation();
-    ItemDisplay {
-        rotation: rotation.normalize(),
-        translation,
-        scale: 1.0,
-        axis_scale: scale,
-    }
-}
-
 /// Third-person placement of an offset sprite on its hand's item bone: the retail bone frame and
 /// grip, with the table in place of the retail icon transform. `None` for retail placement.
 pub fn offset_held_display(
@@ -98,15 +93,16 @@ pub fn offset_held_display(
     hand: HeldItemHandSide,
     dimensions: [u16; 2],
 ) -> Option<ItemDisplay> {
-    let table = offset_sprite_matrix(
+    let table = offset_sprite_display(
         placement,
         hand,
         HeldItemPerspective::ThirdPerson,
         dimensions,
     )?;
-    Some(offset_display(
-        third_person_sprite_frame(hand_equipped, hand == HeldItemHandSide::Off) * table,
-    ))
+    Some(table.under(third_person_sprite_frame(
+        hand_equipped,
+        hand == HeldItemHandSide::Off,
+    )))
 }
 
 /// Whether a placement follows the actor's held item scale, which a declared table ignores.
@@ -142,6 +138,15 @@ mod tests {
         Mat4::from_translation(display.translation)
             * Mat4::from_quat(display.rotation)
             * Mat4::from_scale(display.axis_scale * display.scale)
+    }
+
+    fn offset_sprite_matrix(
+        placement: HeldItemPlacement,
+        hand: HeldItemHandSide,
+        perspective: HeldItemPerspective,
+        dimensions: [u16; 2],
+    ) -> Option<Mat4> {
+        offset_sprite_display(placement, hand, perspective, dimensions).map(display_matrix)
     }
 
     fn declared_scale(scale: [f32; 3]) -> ItemRenderOffsets {
@@ -265,7 +270,7 @@ mod tests {
 
     /// Texel X scales the table's X axis and texel Z (the sprite's rows) its Z axis.
     #[test]
-    fn non_uniform_scale_acts_on_table_axes_and_survives_decomposition() {
+    fn non_uniform_scale_acts_on_table_axes() {
         let placement = HeldItemPlacement::DeclaredOffsets(ItemRenderOffsets {
             main_hand: HeldItemHand {
                 first_person: HeldItemTransform {
@@ -290,12 +295,99 @@ mod tests {
         // One row down in held space is one row along native +Z.
         let row = matrix.transform_vector3(Vec3::new(0.0, -1.0 / 16.0, 0.0));
         assert_near(row, Vec3::new(0.0, 0.0, 0.02), 1e-5);
+    }
 
-        let display = offset_display(matrix);
+    /// Rotation and scale stay separate, so the display composes exactly as the table's matrix.
+    #[test]
+    fn the_display_matches_the_tables_matrix_order() {
+        let transform = HeldItemTransform {
+            position: [0.3, -0.2, -0.8],
+            rotation: [15.0, -30.0, 45.0],
+            scale: [0.08, 0.04, 0.02],
+        };
+        let hand = HeldItemHand {
+            first_person: transform,
+            third_person: transform,
+        };
+        let placement = HeldItemPlacement::DeclaredOffsets(ItemRenderOffsets {
+            main_hand: hand,
+            off_hand: hand,
+        });
+        let dimensions = [16, 8];
+        let expected = Mat4::from_translation(Vec3::from_array(transform.position))
+            * Mat4::from_rotation_z(45.0_f32.to_radians())
+            * Mat4::from_rotation_y((-30.0_f32).to_radians())
+            * Mat4::from_rotation_x(15.0_f32.to_radians())
+            * Mat4::from_scale(Vec3::from_array(transform.scale))
+            * Mat4::from_scale(Vec3::splat(16.0))
+            * native_sprite_from_held(dimensions).unwrap();
+        let actual = offset_sprite_matrix(
+            placement,
+            HeldItemHandSide::Main,
+            HeldItemPerspective::FirstPerson,
+            dimensions,
+        )
+        .unwrap();
         for corner in CORNERS {
             assert_near(
-                display_matrix(display).transform_point3(corner),
-                matrix.transform_point3(corner),
+                actual.transform_point3(corner),
+                expected.transform_point3(corner),
+                1e-5,
+            );
+        }
+    }
+
+    /// A zero axis flattens the sprite in place instead of moving it.
+    #[test]
+    fn a_zero_scale_axis_flattens_without_moving_the_sprite() {
+        let placement = HeldItemPlacement::DeclaredOffsets(ItemRenderOffsets {
+            main_hand: HeldItemHand {
+                first_person: HeldItemTransform {
+                    position: [0.1, 0.2, 0.3],
+                    rotation: [0.0; 3],
+                    scale: [0.05, 0.0, 0.05],
+                },
+                third_person: DEFAULT_ITEM_RENDER_OFFSETS.main_hand.third_person,
+            },
+            off_hand: DEFAULT_ITEM_RENDER_OFFSETS.off_hand,
+        });
+        let matrix = offset_sprite_matrix(
+            placement,
+            HeldItemHandSide::Main,
+            HeldItemPerspective::FirstPerson,
+            SQUARE_16,
+        )
+        .unwrap();
+        assert_near(
+            matrix.transform_point3(CORNERS[2]),
+            Vec3::new(0.1, 0.2, 0.3),
+            1e-5,
+        );
+        assert_near(
+            matrix.transform_point3(CORNERS[1]),
+            Vec3::new(0.9, 0.2, 0.3),
+            1e-5,
+        );
+    }
+
+    /// A parent frame's rotation and uniform scale reach the display; the table's axes stay its own.
+    #[test]
+    fn a_parent_frame_keeps_the_tables_axis_scale() {
+        let display = ItemDisplay {
+            rotation: Quat::from_rotation_z(0.5),
+            translation: Vec3::new(1.0, 2.0, 3.0),
+            scale: 1.0,
+            axis_scale: Vec3::new(2.0, 0.0, 4.0),
+        };
+        let parent = Mat4::from_translation(Vec3::new(0.0, 1.0, 0.0))
+            * Mat4::from_rotation_y(1.0)
+            * Mat4::from_scale(Vec3::splat(0.5));
+        let placed = display.under(parent);
+        assert_eq!(placed.axis_scale, display.axis_scale);
+        for corner in CORNERS {
+            assert_near(
+                display_matrix(placed).transform_point3(corner),
+                (parent * display_matrix(display)).transform_point3(corner),
                 1e-5,
             );
         }

@@ -14,6 +14,6 @@ pub use display::{
     held_sprite_display, held_sprite_display_for_hand, sprite_item_transform,
 };
 pub use render_offsets::{
-    native_sprite_from_held, offset_display, offset_first_person_lead, offset_follows_actor_scale,
-    offset_held_display, offset_sprite_matrix,
+    native_sprite_from_held, offset_first_person_lead, offset_follows_actor_scale,
+    offset_held_display, offset_sprite_display,
 };

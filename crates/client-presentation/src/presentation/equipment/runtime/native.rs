@@ -423,7 +423,23 @@ impl EquipmentRuntime {
     }
 
     /// Native offhand placement uses the selected image's aspect ratio.
+    #[cfg(test)]
     pub(super) fn native_sprite_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions_with_use(
+            item,
+            AttachableAnimationInput {
+                off_hand: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Texel size of the native image selected for this use frame.
+    pub(super) fn native_sprite_dimensions_with_use(
+        &self,
+        item: &WornItem,
+        input: AttachableAnimationInput<'_>,
+    ) -> Option<[u16; 2]> {
         let artwork = *self
             .pack
             .as_ref()?
@@ -437,13 +453,7 @@ impl EquipmentRuntime {
             return Some([sprite.width, sprite.height]);
         }
         let kind = artwork.kind;
-        let frame = kind.frame(
-            item,
-            AttachableAnimationInput {
-                off_hand: true,
-                ..Default::default()
-            },
-        );
+        let frame = kind.frame(item, input);
         if let Some((texture, _)) = self.native_texture(item, kind.alias(frame)) {
             return Some([texture.width, texture.height]);
         }
@@ -490,7 +500,9 @@ impl EquipmentRuntime {
             display.scale *= input.main_hand_scale();
             display
         } else {
-            self.held_sprite_display(item, input.off_hand, input.main_hand_scale())
+            self.held_sprite_display(item, input.off_hand, input.main_hand_scale(), |runtime| {
+                runtime.held_mesh_dimensions(item, input)
+            })
         };
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
