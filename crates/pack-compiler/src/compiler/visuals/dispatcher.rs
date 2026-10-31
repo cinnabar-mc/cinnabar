@@ -135,7 +135,7 @@ struct VisualCompiler {
     button_templates: BTreeMap<ButtonTemplateKey, u32>,
     pale_moss_carpet_templates: BTreeMap<PaleMossCarpetTemplateKey, u32>,
     gate_templates: BTreeMap<GateTemplateKey, u32>,
-    pane_templates: BTreeMap<[u32; 2], u32>,
+    pane_templates: BTreeMap<([u32; 2], bool), u32>,
     fence_templates: BTreeMap<[u32; 3], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     thin_templates: BTreeMap<ThinTemplateKey, u32>,

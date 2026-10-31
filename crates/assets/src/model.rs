@@ -78,6 +78,8 @@ pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
 /// Template belongs to a contiguous sixteen-mask thin-pane topology group.
 pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
+/// Quad counts a pane template can have: an unconnected post, up to a four-way two-faced pane.
+pub(crate) const PANE_TEMPLATE_QUADS: std::ops::RangeInclusive<u32> = 6..=22;
 /// Template belongs to a wood-fence post plus sixteen-mask arm group.
 pub const MODEL_TEMPLATE_FLAG_FENCE_WOOD: u32 = 1 << 4;
 /// Template belongs to a nether-fence post plus sixteen-mask arm group.

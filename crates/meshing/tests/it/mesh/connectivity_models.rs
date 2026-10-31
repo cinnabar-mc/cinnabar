@@ -314,22 +314,16 @@ fn panes_and_fences_connect_to_non_occluding_full_cubes() {
 }
 
 #[test]
-fn equal_panes_suppress_only_internal_edge_caps_and_different_materials_retain_them() {
+fn pane_arms_end_open_so_every_neighbouring_pane_keeps_all_template_quads() {
     let fixture = compiled_connected_fixture();
-    let same = mesh_connected(fixture.pane, &[(0, fixture.pane)]);
-    let different = mesh_connected(fixture.pane, &[(0, fixture.other_pane)]);
-    let same_ref = center_stair_ref(&same, [8, 8, 8]);
-    let different_ref = center_stair_ref(&different, [8, 8, 8]);
-    assert_eq!(same_ref.words()[1], different_ref.words()[1]);
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        same_ref.words()[3].count_ones() + 1,
-        "only the equal-material boundary cap is suppressed"
-    );
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        fixture.assets.model_templates()[different_ref.words()[1] as usize].quad_count
-    );
+    for neighbour in [fixture.pane, fixture.other_pane] {
+        let mesh = mesh_connected(fixture.pane, &[(0, neighbour)]);
+        let reference = center_stair_ref(&mesh, [8, 8, 8]);
+        assert_eq!(
+            reference.words()[3].count_ones(),
+            fixture.assets.model_templates()[reference.words()[1] as usize].quad_count
+        );
+    }
 }
 
 #[test]
