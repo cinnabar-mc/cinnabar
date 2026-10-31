@@ -18,6 +18,7 @@ world server-bundle {
     import cinnabar:world-draw/masks@0.2.0;
     import render;
     import environment;
+    import audio;
     import cinnabar:world-draw/assets@0.2.0;
     /// Initializes this instance after its signed bundle and capabilities have been admitted.
     export init: func();

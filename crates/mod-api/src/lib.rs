@@ -36,6 +36,11 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 
 pub use guest::PlayerMod;
 
+/// Maximum exact sound-definition names one component may suppress.
+pub const MAX_MUTED_SOUNDS: usize = 64;
+/// Maximum bytes in one suppressed sound-definition name.
+pub const MAX_SOUND_NAME_BYTES: usize = 128;
+
 /// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
 pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
 

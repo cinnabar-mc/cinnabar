@@ -511,6 +511,16 @@ interface input {
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
 
+/// Local named-sound suppression; requires the `audio` grant.
+interface audio {
+    /// Replaces this instance's retained set of exact sound-definition names.
+    /// At most 64 names of 1–128 ASCII identifier bytes (letters, digits, _, ., :, /, -).
+    /// Empty clears the set. Commits only after a successful callback; revoked on unload,
+    /// quarantine, world change or permission loss. Multiple instances combine by union.
+    /// Applies to queued, decoding and playing sounds, including managed loops.
+    set-muted-sounds: func(names: list<string>) -> result<_, string>;
+}
+
 /// Local presentation only; no world mutation or outbound packets.
 /// Grants: `environment` for weather and time; `fullbright` for lighting.
 interface environment {
@@ -938,6 +948,7 @@ world extension {
     import input;
     import touch;
     import environment;
+    import audio;
     import gameplay;
     import events;
     import panel;
