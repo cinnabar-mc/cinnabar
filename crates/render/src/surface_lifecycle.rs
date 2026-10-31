@@ -4,9 +4,10 @@ use bevy::{
     render::{
         Render, RenderSystems,
         camera::ExtractedCamera,
+        renderer::RenderDevice,
         view::{
             ViewTarget,
-            window::{SurfaceData, create_surfaces},
+            window::{ExtractedWindow, SurfaceData, create_surfaces},
         },
     },
 };
@@ -25,8 +26,14 @@ pub(crate) fn install(render_app: &mut SubApp) {
 }
 
 /// A lost surface needs every old output released, including outputs of retargeted cameras.
-fn surface_repair_pending(surfaces: Query<&SurfaceData>) -> bool {
-    surfaces.iter().any(SurfaceData::needs_reconfiguration)
+fn surface_repair_pending(
+    surfaces: Query<(&ExtractedWindow, &SurfaceData)>,
+    device: Res<RenderDevice>,
+) -> bool {
+    surfaces.iter().any(|(window, surface)| {
+        window.is_drawable(device.limits().max_texture_dimension_2d)
+            && surface.needs_reconfiguration()
+    })
 }
 
 /// Drops all retained outputs before repair, since a camera may now name a different target.
@@ -117,7 +124,11 @@ mod tests {
         let active = world
             .spawn((RetainedTarget(retained.clone()), camera()))
             .id();
-        let retargeted = world.spawn((RetainedTarget(retained), camera())).id();
+        let mut changed_target = camera();
+        changed_target.target = Some(bevy::camera::NormalizedRenderTarget::TextureView(
+            bevy::camera::ManualTextureViewHandle(0),
+        ));
+        let retargeted = world.spawn((RetainedTarget(retained), changed_target)).id();
         let mut schedule = Schedule::default();
         schedule.add_systems((
             release_retained_targets::<RetainedTarget>,
