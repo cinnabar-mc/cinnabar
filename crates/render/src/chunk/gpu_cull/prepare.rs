@@ -350,11 +350,20 @@ pub(super) fn prepare_gpu_cull(
         }
     }
     cull.prepared_view = Some(view.entity);
+    let work = feedback
+        .calibrated()
+        .then(|| super::work_admission::SubmittedWork {
+            records: cull.table.records(),
+            order: cull.order.slots(),
+            camera: input.camera,
+            index_counts: input.index_counts,
+        });
     feedback.prepare(
         &device,
         view.entity,
         cull.slot_count(),
         &storage.record_draws,
+        work,
     );
 }
 

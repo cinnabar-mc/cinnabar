@@ -242,7 +242,13 @@ fn build_pending_meshes(stream: &mut WorldStream) {
             &snapshot.biomes,
             &stream.decode_ids(key.dimension).biome_tints,
         );
-        let mesh = snapshot.mesh(stream.classifier, assets, mode, &biome);
+        let mesh = snapshot.mesh(
+            stream.classifier,
+            assets,
+            mode,
+            &biome,
+            &mut ::meshing::MeshScratch::default(),
+        );
         let dependency_mask = snapshot.dependency_mask(stream.classifier, assets, mode);
         stream.accept_mesh_completion(MeshCompletion {
             output_permit: None,

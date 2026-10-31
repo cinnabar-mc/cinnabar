@@ -329,6 +329,7 @@ fn shared_inputs_match_map_and_vector_snapshot_results() {
             stream.runtime_assets(),
             stream.network_id_mode(),
             &PackedBiomeRecord::fallback(),
+            &mut ::meshing::MeshScratch::default()
         ),
         legacy.mesh()
     );
@@ -474,7 +475,13 @@ fn edits_while_jobs_wait_preserve_inputs_and_requeue_stale_completions() {
     let worker_barrier = Arc::clone(&barrier);
     let worker = std::thread::spawn(move || {
         worker_barrier.wait();
-        let output = mesh.mesh(classifier, &assets, mode, &PackedBiomeRecord::fallback());
+        let output = mesh.mesh(
+            classifier,
+            &assets,
+            mode,
+            &PackedBiomeRecord::fallback(),
+            &mut ::meshing::MeshScratch::default(),
+        );
         let light = solve_prepared_light_job(job).unwrap();
         (mesh, output, light)
     });
@@ -639,6 +646,7 @@ fn quality_toggles_capture_new_settings_and_reject_late_meshes_after_a_round_tri
                 stream.authority.runtime_assets(),
                 stream.network_id_mode(),
                 &PackedBiomeRecord::fallback(),
+                &mut ::meshing::MeshScratch::default(),
             ),
             source: Arc::clone(&snapshot.center),
             biome_sources: snapshot.biomes.clone(),
@@ -703,6 +711,7 @@ fn java_mode_toggles_withdraw_old_meshes_and_reject_late_round_trip_results() {
                 stream.authority.runtime_assets(),
                 stream.network_id_mode(),
                 &PackedBiomeRecord::fallback(),
+                &mut ::meshing::MeshScratch::default(),
             ),
             source: Arc::clone(&snapshot.center),
             biome_sources: snapshot.biomes.clone(),
