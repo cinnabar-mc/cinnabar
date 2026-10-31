@@ -83,9 +83,9 @@ fn pose(record: &RegistryRecord) -> Option<DiodePose> {
     };
     let name = record.name.as_ref();
     let powered = name.starts_with("minecraft:powered_");
-    if name.ends_with("_repeater") {
-        let delay =
-            canonical_state_u32(&record.canonical_state, BlockProperty::RepeaterDelay.name())?;
+    if let Some(delay) =
+        canonical_state_u32(&record.canonical_state, BlockProperty::RepeaterDelay.name())
+    {
         return (delay < DELAY_OFFSETS.len() as u32).then_some(DiodePose::Repeater {
             direction,
             delay: delay as u8,
