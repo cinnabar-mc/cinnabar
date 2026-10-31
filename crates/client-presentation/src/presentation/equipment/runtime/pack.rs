@@ -195,14 +195,26 @@ impl EquipmentRuntime {
                 input,
                 &mut operations_left,
                 |binding| {
+                    let canonical = canonical_armor_geometry_identifier(&binding.geometry.identifier);
+                    let aliased = canonical != binding.geometry.identifier.as_ref();
                     !pack
                         .assets
                         .geometry_candidates(&binding.geometry.identifier)
                         .is_empty()
+                        || (aliased
+                            && !pack
+                                .assets
+                                .geometry_candidates(canonical)
+                                .is_empty())
                         || !self
                             .assets
                             .geometry_candidates(&binding.geometry.identifier)
                             .is_empty()
+                        || (aliased
+                            && !self
+                                .assets
+                                .geometry_candidates(canonical)
+                                .is_empty())
                         || (binding.geometry.resolution == EntityDependencyResolution::External
                             && external.contains(&binding.geometry.identifier))
                 },
@@ -448,29 +460,34 @@ impl EquipmentRuntime {
         if let Some(entry) = pack.armor_geometry.get(identifier) {
             return entry.clone();
         }
-        let from_pack = find_geometry_index(&pack.assets, identifier).and_then(|index| {
-            Some(Arc::new(ArmorGeometry {
-                rig: render_model::pack_equipment_rig_id(index),
-                names: geometry_bone_names(&pack.assets, index as usize)?,
-                pivots: geometry_bone_pivots(&pack.assets, index as usize)?,
-                binding_expressions: geometry_bone_binding_expressions(
-                    &pack.assets,
-                    index as usize,
-                )?,
-            }))
-        });
-        let entry = from_pack.or_else(|| {
-            find_geometry_index(vanilla, identifier).and_then(|index| {
+        let canonical = canonical_armor_geometry_identifier(identifier);
+        let from_pack = find_geometry_index(&pack.assets, identifier)
+            .or_else(|| find_geometry_index(&pack.assets, canonical))
+            .and_then(|index| {
                 Some(Arc::new(ArmorGeometry {
-                    rig: equipment_rig_id(index),
-                    names: geometry_bone_names(vanilla, index as usize)?,
-                    pivots: geometry_bone_pivots(vanilla, index as usize)?,
+                    rig: render_model::pack_equipment_rig_id(index),
+                    names: geometry_bone_names(&pack.assets, index as usize)?,
+                    pivots: geometry_bone_pivots(&pack.assets, index as usize)?,
                     binding_expressions: geometry_bone_binding_expressions(
-                        vanilla,
+                        &pack.assets,
                         index as usize,
                     )?,
                 }))
-            })
+            });
+        let entry = from_pack.or_else(|| {
+            find_geometry_index(vanilla, identifier)
+                .or_else(|| find_geometry_index(vanilla, canonical))
+                .and_then(|index| {
+                    Some(Arc::new(ArmorGeometry {
+                        rig: equipment_rig_id(index),
+                        names: geometry_bone_names(vanilla, index as usize)?,
+                        pivots: geometry_bone_pivots(vanilla, index as usize)?,
+                        binding_expressions: geometry_bone_binding_expressions(
+                            vanilla,
+                            index as usize,
+                        )?,
+                    }))
+                })
         });
         pack.armor_geometry.insert(identifier.into(), entry.clone());
         entry
