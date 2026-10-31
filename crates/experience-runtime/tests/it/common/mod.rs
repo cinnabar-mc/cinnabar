@@ -699,6 +699,7 @@ pub fn callback(anchor: BlockPos, call: Call) -> Request {
             slots: vec![None; INVENTORY_SLOTS],
             game_mode: GameMode::Survival,
         }),
+        pose: None,
         containers: None,
         call,
     }

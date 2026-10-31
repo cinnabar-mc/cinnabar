@@ -1,5 +1,6 @@
 //! Protocol 5's player inventory and network scope, which a callback's snapshot may carry, the
-//! stacks a guest stages, and protocol 12's containers in reach and the actor's game mode.
+//! stacks a guest stages, and protocol 12's containers in reach and the actor's game mode and
+//! pose.
 
 use serde::{Deserialize, Serialize};
 
@@ -65,6 +66,27 @@ pub enum GameMode {
     Creative,
     Adventure,
     Spectator,
+}
+
+/// Where the actor faces and how it moves: `yaw` in degrees in (-180, 180], 0 facing +z and 90
+/// facing -x, and `pitch` in degrees in [-90, 90], positive looking down.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PlayerPose {
+    pub yaw: f64,
+    pub pitch: f64,
+    pub on_ground: bool,
+    pub sneaking: bool,
+    pub sprinting: bool,
+    pub swimming: bool,
+    pub gliding: bool,
+}
+
+impl PlayerPose {
+    /// Whether both angles are finite and within their ranges.
+    pub fn valid(&self) -> bool {
+        self.yaw > -180.0 && self.yaw <= 180.0 && (-90.0..=90.0).contains(&self.pitch)
+    }
 }
 
 /// The network around a callback's anchor: its loaded members, which the snapshot holds, and

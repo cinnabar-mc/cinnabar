@@ -1,7 +1,8 @@
-//! Snapshot reads and staged lifecycle/state operations for server WIT 0.8.
+//! Snapshot reads and staged lifecycle/state operations for server WIT 0.8, and the actor's
+//! pose from 0.12.
 use super::*;
 use crate::protocol::{
-    PlayerEvent, PlayerLocation, Position, StoreKey, StoreScope, WorldHandle, WorldOp,
+    PlayerEvent, PlayerLocation, PlayerPose, Position, StoreKey, StoreScope, WorldHandle, WorldOp,
 };
 
 impl From<WorldHandle> for wit::WorldHandle {
@@ -17,6 +18,19 @@ impl From<wit::WorldHandle> for WorldHandle {
         Self {
             id: value.id.value,
             generation: value.generation,
+        }
+    }
+}
+impl From<PlayerPose> for wit::PlayerPose {
+    fn from(pose: PlayerPose) -> Self {
+        Self {
+            yaw: pose.yaw,
+            pitch: pose.pitch,
+            on_ground: pose.on_ground,
+            sneaking: pose.sneaking,
+            sprinting: pose.sprinting,
+            swimming: pose.swimming,
+            gliding: pose.gliding,
         }
     }
 }
@@ -102,6 +116,15 @@ impl CallbackRes {
             .context
             .as_ref()
             .and_then(|c| c.player.clone())
+            .map(Into::into)
+            .ok_or(WorldError::PlayerUnavailable))
+    }
+    /// The actor's pose as the adapter snapshotted it; `player-unavailable` without a player
+    /// actor.
+    pub(crate) fn pose(&mut self) -> Result<Result<wit::PlayerPose, WorldError>> {
+        self.host_call()?;
+        Ok(self
+            .pose
             .map(Into::into)
             .ok_or(WorldError::PlayerUnavailable))
     }

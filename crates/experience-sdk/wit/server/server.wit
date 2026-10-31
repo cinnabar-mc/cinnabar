@@ -198,7 +198,8 @@ interface types {
     record overlay { slot: u8, face: face, look: overlay-look }
 
     // 0.12: what a block drops, how its item is offered, whether it takes part in redstone, and
-    // a player's game mode. Every type above is unchanged, so the older worlds share them.
+    // a player's game mode and pose. Every type above is unchanged, so the older worlds share
+    // them.
 
     /// What breaking a block drops by itself: `itself`, its own item, as a plain block does, or
     /// `nothing`, which leaves every drop to the guest's `on-break`.
@@ -222,6 +223,13 @@ interface types {
     /// as it: `spectator` passes through blocks, `creative` has the creative inventory,
     /// `adventure` cannot edit the world, and `survival` is every other mode.
     enum game-mode { survival, creative, adventure, spectator }
+    /// Where a player faces and how it moves, as the server last received them. `yaw` is in
+    /// degrees in (-180, 180], 0 facing +z and 90 facing -x; `pitch` is in degrees in [-90, 90],
+    /// positive looking down. The flags are the movement states the player reports.
+    record player-pose {
+        yaw: f64, pitch: f64, on-ground: bool, sneaking: bool, sprinting: bool, swimming: bool,
+        gliding: bool,
+    }
 }
 
 interface world-access {
@@ -230,6 +238,7 @@ interface world-access {
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
         player-location, position, store-key, simulation-step, schedule-handle, overlay,
         entity-type-id, entity-handle, entity-state, entity-rotation, item-stack, game-mode,
+        player-pose,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
@@ -297,6 +306,9 @@ interface world-access {
         /// The actor's game mode as it was snapshotted with its inventory; `player-unavailable`
         /// without an actor.
         game-mode: func() -> result<game-mode, world-error>;
+        /// The actor's pose as it was snapshotted for this callback; `player-unavailable`
+        /// without an actor.
+        pose: func() -> result<player-pose, world-error>;
         /// Stages new content for one of the actor's inventory slots; none empties it.
         set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may

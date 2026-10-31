@@ -190,6 +190,8 @@ type CallbackRequest struct {
 	Network *Network `json:"network"`
 	// Inventory is the actor's inventory, when the callback has an actor.
 	Inventory *Inventory `json:"inventory"`
+	// Pose is where the actor faces and how it moves, when the callback's actor is a player.
+	Pose *PlayerPose `json:"pose,omitempty"`
 	// Containers are the containers in reach of the anchor and its network, for a callback with
 	// an anchor.
 	Containers *Containers `json:"containers,omitempty"`

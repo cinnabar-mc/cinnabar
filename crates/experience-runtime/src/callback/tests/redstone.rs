@@ -99,6 +99,7 @@ impl Fixture {
             snapshot: self.cells,
             network: self.network,
             inventory: self.inventory,
+            pose: self.pose,
             containers: self.containers,
             call: Call::Interact {
                 player: ACTOR.to_owned(),
