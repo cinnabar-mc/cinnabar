@@ -395,6 +395,16 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
             {
                 break;
             }
+            // A following hand edge would announce the selection ahead of older movement, so it
+            // waits behind that movement. Expiry still applies it locally.
+            if selects_slot(edge)
+                && world
+                    .resource::<MovementTicker>()
+                    .between_ticks_sample()
+                    .is_none()
+            {
+                break;
+            }
             let context = context.get_or_insert_with(|| capture(world, &snapshot, phase));
             runtime
                 .frames
@@ -416,10 +426,21 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
     {
         // A blocked suffix expires only at its final opportunity, without replay next frame.
         if active && !snapshot.authority_released && !runtime.frames.quarantined() {
-            for edge in ordered.events().iter().skip(runtime.ingested) {
+            for edge in ordered.events().iter().copied().skip(runtime.ingested) {
                 runtime
                     .frames
                     .observe_build_button(edge.action, edge.pressed);
+                // Native selection has no pending-work gate. An accepted release keeps the
+                // charge it belongs to, so only that press still expires.
+                if selects_slot(edge)
+                    && !release_pending(
+                        world.resource::<ItemUseRuntime>(),
+                        world.resource::<MovementTicker>(),
+                    )
+                {
+                    run_cached(world, crate::hotbar::ordered::select, edge.action)
+                        .expect("ordered selection admission");
+                }
             }
         }
         runtime.ingested = ordered.events().len();
@@ -442,6 +463,11 @@ pub(crate) fn drain(world: &mut World, phase: DispatchPhase, windows: &mut Prima
 fn announces_selection(edge: ActionEvent) -> bool {
     edge.action == Action::Use
         || (edge.pressed && matches!(edge.action, Action::Attack | Action::PickItem))
+}
+
+/// Hotbar presses change the local selection and leave its announcement to a later carrier.
+fn selects_slot(edge: ActionEvent) -> bool {
+    edge.pressed && client_interaction::hotbar::slot_for_action(edge.action, 0).is_some()
 }
 
 /// Dispatches one edge without rerunning a frame producer or retaining a failed attempt.
@@ -480,14 +506,7 @@ fn dispatch(world: &mut World, input: InteractionInput) {
             run_cached(world, crate::pick_block::ordered_pick, input)
                 .expect("ordered pick admission");
         }
-        action
-            if edge.pressed
-                && client_interaction::hotbar::slot_for_action(action, 0).is_some()
-                && world
-                    .resource::<MovementTicker>()
-                    .between_ticks_sample()
-                    .is_some() =>
-        {
+        action if selects_slot(edge) => {
             run_cached(world, crate::hotbar::ordered::select, action)
                 .expect("ordered selection admission");
         }
