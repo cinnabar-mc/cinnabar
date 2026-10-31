@@ -7,7 +7,7 @@ use super::*;
 pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     culling: Option<Res<'w, render_scene::ChunkOcclusionCulling>>,
     support: Option<Res<'w, GpuCullSupport>>,
-    state: Option<Res<'w, GpuCull>>,
+    state: Option<ResMut<'w, GpuCull>>,
     frame: Option<ResMut<'w, GpuCullFrame>>,
     feedback: Option<ResMut<'w, feedback::GpuCullFeedback>>,
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
@@ -27,6 +27,56 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
 }
 
 impl GpuCullQueue<'_, '_> {
+    /// The experiment keeps all colour streams in the ordinary CPU command order.
+    pub(in crate::chunk) fn raster_enabled(&self) -> bool {
+        self.state
+            .as_deref()
+            .is_some_and(|state| state.raster_enabled)
+    }
+
+    /// Captures the same current allocations and stream orders as uncullled indirect drawing.
+    pub(in crate::chunk) fn set_raster_orders(
+        &mut self,
+        orders: [&[Entity]; 2],
+        allocations: &Query<&GpuChunkAllocation>,
+    ) {
+        if let Some(state) = self.state.as_deref_mut() {
+            for (target, entities) in state.raster_orders.iter_mut().zip(orders) {
+                target.clear();
+                target.extend(entities.iter().filter_map(|entity| {
+                    allocations
+                        .get(*entity)
+                        .ok()
+                        .map(|allocation| allocation.metadata_index)
+                }));
+            }
+        }
+    }
+
+    /// Reuses the solid program with colour writes disabled for the early depth subset.
+    pub(in crate::chunk) fn raster_depth_pipeline(
+        &mut self,
+        cache: &PipelineCache,
+        source: CachedRenderPipelineId,
+    ) -> CachedRenderPipelineId {
+        let state = self.state.as_deref_mut().expect("selected raster state");
+        *state.depth_pipelines.entry(source).or_insert_with(|| {
+            let mut descriptor = cache.get_render_pipeline_descriptor(source).clone();
+            descriptor.label = Some("terrain raster occluder depth".into());
+            for target in descriptor
+                .fragment
+                .as_mut()
+                .expect("solid fragment")
+                .targets
+                .iter_mut()
+                .flatten()
+            {
+                target.write_mask = wgpu::ColorWrites::empty();
+            }
+            cache.queue_render_pipeline(descriptor)
+        })
+    }
+
     /// Missing preferences retain the renderer's default behavior in isolated consumers.
     fn enabled(&self) -> bool {
         self.culling

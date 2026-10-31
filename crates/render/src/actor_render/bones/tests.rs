@@ -3,7 +3,7 @@ use render_api::PoseGeneration;
 use render_model::{ActorRenderIdentity, ActorRigGeometrySpan};
 
 /// Publishes deterministic dense endpoints with distinct bytes for each actor and bone.
-fn frame(actors: &[(u64, usize)]) -> ActorRigRenderFrame {
+pub(super) fn frame(actors: &[(u64, usize)]) -> ActorRigRenderFrame {
     let mut instances = Vec::new();
     let mut manifest = Vec::new();
     let mut previous = Vec::new();
@@ -75,12 +75,12 @@ fn frame(actors: &[(u64, usize)]) -> ActorRigRenderFrame {
 }
 
 /// Prepares renderer data from an immutable CPU publication.
-fn prepare(cache: &mut BoneResidency, frame: &ActorRigRenderFrame) -> BoneFrame {
-    cache.prepare(frame, Arc::clone(&frame.instances)).unwrap()
+pub(super) fn prepare(cache: &mut BoneResidency, frame: &ActorRigRenderFrame) -> BoneFrame {
+    cache.prepare(frame, |_| {}).unwrap()
 }
 
 /// Applies exactly the planned GPU writes, then checks every endpoint and projected record.
-fn apply_and_compare(
+pub(super) fn apply_and_compare(
     cache: &BoneResidency,
     prepared: &BoneFrame,
     source: &ActorRigRenderFrame,
@@ -371,7 +371,7 @@ fn invalid_or_empty_publication_discards_proof_without_partial_draws() {
             4 => Arc::make_mut(&mut next.manifest)[0].route = ActorRigRoute::NoDraw,
             _ => next = ActorRigRenderFrame::default(),
         }
-        assert!(cache.prepare(&next, Arc::clone(&next.instances)).is_none());
+        assert!(cache.prepare(&next, |_| {}).is_none());
         assert!(cache.slots.is_empty());
         assert_eq!(
             prepare(&mut cache, &original).uploaded_bytes(),

@@ -1,5 +1,5 @@
 //! GPU-driven opaque terrain culling: persistent per-slot records, a compute cull with
-//! two-phase Hi-Z occlusion, and compacted multi-draw-indirect submission.
+//! two-phase current-frame occlusion, and compacted multi-draw-indirect submission.
 //!
 //! Count-capable backends consume the compacted count directly; culled pipelines fetch each
 //! command's base vertex and first instance from a vertex buffer, so DX12 count draws, which
@@ -24,6 +24,7 @@ mod order;
 mod pixel_tests;
 mod prepare;
 mod queue;
+mod raster;
 pub(in crate::chunk) use queue::GpuCullQueue;
 mod slots;
 pub(in crate::chunk) mod storage;
@@ -161,6 +162,12 @@ pub(in crate::chunk) fn install(app: &mut App) {
         forced_cpu,
         &device.limits(),
     );
+    let raster = env_compat::var_os(raster::RASTER_ENV).is_some_and(|value| value == "1")
+        && raster::supported(
+            info.backend,
+            device.features(),
+            adapter.get_downlevel_capabilities().flags,
+        );
     let support = GpuCullSupport(submission.is_some());
     let direct = DirectOcclusionSupport(direct_occlusion_supported(
         draw_mode,
@@ -172,6 +179,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
         ?draw_mode,
         gpu_cull = ?submission,
         direct_occlusion = direct.0,
+        raster_occlusion = raster,
         forced_cpu,
         gpu_cull_unstable = unstable,
         "terrain draw path"
@@ -194,7 +202,13 @@ pub(in crate::chunk) fn install(app: &mut App) {
         return;
     };
     let worker_device = device.clone();
-    crate::deferred_resource::install(render_app, move || GpuCull::new(&worker_device, submission));
+    crate::deferred_resource::install(render_app, move || {
+        let mut cull = GpuCull::new(&worker_device, submission);
+        if raster {
+            cull.enable_raster();
+        }
+        cull
+    });
     render_app
         .insert_resource(feedback::GpuCullFeedback::from_env())
         .init_resource::<ChunkHiddenEntities>()

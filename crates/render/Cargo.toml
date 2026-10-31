@@ -21,6 +21,8 @@ reads = [
 alloc-stats = ["render-scene/alloc-stats"]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
+# Builds the interpolation GPU backend; presentation integration is not enabled yet.
+frame-generation = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
