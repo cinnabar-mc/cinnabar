@@ -389,7 +389,8 @@ fn compile_pack_sources(
             descriptor_keys.insert(descriptor, key);
         }
         if visuals::dried_ghast::is_record(record)
-            && let Some((descriptor, key)) = visuals::dried_ghast::tentacle_descriptor(&pack, record)
+            && let Some((descriptor, key)) =
+                visuals::dried_ghast::tentacle_descriptor(&pack, record)
         {
             descriptor_keys.insert(descriptor, key);
         }

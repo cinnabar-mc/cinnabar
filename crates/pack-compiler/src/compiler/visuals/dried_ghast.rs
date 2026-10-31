@@ -43,10 +43,18 @@ fn side_uvs(face: BlockFace, positions: [[i16; 3]; 4], [u0, u1, v0, v1]: Rect) -
     };
     let ascending = matches!(face, BlockFace::South | BlockFace::West);
     let top = positions.iter().map(|corner| corner[1]).max().unwrap_or(0);
-    let low = positions.iter().map(|corner| corner[axis]).min().unwrap_or(0);
+    let low = positions
+        .iter()
+        .map(|corner| corner[axis])
+        .min()
+        .unwrap_or(0);
     positions.map(|corner| {
         [
-            if (corner[axis] == low) == ascending { u0 } else { u1 },
+            if (corner[axis] == low) == ascending {
+                u0
+            } else {
+                u1
+            },
             if corner[1] == top { v0 } else { v1 },
         ]
     })
@@ -61,7 +69,13 @@ fn flat_uvs(face: BlockFace, positions: [[i16; 3]; 4], rect: Rect, turned: bool)
     } else {
         (u0, u1, v0, v1)
     };
-    let low = |axis: usize| positions.iter().map(|corner| corner[axis]).min().unwrap_or(0);
+    let low = |axis: usize| {
+        positions
+            .iter()
+            .map(|corner| corner[axis])
+            .min()
+            .unwrap_or(0)
+    };
     let (low_x, low_z) = (low(0), low(2));
     positions.map(|corner| {
         let first_z = (corner[2] == low_z) == (face == BlockFace::Up);
@@ -217,7 +231,8 @@ fn ghast_quads(materials: [u32; 6], tentacle: u32, steps: usize) -> Vec<ModelQua
 
 /// A state's quarter turns from a south-facing ghast, in the direction's domain order.
 fn turns(record: &RegistryRecord) -> Option<usize> {
-    let StateValue::String(direction) = record.property(BlockProperty::MinecraftCardinalDirection)?
+    let StateValue::String(direction) =
+        record.property(BlockProperty::MinecraftCardinalDirection)?
     else {
         return None;
     };
@@ -241,12 +256,9 @@ pub(in crate::compiler) fn tentacle_descriptor(
         StateValue::Int(level) => usize::try_from(*level).ok()?,
         _ => return None,
     };
-    let key: Box<str> = pack_compile_input::pack::resolve_carried_face_key(
-        &pack.blocks,
-        record,
-        BlockFace::Up,
-    )?
-    .into();
+    let key: Box<str> =
+        pack_compile_input::pack::resolve_carried_face_key(&pack.blocks, record, BlockFace::Up)?
+            .into();
     let (path, state_variant) = pack.terrain.get_clamped_untinted_variant(&key, variant)?;
     Some((
         Descriptor {
@@ -287,8 +299,8 @@ pub(in crate::compiler) fn compile_rule(
         let groups = quads
             .chunks(BlockFace::ALL.len())
             .map(<[ModelQuad]>::to_vec);
-        let template = push_grouped_model_template(groups, storage)?
-            .expect("a ghast always has a body");
+        let template =
+            push_grouped_model_template(groups, storage)?.expect("a ghast always has a body");
         templates.insert(key, template);
         template
     };
