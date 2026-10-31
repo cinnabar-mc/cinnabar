@@ -33,6 +33,7 @@ impl ChunkUploadBudget {
         }
     }
 
+    /// Sets the elapsed upload-preparation allowance, allowing at least one eligible upload.
     #[must_use]
     pub const fn with_preparation_time(
         mut self,

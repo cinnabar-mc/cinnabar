@@ -317,7 +317,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   same publication limits and poll deadline. Staged worker completions receive a bounded
   share first, so fresh removals cannot starve staged empty or geometry results. Geometry
   preparation waits for worker and result capacity while urgent reserves and independent
-  removals retain service. Eviction skips a second removal for settled air with an
+  removals retain service. GPU upload preparation also stops admitting after its elapsed
+  allowance, allowing one eligible upload to progress and retaining deferred permits and
+  priority order. Matched burst-frame, streaming and join qualification remain open.
+  Eviction skips a second removal for settled air with an
   acknowledged GPU publication; dirty or unfinished sections still publish removals.
   Biome-only heights without section or publication ownership skip withdrawals;
   surviving meshes still invalidate when their sampled biome data retires.

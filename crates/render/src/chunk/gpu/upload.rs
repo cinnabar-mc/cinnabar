@@ -68,6 +68,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let budget = &*limits.budget;
+    let deadline = PreparationDeadline::new(Instant::now(), budget.max_preparation_time);
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
@@ -234,7 +235,6 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         }
     }
-    let deadline = PreparationDeadline::new(Instant::now(), budget.max_preparation_time);
     let mut time_limited = false;
     for entity in fairness.examination_order(&selected) {
         if upload_reservation.items >= frame_items {
@@ -721,6 +721,7 @@ pub(in crate::chunk) struct PreparationDeadline {
 }
 
 impl PreparationDeadline {
+    /// Starts the allowance at the render edge's supplied observation.
     pub(in crate::chunk) const fn new(started: Instant, allowance: Duration) -> Self {
         Self { started, allowance }
     }
