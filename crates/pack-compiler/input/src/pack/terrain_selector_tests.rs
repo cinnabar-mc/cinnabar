@@ -432,7 +432,6 @@ const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
     "suspicious_sand",
     "trial_spawner_side",
     "trial_spawner_top",
-    "turtle_egg",
     "vault_bottom",
     "vault_front",
     "vault_side",
