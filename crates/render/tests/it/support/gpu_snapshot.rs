@@ -143,10 +143,6 @@ impl Gpu {
     }
 
     /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
-    #[allow(
-        clippy::print_stderr,
-        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
-    )]
     pub fn for_fixture_with_limits(
         name: &str,
         features: wgpu::Features,
@@ -156,6 +152,10 @@ impl Gpu {
     }
 
     /// Retains format capabilities for fixtures checking all supported coverage patterns.
+    #[allow(
+        clippy::print_stderr,
+        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
+    )]
     pub fn for_fixture_with_adapter(
         name: &str,
         features: wgpu::Features,

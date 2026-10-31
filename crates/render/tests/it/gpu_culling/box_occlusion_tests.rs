@@ -344,3 +344,116 @@ fn raster_box_mixed_orders_leave_hidden_solid_commands_zero_on_fixed_submission(
         "a model-only rank cannot emit its hidden cube record into cleared fixed tails"
     );
 }
+
+#[test]
+fn raster_box_keeps_a_distant_cube_when_only_its_sealed_edge_is_visible() {
+    let Some(gpu) = Gpu::for_fixture_with(
+        "distant sealed raster bound",
+        wgpu::Features::SHADER_EARLY_DEPTH_TEST,
+    ) else {
+        return;
+    };
+    if gpu.backend != wgpu::Backend::Vulkan
+        || !gpu
+            .device
+            .features()
+            .contains(wgpu::Features::SHADER_EARLY_DEPTH_TEST)
+    {
+        eprintln!("missing fixture: Vulkan forced early depth for sealed bounds");
+        return;
+    }
+    let mut terrain = Terrain::default();
+    terrain.add(
+        [0; 3],
+        vec![PackedQuad::new([0, 0, 15], Face::PositiveZ, 16, 16, 0)],
+        Vec::new(),
+    );
+    let eye = Vec3::new(12.953125, 11.125, 816.0);
+    let mut view = camera(eye, eye + Vec3::NEG_Z);
+    view.clip_from_view = glam::camera::rh::proj::directx::perspective_infinite_reverse(
+        std::f32::consts::FRAC_PI_2,
+        1.0,
+        0.05,
+    );
+    view.clip_from_world = view.clip_from_view
+        * Mat4::from(
+            GlobalTransform::from(Transform::from_translation(eye))
+                .affine()
+                .inverse(),
+        );
+    let target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+    let edge = 2.0 / SNAPSHOT_SIDE as f32;
+    let rectangles = [
+        [-1.0, -1.0, 0.8, 0.0, 0.0, 1.0, 0.0, 0.0],
+        [edge, -1.0, 0.8, 0.0, 1.0, 1.0, 0.0, 0.0],
+        [0.0, -1.0, 0.8, 0.0, edge, -edge, 0.0, 0.0],
+        [0.0, 0.0, 0.8, 0.0, edge, 1.0, 0.0, 0.0],
+    ];
+    hiz::render_scene(
+        &gpu,
+        &target,
+        ("rect_vertex", "colour_fragment"),
+        &view.clip_from_world.to_cols_array(),
+        &rectangles,
+    );
+    let before = read_texture(&gpu, &target.color, 0);
+    let raster = Raster::through(
+        &gpu,
+        &terrain,
+        &view,
+        true,
+        wgpu::TextureFormat::Rgba8Unorm,
+        "vertex",
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    {
+        let mut pass = target.pass(&mut encoder, false);
+        raster.draw(
+            &mut pass,
+            CullStream::Solid,
+            &slot_draws(&terrain, 0, eye.as_dvec3().to_array(), CullStream::Solid),
+        );
+    }
+    gpu.queue.submit([encoder.finish()]);
+    let after = read_texture(&gpu, &target.color, 0);
+    let pixel = ((SNAPSHOT_SIDE / 2 * SNAPSHOT_SIDE + SNAPSHOT_SIDE / 2) * 4) as usize;
+    assert_ne!(
+        &before[pixel..pixel + 4],
+        &after[pixel..pixel + 4],
+        "the production cube's sealed edge must reach the open sample"
+    );
+    let culler = Culler::new(&gpu, &terrain.records, &[1]);
+    let mut uniform = CullViewUniform::new(
+        &view_input(&view, 0),
+        CullPhase::Late,
+        1,
+        culler.storage.capacity,
+        culler.kernels.workgroup,
+    );
+    uniform.depth[3] = model::OCCLUSION_RASTER;
+    culler
+        .storage
+        .write_uniform(&gpu.queue, CullPhase::Late, &uniform);
+    let boxes = box_occlusion::RasterCull::new(
+        &gpu.device,
+        &culler.storage,
+        culler.kernels.workgroup,
+        DEPTH_FORMAT,
+        1,
+    );
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    boxes.encode(
+        &mut encoder,
+        &target.depth.create_view(&Default::default()),
+        1,
+        uniform.viewport,
+        (None, None),
+    );
+    gpu.queue.submit([encoder.finish()]);
+    let bytes = read_buffer(&gpu, &culler.storage.history, 4);
+    assert_ne!(
+        bytemuck::cast_slice::<u8, u32>(&bytes)[0] & model::HISTORY_RASTER_VISIBLE,
+        0,
+        "a section with a visible sealed sample cannot be hidden"
+    );
+}

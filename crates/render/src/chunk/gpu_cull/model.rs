@@ -69,6 +69,8 @@ pub const DECISION_HIDDEN: u32 = DECISION_CANDIDATE << 1;
 pub const DECISION_DRAWS: u32 = DECISION_CANDIDATE - 1;
 /// Hi-Z boxes grow by this many blocks so rasterised depth never lands outside them.
 pub const HIZ_PADDING: f32 = 1.0 / 16.0;
+/// Extra screen coverage for rasterizer snapping at the edge of a depth footprint.
+pub const OCCLUSION_PIXEL_PADDING: f32 = 1.0;
 /// Relative and absolute slack that keeps the GPU frustum test a superset of the CPU one.
 pub const FRUSTUM_RELATIVE_SLACK: f32 = 1.0e-5;
 pub const FRUSTUM_ABSOLUTE_SLACK: f32 = 1.0e-3;
@@ -575,7 +577,7 @@ pub fn reference_occluded(
     let top = vp[1] + (0.5 - ndc_max[1] * 0.5) * vp[3];
     let bottom = vp[1] + (0.5 - ndc_min[1] * 0.5) * vp[3];
     let limit = [view.depth[0] as f32 - 1.0, view.depth[1] as f32 - 1.0];
-    let dilation = 1.0 + lean;
+    let dilation = OCCLUSION_PIXEL_PADDING + lean;
     let pixel = |value: f32, axis: usize| value.clamp(0.0, limit[axis]) as u32;
     let p0 = [
         pixel(left.floor() - dilation, 0),

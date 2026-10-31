@@ -2,6 +2,8 @@
 
 use super::{kernels::cull_shader_source, model::group_count, storage::CullStorage};
 
+const RASTER_VERTICES: u32 = 6;
+
 pub(super) const RASTER_ENV: &str = "CINNABAR_TERRAIN_RASTER_OCCLUSION";
 
 /// Requires forced early depth so failed samples cannot publish fragment storage writes.
@@ -24,6 +26,11 @@ fn shader_source(workgroup: u32) -> String {
         .split_once("@group(0)")
         .expect("cull bindings follow types");
     format!("{declarations}\n{}", include_str!("raster.wgsl"))
+        .replace(
+            "RASTER_SEAM_MAX_STEP",
+            &format!("{:?}f", render_model::CUBE_SEAM_MAX_STEP),
+        )
+        .replace("RASTER_VERTEX_COUNT", &format!("{RASTER_VERTICES}u"))
 }
 
 /// Pipelines and bindings for one storage allocation and depth attachment format/sample count.
@@ -156,7 +163,7 @@ impl RasterCull {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.group, &[]);
         pass.set_viewport(viewport[0], viewport[1], viewport[2], viewport[3], 0.0, 1.0);
-        pass.draw(0..36, 0..slots);
+        pass.draw(0..RASTER_VERTICES, 0..slots);
     }
 }
 

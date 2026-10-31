@@ -285,7 +285,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
-  current-frame raster box tests instead of building Hi-Z. An early solid depth
+  current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
   subset leaves colour writes off; the late pass retains each CPU stream's colour
   order. Other devices retain their existing paths. Near-plane crossings and large
   boxes remain visible, and unavailable tests draw the complete ordered terrain.

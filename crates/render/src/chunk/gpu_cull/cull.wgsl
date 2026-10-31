@@ -11,6 +11,7 @@
 const WORKGROUP: u32 = CULL_WORKGROUP;
 const SIDE: i32 = CULL_SIDE;
 const HIZ_PADDING: f32 = CULL_HIZ_PADDING;
+const PIXEL_PADDING: f32 = CULL_PIXEL_PADDING;
 const RELATIVE_SLACK: f32 = CULL_RELATIVE_SLACK;
 const ABSOLUTE_SLACK: f32 = CULL_ABSOLUTE_SLACK;
 const BOUNDS_BIAS: i32 = 128;
@@ -157,8 +158,8 @@ fn hiz_test(record: CullRecord, strict: bool) -> bool {
     let bottom = vp.y + (0.5 - lo.y * 0.5) * vp.w;
     let limit = vec2<f32>(view.depth.xy) - vec2(1.0);
     // One extra pixel each side absorbs rasteriser rounding.
-    let p0 = vec2<u32>(clamp(floor(vec2(left, top)) - vec2(1.0), vec2(0.0), limit));
-    let p1 = vec2<u32>(clamp(floor(vec2(right, bottom)) + vec2(1.0), vec2(0.0), limit));
+    let p0 = vec2<u32>(clamp(floor(vec2(left, top)) - vec2(PIXEL_PADDING), vec2(0.0), limit));
+    let p1 = vec2<u32>(clamp(floor(vec2(right, bottom)) + vec2(PIXEL_PADDING), vec2(0.0), limit));
     // The finest level where the rectangle spans at most 4x4 texels.
     var level = 0u;
     loop {

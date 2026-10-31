@@ -9,8 +9,8 @@ use super::model::{
     CULL_STORAGE_BINDINGS, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_CUTOUT_SHIFT,
     DECISION_DRAWS, DECISION_HIDDEN, DECISION_LIQUID_SHIFT, DECISION_MODEL_SHIFT,
     DECISION_SOLID_MASK, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HISTORY_RASTER_VISIBLE,
-    HISTORY_VISIBLE, HIZ_PADDING, OCCLUSION_ORDERED_FALLBACK, OCCLUSION_RASTER, PHASE_COUNT,
-    PYRAMID_WORKGROUP, cull_workgroup, group_count,
+    HISTORY_VISIBLE, HIZ_PADDING, OCCLUSION_ORDERED_FALLBACK, OCCLUSION_PIXEL_PADDING,
+    OCCLUSION_RASTER, PHASE_COUNT, PYRAMID_WORKGROUP, cull_workgroup, group_count,
 };
 
 const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
@@ -19,6 +19,7 @@ const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 pub fn cull_shader_source(workgroup: u32) -> String {
     let float = |value: f32| format!("{value:?}f");
     include_str!("cull.wgsl")
+        .replace("CULL_PIXEL_PADDING", &float(OCCLUSION_PIXEL_PADDING))
         .replace(
             "CULL_OCCLUSION_ORDERED_FALLBACK",
             &format!("{OCCLUSION_ORDERED_FALLBACK}u"),
