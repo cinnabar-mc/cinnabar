@@ -1833,6 +1833,10 @@ Use the current [live-testing guide](docs/agents/live-testing.md) as the single 
 reference hardware, frame/hitch, streaming, join and capture budgets. Capture the
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
+Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-frame
+spans, trace exports and developer-control state on supported desktop and Android
+platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
+accuracy and sampling overhead still need hardware acceptance.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
