@@ -231,7 +231,7 @@ query_manifest! {
     KineticWeaponDismountDuration => ("query.kinetic_weapon_dismount_duration", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     KineticWeaponKnockbackDuration => ("query.kinetic_weapon_knockback_duration", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     LieAmount => ("query.lie_amount", MolangQueryHandler::FloatMetadata { key: ActorDataKey::LayingAmount.wire_value(), idle: 0.0 }, 0, 0, Number, Implemented, Tick),
-    LifeSpan => ("query.life_span", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented, Tick),
+    LifeSpan => ("query.life_span", MolangQueryHandler::IntegerMetadata(ActorDataKey::DataLifetimeTicks.wire_value()), 0, 0, Number, Implemented, Tick),
     LifeTime => ("query.life_time", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Frame),
     MainHandItemMaxDuration => ("query.main_hand_item_max_duration", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     MainHandItemUseDuration => ("query.main_hand_item_use_duration", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
