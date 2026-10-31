@@ -428,3 +428,17 @@ fn review_pressure_floor_never_exceeds_configured_operation_caps() {
         assert!(controller.budget().max_zero_byte_operations_per_frame <= maximum);
     }
 }
+
+/// Every renderer budget carries the configured upload-preparation time allowance.
+#[test]
+fn renderer_budget_carries_the_preparation_time_allowance() {
+    let allowance = Duration::from_micros(250);
+    let config = PublicationServiceConfig {
+        maximum_frame_preparation_time: allowance,
+        ..PublicationServiceConfig::DEFAULT
+    };
+    let mut controller = PublicationController::new(config);
+    assert_eq!(controller.budget().max_preparation_time, allowance);
+    controller.begin_frame(Duration::from_millis(16));
+    assert_eq!(controller.budget().max_preparation_time, allowance);
+}

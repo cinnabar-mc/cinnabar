@@ -11,6 +11,9 @@ pub struct ChunkUploadBudget {
     pub max_per_frame: usize,
     pub max_bytes_per_frame: u64,
     pub max_zero_byte_operations_per_frame: usize,
+    /// Elapsed preparation time after which the render thread defers the remaining uploads;
+    /// unbounded unless the publication service sets its allowance.
+    pub max_preparation_time: std::time::Duration,
 }
 
 impl Default for ChunkUploadBudget {
@@ -26,7 +29,17 @@ impl ChunkUploadBudget {
             max_per_frame,
             max_bytes_per_frame,
             max_zero_byte_operations_per_frame: DEFAULT_ZERO_BYTE_OPERATIONS_PER_FRAME,
+            max_preparation_time: std::time::Duration::MAX,
         }
+    }
+
+    #[must_use]
+    pub const fn with_preparation_time(
+        mut self,
+        max_preparation_time: std::time::Duration,
+    ) -> Self {
+        self.max_preparation_time = max_preparation_time;
+        self
     }
 
     #[must_use]
