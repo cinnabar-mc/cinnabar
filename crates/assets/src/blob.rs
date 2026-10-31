@@ -628,11 +628,13 @@ pub(crate) fn compiled_compound_tails(
         }
         let gate_axis =
             template.flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
-        if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
-            || !matches!(
-                gate_axis,
-                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
-            )
+        if template.flags
+            != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | crate::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+            && (template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+                || !matches!(
+                    gate_axis,
+                    0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+                ))
         {
             return Err(invalid("compound template head has incompatible flags"));
         }

@@ -124,6 +124,9 @@ pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
 pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
 /// Upward-growing vine: two stem planes then two tip planes, chosen by the cell above.
 pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
+/// Head of a scaffolding chain: a foot ring only drawn with no support below, then the
+/// rest of the model in the following parts.
+pub const MODEL_TEMPLATE_FLAG_SCAFFOLDING: u32 = 1 << 29;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -207,6 +210,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+        || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_SCAFFOLDING
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,

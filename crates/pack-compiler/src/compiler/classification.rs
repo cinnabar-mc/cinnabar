@@ -187,6 +187,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
         || visuals::chorus::is_flower(record)
         || visuals::spore_blossom::is_record(record)
         || visuals::trip_wire::is_record(record)
+        || visuals::scaffolding::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross

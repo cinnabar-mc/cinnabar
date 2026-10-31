@@ -244,6 +244,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
   attachment and signal states.
 - [ ] Close shelf native-gallery, pack-pixel fidelity and live replacement-pack acceptance.
+- [ ] Close scaffolding foot-ring support: the world model selects its foot ring from
+  the fire top-support fallback or scaffolding below, which approximates the native block
+  property across non-cube blocks. Top and bottom culling against neighbouring scaffolding
+  has no native comparison yet.
 - [ ] Close the static-sign gallery and native visual acceptance.
 - [ ] Establish exact standing/hanging sign board, post and support geometry, UVs and
   GPU/native evidence. Provisional dimensions are not final geometry parity.
