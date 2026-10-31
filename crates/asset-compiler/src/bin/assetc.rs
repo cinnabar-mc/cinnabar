@@ -520,6 +520,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             json,
             accept_eula,
             clouds_override,
+            jobs,
+            lifeline,
         } => prepare::prepare(prepare::Options {
             root,
             kit,
@@ -530,6 +532,8 @@ fn run(command: Command) -> Result<(), Box<dyn std::error::Error>> {
             json,
             accept_eula,
             clouds_override,
+            jobs: jobs.map(usize::from),
+            lifeline,
         })?,
         Command::KitFiles { root } => {
             for file in prepare_plan::kit_files(&assets::carriers::Sources::Checkout(root))? {

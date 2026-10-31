@@ -958,3 +958,34 @@ fn changing_channels_keeps_pending_worker_cancellation_busy() {
     assert!(state.finish_check(old, false, true));
     assert!(state.request_check());
 }
+
+/// Background preparation reads the offered bundle's kit, never the running one's.
+#[cfg(unix)]
+#[test]
+fn the_offered_kit_sits_where_the_running_bundle_keeps_its_own() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("Cinnabar.app");
+    let layout = InstallLayout::resolve(
+        launcher::install_layout::Platform::MacOs,
+        &launcher::install_layout::InstallEnvironment {
+            executable: target.join("Contents/MacOS/cinnabar"),
+            user_root: None,
+            home: Some(root.path().join("home")),
+            local_app_data: None,
+            xdg_config_home: None,
+            xdg_data_home: None,
+            xdg_runtime_dir: None,
+        },
+    )
+    .unwrap();
+    let candidate = root.path().join(".Cinnabar.app.prepared-digest");
+    assert_eq!(worker::candidate_kit(&layout, &target, &candidate), None);
+    let kit = candidate.join("Contents/Resources/prep-kit");
+    std::fs::create_dir_all(&kit).unwrap();
+    assert_eq!(
+        worker::candidate_kit(&layout, &target, &candidate),
+        Some(kit)
+    );
+    let elsewhere = root.path().join("Downloads/Cinnabar.app");
+    assert_eq!(worker::candidate_kit(&layout, &elsewhere, &candidate), None);
+}
