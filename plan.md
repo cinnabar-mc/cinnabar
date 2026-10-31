@@ -180,6 +180,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   neighbour check, and redstone wire, which draws neither its power tint nor its connections.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
+  and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
+  inactive and cooldown phases, and calibrated sensors keep their provisional shape without
+  tendrils, crystal or facing-mapped faces.
 - [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
   plants stay diagnostic until their reserved registry entry has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack

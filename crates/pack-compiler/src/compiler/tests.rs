@@ -72,12 +72,16 @@ mod lightning_rod;
 mod mapped_face;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
+#[path = "tests/sculk.rs"]
+mod sculk;
 #[path = "tests/sea_pickle.rs"]
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
 #[path = "tests/speleothem.rs"]
 mod speleothem;
+#[path = "tests/spore_blossom.rs"]
+mod spore_blossom;
 #[path = "tests/stonecutter.rs"]
 mod stonecutter;
 #[path = "tests/straw_beds.rs"]

@@ -388,6 +388,11 @@ fn compile_pack_sources(
         {
             descriptor_keys.insert(descriptor, key);
         }
+        if visuals::sculk::is_record(record)
+            && let Some((descriptor, key)) = visuals::sculk::attachment_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
         if fallback.contains(record) {
             for face in BlockFace::ALL {
                 if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
