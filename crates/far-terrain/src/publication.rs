@@ -95,12 +95,7 @@ impl TerrainPublication {
             }
             let requested = target.near.get(&column);
             let actual = |key: &SubChunkKey| live.get(key).or_else(|| self.empty.get(key));
-            let complete = requested.is_some_and(|keys| {
-                !keys.is_empty()
-                    && keys.iter().all(|(key, generation)| {
-                        *generation != 0 && actual(key) == Some(generation)
-                    })
-            });
+            let complete = self.near_ready(column, target, live);
             let retained = self.near.contains(&column)
                 && requested.is_some_and(|keys| {
                     !keys.is_empty()
@@ -118,6 +113,23 @@ impl TerrainPublication {
         self.near = near;
         self.suppressed = suppressed;
         changed
+    }
+
+    /// Requires every section of the requested near column to have its exact GPU receipt.
+    #[must_use]
+    pub fn near_ready(
+        &self,
+        column: ChunkKey,
+        target: &TerrainTarget,
+        live: &HashMap<SubChunkKey, u64>,
+    ) -> bool {
+        target.near.get(&column).is_some_and(|keys| {
+            !keys.is_empty()
+                && keys.iter().all(|(key, generation)| {
+                    *generation != 0
+                        && live.get(key).or_else(|| self.empty.get(key)) == Some(generation)
+                })
+        })
     }
 
     /// Whether this render publication admits a near allocation's draw commands.

@@ -353,7 +353,10 @@ fn assert_gpu_bytes(gpu: &FarTerrainGpu, device: &RenderDevice, queue: &RenderQu
             bytemuck::cast_slice::<_, u8>(&record)
         );
         let offset = (colours_offset + u64::from(resident.slot) * colour_bytes) as usize;
-        assert_eq!(&data[offset..offset + mesh.colours.len()], &*mesh.colours);
+        assert_eq!(
+            &data[offset..offset + mesh.colours.len()],
+            &handoff::colours(mesh, &resident.presentation)
+        );
     }
     drop(data);
     readback.unmap();

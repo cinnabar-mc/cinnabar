@@ -12,7 +12,7 @@ use bevy::{
 };
 use render_scene::FarTerrainScene;
 
-mod gpu;
+pub(crate) mod gpu;
 mod node;
 mod ranges;
 

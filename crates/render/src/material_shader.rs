@@ -119,6 +119,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_COMPACT_CURRENT_BONE_BASE", &format!("{}u", render_model::actor::MAX_ACTOR_POSE_BONES))
         .replace("TERRAIN_UNIT_QUADS", &format!("{}u", render_model::terrain_units::QUADS_PER_UNIT))
         .replace("TERRAIN_UNITS_PER_INSTANCE", &format!("{}u", render_model::terrain_units::UNITS_PER_INSTANCE))
+        .replace("FAR_TERRAIN_HANDOFF_DEPTH_SHIFT", &format!("{}u", far_terrain::HANDOFF_DEPTH_SHIFT))
         .replace("FAR_TERRAIN_TILE_CELLS", &format!("{}u", far_terrain::config::TILE_CELLS))
         .replace("FAR_TERRAIN_FACE_POSITIVE_X", &format!("{}u", far_terrain::FACE_POSITIVE_X))
         .replace("FAR_TERRAIN_FACE_NEGATIVE_X", &format!("{}u", far_terrain::FACE_NEGATIVE_X))
