@@ -2,7 +2,6 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
     ops::Range,
-    sync::Arc,
 };
 
 use crate::actor::gpu::ActorDrawSpan;
@@ -75,11 +74,8 @@ fn owner(identity: ActorRenderIdentity) -> ActorRenderIdentity {
 
 /// Leaves ordinary dissolve pairs opaque and routes color with an owner's sorted depth mask.
 /// The sorted draw plan keeps each marked color adjacent to its depth mask.
-pub(super) fn instances(
-    input: &Arc<[ActorGpuInstance]>,
-    manifest: &[ActorDrawManifestEntry],
-) -> Arc<[ActorGpuInstance]> {
-    let late: BTreeSet<_> = input
+pub(super) fn instances(output: &mut [ActorGpuInstance], manifest: &[ActorDrawManifestEntry]) {
+    let late: BTreeSet<_> = output
         .iter()
         .zip(manifest)
         .filter(|(instance, _)| {
@@ -89,18 +85,15 @@ pub(super) fn instances(
         })
         .map(|(_, entry)| owner(entry.identity))
         .collect();
-    let mut output = Arc::clone(input);
     if late.is_empty() {
-        return output;
+        return;
     }
-    for (index, (instance, entry)) in input.iter().zip(manifest).enumerate() {
+    for (instance, entry) in output.iter_mut().zip(manifest) {
         if instance.material & assets::EntityRenderMaterialState::KIND_MASK
             == assets::EntityRenderMaterial::DissolveColor as u32
             && late.contains(&owner(entry.identity))
         {
-            Arc::make_mut(&mut output)[index].material |=
-                crate::actor::material::LATE_DISSOLVE_COLOR;
+            instance.material |= crate::actor::material::LATE_DISSOLVE_COLOR;
         }
     }
-    output
 }

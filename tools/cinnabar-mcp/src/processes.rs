@@ -36,6 +36,14 @@ pub struct Launch<'a> {
 impl Client {
     /// Starts the client and waits until it publishes `launch.endpoint`.
     pub fn launch(launch: Launch<'_>) -> Result<(Self, Endpoint), String> {
+        Self::launch_observed(launch, |_| {})
+    }
+
+    /// Starts observation immediately after spawning, before waiting for the control endpoint.
+    pub(crate) fn launch_observed(
+        launch: Launch<'_>,
+        observe: impl FnOnce(u32),
+    ) -> Result<(Self, Endpoint), String> {
         if !launch.binary.is_file() {
             return Err(format!(
                 "{} does not exist; build it with `cargo build -p cinnabar --features developer-control`",
@@ -59,6 +67,7 @@ impl Client {
             child,
             log: launch.log,
         };
+        observe(client.pid());
         let deadline = Instant::now() + launch.timeout;
         loop {
             if let Ok(Some(status)) = client.child.try_wait() {
@@ -95,6 +104,24 @@ impl Client {
     /// Waits for a requested exit, then kills.
     pub fn stop(&mut self) {
         wait_or_kill(&mut self.child);
+    }
+
+    /// Waits for an acknowledged exit and rejects a forced termination or unsuccessful status.
+    pub(crate) fn finish(&mut self) -> Result<(), String> {
+        let deadline = Instant::now() + EXIT_GRACE;
+        loop {
+            if let Some(status) = self.child.try_wait().map_err(|error| error.to_string())? {
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("client exited: {status}"))
+                };
+            }
+            if Instant::now() >= deadline {
+                return Err("client did not finish shutdown and trace export".into());
+            }
+            thread::sleep(POLL);
+        }
     }
 }
 

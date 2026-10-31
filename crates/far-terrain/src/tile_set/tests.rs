@@ -299,3 +299,88 @@ fn incomplete_summaries_cannot_retire_visible_coverage() {
         );
     }
 }
+
+/// A partial parent cannot hide itself behind one child after retiring another child.
+#[test]
+fn partial_coarsening_keeps_all_children_drawn() {
+    let parent = TileKey {
+        level: 1,
+        x: 0,
+        z: 0,
+    };
+    let children: [TileKey; 4] = std::array::from_fn(|index| TileKey {
+        level: parent.level - 1,
+        x: parent.x * 2 + (index % 2) as i32,
+        z: parent.z * 2 + (index / 2) as i32,
+    });
+    let mut solid = ColumnSummary::default();
+    solid.cells_mut().fill(SurfaceCell {
+        height: 64,
+        rgb: [80; 3],
+        water_depth: 0,
+    });
+    for empty in [false, true] {
+        let mut tiles = FarTiles::default();
+        for &key in &children {
+            let columns: Vec<_> = key.columns().map(|pos| (pos, solid.clone())).collect();
+            tiles.retire(Arc::new(mesh_tile(&TileGrid::build(key, &columns))));
+        }
+        let replacement = if empty {
+            ColumnSummary::default()
+        } else {
+            solid.clone()
+        };
+        let columns: Vec<_> = children[0]
+            .columns()
+            .map(|pos| (pos, replacement.clone()))
+            .collect();
+        tiles.selected.insert(
+            parent,
+            Tile {
+                building: Some(1),
+                ..Default::default()
+            },
+        );
+        tiles.accept_mesh(Built {
+            key: parent,
+            token: 1,
+            mesh: mesh_tile(&TileGrid::build(parent, &columns)),
+        });
+        tiles.retire_covered();
+
+        for column in parent.columns() {
+            assert_eq!(
+                tiles
+                    .drawn()
+                    .iter()
+                    .filter(|mesh| mesh.covers(column))
+                    .count(),
+                1,
+                "partial parent leaves exactly one drawer over {column:?}, empty={empty}"
+            );
+            assert!(!tiles.ready(column));
+        }
+        assert_eq!(tiles.empty_columns().count(), 0);
+
+        let columns: Vec<_> = parent
+            .columns()
+            .map(|pos| (pos, replacement.clone()))
+            .collect();
+        tiles.selected.get_mut(&parent).unwrap().building = Some(2);
+        tiles.accept_mesh(Built {
+            key: parent,
+            token: 2,
+            mesh: mesh_tile(&TileGrid::build(parent, &columns)),
+        });
+        tiles.retire_covered();
+        assert!(parent.columns().all(|column| tiles.ready(column)));
+        if empty {
+            assert!(tiles.drawn().is_empty());
+            assert_eq!(tiles.empty_columns().count(), parent.columns().count());
+        } else {
+            let drawn = tiles.drawn();
+            assert_eq!(drawn.len(), 1);
+            assert_eq!(drawn[0].key, parent);
+        }
+    }
+}
