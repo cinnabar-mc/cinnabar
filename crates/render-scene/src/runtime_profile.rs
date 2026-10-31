@@ -733,6 +733,20 @@ impl RuntimeStageProfiler {
         }
     }
 
+    /// Records a workload boundary and returns its exact offset on the existing trace clock.
+    pub fn trace_marker(&self, name: &'static str) -> Duration {
+        if let Some(trace) = &self.state.trace {
+            trace.marker(name, self.frame_id())
+        } else {
+            self.elapsed()
+        }
+    }
+
+    /// Reads elapsed monotonic time on the same clock used by exported stage records.
+    pub fn elapsed(&self) -> Duration {
+        self.state.started.elapsed()
+    }
+
     /// Starts optional trace export on a worker without blocking the update loop.
     pub fn flush_trace(&self) {
         if let Some(trace) = &self.state.trace {

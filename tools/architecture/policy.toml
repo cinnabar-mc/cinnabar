@@ -654,7 +654,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "test-time"]
+allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -2082,6 +2082,11 @@ reason = "Cargo artifact-directory name excluded from architecture source discov
 path = "tools/architecture/src/reexports.rs"
 literal = "target"
 reason = "Cargo target-specific dependency table key in the manifest schema."
+
+[[identifier_literal_exceptions]]
+path = "tools/cinnabar-mcp/src/benchmark/trace.rs"
+literal = "cat"
+reason = "Chrome trace-event category field, independent of actor identifiers."
 
 [[identifier_literal_exceptions]]
 path = "tools/cinnabar-mcp/src/definitions.rs"
