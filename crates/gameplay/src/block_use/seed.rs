@@ -1,11 +1,15 @@
 //! Planting with a `minecraft:seed` item, which places a crop without being a block item.
 
+use assets::facts::pack::PackBlock;
+
 /// The cell a seed item plants into when used on `clicked`'s `face`, or `None` when the
 /// use fails or depends on facts the client does not resolve.
 ///
 /// The face must be the declared planting face, the clicked block one of the declared
-/// blocks, and the cell beyond that face air. Planting on an undeclared block through
-/// `plant_at_any_solid_surface` needs native face-support facts and is left to the server.
+/// blocks, and the cell beyond that face air. A rule that declares no blocks and no
+/// solid-surface option plants on farmland, the native default. Planting on an undeclared
+/// block through `plant_at_any_solid_surface` needs native face-support facts and is left to
+/// the server.
 pub fn seed_planting_cell(
     seed: &protocol::ItemSeed,
     clicked: [i32; 3],
@@ -13,12 +17,14 @@ pub fn seed_planting_cell(
     clicked_block: &str,
     is_air: impl FnOnce([i32; 3]) -> bool,
 ) -> Option<[i32; 3]> {
-    if face != seed.plant_at_face
-        || !seed
-            .plant_at
+    let accepted = if seed.plant_at.is_empty() && !seed.plant_at_any_solid_surface {
+        clicked_block == PackBlock::Farmland.identifier()
+    } else {
+        seed.plant_at
             .iter()
             .any(|declared| same_block(declared, clicked_block))
-    {
+    };
+    if face != seed.plant_at_face || !accepted {
         return None;
     }
     let cell = super::placement_cell(clicked, face);
@@ -57,6 +63,14 @@ mod tests {
             }),
             Some([4, 64, -2])
         );
+    }
+
+    #[test]
+    fn a_rule_without_targets_plants_only_on_farmland() {
+        let pitcher = seed(&[], 1);
+        let air = |_| true;
+        assert!(seed_planting_cell(&pitcher, [0, 0, 0], 1, "minecraft:farmland", air).is_some());
+        assert!(seed_planting_cell(&pitcher, [0, 0, 0], 1, "minecraft:dirt", air).is_none());
     }
 
     #[test]

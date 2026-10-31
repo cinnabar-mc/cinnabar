@@ -10,6 +10,7 @@ pub struct ItemSeed {
     /// Block whose default state the item plants, such as `minecraft:wheat`.
     pub crop_result: Arc<str>,
     /// Block names the clicked block may have; names without a namespace are vanilla blocks.
+    /// Empty without the solid-surface option means the native default target, farmland.
     pub plant_at: Arc<[Arc<str>]>,
     /// Whether any block that supports the clicked face also accepts the crop.
     pub plant_at_any_solid_surface: bool,
@@ -31,9 +32,8 @@ impl ItemSeed {
     }
 }
 
-/// Reads a seed declaration. An empty `plant_at` without the solid-surface option means
-/// farmland and an absent face means the top face, as the native item component defaults.
-/// A missing crop or an unknown face name leaves the rule unresolved.
+/// Reads a seed declaration. An absent face means the top face, as the native item component
+/// defaults. A missing crop or an unknown face name leaves the rule unresolved.
 pub(super) fn parse_seed(component: Option<&Nbt>) -> Option<ItemSeed> {
     let component = component.filter(|component| matches!(component, Nbt::Compound(_)))?;
     let crop_result = component
@@ -44,16 +44,13 @@ pub(super) fn parse_seed(component: Option<&Nbt>) -> Option<ItemSeed> {
         .field("plant_at_any_solid_surface")
         .and_then(Nbt::number)
         .is_some_and(|value| value != 0.0);
-    let mut plant_at: Vec<Arc<str>> = component
+    let plant_at: Vec<Arc<str>> = component
         .list("plant_at")
         .iter()
         .filter_map(Nbt::as_str)
         .filter(|name| !name.is_empty() && name.len() <= super::components::MAX_TEXT_BYTES)
         .map(Arc::from)
         .collect();
-    if plant_at.is_empty() && !plant_at_any_solid_surface {
-        plant_at.push(Arc::from("minecraft:farmland"));
-    }
     let plant_at_face = match component.field("plant_at_face") {
         None => 1,
         Some(face) => face_index(face.as_str()?)?,
@@ -105,9 +102,10 @@ mod tests {
     }
 
     #[test]
-    fn absent_targets_default_to_farmland_and_the_top_face() {
+    fn absent_targets_stay_empty_and_the_face_defaults_to_the_top() {
         let parsed = seed(vec![text("crop_result", "minecraft:pitcher_crop")]).unwrap();
-        assert_eq!(&*parsed.plant_at, [Arc::from("minecraft:farmland")]);
+        assert!(parsed.plant_at.is_empty());
+        assert!(!parsed.plant_at_any_solid_surface);
         assert_eq!(parsed.plant_at_face, 1);
         let solid = seed(vec![
             text("crop_result", "minecraft:cave_vines"),
