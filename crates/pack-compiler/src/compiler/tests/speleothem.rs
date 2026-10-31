@@ -1,5 +1,14 @@
 use super::*;
-use assets::{CompiledBiomeAssets, NetworkIdMode, RuntimeAssets, VisualKind};
+use assets::{
+    CompiledBiomeAssets, MODEL_QUAD_FLAG_TWO_SIDED, NetworkIdMode, RuntimeAssets, VisualKind,
+};
+
+fn is_record(record: &RegistryRecord) -> bool {
+    matches!(
+        record.name.as_ref(),
+        "minecraft:pointed_dripstone" | "minecraft:sulfur_spike"
+    )
+}
 
 const THICKNESSES: [&str; 5] = ["tip", "frustum", "middle", "base", "merge"];
 
@@ -30,7 +39,10 @@ fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
         .filter(|record| {
             matches!(
                 record.name.as_ref(),
-                "minecraft:air" | "minecraft:pointed_dripstone" | "minecraft:sulfur_spike"
+                "minecraft:air"
+                    | "minecraft:stone"
+                    | "minecraft:pointed_dripstone"
+                    | "minecraft:sulfur_spike"
             )
         })
         .collect::<Vec<_>>();
@@ -74,6 +86,18 @@ fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
             }}),
         );
     }
+    // Provisional fallback records need the canonical stone material to exist.
+    write_png(
+        directory.path().join("textures/blocks/stone.png"),
+        TILE_SIZE,
+        TILE_SIZE,
+        &[1, 1, 1, 255].repeat((TILE_SIZE * TILE_SIZE) as usize),
+    );
+    texture_data.insert(
+        "stone".to_owned(),
+        serde_json::json!({"textures": "textures/blocks/stone"}),
+    );
+    blocks.insert("stone".to_owned(), serde_json::json!({"textures": "stone"}));
     write(
         directory.path().join("blocks.json"),
         serde_json::Value::Object(blocks).to_string(),
@@ -102,10 +126,7 @@ fn speleothems_cross_the_sprite_for_their_thickness_and_direction() {
     let (compiled, records) = fixture();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
     let mut seen = 0;
-    for record in records
-        .iter()
-        .filter(|r| r.name.as_ref() != "minecraft:air")
-    {
+    for record in records.iter().filter(|r| is_record(r)) {
         let state: serde_json::Value = serde_json::from_str(&record.canonical_state).unwrap();
         let thickness = state["dripstone_thickness"]["value"].as_str().unwrap();
         let hanging = state["hanging"]["value"].as_u64().unwrap() != 0;
