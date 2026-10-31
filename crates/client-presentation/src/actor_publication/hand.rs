@@ -79,7 +79,7 @@ pub(super) fn decorated_item_atlas(
             width: raster.width,
             height: raster.height,
             layers: 1,
-            rgba8: raster.rgba8,
+            rgba8: raster.rgba8.into(),
         })
     } else {
         item_atlas(layer, artwork)
