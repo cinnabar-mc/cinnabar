@@ -27,6 +27,8 @@ pub(super) enum ModelTextureSelector {
     Stem,
     CropStages,
     Torchflower,
+    /// Art by `cracked_state`, in the property's domain order.
+    TurtleEgg,
 }
 
 impl ModelTextureSelector {
@@ -48,6 +50,7 @@ impl ModelTextureSelector {
             Some(S::Stem) => Self::Stem,
             Some(S::CropStages) => Self::CropStages,
             Some(S::Torchflower) => Self::Torchflower,
+            Some(S::TurtleEgg) => Self::TurtleEgg,
             None => match Self::mushroom_block(key) {
                 Some(block) => Self::Mushroom { block },
                 None => return Self::Single,
@@ -94,6 +97,7 @@ impl ModelTextureSelector {
             Self::LightningRod | Self::Powered | Self::Stem | Self::Torchflower => 2,
             Self::Index { count, .. } | Self::RespawnAnchor { count } => count,
             Self::CropStages => 4,
+            Self::TurtleEgg => 3,
             Self::Single => 1,
             Self::Unresolved => 0,
         }
@@ -157,6 +161,19 @@ impl ModelTextureSelector {
                     assets::facts::BlockProperty::Growth.name(),
                 )? >= 4,
             ),
+            Self::TurtleEgg => {
+                let assets::facts::StateValue::String(state) =
+                    record.property(assets::facts::BlockProperty::CrackedState)?
+                else {
+                    return None;
+                };
+                let assets::facts::PropertyDomain::String(domain) =
+                    assets::facts::BlockProperty::CrackedState.domain()
+                else {
+                    return None;
+                };
+                domain.iter().position(|value| *value == state.as_ref())?
+            }
             Self::Single => 0,
             Self::Unresolved => return None,
         };

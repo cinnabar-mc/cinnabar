@@ -25,7 +25,8 @@ fn fixture() -> tempfile::TempDir {
     let source = serde_json::json!({"texture_data": {
         "test:array": {"textures": ["textures/first", "textures/second"]},
         "test:single": {"textures": ["textures/first"]},
-        "wheat": {"textures": (0..8).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()}
+        "wheat": {"textures": (0..8).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()},
+        "turtle_egg": {"textures": ["textures/stage_0", "textures/stage_1", "textures/stage_2"]}
     }});
     std::fs::write(
         root.path().join("terrain.json"),
@@ -148,6 +149,27 @@ fn model_array_ranges_are_declared_and_checked() {
         terrain.get_for_model_record("wheat", &record(r#"{"growth":{"type":"int","value":1}}"#)),
         None
     );
+}
+
+#[test]
+fn turtle_egg_art_follows_the_cracked_state() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut selected = std::collections::BTreeSet::new();
+    for record in records
+        .iter()
+        .filter(|record| record.property(assets::facts::BlockProperty::CrackedState).is_some())
+    {
+        let (path, variant) = terrain.get_for_model_record("turtle_egg", record).unwrap();
+        assert_eq!(path, format!("textures/stage_{variant}"));
+        selected.insert(variant);
+    }
+    assert_eq!(selected.len(), 3, "each crack stage keeps its own art");
 }
 
 #[test]
@@ -394,7 +416,6 @@ const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
     "suspicious_sand",
     "trial_spawner_side",
     "trial_spawner_top",
-    "turtle_egg",
     "vault_bottom",
     "vault_front",
     "vault_side",

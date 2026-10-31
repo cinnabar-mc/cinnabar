@@ -7201,6 +7201,7 @@
       "HeavyCore": "minecraft:heavy_core",
       "Crafter": "minecraft:crafter",
       "DriedGhast": "minecraft:dried_ghast",
+      "TurtleEgg": "minecraft:turtle_egg",
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",
@@ -7210,6 +7211,7 @@
       "Observer": "minecraft:observer"
     },
     "selectors": {
+      "turtle_egg": "TurtleEgg",
       "door_lower": "Door",
       "door_upper": "Door",
       "red_flower": "Flower",
