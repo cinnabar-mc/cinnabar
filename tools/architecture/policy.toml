@@ -2084,6 +2084,11 @@ literal = "target"
 reason = "Cargo target-specific dependency table key in the manifest schema."
 
 [[identifier_literal_exceptions]]
+path = "tools/cinnabar-mcp/src/benchmark/trace.rs"
+literal = "cat"
+reason = "Chrome trace-event category field, independent of actor identifiers."
+
+[[identifier_literal_exceptions]]
 path = "tools/cinnabar-mcp/src/definitions.rs"
 literal = "string"
 reason = "MCP JSON Schema primitive type vocabulary."
