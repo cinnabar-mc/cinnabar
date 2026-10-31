@@ -243,6 +243,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || super::heavy_core::is_record(record)
         || super::speleothem::is_record(record)
         || super::chorus::is_flower(record)
+        || super::chorus::is_plant(record)
         || super::spore_blossom::is_record(record)
         || matches!(
             record.model_family,
