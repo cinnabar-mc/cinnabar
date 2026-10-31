@@ -14,7 +14,7 @@ fn a_native_texture_override_keeps_its_material_without_promoting_equipment() {
             width: 1,
             height: 1,
             layers: 1,
-            rgba8: Arc::from([10, 20, 30, 3]),
+            rgba8: [10, 20, 30, 3].into(),
             color_mask: true,
             multitexture: false,
         }]),
@@ -63,7 +63,10 @@ fn native_color_mask_textures_have_independent_opaque_material_pages() {
         assert_eq!(page.color_mask, catalog.texture_uses_color_mask(index));
         let bytes = usize::from(page.width) * usize::from(page.height) * 4;
         let start = location.layer as usize * bytes;
-        assert_eq!(&page.rgba8[start..start + bytes], texture.rgba8.as_ref());
+        assert_eq!(
+            &page.rgba8.joined()[start..start + bytes],
+            texture.rgba8.as_ref()
+        );
         if page.color_mask {
             masks += 1;
         } else {

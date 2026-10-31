@@ -10,7 +10,8 @@ fn page(colors: &[[u8; 4]]) -> render_model::ActorTexturePage {
         rgba8: colors
             .iter()
             .flat_map(|color| color.repeat(8 * 8))
-            .collect(),
+            .collect::<Vec<u8>>()
+            .into(),
         color_mask: false,
         multitexture: false,
     }

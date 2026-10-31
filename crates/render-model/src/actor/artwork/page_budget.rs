@@ -3,7 +3,6 @@
 use super::{
     ActorArtworkPageId, ActorTexturePage, MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
 };
-use std::sync::Arc;
 
 /// Layers per generic entity page, within every backend's array-layer limit.
 pub(super) const MAX_ACTOR_PAGE_LAYERS: usize = 256;
@@ -72,11 +71,11 @@ pub(super) fn push_group<'a, T>(
         let (built, value) = build(chunk);
         let page = built.fit_within(limit).into_owned();
         // Only unchanged pixels stay referenced; a downscaled chunk's original frees here.
-        let unchanged = Arc::ptr_eq(&built.rgba8, &page.rgba8).then(|| Arc::clone(&page.rgba8));
+        let unchanged = built.rgba8.ptr_eq(&page.rgba8).then(|| page.rgba8.clone());
         drop(built);
         if let Some(id) = push_page(pages, gpu_bytes, page) {
-            let kept = unchanged
-                .is_some_and(|pixels| Arc::ptr_eq(&pixels, &pages[usize::from(id) - 1].rgba8));
+            let kept =
+                unchanged.is_some_and(|pixels| pixels.ptr_eq(&pages[usize::from(id) - 1].rgba8));
             placed(chunk, id, value, kept);
         }
     }
