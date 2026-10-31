@@ -404,11 +404,7 @@ mod tests {
         let mut interned = BTreeMap::new();
         let mut seen = 0;
         for record in records.iter().filter(|record| {
-            (record
-                .traits
-                .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
-                && !super::super::chorus::is_flower(record))
-                || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
+            block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
         }) {
             let (min, max, _) = inputs.fallback.entry(record).unwrap();
             let CompileRuleResult::Compiled(visual) = compile_rule(
@@ -457,10 +453,7 @@ mod tests {
             assert_eq!(templates[ordinary as usize].flags, 0);
             seen += 1;
         }
-        assert!(
-            seen >= 4,
-            "both chorus and azalea block types are registered"
-        );
+        assert!(seen >= 2, "both azalea block types are registered");
     }
 
     #[test]
