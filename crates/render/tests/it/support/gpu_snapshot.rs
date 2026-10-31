@@ -143,15 +143,24 @@ impl Gpu {
     }
 
     /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
-    #[allow(
-        clippy::print_stderr,
-        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
-    )]
     pub fn for_fixture_with_limits(
         name: &str,
         features: wgpu::Features,
         limits: wgpu::Limits,
     ) -> Option<Self> {
+        Self::for_fixture_with_adapter(name, features, limits).map(|(gpu, _)| gpu)
+    }
+
+    /// Retains format capabilities for fixtures checking all supported coverage patterns.
+    #[allow(
+        clippy::print_stderr,
+        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
+    )]
+    pub fn for_fixture_with_adapter(
+        name: &str,
+        features: wgpu::Features,
+        limits: wgpu::Limits,
+    ) -> Option<(Self, wgpu::Adapter)> {
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = fixture_adapter(
@@ -170,11 +179,14 @@ impl Gpu {
         let (device, queue) = finish(adapter.request_device(&descriptor))
             .unwrap_or_else(|error| panic!("{name}: GPU fixture device creation failed: {error}"));
         let backend = adapter.get_info().backend;
-        Some(Self {
-            device,
-            queue,
-            backend,
-        })
+        Some((
+            Self {
+                device,
+                queue,
+                backend,
+            },
+            adapter,
+        ))
     }
 
     /// Uploads raw storage words, such as packed quads, for a fixture.

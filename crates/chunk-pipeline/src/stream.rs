@@ -110,6 +110,7 @@ mod sign_edit;
 mod transfer_priority;
 pub(crate) mod workers;
 pub use workers::world_worker_threads;
+use workers::{Mailbox, MailboxSender, result_mailbox};
 #[cfg(not(target_arch = "wasm32"))]
 pub use workers::{logical_cores, on_idle_world_cores};
 
@@ -383,11 +384,11 @@ pub struct WorldStream {
     pending_decode: VecDeque<QueuedDecodeJob>,
     in_flight_decode_jobs: usize,
     predictions: prediction::DeferredPredictions,
-    decode_tx: Sender<DecodeCompletion>,
-    decode_rx: Receiver<DecodeCompletion>,
+    decode_tx: MailboxSender<DecodeCompletion>,
+    decode_rx: Mailbox<DecodeCompletion>,
     biome_records: Option<Arc<meshing::biome_records::BiomeRecordCache>>,
-    mesh_tx: Sender<MeshCompletion>,
-    mesh_rx: Receiver<MeshCompletion>,
+    mesh_tx: MailboxSender<MeshCompletion>,
+    mesh_rx: Mailbox<MeshCompletion>,
     lighting: lighting::Lighting,
     fatal_error: Option<WorldStreamFatalError>,
     revisions: RevisionTracker,
