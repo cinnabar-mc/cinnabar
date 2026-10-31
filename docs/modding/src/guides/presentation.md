@@ -60,3 +60,19 @@ The client merges loaded mods in load order:
 - Tooltip lines append in load order, up to the per-item cap.
 
 So a mod loaded later cannot restyle what an earlier mod owns, but its tooltip lines still show. Design for coexistence: set only the policies your feature needs, because claiming the nametag style to change one colour also blocks every later mod's style.
+
+## Sound suppression
+
+The `audio` grant allows `cinnabar:extension/audio.set-muted-sounds` to replace a
+component's set of exact sound-definition names. An empty list clears its set.
+Names are case sensitive, 1–128 ASCII letters, digits or `_.:/-`, with at most
+64 entries per call. Invalid calls leave the previous set intact. Calls share
+the environment import allowance.
+
+The host commits replacements only after successful callbacks. World changes,
+unload, quarantine and grant revocation release suppression. Active components'
+sets combine by union, so one component cannot unmute another's sounds.
+Suppression covers queued and decoding starts, active voices and managed loops.
+Clearing it allows future one-shots and managed loops to start normally; discarded
+one-shots are not replayed. Resource packs that route an event to another definition
+need that definition's exact name to suppress it.

@@ -31,6 +31,10 @@ impl Instance {
     ) {
         let state = self.store.data_mut();
         state.render.revoke();
+        if !grants.audio {
+            state.environment.muted_sounds.clear();
+            state.environment.pending_muted_sounds = None;
+        }
         state.grants = grants;
         state.drawing_policy = Some(session);
         state

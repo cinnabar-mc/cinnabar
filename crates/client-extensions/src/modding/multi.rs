@@ -695,6 +695,8 @@ pub struct Merged {
     pub delta: Option<CameraDelta>,
     pub time_override: Option<u32>,
     pub weather_override: Option<[f32; 2]>,
+    /// Union of exact sound-definition names suppressed by active components.
+    pub muted_sounds: std::collections::BTreeSet<String>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     pub jump_pulse: bool,
@@ -744,6 +746,8 @@ impl Merged {
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());
         self.weather_override = self.weather_override.or(host.weather_override());
+        self.muted_sounds
+            .extend(host.muted_sounds().iter().cloned());
         self.commands.extend(host.take_commands());
         self.cues.extend(host.take_cues());
     }

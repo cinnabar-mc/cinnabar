@@ -39,7 +39,7 @@ mod block_search;
 pub(crate) mod drawing_policy;
 mod drive;
 
-use drive::drive_mod;
+pub(crate) use drive::drive_mod;
 mod environment_loader;
 mod library;
 mod native_camera;

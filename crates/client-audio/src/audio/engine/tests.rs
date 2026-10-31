@@ -349,3 +349,57 @@ fn stop_named_cancels_matching_voices() {
     engine.stop_named("dig.stone");
     assert!(sources[0].next().is_none());
 }
+
+/// Exact-name suppression stops active and queued voices; clearing restores future starts.
+#[test]
+fn named_suppression_leaves_unrelated_audio_audible_and_restores() {
+    let mut engine = engine(&[("fixture.one", "player"), ("fixture.two", "player")]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.one"));
+    let active = engine.pump(None, 0.01, &settings);
+    assert_eq!(active.len(), 1);
+    engine.set_muted_sounds(["fixture.one".into()].into());
+    engine.enqueue(SoundRequest::new("fixture.one"));
+    engine.enqueue(SoundRequest::new("fixture.two"));
+    let started = engine.pump(None, 0.01, &settings);
+    assert!(active[0].cancelled());
+    assert_eq!(started.len(), 1);
+    assert_eq!(engine.voices.last().unwrap().name.as_ref(), "fixture.two");
+    engine.set_muted_sounds(Default::default());
+    engine.enqueue(SoundRequest::new("fixture.one"));
+    assert_eq!(engine.pump(None, 0.01, &settings).len(), 1);
+}
+
+/// Suppressed managed loops do not restart until suppression is removed.
+#[test]
+fn named_suppression_controls_loop_restarts() {
+    let mut engine = engine(&[("fixture.loop", "ambient")]);
+    let settings = AudioSettings::default();
+    engine.set_loop(
+        "fixture",
+        Some(LoopSpec {
+            name: "fixture.loop".into(),
+            volume: 1.,
+        }),
+    );
+    engine.set_muted_sounds(["fixture.loop".into()].into());
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    engine.set_muted_sounds(Default::default());
+    assert_eq!(engine.pump(None, 0.01, &settings).len(), 1);
+}
+
+/// A suppressed pending decode is discarded instead of playing after the mute is cleared.
+#[test]
+fn named_suppression_discards_pending_decodes() {
+    let (mut engine, path) = engine_with_encoded("fixture.pending", "player");
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.pending"));
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    assert_eq!(engine.pending.len(), 1);
+    engine.set_muted_sounds(["fixture.pending".into()].into());
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    assert!(engine.pending.is_empty());
+    engine.set_muted_sounds(Default::default());
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    std::fs::remove_file(path).unwrap();
+}

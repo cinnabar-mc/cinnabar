@@ -164,6 +164,7 @@ pub struct AudioEngine {
     echoes: EchoLedger,
     last_server_thunder: f64,
     pending: Vec<PendingStart>,
+    muted_sounds: std::collections::BTreeSet<String>,
 }
 
 impl Default for AudioEngine {
@@ -180,6 +181,7 @@ impl AudioEngine {
         Self {
             bank,
             voices: Vec::new(),
+            muted_sounds: Default::default(),
             staged: Vec::new(),
             queue: Vec::new(),
             loops: HashMap::new(),
@@ -229,6 +231,11 @@ impl AudioEngine {
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         ((z ^ (z >> 31)) >> 40) as f32 / (1_u64 << 24) as f32
+    }
+
+    /// Replaces local suppression; applied before playback in the next pump.
+    pub fn set_muted_sounds(&mut self, names: std::collections::BTreeSet<String>) {
+        self.muted_sounds = names;
     }
 
     pub fn enqueue(&mut self, request: SoundRequest) {
@@ -356,6 +363,15 @@ impl AudioEngine {
         dt: f32,
         settings: &AudioSettings,
     ) -> Vec<VoiceSource> {
+        for voice in &self.voices {
+            if self.muted_sounds.contains(voice.name.as_ref()) {
+                voice.shared.cancel();
+            }
+        }
+        self.queue
+            .retain(|request| !self.muted_sounds.contains(request.name.as_ref()));
+        self.pending
+            .retain(|start| !self.muted_sounds.contains(start.request.name.as_ref()));
         self.staged.retain(|source| !source.cancelled());
         self.voices.retain(|voice| !voice.shared.finished());
         self.clock += f64::from(dt.max(0.0));
@@ -518,6 +534,9 @@ impl AudioEngine {
         managed: Option<(&'static str, f32)>,
         roll: [f32; START_ROLLS],
     ) -> Option<VoiceSource> {
+        if self.muted_sounds.contains(request.name.as_ref()) {
+            return None;
+        }
         let bank = self.bank.as_mut()?;
         let Some(definition) = bank.definition(&request.name) else {
             self.stats.no_definition += 1;

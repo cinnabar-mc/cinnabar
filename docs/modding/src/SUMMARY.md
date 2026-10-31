@@ -23,6 +23,7 @@
 - [Limits](reference/limits.md)
 - [Worlds and callbacks](reference/worlds.md)
 - [Action filter](reference/action-filter.md)
+- [Audio](reference/audio.md)
 - [Budget](reference/budget.md)
 - [Camera](reference/camera.md)
 - [Clock](reference/clock.md)

@@ -511,7 +511,8 @@ interface input {
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
 
-/// Local named-sound suppression; requires the `audio` grant.
+/// Local named-sound suppression.
+/// Grants: `audio`.
 interface audio {
     /// Replaces this instance's retained set of exact sound-definition names.
     /// At most 64 names of 1–128 ASCII identifier bytes (letters, digits, _, ., :, /, -).

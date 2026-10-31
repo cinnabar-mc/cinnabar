@@ -8,6 +8,8 @@ pub(super) struct Environment {
     pub pending_weather: Option<Option<super::cinnabar::extension::environment::Weather>>,
     pub fullbright: bool,
     pub pending_fullbright: Option<bool>,
+    pub muted_sounds: Vec<String>,
+    pub pending_muted_sounds: Option<Vec<String>>,
     pub writes: u32,
 }
 
@@ -25,6 +27,8 @@ impl Environment {
     /// Drops failed override writes without revoking the last committed environment.
     pub fn rollback(&mut self) {
         let Self {
+            muted_sounds: _,
+            pending_muted_sounds,
             time_override: _,
             pending_time,
             weather_override: _,
@@ -33,6 +37,7 @@ impl Environment {
             pending_fullbright,
             writes,
         } = self;
+        *pending_muted_sounds = None;
         *pending_time = None;
         *pending_weather = None;
         *pending_fullbright = None;
@@ -58,6 +63,9 @@ impl Environment {
     }
     /// Publishes staged retained values only after a successful frame or event.
     pub fn commit(&mut self) {
+        if let Some(names) = self.pending_muted_sounds.take() {
+            self.muted_sounds = names;
+        }
         if let Some(enabled) = self.pending_fullbright.take() {
             self.fullbright = enabled;
         }

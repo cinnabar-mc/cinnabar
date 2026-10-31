@@ -5,6 +5,7 @@
 The pages below come from the WIT contract. Grants authorize calls; importing an interface grants nothing. See [limits](limits.md) and [worlds and callbacks](worlds.md).
 
 - [Action filter](action-filter.md)
+- [Audio](audio.md)
 - [Budget](budget.md)
 - [Camera](camera.md)
 - [Clock](clock.md)

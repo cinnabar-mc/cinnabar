@@ -1,4 +1,5 @@
 mod action_filter;
+mod audio;
 mod input_bindings;
 mod input_host;
 pub(crate) mod legacy_input;

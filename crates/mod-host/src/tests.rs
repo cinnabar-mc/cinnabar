@@ -45,6 +45,7 @@ mod drawing_policy;
 mod embedded_assets;
 mod fuel_recovery;
 mod fullbright;
+mod audio;
 mod gameplay;
 mod hud_surface;
 mod item_use;

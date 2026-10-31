@@ -4,6 +4,11 @@ use super::{CameraDelta, ModHost};
 use std::sync::Arc;
 
 impl ModHost {
+    /// Exact sound definitions suppressed by this active, authorized component.
+    pub fn muted_sounds(&self) -> &[String] {
+        self.instance.muted_sounds()
+    }
+
     /// Reads a committed pulse so filtering can run before the frame outputs are collected.
     pub fn attack_pulse_requested(&self) -> bool {
         self.instance.attack_pulse_requested()
