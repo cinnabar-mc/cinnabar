@@ -591,9 +591,8 @@ incomplete. A pack's attachables have no binding or texture count limit, and all
 is decoded and placed at join. Native queues each texture when it is first requested, and
 no native count limit has been found, so this is not yet matched: decoded art past
 Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading
-remains confirmed incomplete. A compiled entity pack whose uncompressed encoding passes the
-1 GiB compile cache bound is not stored, even when its compressed entry would fit, so such a
-stack still recompiles after each client restart; that is a confirmed gap.
+remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
+so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
 Confirmed gap: native keeps and draws every render controller whose condition passes,
 while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
