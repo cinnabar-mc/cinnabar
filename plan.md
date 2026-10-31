@@ -118,7 +118,11 @@ Menus, HUD and inventory previews retain native output pixels; the hand, world-s
 nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
 If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
-Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+Lost surfaces are recreated on the existing device after retained outputs are released.
+Repeated acquisition validation failures escalate from configuration to recreation.
+Zero-size and oversized windows suspend window rendering and resume at a valid size.
+Displayed recovery on Vulkan, DX12 and Wayland, oversized native-window resize,
+displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
 An optional `render/frame-generation` build feature provides SDR world-image
 optical flow, camera/depth interpolation and disocclusion filling. It has no
@@ -298,6 +302,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   search lands; retained proofs process openings inline while one is pending. A large
   search that never catches up, as in shader-pack flight that crosses sections faster than
   one search or a burst over the change journal's capacity, leaves sections shown.
+  A developer-supplied cost calibration can select Hi-Z indirect cull passes by
+  captured submitted indices per stream, matched to adapter, backend, viewport and
+  sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
+  and configuration changes restart admission before selecting work.
+  Matched-output frame-time and movement qualification remain incomplete; no
+  hardware cost calibration or default change is qualified.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
   current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
   subset leaves colour writes off; the late pass retains each CPU stream's colour
@@ -379,6 +389,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
+  Meshing workers retain palette decode and opaque/two-sided cube working buffers between
+  sections. Oversized temporary buffers are discarded after a job, and idle workers release
+  mesh scratch after five seconds. Published streams keep independent ownership. Hardware
+  allocation, idle-memory and return-to-flight measurements remain open.
   Foreground chunk-data offload requires a full allocation of service polling
   that advanced commits; idle waits and worker-only service do not count.
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
@@ -1100,6 +1114,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Desktop fullscreen entry is journaled until the platform reports the window settled
+  (AppKit's enter notification on macOS, the compositor's configure on Wayland) and a
+  presentation extracted afterwards completes. An interrupted entry resets only fullscreen
+  on the next launch; successful entry and orderly exits preserve the preference, and a
+  client launched during another's entry waits for its lease. X11 reports the request
+  before the window manager applies it, so its settle confirmation is incomplete; native
+  compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
@@ -1866,6 +1887,12 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+
+The scripted resident-render benchmark copies a frozen fixture and isolated user template,
+flies real-time camera paths and exports exact interval statistics with native stage spans.
+It rejects lost frame evidence and incompatible report conditions. Visible-cohort readiness,
+authoritative streaming routes, GPU source-frame coverage, repeated-run confidence intervals,
+shipping-artifact equivalence and hardware release qualification remain incomplete.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its

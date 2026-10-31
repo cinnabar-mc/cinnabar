@@ -75,6 +75,17 @@ pub struct RenderFrame {
 }
 
 impl StartupTiming {
+    /// Returns the GPU-completed title endpoint once the startup report has been sealed.
+    pub fn completed_menu_ms(&self) -> Option<f64> {
+        self.0
+            .report
+            .lock()
+            .expect("startup timing lock")
+            .milestones_ms
+            .get("menu_presented")
+            .copied()
+    }
+
     /// Starts a timeline at the process entry point's monotonic launch anchor.
     pub fn start(launched: Instant) -> Self {
         LAUNCH.get_or_init(|| Self::new(launched)).clone()
@@ -337,7 +348,9 @@ mod tests {
         assert!(!timing.is_recording());
         assert!(timing.needs_report());
         assert_eq!(timing.offscreen_content_at(), Some(now));
+        assert_eq!(timing.completed_menu_ms(), None);
         let report: serde_json::Value = serde_json::from_str(&timing.finish(now).unwrap()).unwrap();
+        assert_eq!(timing.completed_menu_ms(), Some(0.));
         assert_eq!(report["pipeline_count"], MAX_FRAMES + 1);
         assert!(report["counters"].get(WORLD_COMPUTE_PIPELINES).is_none());
     }
