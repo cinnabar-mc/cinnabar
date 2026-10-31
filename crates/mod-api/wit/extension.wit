@@ -511,15 +511,20 @@ interface input {
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
 
-/// Local named-sound suppression.
-/// Grants: `audio`.
-interface audio {
-    /// Replaces this instance's retained set of exact sound-definition names.
-    /// At most 64 names of 1–128 ASCII identifier bytes (letters, digits, _, ., :, /, -).
-    /// Empty clears the set. Commits only after a successful callback; revoked on unload,
-    /// quarantine, world change or permission loss. Multiple instances combine by union.
-    /// Applies to queued, decoding and playing sounds, including managed loops.
-    set-muted-sounds: func(names: list<string>) -> result<_, string>;
+/// Observations of requested sound playback before it starts.
+/// Grants: `audio` to run filter-sounds; this interface only defines callback types.
+interface sound-filter {
+    /// World coordinates in blocks; absent for non-positional playback.
+    record position { x: f32, y: f32, z: f32 }
+    /// One new playback request after event routing to an exact sound definition.
+    record sound-event {
+        /// Exact definition name, at most 128 UTF-8 bytes.
+        name: string,
+        /// Requested world location; none is non-positional playback.
+        position: option<position>,
+        /// Whether this request starts a repeating voice.
+        looping: bool,
+    }
 }
 
 /// Local presentation only; no world mutation or outbound packets.
@@ -949,7 +954,6 @@ world extension {
     import input;
     import touch;
     import environment;
-    import audio;
     import gameplay;
     import events;
     import panel;
@@ -1117,4 +1121,19 @@ world packet-mod {
     export tick: func() -> result<outbound, string>;
     /// Ends the session.
     export stop: func();
+}
+
+/// Explicit opt-in sound filtering in addition to ordinary action filtering.
+/// Older components and the existing worlds remain supported without this export.
+world audio-filtered-player-mod {
+    include filtered-player-mod;
+    use sound-filter.{sound-event};
+    /// One batch per presented audio frame, at most 256 new playback requests.
+    /// Return one boolean per event: true plays, false cancels. All authorized active
+    /// filters see the same events; any cancellation wins. No host imports are permitted.
+    /// Independent bounded fuel. Denial, absence, traps and malformed results pass through;
+    /// a failing component is quarantined. Oversized names and excess requests pass through.
+    /// Approved starts waiting for decoding are not offered again. Playing voices are not
+    /// retroactively stopped; managed loops are offered again when they next need a start.
+    export filter-sounds: func(events: list<sound-event>) -> list<bool>;
 }

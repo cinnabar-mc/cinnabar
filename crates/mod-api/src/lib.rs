@@ -36,9 +36,9 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 
 pub use guest::PlayerMod;
 
-/// Maximum exact sound-definition names one component may suppress.
-pub const MAX_MUTED_SOUNDS: usize = 64;
-/// Maximum bytes in one suppressed sound-definition name.
+/// Maximum new sound requests offered in one sound-filter callback.
+pub const MAX_SOUND_FILTER_EVENTS: usize = 256;
+/// Maximum bytes in one sound-filter definition name.
 pub const MAX_SOUND_NAME_BYTES: usize = 128;
 
 /// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
@@ -222,6 +222,13 @@ pub mod player_mod {
     reason = "Canonical ABI flattens screen records"
 )]
 pub mod filtered_player_mod;
+
+/// Opt-in cancellable sound observations, retaining the existing input-filter contract.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Canonical ABI flattens screen records"
+)]
+pub mod audio_filtered_player_mod;
 
 /// The `packet-mod` world: a trusted mod that relays every session packet.
 #[allow(
