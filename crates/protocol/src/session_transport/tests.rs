@@ -166,6 +166,32 @@ pub(crate) mod unix {
         );
     }
 
+    /// A batch long past the 1,600-entry cap this codec once imposed still delivers every
+    /// packet in order; Bedrock bounds a batch by its payload, not by an entry count.
+    #[tokio::test]
+    async fn a_batch_delivers_more_than_1600_packets() {
+        let Pair {
+            transport, peer, ..
+        } = &mut pair("vast-batch", &[]).await;
+        let batch: Vec<_> = (5..=1_606)
+            .map(|time| {
+                Packet::new(SetTime {
+                    time: wire::ZigZag32(time),
+                })
+            })
+            .collect();
+        write_frame(peer, &batch_frame(&batch).unwrap()).await;
+        for expected in 5..=1_606 {
+            let Inbound::Packet(raw) = transport.recv().await.unwrap() else {
+                panic!("a packet arrives before any terminal message")
+            };
+            let packets::Packet::SetTime(time) = *raw.decode().unwrap().data else {
+                panic!("the packets arrive in order")
+            };
+            assert_eq!(time.time.0, expected);
+        }
+    }
+
     /// A terminal message arrives as itself, never as a packet, and then the stream ends.
     #[tokio::test]
     async fn terminal_messages_arrive_directly_then_end() {
@@ -604,23 +630,26 @@ pub(crate) fn packet_bytes(packet: &Packet) -> Bytes {
     entry.slice(reader.position()..)
 }
 
-/// Startup batches respect both bounds and keep every packet in order.
+/// Startup batches stay within their byte bound, splitting only at it, and keep every packet
+/// in order.
 #[test]
-fn startup_batches_stay_within_the_packet_and_byte_bounds() {
-    let small: Vec<Bytes> = (0..3_500u32)
+fn startup_batches_stay_within_their_byte_bound() {
+    let small: Vec<Bytes> = (0..4_000u32)
         .map(|index| Bytes::from(index.to_le_bytes().to_vec()))
         .collect();
     let large: Vec<Bytes> = (0..5u8)
         .map(|index| Bytes::from(vec![index; 5 << 20]))
         .collect();
-    for packets in [small, large] {
+    // A bound the small stream cannot fit in, so the split branch is exercised cheaply.
+    for (packets, bound) in [
+        (&small[..], 4_096usize),
+        (&large[..], MAX_SESSION_BATCH_BYTES),
+    ] {
         let mut decoded = Vec::new();
-        for batch in startup_batches(&packets) {
-            assert!(
-                batch.len() <= MAX_SESSION_BATCH_BYTES,
-                "{} bytes",
-                batch.len()
-            );
+        let mut batches = 0;
+        for batch in startup_batches(packets, bound) {
+            batches += 1;
+            assert!(batch.len() <= bound, "{} bytes over {}", batch.len(), bound);
             let mut frame = BytesMut::from(&[bridge::contract::KIND_BATCH][..]);
             frame.extend_from_slice(&batch);
             let CoreMessage::Batch(inner) =
@@ -628,10 +657,12 @@ fn startup_batches_stay_within_the_packet_and_byte_bounds() {
             else {
                 unreachable!("a Batch frame decodes as a batch")
             };
-            assert!(inner.len() <= MAX_RAW_BATCH_PACKETS);
             decoded.extend(inner);
         }
-        assert_eq!(decoded, packets);
+        assert_eq!(decoded, *packets);
+        if bound != MAX_SESSION_BATCH_BYTES {
+            assert!(batches > 1, "the bound must split the stream");
+        }
     }
 }
 
@@ -641,7 +672,7 @@ fn startup_packets_keep_their_headers() {
         time: wire::ZigZag32(9),
     });
     let bytes = packet_bytes(&packet);
-    let batches = startup_batches(&[bytes]);
+    let batches = startup_batches(&[bytes], MAX_SESSION_BATCH_BYTES);
     let raw = decode_batch_body(batches[0].clone(), MAX_SESSION_BATCH_BYTES)
         .unwrap()
         .remove(0);
