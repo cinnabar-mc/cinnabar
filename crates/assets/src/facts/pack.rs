@@ -51,6 +51,7 @@ domain!(PackTexture {
 });
 domain!(PackBlock {
     RedstoneTorch,
+    RedstoneWire,
     UnlitRedstoneTorch,
     Beacon,
     Obsidian,

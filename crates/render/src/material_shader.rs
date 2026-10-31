@@ -94,23 +94,30 @@ pub(crate) fn glint_tint_source() -> String {
     format!("vec3<f32>({red:?}, {green:?}, {blue:?})")
 }
 
-/// Generates stem colours from the same bounded material contract as the compiler.
+/// Generates stem and redstone wire colours from the same bounded material contracts as the
+/// compiler.
 fn stem_colours_source() -> String {
-    let colours = (0..=7)
-        .map(|growth| {
-            let rgb = assets::stem::colour(growth).expect("bounded stem growth");
+    let stems = (0..=7).map(|growth| assets::stem::colour(growth).expect("bounded stem growth"));
+    let wires = (0..=assets::redstone_wire::MAX_SIGNAL)
+        .map(|signal| assets::redstone_wire::colour(signal).expect("bounded wire signal"));
+    let colours = stems
+        .chain(wires)
+        .map(|rgb| {
             format!(
                 "vec3<f32>({}, {}, {}) / 255.0",
                 rgb[0] as f32, rgb[1] as f32, rgb[2] as f32
             )
         })
-        .collect::<Vec<_>>()
-        .join(", ");
+        .collect::<Vec<_>>();
     format!(
-        "const STEM_COLOURS: array<vec3<f32>, 8> = array({colours});\nfn stem_colour(flags: u32) -> vec3<f32> {{\n if ((flags & {}u) == 0u) {{ return vec3(1.0); }}\n return STEM_COLOURS[(flags & {}u) >> {}u];\n}}",
-        assets::stem::MATERIAL_FLAG,
-        assets::stem::GROWTH_MASK,
-        assets::stem::GROWTH_SHIFT,
+        "const STEM_COLOURS: array<vec3<f32>, {count}> = array({colours});\nfn stem_colour(flags: u32) -> vec3<f32> {{\n if ((flags & {flag}u) == 0u) {{ return vec3(1.0); }}\n let signal = (flags & {signal_mask}u) >> {signal_shift}u;\n if (signal != 0u) {{ return STEM_COLOURS[7u + signal]; }}\n return STEM_COLOURS[(flags & {growth_mask}u) >> {growth_shift}u];\n}}",
+        count = colours.len(),
+        colours = colours.join(", "),
+        flag = assets::stem::MATERIAL_FLAG,
+        signal_mask = assets::redstone_wire::SIGNAL_MASK,
+        signal_shift = assets::redstone_wire::SIGNAL_SHIFT,
+        growth_mask = assets::stem::GROWTH_MASK,
+        growth_shift = assets::stem::GROWTH_SHIFT,
     )
 }
 

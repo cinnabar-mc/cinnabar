@@ -19,6 +19,9 @@ pub(super) fn descriptor_for(
     if visuals::stem::is_record(record) {
         return visuals::stem::descriptor(pack, record, face);
     }
+    if visuals::redstone_wire::is_record(record) {
+        return visuals::redstone_wire::descriptor(pack, record, face);
+    }
     if visuals::pitcher_crop::is_record(record) {
         return visuals::pitcher_crop::descriptor(pack, record, face);
     }
