@@ -91,7 +91,8 @@ shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1
 release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
 library only when both the archive and the library match their pinned SHA-256; `make play` runs it
 for development builds. The client uses only that copy and falls back to FXC, logging why, when it
-is missing or fails to load. `WGPU_DX12_COMPILER=fxc` also selects FXC.
+is missing or fails to load. Intel drivers older than the `24.x` branch, which lose the device on
+DXC's output, and `WGPU_DX12_COMPILER=fxc` also select FXC.
 
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,
