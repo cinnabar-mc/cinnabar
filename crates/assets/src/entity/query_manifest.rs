@@ -156,7 +156,7 @@ query_manifest! {
     IsAdmiring => ("query.is_admiring", MolangQueryHandler::Flag(ActorFlag::Admiring.wire_value()), 0, 0, Number, Implemented, Tick),
     IsAlive => ("query.is_alive", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     IsAngry => ("query.is_angry", MolangQueryHandler::Flag(ActorFlag::Angry.wire_value()), 0, 0, Number, Implemented, Tick),
-    IsAttachedToEntity => ("query.is_attached_to_entity", MolangQueryHandler::Unimplemented, 0, 0, Number, Unimplemented, Tick),
+    IsAttachedToEntity => ("query.is_attached_to_entity", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     IsBaby => ("query.is_baby", MolangQueryHandler::Flag(ActorFlag::Baby.wire_value()), 0, 0, Number, Implemented, Tick),
     IsCarryingBlock => ("query.is_carrying_block", MolangQueryHandler::Evaluator, 0, 0, Number, Implemented, Tick),
     IsCasting => ("query.is_casting", MolangQueryHandler::Flag(ActorFlag::Casting.wire_value()), 0, 0, Number, Implemented, Tick),

@@ -1,4 +1,4 @@
-//! Bounded, transactional mod controls. No import exposes arbitrary files or input injection.
+//! Bounded, transactional mod controls. No import exposes arbitrary files or synthetic button presses.
 
 use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use crate::{ControlFrame, InteractionOutput, ModHost, empty_controls};
@@ -60,6 +60,7 @@ impl ModHost {
 }
 
 pub(super) struct ControlState {
+    pub pointer: super::input_host::PointerState,
     pub frame: ControlFrame,
     pub bindings: Option<Arc<crate::InputBindings>>,
     pub text_events: Vec<ui::mod_panel::TextEvent>,
@@ -87,6 +88,7 @@ pub(super) struct ControlState {
 impl ControlState {
     /// Retains panel preferences while removing references into the departed world.
     pub(super) fn clear_world_projections(&mut self) {
+        self.pointer = Default::default();
         for panel in self
             .panel
             .iter_mut()
@@ -99,6 +101,7 @@ impl ControlState {
     /// Discards failed guest writes while retaining committed preferences and native input.
     pub(super) fn rollback(&mut self) {
         let Self {
+            pointer,
             frame: _,
             bindings: _,
             text_events: _,
@@ -120,6 +123,7 @@ impl ControlState {
             reads: _,
             writes: _,
         } = self;
+        pointer.rollback();
         *pending_panel = None;
         *pending_open = None;
         *pending_keys = None;
@@ -132,6 +136,7 @@ impl ControlState {
     }
     pub fn new(settings: String) -> Self {
         Self {
+            pointer: Default::default(),
             frame: empty_controls(),
             bindings: None,
             text_events: Vec::new(),
@@ -170,6 +175,7 @@ impl ControlState {
     }
 
     pub fn commit(&mut self) {
+        self.pointer.commit();
         if let Some(panel) = self.pending_panel.take() {
             self.panel = panel;
             if self.panel.is_none() {
@@ -190,6 +196,7 @@ impl ControlState {
     }
 
     pub fn revoke(&mut self) {
+        self.pointer = Default::default();
         self.text_events.clear();
         self.field_events.clear();
         self.text_events_in_frame = false;

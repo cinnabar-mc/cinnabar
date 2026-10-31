@@ -42,7 +42,9 @@ pub(crate) fn configure(app: &mut App) {
             .after(crate::item_use::produce_item_use),
         drive_consume_audio,
         drive_actor_audio,
-        pump_audio.after(client_state::ClientFrameSet::Camera),
+        pump_audio
+            .after(client_state::ClientFrameSet::Camera)
+            .after(client_state::ModCameraInputSet),
     )
         .chain()
         .after(crate::named_audio::drain_live_named_audio);
@@ -208,6 +210,7 @@ pub(crate) fn pump_audio(
     engine: ResMut<AudioEngine>,
     device: Option<bevy::prelude::NonSendMut<client_audio::named_audio::AudioDevice>>,
     profiler: Option<Res<RuntimeStageProfiler>>,
+    #[cfg(not(target_arch = "wasm32"))] mut mods: Option<ResMut<crate::modding::ModRuntime>>,
 ) {
     let _timer = profiler
         .as_deref()
@@ -220,6 +223,21 @@ pub(crate) fn pump_audio(
             .as_deref()
             .and_then(|camera| camera.active_listener()),
     );
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(hosts) = mods
+        .as_deref_mut()
+        .and_then(crate::modding::ModRuntime::sound_filters)
+    {
+        client_audio::audio::systems::pump_audio_filtered(
+            time,
+            listener,
+            settings,
+            engine,
+            device,
+            |events| Some(super::filter::apply(hosts, events)),
+        );
+        return;
+    }
     client_audio::audio::systems::pump_audio(time, listener, settings, engine, device);
 }
 

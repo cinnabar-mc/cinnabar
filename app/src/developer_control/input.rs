@@ -259,13 +259,13 @@ fn inject(
         match event {
             InputEvent::Pointer(pointer) => {
                 let position = Vec2::new(pointer.x, pointer.y);
-                if let Some(isolation) = isolation.as_deref_mut() {
-                    isolation.set_pointer(position);
-                }
                 let delta = window.cursor_position().map(|previous| position - previous);
-                window
-                    .bypass_change_detection()
-                    .set_cursor_position(Some(position));
+                super::cursor_isolation::position_pointer(
+                    &mut window,
+                    isolation.as_deref_mut(),
+                    true,
+                    position,
+                );
                 emit(
                     CursorMoved {
                         window: entity,

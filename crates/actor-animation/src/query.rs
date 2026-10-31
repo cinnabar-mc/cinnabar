@@ -403,6 +403,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         }),
         Q::IsOnGround => truth(input.on_ground),
         Q::IsRiding => truth(input.is_riding),
+        Q::IsAttachedToEntity => truth(attached_to_entity(actor)),
         Q::IsMoving => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         Q::IsAlive => truth(health(actor).is_none_or(|health| health > 0.0)),
         Q::Health => health(actor).unwrap_or(0.0),
@@ -606,6 +607,11 @@ fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
         .iter()
         .position(|bound| value <= bound)
         .unwrap_or(UPPER_BOUNDS.len()) as f32
+}
+
+/// A boosting rocket names the glider it follows; an unattached rocket leaves the default of -1.
+fn attached_to_entity(actor: &dyn AnimatedActor) -> bool {
+    matches!(actor.metadata().get(&ActorDataKey::CustomDisplay.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
 
 pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {

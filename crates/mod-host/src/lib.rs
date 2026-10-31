@@ -13,6 +13,8 @@ pub use declarations::{
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod action_filter;
+mod sound_filter;
+pub use runtime::cinnabar::extension::sound_filter::{Position as SoundPosition, SoundEvent};
 mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;

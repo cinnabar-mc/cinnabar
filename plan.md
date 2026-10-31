@@ -411,6 +411,9 @@ completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
 The HUD paper doll keeps the world's gliding tilt. It still draws an elytra as chest armor
 boxes, not the attachable's wings; that remains a confirmed gap.
+Rockets carrying an owner in actor data read as attached to an entity, so the rocket
+controller hides them; the native query body was not readable, so that mapping is inferred
+from its description and the rocket tick.
 A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
@@ -972,6 +975,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  Items with a registry `minecraft:seed` rule predict planting on a declared block's
+  declared face into air: the swing, place sound, consumed item and the crop's default
+  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
+  block-name aliases such as `grass` remain incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -1194,6 +1201,9 @@ The sound-definition catalog matches the current sample-pack pin; compiler cover
 checks a UI sound and guards the manifest associated with the sound-definition digest.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+World sounds use the native distance curves: inverse from one block by default, linear
+with only a maximum, inverse from the definition's minimum otherwise, and start within
+16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
