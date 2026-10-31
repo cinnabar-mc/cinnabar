@@ -74,7 +74,15 @@ fn incomparable_cpu_counters_preserve_wall_samples() {
     drop(timer);
     cpu(20);
     let timer = profiler.time(RuntimeStage::WorldPoll);
-    std::thread::scope(|scope| scope.spawn(move || drop(timer)).join().unwrap());
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                cpu(100);
+                drop(timer);
+            })
+            .join()
+            .unwrap();
+    });
     let sample = profiler.stage_samples().unwrap()[RuntimeStage::WorldPoll as usize];
     assert_eq!(sample.count, 4);
     assert_eq!(sample.thread_cpu_count, 0);
@@ -173,6 +181,8 @@ fn schedule_spans_exclude_the_surface_wait_from_both_clocks() {
     cpu(15);
     let (profile, spans) = parameters.get_mut(&mut world).unwrap();
     end_stage_span::<SURFACE>(profile, spans);
+    // Select the wait-exclusion branch without relying on native clock resolution.
+    world.resource_mut::<RuntimeStageSpans>().last[SURFACE] = Duration::from_millis(1);
     cpu(20);
     let (profile, spans) = parameters.get_mut(&mut world).unwrap();
     end_render_frame_span(profile, spans);
