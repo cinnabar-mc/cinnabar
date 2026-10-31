@@ -75,6 +75,7 @@ pub(in crate::compiler) mod stairs;
 pub(in crate::compiler) mod state;
 pub(in crate::compiler) mod stem;
 pub(in crate::compiler) mod stonecutter;
+pub(in crate::compiler) mod sunflower;
 pub(in crate::compiler) mod surfaces;
 pub(in crate::compiler) mod torches;
 pub(in crate::compiler) mod translucent_cubes;

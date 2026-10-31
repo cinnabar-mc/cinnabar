@@ -76,6 +76,8 @@ mod shelf_cake;
 mod stonecutter;
 #[path = "tests/straw_beds.rs"]
 mod straw_beds;
+#[path = "tests/sunflower.rs"]
+mod sunflower;
 #[path = "tests/torch.rs"]
 mod torch;
 #[path = "tests/trapdoor.rs"]

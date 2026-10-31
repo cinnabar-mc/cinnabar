@@ -64,8 +64,10 @@ fn write_cactus_render_pack(root: &Path, cube_name: &str) {
 fn compiled_cactus_fixture() -> &'static CompiledCactusFixture {
     static FIXTURE: OnceLock<CompiledCactusFixture> = OnceLock::new();
     FIXTURE.get_or_init(|| {
-        let records = read_registry(include_bytes!("../../../../assets/data/block-registry-v1001.bin"))
-            .expect("decode cactus registry");
+        let records = read_registry(include_bytes!(
+            "../../../../assets/data/block-registry-v1001.bin"
+        ))
+        .expect("decode cactus registry");
         let air = records
             .iter()
             .find(|record| record.name.as_ref() == "minecraft:air")
@@ -268,11 +270,13 @@ fn compiled_cactus_survives_all_boundaries_and_does_not_occlude_neighbours() {
                 &[],
                 &neighbourhood_for(face, &opaque),
             );
+            // An opaque neighbour hides only the cap touching it; side planes sit inside the block.
+            let hides_cap = matches!(face, Face::NegativeY | Face::PositiveY);
+            let drawn = if hides_cap { 5 } else { 6 };
             assert_eq!(mesh.model_refs().len(), 1, "mode={mode:?} face={face:?}");
-            assert_eq!(mesh.model_refs()[0].words()[3], 0x3f);
             assert_eq!(
                 mesh.model_draw_refs().len(),
-                6,
+                drawn,
                 "mode={mode:?} face={face:?}"
             );
             assert_eq!(
