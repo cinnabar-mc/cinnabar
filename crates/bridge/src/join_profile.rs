@@ -46,6 +46,11 @@ mod disabled {
     /// Inert worker binding in shipping builds.
     pub struct Binding;
     impl JoinProfile {
+        /// Shipping builds retain no diagnostic completion timestamp.
+        pub fn completion(&self) -> Option<(&'static str, web_time::Instant)> {
+            None
+        }
+
         /// Starts a diagnostic attempt, or does nothing in a shipping build.
         pub fn begin() -> Self {
             Self

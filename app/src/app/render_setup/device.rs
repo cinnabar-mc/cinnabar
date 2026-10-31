@@ -85,7 +85,7 @@ fn device_requirements(
             features.remove(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
         }
     }
-    raise_window_texture_limits(&mut limits, &adapter.limits());
+    use_adapter_texture_limits(&mut limits, &adapter.limits());
     limits.max_storage_buffers_per_shader_stage = limits
         .max_storage_buffers_per_shader_stage
         .min(adapter.limits().max_storage_buffers_per_shader_stage);
@@ -100,14 +100,11 @@ fn device_requirements(
 }
 
 /// Window-sized targets follow the window, which can span monitors beyond the 8192 default, so
-/// every priority takes the adapter's texture dimensions.
-fn raise_window_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits) {
-    limits.max_texture_dimension_1d = limits
-        .max_texture_dimension_1d
-        .max(adapter.max_texture_dimension_1d);
-    limits.max_texture_dimension_2d = limits
-        .max_texture_dimension_2d
-        .max(adapter.max_texture_dimension_2d);
+/// every priority takes the adapter's texture dimensions. Requests must not exceed them;
+/// larger windows suspend in the renderer until their size fits the device again.
+fn use_adapter_texture_limits(limits: &mut wgpu::Limits, adapter: &wgpu::Limits) {
+    limits.max_texture_dimension_1d = adapter.max_texture_dimension_1d;
+    limits.max_texture_dimension_2d = adapter.max_texture_dimension_2d;
 }
 
 /// Builds exactly one backend with the given DX12 shader compiler and the shipping display policy.
