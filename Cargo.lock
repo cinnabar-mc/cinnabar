@@ -2417,9 +2417,13 @@ dependencies = [
  "diagnostics",
  "image",
  "mcp-stdio",
+ "render-api",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "test-time",
+ "time",
 ]
 
 [[package]]

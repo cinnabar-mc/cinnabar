@@ -725,6 +725,13 @@ impl RuntimeStageProfiler {
         }
     }
 
+    /// Marks a developer workload boundary on the existing monotonic trace clock.
+    pub fn trace_marker(&self, name: &'static str) {
+        if let Some(trace) = &self.state.trace {
+            trace.marker(name, self.frame_id());
+        }
+    }
+
     /// Starts optional trace export on a worker without blocking the update loop.
     pub fn flush_trace(&self) {
         if let Some(trace) = &self.state.trace {

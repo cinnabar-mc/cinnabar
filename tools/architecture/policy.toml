@@ -654,7 +654,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "test-time"]
+allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
