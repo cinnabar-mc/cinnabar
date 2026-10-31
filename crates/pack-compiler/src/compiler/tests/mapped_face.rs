@@ -319,16 +319,29 @@ fn quad(runtime: &RuntimeAssets, record: &RegistryRecord, face: BlockFace) -> as
     quad
 }
 
-/// Quarter turns (1 and 2 opposite, 3 a half) carrying `reference` UVs onto `turned`.
-fn quarter_turns(reference: &assets::ModelQuad, turned: &assets::ModelQuad) -> Option<u8> {
+/// Quarter turns (1 and 2 opposite, 3 a half) carrying `reference` UVs onto `turned`. The two
+/// quarter turns swap on faces that read their art right to left: north and east.
+fn quarter_turns(
+    face: BlockFace,
+    reference: &assets::ModelQuad,
+    turned: &assets::ModelQuad,
+) -> Option<u8> {
     let scale = MODEL_UV_SCALE;
+    let [first, second] = if matches!(face, BlockFace::North | BlockFace::East) {
+        [2, 1]
+    } else {
+        [1, 2]
+    };
     (0..4).find(|&turn| {
         reference.uvs.iter().zip(turned.uvs).all(|(&[u, v], uv)| {
-            uv == match turn {
-                1 => [v, scale - u],
-                2 => [scale - v, u],
-                3 => [scale - u, scale - v],
-                _ => [u, v],
+            uv == if turn == first {
+                [v, scale - u]
+            } else if turn == second {
+                [scale - v, u]
+            } else if turn == 3 {
+                [scale - u, scale - v]
+            } else {
+                [u, v]
             }
         })
     })
@@ -398,7 +411,7 @@ fn assert_faces(
             record.canonical_state
         );
         assert_eq!(
-            quarter_turns(&quad(runtime, reference, world), &drawn),
+            quarter_turns(world, &quad(runtime, reference, world), &drawn),
             Some(turn),
             "{} {} {world:?} turns its artwork",
             record.name,
