@@ -258,8 +258,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
-  stonecutter saw and candle wicks do this. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
-  corner instead of interpolating across the face with the stalk's random offset, so the
+  stonecutter saw and candle wicks do this. Inset cuboid faces, such as bamboo stems and candle sides, still pick the
+  nearest AO corner instead of interpolating across the face with the stalk's random offset, so the
   inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
