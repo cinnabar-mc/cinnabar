@@ -14,17 +14,16 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     direct: Option<ResMut<'w, DirectOcclusionFrame>>,
     direct_state: Option<Res<'w, DirectOcclusion>>,
     adapter: Option<Res<'w, RenderAdapter>>,
-    views: Query<
-        'w,
-        's,
-        (
-            Option<&'static Frustum>,
-            Option<&'static RenderLayers>,
-            Option<&'static ExtractedView>,
-            Option<&'static Msaa>,
-        ),
-    >,
+    views: Query<'w, 's, SelectionViewComponents>,
 }
+
+/// View eligibility, plus the configuration a calibration must match.
+type SelectionViewComponents = (
+    Option<&'static Frustum>,
+    Option<&'static RenderLayers>,
+    Option<&'static ExtractedView>,
+    Option<&'static Msaa>,
+);
 
 impl GpuCullQueue<'_, '_> {
     /// The experiment keeps all colour streams in the ordinary CPU command order.
@@ -110,17 +109,21 @@ impl GpuCullQueue<'_, '_> {
                 .get(entity)
                 .is_ok_and(|(frustum, layers, ..)| gpu_cull_view_eligible(frustum, layers))
         });
+        // Calibrations price the Hi-Z cull; raster decisions keep the count policy.
+        let measurable = !self.raster_enabled();
         let Some(feedback) = self.feedback.as_deref_mut() else {
             return view;
         };
-        let context = view.filter(|_| feedback.calibrated()).and_then(|entity| {
-            let (_, _, extracted, msaa) = self.views.get(entity).ok()?;
-            Some(work_admission::WorkContext::of(
-                &self.adapter.as_deref()?.get_info(),
-                extracted?,
-                *msaa?,
-            ))
-        });
+        let context = view
+            .filter(|_| measurable && feedback.calibrated())
+            .and_then(|entity| {
+                let (_, _, extracted, msaa) = self.views.get(entity).ok()?;
+                Some(work_admission::WorkContext::of(
+                    &self.adapter.as_deref()?.get_info(),
+                    extracted?,
+                    *msaa?,
+                ))
+            });
         let admitted = feedback.select(view, context);
         view.filter(|_| admitted)
     }

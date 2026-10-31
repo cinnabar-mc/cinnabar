@@ -292,9 +292,9 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  A developer-supplied cost calibration can select indirect cull passes by captured
-  submitted indices per stream, matched to adapter, backend, viewport and sample
-  count. Samples without a matching measurement use the existing count policy,
+  A developer-supplied cost calibration can select Hi-Z indirect cull passes by
+  captured submitted indices per stream, matched to adapter, backend, viewport and
+  sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
   and configuration changes restart admission before selecting work.
   Matched-output frame-time and movement qualification remain incomplete; no
   hardware cost calibration or default change is qualified.

@@ -631,3 +631,48 @@ fn skipped_views_restart_admission_when_their_configuration_changes() {
         );
     }
 }
+
+/// A calibration measured for the Hi-Z cull never prices raster occlusion decisions.
+#[test]
+fn raster_occlusion_keeps_count_admission_under_a_matching_calibration() {
+    use super::super::GpuCull;
+    use super::super::app_tests::{
+        KEYS, camera_transform, chunk_app, frame, insert_meshes, noop_render_plugin,
+    };
+    use crate::chunk::*;
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::SHADER_EARLY_DEPTH_TEST,
+        ),
+        Msaa::Off,
+        camera_transform(),
+    );
+    insert_meshes(&mut app, &KEYS);
+    for _ in 0..8 {
+        frame(&mut app);
+    }
+    {
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        let view = world.resource::<GpuCullFeedback>().admission.view.unwrap();
+        let context = WorkContext::of(
+            &world.resource::<RenderAdapter>().get_info(),
+            world.get::<ExtractedView>(view).unwrap(),
+            *world.get::<Msaa>(view).unwrap(),
+        );
+        world.resource_mut::<GpuCullFeedback>().calibration = Some(Calibration {
+            context,
+            cull_ns: u64::MAX,
+            index_ns: [1.0; STREAM_COUNT],
+        });
+        world.resource_mut::<GpuCull>().enable_raster();
+    }
+    for _ in 0..3 {
+        frame(&mut app);
+    }
+    let feedback = app.sub_app(RenderApp).world().resource::<GpuCullFeedback>();
+    assert!(feedback.admission.view.is_some());
+    assert_eq!(
+        feedback.context, None,
+        "raster frames must not select a measured context"
+    );
+}
