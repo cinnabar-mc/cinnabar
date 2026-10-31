@@ -122,8 +122,9 @@ fn select(bytes: &[u8], candidate: &Candidate, api_revisions: &[String]) -> Resu
         "unexpected release asset"
     );
     let expected = format!(
-        "https://github.com/{}/releases/download/v{}/{}",
-        candidate.repository, m.version, m.artifact.filename
+        "{}/v1/mod/assets/{}",
+        bridge::contract::CINNABAR_API_BASE_URL.trim_end_matches('/'),
+        m.artifact.sha256
     );
     ensure!(
         record.download_url == expected,
@@ -188,7 +189,7 @@ mod tests {
             "schema_version": 1, "package": "example-mod", "version": "1.1.0", "revision": "c".repeat(40),
             "host": {"repository": HOST_REPOSITORY, "revision": "e".repeat(40), "api_revision": host},
             "artifact": {"filename": "mod.wasm", "size": 8, "sha256": "d".repeat(64)}
-        }, "download_url": "https://github.com/example/mod/releases/download/v1.1.0/mod.wasm"});
+        }, "download_url": format!("{}/v1/mod/assets/{}", bridge::contract::CINNABAR_API_BASE_URL, "d".repeat(64))});
         (candidate, record, host)
     }
 
