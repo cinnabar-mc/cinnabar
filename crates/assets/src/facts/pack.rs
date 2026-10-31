@@ -57,6 +57,7 @@ domain!(PackBlock {
     Beehive,
     ChiseledBookshelf,
     Cactus,
+    Sunflower,
     Cake,
     Farmland,
     ResinClump,
