@@ -1,8 +1,8 @@
 # Packaging
 
 Release installers ship the client, the Go core, the dragonfly local-world server and its
-`cinnabar-cxb` verifier beside it, the Cinnangles Sans font and a prep kit, never Mojang-derived
-carriers. A packaged launch whose carriers are missing or stale runs
+`cinnabar-cxb` verifier beside it, the shader-pack compiler, the Cinnangles Sans font and a prep
+kit, never Mojang-derived carriers. A packaged launch whose carriers are missing or stale runs
 `crates/first-run`: a setup window (a `--first-run-setup` child process, or native dialogs if no
 window opens or its process crashes) asks consent, downloads the pinned `bedrock-samples` pack
 (`assets/vanilla-source.json`, resumable, hash-verified), runs the bundled `assetc`, and publishes
@@ -10,7 +10,11 @@ carriers to the per-user data directory (`InstallLayout::prepared_assets_dir`). 
 there records each carrier's input identity, so an update rebuilds only stale carriers; the current
 pack archive and extracted resource versions are kept so carrier-only updates skip downloading
 and unpacking cached resources, even when the archive was removed. Extracted caches are bound to
-the pinned archive's SHA-256, independently of the Cinnabar version. Status: `logs/first-run-status.json`;
+the pinned archive's SHA-256, independently of the Cinnabar version. On macOS and extracted Linux
+AppDirs the running client builds a staged update's carriers at the lowest priority into
+`prepare/next/` (log: `logs/first-run-next.log`), which the update's first launch promotes when
+current; a new pack pin, an unfinished build or a Windows MSI update prepares at launch instead,
+resuming any partial set. Status: `logs/first-run-status.json`;
 details: `logs/first-run.log`. Every launch logs to `logs/client.log`, including stderr and panics
 whether or not a terminal is attached. Each launch archives the previous session as
 `client-<UTC yyyymmdd-hhmmss>.log` (and `first-run.log` likewise); a session past 8 MiB continues
@@ -91,7 +95,8 @@ shaders with it instead of the much slower FXC. `packaging/windows/fetch-dxc.ps1
 release that `packaging/windows/dxc.json` pins, caches it under `.local/downloads`, and installs the
 library only when both the archive and the library match their pinned SHA-256; `make play` runs it
 for development builds. The client uses only that copy and falls back to FXC, logging why, when it
-is missing or fails to load. `WGPU_DX12_COMPILER=fxc` also selects FXC.
+is missing or fails to load. Intel drivers older than the `24.x` branch, which lose the device on
+DXC's output, and `WGPU_DX12_COMPILER=fxc` also select FXC.
 
 The game, core, crash monitor and update helper do not request administrator rights or reject
 an elevated launch. All packaged executables embed an `asInvoker` manifest before signing,

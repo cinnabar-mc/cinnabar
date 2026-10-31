@@ -14,7 +14,7 @@ impl InstallLayout {
     /// included: iOS cannot run the first-run compiler, so whoever builds the app adds the
     /// carriers they compiled, and the layout is not an installed one. Settings and data live in
     /// the container's `Documents`, which the Files app exposes, and per-run endpoints in its
-    /// `tmp`. The core is linked into `executable` and runs in-process.
+    /// `tmp`. The core and shader-pack compiler are linked into `executable` and run in-process.
     #[must_use]
     pub fn ios(resource_root: PathBuf, container: &Path, executable: PathBuf) -> Self {
         let documents = container.join("Documents");
@@ -25,6 +25,7 @@ impl InstallLayout {
                 .join("assets")
                 .join(assets::carriers::physics_registry_basename()),
             resource_root,
+            shaderpack_worker: executable.clone(),
             core_executable: executable,
             user_config_root: documents.join("config"),
             user_data_root: documents.join("data"),

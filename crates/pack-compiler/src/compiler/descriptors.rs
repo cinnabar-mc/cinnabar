@@ -13,6 +13,12 @@ pub(super) fn descriptor_for(
     if visuals::sculk::is_attachment_face(record, face) {
         return visuals::sculk::attachment_descriptor(pack, record);
     }
+    if visuals::speleothem::is_record(record) {
+        return visuals::speleothem::descriptor(pack, record);
+    }
+    if visuals::sunflower::is_head_face(record, face) {
+        return visuals::sunflower::head_descriptor(pack, record, face);
+    }
     if visuals::stem::is_record(record) {
         return visuals::stem::descriptor(pack, record, face);
     }
@@ -27,7 +33,9 @@ pub(super) fn descriptor_for(
     }
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let (path, state_variant) = if is_model_visual(record) {
+    let (path, state_variant) = if let Some(variant) = visuals::chorus::flower_variant(record) {
+        pack.terrain.get_clamped_untinted_variant(&key, variant)?
+    } else if is_model_visual(record) {
         pack.terrain.get_for_model_record(&key, record)?
     } else {
         pack.terrain.get_for_record_variant(&key, record)?

@@ -27,6 +27,41 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
+/// A vine template's stem planes, which come before its tip planes.
+const VINE_STEM_QUADS: u32 = 0b0011;
+/// A vine template's tip planes.
+pub(crate) const VINE_TIP_QUADS: u32 = 0b1100;
+
+/// Chooses a vine template's stem planes where the same vine continues in its growth
+/// direction and its tip planes where it ends; `None` for every other template.
+pub(crate) fn vine_quad_mask<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    flags: u32,
+) -> Option<u32> {
+    let (vine, growth) = if flags & assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE, Face::NegativeY)
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE, Face::PositiveY)
+    } else {
+        return None;
+    };
+    let next = adjacent_palette_entry(context, facts, neighbour_facts, coordinate, growth);
+    let continues = next.kind == VisualKind::Cross
+        && context
+            .visuals
+            .model_templates()
+            .get(next.model_template as usize)
+            .is_some_and(|template| template.flags & vine != 0);
+    Some(if continues {
+        VINE_STEM_QUADS
+    } else {
+        VINE_TIP_QUADS
+    })
+}
+
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
 
 /// The policy that can choose a block's world-model template from its neighbours.

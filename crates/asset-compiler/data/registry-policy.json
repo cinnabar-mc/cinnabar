@@ -7175,6 +7175,8 @@
       "BeaconShell"
     ],
     "blocks": {
+      "RedstoneTorch": "minecraft:redstone_torch",
+      "UnlitRedstoneTorch": "minecraft:unlit_redstone_torch",
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
       "Glass": "minecraft:glass",
@@ -7185,7 +7187,14 @@
       "Cake": "minecraft:cake",
       "Farmland": "minecraft:farmland",
       "ResinClump": "minecraft:resin_clump",
+      "Sunflower": "minecraft:sunflower",
       "Dirt": "minecraft:dirt",
+      "SporeBlossom": "minecraft:spore_blossom",
+      "ChorusFlower": "minecraft:chorus_flower",
+      "PointedDripstone": "minecraft:pointed_dripstone",
+      "SulfurSpike": "minecraft:sulfur_spike",
+      "WeepingVines": "minecraft:weeping_vines",
+      "TwistingVines": "minecraft:twisting_vines",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",

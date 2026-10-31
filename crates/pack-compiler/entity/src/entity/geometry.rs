@@ -423,12 +423,11 @@ fn parse_geometry_uv(value: &Value, path: &Path) -> Result<EntityGeometryUv, Ass
         ))
     })?;
     const FACE_NAMES: [&str; 6] = ["north", "south", "east", "west", "up", "down"];
-    if object.is_empty()
-        || object
-            .keys()
-            .any(|field| !FACE_NAMES.contains(&field.as_str()))
+    if object
+        .keys()
+        .any(|field| !FACE_NAMES.contains(&field.as_str()))
     {
-        return Err(invalid("unknown or empty entity geometry face UV map"));
+        return Err(invalid("unknown entity geometry face UV"));
     }
     let parse_face = |name: &str| -> Result<Option<EntityGeometryFaceUv>, AssetError> {
         object

@@ -1,4 +1,4 @@
-//! Standalone entry point for compiler process regression tests and offline tools.
+//! The isolated shader-pack compiler process the client spawns for CPU translation.
 
 #[global_allocator]
 static ALLOCATOR: shaderpack::worker::BudgetAllocator<std::alloc::System> =
