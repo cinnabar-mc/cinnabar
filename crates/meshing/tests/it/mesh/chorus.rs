@@ -122,7 +122,7 @@ fn plant_template_offset(fixture: &CompiledChorusFixture, placed: &[([u8; 3], u3
 
 #[test]
 fn chorus_plants_draw_their_art_and_connect_only_to_their_family_and_root() {
-    use assets::chorus;
+    use assets::facts::chorus;
     let fixture = compiled_chorus_fixture();
     let visual = fixture
         .assets

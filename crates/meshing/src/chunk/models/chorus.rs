@@ -1,4 +1,4 @@
-use assets::chorus;
+use assets::facts::chorus;
 
 use super::*;
 

@@ -6,7 +6,7 @@ use super::context::{
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::vanilla_cuboid_quads;
-use assets::chorus;
+use assets::facts::chorus;
 use assets::facts::pack::PackBlock as B;
 use {super::super::*, assets::BlockFace};
 
