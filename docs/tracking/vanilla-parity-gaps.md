@@ -206,9 +206,7 @@ animated rig remotes use. All three below flow from that.
   SpawnParticleEffect triggers, critical hits. Provisional *(measure)*: break/crack piece
   counts and radii, particle size as half-extent, `particles_alpha` treated as blended
   with a low alpha cutoff, collision-drag model, light mapping, spawn/draw distance caps,
-  Molang variable wire layout. Missing:
-  local-player eating crumbs (needs the animation lane's item-use state; remote and server
-  Feed notices work), fireworks, particle sound playback (queued via
+  Molang variable wire layout. Missing: fireworks, particle sound playback (queued via
   `ParticleSystem::take_sounds`), actor-bound emitters follow position only, not rotation
   (HIGH until measured).
 - Daylight: eased celestial angle, day plateau and night transfer landed uncompiled; the shader night floors
