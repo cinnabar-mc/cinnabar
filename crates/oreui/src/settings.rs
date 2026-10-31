@@ -538,6 +538,12 @@ impl Content<'_, '_> {
                     SettingId::RenderDistance => self
                         .word("options.renderDistanceFormat")
                         .replace("%s", &value.to_string()),
+                    SettingId::FullDetailDistance => {
+                        launcher::menu::settings_options::full_detail_label(value, &|chunks| {
+                            self.word("options.renderDistanceFormat")
+                                .replace("%s", &chunks.to_string())
+                        })
+                    }
                     SettingId::MaxFramerate => {
                         launcher::menu::settings_options::frame_rate_label(value, &|key: &str| {
                             self.word(key)
