@@ -370,7 +370,12 @@ pub(crate) fn advance(
         );
     }
     if plan.local_use == LocalUse::Place {
-        let position = plan.destination;
+        // A seed sounds at the block it was used on, where the server voices its copy too.
+        let position = if plan.planted.is_some() {
+            observed.target.position
+        } else {
+            plan.destination
+        };
         context
             .audio_cues
             .write(client_audio::audio::LocalBlockCue::Place {
