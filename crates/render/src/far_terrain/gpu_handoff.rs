@@ -237,7 +237,7 @@ impl FarTerrainGpu {
 pub(super) fn colours(mesh: &TileMesh, codes: &[u8]) -> Vec<u8> {
     let side = mesh.key.width_blocks() as usize / far_terrain::COLUMN_SIDE;
     let mut colours = mesh.colours.to_vec();
-    for (index, cell) in colours.chunks_exact_mut(4).enumerate() {
+    for (index, cell) in colours.as_chunks_mut::<4>().0.iter_mut().enumerate() {
         let x = ((index % TILE_CELLS) << mesh.key.level) / far_terrain::COLUMN_SIDE;
         let z = ((index / TILE_CELLS) << mesh.key.level) / far_terrain::COLUMN_SIDE;
         cell[3] = codes[z * side + x];

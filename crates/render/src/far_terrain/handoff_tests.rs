@@ -195,3 +195,42 @@ fn near_and_far_changes_order_far_samples_ahead_of_near_terrain() {
         (HANDOFF_STEPS, 0)
     );
 }
+
+/// The render system starts tile fades on the extracted frame clock, not instantly.
+#[test]
+fn far_preparation_fades_on_the_frame_clock() {
+    use bevy::{ecs::system::RunSystemOnce, prelude::World};
+    let (device, queue) = device(256);
+    let mut world = World::new();
+    world.insert_resource(FarTerrainGpu::new(&device));
+    world.insert_resource(device);
+    world.insert_resource(queue);
+    let mut time = Time::<()>::default();
+    time.advance_to(START);
+    world.insert_resource(time);
+    let coarse = meshes([TileKey {
+        level: 1,
+        x: 0,
+        z: 0,
+    }]);
+    let fine = meshes((0..2).flat_map(|x| (0..2).map(move |z| TileKey { level: 0, x, z })));
+    world.insert_resource(FarTerrainScene {
+        tiles: coarse.clone().into(),
+        ..Default::default()
+    });
+    world.run_system_once(prepare_far_terrain).unwrap();
+    world.resource_mut::<FarTerrainScene>().tiles = fine.clone().into();
+    world.run_system_once(prepare_far_terrain).unwrap();
+    assert!(
+        world
+            .resource::<FarTerrainGpu>()
+            .resident
+            .contains_key(&coarse[0].key)
+    );
+    assert_samples_covered(world.resource::<FarTerrainGpu>(), &coarse);
+    world.resource_mut::<Time>().advance_to(at(HANDOFF_STEPS));
+    world.run_system_once(prepare_far_terrain).unwrap();
+    let gpu = world.resource::<FarTerrainGpu>();
+    assert!(!gpu.resident.contains_key(&coarse[0].key));
+    assert_eq!(gpu.draws.len(), fine.len());
+}

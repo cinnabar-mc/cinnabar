@@ -188,8 +188,8 @@ impl FarTerrainGpu {
         id
     }
 
-    /// Uploads one bounded batch, retaining covering draws until their replacements are admitted.
-    /// Returns false when the same scene needs another frame to finish its uploads.
+    /// Clockless batches, whose covered predecessors retire without a fade.
+    #[cfg(test)]
     fn apply_tiles(
         &mut self,
         device: &RenderDevice,
@@ -199,8 +199,9 @@ impl FarTerrainGpu {
         self.apply_tiles_at(device, queue, tiles, None)
     }
 
-    /// Prepares a batch against the caller's presentation clock; without one, covered
-    /// predecessors retire at once instead of fading.
+    /// Uploads one bounded batch, retaining covering draws until their replacements are admitted
+    /// and, with a presentation clock, have faded in. Returns false when the same scene needs
+    /// another frame to finish its uploads.
     fn apply_tiles_at(
         &mut self,
         device: &RenderDevice,
@@ -749,7 +750,7 @@ pub(crate) fn prepare_far_terrain(
         .is_some_and(|applied| Arc::ptr_eq(applied, &scene.tiles))
     {
         gpu.applied_tiles = gpu
-            .apply_tiles(&device, &queue, &scene.tiles)
+            .apply_tiles_at(&device, &queue, &scene.tiles, now)
             .then(|| Arc::clone(&scene.tiles));
         scene.residency.publish(
             gpu.resident
