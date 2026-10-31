@@ -66,6 +66,8 @@ mod lever;
 mod lightning_rod;
 #[path = "tests/mapped_face.rs"]
 mod mapped_face;
+#[path = "tests/chorus_flower.rs"]
+mod chorus_flower;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
 #[path = "tests/sea_pickle.rs"]

@@ -175,6 +175,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
+  plants stay diagnostic until the reserved registry entry below has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their

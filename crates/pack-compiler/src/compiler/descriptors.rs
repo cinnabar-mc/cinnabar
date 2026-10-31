@@ -24,7 +24,9 @@ pub(super) fn descriptor_for(
     }
     let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
     let key = key?;
-    let (path, state_variant) = if is_model_visual(record) {
+    let (path, state_variant) = if let Some(variant) = visuals::chorus::flower_variant(record) {
+        pack.terrain.get_clamped_untinted_variant(&key, variant)?
+    } else if is_model_visual(record) {
         pack.terrain.get_for_model_record(&key, record)?
     } else {
         pack.terrain.get_for_record_variant(&key, record)?
