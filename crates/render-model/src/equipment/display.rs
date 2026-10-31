@@ -3,12 +3,14 @@
 use crate::RenderBoneTransform;
 use glam::{Mat3, Mat4, Quat, Vec3};
 
-/// Item-space to hand-bone placement: rotation, translation in blocks and uniform scale.
+/// Item-space to hand-bone placement: rotation, translation in blocks, uniform scale and any
+/// per-axis scale in the item's frame.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ItemDisplay {
     pub rotation: Quat,
     pub translation: Vec3,
     pub scale: f32,
+    pub axis_scale: Vec3,
 }
 
 impl ItemDisplay {
@@ -20,6 +22,7 @@ impl ItemDisplay {
             rotation: Quat::from_mat3(&(linear * scale.recip())).normalize(),
             translation: matrix.w_axis.truncate(),
             scale,
+            axis_scale: Vec3::ONE,
         }
     }
 }
@@ -44,6 +47,13 @@ pub fn held_sprite_display(hand_equipped: bool) -> ItemDisplay {
 /// Vanilla's off-hand item has its own bone-frame offset and
 /// hand-equipped X translation, rather than reflecting the main-hand grip.
 pub fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> ItemDisplay {
+    ItemDisplay::from_matrix(
+        third_person_sprite_frame(hand_equipped, off_hand) * sprite_item_transform(),
+    )
+}
+
+/// The hand-bone frame and grip a held sprite's own item transform starts from.
+pub(super) fn third_person_sprite_frame(hand_equipped: bool, off_hand: bool) -> Mat4 {
     let grip = if hand_equipped {
         Mat4::from_rotation_y(degrees(180.0))
             * Mat4::from_translation(Vec3::new(if off_hand { 0.0 } else { 0.1 }, 0.265, 0.0))
@@ -62,9 +72,7 @@ pub fn held_sprite_display_for_hand(hand_equipped: bool, off_hand: bool) -> Item
     } else {
         Mat4::IDENTITY
     };
-    ItemDisplay::from_matrix(
-        rig_from_reference_bone() * hand_offset * grip * sprite_item_transform(),
-    )
+    rig_from_reference_bone() * hand_offset * grip
 }
 
 /// Legacy icon transform shared by the item renderer, before its per-view placement.
@@ -101,7 +109,12 @@ pub fn attach_to_bone(
             translation.z,
             hand_scale * display.scale,
         ],
-        axis_scale: crate::UNIT_AXIS_SCALE,
+        axis_scale: [
+            display.axis_scale.x,
+            display.axis_scale.y,
+            display.axis_scale.z,
+            1.0,
+        ],
     };
     bone.is_finite().then_some(bone)
 }

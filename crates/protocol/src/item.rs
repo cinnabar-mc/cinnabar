@@ -24,6 +24,7 @@ mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod render_offsets;
 mod shield;
 mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};

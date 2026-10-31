@@ -2,7 +2,7 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::{EntityAssetKind, EquipmentBinding};
-use render_model::equipment::{ItemDisplay, attach_to_bone, held_sprite_display_for_hand};
+use render_model::equipment::{ItemDisplay, attach_to_bone};
 
 use super::*;
 
@@ -476,20 +476,22 @@ impl EquipmentRuntime {
             bones.right_item
         };
         let Some(hand) = hand else { return };
-        let mut display = if java.is_some() {
+        let display = if java.is_some() {
             let grip = if item.identifier.as_ref() == assets::facts::VanillaItem::Bow.identifier() {
                 render_model::java_animation::JavaHeldItem::Bow
             } else {
                 render_model::java_animation::JavaHeldItem::Flat
             };
-            ItemDisplay::from_matrix(render_model::java_animation::third_person_item(
-                grip,
-                render_model::java_animation::JavaItemMesh::Sprite,
-            ))
+            let mut display =
+                ItemDisplay::from_matrix(render_model::java_animation::third_person_item(
+                    grip,
+                    render_model::java_animation::JavaItemMesh::Sprite,
+                ));
+            display.scale *= input.main_hand_scale();
+            display
         } else {
-            held_sprite_display_for_hand(item.grip.upright().unwrap_or(false), input.off_hand)
+            self.held_sprite_display(item, input.off_hand, input.main_hand_scale())
         };
-        display.scale *= input.main_hand_scale();
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),

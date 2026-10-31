@@ -93,11 +93,7 @@ impl EquipmentRuntime {
         let Some((mesh, location, span)) = self.held_icon_mesh(item) else {
             return;
         };
-        let mut display = held_sprite_display_for_hand(
-            item.grip.upright().unwrap_or(false),
-            layer == LAYER_OFF_HAND,
-        );
-        display.scale *= scale;
+        let display = self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale);
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -298,6 +294,52 @@ impl EquipmentRuntime {
         Some((index, placement, location))
     }
 
+    /// Third-person placement of a flat sprite on its item bone: its render offsets, or the retail
+    /// grip. `scale` is the actor's held item scale, which a declared table ignores.
+    pub(super) fn held_sprite_display(
+        &self,
+        item: &WornItem,
+        off_hand: bool,
+        scale: f32,
+    ) -> ItemDisplay {
+        let placement = held_sprite_placement(item, false);
+        let upright = item.grip.upright().unwrap_or(false);
+        let side = if off_hand {
+            render_api::HeldItemHandSide::Off
+        } else {
+            render_api::HeldItemHandSide::Main
+        };
+        let offset = (placement != render_api::HeldItemPlacement::Retail)
+            .then(|| self.held_mesh_dimensions(item))
+            .flatten()
+            .and_then(|dimensions| {
+                render_model::equipment::offset_held_display(placement, upright, side, dimensions)
+            });
+        let mut display = offset.unwrap_or_else(|| held_sprite_display_for_hand(upright, off_hand));
+        if render_model::equipment::offset_follows_actor_scale(placement) {
+            display.scale *= scale;
+        }
+        display
+    }
+
+    /// Texel size of the sprite `held_icon_mesh` draws for this item.
+    pub(super) fn held_icon_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        let sprite = self
+            .session_sprite(&item.identifier, item.metadata)
+            .and_then(|(index, _, _)| self.session_sprite_pixels(index))
+            .or_else(|| {
+                self.held_icon_index(item)
+                    .and_then(|index| self.icons.sprites().get(index))
+            })?;
+        Some([sprite.width, sprite.height])
+    }
+
+    /// Texel size of the sprite `held_mesh_with_use` draws: native artwork when the item has it.
+    pub(super) fn held_mesh_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions(item)
+            .or_else(|| self.held_icon_dimensions(item))
+    }
+
     /// A held or worn sprite/cube on `bone`, placed by `display` or the kind's held placement.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn push_attached(
@@ -317,17 +359,15 @@ impl EquipmentRuntime {
         else {
             return;
         };
-        let mut display = override_display.unwrap_or_else(|| {
-            if block {
-                held_block_display_for_hand(layer == LAYER_OFF_HAND)
-            } else {
-                held_sprite_display_for_hand(
-                    item.grip.upright().unwrap_or(false),
-                    layer == LAYER_OFF_HAND,
-                )
+        let display = match override_display {
+            None if !block => self.held_sprite_display(item, layer == LAYER_OFF_HAND, scale),
+            override_display => {
+                let mut display = override_display
+                    .unwrap_or_else(|| held_block_display_for_hand(layer == LAYER_OFF_HAND));
+                display.scale *= scale;
+                display
             }
-        });
-        display.scale *= scale;
+        };
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),
@@ -768,6 +808,15 @@ fn with_glint(
         };
     }
     presentation
+}
+
+/// The item's placement when drawn as a flat sprite; a cube keeps its own retail placement.
+pub(super) fn held_sprite_placement(item: &WornItem, block: bool) -> render_api::HeldItemPlacement {
+    if block {
+        render_api::HeldItemPlacement::Retail
+    } else {
+        item.use_facts.held_placement
+    }
 }
 
 #[cfg(test)]
