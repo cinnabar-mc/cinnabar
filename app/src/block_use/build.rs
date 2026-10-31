@@ -29,7 +29,7 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
     repeats_while_held: bool,
-    /// The crop store identity a seed item plants; block items place their own block.
+    /// The crop state a seed item plants; block items place their own block.
     planted: Option<u32>,
 }
 
@@ -181,7 +181,8 @@ fn prepare(
                             .map(|(position, block)| (position, 0, block)),
                     )
                     .collect::<Vec<_>>()
-            });
+            })
+            .or_else(|| planted.map(|(cell, crop)| vec![(cell, 0, crop)]));
         let predicted = predicted.or_else(|| {
             (local_use == LocalUse::Interact)
                 .then(|| {

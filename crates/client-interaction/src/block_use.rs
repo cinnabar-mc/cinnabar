@@ -139,8 +139,8 @@ mod pick_tests;
 #[cfg(test)]
 mod tests;
 
-/// The cell a held seed item plants into from this click and its crop block, resolved
-/// through the session's item components and the caller's palette view.
+/// The cell a held seed item plants into from this click and its crop's default state,
+/// resolved through the session's item components and the caller's palette view.
 pub fn predicted_seed_planting(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
@@ -153,7 +153,7 @@ pub fn predicted_seed_planting(
         .authority()
         .item_identifier(observed.selection.item.network_id())?;
     let seed = ui.item_components(&identifier)?.seed.as_deref()?;
-    let crop = collisions.named_block_runtime_id(mode, &seed.crop_result)?;
+    let crop = collisions.block_default_runtime_id(mode, &seed.crop_result)?;
     let clicked = world.primary_runtime_id(observed.target.position).ok()?;
     let cell = gameplay::block_use::seed_planting_cell(
         seed,
