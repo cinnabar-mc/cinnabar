@@ -1,6 +1,9 @@
 use super::*;
 use assets::facts::{BlockProperty, StateValue};
-use assets::{BlockFace, CompiledBiomeAssets, MODEL_UV_SCALE, NetworkIdMode, RuntimeAssets};
+use assets::{
+    BlockFace, BlockFlags, CompiledBiomeAssets, MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_UV_SCALE,
+    NetworkIdMode, RuntimeAssets,
+};
 
 const D: BlockFace = BlockFace::Down;
 const U: BlockFace = BlockFace::Up;
@@ -62,9 +65,57 @@ const PISTON: [[(BlockFace, u8); 6]; 6] = [
     [(S, 2), (S, 2), (S, 2), (S, 2), (U, 0), (D, 0)],
 ];
 
+/// Base-game vault shell faces for each `minecraft:cardinal_direction`, in its value order.
+const VAULT: [[(BlockFace, u8); 6]; 4] = [
+    [(D, 3), (U, 3), (S, 0), (N, 0), (E, 0), (W, 0)],
+    [(D, 1), (U, 2), (E, 0), (W, 0), (N, 0), (S, 0)],
+    [(D, 0), (U, 0), (N, 0), (S, 0), (W, 0), (E, 0)],
+    [(D, 2), (U, 1), (W, 0), (E, 0), (S, 0), (N, 0)],
+];
+
+/// Base-game jigsaw faces for each `facing_direction` and `rotation`.
+const JIGSAW: [[[(BlockFace, u8); 6]; 4]; 6] = [
+    [
+        [(N, 3), (S, 0), (U, 3), (D, 3), (W, 3), (E, 3)],
+        [(N, 2), (S, 2), (E, 3), (W, 3), (U, 3), (D, 3)],
+        [(N, 0), (S, 3), (D, 3), (U, 3), (E, 3), (W, 3)],
+        [(N, 1), (S, 1), (W, 3), (E, 3), (D, 3), (U, 3)],
+    ],
+    [
+        [(S, 3), (N, 0), (U, 0), (D, 0), (E, 0), (W, 0)],
+        [(S, 1), (N, 1), (E, 0), (W, 0), (D, 0), (U, 0)],
+        [(S, 0), (N, 3), (D, 0), (U, 0), (W, 0), (E, 0)],
+        [(S, 2), (N, 2), (W, 0), (E, 0), (U, 0), (D, 0)],
+    ],
+    [
+        [(D, 3), (U, 0), (N, 0), (S, 0), (W, 2), (E, 2)],
+        [(W, 3), (E, 0), (N, 2), (S, 2), (U, 2), (D, 2)],
+        [(U, 3), (D, 0), (N, 3), (S, 3), (E, 2), (W, 2)],
+        [(E, 3), (W, 0), (N, 1), (S, 1), (D, 2), (U, 2)],
+    ],
+    [
+        [(D, 0), (U, 3), (S, 0), (N, 0), (E, 1), (W, 1)],
+        [(W, 0), (E, 3), (S, 1), (N, 1), (D, 1), (U, 1)],
+        [(U, 0), (D, 3), (S, 3), (N, 3), (W, 1), (E, 1)],
+        [(E, 0), (W, 3), (S, 2), (N, 2), (U, 1), (D, 1)],
+    ],
+    [
+        [(D, 2), (U, 2), (E, 2), (W, 2), (N, 0), (S, 0)],
+        [(W, 2), (E, 2), (D, 2), (U, 2), (N, 1), (S, 1)],
+        [(U, 2), (D, 2), (W, 2), (E, 2), (N, 3), (S, 3)],
+        [(E, 2), (W, 2), (U, 2), (D, 2), (N, 2), (S, 2)],
+    ],
+    [
+        [(D, 1), (U, 1), (W, 1), (E, 1), (S, 0), (N, 0)],
+        [(W, 1), (E, 1), (U, 1), (D, 1), (S, 2), (N, 2)],
+        [(U, 1), (D, 1), (E, 1), (W, 1), (S, 3), (N, 3)],
+        [(E, 1), (W, 1), (D, 1), (U, 1), (S, 1), (N, 1)],
+    ],
+];
+
 /// Fixture terrain keys with one artwork per array entry; slot keys share no artwork, so
 /// each face's material names the slot and variant it drew.
-const TERRAIN: [(&str, usize); 18] = [
+const TERRAIN: [(&str, usize); 30] = [
     ("observer_north", 2),
     ("observer_south", 2),
     ("observer_east", 2),
@@ -83,6 +134,18 @@ const TERRAIN: [(&str, usize); 18] = [
     ("dispenser_top", 1),
     ("piston_side", 1),
     ("stone", 1),
+    ("jigsaw_north", 1),
+    ("jigsaw_south", 1),
+    ("jigsaw_east", 1),
+    ("jigsaw_west", 1),
+    ("jigsaw_top", 1),
+    ("jigsaw_bottom", 1),
+    ("vault_north", 8),
+    ("vault_south", 8),
+    ("vault_east", 8),
+    ("vault_west", 8),
+    ("vault_top", 8),
+    ("vault_bottom", 8),
 ];
 const PISTON_TERRAIN: [&str; 2] = ["piston_top", "piston_bottom"];
 
@@ -105,7 +168,7 @@ fn artwork() -> Vec<String> {
 
 /// The original artwork's red channel identifies its sprite independently of atlas ordering.
 fn artwork_tag(name: &str) -> u8 {
-    6 + artwork().iter().position(|art| art == name).unwrap() as u8 * 6
+    2 + artwork().iter().position(|art| art == name).unwrap() as u8 * 2
 }
 
 /// Reads the material's sprite identity through its actual texture page and layer.
@@ -148,6 +211,8 @@ fn compile() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
                     | "minecraft:dropper"
                     | "minecraft:piston"
                     | "minecraft:sticky_piston"
+                    | "minecraft:jigsaw"
+                    | "minecraft:vault"
             )
         })
         .collect::<Vec<_>>();
@@ -172,10 +237,14 @@ fn compile() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
             "dispenser":{{"textures":{{"down":"dispenser_top","up":"dispenser_top","north":"dispenser_side","south":"dispenser_front_horizontal","west":"dispenser_side","east":"dispenser_front_vertical"}}}},
             "dropper":{{"textures":{{"down":"dispenser_top","up":"dispenser_top","north":"dispenser_side","south":"dispenser_front_horizontal","west":"dispenser_side","east":"dispenser_front_vertical"}}}},
             "piston":{{"textures":{{"down":"piston_bottom","side":"piston_side","up":"piston_top"}}}},
-            "sticky_piston":{{"textures":{{"down":"piston_bottom","side":"piston_side","up":"piston_top"}}}}
+            "sticky_piston":{{"textures":{{"down":"piston_bottom","side":"piston_side","up":"piston_top"}}}},
+            "jigsaw":{{"textures":{}}},
+            "vault":{{"textures":{}}}
         }}"#,
             faces("observer"),
-            faces("crafter")
+            faces("crafter"),
+            faces("jigsaw"),
+            faces("vault"),
         ),
     );
     let texture_data = TERRAIN
@@ -263,6 +332,43 @@ fn quarter_turns(reference: &assets::ModelQuad, turned: &assets::ModelQuad) -> O
             }
         })
     })
+}
+
+/// Turns as in [`quarter_turns`], or 4 for a horizontal mirror, that orient `reference` UVs
+/// like `turned`'s: every pair of corners steps the same way along both texture axes. Inset
+/// faces crop their region, so only orientation is compared.
+fn cropped_turns(reference: &assets::ModelQuad, turned: &assets::ModelQuad) -> Option<u8> {
+    let scale = MODEL_UV_SCALE;
+    (0..5).find(|&turn| {
+        let expected = reference.uvs.map(|[u, v]| match turn {
+            1 => [v, scale - u],
+            2 => [scale - v, u],
+            3 => [scale - u, scale - v],
+            4 => [scale - u, v],
+            _ => [u, v],
+        });
+        (0..4).all(|a| {
+            (0..4).all(|b| {
+                (0..2).all(|axis| {
+                    expected[a][axis].cmp(&expected[b][axis])
+                        == turned.uvs[a][axis].cmp(&turned.uvs[b][axis])
+                })
+            })
+        })
+    })
+}
+
+/// A string state's index in its property's value order.
+fn domain_index(record: &RegistryRecord, key: BlockProperty) -> usize {
+    let (Some(StateValue::String(value)), assets::facts::PropertyDomain::String(values)) =
+        (record.property(key), key.domain())
+    else {
+        panic!("{} {key:?}", record.canonical_state);
+    };
+    values
+        .iter()
+        .position(|candidate| *candidate == value.as_ref())
+        .unwrap()
 }
 
 fn int(record: &RegistryRecord, key: BlockProperty) -> usize {
@@ -417,4 +523,100 @@ fn mapped_face_blocks_turn_their_authored_faces_with_their_state() {
             .to_owned()
         });
     }
+}
+
+#[test]
+fn jigsaws_and_vaults_turn_their_faces_with_their_state() {
+    let (compiled, records) = compile();
+    let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let reference = named(&records, "minecraft:piston")
+        .find(|r| int(r, BlockProperty::FacingDirection) == 1)
+        .unwrap();
+    let visual =
+        |record: &RegistryRecord| runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+
+    let mut seen = 0;
+    for record in named(&records, "minecraft:jigsaw") {
+        let expected = JIGSAW[int(record, BlockProperty::FacingDirection)]
+            [int(record, BlockProperty::Rotation)];
+        assert_faces(&compiled, &runtime, reference, record, expected, |slot| {
+            format!("jigsaw_{}", slot_name(slot))
+        });
+        assert!(
+            visual(record)
+                .flags()
+                .contains(BlockFlags::OCCLUDES_FULL_FACE)
+        );
+        seen += 1;
+    }
+    assert_eq!(seen, 24, "six facings in four rotations");
+
+    // Inner quads: the face drawn, the shell face whose texture it reuses, and the turn per
+    // cardinal direction. Ceilings and floors turn opposite their shell face; walls mirror.
+    const INNER: [(BlockFace, BlockFace, [u8; 4]); 6] = [
+        (D, U, [0, 2, 3, 1]),
+        (U, D, [0, 1, 3, 2]),
+        (N, S, [4; 4]),
+        (S, N, [4; 4]),
+        (W, E, [4; 4]),
+        (E, W, [4; 4]),
+    ];
+    let mut seen = 0;
+    for record in named(&records, "minecraft:vault") {
+        let direction = domain_index(record, BlockProperty::MinecraftCardinalDirection);
+        let variant = domain_index(record, BlockProperty::VaultState)
+            + 4 * int(record, BlockProperty::Ominous);
+        assert_faces(
+            &compiled,
+            &runtime,
+            reference,
+            record,
+            VAULT[direction],
+            |slot| format!("vault_{}_{variant}", slot_name(slot)),
+        );
+        let visual = visual(record);
+        assert!(!visual.flags().contains(BlockFlags::OCCLUDES_FULL_FACE));
+        let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
+        let quads =
+            &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize];
+        assert_eq!(quads.len(), 12, "a shell and an interior");
+        for (inner, (face, shell, turns)) in quads[6..].iter().zip(INNER) {
+            let context = format!("{} {face:?} interior", record.canonical_state);
+            let shell = quad(&runtime, record, shell);
+            assert_eq!(
+                inner.material, shell.material,
+                "{context} reuses its shell texture"
+            );
+            assert_ne!(
+                compiled.materials[inner.material as usize].flags & MATERIAL_FLAG_ALPHA_CUTOUT,
+                0,
+                "{context} is cut out"
+            );
+            let facing = quad(&runtime, reference, face);
+            assert_eq!(
+                inner.flags,
+                facing.flags & assets::MODEL_QUAD_FLAG_FACE_MASK,
+                "{context} faces inward and never culls"
+            );
+            let plane = (0..3)
+                .find(|&axis| {
+                    inner
+                        .positions
+                        .iter()
+                        .all(|p| p[axis] == inner.positions[0][axis])
+                })
+                .unwrap();
+            assert!(
+                (1..256).contains(&inner.positions[0][plane]),
+                "{context} sits inside the cell"
+            );
+            assert_eq!(
+                cropped_turns(&facing, inner),
+                Some(turns[direction]),
+                "{context} turns its artwork"
+            );
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, 32, "four directions, four states, ominous or not");
 }

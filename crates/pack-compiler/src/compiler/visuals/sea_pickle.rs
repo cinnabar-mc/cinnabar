@@ -1,7 +1,7 @@
 //! Count-selected sea pickle bodies and live crossed tips, using the pack's sprite.
 
 use super::context::{
-    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+    ModelStorage, RuleInputs, diagnostic_visual, push_grouped_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 use assets::facts::{BlockRenderKind as R, block_render_fact};
@@ -55,34 +55,13 @@ pub(in crate::compiler) fn compile_rule(
         template
     } else {
         // Each body stays in one part: its cap and tips take their light from its cuboid.
-        let mut chunks: Vec<Vec<ModelQuad>> = Vec::new();
-        for body in bodies(count)
-            .iter()
-            .map(|&body| body_quads(material, body, dead))
-        {
-            match chunks.last_mut() {
-                Some(chunk) if chunk.len() + body.len() <= assets::MAX_MODEL_TEMPLATE_QUADS => {
-                    chunk.extend(body);
-                }
-                _ => chunks.push(body),
-            }
-        }
-        let parts = chunks.len();
-        let mut template = None;
-        for (index, chunk) in chunks.into_iter().enumerate() {
-            let part = push_model_template(
-                chunk,
-                if index + 1 < parts {
-                    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
-                } else {
-                    0
-                },
-                storage.templates,
-                storage.quads,
-            )?;
-            template.get_or_insert(part);
-        }
-        let template = template.expect("sea pickle cluster has bodies");
+        let template = push_grouped_model_template(
+            bodies(count)
+                .iter()
+                .map(|&body| body_quads(material, body, dead)),
+            storage,
+        )?
+        .expect("sea pickle cluster has bodies");
         templates.insert(key, template);
         template
     };

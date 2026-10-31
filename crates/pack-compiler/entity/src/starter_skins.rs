@@ -6,6 +6,7 @@ use assets::{
     starter_skins::{
         CLASSIC_SKIN_GEOMETRY, MAX_STARTER_SKIN_GEOMETRY_BYTES, SLIM_SKIN_GEOMETRY,
         STARTER_SKIN_SIDE, STARTER_SKIN_SOURCES, StarterSkin, StarterSkins, encode_starter_skins,
+        skin_model_unmirrors_bone,
     },
 };
 use serde_json::{Map, Value};
@@ -139,7 +140,31 @@ fn modern_skin_model(models: &Map<String, Value>, model: &str) -> Result<Value, 
             bone.remove("reset");
         }
     }
+    unmirror_skin_bones(&mut resolved, model);
     Ok(resolved)
+}
+
+/// Removes the bone and cube mirror flags the built-in skin pack's model does not author.
+fn unmirror_skin_bones(resolved: &mut Value, model: &str) {
+    let Some(bones) = resolved["bones"].as_array_mut() else {
+        return;
+    };
+    for bone in bones.iter_mut().filter_map(Value::as_object_mut) {
+        let unmirrored = bone
+            .get("name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| skin_model_unmirrors_bone(model, name));
+        if !unmirrored {
+            continue;
+        }
+        bone.remove("mirror");
+        let cubes = bone.get_mut("cubes").and_then(Value::as_array_mut);
+        for cube in cubes.into_iter().flatten() {
+            if let Some(cube) = cube.as_object_mut() {
+                cube.remove("mirror");
+            }
+        }
+    }
 }
 
 /// Flattens a legacy child while preserving resolved cube defaults and inherited inflation.
@@ -662,6 +687,38 @@ mod tests {
         assert_eq!(cubes[0].origin, cubes[1].origin);
         assert_eq!(cubes[0].size, cubes[1].size);
         assert_ne!(cubes[0].uv, cubes[1].uv);
+    }
+
+    #[test]
+    fn slim_left_leg_is_unmirrored_while_other_mirrored_bones_keep_their_flag() {
+        let leg = |name: &str| {
+            serde_json::json!({
+                "name":name, "mirror":true, "pivot":[0, 12, 0],
+                "cubes":[{"origin":[0, 0, -2], "size":[4, 12, 4], "uv":[16, 48]}],
+            })
+        };
+        let model = serde_json::json!({
+            "texturewidth":64, "textureheight":64,
+            "bones":[leg("leftLeg"), leg("rightLeg")],
+        });
+        let models = serde_json::json!({
+            "format_version":"1.8.0",
+            CLASSIC_SKIN_GEOMETRY:model,
+            SLIM_SKIN_GEOMETRY:model,
+        });
+        let data = skin_geometry(models.as_object().unwrap()).unwrap();
+        let mirrored = |identifier: &str| {
+            let patch = serde_json::json!({"geometry":{"default":identifier}}).to_string();
+            parse_skin_geometry(&patch, &data)
+                .unwrap()
+                .unwrap()
+                .bones
+                .iter()
+                .map(|bone| bone.cubes[0].mirror)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(mirrored(SLIM_SKIN_GEOMETRY), [false, true]);
+        assert_eq!(mirrored(CLASSIC_SKIN_GEOMETRY), [true, true]);
     }
 
     #[test]

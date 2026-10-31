@@ -522,6 +522,7 @@ fn declared_metadata_names_the_card_and_its_icon_replaces_the_placeholder() {
         icon: Some(Arc::from([0u8].as_slice())),
         update_repository: None,
         update_url: None,
+        revision_update: None,
     };
     let artwork = HashMap::from([(
         item.icon_key().unwrap(),

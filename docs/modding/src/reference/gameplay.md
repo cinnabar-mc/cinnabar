@@ -128,6 +128,31 @@ record movement-intents {
 | `sprint` | `bool` |  |
 | `sneak` | `bool` |  |
 
+<a id="type-movement-input"></a>
+
+### `movement-input`
+
+A resolved local control vector: right and forward axes are finite and bounded to -1..1.
+Buttons add holds to physical controls; axes replace walking input for this frame.
+
+```wit
+record movement-input {
+    right: f32,
+    forward: f32,
+    jump: bool,
+    sneak: bool,
+    sprint: bool,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `right` | `f32` |  |
+| `forward` | `f32` |  |
+| `jump` | `bool` |  |
+| `sneak` | `bool` |  |
+| `sprint` | `bool` |  |
+
 <a id="type-control-modes"></a>
 
 ### `control-modes`
@@ -267,6 +292,34 @@ cancel-jump: func() -> result<_, string>;
 ```
 
 Cancels pending local jump input after a successful callback, even outside gameplay.
+
+<a id="read-movement-input"></a>
+
+### `read-movement-input`
+
+```wit
+read-movement-input: func() -> result<option<movement-input>, string>;
+```
+
+Reads admitted controls before any mod output is applied. Requires movement authority.
+None means focused gameplay does not own input.
+
+Types: [`movement-input`](gameplay.md#type-movement-input).
+
+<a id="set-movement-input"></a>
+
+### `set-movement-input`
+
+```wit
+set-movement-input: func(input: option<movement-input>) -> result<_, string>;
+```
+
+Replaces walking axes and supplies resolved button holds for one successful frame.
+Requires movement authority and focused gameplay. Renew every frame; none restores input.
+Sprint applies to the supplied direction; hunger, item use, collision, input locks and
+server authority still apply. A complete vector belongs to the earliest supplying mod.
+
+Types: [`movement-input`](gameplay.md#type-movement-input).
 
 <a id="set-movement-intents"></a>
 
