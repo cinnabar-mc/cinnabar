@@ -82,15 +82,20 @@ fn spore_blossom_quads(petal: u32, base: u32) -> Vec<ModelQuad> {
     quads
 }
 
-/// Compiles the blossom from its petal and base art, leaving packs without that art to the
-/// provisional shape.
+/// Whether the record is the spore blossom, whose exact rule replaces its provisional envelope.
+pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
+    record.name.as_ref() == B::SporeBlossom.identifier()
+}
+
+/// Compiles the blossom from its petal and base art; packs without that art get the diagnostic
+/// visual.
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
     templates: &mut BTreeMap<[u32; 2], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if record.name.as_ref() != B::SporeBlossom.identifier() {
+    if !is_record(record) {
         return Ok(CompileRuleResult::NoMatch);
     }
     let Some(materials) = inputs.materials(record) else {
