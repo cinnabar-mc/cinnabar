@@ -63,6 +63,7 @@ pub mod sound_bank;
 mod sound_events;
 pub mod stair;
 pub mod starter_skins;
+pub mod redstone_wire;
 pub mod stem;
 pub mod texture;
 pub mod ui;

@@ -162,12 +162,19 @@ const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
-            || flags
+            || (flags
                 & (MATERIAL_FLAG_TINT_MASK
-                    | MATERIAL_LEAF_METADATA_MASK
+                    | (MATERIAL_LEAF_METADATA_MASK & !crate::redstone_wire::SIGNAL_MASK)
                     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
                     | MATERIAL_FLAG_CAULDRON_WATER)
-                == 0)
+                == 0
+                && match crate::redstone_wire::encoded_signal(flags) {
+                    Some(signal) => {
+                        signal <= crate::redstone_wire::MAX_SIGNAL
+                            && flags & crate::stem::GROWTH_MASK == 0
+                    }
+                    None => true,
+                }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
         && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0

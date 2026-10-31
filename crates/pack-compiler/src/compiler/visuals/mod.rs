@@ -75,6 +75,7 @@ pub(in crate::compiler) mod signs;
 pub(in crate::compiler) mod slabs;
 pub(in crate::compiler) mod snowy_grass;
 pub(in crate::compiler) mod speleothem;
+pub(in crate::compiler) mod redstone_wire;
 pub(in crate::compiler) mod spore_blossom;
 pub(in crate::compiler) mod stairs;
 pub(in crate::compiler) mod state;
