@@ -111,3 +111,17 @@ A filtered player mod additionally exports `filter_actions`. Where an ordinary m
 The earliest active exporting module is the sole owner, and filtering needs `controls`. It runs after ordinary frame callbacks, before gameplay, with independent fuel and no host-import calls. Suppressing a press blocks that gesture until physical release; suppressing a release retains the hold, and accepting the following press completes the outstanding release first. If the epoch changes — owner replacement, callback failure or an input-authority interruption — clear your policy state, because suppressed gestures stay suppressed until physical release. A trap or an invalid verdict quarantines the module and completes retained releases. Idle physical holds need no callback, so the host may skip idle calls.
 
 In Rust, build against `mod_api::filtered_player_mod` instead of the ordinary bindings. See the [input reference](../reference/input.md) and the [gameplay reference](../reference/gameplay.md) for exact signatures.
+
+## Position the pointer in a container
+
+With the `controls` grant, `input.read-container-screen` reports the open
+container's screen identity, even while input is unfocused. Pointer requests are
+accepted only while the container owns focused input. This observation is available to bare components
+as well as packaged mods.
+
+`input.position-pointer(x, y)` requests one move in normalized window coordinates
+from 0 to 1. The request is published only after the callback succeeds and is
+consumed once. Closing or changing the observed screen discards it; unloading,
+revocation and world departure clear it. Multiple requests in a callback use the
+last position; conflicts between mods use load order. No click or capture is
+introduced. Compositors may restrict programmatic pointer movement.

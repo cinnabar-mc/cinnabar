@@ -455,6 +455,13 @@ interface input {
         /// Wheel notches this frame while this mod's panel owns input; positive scrolls up.
         wheel: f32,
     }
+    /// Current open container screen identity, requiring controls permission.
+    /// None outside containers. Observation does not grant pointer ownership.
+    read-container-screen: func() -> result<option<string>, string>;
+    /// Requests one pointer move in normalized window coordinates (0..1 on each axis).
+    /// Requires controls permission and a focused container. Staged until callback success;
+    /// consumed once, discarded if the screen changed. Does not press buttons or capture input.
+    position-pointer: func(x: f32, y: f32) -> result<_, string>;
     /// Selects which fields to copy without changing the underlying frame or its event ordering.
     record selection {
         /// None selects all keys; some(empty) selects none; names select exact matches.

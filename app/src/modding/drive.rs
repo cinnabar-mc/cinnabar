@@ -41,7 +41,7 @@ pub(super) fn drive_mod(
     keys: Res<ButtonInput<KeyCode>>,
     focus: Option<Res<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
-    windows: Query<(&Window, Option<&CursorOptions>), With<PrimaryWindow>>,
+    mut windows: Query<(&mut Window, Option<&CursorOptions>), With<PrimaryWindow>>,
     mut ui: ResMut<UiRuntimeResource>,
     menu: Option<Res<MenuRuntime>>,
     mut presentation: ResMut<UiPresentationResource>,
@@ -227,6 +227,14 @@ pub(super) fn drive_mod(
         focused && !menu_open,
         &mut screen_input,
     );
+    let container = client_ui::ui_runtime::presentation::forms::container_screen_reference(
+        &player_runtime,
+        &ui,
+    );
+    let pointer_available = focused && !menu_open && !presentation.mod_ui().mod_panel_open();
+    for host in extension.hosts.iter_mut() {
+        host.observe_container_screen(container, pointer_available);
+    }
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     controls.keys_admitted = bindings::admitted_keys(
@@ -431,6 +439,25 @@ pub(super) fn drive_mod(
             watcher.quarantine(&registered.entry, error.clone());
         }
         warn!("Cinnabar action filter failed: {error}");
+    }
+    let mut pointer = None;
+    for host in extension.hosts.iter_mut() {
+        let requested = host.take_pointer_position();
+        if pointer.is_none() {
+            pointer = requested;
+        }
+    }
+    if let Some([x, y]) = pointer
+        && let Ok((mut window, _)) = windows.single_mut()
+        && window.focused
+        && container.is_some()
+        && pointer_available
+    {
+        let point = Vec2::new(
+            (x * window.width()).min((window.width() - 1.0).max(0.0)),
+            (y * window.height()).min((window.height() - 1.0).max(0.0)),
+        );
+        window.set_cursor_position(Some(point));
     }
     let merged = multi::collect_frame_outputs(&mut extension.hosts);
     if callback_failed || merged.jump_cancel {

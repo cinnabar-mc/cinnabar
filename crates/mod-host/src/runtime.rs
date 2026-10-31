@@ -1,6 +1,6 @@
 mod action_filter;
 mod input_bindings;
-mod input_host;
+pub(super) mod input_host;
 pub(crate) mod legacy_input;
 mod observations;
 mod output_lifecycle;
