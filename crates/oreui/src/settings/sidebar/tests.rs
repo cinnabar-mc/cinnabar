@@ -283,7 +283,7 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
         view.hovered = hovered.then_some(action);
         let mut edge = 0.0;
         let (_, hits, nodes) = paint(
-            HashMap::from([("oreui_settings_sidebar".into(), 120.0)]),
+            HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), 120.0)]),
             |canvas| {
                 edge = canvas.r(EDGE);
                 draw(canvas, &view, [20.0, 20.0, 420.0, 720.0], &|_| None, None).unwrap();
@@ -331,7 +331,7 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
     let offset = row.min().y() - viewport.min().y();
     let mut edge = 0.0;
     let (_, hits, nodes) = paint(
-        HashMap::from([("oreui_settings_sidebar".into(), offset)]),
+        HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), offset)]),
         |canvas| {
             edge = canvas.r(EDGE);
             draw(canvas, &view, bounds, &|_| None, None).unwrap();
@@ -412,7 +412,7 @@ fn creator_remains_reachable_at_the_bottom() {
     let creator = MenuAction::SettingsSection(SettingSection::Creator.definition().index);
     let mut row_height = 0.0;
     let (scrolls, hits, _) = crate::review_tests::paint(
-        HashMap::from([("oreui_settings_sidebar".into(), 1_000_000.0)]),
+        HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), 1_000_000.0)]),
         |canvas| {
             row_height = canvas.r(4.8);
             draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();
