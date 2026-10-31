@@ -1,4 +1,8 @@
 //! Explicit opt-in bindings for cancellable sound playback observations.
+#![allow(
+    clippy::too_many_arguments,
+    reason = "Canonical ABI flattens screen records"
+)]
 wit_bindgen::generate!({
     path: [
         "../experience-sdk/wit/client/deps/server-experience",

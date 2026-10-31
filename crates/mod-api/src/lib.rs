@@ -200,43 +200,15 @@ pub mod bindings {
 
 /// The `player-mod` world: `extension` plus screens beside the container screens, the
 /// session's items and recipes, declared keys and event callbacks.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "wit-bindgen flattens screen-layout records into canonical ABI parameters"
-)]
-pub mod player_mod {
-    wit_bindgen::generate!({
-        path: [
-            "../experience-sdk/wit/client/deps/server-experience",
-            "../experience-sdk/wit/session",
-            "wit",
-        ],
-        world: "cinnabar:extension/player-mod@0.1.0",
-        generate_all,
-        pub_export_macro: true,
-        export_macro_name: "export_player_mod",
-    });
-}
+pub mod player_mod;
 
 /// Explicit opt-in player-mod bindings; ordinary SDK exports do not claim input filtering.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Canonical ABI flattens screen records"
-)]
 pub mod filtered_player_mod;
 
 /// Opt-in cancellable sound observations, retaining the existing input-filter contract.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Canonical ABI flattens screen records"
-)]
 pub mod audio_filtered_player_mod;
 
 /// Sound-only opt-in bindings that never claim action-filter ownership.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Canonical ABI flattens screen records"
-)]
 pub mod sound_filtered_player_mod;
 
 /// The `packet-mod` world: a trusted mod that relays every session packet.
