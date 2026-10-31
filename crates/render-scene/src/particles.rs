@@ -24,6 +24,8 @@ pub struct ParticleGpuFrame {
     pub add: Arc<[ParticleInstance]>,
     /// Drawable particles hidden by the current cave graph this frame.
     pub cave_hidden: usize,
+    /// Producer-owned publication storage; extracted clones start with empty caches.
+    pub output_buffers: [render_model::FrameBuffers<ParticleInstance>; 3],
 }
 
 impl ParticleGpuFrame {
@@ -34,23 +36,28 @@ impl ParticleGpuFrame {
 
     /// Publishes the current camera-sorted instance lists for extraction, keeping each
     /// published list whose bytes are unchanged; returns whether anything changed.
-    fn set_lists(&mut self, lists: DrawLists) -> bool {
+    fn set_lists(&mut self, lists: &DrawLists) -> bool {
         let mut changed = self.cave_hidden != lists.cave_hidden;
         self.cave_hidden = lists.cave_hidden;
-        changed |= republish(&mut self.blend, lists.blend);
-        changed |= republish(&mut self.add, lists.add);
-        changed |= republish(&mut self.opaque, lists.opaque);
+        changed |= republish(&mut self.blend, &lists.blend, &mut self.output_buffers[1]);
+        changed |= republish(&mut self.add, &lists.add, &mut self.output_buffers[2]);
+        changed |= republish(&mut self.opaque, &lists.opaque, &mut self.output_buffers[0]);
         changed
     }
 }
 
 /// Replaces `published` with `list` unless their bytes are identical, so an unchanged list keeps
 /// its allocation; bytewise equality also distinguishes `-0.0` and NaN payloads from `0.0`.
-fn republish(published: &mut Arc<[ParticleInstance]>, list: Vec<ParticleInstance>) -> bool {
-    if bytemuck::cast_slice::<_, u8>(published) == bytemuck::cast_slice::<_, u8>(&list) {
+fn republish(
+    published: &mut Arc<[ParticleInstance]>,
+    list: &[ParticleInstance],
+    buffers: &mut render_model::FrameBuffers<ParticleInstance>,
+) -> bool {
+    if bytemuck::cast_slice::<_, u8>(published) == bytemuck::cast_slice::<_, u8>(list) {
+        buffers.trim_for_len(list.len());
         return false;
     }
-    *published = list.into();
+    *published = buffers.publish_with(list, |_| {});
     true
 }
 
@@ -98,7 +105,7 @@ pub fn update_particle_frame(
             light_cache_hits = bevy::log::tracing::field::Empty,
         );
         let _zone = span.enter();
-        let lists = system.build_draw_with_visibility(view, world, hides_box);
+        let lists = system.build_draw_reusing_with_visibility(view, world, hides_box);
         span.record("cave_hidden", lists.cave_hidden);
         span.record("light_lookups", lists.light_lookups);
         span.record("light_cache_hits", lists.light_cache_hits);

@@ -284,7 +284,14 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         let mut receipts = gpu
             .draw_batch(view.0.to_bits())
             .filter(|_| span_count <= render_model::MAX_ACTOR_RENDER_INSTANCES)
-            .map(|batch| (batch, Vec::new()));
+            .map(|batch| {
+                let mut scratch = gpu
+                    .receipt_scratch
+                    .lock()
+                    .unwrap_or_else(|poison| poison.into_inner());
+                scratch.clear();
+                (batch, scratch)
+            });
         for ordinal in 0..span_count {
             let index = span_indices.map_or(ordinal, |indices| indices[ordinal]);
             let span = &gpu.spans[index];
@@ -319,16 +326,13 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
             }
             pass.draw(0..span.vertex_count, span.first..span.first + span.count);
             if let Some((_, spans)) = &mut receipts {
-                if spans.is_empty() {
-                    // Allocate only after an actual draw, bounded by the validated command plan.
-                    spans.reserve_exact(span_count);
-                }
                 spans.push(*span);
             }
             executed_instances += span.count;
         }
-        if let Some((batch, spans)) = receipts {
+        if let Some((batch, mut spans)) = receipts {
             tracker.record_batch(&batch, view.0.to_bits(), &spans);
+            spans.finish_frame();
         }
         witness.into_inner().observe_draw(ActorDrawWitness {
             executed: executed_instances != 0,

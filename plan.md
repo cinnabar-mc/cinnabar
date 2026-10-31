@@ -764,7 +764,10 @@ revealing it fits the fabric to the current body and armor without replaying hid
 Equipped motion is sampled only for a submitted world attachment or a visible HUD preview.
 Attachment selection, texture lookup and HUD vertex storage are reused on steady frames.
 Animated attachment poses recycle storage after readers release their frame, preserving
-retained poses. Self-collision, world collision, allocation-free fabric and preview particles,
+retained poses. World particle output, actor preparation scratch and released immutable
+publications reuse storage, with sustained low use releasing oversized allocations.
+Unchanged particle lists skip instance uploads; changed material offsets or replacement
+buffers restore the live ranges. Self-collision, world collision, allocation-free fabric and preview particles,
 GPU animation playback and hardware performance qualification remain open.
 Ground-following pets have per-wearer movement, collision-shape grounding, one-block
 hops with checked flight paths and landings, heading-aware animated body clearance,
