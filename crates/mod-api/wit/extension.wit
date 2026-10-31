@@ -1127,9 +1127,10 @@ world packet-mod {
 world sound-filter-callback {
     use sound-filter.{sound-event};
     /// One batch per presented audio frame, at most 256 new playback requests.
-    /// Return one boolean per event: true plays, false cancels. All authorized active
+    /// Return one boolean per event: true plays, false cancels. Admitted active
     /// filters see the same events; any cancellation wins. No host imports are permitted.
-    /// Independent bounded fuel. Denial, absence, traps and malformed results pass through;
+    /// Full callback fuel within a shared audio-frame allowance, in load order. Observers
+    /// without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
     /// a failing component is quarantined. Oversized names and excess requests pass through.
     /// Approved starts waiting for decoding are not offered again. Playing voices are not
     /// retroactively stopped; managed loops are offered again when they next need a start.

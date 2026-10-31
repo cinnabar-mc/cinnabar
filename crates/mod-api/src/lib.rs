@@ -38,6 +38,8 @@ pub use guest::PlayerMod;
 
 /// Maximum new sound requests offered in one sound-filter callback.
 pub const MAX_SOUND_FILTER_EVENTS: usize = 256;
+/// Guest fuel shared by all sound observers in one audio frame.
+pub const TOTAL_SOUND_FILTER_FUEL: u64 = TOTAL_MOD_FRAME_FUEL;
 /// Maximum bytes in one sound-filter definition name.
 pub const MAX_SOUND_NAME_BYTES: usize = 128;
 
