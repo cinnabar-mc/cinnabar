@@ -13,7 +13,7 @@ fn draw_lists_keep_their_camera_sorted_order() {
             ..Default::default()
         },
     ];
-    frame.set_lists(DrawLists {
+    frame.set_lists(&DrawLists {
         opaque: vec![ParticleInstance {
             center_light: [100.0, 0.0, -1.0, 0.0],
             ..Default::default()
@@ -33,7 +33,7 @@ fn draw_lists_keep_their_camera_sorted_order() {
     );
     assert_eq!(frame.instance_count(), 4);
     assert_eq!(frame.cave_hidden, 3);
-    frame.set_lists(DrawLists::default());
+    frame.set_lists(&DrawLists::default());
     assert_eq!(frame.instance_count(), 0);
     assert_eq!(frame.cave_hidden, 0);
 }
@@ -46,17 +46,17 @@ fn unchanged_draw_lists_keep_their_publication() {
         cave_hidden: 1,
         ..DrawLists::default()
     };
-    assert!(frame.set_lists(lists()), "the first real lists publish");
+    assert!(frame.set_lists(&lists()), "the first real lists publish");
     let (opaque, blend) = (Arc::clone(&frame.opaque), Arc::clone(&frame.blend));
     assert!(
-        !frame.set_lists(lists()),
+        !frame.set_lists(&lists()),
         "identical lists are not republished"
     );
     assert!(Arc::ptr_eq(&opaque, &frame.opaque));
     assert!(Arc::ptr_eq(&blend, &frame.blend));
 
     assert!(
-        frame.set_lists(DrawLists {
+        frame.set_lists(&DrawLists {
             cave_hidden: 2,
             ..lists()
         }),
@@ -66,13 +66,48 @@ fn unchanged_draw_lists_keep_their_publication() {
     let mut signed_zero = lists();
     signed_zero.opaque[0].center_light[0] = -0.0;
     assert!(
-        frame.set_lists(signed_zero),
+        frame.set_lists(&signed_zero),
         "a sign-only change still publishes"
     );
     assert_eq!(
         frame.opaque[0].center_light[0].to_bits(),
         (-0.0f32).to_bits()
     );
-    assert!(frame.set_lists(DrawLists::default()));
+    assert!(frame.set_lists(&DrawLists::default()));
     assert_eq!(frame.instance_count(), 0);
+}
+
+#[test]
+fn changing_draw_lists_reuse_exclusive_publications_and_preserve_held_frames() {
+    let mut frame = ParticleGpuFrame::default();
+    let mut lists = DrawLists {
+        opaque: vec![ParticleInstance::default(); 50],
+        blend: vec![ParticleInstance::default(); 200],
+        add: vec![ParticleInstance::default(); 3],
+        ..Default::default()
+    };
+    frame.set_lists(&lists);
+    let held = frame.clone();
+    for value in 1..12 {
+        for list in [&mut lists.opaque, &mut lists.blend, &mut lists.add] {
+            list[0].center_light[0] = value as f32;
+        }
+        frame.set_lists(&lists);
+    }
+    lists.opaque[0].color[0] = f32::from_bits(0x7fc00001);
+    let (changed, allocations) = test_alloc::count(|| frame.set_lists(&lists));
+    assert!(changed);
+    assert_eq!(allocations, 0);
+    assert_eq!(held.opaque[0].center_light[0], 0.0);
+    assert_eq!(held.blend[0].center_light[0], 0.0);
+    assert_eq!(held.add[0].center_light[0], 0.0);
+    let opaque = Arc::clone(&frame.opaque);
+    assert!(
+        !frame.set_lists(&lists),
+        "identical NaN payloads stay published"
+    );
+    assert!(Arc::ptr_eq(&opaque, &frame.opaque));
+    lists.opaque[0].color[0] = f32::from_bits(0x7fc00002);
+    assert!(frame.set_lists(&lists));
+    assert_eq!(opaque[0].color[0].to_bits(), 0x7fc00001);
 }

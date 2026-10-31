@@ -21,6 +21,8 @@ reads = [
 alloc-stats = ["render-scene/alloc-stats"]
 tracy = ["bevy/trace", "dep:tracy-client", "render-scene/tracy"]
 publication-test-support = []
+# Builds the interpolation GPU backend; presentation integration is not enabled yet.
+frame-generation = []
 # Compiles the hard-disabled Enhanced renderer.
 enhanced = []
 # Enables bounded development captures while the production switch stays disabled.
@@ -44,6 +46,7 @@ render-model = { path = "../render-model" }
 meshing = { path = "../meshing" }
 particles = { path = "../particles" }
 rayon.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 world = { path = "../world" }

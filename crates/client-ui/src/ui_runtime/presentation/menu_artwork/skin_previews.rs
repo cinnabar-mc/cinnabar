@@ -356,16 +356,16 @@ mod tests {
             ..Default::default()
         };
         let missing = cache.missing(&set);
-        cache.decode(&missing, &set);
+        cache.decode(&missing);
         let key = Source::Item(original, false).key();
-        let texture = Arc::clone(&cache.decoded[&key]);
+        let texture = Arc::clone(&cache.decoded[&key].art);
         assert_eq!(original.texture_key(), revised.texture_key());
         assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
         set.cosmetics = super::super::cosmetic_requests::requested(&[revised], &[], false);
         let missing = cache.missing(&set);
         assert!(render_model::hats::thumbnail::prepared_frame(revised).is_none());
         assert_eq!(missing.len(), 1);
-        cache.decode(&missing, &set);
+        cache.decode(&missing);
         assert!(cache.missing(&set).is_empty());
         let frame = render_model::hats::thumbnail::prepared_frame(revised)
             .expect("new rig bounds despite the texture cache hit");
@@ -375,7 +375,7 @@ mod tests {
                 .unwrap()
                 .model_bounds()
         );
-        assert!(Arc::ptr_eq(&texture, &cache.decoded[&key]));
+        assert!(Arc::ptr_eq(&texture, &cache.decoded[&key].art));
     }
 
     #[test]
@@ -439,12 +439,14 @@ mod tests {
         assert!(set.same(&set.clone()));
         assert!(matches!(sources(&set).first(), Some(Source::Skin(_))));
         let mut cache = DecodeCache::default();
-        cache.decode(&cache.missing(&set), &set);
+        let missing = cache.missing(&set);
+        cache.decode(&missing);
         assert!(cache.missing(&set).is_empty());
         let artwork = cache
             .decoded
             .values()
             .next()
+            .map(|cached| &cached.art)
             .expect("skin raster is cached");
         assert!(
             artwork
@@ -526,7 +528,8 @@ mod tests {
             skins: vec![bare],
             ..Default::default()
         };
-        cache.decode(&cache.missing(&old), &old);
+        let missing = cache.missing(&old);
+        cache.decode(&missing);
         let new = ArtworkSet {
             skins: vec![caped],
             ..Default::default()

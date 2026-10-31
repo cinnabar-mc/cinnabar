@@ -1,6 +1,8 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use protocol_ids::{ActorDataKey, ActorFlag};
 
+mod life_span;
+
 #[test]
 fn custom_identity_uses_its_admitted_builtin_appearance() {
     let base = "minecraft:pig";

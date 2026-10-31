@@ -24,6 +24,7 @@ mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod render_offsets;
 mod seed;
 mod shield;
 mod shooter;

@@ -53,7 +53,9 @@ struct TraceEvent {
 
 #[derive(Debug, Clone)]
 enum TraceArgs {
-    None,
+    Span {
+        thread_cpu: Option<Duration>,
+    },
     Focus {
         focused: bool,
         occluded: bool,
@@ -159,13 +161,25 @@ impl FrameTrace {
 
     /// Records a completed CPU stage with the frame captured when it began.
     pub fn record(&self, frame_id: u64, stage: RuntimeStage, started: Instant, elapsed: Duration) {
+        self.record_with_cpu(frame_id, stage, started, elapsed, None);
+    }
+
+    /// Retains same-thread CPU time alongside the span's wall duration when available.
+    pub(super) fn record_with_cpu(
+        &self,
+        frame_id: u64,
+        stage: RuntimeStage,
+        started: Instant,
+        elapsed: Duration,
+        thread_cpu: Option<Duration>,
+    ) {
         self.push(TraceEvent {
             name: stage.name(),
             started: started.saturating_duration_since(self.epoch),
             elapsed,
             thread: std::thread::current().id(),
             frame_id: Some(frame_id),
-            args: TraceArgs::None,
+            args: TraceArgs::Span { thread_cpu },
         });
     }
 
@@ -504,7 +518,11 @@ impl Serialize for TraceRecords<'_> {
                 args["frame_id"] = json!(frame_id);
             }
             match &event.args {
-                TraceArgs::None => {}
+                TraceArgs::Span { thread_cpu } => {
+                    if let Some(cpu) = thread_cpu {
+                        args["thread_cpu_ns"] = json!(nanos(*cpu));
+                    }
+                }
                 TraceArgs::Focus {
                     focused,
                     occluded,
@@ -538,7 +556,7 @@ impl Serialize for TraceRecords<'_> {
                     record["cat"] = json!("background_work");
                     record["timestamp_kind"] = json!("sample_received");
                 }
-                TraceArgs::None => {}
+                TraceArgs::Span { .. } => {}
                 _ => {
                     record["ph"] = json!("i");
                     record["s"] = json!("t");

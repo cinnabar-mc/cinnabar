@@ -9,6 +9,7 @@ use std::{
     collections::BTreeMap,
     fmt,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 /// Elapsed-time geometry service and per-frame publication work limits.
@@ -25,6 +26,8 @@ pub struct PublicationServiceConfig {
     pub maximum_burst_bytes: u64,
     pub maximum_zero_byte_operations_per_frame: usize,
     pub urgent_zero_byte_reserve: usize,
+    /// Render-thread time one frame may spend preparing uploads; the first upload always runs.
+    pub maximum_frame_preparation_time: Duration,
 }
 
 impl PublicationServiceConfig {
@@ -39,6 +42,8 @@ impl PublicationServiceConfig {
         maximum_burst_bytes: 128 * 1024 * 1024,
         maximum_zero_byte_operations_per_frame: 256,
         urgent_zero_byte_reserve: 16,
+        // Half the 240 Hz render-CPU p99 budget, leaving the rest of the frame to cull and draw.
+        maximum_frame_preparation_time: Duration::from_millis(1),
     };
 }
 

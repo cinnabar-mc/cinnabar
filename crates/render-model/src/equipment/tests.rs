@@ -25,6 +25,7 @@ fn attach_with_identity_display_passes_the_hand_pose_through() {
         rotation: Quat::IDENTITY,
         translation: Vec3::ZERO,
         scale: 1.0,
+        axis_scale: Vec3::ONE,
     };
     let attached = attach_to_bone(bone([0.25, 0.5, -0.75], 1.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.25, 0.5, -0.75, 1.0]);
@@ -37,6 +38,7 @@ fn attach_scales_the_display_offset_by_the_hand_scale_and_hides_with_it() {
         rotation: Quat::IDENTITY,
         translation: Vec3::new(0.0, 1.0, 0.0),
         scale: 0.5,
+        axis_scale: Vec3::ONE,
     };
     let attached = attach_to_bone(bone([0.0, 2.0, 0.0], 2.0), display).unwrap();
     assert_eq!(attached.translation_scale, [0.0, 4.0, 0.0, 1.0]);
@@ -55,6 +57,7 @@ fn hand_rotation_turns_the_display_offset() {
         rotation: Quat::IDENTITY,
         translation: Vec3::X,
         scale: 1.0,
+        axis_scale: Vec3::ONE,
     };
     let attached = attach_to_bone(hand, display).unwrap();
     assert!((attached.translation_scale[1] - 1.0).abs() < 1e-5);
