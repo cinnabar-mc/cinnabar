@@ -57,7 +57,7 @@ impl MapCache {
                     width: protocol::MAP_IMAGE_SIDE as u16,
                     height: protocol::MAP_IMAGE_SIDE as u16,
                     layers: 1,
-                    rgba8,
+                    rgba8: rgba8.into(),
                 },
             ));
         }

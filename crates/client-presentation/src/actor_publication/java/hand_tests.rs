@@ -434,7 +434,7 @@ fn write_bow_frame(name: &str, source: &HandSource, meshes: &[render_model::Acto
     let texture = Image {
         width: usize::from(atlas.width),
         height: usize::from(atlas.height),
-        rgba8: atlas.rgba8[start..start + layer_bytes].to_vec(),
+        rgba8: atlas.rgba8.joined()[start..start + layer_bytes].to_vec(),
     };
     let mut target = Target {
         color: [25, 32, 44, 255].repeat(WIDTH * HEIGHT),
@@ -662,7 +662,7 @@ fn empty_hand_and_maps_keep_their_intentional_textured_arms() {
             assert_eq!(atlas.width, protocol::MAP_IMAGE_SIDE as u16);
             assert_eq!(atlas.height, protocol::MAP_IMAGE_SIDE as u16);
             assert_eq!(atlas.layers, 1);
-            assert_eq!(&atlas.rgba8[..4], &pixels[0].to_le_bytes());
+            assert_eq!(&atlas.rgba8.joined()[..4], &pixels[0].to_le_bytes());
             assert_eq!(
                 atlas.rgba8.len(),
                 usize::from(atlas.width) * usize::from(atlas.height) * 4

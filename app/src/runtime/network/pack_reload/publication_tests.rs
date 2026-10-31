@@ -56,7 +56,7 @@ fn shared_frame_publishes_server_visuals_before_consumers() {
         width: 1,
         height: 1,
         layers: 1,
-        rgba8: Arc::from([11, 23, 47, 255]),
+        rgba8: [11, 23, 47, 255].into(),
         color_mask: false,
         multitexture: false,
     }]);
