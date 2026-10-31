@@ -17,8 +17,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @unittest.skipUnless(shutil.which("make"), "GNU make is required")
 class PackageBinariesTests(unittest.TestCase):
-    def test_shaderpack_assets_build_the_bounded_compiler_host(self):
-        """Every developer build includes the compiler mode used by the client."""
+    def test_assets_build_only_the_prep_kit_compiler(self):
+        """Carrier preparation builds assetc alone, without optional features."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             log = root / "commands.jsonl"
@@ -41,7 +41,7 @@ class PackageBinariesTests(unittest.TestCase):
             self.assertNotIn("--features", calls[0])
 
     def test_package_build_includes_the_client_and_compiler(self):
-        """Shipping builds include both hosts without optional feature arguments."""
+        """Shipping builds include the client and asset compiler without optional feature arguments."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             log = root / "commands.jsonl"

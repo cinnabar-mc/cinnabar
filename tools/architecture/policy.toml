@@ -117,6 +117,13 @@ path = "crates/shaderpack"
 allowed_dependencies = ["zip-footer", "assets", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
+# The isolated shader-pack compiler process the client spawns for CPU translation.
+[[crates]]
+name = "shaderpack-worker"
+path = "crates/shaderpack-worker"
+allowed_dependencies = ["shaderpack", "test-time", "update-manifest"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
 [[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
@@ -142,8 +149,10 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids", "shaderpack"]
+allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids"]
 forbidden_dependencies = ["bevy", "wgpu"]
+# Every linked crate feeds the carrier fingerprint; shader-pack changes must not rebuild carriers.
+forbidden_production_transitive_dependencies = ["shaderpack"]
 
 [[crates]]
 name = "json-ui"

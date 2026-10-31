@@ -64,6 +64,7 @@ domain!(PackBlock {
     Farmland,
     ResinClump,
     Dirt,
+    ChorusFlower,
     PointedDripstone,
     SulfurSpike,
     WeepingVines,

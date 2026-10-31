@@ -150,8 +150,8 @@ pub fn after_exit(
 /// Whether this platform swaps in a candidate unpacked beside the installation.
 pub const PREPARES: bool = cfg!(any(target_os = "macos", target_os = "linux"));
 
-/// Unpacks a staged release beside `target`, so the helper only swaps it in after exit.
-/// Whoever can alter the unpacked copy could already alter the installation it replaces.
+/// Unpacks a staged release beside `target`, so the helper only swaps it in after exit, and
+/// returns the unpacked copy. Whoever can alter it could already alter the installation it replaces.
 pub fn prepare(
     stage_dir: &Path,
     target: &Path,
@@ -159,7 +159,7 @@ pub fn prepare(
     check: Check<'_>,
     now: OffsetDateTime,
     lease: &crate::lease::Lease,
-) -> Result<()> {
+) -> Result<PathBuf> {
     ensure!(PREPARES, "this platform uses its installer");
     ensure!(
         stage_dir.parent() == Some(lease.root()),
@@ -177,7 +177,7 @@ pub fn prepare(
     let prepared = prepared(target, &selected.artifact)?;
     prune_prepared(target, Some(&prepared))?;
     if is_candidate(&prepared) {
-        return Ok(());
+        return Ok(prepared);
     }
     ensure!(
         target::access(target)?.permits_update(),
@@ -189,7 +189,7 @@ pub fn prepare(
     let payload = copy_payload(stage_dir, &selected.artifact, work.path())?;
     let candidate = platform::candidate(&payload, work.path(), target)?;
     fs::rename(candidate, &prepared).context("publish prepared update")?;
-    Ok(())
+    Ok(prepared)
 }
 
 /// The complete candidate unpacked from the payload with this signed digest.

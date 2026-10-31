@@ -1,5 +1,6 @@
 pub(in crate::compiler) mod anvil;
 pub(in crate::compiler) mod authored;
+pub(in crate::compiler) mod azalea;
 pub(in crate::compiler) mod bamboo;
 pub(in crate::compiler) mod barrel;
 pub(in crate::compiler) mod beacon;
@@ -15,6 +16,7 @@ pub(in crate::compiler) mod candle;
 pub(in crate::compiler) mod candle_cake;
 pub(in crate::compiler) mod carpets;
 pub(in crate::compiler) mod chains;
+pub(in crate::compiler) mod chorus;
 pub(in crate::compiler) mod command_block;
 pub(in crate::compiler) mod container_geometry;
 pub(in crate::compiler) mod context;

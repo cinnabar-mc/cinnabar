@@ -180,6 +180,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   neighbour check, and redstone wire, which draws neither its power tint nor its connections.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
+  plants stay diagnostic until their reserved registry entry has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
@@ -1247,6 +1249,10 @@ Packaging builds reject `--freecam` and `--auto-fly` and omit their movement sys
 First-run setup retains extracted resource versions, bound to their pinned archive hashes,
 so compiler updates reuse source packs while rebuilding stale carriers. Packaged upgrade and
 rollback acceptance of this reuse remains incomplete.
+On macOS and extracted Linux AppDirs, a staged update's carriers build in the background at
+the lowest priority with bounded parallelism, and its first launch promotes them without
+setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
+captures of a game running beside the background build remain incomplete.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
