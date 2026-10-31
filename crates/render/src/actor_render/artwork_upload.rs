@@ -9,7 +9,7 @@ pub(super) const UPLOAD_BYTES_PER_FRAME: usize = 8 * 1024 * 1024;
 pub(super) struct PendingPage {
     pub(super) source: TextureKey,
     texture: Texture,
-    pixels: Arc<[u8]>,
+    pixels: render_model::PagePixels,
     size: Extent3d,
     /// Rows written so far, counted across layers in layer-major order.
     written_rows: u32,
@@ -94,6 +94,7 @@ pub(super) fn continue_page(
     while pending.written_rows < height * layers && *budget >= row_bytes {
         let (layer, y) = (pending.written_rows / height, pending.written_rows % height);
         let rows = ((*budget / row_bytes).min((height - y) as usize)) as u32;
+        // A band of whole layers is one write; it joins shared layers into one staging copy.
         let band_layers = if y == 0 && rows == height {
             (*budget / (height as usize * row_bytes)).min((layers - layer) as usize) as u32
         } else {
@@ -110,7 +111,7 @@ pub(super) fn continue_page(
                     origin: Origin3d { x: 0, y, z: layer },
                     aspect: default(),
                 },
-                &pending.pixels[start..start + bytes],
+                &pending.pixels.range(start, bytes),
                 TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(width * 4),
