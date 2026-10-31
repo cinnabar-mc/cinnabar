@@ -24,6 +24,8 @@ mod campfire;
 mod candle;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
+#[path = "tests/chorus_flower.rs"]
+mod chorus_flower;
 #[path = "tests/command_block.rs"]
 mod command_block;
 #[path = "tests/component_cross.rs"]
@@ -66,8 +68,6 @@ mod lever;
 mod lightning_rod;
 #[path = "tests/mapped_face.rs"]
 mod mapped_face;
-#[path = "tests/chorus_flower.rs"]
-mod chorus_flower;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
 #[path = "tests/sea_pickle.rs"]

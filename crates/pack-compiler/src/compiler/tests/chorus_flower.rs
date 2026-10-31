@@ -117,11 +117,12 @@ fn chorus_flowers_are_three_bars_with_withered_art_at_their_final_age() {
                 let values = bar
                     .iter()
                     .flat_map(|quad| quad.positions.map(|position| position[dimension]));
-                let extent = (
-                    values.clone().min().unwrap(),
-                    values.max().unwrap(),
-                );
-                let wanted = if dimension == axis { (0, 256) } else { (32, 224) };
+                let extent = (values.clone().min().unwrap(), values.max().unwrap());
+                let wanted = if dimension == axis {
+                    (0, 256)
+                } else {
+                    (32, 224)
+                };
                 assert_eq!(extent, wanted, "bar {axis}, dimension {dimension}");
             }
         }
