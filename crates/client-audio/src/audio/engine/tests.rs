@@ -32,10 +32,16 @@ fn definition(name: &str, category: &str) -> AudioDefinition {
 }
 
 pub fn engine(names: &[(&str, &str)]) -> AudioEngine {
-    let defs: Vec<_> = names
-        .iter()
-        .map(|(name, category)| definition(name, category))
-        .collect();
+    engine_with_definitions(
+        names
+            .iter()
+            .map(|(name, category)| definition(name, category))
+            .collect(),
+    )
+}
+
+/// An engine with decoded PCM ready for each definition's only alternative.
+fn engine_with_definitions(defs: Vec<AudioDefinition>) -> AudioEngine {
     let catalog = RuntimeAudioCatalog::decode(
         &assets::encode_audio_catalog([0; 32], [0; 32], &defs).expect("catalog"),
     )
@@ -45,9 +51,9 @@ pub fn engine(names: &[(&str, &str)]) -> AudioEngine {
     let index = SoundBankIndex::decode_prefix(&bytes[..prefix]).expect("index");
     let mut bank =
         SoundBank::from_parts(index, SoundEventTables::default(), Some(Arc::new(catalog)));
-    for (name, _) in names {
+    for def in &defs {
         bank.insert_test_pcm(
-            &format!("sounds/{name}"),
+            &format!("sounds/{}", def.identifier),
             Arc::new(Pcm {
                 channels: 1,
                 rate: 48_000,
@@ -204,15 +210,47 @@ const LISTENER: Listener = Listener {
 };
 
 #[test]
-fn positional_sounds_attenuate_and_drop_beyond_max_distance() {
+fn unspecified_distances_roll_off_inversely_and_start_only_within_sixteen_blocks() {
     let mut engine = engine(&[("dig.stone", "block")]);
     let settings = AudioSettings::default();
     engine.enqueue(SoundRequest::new("dig.stone").at([8.0, 0.0, 0.0]));
-    engine.enqueue(SoundRequest::new("dig.stone").at([40.0, 0.0, 0.0]));
+    engine.enqueue(SoundRequest::new("dig.stone").at([16.0, 0.0, 0.0]));
     let started = engine.pump(Some(LISTENER), 0.05, &settings);
     assert_eq!(started.len(), 1);
     assert_eq!(engine.stats.out_of_range, 1);
-    assert!((engine.voices[0].gain - 0.5).abs() < 1e-3);
+    assert!((engine.voices[0].gain - 0.125).abs() < 1e-3);
+}
+
+// A launch sound stays audible while a boosted glide carries the listener away from it.
+#[test]
+fn a_started_voice_keeps_its_tail_as_the_listener_leaves_the_start_radius() {
+    let mut engine = engine(&[("firework.launch", "neutral")]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("firework.launch").at([0.5, 0.0, 0.0]));
+    let started = engine.pump(Some(LISTENER), 0.05, &settings);
+    assert_eq!(started.len(), 1);
+    assert_eq!(engine.voices[0].gain, 1.0);
+    let far = Listener {
+        position: [-39.5, 0.0, 0.0],
+        ..LISTENER
+    };
+    engine.pump(Some(far), 0.05, &settings);
+    assert!((engine.voices[0].gain - 0.025).abs() < 1e-3);
+}
+
+#[test]
+fn definition_distances_select_the_native_rolloff() {
+    let mut linear = definition("linear", "block");
+    linear.max_distance = Some(32.0);
+    let mut inverse = definition("inverse", "block");
+    inverse.min_distance = Some(5.0);
+    let mut engine = engine_with_definitions(vec![linear, inverse]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("linear").at([8.0, 0.0, 0.0]));
+    engine.enqueue(SoundRequest::new("inverse").at([10.0, 0.0, 0.0]));
+    assert_eq!(engine.pump(Some(LISTENER), 0.05, &settings).len(), 2);
+    assert!((engine.voices[0].gain - 0.75).abs() < 1e-3);
+    assert!((engine.voices[1].gain - 0.5).abs() < 1e-3);
 }
 
 // Thunder's volume 1000 widened its range but also became a 1000x output gain.
@@ -348,4 +386,92 @@ fn stop_named_cancels_matching_voices() {
     let mut sources = engine.pump(Some(LISTENER), 0.05, &AudioSettings::default());
     engine.stop_named("dig.stone");
     assert!(sources[0].next().is_none());
+}
+
+/// Requests are observed independently with their position before cancelled ones can start.
+#[test]
+fn sound_filter_cancels_events_and_preserves_unrelated_audio() {
+    let mut engine = engine(&[("fixture.one", "player"), ("fixture.two", "player")]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.one").at([1., 2., 3.]));
+    engine.enqueue(SoundRequest::new("fixture.two"));
+    let started = engine.pump_filtered(
+        Some(Listener {
+            position: [0.; 3],
+            right: [1., 0., 0.],
+        }),
+        0.01,
+        &settings,
+        |events| {
+            assert_eq!(events.len(), 2);
+            assert_eq!(events[0].name.as_ref(), "fixture.one");
+            assert_eq!(events[0].position, Some([1., 2., 3.]));
+            assert!(!events[0].looping);
+            Some(vec![false, true])
+        },
+    );
+    assert_eq!(started.len(), 1);
+    assert_eq!(engine.voices[0].name.as_ref(), "fixture.two");
+    assert!(
+        engine.pump(None, 0.01, &settings).is_empty(),
+        "cancelled sounds do not play late"
+    );
+    engine.enqueue(SoundRequest::new("fixture.one"));
+    assert_eq!(engine.pump(None, 0.01, &settings).len(), 1);
+}
+
+/// Managed loops offer each attempted start, including a later retry after cancellation.
+#[test]
+fn sound_filter_observes_loop_starts_without_reoffering_playing_voices() {
+    let mut engine = engine(&[("fixture.loop", "ambient")]);
+    let settings = AudioSettings::default();
+    engine.set_loop(
+        "fixture",
+        Some(LoopSpec {
+            name: "fixture.loop".into(),
+            volume: 1.,
+        }),
+    );
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |events| {
+                assert!(events[0].looping);
+                Some(vec![false])
+            })
+            .is_empty()
+    );
+    let active = engine.pump_filtered(None, 0.01, &settings, |_| Some(vec![true]));
+    assert_eq!(active.len(), 1);
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| panic!(
+                "playing loop was reoffered"
+            ))
+            .is_empty()
+    );
+    drop(active);
+}
+
+/// Cancelled requests never enter the decoding backlog; invalid verdicts leave audio audible.
+#[test]
+fn sound_filter_cancels_before_decoding_and_invalid_verdicts_fail_open() {
+    let (mut engine, path) = engine_with_encoded("fixture.pending", "player");
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("fixture.pending"));
+    assert!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| Some(vec![false]))
+            .is_empty()
+    );
+    assert!(engine.pending.is_empty());
+    assert!(engine.pump(None, 0.01, &settings).is_empty());
+    std::fs::remove_file(path).unwrap();
+    let mut engine = self::engine(&[("fixture.ready", "player")]);
+    engine.enqueue(SoundRequest::new("fixture.ready"));
+    assert_eq!(
+        engine
+            .pump_filtered(None, 0.01, &settings, |_| Some(vec![]))
+            .len(),
+        1
+    );
 }

@@ -88,6 +88,8 @@ pub(super) struct LivePlayer {
     part_bindings: [Option<(usize, Affine3A)>; 6],
     pub(super) fire_size: Option<[f32; 2]>,
     pub(super) outer_y: f32,
+    /// `[pitch, yaw]` of the gliding body in degrees, applied about the feet.
+    pub(super) glide: Option<[f32; 2]>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
 }
@@ -123,6 +125,11 @@ impl UiPresentationRuntime {
     }
 
     /// Captures an optional local emote without changing the world rig or hand.
+    /// Sets the gliding body rotation for later captures; `None` stands the doll upright.
+    pub fn set_hud_glide(&mut self, rotation: Option<[f32; 2]>) {
+        self.gui_models.live_player.glide = rotation;
+    }
+
     pub fn capture_hud_player_with_emote(
         &mut self,
         local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
@@ -195,6 +202,10 @@ impl UiPresentationRuntime {
             return;
         };
         let basis = Affine3A::from_scale(Vec3::new(-1., 1., -1.));
+        let tilt = live.glide.map_or(Affine3A::IDENTITY, |[pitch, yaw]| {
+            Affine3A::from_rotation_x(pitch.to_radians())
+                * Affine3A::from_rotation_y(yaw.to_radians())
+        });
         let swim_offset = live.outer_y / super::super::player_preview::PLAYER_MODEL_SCALE;
         let offset = Affine3A::from_translation(Vec3::Y * swim_offset);
         let actor_scale = Affine3A::from_scale(
@@ -230,7 +241,7 @@ impl UiPresentationRuntime {
                 && let Some(posed) = pose.get(index).and_then(bone_matrix)
             {
                 live.parts[part] =
-                    Some(offset * actor_scale * basis * posed * rest_inverse * basis);
+                    Some(offset * actor_scale * basis * tilt * posed * rest_inverse * basis);
             }
         }
         let Some(geometry) = &live.geometry else {
@@ -243,7 +254,7 @@ impl UiPresentationRuntime {
             };
             live.bones.push(bone);
         }
-        let frame = offset * actor_scale * basis;
+        let frame = offset * actor_scale * basis * tilt;
         live.body.capture(geometry, &live.bones, frame);
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));

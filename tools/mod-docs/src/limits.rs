@@ -15,9 +15,15 @@ pub(super) fn render() -> String {
             page.push('\n');
         }};
     }
+    section!("Sound events",
+        mod_api::TOTAL_SOUND_FILTER_FUEL => "Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped.",
+        mod_api::MAX_SOUND_FILTER_EVENTS => "New playback observations offered per audio frame; excess requests play normally.",
+        mod_api::MAX_SOUND_NAME_BYTES => "Bytes in one offered sound-definition name."
+    );
     section!("Execution and packages",
         mod_host::FRAME_FUEL => "Fuel for one personal-mod frame; also the action filter's independent fuel allowance.",
-        mod_api::TOTAL_MOD_FRAME_FUEL => "Frame fuel shared by all local mods.",
+        mod_api::TOTAL_MOD_FRAME_FUEL => "Ordinary frame fuel shared by all local mods.",
+        mod_host::WORLD_ENTRY_FRAME_FUEL => "One frame callback per observed world session, subject to shared admission.",
         server_experience::runtime::CALLBACK_FUEL => "Ordinary event and client-part callback fuel.",
         server_experience::runtime::LOAD_FUEL => "Personal-mod init and data-changed fuel.",
         mod_host::MEMORY_BYTES => "Linear memory per personal mod.",
@@ -28,6 +34,7 @@ pub(super) fn render() -> String {
         mod_host::MAX_LABEL_BYTES => "Plain label bytes.",
         mod_api::MAX_SETTINGS_BYTES => "Settings JSON bytes.",
     );
+    page.push_str("After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It reserves `FRAME_FUEL` from the ordinary shared pool; the extra allowance is discarded after the callback and never refunded into that pool. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.\n\nThe guest's `budget.remaining-fuel` reports its actual current allowance. Action filters, events, loading, host-call limits and execution deadlines retain their existing limits. Fuel bounds guest execution work; it does not guarantee a wall-clock duration.\n\n");
     section!("Controls and presentation",
         mod_api::MAX_INPUT_BINDINGS_PER_READ => "Physical binding entries copied per read.",
         mod_api::MAX_INPUT_BINDINGS => "Physical binding entries per settings snapshot.",

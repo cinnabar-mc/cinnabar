@@ -17,14 +17,19 @@ use std::{
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Asset {
-    id: u64,
-    name: String,
-    size: u64,
-    digest: Option<String>,
+    pub(super) id: u64,
+    pub(super) name: String,
+    pub(super) size: u64,
+    pub(super) digest: Option<String>,
+    #[serde(skip)]
+    pub(super) url: Option<String>,
+    #[serde(skip)]
+    pub(super) revision_update: Option<ui::mod_metadata::RevisionModUpdate>,
 }
 
 /// A verified release artifact. Dropping it removes its temporary file.
 pub struct Downloaded {
+    pub revision_update: Option<Box<ui::mod_metadata::RevisionModUpdate>>,
     pub id: u64,
     pub version: String,
     pub repository: String,
@@ -51,6 +56,7 @@ impl Downloaded {
         let mut file = tempfile::NamedTempFile::new().unwrap();
         file.write_all(bytes).unwrap();
         Self {
+            revision_update: None,
             id,
             version: version.into(),
             repository: repository.into(),
@@ -161,10 +167,12 @@ pub(super) async fn fetch(
         asset.size,
     );
     let response = client
-        .get(format!(
-            "https://api.github.com/repos/{}/releases/assets/{}",
-            candidate.repository, asset.id
-        ))
+        .get(asset.url.clone().unwrap_or_else(|| {
+            format!(
+                "https://api.github.com/repos/{}/releases/assets/{}",
+                candidate.repository, asset.id
+            )
+        }))
         .header(reqwest::header::ACCEPT, "application/octet-stream")
         .send()
         .await?
@@ -226,6 +234,7 @@ async fn receive(
         "mod download SHA-256 mismatch"
     );
     Ok(Downloaded {
+        revision_update: asset.revision_update.clone().map(Box::new),
         id: candidate.id,
         version: version.into(),
         repository: candidate.repository.clone(),

@@ -5,7 +5,7 @@ pub(crate) mod actors;
 mod camera;
 mod cape;
 mod capture;
-mod cursor_isolation;
+pub(crate) mod cursor_isolation;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;

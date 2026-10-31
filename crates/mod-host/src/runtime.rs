@@ -1,10 +1,15 @@
 mod action_filter;
+mod audio;
 mod input_bindings;
-mod input_host;
+pub(super) mod input_host;
 pub(crate) mod legacy_input;
+mod observations;
 mod output_lifecycle;
 mod presentation;
 mod recovery;
+mod world_entry;
+#[cfg(test)]
+mod world_entry_tests;
 mod world_lifecycle;
 use crate::{
     CallbackOutcome, CameraDelta, FRAME_FUEL, GameplayCameraRig, GameplayMob,
@@ -27,7 +32,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/filtered-player-mod@0.1.0",
+    world: "cinnabar:extension/audio-filtered-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
     with: { "cinnabar:extension/budget@0.1.0": crate::runtime::budget_host },
@@ -321,67 +326,10 @@ pub(super) struct Instance {
     callback_budget: Option<crate::CallbackBudget>,
     filter_identity: u64,
     consecutive_frame_overruns: u32,
+    world_entry: world_entry::WorldEntry,
 }
 
 impl Instance {
-    /// Validates presentation observations before they enter the callback sandbox.
-    pub(super) fn observe_presentation(
-        &mut self,
-        world: Option<crate::WorldObservation>,
-        fps: Option<f32>,
-        sidebar: Option<crate::SidebarSnapshot>,
-        chat: Vec<crate::ObservedChatMessage>,
-    ) -> Result<()> {
-        anyhow::ensure!(
-            world.as_ref().is_none_or(|w| w.session != 0
-                && !w.world.is_empty()
-                && w.world.len() <= mod_api::MAX_WORLD_IDENTITY_BYTES
-                && !w.world.chars().any(char::is_control)
-                && [w.position.0, w.position.1, w.position.2]
-                    .iter()
-                    .all(|v| v.is_finite())),
-            "invalid world observation"
-        );
-        anyhow::ensure!(
-            fps.is_none_or(|value| value.is_finite() && (0.0..=100000.0).contains(&value)),
-            "invalid frame observation"
-        );
-        anyhow::ensure!(
-            sidebar.as_ref().is_none_or(|s| s.rows.len() <= 15
-                && s.title.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES
-                && s.rows
-                    .iter()
-                    .all(|r| r.label.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)),
-            "invalid sidebar observation"
-        );
-        anyhow::ensure!(
-            chat.len() <= ui::mod_hud::MAX_OBSERVED_CHAT_MESSAGES
-                && chat
-                    .iter()
-                    .all(|m| m.text.len() <= ui::mod_hud::MAX_OBSERVED_TEXT_BYTES)
-                && chat
-                    .windows(2)
-                    .all(|pair| pair[0].sequence < pair[1].sequence),
-            "invalid chat observation"
-        );
-        let state = self.store.data_mut();
-        state.player_state.world = world;
-        state.player_state.fps = fps;
-        state.player_state.sidebar = sidebar;
-        state.player_state.chat = chat;
-        Ok(())
-    }
-
-    /// Validates native cosmetic facts before exposing any current callback data.
-    pub(super) fn observe_modules(
-        &mut self,
-        observations: crate::module_observations::ModuleObservations,
-    ) -> Result<()> {
-        super::module_observations::validate(&observations)?;
-        self.store.data_mut().player_state.observations = observations;
-        Ok(())
-    }
-
     /// Clears transient outputs even when no guest callback can execute this frame.
     pub(super) fn begin_frame(&mut self) {
         let state = self.store.data_mut();
@@ -523,14 +471,28 @@ impl Instance {
             self.last_fuel = 0;
             return Ok(CallbackOutcome::Deferred);
         }
-        let allowance = self
-            .callback_budget
-            .as_ref()
-            .map_or(Some(fuel), |budget| budget.reserve(fuel));
+        let world_entry = fuel == FRAME_FUEL && self.world_entry.available(self.store.data());
+        let limit = if world_entry {
+            crate::WORLD_ENTRY_FRAME_FUEL
+        } else {
+            fuel
+        };
+        let allowance = self.callback_budget.as_ref().map_or(Some(limit), |budget| {
+            if world_entry {
+                budget
+                    .reserve_world_entry_frame()
+                    .or_else(|| budget.reserve(fuel))
+            } else {
+                budget.reserve(fuel)
+            }
+        });
         let Some(allowance) = allowance else {
             self.last_fuel = 0;
             return Ok(CallbackOutcome::Deferred);
         };
+        if world_entry && allowance == crate::WORLD_ENTRY_FRAME_FUEL {
+            self.world_entry.consume();
+        }
         let state = self.store.data_mut();
         state.writes = 0;
         state.environment.begin_callback();
@@ -554,7 +516,7 @@ impl Instance {
         if fuel <= FRAME_FUEL
             && let Some(budget) = &self.callback_budget
         {
-            budget.refund(allowance - self.last_fuel);
+            budget.refund(fuel.saturating_sub(self.last_fuel));
         }
         if let Err(error) = called {
             return Err(self.callback_failure(fuel, error));

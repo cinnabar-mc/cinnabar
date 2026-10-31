@@ -646,6 +646,34 @@ fn failed_held_repeats_require_a_known_passive_crop_hand() {
     ));
 }
 
+/// A non-block item resolves to placement only by planting, which repeats like any item use.
+#[test]
+fn held_seed_planting_repeats_unless_the_item_is_a_bucket() {
+    let seeds = verified(network_item(2, 0));
+    let soil = block_fact("minecraft:farmland");
+    assert!(super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        true,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Nothing,
+        soil,
+        Default::default()
+    ));
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {

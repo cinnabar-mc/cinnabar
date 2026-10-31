@@ -3410,6 +3410,22 @@
       ]
     },
     {
+      "id": "render-jigsaw",
+      "fact": "render:Jigsaw",
+      "status": "verified",
+      "members": [
+        "minecraft:jigsaw"
+      ]
+    },
+    {
+      "id": "render-vault",
+      "fact": "render:Vault",
+      "status": "verified",
+      "members": [
+        "minecraft:vault"
+      ]
+    },
+    {
       "id": "render-composter",
       "fact": "render:Composter",
       "status": "provisional",
@@ -3622,6 +3638,12 @@
       "fact": "render:CandleCake",
       "status": "provisional",
       "suffix": "candle_cake"
+    },
+    {
+      "id": "render-candle",
+      "fact": "render:Candle",
+      "status": "verified",
+      "suffix": "candle"
     },
     {
       "id": "render-shelf",

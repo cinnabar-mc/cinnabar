@@ -49,6 +49,7 @@
 - [Session: items](reference/session-items.md)
 - [Session: recipes](reference/session-recipes.md)
 - [Settings](reference/settings.md)
+- [Sound filter](reference/sound-filter.md)
 - [Terrain](reference/terrain.md)
 - [Touch](reference/touch.md)
 - [World drawing: assets](reference/world-draw-assets.md)

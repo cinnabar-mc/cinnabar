@@ -200,6 +200,7 @@ pub struct ServerCameraView {
     skips: ServerCameraSkips,
     last_sequence: u64,
     seen_resets: u64,
+    session_generation: Option<u64>,
     camera_reanchor_epoch: u64,
 }
 
@@ -219,7 +220,23 @@ impl ServerCameraView {
         self.camera_reanchor_epoch
     }
 
-    /// Restarts sequence tracking and drops state when the retained queue was reset upstream.
+    /// Binds the first session and drops all server-owned state when a new session replaces it.
+    pub fn observe_session(&mut self, session_generation: u64) {
+        if self
+            .session_generation
+            .is_some_and(|previous| previous != session_generation)
+        {
+            *self = Self {
+                skips: self.skips,
+                seen_resets: self.seen_resets,
+                camera_reanchor_epoch: self.camera_reanchor_epoch.wrapping_add(1),
+                ..Self::default()
+            };
+        }
+        self.session_generation = Some(session_generation);
+    }
+
+    /// Restarts sequence tracking and restores the player camera after an instruction reset.
     pub fn observe_resets(&mut self, resets: u64) {
         if resets != self.seen_resets {
             self.seen_resets = resets;
@@ -235,6 +252,7 @@ impl ServerCameraView {
             overrides: vec![PresetOverrides::default(); self.presets.len()],
             skips: self.skips,
             seen_resets: self.seen_resets,
+            session_generation: self.session_generation,
             camera_reanchor_epoch: self.camera_reanchor_epoch.wrapping_add(1),
             ..Self::default()
         };
