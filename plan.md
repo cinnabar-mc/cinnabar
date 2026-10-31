@@ -1303,8 +1303,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
   import or rejection. Mod update downloads stage in app-owned storage. Revision-aware mod
-  declarations select explicitly compatible releases through the API using the native build's
-  full stamped commit. Unknown commits and catalogue failures do not fall back to latest;
+  declarations select compatible releases through the API using the native build's
+  full stamped commit and supported mod API revisions. New capabilities append a revision
+  while retaining older supported revisions; unsupported APIs and catalogue failures
+  do not fall back to latest;
   bounded digest-checked downloads retain registration, settings and grants. Live published
   catalogue and reload acceptance remain open. Mod installation uses a
   no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin

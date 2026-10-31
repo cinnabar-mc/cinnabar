@@ -27,6 +27,7 @@ struct Candidate {
 
 /// Native identity and admission bound supplied by the runtime backend.
 struct Host {
+    api_revisions_json: &'static str,
     revision: &'static str,
     max_component_bytes: usize,
 }
@@ -69,6 +70,7 @@ impl Checker {
         staging: std::path::PathBuf,
         max_component_bytes: usize,
         host_revision: &'static str,
+        api_revisions_json: &'static str,
     ) -> std::io::Result<Self> {
         let (requests, incoming) = unbounded();
         let (outgoing, responses) = unbounded();
@@ -88,6 +90,7 @@ impl Checker {
                     authorization,
                     Host {
                         revision: host_revision,
+                        api_revisions_json,
                         max_component_bytes,
                     },
                     transfers,

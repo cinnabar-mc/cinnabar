@@ -31,6 +31,7 @@ pub struct RevisionModUpdate {
     pub source: GitHubModAsset,
     pub package: String,
     pub revision: String,
+    pub api_revision: String,
 }
 
 impl RevisionModUpdate {
@@ -41,6 +42,7 @@ impl RevisionModUpdate {
             source: String,
             package: String,
             revision: String,
+            api_revision: String,
         }
         if bytes.len() > 1024 {
             return None;
@@ -55,6 +57,11 @@ impl RevisionModUpdate {
             || !package.bytes().all(|b| {
                 b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
             })
+            || declaration.api_revision.len() != 40
+            || !declaration
+                .api_revision
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
             || revision.len() != 40
             || !revision
                 .bytes()
@@ -66,6 +73,7 @@ impl RevisionModUpdate {
             source: GitHubModAsset::parse(&declaration.source)?,
             package,
             revision,
+            api_revision: declaration.api_revision,
         })
     }
 }

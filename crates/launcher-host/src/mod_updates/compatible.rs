@@ -1,4 +1,4 @@
-//! Exact-host catalogue selection; this path never falls back to a latest GitHub release.
+//! Stable-API catalogue selection; this path never falls back to a latest GitHub release.
 
 use super::{Candidate, download::Asset, worker::Release};
 use anyhow::{Context, Result, ensure};
@@ -24,7 +24,8 @@ struct Manifest {
 #[derive(Deserialize)]
 struct Host {
     repository: String,
-    supported_revisions: Vec<String>,
+    revision: String,
+    api_revision: String,
 }
 #[derive(Deserialize)]
 struct Artifact {
@@ -38,8 +39,14 @@ pub(super) async fn fetch(
     client: &reqwest::Client,
     candidate: &Candidate,
     host: &str,
+    api_revisions_json: &str,
 ) -> Result<Option<Release>> {
-    if !full_revision(host) {
+    let api_revisions: Vec<String> = serde_json::from_str(api_revisions_json)?;
+    if !full_revision(host)
+        || api_revisions.is_empty()
+        || api_revisions.len() > 32
+        || !api_revisions.iter().all(|revision| full_revision(revision))
+    {
         return Ok(None);
     }
     let identity = candidate
@@ -50,8 +57,10 @@ pub(super) async fn fetch(
     url.path_segments_mut()
         .map_err(|_| anyhow::anyhow!("invalid API base"))?
         .extend(["v1", "mod", "update"]);
+    let supported = api_revisions.join(",");
     url.query_pairs_mut().extend_pairs([
         ("host_revision", host),
+        ("api_revisions", supported.as_str()),
         (
             "current_version",
             candidate
@@ -83,11 +92,11 @@ pub(super) async fn fetch(
         );
         bytes.extend_from_slice(&chunk);
     }
-    select(&bytes, candidate, host).map(Some)
+    select(&bytes, candidate, &api_revisions).map(Some)
 }
 
 /// Checks the service response against local identity, host compatibility and trusted source.
-fn select(bytes: &[u8], candidate: &Candidate, host: &str) -> Result<Release> {
+fn select(bytes: &[u8], candidate: &Candidate, api_revisions: &[String]) -> Result<Release> {
     let record: Record = serde_json::from_slice(bytes)?;
     let m = record.manifest;
     let old = candidate
@@ -100,8 +109,9 @@ fn select(bytes: &[u8], candidate: &Candidate, host: &str) -> Result<Release> {
     );
     ensure!(
         m.host.repository == HOST_REPOSITORY
-            && m.host.supported_revisions.iter().any(|r| r == host),
-        "unsupported host revision"
+            && full_revision(&m.host.revision)
+            && api_revisions.contains(&m.host.api_revision),
+        "unsupported mod API revision"
     );
     ensure!(
         full_revision(&m.revision) && m.revision != old.revision,
@@ -121,6 +131,7 @@ fn select(bytes: &[u8], candidate: &Candidate, host: &str) -> Result<Release> {
     );
     let mut identity = old.clone();
     identity.revision = m.revision;
+    identity.api_revision = m.host.api_revision;
     let asset = Asset {
         id: 0,
         name: m.artifact.filename,
@@ -160,7 +171,7 @@ mod tests {
         let identity = ui::mod_metadata::RevisionModUpdate::parse(
             serde_json::json!({
                 "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
-                "package": "example-mod", "revision": "b".repeat(40),
+                "package": "example-mod", "api_revision": "a".repeat(40), "revision": "b".repeat(40),
             })
             .to_string()
             .as_bytes(),
@@ -175,7 +186,7 @@ mod tests {
         };
         let record = serde_json::json!({"manifest": {
             "schema_version": 1, "package": "example-mod", "version": "1.1.0", "revision": "c".repeat(40),
-            "host": {"repository": HOST_REPOSITORY, "supported_revisions": [host]},
+            "host": {"repository": HOST_REPOSITORY, "revision": "e".repeat(40), "api_revision": host},
             "artifact": {"filename": "mod.wasm", "size": 8, "sha256": "d".repeat(64)}
         }, "download_url": "https://github.com/example/mod/releases/download/v1.1.0/mod.wasm"});
         (candidate, record, host)
@@ -184,7 +195,20 @@ mod tests {
     #[test]
     fn compatible_response_is_bound_to_host_source_package_and_digest() {
         let (candidate, record, host) = fixture();
-        let selected = select(&serde_json::to_vec(&record).unwrap(), &candidate, &host).unwrap();
+        let selected = select(
+            &serde_json::to_vec(&record).unwrap(),
+            &candidate,
+            std::slice::from_ref(&host),
+        )
+        .unwrap();
+        assert!(
+            select(
+                &serde_json::to_vec(&record).unwrap(),
+                &candidate,
+                &["f".repeat(40), host.clone()],
+            )
+            .is_ok()
+        );
         assert_eq!(
             selected.assets[0]
                 .revision_update
@@ -197,7 +221,8 @@ mod tests {
             "/manifest/package",
             "/manifest/revision",
             "/manifest/host/repository",
-            "/manifest/host/supported_revisions/0",
+            "/manifest/host/api_revision",
+            "/manifest/host/revision",
             "/manifest/artifact/filename",
             "/manifest/artifact/sha256",
             "/download_url",
@@ -205,7 +230,12 @@ mod tests {
             let mut bad = record.clone();
             *bad.pointer_mut(pointer).unwrap() = serde_json::json!("unexpected");
             assert!(
-                select(&serde_json::to_vec(&bad).unwrap(), &candidate, &host).is_err(),
+                select(
+                    &serde_json::to_vec(&bad).unwrap(),
+                    &candidate,
+                    std::slice::from_ref(&host)
+                )
+                .is_err(),
                 "{pointer}"
             );
         }

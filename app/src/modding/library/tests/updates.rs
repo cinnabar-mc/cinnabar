@@ -14,7 +14,7 @@ fn revision_aware_install_requires_the_exact_promised_replacement_identity() {
         let path = directory.path().join("zoom.wasm");
         let identity = |revision: &str| {
             serde_json::json!({
-                "source": SOURCE, "package": "example-mod", "revision": revision,
+                "source": SOURCE, "package": "example-mod", "api_revision": "a".repeat(40), "revision": revision,
             })
             .to_string()
         };

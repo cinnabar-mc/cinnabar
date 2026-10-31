@@ -77,6 +77,7 @@ impl Service {
                 staging,
                 B::MAX_SOURCE_BYTES,
                 B::HOST_REVISION,
+                B::MOD_API_REVISIONS_JSON,
             )
             .map_err(|error| tracing::warn!("Mod update checks unavailable: {error}"))
             .ok(),

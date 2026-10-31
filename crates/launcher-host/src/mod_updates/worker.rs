@@ -85,7 +85,13 @@ pub(super) fn network(
         |candidate| {
             runtime.block_on(async {
                 if candidate.revision_update.is_some() {
-                    super::compatible::fetch(&client, candidate, host.revision).await
+                    super::compatible::fetch(
+                        &client,
+                        candidate,
+                        host.revision,
+                        host.api_revisions_json,
+                    )
+                    .await
                 } else {
                     fetch(&client, &candidate.repository).await
                 }

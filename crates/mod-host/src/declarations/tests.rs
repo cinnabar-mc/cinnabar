@@ -412,7 +412,7 @@ fn revision_updates_disable_legacy_fallback_even_when_invalid_or_duplicated() {
     let base = wat::parse_str("(component)").unwrap();
     let declaration = serde_json::json!({
         "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
-        "package": "example-mod", "revision": "a".repeat(40),
+        "package": "example-mod", "api_revision": "a".repeat(40), "revision": "a".repeat(40),
     })
     .to_string();
     for data in [declaration.as_bytes(), b"invalid"] {
