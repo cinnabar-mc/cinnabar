@@ -284,7 +284,13 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Matched-output frame-time and movement qualification remain incomplete.
+  `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
+  current-frame raster box tests instead of building Hi-Z. An early solid depth
+  subset leaves colour writes off; the late pass retains each CPU stream's colour
+  order. Other devices retain their existing paths. Near-plane crossings and large
+  boxes remain visible, and unavailable tests draw the complete ordered terrain.
+  Matched-output frame-time and movement qualification remain incomplete;
+  raster occlusion stays off by default pending hardware acceptance.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.

@@ -1,4 +1,4 @@
-// Terrain cull: frustum, enabled bit, two-phase Hi-Z and facing runs into compacted,
+// Terrain cull: frustum, enabled bit, current-frame occlusion and facing runs into compacted,
 // rank-ordered indirect args. `count` decides, `scan` offsets workgroups, `emit` writes.
 // Ranks follow the CPU's nearest-first slot order, so early depth rejects farther terrain.
 // `cull_occlusion` instead writes one occluded bit per slot for CPU readback.
@@ -15,6 +15,10 @@ const RELATIVE_SLACK: f32 = CULL_RELATIVE_SLACK;
 const ABSOLUTE_SLACK: f32 = CULL_ABSOLUTE_SLACK;
 const BOUNDS_BIAS: i32 = 128;
 const PHASE_LATE: u32 = 1u;
+const OCCLUSION_RASTER: u32 = CULL_OCCLUSION_RASTER;
+const OCCLUSION_ORDERED_FALLBACK: u32 = CULL_OCCLUSION_ORDERED_FALLBACK;
+const HISTORY_VISIBLE: u32 = CULL_HISTORY_VISIBLE;
+const HISTORY_RASTER_VISIBLE: u32 = CULL_HISTORY_RASTER_VISIBLE;
 const DECISION_DRAWS: u32 = CULL_DECISION_DRAWS;
 const DECISION_CANDIDATE: u32 = CULL_DECISION_CANDIDATE;
 const DECISION_HIDDEN: u32 = CULL_DECISION_HIDDEN;
@@ -48,7 +52,7 @@ struct CullView {
     // Integer eye; w bit 0 keeps all faces, bits 1..3 flag a fractional eye per axis.
     camera: vec4<i32>,
     viewport: vec4<f32>,
-    // Depth width, height, pyramid mips, Hi-Z enabled.
+    // Depth width, height, pyramid mips, occlusion selector (off, Hi-Z or raster).
     depth: vec4<u32>,
     // Slot count, group count, phase, first count index.
     params: vec4<u32>,
@@ -87,8 +91,9 @@ fn slot_enabled(slot: u32) -> bool {
 }
 
 // The record slot the count and emit kernels visit at `rank`.
-fn ranked_slot(rank: u32) -> u32 {
-    return enabled[view.order.x + rank];
+fn ranked_slot(rank: u32, stream: u32) -> u32 {
+    let other = stream >= 2u && view.depth.w >= OCCLUSION_RASTER;
+    return enabled[select(view.order.x, view.order.y, other) + rank];
 }
 
 // Bevy's sphere then box test on the sub-chunk box, with slack so it never culls more.
@@ -289,13 +294,25 @@ fn record_decision(slot: u32) -> u32 {
     var draw = false;
     var feedback = 0u;
     if (late) {
-        let kept = visible && hiz_visible(record);
-        draw = kept && history[slot] == 0u;
-        history[slot] = u32(kept);
+        var tested = false;
+        if (view.depth.w >= OCCLUSION_RASTER) {
+            tested = view.depth.w == OCCLUSION_ORDERED_FALLBACK || (history[slot] & HISTORY_RASTER_VISIBLE) != 0u;
+        } else {
+            tested = hiz_visible(record);
+        }
+        let kept = visible && tested;
+        if (view.depth.w >= OCCLUSION_RASTER) {
+            // Depth is prepared early, but colour retains the complete original stream order.
+            draw = kept;
+        } else {
+            draw = kept && (history[slot] & HISTORY_VISIBLE) == 0u;
+            history[slot] = u32(kept);
+        }
         feedback = select(0u, DECISION_CANDIDATE, visible)
             | select(0u, DECISION_HIDDEN, visible && !kept);
     } else {
-        draw = visible && history[slot] != 0u;
+        let bit = select(HISTORY_VISIBLE, HISTORY_RASTER_VISIBLE, view.depth.w >= OCCLUSION_RASTER);
+        draw = visible && (history[slot] & bit) != 0u;
     }
     if (!draw) {
         return feedback;
@@ -328,7 +345,18 @@ fn cull_count(
 ) {
     var draws = 0u;
     if (gid.x < view.params.x) {
-        draws = record_decision(ranked_slot(gid.x));
+        if (gid.x < view.order.z) {
+            draws = record_decision(ranked_slot(gid.x, 0u));
+            if (view.depth.w >= OCCLUSION_RASTER) {
+                if (view.params.z == PHASE_LATE) {
+                    let other = record_decision(ranked_slot(gid.x, 2u));
+                    let cube_bits = (1u << DECISION_MODEL_SHIFT) - 1u;
+                    draws = (draws & cube_bits) | (other & ~cube_bits);
+                } else {
+                    draws &= DECISION_SOLID_MASK;
+                }
+            }
+        }
         record_draws[gid.x] = draws;
     }
     sums[lid] = unpack_draws(draws);
@@ -392,17 +420,18 @@ fn cull_emit(
         return;
     }
     let offset = group_sums[wid.x] + sums[lid] - mine;
-    let record = records[ranked_slot(gid.x)];
+    let record = records[ranked_slot(gid.x, 0u)];
     solid_runs(record, true, offset.x);
     if (mine.y != 0u) {
         let cutout = cutout_range(record);
         write_args(offset.y, 1u, record, cutout.x, cutout.y);
     }
+    let other = records[ranked_slot(gid.x, 2u)];
     if (mine.z != 0u) {
-        write_args(offset.z, 2u, record, record.model_start, record.model_count);
+        write_args(offset.z, 2u, other, other.model_start, other.model_count);
     }
     if (mine.w != 0u) {
-        write_args(offset.w, 3u, record, record.liquid_start, record.liquid_count);
+        write_args(offset.w, 3u, other, other.liquid_start, other.liquid_count);
     }
 }
 

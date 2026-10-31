@@ -263,6 +263,16 @@ pub(in crate::chunk) fn queue_chunks(
         };
 
         if gpu_cull_view == Some(view_entity) {
+            let raster = gpu_culling.raster_enabled();
+            if raster {
+                lists.drawable(admit);
+                lists.indirect_lists(
+                    view.world_from_view.to_matrix(),
+                    &view.rangefinder3d(),
+                    false,
+                );
+                gpu_culling.set_raster_orders(lists.cull_orders(), &allocations);
+            }
             // Retain CPU commands and their buffer offsets without queueing their draws.
             indirect_views.push(view_entity);
             let pipelines = [
@@ -272,7 +282,16 @@ pub(in crate::chunk) fn queue_chunks(
                 depth_liquid_pipeline_id,
             ];
             let early = gpu_cull::draw_function_ids(&draw_functions, false);
-            for (draw_function, pipeline) in early.into_iter().zip(pipelines) {
+            for (stream, (draw_function, pipeline)) in early.into_iter().zip(pipelines).enumerate()
+            {
+                if raster && stream != 0 {
+                    continue;
+                }
+                let pipeline = if raster {
+                    gpu_culling.raster_depth_pipeline(&pipeline_cache, pipeline)
+                } else {
+                    pipeline
+                };
                 phase.add(
                     Opaque3dBatchSetKey {
                         draw_function,

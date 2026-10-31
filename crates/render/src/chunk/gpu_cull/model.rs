@@ -49,6 +49,14 @@ pub const MAX_SOLID_RUNS: u32 = 3;
 pub const ARGS_WORDS: u32 = 5;
 pub const STREAM_COUNT: usize = 4;
 pub const PHASE_COUNT: usize = 2;
+/// The depth-test selector for current-frame raster results instead of Hi-Z.
+pub const OCCLUSION_RASTER: u32 = 2;
+/// Complete ordered colour drawing when an experimental depth test cannot run.
+pub const OCCLUSION_ORDERED_FALLBACK: u32 = OCCLUSION_RASTER + 1;
+/// The previous frame's visibility, used only to select the early phase.
+pub const HISTORY_VISIBLE: u32 = 1;
+/// Current-frame sample coverage, reset before every raster test.
+pub const HISTORY_RASTER_VISIBLE: u32 = HISTORY_VISIBLE << 1;
 /// Draw fields follow the bits needed for the solid run count.
 pub const DECISION_CUTOUT_SHIFT: u32 = u32::BITS - MAX_SOLID_RUNS.leading_zeros();
 pub const DECISION_SOLID_MASK: u32 = (1 << DECISION_CUTOUT_SHIFT) - 1;
@@ -163,9 +171,9 @@ pub const fn order_base(capacity: u32) -> u32 {
     capacity.div_ceil(32)
 }
 
-/// Words of the enabled-bits buffer: one bit per slot, then the slot visited at each rank.
+/// Enabled bits followed by the cube and model/liquid slot orders.
 pub const fn enabled_words(capacity: u32) -> u64 {
-    order_base(capacity) as u64 + capacity as u64
+    order_base(capacity) as u64 + 2 * capacity as u64
 }
 
 /// One resident sub-chunk's opaque draws, indexed by its arena metadata slot.
@@ -453,7 +461,12 @@ impl CullViewUniform {
             regions: CullStream::ALL.map(|stream| args_region(capacity, phase, stream)),
             index_counts: input.index_counts,
             region_draws: CullStream::ALL.map(|stream| region_draws(capacity, stream)),
-            order: [order_base(capacity), 0, 0, 0],
+            order: [
+                order_base(capacity),
+                order_base(capacity) + capacity,
+                slots,
+                0,
+            ],
         }
     }
 }

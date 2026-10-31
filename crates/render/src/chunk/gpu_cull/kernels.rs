@@ -8,7 +8,8 @@ use wgpu::util::DeviceExt;
 use super::model::{
     CULL_STORAGE_BINDINGS, CullPhase, CullViewUniform, DECISION_CANDIDATE, DECISION_CUTOUT_SHIFT,
     DECISION_DRAWS, DECISION_HIDDEN, DECISION_LIQUID_SHIFT, DECISION_MODEL_SHIFT,
-    DECISION_SOLID_MASK, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HIZ_PADDING, PHASE_COUNT,
+    DECISION_SOLID_MASK, FRUSTUM_ABSOLUTE_SLACK, FRUSTUM_RELATIVE_SLACK, HISTORY_RASTER_VISIBLE,
+    HISTORY_VISIBLE, HIZ_PADDING, OCCLUSION_ORDERED_FALLBACK, OCCLUSION_RASTER, PHASE_COUNT,
     PYRAMID_WORKGROUP, cull_workgroup, group_count,
 };
 
@@ -18,6 +19,16 @@ const PYRAMID_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R32Float;
 pub fn cull_shader_source(workgroup: u32) -> String {
     let float = |value: f32| format!("{value:?}f");
     include_str!("cull.wgsl")
+        .replace(
+            "CULL_OCCLUSION_ORDERED_FALLBACK",
+            &format!("{OCCLUSION_ORDERED_FALLBACK}u"),
+        )
+        .replace("CULL_OCCLUSION_RASTER", &format!("{OCCLUSION_RASTER}u"))
+        .replace("CULL_HISTORY_VISIBLE", &format!("{HISTORY_VISIBLE}u"))
+        .replace(
+            "CULL_HISTORY_RASTER_VISIBLE",
+            &format!("{HISTORY_RASTER_VISIBLE}u"),
+        )
         .replace("CULL_WORKGROUP", &format!("{workgroup}u"))
         .replace("CULL_DECISION_DRAWS", &format!("{DECISION_DRAWS}u"))
         .replace("CULL_DECISION_CANDIDATE", &format!("{DECISION_CANDIDATE}u"))
