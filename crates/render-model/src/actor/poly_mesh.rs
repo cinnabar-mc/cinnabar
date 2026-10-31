@@ -125,7 +125,10 @@ fn append<'a>(
 /// Authored UVs as vanilla draws them: V flips on parse, edges move inward, and without
 /// `normalized_uvs` the value is multiplied by the texture size before clamping. Vanilla does
 /// not divide, so pixel coordinates saturate at the texture's far edge.
-fn resolved_uvs(mesh: &EntityGeometryPolyMesh, texture_size: (u16, u16)) -> Vec<[f32; 2]> {
+pub(super) fn resolved_uvs(
+    mesh: &EntityGeometryPolyMesh,
+    texture_size: (u16, u16),
+) -> Vec<[f32; 2]> {
     let size = [f32::from(texture_size.0), f32::from(texture_size.1)];
     let mut uvs: Vec<[f32; 2]> = mesh
         .uvs

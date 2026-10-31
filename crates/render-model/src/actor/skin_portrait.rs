@@ -199,12 +199,13 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
             .0
             .iter()
             .map(|&[[a, b, c], [d, e, f]]| [a, b, c, d, e, f]);
+        let uvs = super::poly_mesh::resolved_uvs(mesh, (model.texture_width, model.texture_height));
         for polygon in quads.chain(triangle_pairs) {
             let corners = polygon.map(|[position, normal, uv]| {
                 (
                     mesh.positions[position as usize].map(|value| value.get()),
                     mesh.normals[normal as usize].map(|value| value.get()),
-                    mesh.uvs[uv as usize].map(|value| value.get()),
+                    uvs[uv as usize],
                 )
             });
             if corners.iter().any(|corner| corner.1 != [0.0, 0.0, -1.0]) {
@@ -219,12 +220,11 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
                 let corner = corners
                     .iter()
                     .find(|corner| corner.0 == [x, y, corners[0].0[2]])?;
-                let [mut u, mut v] = corner.2;
-                if mesh.normalized_uvs {
-                    u *= model.texture_width as f32;
-                    v *= model.texture_height as f32;
-                }
-                Some([u, model.texture_height as f32 - v])
+                let [u, v] = corner.2;
+                Some([
+                    u * model.texture_width as f32,
+                    v * model.texture_height as f32,
+                ])
             };
             if let (Some(origin), Some(right), Some(bottom), Some(far)) = (
                 uv(min_x, max_y),
