@@ -36,7 +36,7 @@ pub(super) struct ModObservation<'w, 's> {
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
 )]
-pub(crate) fn drive_mod(
+pub(super) fn drive_mod(
     player_runtime: bevy::prelude::Res<client_state::PlayerRuntime>,
     extension: Option<ResMut<ModRuntime>>,
     keys: Res<ButtonInput<KeyCode>>,

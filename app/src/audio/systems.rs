@@ -44,7 +44,7 @@ pub(crate) fn configure(app: &mut App) {
         drive_actor_audio,
         pump_audio
             .after(client_state::ClientFrameSet::Camera)
-            .after(crate::modding::drive_mod),
+            .after(client_state::ModCameraInputSet),
     )
         .chain()
         .after(crate::named_audio::drain_live_named_audio);
