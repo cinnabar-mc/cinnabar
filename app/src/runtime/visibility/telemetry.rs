@@ -60,6 +60,7 @@ impl CaveVisibilityCache {
         let chunk_pipeline::CaveRebuildStats {
             started,
             completed,
+            inline,
             discarded,
             failed,
         } = self.rebuild.stats();
@@ -80,7 +81,7 @@ impl CaveVisibilityCache {
             })
             .collect();
         json!({
-            "jobs": {"started": started, "completed": completed,
+            "jobs": {"started": started, "completed": completed, "inline": inline,
                 "discarded": discarded, "failed": failed},
             "capacity": FRAME_CAPACITY,
             "next_frame": self.telemetry.next_frame,

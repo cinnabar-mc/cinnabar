@@ -6,9 +6,9 @@ use std::sync::{
 };
 
 use super::{
-    CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet, ConnectivityGrid, SubChunkKey,
-    fill_visible,
-    incremental::{RetainedUpdate, rebuild_inline, update_incrementally, update_visible},
+    ABANDONED, CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet, ConnectivityGrid,
+    SubChunkKey, fill_visible, fill_visible_within,
+    incremental::{RetainedUpdate, update_incrementally},
 };
 
 #[cfg(test)]
@@ -31,26 +31,56 @@ pub enum CaveVisibilityUpdate {
 /// Full-search receipts, independent of the frame on which a result is published.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct CaveRebuildStats {
+    /// Searches handed to the worker as a grid snapshot.
     pub started: u64,
     pub completed: u64,
+    /// Searches that finished on the caller within the snapshot-cost budget.
+    pub inline: u64,
     pub discarded: u64,
     pub failed: bool,
 }
 
-/// At most one full search, with no waiting or full traversal on the caller's thread.
-/// Incremental graph changes remain inline. A failed worker leaves culling disabled; where no
-/// worker thread can start, full searches run on the caller instead.
-#[derive(Default)]
+/// A search may run on the caller for one explored exit per this many grid cells: exploring
+/// an exit costs roughly what copying eight cells into a worker snapshot does.
+const CELLS_PER_INLINE_EXIT: usize = 8;
+
+/// At most one full search. A search expected to cost less than copying the grid runs on the
+/// caller under a budget of that cost; a larger one runs on a worker over an immutable snapshot,
+/// so the caller never pays more than about one snapshot copy. Incremental graph changes remain
+/// inline. A failed worker leaves culling disabled; where no worker thread can start, every
+/// search runs on the caller.
 pub struct CaveVisibilityRebuild {
     worker: Option<Worker>,
+    spawn: fn() -> Option<Worker>,
     pending: bool,
     synchronous: bool,
+    cells_per_inline_exit: usize,
+    /// A search that finished on the caller, published through the same catch-up as a reply.
+    ready: Option<Completed>,
+    /// Exits the latest full search explored, which predicts whether the next fits inline.
+    last_exits: Option<usize>,
     spare: (CaveVisibilityScratch, CaveVisibleSet),
     stats: CaveRebuildStats,
 }
 
+impl Default for CaveVisibilityRebuild {
+    fn default() -> Self {
+        Self {
+            worker: None,
+            spawn: Worker::spawn,
+            pending: false,
+            synchronous: false,
+            cells_per_inline_exit: CELLS_PER_INLINE_EXIT,
+            ready: None,
+            last_exits: None,
+            spare: Default::default(),
+            stats: CaveRebuildStats::default(),
+        }
+    }
+}
+
 impl CaveVisibilityRebuild {
-    /// Runs every full search on the caller, as on targets without threads.
+    /// Runs every full search on the caller, as where no worker thread can start.
     pub fn synchronous() -> Self {
         Self {
             synchronous: true,
@@ -63,7 +93,7 @@ impl CaveVisibilityRebuild {
         self.stats
     }
 
-    /// Publishes only a completed snapshot that can catch up to the current grid and camera.
+    /// Publishes only a completed search that can catch up to the current grid and camera.
     /// Grid identity, slot-layout epoch and journal revision are retained in the scratch;
     /// openings, slot reuse and camera escape must pass the same incremental proof as inline work.
     pub(crate) fn update(
@@ -75,47 +105,8 @@ impl CaveVisibilityRebuild {
         replacement: &mut CaveVisibleSet,
     ) -> CaveVisibilityUpdate {
         scratch.work = CaveVisibilityWork::default();
-        if self.synchronous {
-            return if update_visible(camera, grid, scratch, visible, replacement) {
-                CaveVisibilityUpdate::Rebuilt
-            } else {
-                CaveVisibilityUpdate::Incremental
-            };
-        }
-        if self.pending {
-            let result = self
-                .worker
-                .as_mut()
-                .expect("a pending cave search owns a worker")
-                .done
-                .get_mut()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .try_recv();
-            match result {
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
-                    self.fail();
-                    return CaveVisibilityUpdate::Unavailable;
-                }
-                Ok(mut done) => {
-                    self.pending = false;
-                    self.stats.completed += 1;
-                    done.scratch.outward_only = scratch.outward_only;
-                    if update_incrementally(camera, grid, &mut done.scratch, &mut done.visible)
-                        != RetainedUpdate::Invalid
-                    {
-                        std::mem::swap(scratch, &mut done.scratch);
-                        std::mem::swap(replacement, &mut done.visible);
-                        self.spare = (done.scratch, done.visible);
-                        // The counters now describe inline catch-up; the full traversal ran
-                        // on the worker rather than in this publication frame.
-                        scratch.work.rebuilt = true;
-                        return CaveVisibilityUpdate::Rebuilt;
-                    }
-                    self.stats.discarded += 1;
-                    self.spare = (done.scratch, done.visible);
-                }
-            }
+        if let Some(update) = self.publish(camera, grid, scratch, replacement) {
+            return update;
         }
         if self.stats.failed {
             return CaveVisibilityUpdate::Unavailable;
@@ -124,45 +115,118 @@ impl CaveVisibilityRebuild {
         if retained == RetainedUpdate::Updated {
             return CaveVisibilityUpdate::Incremental;
         }
-        let publication = if retained == RetainedUpdate::Invalid {
-            // The failed proof may already have propagated changes it never published, so only
-            // a completed search may hide sections again. Grid identities start at 1.
-            scratch.checkpoint = (0, 0, 0);
-            CaveVisibilityUpdate::Unavailable
-        } else {
-            CaveVisibilityUpdate::Incremental
-        };
-        if self.pending {
-            return publication;
+        if !self.pending {
+            self.search(camera, grid, scratch.outward_only);
         }
-        if self.worker.is_none() {
-            self.worker = Worker::spawn();
+        if retained == RetainedUpdate::Rebuild {
+            // `visible` already holds this update's additions, which only an incremental
+            // publication shows; a finished search is published on the next update.
+            return CaveVisibilityUpdate::Incremental;
+        }
+        // The failed proof may already have propagated changes it never published, so only a
+        // completed search may hide sections again.
+        scratch.checkpoint = ABANDONED;
+        // `visible` is unchanged, so a search that finished inline replaces it at once.
+        self.publish(camera, grid, scratch, replacement)
+            .unwrap_or(CaveVisibilityUpdate::Unavailable)
+    }
+
+    /// Swaps in a finished search once it catches up with the current graph and camera.
+    fn publish(
+        &mut self,
+        camera: SubChunkKey,
+        grid: &ConnectivityGrid,
+        scratch: &mut CaveVisibilityScratch,
+        replacement: &mut CaveVisibleSet,
+    ) -> Option<CaveVisibilityUpdate> {
+        let mut done = match self.ready.take() {
+            Some(done) => done,
+            None if self.pending => {
+                let reply = self
+                    .worker
+                    .as_mut()
+                    .expect("a pending cave search owns a worker")
+                    .done
+                    .get_mut()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .try_recv();
+                match reply {
+                    Err(TryRecvError::Empty) => return None,
+                    Err(TryRecvError::Disconnected) => {
+                        self.fail();
+                        return Some(CaveVisibilityUpdate::Unavailable);
+                    }
+                    Ok(done) => {
+                        self.pending = false;
+                        self.stats.completed += 1;
+                        done
+                    }
+                }
+            }
+            None => return None,
+        };
+        let searched = done.scratch.work.explored_exits;
+        self.last_exits = Some(searched);
+        done.scratch.outward_only = scratch.outward_only;
+        if update_incrementally(camera, grid, &mut done.scratch, &mut done.visible)
+            == RetainedUpdate::Invalid
+        {
+            self.stats.discarded += 1;
+            self.spare = (done.scratch, done.visible);
+            return None;
+        }
+        std::mem::swap(scratch, &mut done.scratch);
+        std::mem::swap(replacement, &mut done.visible);
+        self.spare = (done.scratch, done.visible);
+        // Counters describe caller work: catch-up, plus the search when it ran here.
+        scratch.work.rebuilt = true;
+        if done.inline {
+            scratch.work.explored_exits += searched;
+        }
+        Some(CaveVisibilityUpdate::Rebuilt)
+    }
+
+    /// Searches inline within the snapshot-cost budget, or hands a snapshot to the worker.
+    fn search(&mut self, camera: SubChunkKey, grid: &ConnectivityGrid, outward_only: bool) {
+        let (mut scratch, mut visible) = std::mem::take(&mut self.spare);
+        scratch.outward_only = outward_only;
+        let budget = if self.synchronous {
+            usize::MAX
+        } else {
+            grid.cell_count() / self.cells_per_inline_exit
+        };
+        let finished = self.last_exits.is_none_or(|exits| exits <= budget)
+            && fill_visible_within(camera, grid, &mut scratch, &mut visible, budget);
+        if !finished && self.worker.is_none() {
+            self.worker = (self.spawn)();
             if self.worker.is_none() {
                 self.synchronous = true;
-                rebuild_inline(camera, grid, scratch, replacement);
-                return CaveVisibilityUpdate::Rebuilt;
+                fill_visible(camera, grid, &mut scratch, &mut visible);
             }
         }
-        let (mut job_scratch, job_visible) = std::mem::take(&mut self.spare);
-        job_scratch.outward_only = scratch.outward_only;
+        if finished || self.synchronous {
+            self.stats.inline += 1;
+            self.ready = Some(Completed {
+                scratch,
+                visible,
+                inline: true,
+            });
+            return;
+        }
         let job = Job {
             // Clones preserve revision identity only for this immutable snapshot. New live
             // grids still receive independent identities through ConnectivityGrid::default.
             grid: grid.clone(),
             camera,
-            scratch: job_scratch,
-            visible: job_visible,
+            scratch,
+            visible,
         };
-        if self.worker.as_ref().unwrap().jobs.try_send(job).is_err() {
+        let worker = self.worker.as_ref().expect("a worker was started above");
+        if worker.jobs.try_send(job).is_err() {
             self.fail();
         } else {
             self.pending = true;
             self.stats.started += 1;
-        }
-        if self.stats.failed {
-            CaveVisibilityUpdate::Unavailable
-        } else {
-            publication
         }
     }
 
@@ -194,14 +258,16 @@ impl Job {
         Completed {
             scratch: self.scratch,
             visible: self.visible,
+            inline: false,
         }
     }
 }
 
-/// The scratch contains the snapshot's grid identity, layout epoch and journal revision.
+/// The scratch contains the searched grid's identity, layout epoch and journal revision.
 struct Completed {
     scratch: CaveVisibilityScratch,
     visible: CaveVisibleSet,
+    inline: bool,
 }
 
 /// One bounded request and reply; dropping the sender lets the worker exit normally.

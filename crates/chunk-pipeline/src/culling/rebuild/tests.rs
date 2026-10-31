@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use super::*;
 use crate::culling::{incremental::SUPERSET_UPDATE_LIMIT, tests::grid};
 use meshing::FaceConnectivity;
@@ -16,10 +18,14 @@ struct Controlled {
     visible: CaveVisibleSet,
     replacement: CaveVisibleSet,
     last: CaveVisibilityUpdate,
+    /// Sections the app shows, flipped only as its publication would flip them.
+    shown: HashSet<SubChunkKey>,
+    initialized: bool,
 }
 
 impl Controlled {
-    /// Installs bounded channels without spawning a thread or advancing a clock.
+    /// Installs bounded channels without spawning a thread or advancing a clock. A zero inline
+    /// budget sends every search that explores an exit to the controlled worker.
     fn new() -> Self {
         let (jobs, requests) = sync_channel(CHANNEL_CAPACITY);
         let (replies, done) = sync_channel(CHANNEL_CAPACITY);
@@ -29,6 +35,7 @@ impl Controlled {
                     jobs,
                     done: Mutex::new(done),
                 }),
+                cells_per_inline_exit: usize::MAX,
                 ..Default::default()
             },
             requests,
@@ -37,10 +44,13 @@ impl Controlled {
             visible: CaveVisibleSet::default(),
             replacement: CaveVisibleSet::default(),
             last: CaveVisibilityUpdate::Unavailable,
+            shown: HashSet::new(),
+            initialized: false,
         }
     }
 
-    /// Applies the public publication contract after one nonblocking update.
+    /// Publishes one nonblocking update the way the app does: additions only on `Incremental`,
+    /// a diff against the previous set on `Rebuilt`, and every section on `Unavailable`.
     fn step(&mut self, camera: SubChunkKey, graph: &ConnectivityGrid) -> CaveVisibilityUpdate {
         self.last = self.rebuild.update(
             camera,
@@ -49,8 +59,30 @@ impl Controlled {
             &mut self.visible,
             &mut self.replacement,
         );
-        if self.last == CaveVisibilityUpdate::Rebuilt {
-            std::mem::swap(&mut self.visible, &mut self.replacement);
+        match self.last {
+            CaveVisibilityUpdate::Unavailable => self.initialized = false,
+            CaveVisibilityUpdate::Incremental => {
+                self.shown
+                    .extend(self.scratch.added_visible().iter().copied());
+            }
+            CaveVisibilityUpdate::Rebuilt => {
+                if self.initialized {
+                    for key in self.visible.iter() {
+                        if !self.replacement.contains(&key) {
+                            self.shown.remove(&key);
+                        }
+                    }
+                    for key in self.replacement.iter() {
+                        if !self.visible.contains(&key) {
+                            self.shown.insert(key);
+                        }
+                    }
+                } else {
+                    self.shown = self.replacement.iter().collect();
+                    self.initialized = true;
+                }
+                std::mem::swap(&mut self.visible, &mut self.replacement);
+            }
         }
         self.last
     }
@@ -64,9 +96,9 @@ impl Controlled {
         assert!(self.replies.send(job.run()).is_ok());
     }
 
-    /// An unavailable proof cannot hide any section, including one outside the old reach.
+    /// Whether the app would draw `section`; nothing is hidden before a first result.
     fn allows(&self, section: SubChunkKey) -> bool {
-        self.last == CaveVisibilityUpdate::Unavailable || self.visible.contains(&section)
+        !self.initialized || self.shown.contains(&section)
     }
 
     /// Checks final visibility against the synchronous traversal of the current graph.
@@ -135,7 +167,6 @@ fn an_opening_is_applied_inline_while_a_safe_superset_is_being_rebuilt() {
     assert_eq!(test.rebuild.stats().started, 2);
     assert!(!test.allows(key(3)));
     assert!(!test.allows(key(20)));
-    test.scratch.superset_updates = Some(u32::MAX);
 
     graph.insert(key(1), FaceConnectivity::all());
     assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Incremental);
@@ -250,7 +281,10 @@ fn worker_failure_never_falls_back_to_a_full_search_on_the_caller() {
 fn the_real_worker_returns_the_same_visibility_as_synchronous_traversal() {
     let graph = grid((-64..64).map(|x| (key(x), FaceConnectivity::all())));
     let (mut rebuild, mut scratch, mut visible, mut replacement) = (
-        CaveVisibilityRebuild::default(),
+        CaveVisibilityRebuild {
+            cells_per_inline_exit: usize::MAX,
+            ..Default::default()
+        },
         CaveVisibilityScratch::default(),
         CaveVisibleSet::default(),
         CaveVisibleSet::default(),
@@ -305,16 +339,73 @@ fn a_proof_invalidated_by_a_camera_move_stays_invalid_when_the_camera_returns() 
 }
 
 #[test]
-fn without_a_worker_thread_full_searches_complete_on_the_caller() {
+fn a_failed_thread_start_searches_on_the_caller() {
     let graph = grid([
         (key(0), FaceConnectivity::all()),
         (key(20), FaceConnectivity::all()),
     ]);
     let mut test = Controlled::new();
-    test.rebuild = CaveVisibilityRebuild::synchronous();
+    test.rebuild = CaveVisibilityRebuild {
+        spawn: || None,
+        cells_per_inline_exit: usize::MAX,
+        ..Default::default()
+    };
     assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Rebuilt);
     test.assert_exact(key(0), &graph);
     assert_eq!(test.step(key(20), &graph), CaveVisibilityUpdate::Rebuilt);
     test.assert_exact(key(20), &graph);
     assert_eq!(test.rebuild.stats().started, 0);
+    assert!(!test.rebuild.stats().failed);
+}
+
+#[test]
+fn searches_cheaper_than_a_snapshot_finish_on_the_caller() {
+    let small = grid([
+        (key(0), FaceConnectivity::all()),
+        (key(20), FaceConnectivity::all()),
+    ]);
+    let mut test = Controlled::new();
+    // About twenty exits fit inline: the isolated sections, not the long corridor below.
+    test.rebuild.cells_per_inline_exit = small.cell_count() / 20;
+    assert_eq!(test.step(key(0), &small), CaveVisibilityUpdate::Rebuilt);
+    assert_eq!(test.step(key(20), &small), CaveVisibilityUpdate::Rebuilt);
+    test.assert_exact(key(20), &small);
+    assert_eq!(test.rebuild.stats().started, 0);
+    assert_eq!(test.rebuild.stats().inline, 2);
+    assert!(test.requests.try_recv().is_err(), "no snapshot was taken");
+
+    let large = grid((-64..64).map(|x| (key(x), FaceConnectivity::all())));
+    assert_eq!(test.step(key(0), &large), CaveVisibilityUpdate::Unavailable);
+    assert_eq!(test.rebuild.stats().started, 1);
+    test.finish();
+    assert_eq!(test.step(key(0), &large), CaveVisibilityUpdate::Rebuilt);
+    test.assert_exact(key(0), &large);
+}
+
+#[test]
+fn sections_reached_by_the_update_that_forces_a_rebuild_are_shown() {
+    // A removal leaves a superset; the update that reaches the rebuild limit also opens a wall.
+    let mut graph = grid([
+        (key(-1), FaceConnectivity::all()),
+        (key(0), FaceConnectivity::all()),
+        (key(1), FaceConnectivity::none()),
+        (key(2), FaceConnectivity::all()),
+        (key(3), FaceConnectivity::all()),
+    ]);
+    let mut test = Controlled::new();
+    test.rebuild = CaveVisibilityRebuild::synchronous();
+    assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Rebuilt);
+    assert!(!test.allows(key(3)));
+    graph.remove(&key(-1));
+    for _ in 1..SUPERSET_UPDATE_LIMIT {
+        assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Incremental);
+    }
+    graph.insert(key(1), FaceConnectivity::all());
+    test.step(key(0), &graph);
+    test.step(key(0), &graph);
+    assert!(
+        test.allows(key(3)),
+        "a section the opening reached must be flipped visible"
+    );
+    test.assert_exact(key(0), &graph);
 }
