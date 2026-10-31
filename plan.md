@@ -578,6 +578,13 @@ fallback for held models. Script-based helmet inference is provisional and recog
 specific head/hand branch names. General slot inference and complete texture-budget
 and rendered qualification remain incomplete.
 
+Confirmed gap: native keeps and draws every render controller whose condition passes,
+while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
+controller ahead of the body draws only the cosmetic, with no limb animation, and
+other passing layers such as hats and capes never appear. Closing this needs per-layer
+condition and geometry evaluation, posing and drawing, and attachable parent-bone
+lookup across the passing list.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
