@@ -64,11 +64,11 @@ fn material_uv_flags(flags: u32, position: vec3<i32>) -> u32 {
     return flags | select(native_code, native_code ^ 1u, native_code >= 2u);
 }
 
-// Vanilla ambient occlusion raises the four-sample average * face
-// coefficient to the source block's exponent before vertex interpolation.
-fn material_leaf_shade(ao_face: f32, flags: u32) -> f32 {
+// Vanilla ambient occlusion raises the four-sample average * face coefficient to the source
+// material's exponent before vertex interpolation. Zero encoding keeps the default exponent 1.
+fn material_ao_shade(ao_face: f32, flags: u32) -> f32 {
     let encoded = (flags & MATERIAL_LEAF_AO_EXPONENT_MASK) >> MATERIAL_LEAF_AO_EXPONENT_SHIFT;
-    if (!material_uses_native_leaf_colour(flags) || encoded == 0u) { return ao_face; }
+    if (encoded == 0u) { return ao_face; }
     return pow(ao_face, f32(encoded) / MATERIAL_LEAF_AO_EXPONENT_SCALE);
 }
 
