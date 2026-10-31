@@ -25,10 +25,7 @@ fn equipment_appends_and_page_updates_keep_actor_pixels_reusable() {
     let (first, locations) = first.with_equipment_raster_page_updates(&[(1, replacement)]);
     assert!(locations[0].is_some());
     let second = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
-    assert!(Arc::ptr_eq(
-        &first.pages()[0].rgba8,
-        &second.pages()[0].rgba8
-    ));
+    assert!(first.pages()[0].rgba8.ptr_eq(&second.pages()[0].rgba8));
 }
 
 #[test]
@@ -44,7 +41,7 @@ fn retiring_the_newest_collection_keeps_older_live_pixels_reusable() {
     let newer = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
     drop(newer);
     let last = ActorArtworkPages::default().with_pack_artwork(&[texture], &[]);
-    assert!(Arc::ptr_eq(&first.pages()[0].rgba8, &last.pages()[0].rgba8));
+    assert!(first.pages()[0].rgba8.ptr_eq(&last.pages()[0].rgba8));
 }
 
 #[test]
@@ -62,16 +59,13 @@ fn recompiled_actor_pages_share_pixels_and_release_them_after_the_last_owner() {
         ..Default::default()
     };
     let second = base.with_pack_artwork(&[texture], &[]);
-    let pixels = Arc::downgrade(&first.pages()[0].rgba8);
-    assert!(Arc::ptr_eq(
-        &first.pages()[0].rgba8,
-        &second.pages()[0].rgba8
-    ));
+    let pixels = first.pages()[0].rgba8.downgrade();
+    assert!(first.pages()[0].rgba8.ptr_eq(&second.pages()[0].rgba8));
     drop(first);
-    assert!(pixels.upgrade().is_some());
+    assert!(pixels.iter().all(|pixels| pixels.upgrade().is_some()));
     drop(second);
     assert!(
-        pixels.upgrade().is_none(),
+        pixels.iter().all(|pixels| pixels.upgrade().is_none()),
         "the page cache must not retain pixels"
     );
 }
@@ -95,25 +89,19 @@ fn a_pack_texture_change_or_layer_reorder_keeps_its_own_pixels() {
         })
         .collect::<Vec<_>>();
     let (equipment, _) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-    assert!(Arc::ptr_eq(
-        &first.pages()[0].rgba8,
-        &equipment.pages()[0].rgba8
-    ));
+    assert!(first.pages()[0].rgba8.ptr_eq(&equipment.pages()[0].rgba8));
     let mut reversed = textures;
     reversed.reverse();
     let changed = ActorArtworkPages::default().with_pack_artwork(&reversed, &[]);
     assert_eq!(
-        first.pages()[0].pixels(),
+        first.pages()[0].pixels().as_ref(),
         &[83, 83, 83, 83, 149, 149, 149, 149]
     );
     assert_eq!(
-        changed.pages()[0].pixels(),
+        changed.pages()[0].pixels().as_ref(),
         &[149, 149, 149, 149, 83, 83, 83, 83]
     );
-    assert!(!Arc::ptr_eq(
-        &first.pages()[0].rgba8,
-        &changed.pages()[0].rgba8
-    ));
+    assert!(!first.pages()[0].rgba8.ptr_eq(&changed.pages()[0].rgba8));
 }
 
 #[test]
@@ -158,7 +146,7 @@ fn pack_artwork_retains_more_than_byte_sized_distinct_texture_pages() {
         assert_eq!(pages.variant_location(rig, index as u32), Some(location));
         let page = &pages.pages()[usize::from(location.page()) - 1];
         assert_eq!(page.dimensions(), (texture.width, texture.height));
-        assert_eq!(page.pixels(), texture.rgba8.as_ref());
+        assert_eq!(page.pixels().as_ref(), texture.rgba8.as_ref());
     }
 }
 
@@ -175,9 +163,9 @@ fn a_single_layer_pack_page_shares_its_source_allocation() {
     let pages = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&texture), &[]);
     assert_eq!(pages.pages().len(), 1);
     let page = &pages.pages()[0];
-    assert!(Arc::ptr_eq(&page.rgba8, &texture.rgba8));
+    assert!(Arc::ptr_eq(&page.rgba8.parts()[0], &texture.rgba8));
     assert_eq!(page.layers, 1);
-    assert_eq!(page.pixels(), texture.rgba8.as_ref());
+    assert_eq!(page.pixels().as_ref(), texture.rgba8.as_ref());
 }
 
 #[test]
@@ -191,9 +179,9 @@ fn a_single_layer_equipment_page_shares_its_source_allocation() {
         ActorArtworkPages::default().with_equipment_rasters(std::slice::from_ref(&raster));
     let location = locations[0].unwrap();
     let page = &pages.pages()[usize::from(location.page()) - 1];
-    assert!(Arc::ptr_eq(&page.rgba8, &raster.rgba8));
+    assert!(Arc::ptr_eq(&page.rgba8.parts()[0], &raster.rgba8));
     assert_eq!(page.layers, 1);
-    assert_eq!(page.pixels(), raster.rgba8.as_ref());
+    assert_eq!(page.pixels().as_ref(), raster.rgba8.as_ref());
 }
 
 // A pack with a texture size per page past the old 32-page cap places every texture.
@@ -326,7 +314,7 @@ fn a_downscaled_group_frees_each_original_before_building_the_next() {
                     .all(|original| original.upgrade().is_none())
             );
             let page = group_page(128, chunk.len());
-            originals.push(Arc::downgrade(&page.rgba8));
+            originals.extend(page.rgba8.downgrade());
             chunks += 1;
             (page, ())
         },

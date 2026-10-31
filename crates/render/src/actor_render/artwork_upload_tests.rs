@@ -110,7 +110,7 @@ fn pending_replacement_keeps_previous_texture_and_uses_latest_material_flags() {
     assert_eq!(gpu.page(0).unwrap()._texture.id(), previous);
     pages.entity_identity = [3; 32];
     let mut page = pages.pages[0].clone();
-    page.rgba8 = page.rgba8.to_vec().into();
+    page.rgba8 = page.pixels().into_owned().into();
     page.color_mask = true;
     page.multitexture = true;
     pages.pages = Arc::from([page]);
@@ -127,7 +127,7 @@ fn pending_replacement_keeps_previous_texture_and_uses_latest_material_flags() {
 fn superseded_pending_pixels_are_released_without_being_published() {
     let (device, queue) = device();
     let pages = publication(1, 1);
-    let weak = Arc::downgrade(&pages.pages[0].rgba8);
+    let weak = Arc::downgrade(&pages.pages[0].rgba8.parts()[0]);
     let budget = pages.pages[0].rgba8.len() / 3;
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
@@ -472,7 +472,8 @@ fn row_bands_preserve_pixels_across_layer_boundaries() {
                 })
             })
         })
-        .collect();
+        .collect::<Vec<u8>>()
+        .into();
     pages.pages = Arc::from([page.clone()]);
     let reference = upload_page(&device, &queue, &page, "complete fixture", default()).unwrap();
     let view = reference.create_view(&TextureViewDescriptor {
@@ -529,6 +530,42 @@ struct Vertex { @builtin(position) position: vec4f, @location(0) uv: vec2f }
     assert_eq!(after, before, "every layer and row retains the same pixels");
     crate::gpu_snapshot::save("actor-row-bands-before", &before);
     crate::gpu_snapshot::save("actor-row-bands-after", &after);
+
+    // Layers shared with their source textures upload the same pixels, whole, in row bands that
+    // split a layer, and in bands of whole layers.
+    let layer_bytes = usize::from(page.width) * usize::from(page.height) * 4;
+    let layers: Vec<Arc<[u8]>> = page
+        .rgba8
+        .joined()
+        .chunks(layer_bytes)
+        .map(Arc::from)
+        .collect();
+    page.rgba8 = render_model::PagePixels::from_layers(&layers);
+    assert!(page.rgba8.parts().len() > 1);
+    pages.pages = Arc::from([page.clone()]);
+    let whole = upload_page(&device, &queue, &page, "shared fixture", default()).unwrap();
+    let view = whole.create_view(&TextureViewDescriptor {
+        dimension: Some(TextureViewDimension::D2Array),
+        ..default()
+    });
+    assert_eq!(
+        draw(&view),
+        before,
+        "a whole upload writes every shared layer"
+    );
+    for budget in [row * 2 + 1, layer_bytes * 2] {
+        let mut gpu = GpuArtwork::default();
+        for _ in 0..page.rgba8.len().div_ceil(budget - budget % row) {
+            assert!(gpu.prepare_pages(&pages, [1].into_iter(), &device, &queue, budget));
+            queue.submit([]);
+        }
+        let uploaded = gpu.page(0).expect("the budget covers every layer");
+        assert_eq!(
+            draw(&uploaded.view),
+            before,
+            "a {budget} byte budget preserves shared layers"
+        );
+    }
 }
 
 #[test]

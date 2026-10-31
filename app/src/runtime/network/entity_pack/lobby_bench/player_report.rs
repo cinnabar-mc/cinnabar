@@ -111,7 +111,7 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
                 continue;
             };
             let side = render_model::STANDARD_SKIN_SIDE;
-            (side, side, &**skin)
+            (side, side, std::borrow::Cow::Borrowed(&**skin))
         } else {
             let Some(page) = rendered.artwork_pages().pages().get(usize::from(*page) - 1) else {
                 continue;
@@ -119,7 +119,7 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
             let (width, height) = page.dimensions();
             let (width, height) = (usize::from(width), usize::from(height));
             let bytes = width * height * 4;
-            let Some(skin) = page.pixels().get(layer * bytes..(layer + 1) * bytes) else {
+            let Some(skin) = page.rgba8.get(layer * bytes..(layer + 1) * bytes) else {
                 continue;
             };
             (width, height, skin)

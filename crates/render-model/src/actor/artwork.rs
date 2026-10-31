@@ -16,6 +16,9 @@ mod color_mask_tests;
 mod multitexture;
 #[path = "artwork/page_budget.rs"]
 mod page_budget;
+#[path = "artwork/page_pixels.rs"]
+mod page_pixels;
+pub use page_pixels::PagePixels;
 #[cfg(test)]
 #[path = "artwork/page_capacity_tests.rs"]
 mod page_capacity_tests;
@@ -33,6 +36,9 @@ mod render_coverage;
 #[cfg(test)]
 #[path = "artwork/retained_equipment_tests.rs"]
 mod retained_equipment_tests;
+#[cfg(test)]
+#[path = "artwork/shared_layers_tests.rs"]
+mod shared_layers_tests;
 
 /// CPU draw routing selects an artwork page independently of the shader's texture layer.
 pub type ActorArtworkPageId = u16;
@@ -67,15 +73,6 @@ impl EquipmentRaster {
     }
 }
 
-/// Copies ordered texture layers into one allocation without a per-byte iterator.
-fn concatenate_layers<'a>(layers: impl Iterator<Item = &'a [u8]> + Clone) -> Vec<u8> {
-    let mut pixels = Vec::with_capacity(layers.clone().map(<[u8]>::len).sum());
-    for layer in layers {
-        pixels.extend_from_slice(layer);
-    }
-    pixels
-}
-
 const fn player_page_bytes() -> usize {
     crate::PLAYER_SKIN_BUDGET_BYTES
 }
@@ -104,7 +101,7 @@ pub struct ActorTexturePage {
     pub width: u16,
     pub height: u16,
     pub layers: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: PagePixels,
     /// Native USE_COLOR_MASK rasters cannot share a neutral-opacity material binding.
     pub color_mask: bool,
     pub multitexture: bool,
@@ -116,18 +113,29 @@ impl ActorTexturePage {
     pub fn layers(&self) -> u32 {
         self.layers
     }
-    pub fn pixels(&self) -> &[u8] {
-        &self.rgba8
+    /// Every layer's bytes in one slice; copies the whole page when layers keep separate
+    /// allocations, so per-texel readers use `rgba8.range` and size checks use `rgba8.len`.
+    pub fn pixels(&self) -> std::borrow::Cow<'_, [u8]> {
+        self.rgba8.joined()
     }
-    pub fn shared_pixels(&self) -> Arc<[u8]> {
-        Arc::clone(&self.rgba8)
+    pub fn shared_pixels(&self) -> PagePixels {
+        self.rgba8.clone()
     }
 
     /// This page box-filtered down by the smallest power of two that fits `limit` per side.
     pub fn fit_within(&self, limit: u32) -> std::borrow::Cow<'_, Self> {
-        let Some(([width, height], rgba8)) =
-            crate::fit_rgba_within(self.width, self.height, &self.rgba8, limit)
-        else {
+        let mut fitted: Option<([u16; 2], Vec<u8>)> = None;
+        for part in self.rgba8.parts() {
+            let Some((size, pixels)) = crate::fit_rgba_within(self.width, self.height, part, limit)
+            else {
+                return std::borrow::Cow::Borrowed(self);
+            };
+            match &mut fitted {
+                Some((_, joined)) => joined.extend_from_slice(&pixels),
+                None => fitted = Some((size, pixels)),
+            }
+        }
+        let Some(([width, height], rgba8)) = fitted else {
             return std::borrow::Cow::Borrowed(self);
         };
         std::borrow::Cow::Owned(Self {
@@ -348,7 +356,7 @@ impl ActorArtworkPages {
         let page = self
             .pages
             .get(usize::from(retained.location.page.checked_sub(1)?))?;
-        (Arc::ptr_eq(&page.rgba8, &retained.page.rgba8)
+        (page.rgba8.ptr_eq(&retained.page.rgba8)
             && page.width == retained.page.width
             && page.height == retained.page.height
             && page.layers == retained.page.layers
@@ -763,12 +771,12 @@ mod tests {
         assert_ne!(new_route.page, route.page);
         let page = &applied.pages()[usize::from(new_route.page) - 1];
         assert_eq!((page.width, page.height), (2, 2));
-        assert_eq!(&page.rgba8[..], &replacement_pixels);
-        let pixels = Arc::downgrade(&page.rgba8);
+        assert_eq!(page.pixels().as_ref(), &replacement_pixels);
+        let pixels = page.rgba8.downgrade();
         drop(applied);
-        assert!(pixels.upgrade().is_none());
+        assert!(pixels.iter().all(|pixels| pixels.upgrade().is_none()));
         assert_eq!(base.route(EntityRigId(0)), Some(route));
-        assert_eq!(unrelated.pages()[0].pixels(), &[7; 16]);
+        assert_eq!(unrelated.pages()[0].pixels().as_ref(), &[7; 16]);
     }
 
     #[test]
@@ -784,7 +792,10 @@ mod tests {
             rgba8,
         });
         let pages = ActorArtworkPages::default().with_pack_artwork(&textures, &[]);
-        assert_eq!(pages.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            pages.pages()[0].pixels().as_ref(),
+            &[1, 2, 3, 4, 5, 6, 7, 8]
+        );
         assert_eq!(pages.pages()[0].layers(), 2);
         let rasters = [first, second].map(|rgba8| EquipmentRaster {
             width: 1,
@@ -792,7 +803,10 @@ mod tests {
             rgba8,
         });
         let (equipment, locations) = ActorArtworkPages::default().with_equipment_rasters(&rasters);
-        assert_eq!(equipment.pages()[0].pixels(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(
+            equipment.pages()[0].pixels().as_ref(),
+            &[1, 2, 3, 4, 5, 6, 7, 8]
+        );
         assert_eq!(locations[0].unwrap().layer(), 0);
         assert_eq!(locations[1].unwrap().layer(), 1);
         assert_eq!(locations[0].unwrap().page(), locations[1].unwrap().page());
@@ -814,7 +828,7 @@ mod tests {
         };
         let fitted = page.fit_within(4);
         assert_eq!((fitted.width, fitted.height), (1, 3));
-        assert_eq!(&fitted.rgba8[..4], &[127, 127, 127, 255]);
+        assert_eq!(&fitted.pixels()[..4], &[127, 127, 127, 255]);
         assert!(
             fitted.color_mask,
             "downscaling retains the material contract"

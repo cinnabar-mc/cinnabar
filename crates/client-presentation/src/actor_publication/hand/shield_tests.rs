@@ -45,7 +45,7 @@ fn decorated_shield_nonzero_source_layer_reaches_final_hand_submissions_as_layer
         )
         .unwrap();
         assert_eq!(atlas.layers, 1);
-        assert_eq!(&atlas.rgba8[..3], assets::banner::color_rgb(15));
+        assert_eq!(&atlas.rgba8.range(0, 3)[..], assets::banner::color_rgb(15));
         source.items[0] = Some((layer, atlas));
         for index in 0..2 {
             if index == 1 {
@@ -116,7 +116,7 @@ fn first_person_shield_readiness_reuses_composition_across_published_frames() {
     ));
     let mut params = SystemState::<super::super::ActorFramePublication>::new(&mut world);
     let mut prepared_artwork = None;
-    let mut retained = None;
+    let mut retained: Option<render_model::PagePixels> = None;
     for _ in 0..3 {
         super::super::advance_actor_frame(
             super::super::ActorWorld {
@@ -154,17 +154,16 @@ fn first_person_shield_readiness_reuses_composition_across_published_frames() {
         );
         let state = world.resource::<super::super::ActorFrameState>();
         assert!(state.hand_is_active());
-        let pixels = Arc::clone(
-            &state.hand_source.as_ref().unwrap().items[0]
-                .as_ref()
-                .unwrap()
-                .1
-                .rgba8,
-        );
-        assert_eq!(&pixels[..3], assets::banner::color_rgb(15));
+        let pixels = state.hand_source.as_ref().unwrap().items[0]
+            .as_ref()
+            .unwrap()
+            .1
+            .rgba8
+            .clone();
+        assert_eq!(&pixels.range(0, 3)[..], assets::banner::color_rgb(15));
         if let Some(previous) = retained.as_ref() {
             assert!(
-                Arc::ptr_eq(previous, &pixels),
+                previous.ptr_eq(&pixels),
                 "a visible first-person shield must retain its composition after readiness reuse"
             );
         }
@@ -187,10 +186,7 @@ fn first_person_shield_readiness_reuses_composition_across_published_frames() {
             .frame
             .as_ref()
             .unwrap();
-        assert!(Arc::ptr_eq(
-            &pixels,
-            &frame.item_atlases[0].as_ref().unwrap().rgba8
-        ));
+        assert!(pixels.ptr_eq(&frame.item_atlases[0].as_ref().unwrap().rgba8));
         retained = Some(pixels);
     }
 }
