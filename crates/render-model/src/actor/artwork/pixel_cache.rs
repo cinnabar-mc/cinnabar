@@ -21,12 +21,16 @@ static LIVE: Mutex<Pixels> = Mutex::new(BTreeMap::new());
 /// Hashes the ordered layers into the page identity, reusing a live page's pixels.
 /// New pages reference each source layer's allocation instead of copying it. Cache entries
 /// own no pixels and cannot prevent a retired generation from being freed.
+///
+/// The key covers each layer's length as well as its bytes, so reused storage has the same
+/// allocation boundaries and every allocation still holds whole layers of the new page.
 pub(super) fn pack<'a>(
     layers: impl Iterator<Item = &'a Arc<[u8]>> + Clone,
     identity: &mut Sha256,
 ) -> ([u8; 32], PagePixels) {
     let mut digest = Sha256::new();
     for layer in layers.clone() {
+        digest.update((layer.len() as u64).to_le_bytes());
         digest.update(layer);
         raster_pages::hash_pixels(identity, layer);
     }

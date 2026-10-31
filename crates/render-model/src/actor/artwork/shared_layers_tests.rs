@@ -34,6 +34,34 @@ fn retained_bytes(textures: &[assets::ActorTexture], pages: &ActorArtworkPages) 
 }
 
 #[test]
+fn reused_pixels_keep_their_layer_boundaries() {
+    let layers = distinct_textures(0..2, 32);
+    let live = ActorArtworkPages::default().with_pack_artwork(&layers, &[]);
+    assert_eq!(live.pages()[0].layers(), 2);
+
+    // The same bytes as one taller layer must not borrow the live page's two allocations.
+    let rgba8: Arc<[u8]> = [&*layers[0].rgba8, &*layers[1].rgba8].concat().into();
+    let tall = assets::ActorTexture {
+        source: 2,
+        width: 32,
+        height: 64,
+        pixel_sha256: Sha256::digest(&rgba8).into(),
+        rgba8,
+    };
+    let tall = ActorArtworkPages::default().with_pack_artwork(std::slice::from_ref(&tall), &[]);
+    let page = &tall.pages()[0];
+    assert_eq!((page.layers(), page.rgba8.parts().len()), (1, 1));
+    let fitted = page.fit_within(32);
+    assert_eq!(fitted.dimensions(), (16, 32));
+    assert_eq!(fitted.rgba8.len(), 16 * 32 * 4);
+
+    // A page with the same layers still reuses the live allocations.
+    let again = distinct_textures(0..2, 32);
+    let again = ActorArtworkPages::default().with_pack_artwork(&again, &[]);
+    assert!(again.pages()[0].rgba8.ptr_eq(&live.pages()[0].rgba8));
+}
+
+#[test]
 fn packed_pack_artwork_retains_one_copy_of_each_texel() {
     // More same-size layers than one page holds, plus a second size, so grouping and splitting
     // both run.

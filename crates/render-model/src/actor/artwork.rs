@@ -113,7 +113,8 @@ impl ActorTexturePage {
     pub fn layers(&self) -> u32 {
         self.layers
     }
-    /// Every layer's bytes in one slice; copies when layers keep separate allocations.
+    /// Every layer's bytes in one slice; copies the whole page when layers keep separate
+    /// allocations, so per-texel readers use `rgba8.range` and size checks use `rgba8.len`.
     pub fn pixels(&self) -> std::borrow::Cow<'_, [u8]> {
         self.rgba8.joined()
     }
