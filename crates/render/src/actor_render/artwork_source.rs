@@ -1,6 +1,6 @@
 //! Immutable source keys compare content only within one artwork slot.
 use render_model::ActorTexturePage;
-use std::{collections::hash_map::RandomState, hash::BuildHasher, sync::Arc};
+use std::{collections::hash_map::RandomState, hash::BuildHasher};
 
 /// Fingerprints speed up comparisons; exact source equality keeps collisions harmless.
 #[derive(Clone)]
@@ -25,7 +25,7 @@ impl TextureKey {
         self.page.width == page.width
             && self.page.height == page.height
             && self.page.layers == page.layers
-            && Arc::ptr_eq(&self.page.rgba8, &page.rgba8)
+            && self.page.rgba8.ptr_eq(&page.rgba8)
     }
 
     /// Reports whether uploaded source layers cover every layer requested by a fallback.
@@ -41,8 +41,7 @@ impl PartialEq for TextureKey {
             && self.page.width == other.page.width
             && self.page.height == other.page.height
             && self.page.layers == other.page.layers
-            && (Arc::ptr_eq(&self.page.rgba8, &other.page.rgba8)
-                || self.page.rgba8 == other.page.rgba8)
+            && self.page.rgba8 == other.page.rgba8
     }
 }
 impl Eq for TextureKey {}

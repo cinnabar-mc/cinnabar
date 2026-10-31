@@ -1,4 +1,4 @@
-use std::{hint::black_box, sync::Arc};
+use std::hint::black_box;
 
 use bevy::render::renderer::{RenderDevice, RenderQueue};
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
@@ -25,7 +25,7 @@ fn artwork_burst(c: &mut Criterion) {
             width: 128,
             height: 128,
             layers: 1,
-            rgba8: Arc::from(vec![marker; 128 * 128 * 4]),
+            rgba8: vec![marker; 128 * 128 * 4].into(),
             color_mask: false,
             multitexture: false,
         })

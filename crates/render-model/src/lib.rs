@@ -182,7 +182,7 @@ pub use actor::{
 };
 pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
-    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, PagePixels,
 };
 pub use actor::{ActorRigVertexSegments, share_identical_vertices};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
