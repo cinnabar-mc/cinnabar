@@ -292,10 +292,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Full cave searches run on immutable connectivity snapshots off the frame thread, or
-  inline where no worker thread can start.
-  Invalidated or failed proofs restore hidden sections; retained proofs process openings
-  inline while a full search is pending.
+  Full cave searches cheaper than copying the connectivity grid run inline within that
+  budget; larger ones run on immutable snapshots off the frame thread, or inline where no
+  worker thread can start. Invalidated or failed proofs restore hidden sections until a
+  search lands; retained proofs process openings inline while one is pending. A large
+  search that never catches up, as in shader-pack flight that crosses sections faster than
+  one search or a burst over the change journal's capacity, leaves sections shown.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
   current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
   subset leaves colour writes off; the late pass retains each CPU stream's colour
