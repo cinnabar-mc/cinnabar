@@ -124,6 +124,34 @@ fn readiness_square_fits_the_server_delivery_circle() {
 }
 
 #[test]
+fn effective_radius_compares_numeric_values_across_wire_representations() {
+    let plan = Plan {
+        binary: "client".into(),
+        server_binary: "server".into(),
+        frozen_world: "world".into(),
+        user_template: "user".into(),
+        machine_id: "test".into(),
+        power: "ac".into(),
+        window: [1920, 1080],
+        render_distance: 12,
+        warmup_s: 2.,
+        routes: vec![route()],
+    };
+    let mut state = json!({
+        "window": {"physical": plan.window, "hidden": true},
+        "video": {"render_scale_percent": 100, "render_distance": 12, "render_distance_blocks": 192},
+        "pacing": {"uncapped": true, "display_sync": false}, "gpu": {"name": "test"},
+        "render_distance_blocks": 192.0,
+    });
+    assert!(run::validate_effective(&state, &plan).is_ok());
+    state["render_distance_blocks"] = json!(128.0);
+    assert!(run::validate_effective(&state, &plan).is_err());
+    state["render_distance_blocks"] = Value::Null;
+    state["video"]["render_distance_blocks"] = Value::Null;
+    assert!(run::validate_effective(&state, &plan).is_err());
+}
+
+#[test]
 fn memory_includes_descendants_without_charging_unrelated_processes() {
     assert_eq!(
         observe::family_rss("10 1 100\n11 10 200\n12 11 300\n13 1 999\n", 10).unwrap(),

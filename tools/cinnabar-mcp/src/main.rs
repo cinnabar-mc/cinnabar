@@ -14,6 +14,10 @@ mod tools;
 
 use std::path::PathBuf;
 
+#[expect(
+    clippy::print_stderr,
+    reason = "the benchmark CLI reports failures on stderr without changing the stdio MCP protocol"
+)]
 fn main() {
     let repo = repo_argument()
         .or_else(|| std::env::current_dir().ok())

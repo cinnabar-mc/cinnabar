@@ -229,14 +229,21 @@ fn wait(controller: &mut Controller, done: impl Fn(&Value) -> bool) -> Result<Va
 }
 
 /// Rejects caps, changed extents, scaling and negotiated radii that differ from the plan.
-fn validate_effective(state: &Value, plan: &Plan) -> Result<(), String> {
+pub(super) fn validate_effective(state: &Value, plan: &Plan) -> Result<(), String> {
+    let actual_blocks = state["render_distance_blocks"]
+        .as_f64()
+        .filter(|value| value.is_finite() && *value > 0.);
+    let requested_blocks = state["video"]["render_distance_blocks"]
+        .as_f64()
+        .filter(|value| value.is_finite() && *value > 0.);
     if state["window"]["physical"] != json!(plan.window)
         || state["window"]["hidden"] != true
         || state["video"]["render_scale_percent"] != 100
         || state["pacing"]["uncapped"] != true
         || state["pacing"]["display_sync"] != false
         || state["video"]["render_distance"] != plan.render_distance
-        || state["render_distance_blocks"] != state["video"]["render_distance_blocks"]
+        || actual_blocks.is_none()
+        || actual_blocks != requested_blocks
         || state["gpu"]["name"].as_str().is_none_or(str::is_empty)
     {
         return Err(

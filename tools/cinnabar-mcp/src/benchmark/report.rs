@@ -238,6 +238,10 @@ pub(super) fn compatible(a: &Value, am: &Value, b: &Value, bm: &Value) -> Result
 }
 
 /// Prints frame-interval ratios only after strict condition validation; no qualification is inferred.
+#[expect(
+    clippy::print_stdout,
+    reason = "the explicit comparison CLI returns its JSON result on stdout"
+)]
 pub(super) fn compare(first: &Path, second: &Path) -> Result<(), String> {
     let (a, am) = load(first)?;
     let (b, bm) = load(second)?;
