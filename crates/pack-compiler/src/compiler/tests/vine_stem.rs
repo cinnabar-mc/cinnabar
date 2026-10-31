@@ -1,6 +1,6 @@
 use super::*;
 use assets::{CompiledBiomeAssets, MODEL_TEMPLATE_FLAG_TWISTING_VINE};
-use assets::{MODEL_TEMPLATE_FLAG_WEEPING_VINE, ModelTemplate};
+use assets::{MODEL_TEMPLATE_FLAG_WEEPING_VINE, ModelTemplate, VisualKind};
 
 const STEM_RED: u8 = 40;
 const TIP_RED: u8 = 200;

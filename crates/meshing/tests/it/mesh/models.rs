@@ -363,7 +363,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: MODEL_TEMPLATE_FLAG_WEEPING_VINE,
                 },
                 ModelTemplate {
-                    quad_start: 82,
+                    quad_start: 86,
                     quad_count: 4,
                     flags: MODEL_TEMPLATE_FLAG_TWISTING_VINE,
                 },
@@ -441,7 +441,7 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     material: 1,
                     flags: MODEL_QUAD_FLAG_TWO_SIDED,
                 },
-                4,
+                8,
             ))
             .collect::<Vec<_>>()
             .into_boxed_slice(),
