@@ -59,6 +59,9 @@ CINNABAR_CLOUDS_PNG ?=
 REGISTRY_FOUNDATION_CHECK = $(GO) -C tools/registrygen run ./cmd/foundationcheck -manifest "$(abspath $(REGISTRY_FOUNDATION_MANIFEST))"
 ASSET_COMPILER_BINARY = assetc
 ASSETC = $(CARGO) run --profile $(PROFILE) --locked -p asset-compiler --bin $(ASSET_COMPILER_BINARY) --
+# The isolated shader-pack compiler the client spawns beside the core, from the runtime table.
+SHADERPACK_WORKER_BINARY = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$1}' packaging/common/runtime-binaries.txt)
+SHADERPACK_WORKER_PACKAGE = $(shell awk '$$3 == "SHADERPACK_WORKER" {print $$2}' packaging/common/runtime-binaries.txt)
 VANILLA_ASSET_FETCH = $(ASSETC) vanilla-pack --source-manifest "$(VANILLA_SOURCE_MANIFEST)" --accept-eula
 # One in-process parallel pass over the carrier table; carriers whose fingerprint is unchanged are skipped.
 ASSETS_PREPARE = $(ASSETC) prepare --accept-eula $(if $(strip $(CINNABAR_CLOUDS_PNG)),--clouds-override "$(CINNABAR_CLOUDS_PNG)")
@@ -140,6 +143,7 @@ ifeq ($(CINNABAR_DEV_SERVER_EXPERIENCES),1)
 endif
 	$(GO) build -tags joinprofile -ldflags "$(CORE_STAMP)" -o "$(abspath target/$(PROFILE_DIR)/bedrock-core$(EXE))" ./core/cmd/bedrock-core
 	-cd tools/localserver && GOWORK=off $(GO) build -o "$(abspath target/$(PROFILE_DIR)/bedrock-local-server$(EXE))" .
+	$(CARGO) build --profile $(PROFILE) -p $(SHADERPACK_WORKER_PACKAGE) --bin $(SHADERPACK_WORKER_BINARY) --locked
 	CINNABAR_BUILD_COMMIT="$(CINNABAR_BUILD_COMMIT)" $(CARGO) build --profile $(PROFILE) -p cinnabar --locked $(CLIENT_FEATURES) --message-format=$(CLIENT_MESSAGE_FORMAT)
 ifeq ($(OS),Windows_NT)
 	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File packaging/windows/fetch-dxc.ps1 -Out "target/$(PROFILE_DIR)"
@@ -150,7 +154,7 @@ endif
 DEV_APP = target/$(PROFILE_DIR)/Cinnabar Dev.app
 # The release bundle identifier from build-app.sh, suffixed so dev never shares its preferences.
 DEV_APP_ID = $(shell sed -n 's/^bundle_id="$${BUNDLE_ID:-\(.*\)}"/\1/p' packaging/macos/build-app.sh).dev
-DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(ASSET_COMPILER_BINARY)
+DEV_APP_BINARIES = cinnabar bedrock-core bedrock-local-server mod-host cinnabar-media-helper $(SHADERPACK_WORKER_BINARY)
 play: play-build
 ifneq ($(findstring Darwin,$(shell uname -s)),)
 	@mkdir -p "$(DEV_APP)/Contents/MacOS"
