@@ -373,6 +373,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
+  Meshing workers retain palette decode and opaque/two-sided cube working buffers between
+  sections. Oversized temporary buffers are discarded after a job, and idle workers release
+  mesh scratch after five seconds. Published streams keep independent ownership. Hardware
+  allocation, idle-memory and return-to-flight measurements remain open.
   Foreground chunk-data offload requires a full allocation of service polling
   that advanced commits; idle waits and worker-only service do not count.
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded

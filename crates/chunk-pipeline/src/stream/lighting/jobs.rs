@@ -322,7 +322,7 @@ impl WorldStream {
                 #[cfg(feature = "tracy")]
                 let _zone = tracing::info_span!("light.solve", sections = batch.len()).entered();
                 let started = Instant::now();
-                let solved = solve_prepared_light_batch_with_scratch(batch, scratch);
+                let solved = solve_prepared_light_batch_with_scratch(batch, &mut scratch.light);
                 let duration = started.elapsed();
                 #[cfg(feature = "tracy")]
                 drop(_zone);
