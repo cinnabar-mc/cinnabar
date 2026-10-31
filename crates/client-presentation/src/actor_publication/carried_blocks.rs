@@ -6,7 +6,7 @@ use std::sync::OnceLock;
 use assets::facts::{BlockProperty, PropertyDomain, pack::PackBlock};
 use chunk_pipeline::WorldStream;
 use protocol::{ActorKind, ActorMetadataValue};
-use protocol_ids::{ActorDataKey, ActorFlag};
+use protocol_ids::ActorDataKey;
 
 use crate::presentation::actors::ActorPresentationBatch;
 
@@ -100,7 +100,7 @@ pub(super) fn carried_blocks_for(
         .filter_map(|body| {
             let actor = stream.authority().actor(body.input.identity.runtime_id)?;
             let (block, world_from_block) =
-                if wears_pumpkin(&actor.kind, actor.flag(ActorFlag::Sheared.wire_value())) {
+                if wears_pumpkin(&actor.kind, actor.is_sheared()) {
                     let alpha = partial_tick.clamp(0.0, 1.0);
                     let lerp = crate::presentation::actors::lerp_degrees;
                     let head_yaw = lerp(actor.previous_pose.head_yaw, actor.head_yaw, alpha);

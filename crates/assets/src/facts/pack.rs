@@ -65,6 +65,7 @@ domain!(PackBlock {
     ResinClump,
     Dirt,
     SporeBlossom,
+    CarvedPumpkin,
     ChorusFlower,
     PointedDripstone,
     SulfurSpike,
