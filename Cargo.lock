@@ -7803,6 +7803,7 @@ dependencies = [
  "render-api",
  "render-model",
  "render-scene",
+ "serde",
  "serde_json",
  "sha2",
  "shaderpack",
