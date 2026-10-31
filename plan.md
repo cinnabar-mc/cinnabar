@@ -181,9 +181,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close chorus visuals. Plants grow arms toward chorus neighbours and end stone below, with
-  position-selected stubs elsewhere, and flowers draw their three bars. The connection block states
-  added in 1.26.60 are not read: placement selects from the neighbours, as the 26.30 reference does,
-  so whether the 1.26.60 client reads those states instead is unverified.
+  position-selected stubs elsewhere, and flowers draw their three bars. Collision reaches the edges the
+  state's connections name. Drawing selects from the neighbours, as the 26.30 reference does; a
+  1.26.61 server keeps the connection states set the same way, and whether the 1.26.60 client reads
+  them instead is unverified.
 - [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
   and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
   inactive and cooldown phases, and calibrated sensors keep their provisional shape without
