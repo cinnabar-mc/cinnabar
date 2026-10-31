@@ -164,12 +164,20 @@ fn coral_forms_resolve_artwork_and_state_selected_models() {
             assert_eq!(quads.len(), 1, "wall fan is one inclined sprite");
             let direction = state["coral_direction"]["value"].as_u64().unwrap();
             let axis = if direction < 2 { 0 } else { 2 };
-            let attachment = if direction.is_multiple_of(2) { 3 } else { 253 };
+            // Direction 1 hangs from the wall at lower x, 3 from the one at lower z.
+            let attachment = if direction.is_multiple_of(2) { 253 } else { 3 };
             let roots: Vec<_> = quads[0].positions.iter().filter(|p| p[1] == 128).collect();
             assert_eq!(roots.len(), 2);
             assert!(
                 roots.iter().all(|p| p[axis] == attachment),
                 "direction {direction} attaches at the correct face"
+            );
+            let across = if axis == 0 { 2 } else { 0 };
+            let span = quads[0].positions.map(|p| p[across]);
+            assert_eq!(
+                (*span.iter().min().unwrap(), *span.iter().max().unwrap()),
+                (13, 243),
+                "the sprite stays inside the block across the wall"
             );
             assert!(
                 quads[0]
@@ -181,7 +189,21 @@ fn coral_forms_resolve_artwork_and_state_selected_models() {
             wall_poses.insert(direction, quads[0].positions);
         } else if record.name.ends_with("_coral_fan") {
             assert_eq!(quads.len(), 4, "floor fan spreads in four directions");
-            assert!(quads.iter().flat_map(|q| q.positions).all(|p| p[1] < 128));
+            // The arms over z rise higher than those over x, and each mirrors its opposite.
+            let tip = |q: &assets::ModelQuad| *q.positions.iter().map(|p| &p[1]).max().unwrap();
+            assert_eq!(
+                quads.iter().map(tip).collect::<Vec<_>>(),
+                [141, 141, 90, 90]
+            );
+            for (quad, outer, axis, tip_u) in [
+                (&quads[0], 333, 2, 4096),
+                (&quads[1], -77, 2, 0),
+                (&quads[2], 333, 0, 0),
+                (&quads[3], -77, 0, 4096),
+            ] {
+                assert_eq!(quad.positions[0][axis], outer);
+                assert_eq!(quad.uvs[0], [tip_u, 0]);
+            }
             floor_poses.insert(
                 state["coral_fan_direction"]["value"].as_u64().unwrap(),
                 quads.iter().map(|q| q.positions).collect::<Vec<_>>(),
