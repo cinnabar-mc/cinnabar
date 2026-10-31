@@ -151,9 +151,11 @@ mod tests {
                 BlockFace::Up | BlockFace::Down => patch(0, 4, 0, 4),
                 _ => patch(1, 5, 4, 11),
             };
-            assert!(quad.uvs.iter().all(|[u, v]| {
-                (*u == u0 || *u == u1) && (*v == v0 || *v == v1)
-            }));
+            assert!(
+                quad.uvs
+                    .iter()
+                    .all(|[u, v]| { (*u == u0 || *u == u1) && (*v == v0 || *v == v1) })
+            );
         }
     }
 }

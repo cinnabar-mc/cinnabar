@@ -161,10 +161,11 @@ fn turtle_egg_art_follows_the_cracked_state() {
     )
     .unwrap();
     let mut selected = std::collections::BTreeSet::new();
-    for record in records
-        .iter()
-        .filter(|record| record.property(assets::facts::BlockProperty::CrackedState).is_some())
-    {
+    for record in records.iter().filter(|record| {
+        record
+            .property(assets::facts::BlockProperty::CrackedState)
+            .is_some()
+    }) {
         let (path, variant) = terrain.get_for_model_record("turtle_egg", record).unwrap();
         assert_eq!(path, format!("textures/stage_{variant}"));
         selected.insert(variant);
