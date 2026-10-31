@@ -64,9 +64,6 @@ fn plant_block(plant: &NbtCompound) -> Option<PlantBlock> {
     })
 }
 
-/// The block whose head wears the sticky art when its actor data does not say.
-const STICKY_PISTON: &str = "minecraft:sticky_piston";
-
 /// A block entity's drawing plan before per-frame animation and text resolution.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum Template {
@@ -264,7 +261,7 @@ pub(super) fn piston_arm(
     };
     let sticky = nbt
         .and_then(|nbt| nbt.boolean("Sticky"))
-        .unwrap_or(name == STICKY_PISTON);
+        .unwrap_or(name == assets::facts::block::STICKY_PISTON_IDENTIFIER);
     Some(Template::PistonArm {
         facing,
         sticky,
