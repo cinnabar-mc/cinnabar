@@ -1,4 +1,4 @@
-use super::{BREG_V2193, active_content_registry_protocol, bind, synthetic_preg};
+use super::{BREG_V2225, active_content_registry_protocol, bind, synthetic_preg};
 use crate::test_support::block_fact;
 use crate::{
     block_use::{PlacementContext, UseSurroundings, predicted_placement},
@@ -21,10 +21,10 @@ fn fixtures() -> &'static (Box<[RegistryRecord]>, PhysicsCollisionRegistries) {
         OnceLock::new();
     FIXTURES.get_or_init(|| {
         let protocol = active_content_registry_protocol();
-        let records = assets::read_registry_for_protocol(BREG_V2193, protocol).unwrap();
+        let records = assets::read_registry_for_protocol(BREG_V2225, protocol).unwrap();
         let registries = bind(
-            BREG_V2193,
-            &synthetic_preg(protocol, BREG_V2193, &records),
+            BREG_V2225,
+            &synthetic_preg(protocol, BREG_V2225, &records),
             protocol,
         )
         .unwrap();
@@ -191,8 +191,8 @@ fn carpet_prediction_accepts_materialized_custom_support_in_both_identity_modes(
     let (records, _) = fixtures();
     let protocol = active_content_registry_protocol();
     let mut registries = bind(
-        BREG_V2193,
-        &synthetic_preg(protocol, BREG_V2193, records),
+        BREG_V2225,
+        &synthetic_preg(protocol, BREG_V2225, records),
         protocol,
     )
     .unwrap();

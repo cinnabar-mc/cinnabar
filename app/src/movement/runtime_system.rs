@@ -37,6 +37,8 @@ pub(crate) struct MovementSettings<'w> {
     settings: Option<Res<'w, RuntimeSettings>>,
     #[cfg(not(target_arch = "wasm32"))]
     mods: Option<Res<'w, crate::modding::ModControlModes>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    movement_override: Option<Res<'w, crate::modding::ModMovementInputActive>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,6 +108,19 @@ pub(crate) fn advance_local_physics(
         active,
         input_authority_released: semantic.is_none_or(|snapshot| snapshot.authority_released),
         resolved_movement: input.movement_is_resolved(),
+        movement_override: {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                settings
+                    .movement_override
+                    .as_ref()
+                    .is_some_and(|mode| mode.0)
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                false
+            }
+        },
         movement,
         raw_movement,
         analogue_movement,

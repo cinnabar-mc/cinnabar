@@ -371,7 +371,13 @@ impl UiPresentationRuntime {
         let Some(renderer) = self.engine.as_deref() else {
             return;
         };
-        if !self.screens.containers.prewarm_inventory(renderer) {
+        let source = ContainerAuthority::new(player_runtime, runtime);
+        if !self.screens.containers.prewarm_inventory(
+            renderer,
+            &source,
+            self.inventory_preparation_revision
+                .load(std::sync::atomic::Ordering::Relaxed),
+        ) {
             return;
         }
         let book = super::recipe_book::recipe_book_shown(player_runtime, runtime);
@@ -390,6 +396,26 @@ impl UiPresentationRuntime {
             size,
             true,
         );
+    }
+
+    /// Requests closed-screen artwork only when its retained preparation sources changed.
+    pub(in crate::ui_runtime::presentation) fn inventory_preparation_needed(
+        &self,
+        player: &player_state::PlayerState,
+        runtime: &UiRuntime,
+    ) -> bool {
+        if !self.hud_frame.engine_containers || runtime.inventory_open() {
+            return false;
+        }
+        let Some(engine) = self.engine.as_deref() else {
+            return false;
+        };
+        self.screens.containers.needs_inventory_preparation(
+            engine,
+            &ContainerAuthority::new(player, runtime),
+            self.inventory_preparation_revision
+                .load(std::sync::atomic::Ordering::Relaxed),
+        )
     }
 
     /// Prepares or paints `layout`; only a visible paint publishes frame geometry.
@@ -465,9 +491,23 @@ impl UiPresentationRuntime {
             id_aux: &id_aux,
         };
         let drawn = if prepare {
-            self.screens
-                .containers
-                .prepare(renderer, &source, &items, input, &mut paint_frame);
+            let translator = runtime.translator();
+            let resources = ui_engine::engine::layout_task::LayoutResources {
+                font: Arc::clone(&self.font),
+                layouts: ui::TextLayoutCache::new(
+                    super::super::TEXT_CACHE_ENTRIES,
+                    super::super::TEXT_CACHE_BYTES,
+                ),
+                translate: Arc::new(move |key| translator.lookup(key)),
+            };
+            self.screens.containers.prepare(
+                renderer,
+                &source,
+                &items,
+                input,
+                &mut paint_frame,
+                resources,
+            );
             None
         } else {
             self.screens
@@ -497,6 +537,28 @@ impl UiPresentationRuntime {
     #[cfg(test)]
     pub fn engine_container_placed(&self) -> usize {
         self.screens.containers.placed()
+    }
+
+    /// Controls rebuilt over the personal inventory's retained lifetime, for work regressions.
+    #[cfg(test)]
+    pub fn engine_inventory_rebuilt(&self) -> usize {
+        self.screens.containers.inventory_rebuilt()
+    }
+
+    /// Keeps projected slot inputs until a pending or ready inventory has actually painted.
+    pub(in crate::ui_runtime::presentation) fn inventory_inputs_needed(
+        &self,
+        player: &player_state::PlayerState,
+        runtime: &UiRuntime,
+    ) -> bool {
+        self.inventory_preparation_needed(player, runtime)
+            || self.screens.containers.retains_prepared_inventory_inputs()
+    }
+
+    /// Whether the closed inventory still owns unfinished preparation work.
+    #[cfg(test)]
+    pub fn engine_inventory_preparation_pending(&self) -> bool {
+        self.screens.containers.inventory_preparation_pending()
     }
 
     /// The container frame the engine drew last build, if any.

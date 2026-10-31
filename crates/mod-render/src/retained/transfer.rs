@@ -11,11 +11,15 @@ pub struct Snapshot {
     pub materials: Vec<(Handle, String)>,
     pub instances: Vec<(Handle, Instance)>,
     pub entities: Vec<(Handle, EntityKey)>,
+    pub clips: Vec<(Handle, Clip)>,
 }
 
 impl Geometry {
     /// Recovers only original mesh inputs, excluding host-computed bounds and costs.
     fn spec(&self) -> GeometrySpec {
+        if let Some(blocks) = &self.blocks {
+            return GeometrySpec::Blocks(blocks.grid.clone());
+        }
         if self.polyline {
             GeometrySpec::Polyline {
                 vertices: self.vertices.to_vec(),
@@ -38,13 +42,23 @@ impl Snapshot {
             materials,
             instances,
             entities,
+            clips,
         } = self;
-        geometry.is_empty() && materials.is_empty() && instances.is_empty() && entities.is_empty()
+        geometry.is_empty()
+            && materials.is_empty()
+            && instances.is_empty()
+            && entities.is_empty()
+            && clips.is_empty()
     }
 
     /// Serializes committed resources without their renderer caches or native identifiers.
     pub fn from_resources(resources: &Resources) -> Self {
         Self {
+            clips: resources
+                .clips
+                .iter()
+                .map(|(&id, clip)| (id, clip.clone()))
+                .collect(),
             entities: resources
                 .entities
                 .iter()
@@ -112,6 +126,9 @@ impl Snapshot {
             resources.entities.insert(id, *key);
         }
         for (id, spec) in &self.geometry {
+            if matches!(spec, GeometrySpec::Blocks(_)) && !permissions.render_material {
+                return Err(error(ErrorCode::Denied, "block geometry"));
+            }
             let id = token(*id);
             if !ids.insert(id) {
                 return Err(error(ErrorCode::Invalid, "duplicate resource"));
@@ -147,6 +164,31 @@ impl Snapshot {
             };
             resources.materials.insert(id, material);
         }
+        if self.clips.len() > mod_api::drawing::MAX_DRAW_CLIPS {
+            return Err(error(ErrorCode::BudgetExceeded, "clips"));
+        }
+        for (id, clip) in &self.clips {
+            let id = token(*id);
+            if !ids.insert(id) {
+                return Err(error(ErrorCode::Invalid, "duplicate resource"));
+            }
+            let mut clip = clip.clone();
+            clip.geometry = token(clip.geometry);
+            clip.parent = clip.parent.map(&mut token);
+            if let Anchor::Entity(anchor) = &mut clip.anchor {
+                anchor.entity = token(anchor.entity);
+            }
+            if let Some(old) = previous
+                .and_then(|resources| resources.clips.get(&id))
+                .filter(|old| **old == clip)
+            {
+                clip.status = Arc::clone(&old.status);
+            }
+            resources.clips.insert(id, clip);
+        }
+        for clip in resources.clips.values() {
+            clips::validate(clip, &resources, permissions)?;
+        }
         for (id, instance) in &self.instances {
             let id = token(*id);
             if !ids.insert(id) {
@@ -155,6 +197,7 @@ impl Snapshot {
             let mut instance = instance.clone();
             instance.geometry = token(instance.geometry);
             instance.material = instance.material.map(&mut token);
+            instance.clip = instance.clip.map(&mut token);
             if let Anchor::Entity(anchor) = &mut instance.anchor {
                 anchor.entity = token(anchor.entity);
             }
@@ -165,6 +208,7 @@ impl Snapshot {
         // Validate the callback's complete output before reconciling normal actor despawns.
         let references = resources.entities.len();
         resources.entities.retain(|_, key| valid(*key));
+        clips::reconcile(&mut resources);
         resources.instances.retain(|_, instance| {
             !matches!(instance.anchor, Anchor::Entity(anchor) if !resources.entities.contains_key(&anchor.entity))
         });
@@ -178,7 +222,9 @@ impl Snapshot {
         resources.instance_revision = previous.map_or(1, |old| {
             old.instance_revision
                 + u64::from(
-                    old.instances != resources.instances || old.entities != resources.entities,
+                    old.instances != resources.instances
+                        || old.entities != resources.entities
+                        || old.clips != resources.clips,
                 )
         });
         Ok((resources, stale))

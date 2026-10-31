@@ -75,7 +75,7 @@ mod validation;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination};
+pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, ShieldCraft};
 pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
@@ -633,12 +633,20 @@ impl PlayerInventoryLedger {
             .iter()
             .filter(|pending| pending.state == InventoryPendingState::AwaitingTransport)
             .peekable();
+        if ready
+            .peek()
+            .is_some_and(|pending| self.personal_request_waits_for_open(pending))
+        {
+            return Ok(None);
+        }
         if let Some(drop) = ready.next_if(|pending| pending.world_drop.is_some()) {
             return self.world_drop_packet(drop).map(|packet| Some((packet, 1)));
         }
         // A later drop leaves in its own packet, after the requests queued before it.
         let requests: Vec<_> = ready
-            .take_while(|pending| pending.world_drop.is_none())
+            .take_while(|pending| {
+                pending.world_drop.is_none() && !self.personal_request_waits_for_open(pending)
+            })
             .map(|pending| {
                 (
                     pending.request_id,

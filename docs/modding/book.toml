@@ -1,0 +1,13 @@
+[book]
+title = "Cinnabar Modding"
+language = "en"
+src = "src"
+
+[build]
+create-missing = false
+
+[output.html]
+site-url = "/docs/modding/"
+
+[output.html.search]
+enable = true

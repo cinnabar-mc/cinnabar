@@ -9,6 +9,7 @@ fn frame(attack: ActionPhase, item_use: ActionPhase) -> ActionSnapshot {
     phases[Action::Use as usize] = item_use;
     ActionSnapshot {
         ordered: None,
+        admitted_desktop: Vec::new(),
         frame_sequence: crate::identity::InputSequence::new(1),
         authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
         movement: [0.; 2],

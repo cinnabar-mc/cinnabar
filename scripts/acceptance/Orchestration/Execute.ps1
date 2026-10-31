@@ -46,11 +46,7 @@ $script:AcceptanceExecutionPhase = {
             $metadata['visual_fixture_pose'] = $VisualFixturePose
         }
         if ($isCrossCropGallery) {
-            $crossCropGalleryArguments = [pscustomobject][ordered]@{
-                pose = $VisualFixturePose
-                state_set_sha256 = $CrossCropCoverage.state_set_sha256
-                state_count = $CrossCropCoverage.state_count
-            }
+            $crossCropGalleryArguments = New-CrossCropGalleryArguments -Pose $VisualFixturePose -Page $GalleryPage -Coverage $CrossCropCoverage
             $metadata['cross_crop_gallery'] = [pscustomobject][ordered]@{
                 arguments = $crossCropGalleryArguments
                 arguments_sha256 = Get-CanonicalObjectHash -Value $crossCropGalleryArguments
@@ -518,7 +514,8 @@ $script:AcceptanceExecutionPhase = {
                 -MutationCoordinate $coordinate `
                 -Pose $VisualFixturePose `
                 -RegistryPath $BlockRegistryPath `
-                -AssetsPath $Assets
+                -AssetsPath $Assets `
+                -GalleryPage $GalleryPage
             Set-BdsSourceWorldIdentityOnPlan -Plan $fixturePlan -Identity $sourceWorldIdentity -RuntimeIdentity $runtimeWorldIdentity
             $fixturePublication = Publish-VisualFixture `
                 -Handle $bdsHandle `

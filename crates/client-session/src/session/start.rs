@@ -152,6 +152,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 session_generation,
                 identity: session.identity().clone(),
                 world: bootstrap,
+                player_rotation: game_data.player_rotation,
                 environment: game_data.environment,
                 custom_blocks,
                 inventory,

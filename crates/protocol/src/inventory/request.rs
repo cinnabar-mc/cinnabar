@@ -1,13 +1,13 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     InteractAction, PacketViolationSeverity, PacketViolationType, TextProcessingEventOrigin,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     ContainerClose, Interact, ItemStackRequest, PacketViolationWarning,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ItemStackRequestID, ItemStackRequestPacketData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use super::InventoryPacketError;
 mod actions;
@@ -42,7 +42,7 @@ pub fn open_inventory_packet(
         return Err(InventoryPacketError::InvalidInventoryTargetRuntimeId);
     }
     Ok(crate::Packet::new(Interact {
-        action: InteractAction::Openinventory,
+        action: InteractAction::OpenInventory,
         target_runtime_id: ActorRuntimeID(target_runtime_id),
         position: None,
     }))
@@ -129,7 +129,7 @@ fn encode_request(
         strings_to_filter_origin: if filter_strings.is_empty() {
             TextProcessingEventOrigin::Unknown
         } else {
-            TextProcessingEventOrigin::Anviltext
+            TextProcessingEventOrigin::AnvilText
         },
     })
 }
@@ -178,8 +178,8 @@ pub fn container_close_packet(window_id: i32) -> Result<crate::Packet, Inventory
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::packets;
-    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+    use bedrock_protocol_1_26_60::packets;
+    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 
     use super::*;
 
@@ -216,7 +216,7 @@ mod tests {
         let packets::Packet::Interact(interact) = *packet.data else {
             panic!("expected Interact packet");
         };
-        assert_eq!(interact.action, InteractAction::Openinventory);
+        assert_eq!(interact.action, InteractAction::OpenInventory);
         assert_eq!(interact.target_runtime_id.0, 42);
         assert_eq!(interact.position, None);
         assert_eq!(

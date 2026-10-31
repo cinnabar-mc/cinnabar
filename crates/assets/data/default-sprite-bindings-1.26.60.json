@@ -1,0 +1,243 @@
+{
+  "schema": 2,
+  "game_version": "1.26.60",
+  "source_tag": "v1.26.60.30-preview",
+  "source_commit": "4d30ae63750467771b6eccda105f732c6cb77ff7",
+  "source_url": "https://github.com/Mojang/bedrock-samples/tree/4d30ae63750467771b6eccda105f732c6cb77ff7",
+  "archive_sha256": "b7e66ccb64370d345d898ac92cf5a524866657d5aad6ff2655ce1dc6a8d102b9",
+  "atlas_sha256": "b203a6a4daef52efe98a1e7569a1b69ac7c1a08ca824e8556d141be34233107a",
+  "retail_allowlist_sha256": "4d9b95a973180279fba6c45e115c5327f995d5b50ac828aad278d6ca2a16946c",
+  "coverage": "Explicit default icon bindings, including the filled-map compatibility identity outside the retail census; bundle auxiliary states, legacy implicit routes, metadata selection, dynamic icons and display transforms are not established.",
+  "routes": [
+    {
+      "identifier": "minecraft:apple",
+      "default_alias": "apple",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:baked_potato",
+      "default_alias": "potato_baked",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:beef",
+      "default_alias": "beef_raw",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:beetroot_seeds",
+      "default_alias": "seeds_beetroot",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:black_bundle",
+      "default_alias": "bundle_black",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:blue_bundle",
+      "default_alias": "bundle_blue",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:breeze_rod",
+      "default_alias": "breeze_rod",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:brown_bundle",
+      "default_alias": "bundle_brown",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:bundle",
+      "default_alias": "bundle",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:chicken",
+      "default_alias": "chicken_raw",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:cooked_beef",
+      "default_alias": "beef_cooked",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:cooked_chicken",
+      "default_alias": "chicken_cooked",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:cooked_porkchop",
+      "default_alias": "porkchop_cooked",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:cooked_rabbit",
+      "default_alias": "rabbit_cooked",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:copper_spear",
+      "default_alias": "copper_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:cyan_bundle",
+      "default_alias": "bundle_cyan",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:diamond_spear",
+      "default_alias": "diamond_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:filled_map",
+      "default_alias": "map_filled",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:golden_carrot",
+      "default_alias": "carrot_golden",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:golden_spear",
+      "default_alias": "gold_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:gray_bundle",
+      "default_alias": "bundle_gray",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:green_bundle",
+      "default_alias": "bundle_green",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:iron_spear",
+      "default_alias": "iron_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:light_blue_bundle",
+      "default_alias": "bundle_light_blue",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:light_gray_bundle",
+      "default_alias": "bundle_light_gray",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:lime_bundle",
+      "default_alias": "bundle_lime",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:magenta_bundle",
+      "default_alias": "bundle_magenta",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:melon_seeds",
+      "default_alias": "seeds_melon",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:netherite_spear",
+      "default_alias": "netherite_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:ominous_trial_key",
+      "default_alias": "ominous_trial_key",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:orange_bundle",
+      "default_alias": "bundle_orange",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:pink_bundle",
+      "default_alias": "bundle_pink",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:poisonous_potato",
+      "default_alias": "potato_poisonous",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:porkchop",
+      "default_alias": "porkchop_raw",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:pumpkin_seeds",
+      "default_alias": "seeds_pumpkin",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:purple_bundle",
+      "default_alias": "bundle_purple",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:red_bundle",
+      "default_alias": "bundle_red",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:red_shrub",
+      "default_alias": "red_shrub",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:redstone",
+      "default_alias": "redstone_dust",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:stone_spear",
+      "default_alias": "stone_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:trial_key",
+      "default_alias": "trial_key",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:wheat_seeds",
+      "default_alias": "seeds_wheat",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:white_bundle",
+      "default_alias": "bundle_white",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:wind_charge",
+      "default_alias": "wind_charge",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:wooden_spear",
+      "default_alias": "wood_spear",
+      "atlas_variant": 0
+    },
+    {
+      "identifier": "minecraft:yellow_bundle",
+      "default_alias": "bundle_yellow",
+      "atlas_variant": 0
+    }
+  ]
+}

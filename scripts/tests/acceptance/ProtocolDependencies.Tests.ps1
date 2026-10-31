@@ -251,25 +251,25 @@ $null = Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 $manifestPath = Join-Path $fixtureRoot 'crates\protocol\Cargo.toml'
 $canonicalManifest = Get-Content -Raw -LiteralPath $manifestPath
 Set-Content -LiteralPath $manifestPath -NoNewline -Value `
-    $canonicalManifest.Replace('path = "vendor/bedrock-protocol-1-26-51"', 'path = "..\outside\bedrock-protocol-1-26-51"')
+    $canonicalManifest.Replace('path = "vendor/bedrock-protocol-1-26-60"', 'path = "..\outside\bedrock-protocol-1-26-60"')
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
 } '*cargo metadata*' 'protocol provenance accepted a drifted codec path declaration'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $vendorRoot = Join-Path $fixtureRoot 'crates\protocol\vendor'
-Copy-Item -LiteralPath (Join-Path $vendorRoot 'bedrock-protocol-1-26-51') `
-    -Destination (Join-Path $vendorRoot 'bedrock-protocol-1-26-51-decoy') -Recurse
+Copy-Item -LiteralPath (Join-Path $vendorRoot 'bedrock-protocol-1-26-60') `
+    -Destination (Join-Path $vendorRoot 'bedrock-protocol-1-26-60-decoy') -Recurse
 $canonicalStringDecoys = @'
 [dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 '@
 $quotedWrongPaths = $canonicalManifest.Replace(
     'publish = false',
     "publish = false`ndescription = `"`"`"`n$canonicalStringDecoys`n`"`"`""
 ).Replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
-    '"bedrock-protocol-1-26-51" = { path = "vendor/bedrock-protocol-1-26-51-decoy" }'
+    'bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }',
+    '"bedrock-protocol-1-26-60" = { path = "vendor/bedrock-protocol-1-26-60-decoy" }'
 )
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $quotedWrongPaths
 Assert-ThrowsLike {
@@ -280,24 +280,24 @@ Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 Set-Content -LiteralPath $manifestPath -NoNewline -Value ($canonicalManifest + @'
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 '@)
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*bedrock-protocol-1-26-51*exactly once*' 'protocol provenance accepted an additional target-table codec declaration'
+} '*bedrock-protocol-1-26-60*exactly once*' 'protocol provenance accepted an additional target-table codec declaration'
 
 $inactiveDecoy = $canonicalManifest.Replace(
-    'bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }',
+    'bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }',
     '# active codec declaration removed'
 ) + @'
 
 [target.'cfg(unix)'.dependencies]
-bedrock-protocol-1-26-51 = { path = "vendor/bedrock-protocol-1-26-51" }
+bedrock-protocol-1-26-60 = { path = "vendor/bedrock-protocol-1-26-60" }
 '@
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $inactiveDecoy
 Assert-ThrowsLike {
     Assert-TestProtocolDependencyProvenance -Root $fixtureRoot
-} '*bedrock-protocol-1-26-51*normal non-target*' 'protocol provenance accepted an inactive target-table codec decoy'
+} '*bedrock-protocol-1-26-60*normal non-target*' 'protocol provenance accepted an inactive target-table codec decoy'
 Set-Content -LiteralPath $manifestPath -NoNewline -Value $canonicalManifest
 
 $upstreamPath = Join-Path $fixtureRoot 'crates\protocol\vendor\UPSTREAM.md'
@@ -325,13 +325,13 @@ Set-Content -LiteralPath $licensePath -NoNewline -Value $canonicalLicense
 $lockPath = Join-Path $fixtureRoot 'Cargo.lock'
 $canonicalLock = Get-Content -Raw -LiteralPath $lockPath
 $driftedLock = $canonicalLock.Replace(
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+    "name = `"bedrock-protocol-1-26-60`"`r`nversion = `"0.1.0`"",
+    "name = `"bedrock-protocol-1-26-60`"`r`nversion = `"0.1.0`"`r`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
+        "name = `"bedrock-protocol-1-26-60`"`nversion = `"0.1.0`"",
+        "name = `"bedrock-protocol-1-26-60`"`nversion = `"0.1.0`"`n   source   = `"git+https://github.com/HashimTheArab/axolotl-stack.git?rev=$expectedAxolotlStackRevision#$expectedAxolotlStackRevision`""
     )
 }
 Assert-True ($driftedLock -cne $canonicalLock) 'lock drift fixture did not mutate codec resolution'
@@ -342,13 +342,13 @@ Assert-ThrowsLike {
 Set-Content -LiteralPath $lockPath -NoNewline -Value $canonicalLock
 
 $driftedLock = $canonicalLock.Replace(
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"",
-    "name = `"bedrock-protocol-1-26-51`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
+    "name = `"bedrock-protocol-1-26-60`"`r`nversion = `"0.1.0`"",
+    "name = `"bedrock-protocol-1-26-60`"`r`nversion = `"0.1.0`"`r`n`tchecksum = `"$('2' * 64)`""
 )
 if ($driftedLock -ceq $canonicalLock) {
     $driftedLock = $canonicalLock.Replace(
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"",
-        "name = `"bedrock-protocol-1-26-51`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
+        "name = `"bedrock-protocol-1-26-60`"`nversion = `"0.1.0`"",
+        "name = `"bedrock-protocol-1-26-60`"`nversion = `"0.1.0`"`n`tchecksum = `"$('2' * 64)`""
     )
 }
 Assert-True ($driftedLock -cne $canonicalLock) 'checksum drift fixture did not mutate codec resolution'

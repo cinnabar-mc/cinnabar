@@ -1,0 +1,27 @@
+{
+  "schema": "cinnabar.biome-projection.v3",
+  "game_version": "1.26.60",
+  "protocol": 2225,
+  "sources": {
+    "shared_catalog": {
+      "module": "github.com/cinnabar-mc/protocolgen/generated/data",
+      "source_lock_sha256": "a1c1c5faa367c92257dd19aa4521033e707f93868035cec568a6cc70a82dd953",
+      "biome_count": 89
+    }
+  },
+  "allowlist": {
+    "path": "crates/protocol/data/retail_biomes_1_26_60.txt",
+    "sha256": "6127c74c17455273bb5226f1e05e98709bc247c05a0137a8827cb97756c3b198",
+    "count": 89
+  },
+  "projection": {
+    "retained": 89,
+    "ignored_count": 0,
+    "ignored_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "output": {
+    "format": "BIOREG01",
+    "path": "crates/assets/data/biome-registry-v2225.bin",
+    "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
+  }
+}

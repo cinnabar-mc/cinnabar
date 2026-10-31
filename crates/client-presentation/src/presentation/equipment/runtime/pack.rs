@@ -308,6 +308,7 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
+        self.clear_shield_patterns();
         // Startup texture meshes also depend on the replaced artwork layer.
         self.java_rasters.clear();
         self.free_meshes

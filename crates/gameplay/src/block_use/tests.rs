@@ -679,6 +679,30 @@ fn orientation_sensitive_states_preserve_the_original_world_hit() {
 }
 
 #[test]
+fn a_newly_placed_cell_is_not_reinterpreted_as_an_interaction() {
+    let mut intention = super::BuildIntention::default();
+    intention.record(
+        false,
+        [4, 64, -2],
+        LocalUse::Place,
+        true,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(intention.suppress_post_place_interaction([4, 64, -2]));
+    assert!(!intention.suppress_post_place_interaction([4, 64, -1]));
+    intention.record(
+        true,
+        [4, 64, -2],
+        LocalUse::Interact,
+        false,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(!intention.suppress_post_place_interaction([4, 64, -2]));
+}
+
+#[test]
 fn held_orientation_uses_compiled_attachment_and_rail_facts() {
     for name in ["minecraft:lever", "minecraft:rail", "minecraft:resin_clump"] {
         assert!(super::orientation_sensitive(block_fact(name)), "{name}");

@@ -3,7 +3,7 @@
 use super::Request;
 use arc_swap::ArcSwapOption;
 use mod_api::native_camera::Effects;
-use mod_api::native_frame::Frame;
+use mod_host::NativeFrame as Frame;
 use std::sync::{
     Arc, Mutex, PoisonError,
     atomic::{AtomicBool, AtomicU64, Ordering},
@@ -422,8 +422,12 @@ mod tests {
     /// Uses the wire fixture's exact 64-bit identities in a deterministic input.
     fn frame() -> Frame {
         let fixture: serde_json::Value =
-            serde_json::from_str(include_str!("../../../../mod-api/native-frame-v1.json")).unwrap();
-        serde_json::from_value(fixture["frame"].clone()).unwrap()
+            serde_json::from_str(include_str!("../../../../mod-api/native-frame-v2.json")).unwrap();
+        {
+            let mut frame: Frame = serde_json::from_value(fixture["frame"].clone()).unwrap();
+            frame.attack_held = true;
+            frame
+        }
     }
 
     /// A finite presented view near the fixture frame's eye.

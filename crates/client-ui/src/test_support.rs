@@ -32,7 +32,7 @@ pub fn fixture_hud() -> Arc<RuntimeHudCatalog> {
             }
         })
         .collect::<Vec<_>>();
-    let manifest = assets::HUD_SOURCE_MANIFEST_SHA256;
+    let manifest = assets::hud_source_manifest_sha256();
     let bytes = encode_hud_catalog(manifest, &textures).unwrap();
     Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
 }
@@ -217,5 +217,6 @@ pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
         durability: assets::item::durability::ItemDurability::NotDamageable,
         enchanted: false,
         map_id: None,
+        shield_pattern: None,
     }
 }

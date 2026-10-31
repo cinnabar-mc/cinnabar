@@ -19,7 +19,7 @@ fn label(properties: Value) -> ResolvedControl {
     }
 }
 
-// 1.26.50's font-size table is 0.5 / 1 / 2 / 4; `medium` is not a size.
+// 1.26.60's font-size table is 0.5 / 1 / 2 / 4; `medium` is not a size.
 #[test]
 fn font_sizes_follow_the_client_table() {
     let scale = |size: &str| font_scale(&label(json!({ "font_size": size })));

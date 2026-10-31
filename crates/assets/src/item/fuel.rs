@@ -7,11 +7,11 @@ use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::OnceLock};
 
 /// Logical source identity for the retained compatibility choices.
-pub const SOURCE_PATH: &str = "registry/item-fuel-v2193.tsv";
+pub const SOURCE_PATH: &str = "registry/item-fuel-v2225.tsv";
 /// Checkout input fingerprinted by the entity carrier recipe.
-pub const INPUT_PATH: &str = "crates/assets/data/item-fuel-v2193.tsv";
+pub const INPUT_PATH: &str = "crates/assets/data/item-fuel-v2225.tsv";
 /// The single retained positive compatibility input.
-pub const SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-fuel-v2193.tsv");
+pub const SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-fuel-v2225.tsv");
 
 /// Unknown fuel eligibility is separate from a declared positive or negative choice.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]

@@ -194,10 +194,11 @@ fn torch_planes_take_own_cell_light_without_neighbor_ao() {
     }
 }
 
-/// Native bamboo emits its leaf planes right after the stem's east face without a new
-/// vertex light, so they repeat that face's final (top, +Z) vertex, AO included.
+/// Native tessellation emits detail quads such as bamboo leaves right after a cuboid's east
+/// face without a new vertex light, so they repeat that face's final (top, +Z) vertex, AO
+/// included, and carry the east face for its shade.
 #[test]
-fn bamboo_leaves_repeat_the_last_stem_vertex_light() {
+fn detail_quads_repeat_the_last_cuboid_vertex_light() {
     let (low, high) = (128, 160);
     let face = |face: assets::BlockFace, positions| ModelQuad {
         positions,
@@ -258,14 +259,14 @@ fn bamboo_leaves_repeat_the_last_stem_vertex_light() {
         ],
         uvs: [[0; 2]; 4],
         material: 0,
-        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED,
+        flags: assets::MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
     };
     quads.extend([leaf; 4]);
     let assets = runtime_assets_with_model_geometry(
         vec![ModelTemplate {
             quad_start: 0,
             quad_count: quads.len() as u32,
-            flags: assets::MODEL_TEMPLATE_FLAG_BAMBOO,
+            flags: 0,
         }],
         quads.clone(),
     );
@@ -285,7 +286,7 @@ fn bamboo_leaves_repeat_the_last_stem_vertex_light() {
         0,
     )
     .unwrap();
-    let east = assets::bamboo::LEAF_SHADE_FACE as usize;
+    let east = assets::BlockFace::East as usize;
     let corner = quads[east]
         .positions
         .iter()
@@ -294,10 +295,19 @@ fn bamboo_leaves_repeat_the_last_stem_vertex_light() {
     let last_stem_vertex = lighting[east].samples()[corner];
     // Brightest of the own, +Y, +Z and +Y+Z cells, sky 6, one shaded sample.
     assert_eq!(last_stem_vertex, 4 | (6 << 4) | (1 << 8));
-    let first_leaf = assets::bamboo::FIRST_LEAF_QUAD as usize;
-    assert_eq!(first_leaf, assets::BlockFace::ALL.len());
-    for (index, leaf) in lighting[first_leaf..].iter().enumerate() {
-        assert_eq!(leaf.samples(), [last_stem_vertex; 4], "leaf {index}");
+    assert!(
+        lighting[..6]
+            .iter()
+            .all(|face| face.samples()[0] >> 12 == 0)
+    );
+    let east_shade = (assets::BlockFace::East.model_quad_face_id() as u16)
+        << meshing::LIGHT_SAMPLE_SHADE_FACE_SHIFT;
+    for (index, leaf) in lighting[6..].iter().enumerate() {
+        assert_eq!(
+            leaf.samples(),
+            [last_stem_vertex | east_shade; 4],
+            "leaf {index}"
+        );
     }
 }
 

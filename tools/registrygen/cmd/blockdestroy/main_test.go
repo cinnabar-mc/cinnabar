@@ -1,6 +1,7 @@
 package main
 
 import (
+	sharedblock "github.com/cinnabar-mc/protocolgen/generated/data/block"
 	"reflect"
 	"testing"
 )
@@ -35,7 +36,14 @@ func TestSharedHardnessPreservesEveryBlock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(values) != 1477 || values["minecraft:obsidian"] != 35 {
+	count := 0
+	for {
+		if _, ok := sharedblock.BlockAt(uint16(count)); !ok {
+			break
+		}
+		count++
+	}
+	if len(values) != count || values["minecraft:obsidian"] != 35 {
 		t.Fatalf("unexpected shared hardness catalog: %d names, obsidian=%v", len(values), values["minecraft:obsidian"])
 	}
 }

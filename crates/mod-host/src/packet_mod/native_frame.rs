@@ -1,9 +1,10 @@
 //! Bounded native callback validation, shared by the packet worker's client adapter.
 
 use super::PacketMod;
+use crate::NativeFrame as Frame;
 use anyhow::{Result, ensure};
 use mod_api::native_camera::Effects;
-use mod_api::native_frame::{Delta, Frame, MAX_BYTES};
+use mod_api::native_frame::{Delta, MAX_BYTES};
 
 impl PacketMod {
     /// Whether this instance negotiated the native player-camera frame capability.
@@ -30,7 +31,7 @@ impl PacketMod {
         {
             frame.players.clear();
         }
-        let json = serde_json::to_vec(&observation)?;
+        let json = super::native_observation::encode(&observation, self.current_frame_wire)?;
         ensure!(
             json.len() <= MAX_BYTES,
             "native frame exceeds its byte limit"
@@ -154,7 +155,7 @@ mod tests {
     /// Uses a finite frame without any selected target or feature behavior.
     fn frame() -> Frame {
         Frame {
-            version: 1,
+            version: mod_api::native_frame::VERSION,
             session: 1,
             dimension: 0,
             eye: [0.0; 3],

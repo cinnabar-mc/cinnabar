@@ -219,15 +219,18 @@ animated rig remotes use. All three below flow from that.
   bell with frame and swing, lectern, enchant-table book, conduit, decorated pot, item/glow frames with framed items
   (dropped-item sprite path), campfire items, tinted scrolling beacon beam, additive end portal, sign text and
   model-shaped crack overlay draw from the `.mcbeben` carrier; all uncompiled, unmeasured and lit by the terrain
-  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, hopper/brewing-stand
-  terrain models and exact bell/lectern/pot dimensions remain open (MED-HIGH).
+  light curve. Filled maps, spawner mob, flower-pot plants, conduit wind cube, brewing-stand
+  terrain model and exact bell/lectern/pot dimensions remain open (MED-HIGH). Hopper terrain now
+  has a state-selected provisional model route; its matched live dimensions and lighting remain unverified.
 - Server resource packs: custom blocks (sequential and hashed ids), item icons, and lang apply at runtime;
   custom entities apply in the neutral material profile only (pack attachables apply to held/worn items on player bodies through a per-session equipment layer; no custom materials, cross-catalog vanilla clip references, or conditional/multi-texture render controllers); pack property defaults seed query.property only when a resource pack carries `entities/` behavior definitions; vanilla-entity retexturing rides the same path when the pack redefines a vanilla identifier; merged pack sounds now feed the audio engine as server overrides (uncompiled) (HIGH).
 - Sky now biome-temperature-derived, fog linear and rain-blended; clouds uncalibrated, End sky from the optional carrier,
   sun/moon quad size, AO darkening step, water surface alpha *(measure)*.
 - Terrain blocks (uncompiled): ice, slime, honey, tinted glass, powder snow, snow layers, named opaque cubes, amethyst
-  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron, hopper,
-  anvils, pistons, scaffolding, dripleaf and slime/honey inner cubes still diagnostic pending measurement; campfire logs,
+  and standing coral-fan sprites, redstone bases now compile; lanterns, candles, end/lightning rods, cauldron,
+  anvils, pistons, scaffolding, dripleaf and slime/honey inner cubes still diagnostic pending measurement. Hopper
+  states now compile the textured bowl and facing outlet, but native dimensions, lighting and replacement-pack behavior
+  remain unverified; campfire logs,
   ember bed and flames match the 26.30 client model. The model is unchanged for 1.26.50 but remains
   unverified there (HIGH).
 

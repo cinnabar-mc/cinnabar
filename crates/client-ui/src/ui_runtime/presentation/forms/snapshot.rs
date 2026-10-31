@@ -170,9 +170,13 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                         .round() as u8;
                         texel = [luma, luma, luma, texel[3]];
                     }
-                    Some(premultiply(std::array::from_fn(|channel| {
+                    let mut rgba = premultiply(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
-                    })))
+                    }));
+                    if corners[0].style_flags & render_api::UI_STYLE_RGB_COVERAGE != 0 {
+                        rgba[3] *= f32::from(texel[0].max(texel[1]).max(texel[2])) / 255.0;
+                    }
+                    Some(rgba)
                 },
                 batch.blend_mode == UI_BLEND_INVERT,
             );

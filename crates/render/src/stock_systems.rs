@@ -35,10 +35,13 @@ use bevy::{
     transform::StaticTransformOptimizations,
 };
 
+mod serial_transforms;
+mod serial_visibility;
 #[cfg(test)]
 mod tests;
 
-/// Removes the stock systems whose inputs the client never creates.
+/// Removes the stock systems whose inputs the client never creates and runs Bevy's per-entity
+/// view-visibility bookkeeping and hierarchy-free transform sync serially.
 ///
 /// Add it after `RenderPlugin`, `CorePipelinePlugin`, `CameraPlugin`, `MeshPlugin` and
 /// `TransformPlugin` have built.
@@ -49,6 +52,8 @@ impl Plugin for StockSystemsPlugin {
         // No client entity has a parent, so static-tree dirty marking would track nothing.
         app.insert_resource(StaticTransformOptimizations::Disabled)
             .add_systems(PostStartup, remove_unused_main_systems);
+        serial_visibility::install(app);
+        serial_transforms::install(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             // RenderStartup reruns after device recovery; the removed systems stay removed.
             render_app.add_systems(RenderStartup, remove_unused_render_systems.run_if(run_once));
@@ -117,7 +122,8 @@ fn remove_unused_render_systems(world: &mut World) {
     );
 }
 
-/// Removes each stock system from `label` while keeping the order between its neighbours.
+/// Removes each stock system from `label` while keeping the order between its neighbours,
+/// building the schedule once rather than once per system.
 ///
 /// Panics when Bevy no longer schedules an [`Scheduled::Always`] system there, so an entry
 /// cannot go stale silently.
@@ -127,13 +133,16 @@ fn remove(
     scheduled: Scheduled,
     systems: impl IntoIterator<Item = InternedSystemSet>,
 ) {
+    let sets: Vec<_> = systems.into_iter().collect();
     world.schedule_scope(label, |world, schedule| {
-        for set in systems {
-            let removed = schedule.remove_systems_in_set(
-                set,
+        let removed = schedule
+            .remove_systems_in_sets(
+                sets.iter().copied(),
                 world,
                 ScheduleCleanupPolicy::RemoveSystemsOnly,
-            );
+            )
+            .unwrap_or_else(|error| panic!("{:?} did not build: {error}", schedule.label()));
+        for (set, removed) in sets.iter().zip(removed) {
             assert!(
                 scheduled == Scheduled::WhereSupported
                     || removed.as_ref().is_ok_and(|&count| count != 0),

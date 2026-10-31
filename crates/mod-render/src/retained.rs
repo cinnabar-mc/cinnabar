@@ -3,7 +3,10 @@
 use mod_api::drawing::{DrawingHandle as Handle, DrawingPermissions};
 use std::{collections::BTreeMap, sync::Arc};
 
+pub mod blocks;
+mod clips;
 mod entities;
+pub use clips::{Clip, ClipStatus};
 mod materials;
 pub mod mesh;
 pub use entities::EntityKey;
@@ -24,6 +27,7 @@ pub struct Vertex {
 /// Immutable topology; polyline distances are computed by the host on admission.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum GeometrySpec {
+    Blocks(blocks::BlockGrid),
     Triangles {
         vertices: Vec<Vertex>,
         indices: Vec<u32>,
@@ -37,6 +41,7 @@ pub enum GeometrySpec {
 /// Validated geometry and its cached facts stay immutable across instances and snapshots.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Geometry {
+    blocks: Option<Arc<blocks::BlockGeometry>>,
     vertices: Arc<[Vertex]>,
     bounds: [[f32; 3]; 2],
     indices: Arc<[u32]>,
@@ -50,13 +55,23 @@ pub struct Geometry {
 }
 
 impl Geometry {
+    /// Returns worker-owned block geometry, when this handle describes a grid.
+    pub fn blocks(&self) -> Option<&Arc<blocks::BlockGeometry>> {
+        self.blocks.as_ref()
+    }
     /// Returns the local position bounds computed during admission.
     pub fn bounds(&self) -> [[f32; 3]; 2] {
         self.bounds
     }
 
-    /// Bounds expanded triangles, including immutable line joins and caps.
+    /// Counts completed triangles, including line joins; pending block meshes contribute zero.
     pub fn triangles(&self) -> usize {
+        if let Some(blocks) = self.blocks() {
+            return blocks
+                .result()
+                .and_then(|result| result.as_ref().ok())
+                .map_or(0, |mesh| mesh.triangles);
+        }
         self.expanded_vertices / 3
     }
 
@@ -164,6 +179,7 @@ pub enum Cap {
 pub struct Instance {
     pub geometry: Handle,
     pub material: Option<Handle>,
+    pub clip: Option<Handle>,
     pub params: [f32; mod_api::materials::PARAMS],
     pub anchor: Anchor,
     pub transform: Transform,
@@ -176,7 +192,7 @@ pub struct Instance {
     pub cap: Cap,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ErrorCode {
     Denied,
     Invalid,
@@ -201,11 +217,54 @@ pub struct Resources {
     pub geometry: BTreeMap<Handle, Arc<Geometry>>,
     pub instances: BTreeMap<Handle, Instance>,
     pub materials: BTreeMap<Handle, Arc<crate::material::Material>>,
+    pub clips: BTreeMap<Handle, Clip>,
     groups: BTreeMap<String, Vec<Handle>>,
     pub geometry_revision: u64,
     pub material_revision: u64,
     /// Changes when placements or their entity references change.
     pub instance_revision: u64,
+}
+
+impl Resources {
+    /// Counts synchronous placements and mask chains before any block meshing completes.
+    pub fn static_triangle_work(&self) -> usize {
+        self.triangle_work(None, false).unwrap_or(usize::MAX)
+    }
+
+    /// Counts completed placements and mask chains belonging to the selected allocation owners.
+    pub fn triangle_work_for(&self, owners: &[u64]) -> usize {
+        self.triangle_work(Some(owners), true).unwrap_or(usize::MAX)
+    }
+
+    /// Shares exact placement multiplicity and bounded parent-mask work across admission paths.
+    fn triangle_work(&self, owners: Option<&[u64]>, include_blocks: bool) -> Option<usize> {
+        let selected = |id: &Handle| owners.is_none_or(|owners| owners.contains(&id.owner));
+        let mut triangles = self
+            .instances
+            .iter()
+            .filter(|(id, _)| selected(id))
+            .try_fold(0usize, |sum, (_, instance)| {
+                let geometry = self.geometry.get(&instance.geometry)?;
+                sum.checked_add(if !include_blocks && geometry.blocks().is_some() {
+                    0
+                } else {
+                    geometry.triangles()
+                })
+            })?;
+        for (_, clip) in self.clips.iter().filter(|(id, _)| selected(id)) {
+            let mut current = Some(clip);
+            for _ in 0..mod_api::drawing::MAX_DRAW_CLIP_DEPTH {
+                let Some(clip) = current else { break };
+                triangles =
+                    triangles.checked_add(self.geometry.get(&clip.geometry)?.triangles())?;
+                current = match clip.parent {
+                    Some(id) => Some(self.clips.get(&id)?),
+                    None => None,
+                };
+            }
+        }
+        Some(triangles)
+    }
 }
 
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.
@@ -216,6 +275,7 @@ pub struct Store {
     committed: Arc<Resources>,
     staged: Option<Resources>,
     mutation_bytes: usize,
+    block_mutation_bytes: usize,
     retired: Vec<Arc<Geometry>>,
     retired_materials: Vec<Arc<crate::material::Material>>,
     material_compiles: u32,
@@ -233,6 +293,7 @@ impl Default for Store {
             committed: Arc::default(),
             staged: None,
             mutation_bytes: 0,
+            block_mutation_bytes: 0,
             retired: Vec::new(),
             retired_materials: Vec::new(),
             material_compiles: 0,
@@ -287,6 +348,7 @@ impl Store {
     pub fn begin(&mut self) {
         self.staged = None;
         self.mutation_bytes = 0;
+        self.block_mutation_bytes = 0;
         self.material_compiles = 0;
     }
 
@@ -314,6 +376,7 @@ impl Store {
     pub fn rollback(&mut self) {
         self.staged = None;
         self.mutation_bytes = 0;
+        self.block_mutation_bytes = 0;
     }
 
     /// Invalidates all resource handles and clears output on trap, reload or session changes.
@@ -339,6 +402,7 @@ impl Store {
             committed,
             staged: _,
             mutation_bytes: _,
+            block_mutation_bytes: _,
             retired: _,
             retired_materials: _,
             material_compiles: _,
@@ -369,12 +433,18 @@ impl Store {
     pub fn create_geometry(&mut self, spec: GeometrySpec) -> Result<Handle, DrawError> {
         let geometry = Arc::new(validation::geometry(spec)?);
         let bytes = geometry.bytes;
+        let blocks = geometry.blocks.is_some();
         let handle = self.token()?;
-        self.edit(bytes, |resources| {
+        let change = |resources: &mut Resources| {
             resources.geometry.insert(handle, geometry);
             resources.geometry_revision += 1;
             Ok(())
-        })?;
+        };
+        if blocks {
+            self.edit_blocks(bytes, change)?;
+        } else {
+            self.edit(bytes, change)?;
+        }
         Ok(handle)
     }
 
@@ -470,6 +540,7 @@ impl Store {
         self.edit(0, |resources| {
             if resources.entities.contains_key(&handle) {
                 if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
+                if resources.clips.values().any(|clip|matches!(clip.anchor,Anchor::Entity(anchor) if anchor.entity==handle)) {return Err(error(ErrorCode::InUse,"clip entity"));}
                 resources.entities.remove(&handle);
                 resources.instance_revision += 1;
                 return Ok(());
@@ -478,6 +549,18 @@ impl Store {
             if resources.instances.remove(&handle).is_some() {
                 resources.instance_revision += 1;
                 return Ok(());
+            }
+            if resources.clips.contains_key(&handle) {
+                if resources.instances.values().any(|instance|instance.clip == Some(handle))
+                    || resources.clips.values().any(|clip|clip.parent == Some(handle)) {
+                    return Err(error(ErrorCode::InUse,"clip"));
+                }
+                resources.clips.remove(&handle);
+                resources.instance_revision += 1;
+                return Ok(());
+            }
+            if resources.clips.values().any(|clip|clip.geometry == handle) {
+                return Err(error(ErrorCode::InUse,"clip geometry"));
             }
             if resources
                 .instances
@@ -558,6 +641,22 @@ impl Store {
         self.material_budget(&candidate)?;
         self.mutation_bytes = total;
         self.staged = Some(candidate);
+        Ok(())
+    }
+
+    /// Gives block inputs their own allowance without increasing other imports' byte budget.
+    fn edit_blocks(
+        &mut self,
+        bytes: usize,
+        change: impl FnOnce(&mut Resources) -> Result<(), DrawError>,
+    ) -> Result<(), DrawError> {
+        let total = self
+            .block_mutation_bytes
+            .checked_add(bytes)
+            .filter(|total| *total <= mod_api::drawing::MAX_BLOCK_MUTATION_BYTES)
+            .ok_or(error(ErrorCode::BudgetExceeded, "block mutation bytes"))?;
+        self.edit(0, change)?;
+        self.block_mutation_bytes = total;
         Ok(())
     }
 

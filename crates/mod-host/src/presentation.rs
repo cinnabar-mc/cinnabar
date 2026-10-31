@@ -35,6 +35,14 @@ pub struct Output {
     pub masks: Vec<mod_render::masks::Mask>,
 }
 
+/// Completion feedback for one exact helper-owned grid or clip generation.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct BlockStatus {
+    pub handle: DrawingHandle,
+    pub revision: u64,
+    pub result: Result<(), mod_render::retained::ErrorCode>,
+}
+
 /// Trusted native frame identities, bounded before helper dispatch.
 #[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -46,6 +54,7 @@ pub struct Context {
     /// Current candidates, held references and candidates of one in-flight callback.
     pub live: Vec<mod_render::retained::EntityKey>,
     pub targets: Vec<(mod_api::drawing::MaskEntity, u64)>,
+    pub blocks: Vec<BlockStatus>,
 }
 
 impl Context {
@@ -56,7 +65,8 @@ impl Context {
             "unbound or stale drawing context"
         );
         ensure!(
-            self.candidates.len() <= mod_api::MAX_DRAW_ENTITIES
+            self.blocks.len() <= mod_api::MAX_DRAW_GEOMETRIES + mod_api::drawing::MAX_DRAW_CLIPS
+                && self.candidates.len() <= mod_api::MAX_DRAW_ENTITIES
                 && self.live.len() <= mod_api::MAX_DRAW_ENTITIES * 3
                 && self.targets.len() <= mod_api::drawing::MAX_MASK_ENTITIES,
             "drawing context budget exceeded"
@@ -99,6 +109,36 @@ pub struct Receiver {
 }
 
 impl Receiver {
+    /// Remaps finished native generations back to the helper's original owner tokens.
+    pub fn block_statuses(&self) -> Vec<BlockStatus> {
+        self.output
+            .retained
+            .iter()
+            .flat_map(|resources| {
+                let blocks = resources.geometry.iter().filter_map(|(id, geometry)| {
+                    let block = geometry.blocks()?;
+                    Some((*id, block.grid.revision, block.status()?))
+                });
+                let clips = resources
+                    .clips
+                    .iter()
+                    .filter_map(|(id, clip)| Some((*id, 0, clip.status.result()?)));
+                blocks.chain(clips)
+            })
+            .filter_map(|(id, revision, result)| {
+                let (&owner, _) = self
+                    .owners
+                    .iter()
+                    .find(|(_, native)| **native == id.owner)?;
+                Some(BlockStatus {
+                    handle: DrawingHandle { owner, ..id },
+                    revision,
+                    result,
+                })
+            })
+            .collect()
+    }
+
     /// Returns the allocation ledger shared by drawing and media for this bundle lifetime.
     pub fn ledger(&mut self, limit: u64) -> &mod_render::GpuLedger {
         self.ledger
@@ -372,7 +412,7 @@ impl Receiver {
                 .unwrap_or_else(|| Arc::new(resources));
             output.retained.push(retained);
         }
-        check_scene_budget(&output, &scene)?;
+        let retained_triangle_limit = check_scene_budget(&output, &scene)?;
         owners.retain(|_, local| {
             output.retained.iter().any(|resources| {
                 resources
@@ -389,6 +429,7 @@ impl Receiver {
             ledger: self.ledger(gpu_bytes).clone(),
             primitives: mod_render::PrimitiveRanges::all(&output.primitives),
             passes: output.passes.iter().map(|pass| pass.revision).collect(),
+            retained_triangle_limit: Some(retained_triangle_limit),
         });
         self.owners = owners;
         self.output = output;
@@ -407,27 +448,19 @@ impl Receiver {
 fn check_scene_budget(
     output: &RenderOutput,
     contributions: &server_experience::runtime::Contributions,
-) -> Result<()> {
+) -> Result<usize> {
     let draws = output.primitives.draw_count()
         + output
             .retained
             .iter()
             .map(|resources| resources.instances.len())
             .sum::<usize>();
-    let triangles = mod_render::geometry::vertex_count(&output.primitives) / 3
-        + output
-            .retained
-            .iter()
-            .map(|resources| {
-                resources
-                    .instances
-                    .values()
-                    .filter_map(|instance| resources.geometry.get(&instance.geometry))
-                    .map(|geometry| geometry.triangles())
-                    .sum::<usize>()
-            })
-            .sum::<usize>();
-    contributions.check_scene_budget(draws, triangles as u64)
+    let retained = output.retained.iter().fold(0usize, |sum, resources| {
+        sum.saturating_add(resources.static_triangle_work())
+    });
+    let triangles =
+        (mod_render::geometry::vertex_count(&output.primitives) / 3).saturating_add(retained);
+    Ok(contributions.remaining_scene_triangles(draws, triangles as u64)? as usize + retained)
 }
 
 #[cfg(test)]

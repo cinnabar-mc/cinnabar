@@ -2,6 +2,11 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Shares immutable base analysis with display actors, preserving separate session state.
+    pub fn actor_animation_catalog(&self) -> Option<actor_animation::ActorAnimationCatalog> {
+        self.actors.animation_catalog()
+    }
+
     /// Reads the target's component proof without predicting unknown native interactions.
     pub fn offered_use(
         &self,

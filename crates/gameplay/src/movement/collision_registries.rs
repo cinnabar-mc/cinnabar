@@ -120,7 +120,7 @@ impl PhysicsCollisionRegistries {
     /// [`PhysicsCollisionRegistryError::ProtocolMismatch`], naming both
     /// protocols and both artifact paths (the installed physics registry and
     /// the loaded world carrier). Without this comparison, a future partial
-    /// flip (world 2193 + physics 1001 or reverse) would recreate the live
+    /// flip (world 2225 + physics 1001 or reverse) would recreate the live
     /// block-identity aliasing mechanism with zero decode errors. Malformed
     /// headers fall through to the full decoder so structural errors keep
     /// their precise existing messages.

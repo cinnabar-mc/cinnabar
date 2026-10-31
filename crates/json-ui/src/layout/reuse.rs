@@ -204,6 +204,7 @@ fn vacant_hit() -> HitRegion {
         clip: none,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: None,
         control_name: None,
         collection_index: None,

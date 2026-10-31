@@ -123,7 +123,7 @@ mod render_setup;
 use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v2193.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2225.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make assets` (normal `make client` does this automatically)";
 
@@ -283,6 +283,10 @@ pub(crate) fn configure_client_runtime_frame_systems(app: &mut App) {
 
 pub fn run(args: args::ClientArgs) -> Result<()> {
     args.validate_acceptance_support(cfg!(feature = "acceptance"))?;
+    args.validate_camera_support(cfg!(any(
+        feature = "developer-control",
+        feature = "acceptance"
+    )))?;
     if std::env::var_os(render_api::STARTUP_BENCHMARK_ENV).is_some()
         && !cfg!(feature = "acceptance")
     {

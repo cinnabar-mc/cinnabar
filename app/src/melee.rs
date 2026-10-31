@@ -227,13 +227,16 @@ pub(crate) fn prepare_melee(
 }
 
 /// Drains ordered presses before advancing this frame's held mining work once.
-pub(crate) fn produce_attacks(world: &mut bevy::prelude::World) {
+pub(crate) fn produce_attacks(
+    world: &mut bevy::prelude::World,
+    mut windows: bevy::prelude::Local<crate::ordered_interactions::PrimaryWindows>,
+) {
     crate::ordered_interactions::drain(
         world,
         crate::ordered_interactions::DispatchPhase::BeforeMovement,
+        &mut windows,
     );
-    world
-        .run_system_cached(maintain_attacks)
+    crate::ordered_interactions::run_cached(world, maintain_attacks, ())
         .expect("attack maintenance resources");
 }
 
@@ -324,7 +327,7 @@ fn maintain_attacks(
     // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
         && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
-        && crate::ordered_interactions::held(
+        && crate::ordered_interactions::build_held(
             context.ordered.as_deref(),
             &context.input,
             Action::Attack,

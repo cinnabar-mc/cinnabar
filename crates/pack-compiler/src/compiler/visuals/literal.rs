@@ -1,8 +1,8 @@
 //! Stateless blocks the pack defines literally: full cubes whose faces come from the block
 //! texture map, and blocks vanilla draws nothing for.
 //!
-//! Anything that needs geometry the pack does not carry (hopper, campfire,
-//! candle, cauldron, ...) stays diagnostic until measured.
+//! Anything that needs geometry the pack does not carry (campfire, candle,
+//! cauldron, ...) stays diagnostic until measured.
 
 use assets::facts::{BlockRenderKind as R, block_render_fact};
 

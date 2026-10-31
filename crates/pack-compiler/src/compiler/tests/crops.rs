@@ -5,7 +5,7 @@ use assets::{CompiledBiomeAssets, NetworkIdMode, RuntimeAssets};
 fn compile_crops() -> (RuntimeAssets, Vec<RegistryRecord>) {
     let protocol = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../../../crates/assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../../crates/assets/data/block-registry-v2225.bin"),
         protocol,
     )
     .unwrap()

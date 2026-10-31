@@ -34,7 +34,7 @@ pub(super) struct PanelInput<'w> {
     reserved: Option<ResMut<'w, super::ReservedControls>>,
 }
 
-const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
+pub(super) const POINTER_BUTTONS: [(MouseButton, &str); 3] = [
     (MouseButton::Left, "MouseLeft"),
     (MouseButton::Right, "MouseRight"),
     (MouseButton::Middle, "MouseMiddle"),
@@ -506,7 +506,7 @@ pub(super) fn prepare_mod_input(
     if !focused {
         presentation.mod_ui_mut().cancel_mod_panel_pointer_input();
     }
-    if absorbed || interrupt && !presentation.mod_ui().mod_hud_editor_open() {
+    if absorbed || interrupt {
         presentation.mod_ui_mut().cancel_mod_panel_edit();
     }
     let mut pressed = pointer_pressed;
@@ -644,10 +644,11 @@ pub(super) fn prepare_mod_input(
             Vec::new()
         },
         keys_held: if focused && !absorbed && !editing {
-            physical.held_keys.clone()
+            physical.held_sample()
         } else {
             Vec::new()
         },
+        keys_admitted: Vec::new(),
         events,
         pointer: window
             .cursor_position()

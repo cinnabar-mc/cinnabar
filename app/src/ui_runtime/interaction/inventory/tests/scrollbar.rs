@@ -18,6 +18,7 @@ fn frame() -> ui_engine::frame::EngineFrame {
         clip: rect,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: None,
         control_name: None,
         collection_index: None,

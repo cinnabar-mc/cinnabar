@@ -59,6 +59,9 @@ pub(crate) struct PackReload {
     generation: u64,
     revision: u64,
     applied: u64,
+    /// Whether the current revision was requested by a user-facing global-pack change.
+    /// Session handoffs use the normal world-entry cover instead.
+    loading_screen_requested: bool,
     pending: Option<Pending>,
     ready: Option<Prepared>,
     last_duration: Option<Duration>,
@@ -84,6 +87,7 @@ impl Default for PackReload {
             generation: 0,
             revision: 0,
             applied: 0,
+            loading_screen_requested: false,
             pending: None,
             ready: None,
             last_duration: None,
@@ -114,8 +118,22 @@ impl PackReload {
 
     /// Queues a global stack; importing or reordering never touches the network connection.
     pub(crate) fn request_globals(&mut self, stack: Arc<ValidatedPackStack>) -> u64 {
+        self.request_globals_with_cover(stack, true)
+    }
+
+    /// Queues the persisted global stack during startup without showing an in-session cover.
+    pub(crate) fn request_globals_initial(&mut self, stack: Arc<ValidatedPackStack>) -> u64 {
+        self.request_globals_with_cover(stack, false)
+    }
+
+    fn request_globals_with_cover(
+        &mut self,
+        stack: Arc<ValidatedPackStack>,
+        show_cover: bool,
+    ) -> u64 {
         self.globals = stack;
         self.requested_at = Some(Instant::now());
+        self.loading_screen_requested = show_cover;
         self.revision += 1;
         self.error = None;
         self.revision
@@ -124,6 +142,11 @@ impl PackReload {
     /// The settings host shows this while a worker prepares a replacement.
     pub(crate) fn progress(&self) -> Option<&str> {
         (self.applied != self.revision).then_some("Applying resource packs…")
+    }
+
+    /// Whether a global-pack change needs its own full-screen cover.
+    pub(crate) fn loading_screen(&self) -> bool {
+        self.loading_screen_requested && self.applied != self.revision
     }
 
     /// Reports the latest preparation failure separately from pending work.
@@ -144,8 +167,9 @@ impl PackReload {
     /// Retains server-owned facts while keeping user packs below the server stack.
     pub(super) fn begin_session(&mut self, generation: u64, packs: &PackApplication) {
         self.generation = generation;
+        self.loading_screen_requested = false;
         self.aim_assist_textures = packs.aim_assist_textures.clone();
-        self.previous = Some(packs.clone());
+        self.replace_previous(Some(packs.clone()));
         self.previous_assets = None;
         self.server = match &packs.admission {
             PackAdmission::Validated(stack) => stack.clone(),
@@ -161,12 +185,20 @@ impl PackReload {
     /// Retires server layers; globals remain available in the menus.
     pub(super) fn end_session(&mut self) {
         self.server = resource_pack::validate_handoff(protocol::ResourcePackHandoff::default());
+        self.loading_screen_requested = false;
         self.inputs = Arc::default();
         self.items = None;
         self.generation = 0;
         self.aim_assist_textures = Default::default();
-        self.previous = None;
+        self.replace_previous(None);
         self.revision += 1;
+    }
+
+    /// Retires the previous application's metadata off the frame.
+    fn replace_previous(&mut self, application: Option<PackApplication>) {
+        if let Some(retired) = std::mem::replace(&mut self.previous, application) {
+            client_runtime::session::release_off_frame(retired);
+        }
     }
 
     /// Starts one worker at a time, coalescing edits made during an existing build.
@@ -208,7 +240,7 @@ impl PackReload {
                             &stack,
                             previous
                                 .as_ref()
-                                .map(|old| (&old.admission, &old.dependencies)),
+                                .map(|old| (&old.admission, old.dependencies.as_ref())),
                         )
                     };
                     let biomes_changed = changes.blocks || previous_assets.is_none();
@@ -241,8 +273,7 @@ impl PackReload {
                         },
                     );
                     if let Some(environment) = &environment {
-                        application
-                            .dependencies
+                        Arc::make_mut(&mut application.dependencies)
                             .extend(environment.dependencies.clone());
                     }
                     application.item_components = items;
@@ -252,8 +283,7 @@ impl PackReload {
                         let biome_view =
                             resource_pack::LayeredPackView::tracked(view.shared_stack());
                         apply_biome_overlay(&biome_view, &base, &mut biome_overlay);
-                        application
-                            .dependencies
+                        Arc::make_mut(&mut application.dependencies)
                             .entry(pack_runtime::reload_diff::Subscriber::Blocks)
                             .or_default()
                             .extend(biome_view.dependencies().expect("tracked view").snapshot());
@@ -439,6 +469,7 @@ pub(crate) fn reload_resource_packs(
                             gpu.cancel_except(current.binding_identity());
                             reload.error = Some(error);
                             reload.applied = reload.revision;
+                            reload.loading_screen_requested = false;
                             return;
                         }
                     }
@@ -451,6 +482,7 @@ pub(crate) fn reload_resource_packs(
                             gpu.cancel_except(current.binding_identity());
                             reload.error = Some(error);
                             reload.applied = reload.revision;
+                            reload.loading_screen_requested = false;
                             return;
                         }
                         Some(Ok(())) => {}
@@ -489,7 +521,7 @@ pub(crate) fn reload_resource_packs(
                     )
                 });
                 reload.aim_assist_textures = prepared.application.aim_assist_textures.clone();
-                reload.previous = Some(prepared.application.clone());
+                reload.replace_previous(Some(prepared.application.clone()));
                 reload.previous_assets = Some(prepared.assets.clone());
                 if let Some(prepared) = prepared.environment {
                     environment.publish(prepared);
@@ -567,6 +599,7 @@ pub(crate) fn reload_resource_packs(
                 reload.applied = prepared.revision;
                 reload.last_duration = Some(prepared.elapsed);
                 reload.error = None;
+                reload.loading_screen_requested = false;
             }
             Some(Ok(_)) | None => {}
             Some(Err(error)) => {
@@ -575,6 +608,7 @@ pub(crate) fn reload_resource_packs(
                 }
                 reload.error = Some(error);
                 reload.applied = reload.revision;
+                reload.loading_screen_requested = false;
             }
         }
     }

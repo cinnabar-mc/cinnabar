@@ -112,6 +112,14 @@ pub(crate) fn drive_data_driven_input(
         gesture.cursor = None;
         return;
     }
+    if runtime.resource_pack_loading() {
+        wheel.clear();
+        gesture.held = None;
+        gesture.cursor = None;
+        gesture.owned_last_frame = false;
+        presentation.set_data_driven_pointer(None, None);
+        return;
+    }
     if runtime.credits().owns_input() || !runtime.data_driven_ui().owns_input() {
         wheel.clear();
         if gesture.owned_last_frame {

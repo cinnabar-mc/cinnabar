@@ -279,7 +279,7 @@ fn exact_pinned_pack_renders_every_retail_spawn_egg() {
     let compiled = compile_entity_assets(&pack, MANIFEST).unwrap();
     let icons = compile_icon_assets(&pack, MANIFEST).unwrap();
     let catalog = RuntimeIconCatalog::decode(&icons.bytes).unwrap();
-    let retail = include_str!("../../../../../protocol/data/retail_items_1_26_50.tsv");
+    let retail = include_str!("../../../../../protocol/data/retail_items_1_26_60.tsv");
     let mut egg_count = 0;
     for identifier in retail
         .lines()

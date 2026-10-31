@@ -1,4 +1,4 @@
-//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.50.04).
+//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.60.04).
 use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
 use {

@@ -3,9 +3,9 @@
 use super::*;
 use bevy::render::render_resource::BufferInitDescriptor;
 use bevy::{
-    camera::{MainPassResolutionOverride, Viewport},
+    camera::MainPassResolutionOverride,
     core_pipeline::{Core3d, Core3dSystems},
-    prelude::{SubApp, SystemSet, UVec2},
+    prelude::{SubApp, SystemSet},
     render::{
         camera::ExtractedCamera,
         render_resource::RenderPassDepthStencilAttachment,
@@ -606,19 +606,6 @@ pub(crate) fn prepare(
     }
 }
 
-/// Uses the scene's main-pass viewport and clips it to the mask attachment.
-fn raster_viewport(
-    viewport: Option<&Viewport>,
-    resolution: Option<&MainPassResolutionOverride>,
-    extent: [u32; 2],
-) -> Option<Viewport> {
-    let viewport = Viewport::from_viewport_and_override(viewport, resolution).unwrap_or(Viewport {
-        physical_size: UVec2::from_array(extent),
-        ..default()
-    });
-    crate::render_bounds::viewport(&viewport, extent)
-}
-
 /// Clears even an empty or unavailable selection so a previous silhouette is never reused.
 fn draw(
     world: &World,
@@ -666,7 +653,7 @@ fn draw(
         if !target.ready || target.frame_generation != gpu.frame_generation {
             continue;
         }
-        let Some(viewport) = raster_viewport(
+        let Some(viewport) = crate::render_bounds::camera_viewport(
             camera.viewport.as_ref(),
             resolution,
             crate::render_bounds::extent(&target.render_view),

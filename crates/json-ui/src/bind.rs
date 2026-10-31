@@ -151,6 +151,7 @@ pub fn bind_incremental(
 
 /// [`bind_incremental`] applied in place onto `bound`, the tree this state's last
 /// incremental bind produced, keeping `measures` for unchanged controls.
+/// Returns whether the bound properties or control tree changed.
 pub fn rebind(
     root: &Arc<ResolvedControl>,
     data: &Arc<DataSource>,
@@ -158,11 +159,16 @@ pub fn rebind(
     state: &mut BindState,
     bound: &mut ResolvedControl,
     measures: &mut crate::MeasureCache,
-) {
+) -> bool {
     bind_with(root, data, lib, state, true);
     state.data = Some(Arc::clone(data));
     if let Some(node) = state.tree.as_deref_mut() {
-        measures.apply_patch(bound, reuse::patch(node, &data.components));
+        let patch = reuse::patch(node, &data.components);
+        let changed = !matches!(patch, reuse::Patch::Same);
+        measures.apply_patch(bound, patch);
+        changed
+    } else {
+        false
     }
 }
 
@@ -179,12 +185,7 @@ fn bind_with(
     state.built.clear();
     state.views_run = 0;
     let mut changes = match &state.data {
-        Some(previous)
-            if incremental
-                && !truncated
-                && state.published.is_empty()
-                && data.components.is_empty() =>
-        {
+        Some(previous) if incremental && !truncated && data.components.is_empty() => {
             reuse::changes(previous, data)
         }
         _ => None,
@@ -193,6 +194,13 @@ fn bind_with(
         if let Some(changes) = &mut changes {
             changes.add_window(grid);
         }
+    }
+    let mut published_dirty = state::KeyMap::default();
+    if changes.is_some()
+        && !state.published.is_empty()
+        && let Some(tree) = state.tree.as_deref()
+    {
+        reuse::mark_published(tree, &state.published, &mut published_dirty);
     }
     let mut pool = state::KeyMap::default();
     if let Some(previous) = state.tree.take() {
@@ -211,6 +219,7 @@ fn bind_with(
         created: 0,
         pool,
         changes,
+        published_dirty,
     };
     let scope = Scope {
         values: Arc::clone(&data.creation_values),
@@ -218,7 +227,7 @@ fn bind_with(
     };
     let mut node = binder.build(Src::root(Arc::clone(root)), &scope, 0);
     binder.settle_views(&mut node);
-    reuse::finish(&mut node);
+    reuse::finish(&mut node, &binder);
     binder.retain(node);
     binder.diagnostics
 }
@@ -345,6 +354,8 @@ struct Binder<'a> {
     pool: state::KeyMap<Node>,
     /// What the data changed since the last incremental bind; `None` rebuilds all.
     changes: Option<reuse::Changes>,
+    /// Controls with queued bag writes and their ancestors, which cannot stand unchanged.
+    published_dirty: state::KeyMap<()>,
 }
 
 impl<'a> Binder<'a> {
@@ -816,6 +827,10 @@ impl<'a> Binder<'a> {
     /// Keep the tree for the next refresh, and the memory of dropped controls
     /// inside subtrees still hidden.
     fn retain(&mut self, node: Node) {
+        self.state.rebuilt_total = self
+            .state
+            .rebuilt_total
+            .saturating_add(self.state.built.len());
         self.state.generation += 1;
         let generation = self.state.generation;
         let mut leftover = std::mem::take(&mut self.state.controls);
@@ -917,12 +932,12 @@ const IDENTITY_NAMES: [&str; 3] = ["text_box_name", "dropdown_name", "slider_nam
 
 /// Replace `#`-referencing property values with their bag values and carry the
 /// bag's `#names`. An unbound `text` becomes empty rather than the literal
-/// `#name`; a `##` text is literal.
+/// `#name`; a `##` text is literal. Binding declarations stay on the immutable source.
 fn bake_properties(properties: &BTreeMap<String, Value>, own: &Bag) -> BTreeMap<String, Value> {
     let mut out: BTreeMap<String, Value> = properties
         .iter()
         .filter_map(|(key, value)| {
-            if key == crate::resolve::FACTORY_SCOPE {
+            if key == crate::resolve::FACTORY_SCOPE || key == "bindings" {
                 return None;
             }
             let value = match value {

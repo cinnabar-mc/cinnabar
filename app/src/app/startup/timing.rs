@@ -17,8 +17,10 @@ pub(crate) fn install_first_frame_log(app: &mut App) {
             "before_event_loop",
             crate::lifecycle::launched_at().elapsed(),
         );
+        timing.mark("before_event_loop");
     }
-    app.insert_resource(EventLoopStart(Instant::now()))
+    app.add_plugins(RunnerMilestones)
+        .insert_resource(EventLoopStart(Instant::now()))
         .insert_resource(UpdateStart(Instant::now()))
         .add_systems(bevy::prelude::First, begin_update.run_if(recording))
         .add_systems(
@@ -28,7 +30,9 @@ pub(crate) fn install_first_frame_log(app: &mut App) {
                 log_first_frame,
                 log_presented_menu.run_if(report_pending),
             )
-                .chain(),
+                .chain()
+                // The benchmark exit must reach the exit systems that clear renderer recovery.
+                .before(bevy::app::OnAppExitSystems),
         );
 }
 
@@ -40,6 +44,9 @@ pub(super) fn log_presented_menu(
 ) {
     if !menu.is_visible() {
         return;
+    }
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.mark("menu_visible");
     }
     if let Some(timing) = render_scene::startup_timing::current()
         && let Some(presented) = presentation
@@ -150,12 +157,16 @@ pub(crate) fn join<T>(handle: std::thread::ScopedJoinHandle<'_, T>) -> T {
 /// Starts a main-thread update sample without the opt-in gameplay profiler.
 fn begin_update(mut started: bevy::prelude::ResMut<UpdateStart>) {
     started.0 = Instant::now();
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.mark_at("first_update_start", started.0);
+    }
 }
 
 /// Totals main updates up to the first presented menu.
 fn finish_update(started: Res<UpdateStart>) {
     if let Some(timing) = render_scene::startup_timing::current() {
         let elapsed = started.0.elapsed();
+        timing.mark("first_update_end");
         timing.record("main_updates", elapsed);
         timing.main_update(elapsed);
         timing.count("main_updates", 1);
@@ -170,4 +181,25 @@ fn recording() -> bool {
 /// Emits the sealed result even after render completion has stopped startup work sampling.
 fn report_pending() -> bool {
     render_scene::startup_timing::current().is_some_and(|timing| timing.needs_report())
+}
+
+/// Marks the runner's plugin finish and cleanup, which run after `before_event_loop`.
+struct RunnerMilestones;
+
+impl bevy::prelude::Plugin for RunnerMilestones {
+    fn build(&self, _app: &mut App) {}
+
+    /// Runs after every plugin added before it has finished.
+    fn finish(&self, _app: &mut App) {
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.mark("plugins_finished");
+        }
+    }
+
+    /// Runs after earlier plugins' cleanup, including the render thread's start.
+    fn cleanup(&self, _app: &mut App) {
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.mark("plugins_cleaned_up");
+        }
+    }
 }

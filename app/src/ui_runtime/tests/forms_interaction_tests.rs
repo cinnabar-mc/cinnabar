@@ -262,7 +262,12 @@ fn form_open_and_answer_frames_consume_gameplay_chat_inventory_and_pause_edges()
         )
         .unwrap();
         assert_eq!(packets.len(), 1);
-        app.update(); // returns cursor ownership without replaying old messages
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
+        app.update(); // expires the unanswered handoff and returns cursor ownership
         assert!(
             !app.world()
                 .resource::<UiRuntimeResource>()
@@ -980,13 +985,22 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         }
         press(&mut app, window, key);
         app.update();
-        assert!(
-            app.world()
-                .resource::<UiRuntimeResource>()
-                .server_forms()
-                .active()
-                .is_none()
-        );
+        if key == KeyCode::Enter {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .handoff_pending()
+            );
+        } else {
+            assert!(
+                app.world()
+                    .resource::<UiRuntimeResource>()
+                    .server_forms()
+                    .active()
+                    .is_none()
+            );
+        }
         assert!(
             app.world()
                 .resource::<UiRuntimeResource>()
@@ -1006,6 +1020,11 @@ fn explicit_form_return_survives_pending_response_after_overlay_focus_loss() {
         app.world_mut()
             .resource_mut::<client_state::CursorFocus>()
             .begin_frame(true);
+        app.world_mut()
+            .resource_mut::<Time<Real>>()
+            .advance_by(std::time::Duration::from_millis(
+                client_ui::ui_runtime::FORM_HANDOFF_GRACE_MILLIS + 1,
+            ));
         app.update();
         let cursor = app.world().get::<CursorOptions>(window).unwrap();
         assert_eq!(cursor.grab_mode, bevy::window::CursorGrabMode::Locked);

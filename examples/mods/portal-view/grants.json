@@ -1,0 +1,6 @@
+{
+  "players": true,
+  "hud": true,
+  "world_draw": true,
+  "render_material": true
+}

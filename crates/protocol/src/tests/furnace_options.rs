@@ -1,10 +1,10 @@
 use crate::{Packet, WorldEvent, into_world_event};
-use bedrock_protocol_1_26_51::{packets, types};
+use bedrock_protocol_1_26_60::{packets, types};
 
 #[test]
 fn furnace_options_reach_the_inventory_owner() {
     let packet = Packet::new(packets::SetPlayerFurnaceOptions {
-        furnace_type: bedrock_protocol_1_26_51::enums::FurnaceType::Smoker,
+        furnace_type: bedrock_protocol_1_26_60::enums::FurnaceType::Smoker,
         furnace_options: types::FurnaceOptions::default(),
     });
     assert!(
@@ -72,8 +72,8 @@ fn unfamiliar_furnace_preferences_survive_and_unsupported_types_are_skipped() {
         assert_eq!(event.options.layout.index(), index);
     }
     for furnace_type in [
-        bedrock_protocol_1_26_51::enums::FurnaceType::None,
-        bedrock_protocol_1_26_51::enums::FurnaceType::Unknown(255),
+        bedrock_protocol_1_26_60::enums::FurnaceType::None,
+        bedrock_protocol_1_26_60::enums::FurnaceType::Unknown(255),
     ] {
         let packet = Packet::new(packets::SetPlayerFurnaceOptions {
             furnace_type,

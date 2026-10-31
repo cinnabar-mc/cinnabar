@@ -330,19 +330,18 @@ fn hi_z_never_culls_a_visible_sub_chunk_and_culls_hidden_ones() {
         &culler.storage.record_draws,
         u64::from(culler.slots) * 4,
     );
+    // Decisions follow the kernels' rank order.
     let decisions = bytemuck::cast_slice::<u8, u32>(&decisions);
-    let candidates = decisions
-        .iter()
-        .enumerate()
-        .filter(|(_, decision)| **decision & model::DECISION_CANDIDATE != 0)
-        .map(|(slot, _)| slot)
-        .collect::<BTreeSet<_>>();
-    let hidden = decisions
-        .iter()
-        .enumerate()
-        .filter(|(_, decision)| **decision & model::DECISION_HIDDEN != 0)
-        .map(|(slot, _)| slot)
-        .collect::<BTreeSet<_>>();
+    let slots_where = |flag: u32| {
+        decisions
+            .iter()
+            .zip(&culler.order)
+            .filter(|(decision, _)| **decision & flag != 0)
+            .map(|(_, &slot)| slot as usize)
+            .collect::<BTreeSet<_>>()
+    };
+    let candidates = slots_where(model::DECISION_CANDIDATE);
+    let hidden = slots_where(model::DECISION_HIDDEN);
     assert_eq!(hidden, candidates.difference(&kept).copied().collect());
     assert!(
         !hidden.is_empty(),

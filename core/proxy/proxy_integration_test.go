@@ -27,9 +27,8 @@ import (
 )
 
 const (
-	expectedBDSExecutableSHA256 = "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443"
-	expectedBDSRelease          = "1.26.52.3"
-	deterministicWorldSeed      = "2168"
+	expectedBDSRelease     = bridgecontract.BDSVersion
+	deterministicWorldSeed = "2168"
 )
 
 func TestProxyJoin(t *testing.T) {
@@ -63,7 +62,7 @@ func TestProxyHelperProcess(t *testing.T) {
 		cancel()
 	}()
 	// The client claims no device; production cores claim the install's.
-	claimed := device.New(protocol.DeviceAndroid)
+	claimed := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	if err := Serve(ctx, Config{
 		SocketDir: os.Getenv("CINNABAR_PROXY_SOCKET_DIR"),
 		Upstream:  os.Getenv("CINNABAR_PROXY_UPSTREAM"),
@@ -145,7 +144,10 @@ func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
 	t.Helper()
 	sourceDir := os.Getenv("BEDROCK_BDS_DIR")
 	if sourceDir == "" {
-		t.Skip("BEDROCK_BDS_DIR is not set")
+		t.Skip("missing fixture: BEDROCK_BDS_DIR")
+	}
+	if os.Getenv("BEDROCK_BDS_SHA256") == "" {
+		t.Skip("missing fixture: BEDROCK_BDS_SHA256")
 	}
 	info, err := os.Stat(sourceDir)
 	if err != nil || !info.IsDir() {
@@ -169,7 +171,7 @@ func startLiveProxyHarness(t *testing.T, socketDir string) *liveProxyHarness {
 	if err != nil {
 		t.Fatalf("prepare stable BDS runtime: %v", err)
 	}
-	if err := validateBDSExecutableIdentity(executable, expectedBDSExecutableSHA256); err != nil {
+	if err := validateBDSExecutableIdentity(executable, os.Getenv("BEDROCK_BDS_SHA256")); err != nil {
 		t.Fatalf("validate stable BDS executable: %v", err)
 	}
 	port := reserveUDPPort(t)
@@ -638,12 +640,12 @@ func TestStableRuntimeDirectoryCanonicalizesAliasesBeforeLeasing(t *testing.T) {
 }
 
 func TestBDSReleaseLineRequiresExactPinnedRelease(t *testing.T) {
-	if !isExpectedBDSReleaseLine("[INFO] Version: 1.26.52.3") {
+	if !isExpectedBDSReleaseLine("[INFO] Version: " + expectedBDSRelease) {
 		t.Fatal("exact pinned BDS release line was rejected")
 	}
 	for _, line := range []string{
-		"[INFO] Version: 1.26.52.30",
-		"[INFO] Version: 1.26.52.3-preview",
+		"[INFO] Version: " + expectedBDSRelease + "0",
+		"[INFO] Version: " + expectedBDSRelease + "-preview",
 		"[INFO] Server started.",
 	} {
 		if isExpectedBDSReleaseLine(line) {

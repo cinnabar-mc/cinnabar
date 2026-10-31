@@ -81,7 +81,7 @@ impl IconBlocks {
     }
 
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
-        let records = read_registry_for_protocol(assets::pinned_block_registry_bytes(), 2193)?;
+        let records = read_registry_for_protocol(assets::pinned_block_registry_bytes(), 2225)?;
         let has_catalogs = root.join("blocks.json").is_file()
             && root.join("textures/terrain_texture.json").is_file();
         Ok(Self {

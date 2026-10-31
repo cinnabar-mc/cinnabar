@@ -93,6 +93,7 @@ use {
     },
 };
 
+pub(crate) mod blocks;
 mod bounds;
 mod constants;
 mod draw;

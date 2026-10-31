@@ -47,8 +47,12 @@ tests exercise matrix order/Y orientation, authored geometry changes, pivot canc
 face-UV dimensions, alpha threshold, missing-model refusal, bound texture selection,
 deterministic compilation and unchanged ordinary sprites, independently of optional carriers.
 
-Patterned/NBT-tinted shield layers and their separate banner GUI material, glint-specific
-shader behavior, custom rotated/animated/inherited model-part trees, exact hardware-MSAA
+Decorated stacks compose their cloth base and ordered banner masks from runtime pack textures.
+The inventory model and thumbnail share that composition; count and blocking timestamps do not
+change its identity. Active pack replacement retires cached artwork. Source resolution reduces
+as a group under atlas pressure, preserving every demanded decoration.
+
+Glint-specific shader behavior, custom rotated/animated/inherited model-part trees, exact hardware-MSAA
 coverage, fractional item-scale sampling and a matched vanilla frame comparison remain open.
 Unsupported model-part branches are explicitly refused rather than approximated. This fixes
 the ordinary shield's incorrect raw texture-sheet route; it does not close the complete shield

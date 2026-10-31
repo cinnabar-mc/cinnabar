@@ -75,7 +75,7 @@ fn decoded_registry_protocol(magic: &[u8; 8], bytes: &[u8]) -> Option<u32> {
 /// Accepts supported wire protocols and attributes unsupported headers to their input file.
 fn supported_registry_protocol(path: &Path, protocol: u32) -> Result<u32, RegistryVersionError> {
     match protocol {
-        1001 | 2193 => Ok(protocol),
+        1001 | 2225 => Ok(protocol),
         _ => Err(RegistryVersionError::UnsupportedProtocol {
             path: path.to_path_buf(),
             protocol,
@@ -216,20 +216,20 @@ mod tests {
     }
 
     #[test]
-    fn a_v2193_triple_decodes_through_its_header_derived_protocol() {
+    fn a_v2225_triple_decodes_through_its_header_derived_protocol() {
         let block_registry = encode_block_registry(
-            2193,
+            2225,
             &SyntheticAir {
                 sequential_id: 13_629,
                 network_hash: 0x2d65_8dd8,
             },
         );
-        let light_registry = encode_light_registry(2193, &block_registry, 1);
+        let light_registry = encode_light_registry(2225, &block_registry, 1);
 
         let (records, protocol) =
             read_block_registry_input(Path::new("block.bin"), &block_registry)
-                .expect("decode v2193 block registry");
-        assert_eq!(protocol, 2193);
+                .expect("decode v2225 block registry");
+        assert_eq!(protocol, 2225);
         assert_eq!(records.len(), 1);
         assert_eq!(records[0].sequential_id, 13_629);
         assert_eq!(records[0].traits, BlockTraits::AIR);
@@ -243,7 +243,7 @@ mod tests {
             protocol,
             records.len(),
         )
-        .expect("decode v2193 light registry");
+        .expect("decode v2225 light registry");
         assert_eq!(lights.len(), 1);
     }
 
@@ -277,7 +277,7 @@ mod tests {
     #[test]
     fn a_mixed_version_triple_fails_closed_naming_both_files() {
         let block_registry = encode_block_registry(
-            2193,
+            2225,
             &SyntheticAir {
                 sequential_id: 13_629,
                 network_hash: 0x2d65_8dd8,
@@ -288,7 +288,7 @@ mod tests {
         let (records, protocol) =
             read_block_registry_input(Path::new("block.bin"), &block_registry)
                 .expect("block leg decodes");
-        assert_eq!(protocol, 2193);
+        assert_eq!(protocol, 2225);
         let error = read_light_registry_input(
             Path::new("light.bin"),
             &light_registry,
@@ -305,7 +305,7 @@ mod tests {
         assert!(matches!(
             version_error,
             RegistryVersionError::Mismatch {
-                block_registry_protocol: 2193,
+                block_registry_protocol: 2225,
                 light_registry_protocol: 1001,
                 ..
             }
@@ -351,7 +351,7 @@ mod tests {
     fn version_errors_display_without_placeholder_paths() {
         let mismatch = RegistryVersionError::Mismatch {
             block_registry: PathBuf::from("a.bin"),
-            block_registry_protocol: 2193,
+            block_registry_protocol: 2225,
             light_registry: PathBuf::from("b.bin"),
             light_registry_protocol: 1001,
         };
@@ -361,7 +361,7 @@ mod tests {
         };
         assert_eq!(
             mismatch.to_string(),
-            "mixed-version registry triple: a.bin declares protocol 2193 while b.bin declares protocol 1001"
+            "mixed-version registry triple: a.bin declares protocol 2225 while b.bin declares protocol 1001"
         );
         assert_eq!(
             unsupported.to_string(),

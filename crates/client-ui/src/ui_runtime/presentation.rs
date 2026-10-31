@@ -139,6 +139,8 @@ pub struct UiPresentationRuntime {
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
+    /// Immutable geometry reuses storage only after all render readers release it.
+    vertex_buffers: render_model::FrameBuffers<render_model::UiRenderVertex>,
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
@@ -160,6 +162,8 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Inventory projections retained across HUD publications.
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
+    /// External projection changes that invalidate closed-inventory preparation.
+    inventory_preparation_revision: std::sync::atomic::AtomicU64,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
     /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.

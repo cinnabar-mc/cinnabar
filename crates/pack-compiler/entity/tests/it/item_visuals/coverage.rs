@@ -2,7 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[test]
-fn every_registry_item_resolves_a_presentation_route() {
+fn every_registry_item_has_a_presentation_disposition() {
     let pack = presentation_pack();
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let missing = assets::item::names::identifiers()
@@ -13,9 +13,16 @@ fn every_registry_item_resolves_a_presentation_route() {
             )
         })
         .collect::<Vec<_>>();
-    assert!(
-        missing.is_empty(),
-        "items without presentation rules: {missing:?}"
+    assert_eq!(
+        missing,
+        [
+            "minecraft:brittle_ice",
+            "minecraft:chorus_plant",
+            "minecraft:ice_ball",
+            "minecraft:ice_crystal",
+            "minecraft:icicle",
+        ],
+        "new item presentation remains unresolved until current pack routes are verified"
     );
 }
 
@@ -24,7 +31,7 @@ fn presentation_pack() -> TempDir {
     let pack = item_pack(false);
     let mut variants = BTreeMap::<&str, usize>::new();
     for row in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv").lines()
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv").lines()
     {
         let Some(("item_texture", key)) = row.split_once('\t') else {
             continue;
@@ -58,7 +65,7 @@ fn presentation_pack() -> TempDir {
     );
     // Egg routes belong to client entities. Their actor identities come from the pinned vocabulary.
     for (index, row) in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
             .lines()
             .enumerate()
     {

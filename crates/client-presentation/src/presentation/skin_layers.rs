@@ -1,4 +1,4 @@
-//! Animated player skin textures on their own geometry and shared actor pose.
+//! Actor skin layers and shield decoration share recoverable texture residency.
 
 use std::sync::Arc;
 
@@ -27,9 +27,9 @@ pub fn is_skin_layer(layer: u8) -> bool {
 const MAX_RESIDENT_SKIN_IMAGES: usize =
     render_model::MAX_RENDERED_PLAYERS * render_api::MAX_SKIN_ANIMATION_LAYERS;
 
-/// Texture pages and converted poses retained while the same artwork base remains selected.
+/// Actor layer pages and converted skin poses retained for the selected artwork base.
 #[derive(Default)]
-pub struct SkinLayerCache {
+pub struct ActorLayerCache {
     base: Option<ActorArtworkPages>,
     packed: bool,
     rasters: Vec<EquipmentRaster>,
@@ -40,6 +40,12 @@ pub struct SkinLayerCache {
     pages: Option<ActorArtworkPages>,
     poses: LayerPoseCache,
     extras: Vec<ActorRigSubmission>,
+    decorations: Vec<(
+        usize,
+        render_model::ActorRenderIdentity,
+        EquipmentRaster,
+        render_model::EntityRigId,
+    )>,
 }
 
 /// Keys are valid while their corresponding retained raster owns the immutable allocation.
@@ -77,7 +83,7 @@ fn image_raster(image: &render_api::SkinAnimation) -> Option<EquipmentRaster> {
     })
 }
 
-impl SkinLayerCache {
+impl ActorLayerCache {
     /// Retains the first occurrence of each immutable source image in draw order.
     fn retain_image(&mut self, raster: EquipmentRaster) {
         if raster.width == 0
@@ -224,9 +230,23 @@ impl SkinLayerCache {
         rig_of: impl Fn(u64) -> Option<ActorRigSnapshot<'a>>,
         rigs: &mut SkinRigCache,
         mut register: impl FnMut(ActorRigGeometry),
+        mut decoration_of: impl FnMut(
+            &ActorRigSubmission,
+            Option<ActorArtworkLocation>,
+        ) -> Option<(EquipmentRaster, render_model::EntityRigId)>,
     ) -> Option<ActorArtworkPages> {
         self.desired.clear();
+        self.decorations.clear();
         self.poses.begin_frame();
+        for (index, draw) in batch.submissions.iter().enumerate() {
+            if let Some((raster, rig)) =
+                decoration_of(draw, batch.artwork.get(&draw.input.identity).copied())
+            {
+                self.retain_image(raster.clone());
+                self.decorations
+                    .push((index, draw.input.identity, raster, rig));
+            }
+        }
         for body in &batch.submissions {
             if body.input.identity.layer != ACTOR_LAYER_BODY || body.route == ActorRigRoute::NoDraw
             {
@@ -243,6 +263,15 @@ impl SkinLayerCache {
             }
         }
         let changed = self.update_pages(base);
+        for (index, identity, raster, rig) in &self.decorations {
+            if let Some(location) = self.image_location(raster) {
+                if let Some(draw) = batch.submissions.get_mut(*index) {
+                    draw.texture_layer = location.layer();
+                    draw.input.rig = *rig;
+                }
+                batch.artwork.insert(*identity, location);
+            }
+        }
         for body in &batch.submissions {
             if body.input.identity.layer != ACTOR_LAYER_BODY || body.route == ActorRigRoute::NoDraw
             {

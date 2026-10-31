@@ -39,6 +39,7 @@ fn block_anchors_follow_their_subchunk_authority() {
                 Instance {
                     geometry,
                     material: None,
+                    clip: None,
                     params: mod_api::materials::Preset::default().0,
                     anchor: Anchor::Block {
                         dimension,
@@ -129,6 +130,7 @@ fn anchored_resources(
             Instance {
                 geometry,
                 material: None,
+                clip: None,
                 params: mod_api::materials::Preset::default().0,
                 anchor: Anchor::Block {
                     dimension: 0,

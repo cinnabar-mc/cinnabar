@@ -1,8 +1,8 @@
-use bedrock_protocol_1_26_51::packets::ClientMovementPredictionSync;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets::ClientMovementPredictionSync;
+use bedrock_protocol_1_26_60::types::{
     ActorDataBoundingBoxComponent, ActorDataFlagComponent, ActorUniqueID, Bitset131,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use crate::Packet;
 
@@ -50,7 +50,7 @@ mod tests {
             unique_id: 7,
             flying: true,
         });
-        let bedrock_protocol_1_26_51::packets::Packet::ClientMovementPredictionSync(body) =
+        let bedrock_protocol_1_26_60::packets::Packet::ClientMovementPredictionSync(body) =
             *packet.data
         else {
             panic!("wrong packet");

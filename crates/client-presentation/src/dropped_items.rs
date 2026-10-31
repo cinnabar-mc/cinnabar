@@ -443,6 +443,13 @@ impl DroppedItemPublisher<'_, '_> {
             let model = assets.and_then(|assets| Self::potted_model(cache, assets, id));
             return cache.count_item(model);
         }
+        if placement.allow_block_models
+            && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
+            && let Some((_, model)) = cache.shield_model(artwork)
+        {
+            return cache.count_item(Some(model));
+        }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
                 placement.allow_block_models.then_some(())?;
@@ -493,6 +500,14 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
         let identifier = view.item.identifier.as_deref()?;
+        if identifier == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
+            && let Some((key, model)) = cache.shield_model(artwork)
+        {
+            let prepared =
+                preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
+            return cache.count_item(prepared);
+        }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -698,7 +713,14 @@ impl DroppedItemPublisher<'_, '_> {
                     if cache.is_planning() {
                         continue;
                     }
-                    let rows = placement.world_from_item;
+                    let rows = if placement.identifier.as_ref()
+                        == assets::gui_item::SHIELD_IDENTIFIER
+                        && matches!(&cache.models[model as usize], DroppedItemModel::Block(_))
+                    {
+                        render_model::equipment::shield::framed_transform(placement.world_from_item)
+                    } else {
+                        placement.world_from_item
+                    };
                     let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
                         stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])
                     });

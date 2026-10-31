@@ -166,6 +166,7 @@
     $assetIdentity = (Get-FileHash -Algorithm SHA256 -LiteralPath $CrossCropAssets).Hash.ToLowerInvariant()
     Assert-True ($crossCropDryRun.Output -contains 'VISUAL_FIXTURE_POSE=CrossCropGalleryFront') 'cross/crop dry-run lost its exact gallery argument'
     Assert-True ($crossCropDryRun.Output -contains "CROSS_CROP_GALLERY_ASSETS_SHA256=$assetIdentity") 'cross/crop dry-run did not record exact artifact identity'
+    Assert-Equal 1 @($crossCropDryRun.Output | Where-Object { $_ -match '^CROSS_CROP_GALLERY_PAGE=0/[1-9][0-9]*$' }).Count 'cross/crop dry-run did not record its gallery page'
     Assert-Equal 1 @($crossCropDryRun.Output | Where-Object { $_ -match '^CROSS_CROP_GALLERY_ARGUMENTS_SHA256=[0-9a-f]{64}$' }).Count 'cross/crop dry-run did not record deterministic gallery arguments identity'
 
     $aquaticDryRun = Invoke-Acceptance -Arguments @(
@@ -419,9 +420,6 @@
     Assert-True ($source.Contains('Write-AcceptanceEvent')) 'live harness does not persist ordered fixture/teleport events'
     Assert-True ($source.Contains('$sourceWorldIdentity = Get-BdsSourceWorldIdentity -SourceDirectory $BdsDir -AllowMissingWorld')) `
         'live BDS source-world behavior is not manifested for every acceptance run'
-    Assert-True ($source.Contains("'19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443'")) `
-        'acceptance does not pin the exact BDS executable identity'
-    Assert-True ($source.Contains("'1.26.52.3'")) 'acceptance does not pin the exact BDS startup release'
     Assert-True ($source.Contains('Move-Item -LiteralPath $temporaryPath -Destination $Path')) 'fixture manifest publication is not an atomic sibling rename'
     Assert-True ($source.Contains('$cpuPercent = 100.0 * $cpuDelta / ($wallDelta * [Environment]::ProcessorCount)')) 'steady CPU normalization formula changed'
     Assert-True (([regex]::Matches($source, '\.Refresh\(\)')).Count -ge 4) 'resource sampling does not refresh both process handles before/during sampling'

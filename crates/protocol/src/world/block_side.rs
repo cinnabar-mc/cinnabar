@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use bedrock_protocol_1_26_60::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
 
 use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
 

@@ -51,7 +51,8 @@ fn crosshair_preferences_update_live_and_preserve_visibility_gates() {
                             .iter()
                             .find(|node| match node.visual() {
                                 ui::UiVisual::InvertedSprite { uv, .. }
-                                | ui::UiVisual::Sprite { uv, .. } => {
+                                | ui::UiVisual::Sprite { uv, .. }
+                                | ui::UiVisual::RgbCoverageSprite { uv, .. } => {
                                     let [width, height] =
                                         assets::HudTextureRole::Crosshair.expected_size();
                                     uv[2] - uv[0] == width as u16 && uv[3] - uv[1] == height as u16

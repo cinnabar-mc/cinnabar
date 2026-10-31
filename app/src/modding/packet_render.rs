@@ -332,6 +332,7 @@ fn convert(spec: mod_api::drawing::api::GeometrySpec) -> GeometrySpec {
         data: v.data.into(),
     };
     match spec {
+        Wire::Blocks(_) => unreachable!("packet shape builders only emit triangles and lines"),
         Wire::Triangles(mesh) => GeometrySpec::Triangles {
             vertices: mesh.vertices.into_iter().map(v).collect(),
             indices: mesh.indices,
@@ -380,6 +381,7 @@ fn instance(
     Instance {
         geometry,
         material: None,
+        clip: None,
         params: mod_api::materials::Preset::default().0,
         anchor: Anchor::World { dimension, origin },
         transform,

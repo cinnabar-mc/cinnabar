@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_51::enums::{InputData, ItemStackRequestActionType};
-use bedrock_protocol_1_26_51::packets::{self, ItemRegistry, StartGame};
-use bedrock_protocol_1_26_51::types::StackRequestAction;
-use bedrock_protocol_1_26_51::wire::Encode;
+use bedrock_protocol_1_26_60::enums::{InputData, ItemStackRequestActionType};
+use bedrock_protocol_1_26_60::packets::{self, ItemRegistry, StartGame};
+use bedrock_protocol_1_26_60::types::StackRequestAction;
+use bedrock_protocol_1_26_60::wire::Encode;
 use bytes::Bytes;
 use protocol::{
     BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,
@@ -99,9 +99,9 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
             InputData::Sprinting,
         ];
         if predict {
-            canonical_flags.push(InputData::Performblockactions);
+            canonical_flags.push(InputData::PerformBlockActions);
         }
-        canonical_flags.push(InputData::Performitemstackrequest);
+        canonical_flags.push(InputData::PerformItemStackRequest);
         let packets::Packet::PlayerAuthInput(built_input) = &*built.data else {
             panic!("expected input")
         };
@@ -133,9 +133,9 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         fixture_order_input.input_data = fixture_flags;
         assert_eq!(fixture_order_built, decoded[0]);
         assert_eq!(encode(&fixture_order_built).unwrap().as_ref(), fixture);
-        assert!(flags.contains(&InputData::Performitemstackrequest));
-        assert_eq!(flags.contains(&InputData::Performblockactions), predict);
-        assert!(!flags.contains(&InputData::Performiteminteraction));
+        assert!(flags.contains(&InputData::PerformItemStackRequest));
+        assert_eq!(flags.contains(&InputData::PerformBlockActions), predict);
+        assert!(!flags.contains(&InputData::PerformItemInteraction));
         assert_eq!(input.item_use_transaction, None);
         let request = input.item_stack_request.as_ref().unwrap();
         assert_eq!(request.client_request_id.0, -3);
@@ -150,7 +150,7 @@ fn mining_request_flags_and_independent_optional_prediction_match_pinned_fixture
         else {
             panic!("expected mining action")
         };
-        assert_eq!(*action_type, ItemStackRequestActionType::Screenhudmineblock);
+        assert_eq!(*action_type, ItemStackRequestActionType::ScreenHudMineBlock);
         assert_eq!(
             (slot.0, predicted_durability.0, net_id_variant.0),
             (2, 7, 12345)
@@ -174,7 +174,7 @@ fn absent_mining_request_preserves_existing_input_and_prediction_bytes() {
         assert!(
             !input
                 .input_data
-                .contains(&InputData::Performitemstackrequest)
+                .contains(&InputData::PerformItemStackRequest)
         );
     }
     let mut absent =

@@ -1,6 +1,6 @@
 //! Inventory preferences travel independently of stack transactions.
 
-use bedrock_protocol_1_26_51::{enums, packets, types};
+use bedrock_protocol_1_26_60::{enums, packets, types};
 
 use super::InventoryEvent;
 use crate::Packet;
@@ -33,19 +33,19 @@ macro_rules! option_enum {
 option_enum!(
     /// The selected left navigation tab, independent of the layout.
     InventoryTab, InventoryLeftTabIndex;
-    None => None, Construction => Recipeconstruction, Equipment => Recipeequipment,
-    Items => Recipeitems, Nature => Recipenature, Search => Recipesearch, Survival => Survival,
+    None => None, Construction => RecipeConstruction, Equipment => RecipeEquipment,
+    Items => RecipeItems, Nature => RecipeNature, Search => RecipeSearch, Survival => Survival,
 );
 option_enum!(
     /// The selected right panel of the inventory.
     InventoryRightTab, InventoryRightTabIndex;
-    None => None, Fullscreen => Fullscreen, Crafting => Crafting, Armor => Armor,
+    None => None, Fullscreen => FullScreen, Crafting => Crafting, Armor => Armor,
 );
 option_enum!(
     /// The layout retained for a personal inventory or crafting table.
     InventoryLayout, InventoryLayout;
-    None => None, InventoryOnly => Inventoryonly, RecipeBook => Default,
-    RecipeBookOnly => Recipebookonly,
+    None => None, InventoryOnly => InventoryOnly, RecipeBook => Default,
+    RecipeBookOnly => RecipeBookOnly,
 );
 
 /// Player preferences retained as one complete tuple, including the inactive layout.

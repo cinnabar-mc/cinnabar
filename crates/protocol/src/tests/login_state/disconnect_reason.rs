@@ -1,9 +1,9 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::{CameraShakeAction, CameraShakeType};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{CameraShakeAction, CameraShakeType};
+use bedrock_protocol_1_26_60::packets::{
     Camera, CameraInstruction, CameraShake, ModalFormRequest, Transfer,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, CameraInstructionData, CameraSplineInstruction,
 };
 

@@ -198,6 +198,31 @@ fn a_fresh_retained_list_equals_the_full_build() {
 }
 
 #[test]
+fn repeated_color_updates_reuse_emission_storage() {
+    let mut nodes = (1..=512)
+        .map(|index| {
+            UiNode::new(id(index), None, rect(0.0, 0.0, 8.0, 8.0)).with_visual(sprite(0, [255; 4]))
+        })
+        .collect::<Vec<_>>();
+    let mut draw = retained(&nodes);
+    for color in [[240; 4], [220; 4], [200; 4]] {
+        for node in &mut nodes {
+            *node = node.clone().with_visual(sprite(0, color));
+        }
+        let (update, allocations) = test_alloc::count(|| redraw(&mut draw, &nodes).unwrap());
+        assert_eq!(update.emitted, nodes.len());
+        assert!(!update.rebuilt);
+        if color != [240; 4] {
+            assert!(
+                allocations < 16,
+                "color update allocated {allocations} times"
+            );
+        }
+        assert_equal(&draw, &nodes);
+    }
+}
+
+#[test]
 fn viewport_clip_survives_retained_motion_without_changing_sibling_safe_clips() {
     let viewport = rect(0.0, 0.0, 320.0, 200.0);
     let safe = SafeArea::new(30.0, 20.0, 10.0, 10.0).unwrap();

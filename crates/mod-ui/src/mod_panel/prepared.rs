@@ -39,7 +39,6 @@ impl crate::ModUi {
             .get(&owner)
             .is_some_and(|current| Arc::ptr_eq(&current.prepared, &prepared))
         {
-            self.cancel_mod_hud_editor();
             self.prepared_panel_ui
                 .insert(owner, PreparedOwner::new(prepared));
         }
@@ -73,7 +72,6 @@ impl crate::ModUi {
             .as_ref()
             .is_some_and(|panel| panel.owner == owner)
         {
-            self.cancel_mod_hud_editor();
             self.mod_panel = None;
         }
         if let Some(prepared) = prepared {

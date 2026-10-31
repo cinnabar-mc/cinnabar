@@ -1,8 +1,8 @@
-use bedrock_protocol_1_26_51::enums::{ItemStackRequestActionType, TextProcessingEventOrigin};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::{ItemStackRequestActionType, TextProcessingEventOrigin};
+use bedrock_protocol_1_26_60::types::{
     ItemStackRequestData, ItemStackRequestID, StackRequestAction,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 /// A bounded mining request carrier, not proof of current inventory authority.
@@ -63,7 +63,7 @@ impl MineBlockRequest {
         ItemStackRequestData {
             client_request_id: ItemStackRequestID(self.request_id),
             actions: vec![StackRequestAction::MineBlockActionData {
-                action_type: ItemStackRequestActionType::Screenhudmineblock,
+                action_type: ItemStackRequestActionType::ScreenHudMineBlock,
                 slot: wire::ZigZag32(i32::from(self.hotbar_slot)),
                 predicted_durability: wire::ZigZag32(self.predicted_durability),
                 net_id_variant: wire::I32LE(self.stack_network_id),

@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{self, ModalFormRequest};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, ModalFormRequest};
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     FormButtonImage, ModalFormResponseSelection, ServerFormModel, UiEvent, WorldEvent,
     decode_batch, into_world_event, modal_form_submit_response,

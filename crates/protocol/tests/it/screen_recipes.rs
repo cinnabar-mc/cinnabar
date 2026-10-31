@@ -1,10 +1,10 @@
 use ::protocol::{RecipeCatalog, ScreenRecipeKind, decode_recipe_update};
-use bedrock_protocol_1_26_51::packets::CraftingData;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets::CraftingData;
+use bedrock_protocol_1_26_60::types::{
     MultiRecipe, NetworkItemInstanceDescriptorSerializedData, RecipeIngredientSerializedData,
     RecipeNetID, ShapedRecipe, ShapelessRecipe, SmithingTransformRecipe,
 };
-use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Encode};
 
 fn ingredient(key: &str, name: &str) -> RecipeIngredientSerializedData {
     RecipeIngredientSerializedData {
@@ -303,7 +303,7 @@ fn multiple_repair_ids_are_ambiguous() {
 #[test]
 fn brewing_recipes_are_retained_until_an_update_lists_new_ones() {
     use ::protocol::{BrewingItem, BrewingRecipe};
-    use bedrock_protocol_1_26_51::types::{ContainerMixDataEntry, PotionMixDataEntry};
+    use bedrock_protocol_1_26_60::types::{ContainerMixDataEntry, PotionMixDataEntry};
     let z = wire::ZigZag32;
     let mut catalog = RecipeCatalog::default();
     catalog.begin_session(1);

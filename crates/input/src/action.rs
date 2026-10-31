@@ -46,6 +46,51 @@ pub enum Action {
 }
 
 impl Action {
+    /// Stable action name for physical binding observations.
+    pub const fn binding_name(self) -> &'static str {
+        match self {
+            Self::MoveForward => "move-forward",
+            Self::MoveBackward => "move-backward",
+            Self::MoveLeft => "move-left",
+            Self::MoveRight => "move-right",
+            Self::LookUp => "look-up",
+            Self::LookDown => "look-down",
+            Self::LookLeft => "look-left",
+            Self::LookRight => "look-right",
+            Self::Jump => "jump",
+            Self::Sneak => "sneak",
+            Self::Sprint => "sprint",
+            Self::Attack => "attack",
+            Self::Use => "use",
+            Self::CyclePerspective => "cycle-perspective",
+            Self::Menu => "menu",
+            Self::Back => "back",
+            Self::Hotbar1 => "hotbar-1",
+            Self::Hotbar2 => "hotbar-2",
+            Self::Hotbar3 => "hotbar-3",
+            Self::Hotbar4 => "hotbar-4",
+            Self::Hotbar5 => "hotbar-5",
+            Self::Hotbar6 => "hotbar-6",
+            Self::Hotbar7 => "hotbar-7",
+            Self::Hotbar8 => "hotbar-8",
+            Self::Hotbar9 => "hotbar-9",
+            Self::HotbarPrevious => "hotbar-previous",
+            Self::HotbarNext => "hotbar-next",
+            Self::UiUp => "ui-up",
+            Self::UiDown => "ui-down",
+            Self::UiLeft => "ui-left",
+            Self::UiRight => "ui-right",
+            Self::UiAccept => "ui-accept",
+            Self::UiCancel => "ui-cancel",
+            Self::UiTabNext => "ui-tab-next",
+            Self::UiTabPrevious => "ui-tab-previous",
+            Self::PlayerList => "player-list",
+            Self::Freelook => "freelook",
+            Self::InteractWithToast => "interact-with-toast",
+            Self::PickItem => "pick-item",
+        }
+    }
+
     pub const COUNT: usize = 39;
 
     pub(crate) const ALL: [Self; Self::COUNT] = [
@@ -198,6 +243,9 @@ impl ReleaseReason {
 pub struct ActionSnapshot {
     /// Ordered desktop transitions, when supplied by the physical adapter.
     pub ordered: Option<crate::OrderedActions>,
+    /// Held desktop controls admitted to gameplay by this exact finalized routing sample.
+    /// Empty for another context/device, focus loss or a release barrier; never action names.
+    pub admitted_desktop: Vec<crate::PhysicalControl>,
     pub frame_sequence: InputSequence,
     pub authority_generation: InputAuthorityGeneration,
     /// Unit-clamped movement consumed by simulation and packet construction.

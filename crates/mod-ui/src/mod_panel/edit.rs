@@ -20,9 +20,6 @@ pub(super) enum Editor {
 
 impl ModUi {
     pub fn mod_panel_editing(&self) -> bool {
-        if self.mod_hud_editor_open() {
-            return true;
-        }
         self.mod_panel
             .as_ref()
             .is_some_and(|panel| panel.open && panel.edit.is_some())
@@ -30,9 +27,6 @@ impl ModUi {
 
     /// Returns selected field text, an empty slice for a caret, or None without native field focus.
     pub fn mod_panel_field_selection(&self) -> Option<&str> {
-        if self.mod_hud_editor_open() {
-            return None;
-        }
         let panel = self.mod_panel.as_ref().filter(|panel| panel.open)?;
         match panel.edit.as_ref()? {
             Editor::Field { state, .. } => Some(&state.text[state.selection()]),
@@ -42,17 +36,6 @@ impl ModUi {
 
     /// Routes keyboard input exclusively to an open personal-panel editor.
     pub fn mod_panel_key(&mut self, key: &str, text: Option<&str>) -> Vec<Event> {
-        if let Some(editor) = self.mod_hud_editor.as_mut().filter(|e| e.open) {
-            let close_autosave =
-                editor.autosave && matches!(key, "Escape" | "Enter" | "NumpadEnter");
-            if close_autosave {
-                editor.close_requested = key != "Escape";
-                self.set_mod_panel_open(false);
-            } else {
-                editor.key(key);
-            }
-            return Vec::new();
-        }
         self.mod_panel.as_mut().map_or_else(Vec::new, |panel| {
             panel.edit_key(key, text, Default::default())
         })
@@ -65,16 +48,6 @@ impl ModUi {
         text: Option<&str>,
         modifiers: ui::mod_panel::FieldModifiers,
     ) -> Vec<Event> {
-        if self.mod_hud_editor_open() {
-            if !matches!(key, "Escape" | "Enter" | "NumpadEnter") {
-                self.mod_hud_editor
-                    .as_mut()
-                    .expect("open editor")
-                    .key_with_modifiers(key, modifiers);
-                return Vec::new();
-            }
-            return self.mod_panel_key(key, text);
-        }
         self.mod_panel
             .as_mut()
             .map_or_else(Vec::new, |panel| panel.edit_key(key, text, modifiers))
@@ -82,11 +55,9 @@ impl ModUi {
 
     /// Reports native field focus for platform IME activation.
     pub fn mod_panel_field_focused(&self) -> bool {
-        !self.mod_hud_editor_open()
-            && self
-                .mod_panel
-                .as_ref()
-                .is_some_and(|panel| panel.open && matches!(panel.edit, Some(Editor::Field { .. })))
+        self.mod_panel
+            .as_ref()
+            .is_some_and(|panel| panel.open && matches!(panel.edit, Some(Editor::Field { .. })))
     }
 
     /// Reports the focused field's one authoritative IME composition state.
@@ -146,7 +117,6 @@ impl ModUi {
     }
 
     pub fn cancel_mod_panel_edit(&mut self) {
-        self.cancel_mod_hud_editor();
         if let Some(panel) = self.mod_panel.as_mut() {
             panel.cancel_edit();
         }

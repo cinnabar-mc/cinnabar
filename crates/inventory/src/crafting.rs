@@ -25,6 +25,8 @@ pub enum CraftGridMatch {
     NoMatch,
     Ambiguous,
     Unique(RecipeHandle),
+    /// A banner applied to the current shield through its advertised special recipe.
+    Shield(crate::inventory_ledger::ShieldCraft),
 }
 
 /// Whether a decoded ingredient view accepts an item and its declared tags.

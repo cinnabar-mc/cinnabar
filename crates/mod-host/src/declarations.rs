@@ -8,7 +8,8 @@ use wasmparser::{ComponentName, KnownCustom, Name, Parser, Payload};
 
 /// The optional top-level component custom section containing a JSON grant request.
 pub const REQUESTED_GRANTS_SECTION: &str = "cinnabar:grants";
-const MAX_REQUESTED_GRANTS_BYTES: usize = 16 * 1024;
+/// Largest JSON permission request accepted by the component loader and pack tool.
+pub const MAX_REQUESTED_GRANTS_BYTES: usize = 16 * 1024;
 /// Byte bounds of the standard metadata fields; a longer field is ignored, not truncated.
 const MAX_NAME_BYTES: usize = 64;
 const MAX_DESCRIPTION_BYTES: usize = 512;

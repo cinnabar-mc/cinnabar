@@ -15,6 +15,7 @@ use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
     pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
+    pub(super) movement_override: Option<ResMut<'w, super::ModMovementInputActive>>,
     pub(super) control_modes: Option<ResMut<'w, super::ModControlModes>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
@@ -70,7 +71,7 @@ impl GameplayContext<'_> {
         &self,
         allowed: bool,
         ui: &client_ui::ui_runtime::UiRuntime,
-    ) -> Option<mod_api::native_frame::Frame> {
+    ) -> Option<mod_host::NativeFrame> {
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
             || world.respawn.input_held()
@@ -89,7 +90,7 @@ impl GameplayContext<'_> {
         };
         let Some(snapshot) = self.snapshot(allowed, &grants) else {
             let eye = self.view.as_ref()?.eye_translation().to_array();
-            return Some(mod_api::native_frame::Frame {
+            return Some(mod_host::NativeFrame {
                 version: mod_api::native_frame::VERSION,
                 session: world.stream.as_ref()?.authority().actor_session_id(),
                 dimension: world.stream.as_ref()?.current_dimension(),
@@ -111,7 +112,7 @@ impl GameplayContext<'_> {
             });
         };
         let input = self.input.as_deref();
-        Some(mod_api::native_frame::Frame {
+        Some(mod_host::NativeFrame {
             version: mod_api::native_frame::VERSION,
             session: snapshot.session,
             dimension: snapshot.dimension,
@@ -301,14 +302,7 @@ impl GameplayContext<'_> {
     /// No snapshot exists outside captured gameplay or without explicit grants.
     pub(super) fn snapshot(&self, allowed: bool, grants: &ModGrants) -> Option<GameplaySnapshot> {
         if !allowed
-            || !(grants.terrain
-                || grants.players
-                || grants.camera
-                || grants.item_use
-                || grants.movement
-                || grants.interaction
-                || grants.entities
-                || !grants.commands.is_empty())
+            || !grants.needs_gameplay()
             || self
                 .auto_fly
                 .as_ref()
@@ -394,6 +388,22 @@ impl GameplayContext<'_> {
             })
         });
         mod_host::GameplayFacts {
+            movement_input: self
+                .input
+                .as_ref()
+                .filter(|_| input_owned)
+                .and_then(|input| {
+                    input
+                        .snapshot()
+                        .filter(|snapshot| !snapshot.authority_released)
+                        .map(|_| mod_host::GameplayMovementInput {
+                            right: input.movement()[0],
+                            forward: input.movement()[1],
+                            jump: input.phase(semantic_input::Action::Jump).held,
+                            sneak: input.phase(semantic_input::Action::Sneak).held,
+                            sprint: input.phase(semantic_input::Action::Sprint).held,
+                        })
+                }),
             camera,
             damage_shake: damage_shake
                 .map(|shake| mod_host::DamageShake {

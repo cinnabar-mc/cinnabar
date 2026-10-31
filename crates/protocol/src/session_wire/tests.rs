@@ -13,10 +13,10 @@ const CORE_STREAM_FIXTURE: &[u8] = include_bytes!("../../fixtures/session/core_s
 fn connect_encoding_matches_the_core_fixture() {
     let request = ConnectRequest {
         join_profile_id: None,
-        protocol: 2193,
+        protocol: 2225,
         target: Some(ConnectTarget::RakNet("play.example.net:19132".into())),
         client_cache: true,
-        client_data: serde_json::json!({"DeviceOS": 7, "GameVersion": "1.26.50"}),
+        client_data: serde_json::json!({"DeviceOS": 7, "GameVersion": "1.26.60"}),
     };
     assert_eq!(&encode_connect(&request).unwrap()[..], CONNECT_FIXTURE);
 

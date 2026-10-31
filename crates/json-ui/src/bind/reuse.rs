@@ -109,12 +109,11 @@ impl Changes {
     }
 
     /// Whether any of `names`, read as screen-controller globals, may have changed.
-    pub(super) fn globals<'a>(&self, names: impl Iterator<Item = &'a str>) -> bool {
-        let mut reads = Reads::default();
-        for name in names {
-            reads.add(Data::Global, name, None);
-        }
-        reads.meets(self)
+    pub(super) fn globals<'a>(&self, mut names: impl Iterator<Item = &'a str>) -> bool {
+        names.any(|name| {
+            let hash = data_hash(Data::Global, name, None);
+            self.0.contains(&hash)
+        })
     }
 }
 
@@ -136,6 +135,8 @@ pub(super) struct Track {
     stable: bool,
     /// Built this bind.
     pub(super) fresh: bool,
+    /// An unchanged preparation result may stand once before fixed-point reuse is proven.
+    prepared: bool,
     /// Changed after building this bind (a view write or a deferred expansion).
     pub(super) touched: bool,
     /// Something in the subtree was built or changed this bind.
@@ -172,6 +173,11 @@ pub(super) struct Prior {
 }
 
 impl Track {
+    /// The immutable template before binding patched a grid's layout properties.
+    pub(super) fn source<'a>(&'a self, current: &'a Src) -> &'a Src {
+        self.origin.as_ref().unwrap_or(current)
+    }
+
     /// Whether the subtree stands as the last bind left it.
     pub(super) fn quiet(&self) -> bool {
         !self.fresh && !self.touched && !self.dirty
@@ -321,9 +327,10 @@ impl Binder<'_> {
             return false;
         };
         let track = &previous.track;
-        track.stable
+        !self.published_dirty.contains_key(&previous.key)
+            && (track.stable || track.prepared)
             && !track.below.meets(changes)
-            && track.origin.as_ref().unwrap_or(&previous.src).same(src)
+            && track.source(&previous.src).same(src)
             && previous.scope.same(scope)
             // A factory's creations are hoisted to its parent, which rebuilds them.
             && !track.hoisted
@@ -331,7 +338,10 @@ impl Binder<'_> {
     }
 
     /// Move `previous` over unchanged, as rebuilding it would leave it.
-    pub(super) fn reuse(&mut self, previous: Node) -> Node {
+    pub(super) fn reuse(&mut self, mut previous: Node) -> Node {
+        if previous.track.prepared {
+            finish_preparation(&mut previous);
+        }
         self.created += previous.track.count;
         self.state.scroll_observed |= previous.track.scroll;
         previous
@@ -476,19 +486,64 @@ impl Binder<'_> {
     }
 }
 
+/// Marks queued bag writes' owners and ancestors without expanding every control's read set.
+pub(super) fn mark_published(node: &Node, writes: &KeyMap<Bag>, dirty: &mut KeyMap<()>) -> bool {
+    let mut changed = writes.contains_key(&node.key);
+    for child in &node.children {
+        changed |= mark_published(child, writes, dirty);
+    }
+    if changed {
+        dirty.insert(node.key, ());
+    }
+    changed
+}
+
+/// Restarts changed input owners and their descendants while retaining unaffected bindings.
+pub(super) fn restart(node: &mut Node, changes: Option<&Changes>, inherited: bool) -> bool {
+    // Named sources may resolve differently after expansion, so restart those observers too.
+    let affected = inherited
+        || changes.is_none_or(|changes| node.track.reads.meets(changes))
+        || node.bindings.iter().any(
+            |binding| matches!(&binding.kind, Kind::View { scope, .. } if *scope != ViewScope::Own),
+        );
+    let reset = affected && node.retained;
+    let mut changed = affected;
+    for child in &mut node.children {
+        changed |= restart(child, changes, affected);
+    }
+    if reset {
+        node.retained = false;
+        node.memory = Retained::default();
+    }
+    if changed {
+        node.track.stable = false;
+        node.track.settled = false;
+    }
+    node.track.prepared = !changed;
+    changed
+}
+
+/// Consumes preparation reuse throughout a subtree, leaving its normal settling state intact.
+fn finish_preparation(node: &mut Node) {
+    node.track.prepared = false;
+    for child in &mut node.children {
+        finish_preparation(child);
+    }
+}
+
 /// Settle the bind's bookkeeping bottom-up: counts, reads, fixed points and
 /// what changed. Returns whether the subtree changed.
-pub(super) fn finish(node: &mut Node) -> bool {
+pub(super) fn finish(node: &mut Node, binder: &Binder<'_>) -> bool {
     let mut dirty = node.track.fresh || node.track.touched;
     for child in &mut node.children {
-        dirty |= finish(child);
+        dirty |= finish(child, binder);
     }
     node.track.dirty = dirty;
     if !dirty {
         return false;
     }
     if node.track.fresh {
-        node.track.settled = settled(node);
+        node.track.settled = settled(node, binder);
     } else if node.track.touched {
         node.track.settled = false;
     }
@@ -522,21 +577,60 @@ pub(super) fn finish(node: &mut Node) -> bool {
     true
 }
 
-/// Whether a rebuilt control's state equals the state it was rebuilt from.
-fn settled(node: &Node) -> bool {
+/// Whether an ordinary refresh can leave this control's retained state unchanged.
+fn settled(node: &Node, binder: &Binder<'_>) -> bool {
     if !node.retained {
         return true;
     }
-    let Some(prior) = node.track.prior.as_deref() else {
-        return false;
+    let Some(prior) = node.track.prior.as_deref().filter(|prior| prior.retained) else {
+        return binder.initially_settled(node);
     };
-    prior.retained
-        && node.own == prior.own
+    node.own == prior.own
         && node.native == prior.native
         && node.memory.once == prior.memory.once
         && node.memory.seen == prior.memory.seen
         && node.memory.views == prior.memory.views
         && node.deferred.is_some() == prior.deferred
+}
+
+impl Binder<'_> {
+    /// Proves that a new control's next regular bindings leave its retained state unchanged.
+    fn initially_settled(&self, node: &Node) -> bool {
+        let src = node.track.source(&node.src);
+        // These owners can overwrite creation output before regular bindings run.
+        if !node.scope.values.is_empty()
+            || self.data.controls.contains_key(src.name())
+            || src.get().factory.is_some()
+            || src.prop("radio_toggle_group") == Some(&Value::Bool(true))
+            || node.native.collection_length.is_some()
+        {
+            return false;
+        }
+        // Views settle separately; consumed once bindings perform no regular work.
+        if node.bindings.iter().enumerate().all(|(index, binding)| {
+            matches!(binding.kind, Kind::View { .. })
+                || (binding.condition == super::spec::Condition::Once
+                    && node.memory.once.contains(&index))
+        }) {
+            return true;
+        }
+        let mut scope = node.scope.clone();
+        self.attach_item(src, &mut scope);
+        let (mut own, mut native, mut memory) =
+            (node.own.clone(), node.native.clone(), node.memory.clone());
+        self.run_bindings(
+            src.get(),
+            &super::declarations::get(src),
+            &scope,
+            &mut own,
+            &mut native,
+            &mut memory,
+        );
+        own == node.own
+            && native == node.native
+            && memory.once == node.memory.once
+            && memory.seen == node.memory.seen
+    }
 }
 
 /// How a refreshed tree differs from the one the last bind produced.

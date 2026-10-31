@@ -145,7 +145,7 @@ fn fixture_export_preserves_bytes_and_existing_evidence() {
     export(&path).unwrap();
     assert_eq!(
         format!("{:x}", Sha256::digest(capture())),
-        "26b857d1e6295c44065d01b4fd31714c7329916c3741011b10bfeca2d34d077a"
+        "3bdfe0ce5b964051e551325ab3a979c0d0e484d53ae2499527f2119e69e3f921"
     );
     assert_eq!(std::fs::read(&path).unwrap(), capture());
     assert_eq!(

@@ -375,7 +375,7 @@ mod tests {
         let bytes = std::fs::read(path).unwrap();
         assert_eq!(
             format!("{:x}", Sha256::digest(&bytes)),
-            "c08ae0f16edb9919eb7ed9165cd94c352883d6521227846cf183a90faed81d69"
+            "4826f01458adcef2168348bf38c40cee58b60cc536aa7b3c0a47fbb852d2213d"
         );
         let inventory: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         let names: std::collections::BTreeSet<_> = inventory["data_items"]
@@ -384,9 +384,14 @@ mod tests {
             .iter()
             .map(|entry| entry["name"].as_str().unwrap())
             .collect();
+        let unresolved = ["minecraft:freezing"];
+        for name in unresolved {
+            assert!(effect_descriptor_by_identifier(name).is_none());
+        }
         let admitted: std::collections::BTreeSet<_> = EFFECT_DESCRIPTORS
             .iter()
             .map(|descriptor| descriptor.identifier)
+            .chain(unresolved)
             .collect();
         assert_eq!(names, admitted);
         for descriptor in &EFFECT_DESCRIPTORS {

@@ -9,12 +9,12 @@
 //! those payloads; the movement snapshot itself stays a pure movement
 //! record.
 
-use bedrock_protocol_1_26_51::enums::{ItemUseInventoryTransactionActionType, PlayerActionType};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::{ItemUseInventoryTransactionActionType, PlayerActionType};
+use bedrock_protocol_1_26_60::types::{
     BlockPos, ItemStackLegacyRequestID, PackedItemUseLegacyInventoryTransaction,
     PlayerBlockActionData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 use crate::interaction::{BlockUsePacketError, BlockUseRequest, item_use_transaction};
@@ -50,12 +50,12 @@ impl BlockActionKind {
     /// Maps a supported block action to the generated packet variant.
     const fn vendor(self) -> PlayerActionType {
         match self {
-            Self::StartDestroy => PlayerActionType::Startdestroyblock,
-            Self::AbortDestroy => PlayerActionType::Abortdestroyblock,
-            Self::StopDestroy => PlayerActionType::Stopdestroyblock,
-            Self::CrackBlock => PlayerActionType::Crackblock,
-            Self::PredictDestroy => PlayerActionType::Predictdestroyblock,
-            Self::ContinueDestroy => PlayerActionType::Continuedestroyblock,
+            Self::StartDestroy => PlayerActionType::StartDestroyBlock,
+            Self::AbortDestroy => PlayerActionType::AbortDestroyBlock,
+            Self::StopDestroy => PlayerActionType::StopDestroyBlock,
+            Self::CrackBlock => PlayerActionType::CrackBlock,
+            Self::PredictDestroy => PlayerActionType::PredictDestroyBlock,
+            Self::ContinueDestroy => PlayerActionType::ContinueDestroyBlock,
         }
     }
 }

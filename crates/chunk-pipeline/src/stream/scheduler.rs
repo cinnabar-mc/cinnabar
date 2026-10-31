@@ -1,6 +1,7 @@
 use super::*;
 
 mod candidates;
+mod notifications;
 pub(super) mod rechecks;
 
 use candidates::CandidateQueue;
@@ -315,15 +316,13 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
             .copied()
     }
 
-    /// Returns one proven-ready job across camera generations without replacing pending age
+    /// Returns proven-ready work at the checked view's rank without replacing pending age
     /// or ordinary retry history. Unrouted work keeps its existing ingress.
-    pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey) {
+    pub(super) fn wake_deferred(&mut self, lane: usize, key: SubChunkKey, view: SchedulerView) {
         let Some(mut candidate) = self.deferred_candidate(lane, key) else {
             return;
         };
-        if let Some(view) = self.refresh.view {
-            candidate.refresh_rank(view);
-        }
+        candidate.refresh_rank(view);
         candidate.urgent |= self.pending[&key].urgent();
         self.retire_lane_ownership(&key);
         self.lanes[lane].ready.push(candidate);
@@ -357,7 +356,7 @@ impl<P: PendingJob, J, const L: usize> KeyedJobs<P, J, L> {
         if let Some(view) = self.refresh.view {
             candidate.refresh_rank(view);
         }
-        self.lanes[lane].notified.push(candidate);
+        self.requeue_dependency_notification(lane, candidate);
     }
 
     /// Startup dependencies enter ingress ahead of ordinary work but behind urgent records.

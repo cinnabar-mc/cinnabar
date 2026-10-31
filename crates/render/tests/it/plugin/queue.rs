@@ -400,7 +400,8 @@ fn packed_chunk_shader_parses_and_validates() {
     assert!(shader.contains("mix(current_sample, next_sample, frame_blend)"));
     assert!(shader.contains("@interpolate(flat) current_texture: u32"));
     assert!(shader.contains("@interpolate(flat) next_texture: u32"));
-    assert!(shader.contains("@interpolate(flat) frame_blend_uv_limit: vec3<f32>"));
+    assert!(shader.contains("@interpolate(flat) frame_blend: f32"));
+    assert!(shader.contains("@interpolate(flat) quad_shape: u32"));
     assert!(shader.contains("@location(3) @interpolate(flat) material_flags: u32"));
     assert!(shader.contains("@interpolate(flat) material_flags: u32"));
     assert_eq!(
@@ -478,10 +479,11 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
     let lighting = include_str!("../../../src/lighting.wesl");
     assert_eq!(lighting.matches("fn lit_colour(").count(), 1);
     assert!(lighting.contains("world_lightmap.raw[sample & 255u].rgb"));
-    for (shader, liquid) in [
-        (include_str!("../../../src/chunk.wesl"), false),
-        (include_str!("../../../src/model.wesl"), false),
-        (include_str!("../../../src/liquid.wesl"), true),
+    // Vanilla cube fragments read only the native table, so their vertices bake no colour.
+    for (shader, liquid, baked_colour) in [
+        (include_str!("../../../src/chunk.wesl"), false, false),
+        (include_str!("../../../src/model.wesl"), false, true),
+        (include_str!("../../../src/liquid.wesl"), true, true),
     ] {
         assert!(shader.contains("import render::lighting::{"));
         assert!(!shader.contains("const LIGHT_CURVE: array<f32, 16>"));
@@ -515,11 +517,10 @@ fn world_shaders_sample_shared_lightmap_at_their_native_stage() {
             naga::ShaderStage::Fragment,
             15
         ));
-        assert!(entry_points_call_function(
-            &module,
-            naga::ShaderStage::Vertex,
-            "light_colour"
-        ));
+        assert_eq!(
+            entry_points_call_function(&module, naga::ShaderStage::Vertex, "light_colour"),
+            baked_colour
+        );
         assert!(entry_points_call_function(
             &module,
             naga::ShaderStage::Fragment,

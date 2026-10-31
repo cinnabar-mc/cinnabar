@@ -551,7 +551,8 @@ fn lobby_block_entity_frame_cost() {
                                 pattern: "stripe_bottom",
                                 color: [0.9, 0.1, 0.1],
                             },
-                        ],
+                        ]
+                        .into(),
                     }),
                 });
             }

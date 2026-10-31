@@ -1,15 +1,15 @@
 use crate::{BossAction, BossEvent, Packet};
-use bedrock_protocol_1_26_51::enums::{BossBarColor, BossBarOverlay, BossEventUpdateType};
-use bedrock_protocol_1_26_51::packets::BossEvent as BossEventPacket;
-use bedrock_protocol_1_26_51::types::ActorUniqueID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{BossBarColor, BossBarOverlay, BossEventUpdateType};
+use bedrock_protocol_1_26_60::packets::BossEvent as BossEventPacket;
+use bedrock_protocol_1_26_60::types::ActorUniqueID;
+use bedrock_protocol_1_26_60::wire;
 
 /// Acknowledges a changed boss subscription using the boss's unique identity.
 #[must_use]
 pub fn boss_registration_response(event: &BossEvent) -> Option<Packet> {
     let event_type = match event.action {
-        BossAction::Show => BossEventUpdateType::Playeradded,
-        BossAction::Hide => BossEventUpdateType::Playerremoved,
+        BossAction::Show => BossEventUpdateType::PlayerAdded,
+        BossAction::Hide => BossEventUpdateType::PlayerRemoved,
         _ => return None,
     };
     let (name, filtered_name) = if event.action == BossAction::Show {
@@ -35,8 +35,8 @@ pub fn boss_registration_response(event: &BossEvent) -> Option<Packet> {
 mod tests {
     use super::*;
     use crate::{BossColor, BossOverlay, BossStyle};
-    use bedrock_protocol_1_26_51::packets;
-    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+    use bedrock_protocol_1_26_60::packets;
+    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 
     #[test]
     fn subscription_replies_match_the_wire_and_preserve_signed_boss_identity() {

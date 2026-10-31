@@ -24,6 +24,12 @@ pub enum UiVisual {
         uv: [u16; 4],
         color: [u8; 4],
     },
+    /// A sprite whose black texels have no coverage, retaining its sampled color.
+    RgbCoverageSprite {
+        texture_page: u16,
+        uv: [u16; 4],
+        color: [u8; 4],
+    },
     /// A dyed sprite whose sampled alpha weights color rather than opacity.
     ColorMaskSprite {
         texture_page: u16,

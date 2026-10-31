@@ -20,6 +20,12 @@ pub(super) fn capture(
     let runtime = items.runtime;
     let inventory_screen = InventoryScreen::of_runtime(player_runtime, runtime);
     let mut window_text = WindowText::default();
+    if items
+        .presentation
+        .inventory_preparation_needed(player_runtime, runtime)
+    {
+        super::recipes::recipe_entries(player_runtime, items, inventory_screen, window_icons);
+    }
     if runtime.inventory_open() {
         capture_titles(
             player_runtime,
@@ -202,10 +208,13 @@ fn capture_tooltip(
 
 /// Resolves empty-slot artwork only while an inventory screen is open.
 pub(super) fn ghost_icons(
-    presentation: &UiPresentationRuntime,
+    presentation: &mut UiPresentationRuntime,
     inventory_open: bool,
 ) -> WindowIcons {
-    let mut window_icons = WindowIcons::default();
+    let mut window_icons = WindowIcons {
+        book_entries: std::mem::take(&mut presentation.hud_frame.window_icons.book_entries),
+        ..WindowIcons::default()
+    };
     if inventory_open {
         for (row, name) in ["helmet", "chestplate", "leggings", "boots"]
             .iter()
@@ -219,4 +228,30 @@ pub(super) fn ghost_icons(
             presentation.item_icon("minecraft:empty_slot_smithing_template", 0);
     }
     window_icons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_inventory_capture_retains_prepared_book_artwork() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        let icon = ui::IconRef {
+            page: 0,
+            uv: [1; 4],
+            color_mask: None,
+            glint: false,
+        };
+        let expected = vec![Some(icon); 2048];
+        let _ = ghost_icons(&mut presentation, false);
+        presentation.hud_frame_mut().window_icons.book_entries = expected.clone();
+        let (captured, allocations) = test_alloc::count(|| ghost_icons(&mut presentation, false));
+        assert_eq!(captured.book_entries.len(), expected.len());
+        assert_eq!(captured.book_entries, expected);
+        assert!(
+            allocations < 2,
+            "closed capture copied prepared artwork {allocations} times"
+        );
+    }
 }

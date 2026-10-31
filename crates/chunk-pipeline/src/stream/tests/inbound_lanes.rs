@@ -686,7 +686,12 @@ fn remote_player_moves_apply_while_unrelated_terrain_decode_is_pending() {
                 .unwrap();
             assert!(stream.order.is_finished(sequence));
             assert_eq!(
-                stream.authority().actor(9).unwrap().received_pose.position[0],
+                stream
+                    .authority()
+                    .actor(9)
+                    .unwrap()
+                    .last_received_pose()
+                    .position[0],
                 x
             );
         }

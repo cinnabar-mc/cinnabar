@@ -1,0 +1,14 @@
+# Code generated from canonical protocol manifest v2. DO NOT EDIT.
+
+[package]
+name = "bedrock-protocol-1-26-60"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[dependencies]
+bytes = "1"
+glam = "0.33"
+uuid = "1"
+regex = "1"

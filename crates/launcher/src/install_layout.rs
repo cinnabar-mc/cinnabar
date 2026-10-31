@@ -179,7 +179,7 @@ impl InstallLayout {
                         .map(PathBuf::from)
                         .as_deref(),
                 ),
-                user_root: std::env::var_os("CINNABAR_USER_ROOT").map(PathBuf::from),
+                user_root: std::env::var_os(render_api::USER_ROOT_ENV).map(PathBuf::from),
                 home,
                 local_app_data: std::env::var_os("LOCALAPPDATA").map(PathBuf::from),
                 xdg_config_home: std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from),
@@ -476,7 +476,7 @@ fn isolated_user_roots(
         Platform::Linux => "Linux",
         Platform::MacOs => "macOS",
     };
-    require_absolute(root, platform, "CINNABAR_USER_ROOT", name)?;
+    require_absolute(root, platform, render_api::USER_ROOT_ENV, name)?;
     Ok(Some((
         root.join("config"),
         root.join("data"),

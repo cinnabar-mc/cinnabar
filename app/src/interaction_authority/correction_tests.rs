@@ -105,7 +105,7 @@ fn correction_picks_follow_the_visible_crosshair_while_network_position_is_corre
     let collisions = PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../crates/assets/data/block-physics-v2225.bin"),
         protocol,
     )
     .unwrap();

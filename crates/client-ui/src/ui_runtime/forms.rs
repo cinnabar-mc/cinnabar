@@ -20,6 +20,12 @@ use protocol::{
 use std::{collections::VecDeque, sync::Arc};
 pub use values::{FormEngineState, FormValue};
 
+/// How long an answered form remains visible while the server can hand off to the next form.
+///
+/// This is a presentation grace period only: the response is still queued immediately and the
+/// form cannot accept another input while it waits.
+pub const FORM_HANDOFF_GRACE_MILLIS: u64 = 250;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ServerFormIdentity {
     pub session: u64,
@@ -132,6 +138,9 @@ pub struct ServerFormStore {
     settings_form: Option<ParkedSettingsForm>,
     settings_open: bool,
     settings_selected: bool,
+    /// Keeps an answered form rendered until the server either sends its replacement or the
+    /// short handoff grace period expires.
+    handoff_deadline_millis: Option<u64>,
 }
 impl ServerFormStore {
     /// Retires forms and responses while preserving revision and reissue accounting.
@@ -164,6 +173,7 @@ impl ServerFormStore {
                 .as_ref()
                 .is_some_and(|entry| entry.form_id == event.form_id)
             {
+                self.handoff_deadline_millis = None;
                 self.active = None;
                 self.engine = FormEngineState::default();
                 self.replaced_by_reissue = self.replaced_by_reissue.saturating_add(1);
@@ -184,9 +194,15 @@ impl ServerFormStore {
             fifo_sequence,
             npc_actor: None,
         };
+        let replacing_handoff = !other_ui && self.handoff_deadline_millis.take().is_some();
+        if replacing_handoff {
+            self.active = None;
+            self.engine = FormEngineState::default();
+        }
         if entry.kind == FormKind::ServerSettings {
             // A new reply updates this controller, never an earlier unsent answer.
             if self.settings_form_active() {
+                self.handoff_deadline_millis = None;
                 self.active = None;
                 self.engine = FormEngineState::default();
             }
@@ -199,7 +215,7 @@ impl ServerFormStore {
             self.select_settings_form(self.settings_selected);
             return;
         }
-        if other_ui || self.active.is_some() || !self.pending.is_empty() {
+        if !replacing_handoff && (other_ui || self.active.is_some() || !self.pending.is_empty()) {
             // An NPC dialogue has no busy answer; it is simply not shown.
             if entry.form_id == NPC_DIALOGUE_FORM_ID {
                 return;
@@ -243,6 +259,24 @@ impl ServerFormStore {
     pub fn owns_input(&self) -> bool {
         self.active.is_some() || !self.pending.is_empty()
     }
+    /// Whether the last answer is waiting for a possible server-form handoff.
+    pub fn handoff_pending(&self) -> bool {
+        self.handoff_deadline_millis.is_some()
+    }
+    /// Expires an unanswered visual handoff without touching its already queued response.
+    pub fn advance_form_handoff(&mut self, now_millis: u64) -> bool {
+        if self
+            .handoff_deadline_millis
+            .is_some_and(|deadline| now_millis >= deadline)
+        {
+            self.handoff_deadline_millis = None;
+            self.active = None;
+            self.engine = FormEngineState::default();
+            true
+        } else {
+            false
+        }
+    }
     pub const fn focus(&self) -> usize {
         self.focus
     }
@@ -272,6 +306,13 @@ impl ServerFormStore {
     /// Retires an active NPC through its closing protocol when another menu takes ownership.
     /// Ordinary forms retain one busy response per rejected request.
     pub fn reject_active_busy(&mut self) {
+        if self.handoff_deadline_millis.take().is_some() {
+            // The answer is already retained in `pending`; a menu taking the screen must not
+            // manufacture a second busy response for the form kept visible during handoff.
+            self.active = None;
+            self.engine = FormEngineState::default();
+            return;
+        }
         if let Some(entry) = self.active.take() {
             if entry.kind == FormKind::NpcDialogue {
                 self.pending.push_back(PendingFormResponse {
@@ -292,9 +333,32 @@ impl ServerFormStore {
         identity: ServerFormIdentity,
         action: LocalFormAction,
     ) -> Result<(), FormRespondError> {
-        if !self.pending.is_empty() {
+        self.respond_inner(identity, action, None)
+    }
+    /// Answers a form while retaining its rendered surface for a possible next form.
+    pub fn respond_at(
+        &mut self,
+        identity: ServerFormIdentity,
+        action: LocalFormAction,
+        now_millis: u64,
+    ) -> Result<(), FormRespondError> {
+        self.respond_inner(identity, action, Some(now_millis))
+    }
+    /// Retains one answer and optionally keeps its surface for a replacement.
+    fn respond_inner(
+        &mut self,
+        identity: ServerFormIdentity,
+        action: LocalFormAction,
+        now_millis: Option<u64>,
+    ) -> Result<(), FormRespondError> {
+        if !self.pending.is_empty() || self.handoff_pending() {
             return Err(FormRespondError::PendingResponse);
         }
+        let handoff = now_millis.is_some()
+            && matches!(
+                action,
+                LocalFormAction::SubmitButton(_) | LocalFormAction::CustomElements
+            );
         let entry = self
             .active
             .as_ref()
@@ -341,8 +405,14 @@ impl ServerFormStore {
         };
         self.pending
             .push_back(PendingFormResponse { identity, answer });
-        self.active = None;
-        self.engine = FormEngineState::default();
+        if handoff {
+            self.handoff_deadline_millis =
+                now_millis.map(|now| now.saturating_add(FORM_HANDOFF_GRACE_MILLIS));
+        } else {
+            self.handoff_deadline_millis = None;
+            self.active = None;
+            self.engine = FormEngineState::default();
+        }
         Ok(())
     }
     pub fn note_stream_dimension(&mut self, dimension: i32) {
@@ -370,6 +440,7 @@ impl ServerFormStore {
         self.focus = 0;
         self.scroll = 0;
         self.engine = FormEngineState::default();
+        self.handoff_deadline_millis = None;
         self.settings_form = None;
         self.settings_open = false;
         self.settings_selected = false;
@@ -457,12 +528,17 @@ impl ServerFormStore {
     pub fn select_settings_form(&mut self, selected: bool) {
         self.settings_selected = selected;
         if !selected && self.settings_form_active() {
-            self.settings_form = Some(ParkedSettingsForm {
-                entry: self.active.take().unwrap(),
-                engine: std::mem::take(&mut self.engine),
-                focus: self.focus,
-                scroll: self.scroll,
-            });
+            if self.handoff_deadline_millis.take().is_some() {
+                self.active = None;
+                self.engine = FormEngineState::default();
+            } else {
+                self.settings_form = Some(ParkedSettingsForm {
+                    entry: self.active.take().unwrap(),
+                    engine: std::mem::take(&mut self.engine),
+                    focus: self.focus,
+                    scroll: self.scroll,
+                });
+            }
         } else if selected
             && self.active.is_none()
             && self.pending.is_empty()

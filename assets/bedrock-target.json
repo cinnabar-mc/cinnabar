@@ -1,28 +1,28 @@
 {
   "artifacts": {
-    "biome_registry": "crates/assets/data/biome-registry-v2193.bin",
-    "block_item_routes": "crates/assets/data/block-item-routes-v2193.json",
-    "block_registry": "crates/assets/data/block-registry-v2193.bin",
-    "fallback_inventory": "crates/assets/data/vanilla-fallback-v2193.bin",
-    "light_registry": "crates/assets/data/block-light-registry-v2193.bin",
-    "physics_registry": "crates/assets/data/block-physics-v2193.bin",
-    "world_assets": ".local/assets/compiled/vanilla-v2193.mcbea"
+    "biome_registry": "crates/assets/data/biome-registry-v2225.bin",
+    "block_item_routes": "crates/assets/data/block-item-routes-v2225.json",
+    "block_registry": "crates/assets/data/block-registry-v2225.bin",
+    "fallback_inventory": "crates/assets/data/vanilla-fallback-v2225.bin",
+    "light_registry": "crates/assets/data/block-light-registry-v2225.bin",
+    "physics_registry": "crates/assets/data/block-physics-v2225.bin",
+    "world_assets": ".local/assets/compiled/vanilla-v2225.mcbea"
   },
   "bds_container_image": "itzg/minecraft-bedrock-server:2026.9.2@sha256:244e72a36a3e3d69c588cbeefe6d8f6f97c48869b801718a4023570654e3b3d9",
   "codec_contract": 2,
-  "codec_crate": "bedrock-protocol-1-26-51",
-  "codec_manifest_sha256": "7a0ce6c98c247c0ea12b809b1010e696e5110cd11993fdb9915acb5567f00466",
-  "game_version": "1.26.50",
+  "codec_crate": "bedrock-protocol-1-26-60",
+  "codec_manifest_sha256": "1d8da5c1bb9965f89aeef642e212aef46ce03f9ef41941537a298f91364d98da",
+  "game_version": "1.26.60",
   "hashes": {
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
-    "block_item_routes": "3c63eff8f10012bfb2183cc757c76d4424747fc72791413dc678dd36d3890578",
-    "block_registry": "87f97e5a8d7c5fb0593df269bcfb4487dd010c26343a508a82091301f6d03795",
-    "fallback_inventory": "6f8af2cfe1b984c3c57b8ed7bb8d12032184ba02b469f168d86dbc18237f4a74",
-    "light_registry": "d89540683d475b48a039536c973bc06e9dc1e3df687e647b21793a44f6dcd790",
-    "physics_registry": "4f1fda84cba3d9e57fb50c901469813fc7502ef71c19728b8cf4eb9f19503918"
+    "block_item_routes": "0d23656d5e737d487a88415fc40484d0c6d34a62ec9d6e0fcafd80f732bd664a",
+    "block_registry": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266",
+    "fallback_inventory": "76f300cd37fd36b3916e3e38ad3ac14d9aa013ad3eaf8cebc899949240330455",
+    "light_registry": "6c4019bfe51ccb06eba5e9321c6bf6d111b7e7b89276713c1e2236ea79dfafb0",
+    "physics_registry": "01540f3bdedbc68fd4243ee8a7a5f33ac431f5c26d2bdf8052cda2bb93af1654"
   },
-  "protocolgen_commit": "4e9626abbb51b8fa842f49b4aea0fb4d3c01a682",
+  "protocolgen_commit": "2265acd53847733ab10127646e76d575999c18d5",
   "schema": "cinnabar.bedrock-target.v1",
-  "server_version": "1.26.52.3",
-  "wire_protocol": 2193
+  "server_version": "1.26.60.6",
+  "wire_protocol": 2225
 }

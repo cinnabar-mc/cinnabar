@@ -6,13 +6,13 @@ use crate::BlobCacheReady;
 
 use crate::WorldEvent;
 use crate::raw_packet::decode_packet_raw;
-use bedrock_protocol_1_26_51::enums::{AnimateAction, PlayerRespawnState, TextPacketType};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{AnimateAction, PlayerRespawnState, TextPacketType};
+use bedrock_protocol_1_26_60::packets::{
     AddActor, AddPlayer, Animate, AnimateEntity, BiomeDefinitionList, BlockActorData,
     ClientCacheMissResponse, CorrectPlayerMovePrediction, DeathInfo, GameRulesChanged, LevelChunk,
     LevelEvent, MobEquipment, MovePlayer, PlaySound, Respawn, SetTime, Text, UpdateBlock,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ActorUniqueID, BiomeDefinitionData, BiomeStringList, BlockPos, GameRule,
     GameRuleValue, GameRulesChangedData, MissingBlobData, NetworkItemStackDescriptorSerializedData,
     PlayerInputTick, SubChunkMetadata, TextData,
@@ -776,7 +776,7 @@ fn allowlisted_move_player_is_materialized_and_normalized() {
 fn allowlisted_respawn_is_materialized_and_normalized() {
     let packet: Packet = crate::Packet::new(Respawn {
         position: [8.5, 71.620_01, -4.25].into(),
-        state: PlayerRespawnState::Readytospawn,
+        state: PlayerRespawnState::ReadyToSpawn,
         player_runtime_id: ActorRuntimeID(42),
     });
     let mut batch = crate::encode(&packet).expect("encode respawn");
@@ -825,7 +825,7 @@ fn allowlisted_actor_packet_is_materialized_and_normalized() {
 
 #[test]
 fn painting_wire_packet_reaches_play_dispatch_with_its_motive() {
-    let packet = crate::Packet::new(bedrock_protocol_1_26_51::packets::AddPainting {
+    let packet = crate::Packet::new(bedrock_protocol_1_26_60::packets::AddPainting {
         target_actor_id: ActorUniqueID(-15),
         target_runtime_id: ActorRuntimeID(73),
         position: [3.5, 70.5, 10.03125].into(),
@@ -1137,9 +1137,9 @@ fn block_pos(x: i32, y: i32, z: i32) -> BlockPos {
 /// A cached SubChunk keeps only its own entry alive, not the batch it arrived in.
 #[test]
 fn cached_sub_chunks_detach_from_their_batch() {
-    use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-    use bedrock_protocol_1_26_51::packets::{ScriptMessage, SubChunk};
-    use bedrock_protocol_1_26_51::types::SubChunkData;
+    use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+    use bedrock_protocol_1_26_60::packets::{ScriptMessage, SubChunk};
+    use bedrock_protocol_1_26_60::types::SubChunkData;
 
     let payload = vec![0x5a; 64];
     let sub_chunk = Packet::new(SubChunk {

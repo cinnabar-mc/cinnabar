@@ -184,6 +184,7 @@ mod tests {
                 slot: 1,
             },
             material: None,
+            clip: None,
             params: mod_api::materials::Preset::default().0,
             anchor,
             transform: Transform::default(),

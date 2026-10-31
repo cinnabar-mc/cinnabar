@@ -108,7 +108,10 @@ pub const RELAY_EVENT_CONNECT: &str = "connect";
 pub const RELAY_EVENT_ERROR: &str = "error";
 
 /// Game version reported by the client.
-pub const GAME_VERSION: &str = "1.26.50";
+pub const GAME_VERSION: &str = "1.26.60";
+
+/// Dedicated server version used by integration fixtures.
+pub const BDS_VERSION: &str = "1.26.60.6";
 
 /// Default port for an addressed Bedrock server.
 pub const DEFAULT_BEDROCK_PORT: u16 = 19132;

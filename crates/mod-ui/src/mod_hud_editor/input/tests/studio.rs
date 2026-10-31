@@ -160,49 +160,44 @@ fn studio_history_truncates_old_steps_and_branches_only_on_a_real_edit() {
 
 #[test]
 fn studio_keyboard_shortcuts_keep_the_physical_modifier_snapshot() {
-    let mut ui = ModUi::default();
     let mut editor = editor(false);
     editor.selected = Some(0);
     editor.key("ArrowRight");
     let moved = editor.draft.cards[0].clone();
-    ui.mod_hud_editor = Some(editor);
     for command in [false, true] {
         let modifiers = FieldModifiers {
             control: !command,
             super_key: command,
             ..Default::default()
         };
-        ui.mod_panel_field_key("KeyZ", None, FieldModifiers::default());
-        assert_eq!(ui.mod_hud_editor.as_ref().unwrap().draft.cards[0], moved);
-        ui.mod_panel_field_key("KeyZ", None, modifiers);
-        assert_ne!(ui.mod_hud_editor.as_ref().unwrap().draft.cards[0], moved);
-        ui.mod_panel_field_key(
+        editor.host_key("KeyZ", FieldModifiers::default());
+        assert_eq!(editor.draft.cards[0], moved);
+        editor.host_key("KeyZ", modifiers);
+        assert_ne!(editor.draft.cards[0], moved);
+        editor.host_key(
             "KeyZ",
-            None,
             FieldModifiers {
                 shift: true,
                 ..modifiers
             },
         );
-        assert_eq!(ui.mod_hud_editor.as_ref().unwrap().draft.cards[0], moved);
+        assert_eq!(editor.draft.cards[0], moved);
     }
-    ui.mod_panel_field_key(
+    editor.host_key(
         "KeyZ",
-        None,
         FieldModifiers {
             control: true,
             ..Default::default()
         },
     );
-    ui.mod_panel_field_key(
+    editor.host_key(
         "KeyY",
-        None,
         FieldModifiers {
             control: true,
             ..Default::default()
         },
     );
-    assert_eq!(ui.mod_hud_editor.as_ref().unwrap().draft.cards[0], moved);
+    assert_eq!(editor.draft.cards[0], moved);
 }
 
 #[test]
@@ -326,46 +321,6 @@ fn studio_anchor_picker_uses_all_nine_margins_and_caller_clock_easing() {
 }
 
 #[test]
-fn studio_control_fires_button_and_toggle_without_finishing_or_ending_history() {
-    let mut editor = editor(false);
-    let mut controls = crate::test_support::sample_panel().controls;
-    let button = controls
-        .iter()
-        .position(|c| matches!(c, Control::Button { .. }))
-        .unwrap();
-    let toggle = controls
-        .iter()
-        .position(|c| matches!(c, Control::Toggle { .. }))
-        .unwrap();
-    editor.selected = Some(0);
-    editor.key("ArrowRight");
-    for (index, expected) in [(button, 1.), (toggle, 1.), (toggle, 0.)] {
-        let events = press(&mut editor, &format!("hud.control:{index}"), &mut controls);
-        assert_eq!(
-            events,
-            [ui::mod_panel::Event {
-                id: controls[index].id().into(),
-                value: expected
-            }]
-        );
-        assert!(editor.open && editor.result.is_none());
-        assert_eq!(editor.selected, Some(0));
-        assert_eq!(editor.history.available(), [true, false]);
-    }
-    let mut published = editor.draft.cards.clone();
-    published[0].title = "Fresh content".into();
-    published[0].offset = [77.; 2];
-    let placement = editor.snapshot(true).placements;
-    editor.republish_cards(&published, true);
-    assert_eq!(editor.snapshot(true).placements, placement);
-    assert_eq!(editor.selected, Some(0));
-    editor.step_history(false);
-    assert_eq!(editor.draft.cards[0].title, "Fresh content");
-    editor.step_history(true);
-    assert_eq!(editor.snapshot(true).placements, placement);
-}
-
-#[test]
 fn studio_scale_actions_clamp_without_creating_noop_history() {
     let mut editor = editor(false);
     editor.selected = Some(0);
@@ -415,33 +370,6 @@ fn studio_hidden_selection_accepts_inspector_edits_and_history_bindings_follow_s
 }
 
 #[test]
-fn studio_full_preview_reorders_by_id_and_cancelling_a_new_card_drag_keeps_fresh_content() {
-    let mut editor = editor(true);
-    editor.selected = Some(0);
-    editor.key("ArrowRight");
-    let mut preview = editor.draft.clone();
-    preview.cards.insert(
-        0,
-        Card {
-            id: "new".into(),
-            ..Default::default()
-        },
-    );
-    preview.cards[1].title = "Fresh".into();
-    editor.republish_cards(&preview.cards, true);
-    assert_eq!(editor.selected, Some(1));
-    editor.step_history(false);
-    assert_eq!(editor.draft.cards[1].offset, [0.; 2]);
-    assert_eq!(editor.draft.cards[1].title, "Fresh");
-    let point = frame(&mut editor, "hud.card:0");
-    editor.pointer(point, true, true, &mut []);
-    editor.pointer([point[0] + 20., point[1] + 20.], false, true, &mut []);
-    editor.cancel_pointer_input();
-    assert_eq!(editor.draft.cards[0].id, "new");
-    assert_eq!(editor.draft.cards[0].offset, preview.cards[0].offset);
-}
-
-#[test]
 fn studio_undo_cancels_an_unfinished_first_gesture_in_both_save_modes() {
     for autosave in [false, true] {
         let mut editor = editor(autosave);
@@ -456,131 +384,6 @@ fn studio_undo_cancels_an_unfinished_first_gesture_in_both_save_modes() {
         assert_eq!(editor.history.available(), [false, false]);
         assert!(editor.result.is_none());
     }
-}
-
-#[test]
-fn studio_republish_keeps_capture_and_the_completed_history_baseline() {
-    for reorder in [false, true] {
-        let mut editor = editor(true);
-        let original = editor.snapshot(true).placements[0].clone();
-        let point = frame(&mut editor, "hud.card:0");
-        editor.pointer(point, true, true, &mut []);
-        editor.pointer([point[0] + 20., point[1] + 20.], false, true, &mut []);
-        let mut published = editor.draft.cards.clone();
-        published[0].background_opacity = 0.4;
-        if reorder {
-            published.insert(
-                0,
-                Card {
-                    id: "new".into(),
-                    ..Default::default()
-                },
-            );
-        }
-        editor.republish_cards(&published, true);
-        let index = usize::from(reorder);
-        assert!(
-            editor.drag.is_some(),
-            "content-only publication retains pointer capture"
-        );
-        assert_eq!(editor.selected, Some(index));
-        editor.pointer([point[0] + 40., point[1] + 40.], false, false, &mut []);
-        assert_ne!(editor.snapshot(true).placements[index], original);
-        assert!(editor.result.take().unwrap().saved);
-        editor.step_history(false);
-        assert_eq!(editor.snapshot(true).placements[index], original);
-        assert_eq!(editor.draft.cards[index].background_opacity, 0.4);
-        if reorder {
-            assert_eq!(editor.draft.cards[0].offset, [0.; 2]);
-        }
-    }
-}
-
-#[test]
-fn studio_republish_moves_captured_hover_with_its_reordered_card() {
-    let mut editor = editor(true);
-    let point = frame(&mut editor, "hud.card:0");
-    editor.pointer(point, true, true, &mut []);
-    assert_eq!(editor.hovered, Some(0));
-    let mut published = editor.draft.cards.clone();
-    published.insert(
-        0,
-        Card {
-            id: "new".into(),
-            ..Default::default()
-        },
-    );
-    editor.republish_cards(&published, true);
-    let point = frame(&mut editor, "hud.card:1");
-    editor.pointer([point[0] + 40., point[1] + 40.], false, true, &mut []);
-    assert_eq!(editor.hovered, Some(1));
-}
-
-#[test]
-fn studio_republish_added_cards_remain_undoable_after_restoring_an_older_layout() {
-    let mut editor = editor(false);
-    editor.selected = Some(0);
-    editor.key("ArrowRight");
-    let mut published = editor.draft.cards.clone();
-    published.push(Card {
-        id: "new".into(),
-        ..Default::default()
-    });
-    editor.republish_cards(&published, true);
-    editor.step_history(false);
-    editor.action("hud.select:1", &mut []);
-    editor.action("hud.scale_up", &mut []);
-    editor.step_history(false);
-    assert_eq!(editor.draft.cards[1].scale, 1.);
-    editor.step_history(true);
-    assert!((editor.draft.cards[1].scale - 1.05).abs() < 0.0001);
-    editor.action("hud.visibility:1", &mut []);
-    editor.step_history(false);
-    assert!(!editor.hidden.contains("new"));
-}
-
-#[test]
-fn studio_republish_keeps_anchor_motion_running() {
-    let mut editor = editor(false);
-    editor.selected = Some(0);
-    editor.action("hud.anchor:8", &mut []);
-    editor.advance_feedback(10., true);
-    let from = editor.card_origin(0);
-    let mut published = editor.draft.cards.clone();
-    published[0].background_opacity = 0.4;
-    editor.republish_cards(&published, true);
-    let target = cards::origin(&editor.draft.cards[0], editor.viewport);
-    editor.advance_feedback(10.15, true);
-    let at = editor.card_origin(0);
-    for axis in 0..2 {
-        assert!((at[axis] - (from[axis] + (target[axis] - from[axis]) * 0.875)).abs() < 0.001);
-    }
-}
-
-#[test]
-fn studio_native_empty_preview_keeps_its_placeholder_across_gameplay_publication() {
-    let mut editor = editor(false);
-    editor.draft.cards[0].title = "Armor".into();
-    editor.draft.cards[0].editor_label = "Armor".into();
-    editor.draft.cards[0].source = Some(ui::mod_hud::RowSource {
-        kind: ui::mod_hud::NativeRows::Armor {
-            held: false,
-            percent: true,
-            empty: false,
-            compact: false,
-            offhand: false,
-            warning: 0.,
-        },
-        limit: 4,
-        color: [1.; 4],
-        brackets: false,
-    });
-    let mut published = editor.draft.cards.clone();
-    published[0].title.clear();
-    published[0].source = None;
-    editor.republish_cards(&published, false);
-    assert_eq!(editor.draft.cards[0].title, "Armor");
-    assert!(cards::dimensions(&editor.draft.cards[0])[1] > 4.);
 }
 
 #[test]

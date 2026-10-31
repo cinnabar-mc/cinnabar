@@ -178,7 +178,7 @@ pub fn physics_registry_header_protocol(preg: &[u8]) -> Result<u32, AssetError> 
 
 /// Decodes compiled physics for either supported protocol or retained legacy protocol-1001 data.
 ///
-/// Only the reviewed protocol-1001 and protocol-2193 projections are
+/// Only the reviewed protocol-1001 and protocol-2225 projections are
 /// accepted; every other value is rejected before any structural read. All
 /// structural checks (trailer digest, count versus the supplied BREG records,
 /// exact-BREG-SHA-256 binding, element-wise re-decode, contiguity, unique
@@ -211,7 +211,7 @@ fn decode_physics_registry(
     expected_protocol: u32,
     seed: bool,
 ) -> Result<PhysicsRegistry, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2193) {
+    if !matches!(expected_protocol, 1001 | 2225) {
         return invalid("unsupported physics wire protocol");
     }
     if preg.len() < HEADER_BYTES + TRAILER_BYTES {

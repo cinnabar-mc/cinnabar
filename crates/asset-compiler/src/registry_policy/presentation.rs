@@ -30,7 +30,7 @@ pub fn write(out: &Path) -> Result<()> {
         "presentation rules need explicit status",
     )?;
     let items = assets::item::retail::identifiers();
-    let biomes: BTreeSet<_> = include_str!("../../../protocol/data/retail_biomes_1_26_50.txt")
+    let biomes: BTreeSet<_> = include_str!("../../../protocol/data/retail_biomes_1_26_60.txt")
         .lines()
         .collect();
     let blocks = assets::read_registry_for_protocol(

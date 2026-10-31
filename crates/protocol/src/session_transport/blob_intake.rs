@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use std::mem::size_of;
 
 use super::{Inbound, RawPacket, SessionError, SessionTransport};

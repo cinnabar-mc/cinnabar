@@ -1,6 +1,6 @@
 //! Disconnect wire fixtures emitted by the pinned public Go packet codec.
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::types::DisconnectMessages;
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::types::DisconnectMessages;
 use bytes::Bytes;
 use protocol::{decode_batch, encode};
 

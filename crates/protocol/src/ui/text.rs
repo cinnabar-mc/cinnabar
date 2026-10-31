@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{TextPacketType, TitleType};
-use bedrock_protocol_1_26_51::packets::{SetTitle, Text};
-use bedrock_protocol_1_26_51::types::TextData;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{TextPacketType, TitleType};
+use bedrock_protocol_1_26_60::packets::{SetTitle, Text};
+use bedrock_protocol_1_26_60::types::TextData;
+use bedrock_protocol_1_26_60::wire;
 
 use super::{MAX_CHAT_PARAMETERS, MAX_TEXT_MESSAGE_BYTES, UiEvent, UiPacketError, bounded_text};
 
@@ -88,12 +88,12 @@ pub(crate) fn normalize_text(packet: Text) -> Result<UiEvent, UiPacketError> {
         } => match message_type {
             TextPacketType::Raw => normalize_message_only(TextKind::Raw, message)?,
             TextPacketType::Tip => normalize_message_only(TextKind::Tip, message)?,
-            TextPacketType::Systemmessage => normalize_message_only(TextKind::System, message)?,
-            TextPacketType::Textobjectwhisper => {
+            TextPacketType::SystemMessage => normalize_message_only(TextKind::System, message)?,
+            TextPacketType::TextObjectWhisper => {
                 normalize_json_message(TextKind::JsonWhisper, message)?
             }
-            TextPacketType::Textobject => normalize_json_message(TextKind::Json, message)?,
-            TextPacketType::Textobjectannouncement => {
+            TextPacketType::TextObject => normalize_json_message(TextKind::Json, message)?,
+            TextPacketType::TextObjectAnnouncement => {
                 normalize_json_message(TextKind::JsonAnnouncement, message)?
             }
             other => return Err(unknown_text_type(other.to_raw())),
@@ -119,7 +119,7 @@ pub(crate) fn normalize_text(packet: Text) -> Result<UiEvent, UiPacketError> {
             let kind = match message_type {
                 TextPacketType::Translate => TextKind::Translation,
                 TextPacketType::Popup => TextKind::Popup,
-                TextPacketType::Jukeboxpopup => TextKind::JukeboxPopup,
+                TextPacketType::JukeboxPopup => TextKind::JukeboxPopup,
                 other => return Err(unknown_text_type(other.to_raw())),
             };
             normalize_parameters(kind, message, parameter_list)?
@@ -260,9 +260,9 @@ pub(crate) fn normalize_title(packet: SetTitle) -> Result<UiEvent, UiPacketError
         TitleType::Subtitle => TitleAction::SetSubtitle,
         TitleType::Actionbar => TitleAction::ActionBar,
         TitleType::Times => TitleAction::SetDurations,
-        TitleType::Titletextobject => TitleAction::SetTitleJson,
-        TitleType::Subtitletextobject => TitleAction::SetSubtitleJson,
-        TitleType::Actionbartextobject => TitleAction::ActionBarJson,
+        TitleType::TitleTextObject => TitleAction::SetTitleJson,
+        TitleType::SubtitleTextObject => TitleAction::SetSubtitleJson,
+        TitleType::ActionbarTextObject => TitleAction::ActionBarJson,
         TitleType::Unknown(value) => {
             return Err(UiPacketError::UnknownEnum {
                 kind: "title action",

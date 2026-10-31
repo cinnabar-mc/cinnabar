@@ -59,7 +59,7 @@ func TestSessionLoginClaimsAndroidPlatformType(t *testing.T) {
 	t.Parallel()
 	profile := device.Profile{
 		OS:    protocol.DeviceAndroid,
-		Model: device.Models(protocol.DeviceAndroid)[0],
+		Model: "Fixture Android",
 		ID:    "00112233445566778899aabbccddeeff",
 	}
 	for _, test := range []struct {

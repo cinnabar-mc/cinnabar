@@ -1,7 +1,7 @@
 //! Emote starts are announced with their registered animation duration.
-use bedrock_protocol_1_26_51::packets::Emote;
-use bedrock_protocol_1_26_51::types::ActorRuntimeID;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::Emote;
+use bedrock_protocol_1_26_60::types::ActorRuntimeID;
+use bedrock_protocol_1_26_60::wire;
 
 /// Announces the selected clip without substituting another clip's identity.
 #[must_use]

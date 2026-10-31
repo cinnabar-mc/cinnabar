@@ -211,7 +211,12 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         }
     }
     if let Some(action) = action {
-        let _ = runtime.respond_to_server_form(identity, action);
+        let now_millis = if input.now.is_finite() && input.now.is_sign_positive() {
+            (input.now * 1_000.0).min(u64::MAX as f64) as u64
+        } else {
+            0
+        };
+        let _ = runtime.respond_to_server_form_at(identity, action, now_millis);
     }
 }
 

@@ -1,8 +1,6 @@
 use std::time::Duration;
 
 use bevy::{
-    anti_alias::fxaa::Fxaa,
-    core_pipeline::tonemapping::Tonemapping,
     input::mouse::AccumulatedMouseMotion,
     prelude::*,
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowResolution},
@@ -19,7 +17,7 @@ use world::ChunkKey;
 use {
     crate::camera::{self, FlyCameraPlugin},
     client_presentation::camera::{
-        AutoFly, CameraSettingsAuthority, CameraSettingsError, FlyCamera, PITCH_LIMIT,
+        AutoFly, CameraSettingsAuthority, CameraSettingsError, PITCH_LIMIT,
     },
 };
 use {crate::game_frame::configure_client_frame_schedule, client_state::ClientFrameSet};
@@ -28,6 +26,11 @@ use {
         collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
     },
     client_state::SemanticInputSnapshot,
+};
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
+use {
+    bevy::{anti_alias::fxaa::Fxaa, core_pipeline::tonemapping::Tonemapping},
+    client_presentation::camera::FlyCamera,
 };
 
 mod cursor_changes;
@@ -282,6 +285,7 @@ fn missing_world_stream_falls_back_to_eye_in_third_person() {
 }
 
 #[test]
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
 fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
     assert_eq!(
         client_presentation::camera::auto_fly_offset(0.0),
@@ -309,6 +313,7 @@ fn auto_fly_path_repeats_and_stays_within_the_loaded_radius() {
 }
 
 #[test]
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
 fn auto_fly_keeps_the_mutation_target_in_view() {
     let anchor = Vec3::new(100.5, 70.62, -30.5);
     let target = Vec3::new(104.5, 69.5, -30.5);
@@ -691,6 +696,7 @@ fn production_schedule_preserves_locked_cursor_attack_hold_across_frames() {
 }
 
 #[test]
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
 fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
     let mut app = App::new();
     app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
@@ -755,6 +761,7 @@ fn plugin_spawns_camera_and_auto_fly_uses_delta_seconds() {
 }
 
 #[test]
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
 fn standalone_camera_keeps_advancing_when_the_host_diagnostic_clock_changes() {
     let mut app = App::new();
     app.insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
@@ -1089,6 +1096,7 @@ fn captured_f5_tap_between_frames_still_cycles_perspective_once() {
 }
 
 #[test]
+#[cfg(any(feature = "developer-control", feature = "acceptance"))]
 fn auto_fly_moves_and_rotates_while_unfocused_with_a_released_cursor() {
     let target = Vec3::new(4.5, 70.0, -3.5);
     let mut app = App::new();

@@ -232,3 +232,64 @@ fn authored_screen_refreshes_at_changed_dpi_with_unchanged_logical_inputs() {
         );
     }
 }
+
+#[test]
+fn unobserved_data_changes_reuse_the_laid_out_screen() {
+    let mut catalog = Catalog::default();
+    let controls: Vec<_> = (0..512)
+        .map(|index| serde_json::json!({format!("label{index}"):{"type":"label","text":"kept","size":[10,8]}}))
+        .collect();
+    catalog.overlay_text(
+        "ui/retained.json",
+        &serde_json::json!({
+            "namespace":"retained", "root":{"type":"panel","size":[100,100],"controls":controls}
+        })
+        .to_string(),
+    );
+    let catalog = Arc::new(catalog);
+    let context = Context::default();
+    let mut screen = CachedScreen::default();
+    let measure = DisplayMeasure {
+        metrics: TextMetrics::for_viewport([1280, 720], DpiScale::new(1.0).unwrap(), None),
+        px: 2.0,
+    };
+    let env = LayoutEnv {
+        text: &measure,
+        textures: &measure,
+    };
+    let mut data = DataSource::new();
+    data.set_global("#unread", Scalar::Num(0.0));
+    let nodes = Arc::clone(
+        &screen
+            .render(
+                "retained.root",
+                &catalog,
+                &context,
+                Arc::new(data.clone()),
+                ([100.0; 2], 2.0, [0; 3]),
+                &env,
+            )
+            .unwrap()
+            .nodes,
+    );
+    data.set_global("#unread", Scalar::Num(1.0));
+    let data = Arc::new(data);
+    let (current, allocations) = test_alloc::count(|| {
+        let rendered = screen
+            .render(
+                "retained.root",
+                &catalog,
+                &context,
+                data,
+                ([100.0; 2], 2.0, [0; 3]),
+                &env,
+            )
+            .unwrap();
+        Arc::clone(&rendered.nodes)
+    });
+    assert!(
+        allocations < 64,
+        "unchanged screen allocated {allocations} times"
+    );
+    assert!(Arc::ptr_eq(&nodes, &current));
+}

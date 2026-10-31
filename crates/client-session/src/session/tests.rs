@@ -794,6 +794,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
 
     for event in [
         NetworkControlEvent::Bootstrap {
+            player_rotation: [0.0, 180.0],
             session_generation: simulation_clock::identity::SessionGeneration::new(7),
             identity: Default::default(),
             world: bootstrap,

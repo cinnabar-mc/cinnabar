@@ -1,6 +1,6 @@
 //! Player preferences synchronized separately for each furnace screen.
 
-use bedrock_protocol_1_26_51::{enums, packets, types};
+use bedrock_protocol_1_26_60::{enums, packets, types};
 
 use super::{InventoryEvent, WindowKind};
 use crate::Packet;
@@ -37,7 +37,7 @@ impl FurnaceKind {
     fn wire(self) -> enums::FurnaceType {
         match self {
             Self::Furnace => enums::FurnaceType::Furnace,
-            Self::BlastFurnace => enums::FurnaceType::Blastfurnace,
+            Self::BlastFurnace => enums::FurnaceType::Blast,
             Self::Smoker => enums::FurnaceType::Smoker,
         }
     }
@@ -60,10 +60,10 @@ impl FurnaceTab {
     pub fn from_index(index: i32) -> Self {
         match enums::FurnaceLeftTabIndex::from(index) {
             enums::FurnaceLeftTabIndex::None => Self::None,
-            enums::FurnaceLeftTabIndex::Recipefood => Self::Food,
-            enums::FurnaceLeftTabIndex::Recipeitems => Self::Items,
-            enums::FurnaceLeftTabIndex::Recipeblocks => Self::Blocks,
-            enums::FurnaceLeftTabIndex::Recipesearch => Self::Search,
+            enums::FurnaceLeftTabIndex::RecipeFood => Self::Food,
+            enums::FurnaceLeftTabIndex::RecipeItems => Self::Items,
+            enums::FurnaceLeftTabIndex::RecipeBlocks => Self::Blocks,
+            enums::FurnaceLeftTabIndex::RecipeSearch => Self::Search,
             enums::FurnaceLeftTabIndex::Inventory => Self::Inventory,
             enums::FurnaceLeftTabIndex::Unknown(index) => Self::Unknown(index),
         }
@@ -73,10 +73,10 @@ impl FurnaceTab {
     pub fn index(self) -> i32 {
         let tab = match self {
             Self::None => enums::FurnaceLeftTabIndex::None,
-            Self::Food => enums::FurnaceLeftTabIndex::Recipefood,
-            Self::Items => enums::FurnaceLeftTabIndex::Recipeitems,
-            Self::Blocks => enums::FurnaceLeftTabIndex::Recipeblocks,
-            Self::Search => enums::FurnaceLeftTabIndex::Recipesearch,
+            Self::Food => enums::FurnaceLeftTabIndex::RecipeFood,
+            Self::Items => enums::FurnaceLeftTabIndex::RecipeItems,
+            Self::Blocks => enums::FurnaceLeftTabIndex::RecipeBlocks,
+            Self::Search => enums::FurnaceLeftTabIndex::RecipeSearch,
             Self::Inventory => enums::FurnaceLeftTabIndex::Inventory,
             Self::Unknown(index) => enums::FurnaceLeftTabIndex::Unknown(index),
         };
@@ -98,7 +98,7 @@ impl FurnaceLayout {
     pub fn from_index(index: i32) -> Self {
         match enums::FurnaceLayout::from(index) {
             enums::FurnaceLayout::None => Self::None,
-            enums::FurnaceLayout::Inventoryonly => Self::InventoryOnly,
+            enums::FurnaceLayout::InventoryOnly => Self::InventoryOnly,
             enums::FurnaceLayout::Default => Self::RecipeBook,
             enums::FurnaceLayout::Unknown(index) => Self::Unknown(index),
         }
@@ -108,7 +108,7 @@ impl FurnaceLayout {
     pub fn index(self) -> i32 {
         match self {
             Self::None => enums::FurnaceLayout::None,
-            Self::InventoryOnly => enums::FurnaceLayout::Inventoryonly,
+            Self::InventoryOnly => enums::FurnaceLayout::InventoryOnly,
             Self::RecipeBook => enums::FurnaceLayout::Default,
             Self::Unknown(index) => enums::FurnaceLayout::Unknown(index),
         }
@@ -149,7 +149,7 @@ pub(crate) fn normalize_furnace_options(
 ) -> Option<InventoryEvent> {
     let kind = match packet.furnace_type {
         enums::FurnaceType::Furnace => FurnaceKind::Furnace,
-        enums::FurnaceType::Blastfurnace => FurnaceKind::BlastFurnace,
+        enums::FurnaceType::Blast => FurnaceKind::BlastFurnace,
         enums::FurnaceType::Smoker => FurnaceKind::Smoker,
         enums::FurnaceType::None | enums::FurnaceType::Unknown(_) => {
             tracing::warn!(target: "cinnabar::inventory_requests",

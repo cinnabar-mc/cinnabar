@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{ContainerEnumName, ItemStackNetResult};
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::{ContainerEnumName, ItemStackNetResult};
+use bedrock_protocol_1_26_60::packets::{
     ContainerClose, ContainerOpen, ContainerRegistryCleanup, ContainerSetData, InventoryContent,
     InventorySlot, ItemStackResponse, MobArmorEquipment, PlayerEnchantOptions, PlayerHotbar,
 };
-use bedrock_protocol_1_26_51::types::FullContainerName;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::FullContainerName;
+use bedrock_protocol_1_26_60::wire;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
@@ -467,7 +467,7 @@ impl VerifiedNetworkItemStack {
 
 /// The single item shape 1.26.40 puts on the wire. See `crate::item`.
 type ItemStackDescriptor =
-    bedrock_protocol_1_26_51::types::NetworkItemStackDescriptorSerializedData;
+    bedrock_protocol_1_26_60::types::NetworkItemStackDescriptorSerializedData;
 
 #[must_use]
 pub const fn normalize_authority(server_authoritative: bool) -> InventoryEvent {

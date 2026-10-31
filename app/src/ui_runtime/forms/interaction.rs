@@ -103,9 +103,39 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let handoff_now_millis = time
+        .as_ref()
+        .map(|time| u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
+    let had_active_form = runtime.server_forms().active().is_some();
+    let handoff_expired =
+        handoff_now_millis.is_some_and(|now_millis| runtime.advance_form_handoff(now_millis));
+    if handoff_expired && let Some(focus) = focus.as_deref_mut() {
+        focus.authorize_screen_return();
+    }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    let had_active_form = runtime.server_forms().active().is_some();
+    if runtime.resource_pack_loading() {
+        // Keep the loading cover authoritative while the replacement pack is being published.
+        // In particular, do not let a held edge answer the form behind it.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        *owned_last_frame = false;
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
     if runtime.credits().owns_input() {
         wheel.clear();
         keyboard.clear();
@@ -156,6 +186,28 @@ pub(crate) fn drive_server_form_input(
         wheel.clear();
         keyboard.clear();
         *owned_last_frame = false;
+        return;
+    }
+    if runtime.server_forms().handoff_pending() {
+        // Keep the old surface painted, but consume every edge while the server may replace it.
+        // Otherwise a held mouse/key edge could answer the replacement form as soon as it lands.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        *owned_last_frame = true;
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
         return;
     }
     if !runtime.server_forms().owns_input() {
@@ -298,11 +350,20 @@ pub(crate) fn drive_server_form_input(
             None
         };
         if let Some((identity, action)) = action {
-            let _ = runtime.respond_to_server_form(identity, action);
+            let _ = runtime.respond_to_server_form_at(
+                identity,
+                action,
+                handoff_now_millis.unwrap_or_default(),
+            );
         }
     } else {
         wheel.clear();
         keyboard.clear();
+    }
+    if runtime.server_forms().handoff_pending()
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
     if had_active_form
         && runtime.server_forms().active().is_none()

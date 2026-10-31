@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::DeathInfo;
+use bedrock_protocol_1_26_60::packets::DeathInfo;
 
 use super::{MAX_CHAT_PARAMETERS, UiEvent, UiPacketError, bounded_text};
 
