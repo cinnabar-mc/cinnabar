@@ -33,6 +33,31 @@ fn sprite_height([width, height]: [u16; 2]) -> Option<f32> {
     (width != 0 && height != 0).then(|| f32::from(height) / f32::from(width.max(height)))
 }
 
+/// The smallest axis scale whose transformed normal the actor shader can still normalize. It is
+/// far below a pixel on the flattened sprite's depth.
+const MIN_LIT_AXIS_SCALE: f32 = 1e-4;
+
+/// Keeps normals valid when a table flattens the sprite along one axis, because the faces across
+/// that axis stay visible and the actor shader transforms their normals by this scale. Two flat
+/// axes leave no face with any area, so a table that hides the sprite stays hidden.
+fn lit_axis_scale(scale: Vec3) -> Vec3 {
+    let flat = |axis: f32| axis.abs() < MIN_LIT_AXIS_SCALE;
+    if scale
+        .to_array()
+        .into_iter()
+        .filter(|axis| flat(*axis))
+        .count()
+        != 1
+    {
+        return scale;
+    }
+    scale.map(|axis| match (flat(axis), axis < 0.0) {
+        (false, _) => axis,
+        (true, false) => MIN_LIT_AXIS_SCALE,
+        (true, true) => -MIN_LIT_AXIS_SCALE,
+    })
+}
+
 /// The sprite's placement from `held_sprite_vertices` space to the frame its table starts from:
 /// position, then Z, Y and X turns in degrees, then per-axis scale, with the native sprite frame
 /// inside that. Default tables carry an icon size factor, so every icon spans the same length. A
@@ -70,7 +95,7 @@ pub fn offset_sprite_display(
             + turns * Vec3::new(0.0, 0.0, scale.z * height),
         scale: 1.0,
         // Native X, Y and Z are the held mesh's X, Z and Y.
-        axis_scale: Vec3::new(scale.x, scale.z, scale.y),
+        axis_scale: lit_axis_scale(Vec3::new(scale.x, scale.z, scale.y)),
     })
 }
 
@@ -372,6 +397,70 @@ mod tests {
             matrix.transform_point3(CORNERS[1]),
             Vec3::new(0.9, 0.2, 0.3),
             1e-5,
+        );
+    }
+
+    fn first_person_display_with_scale(scale: [f32; 3]) -> ItemDisplay {
+        let table = HeldItemTransform {
+            position: [0.1, 0.2, 0.3],
+            rotation: [0.0; 3],
+            scale,
+        };
+        let hand = HeldItemHand {
+            first_person: table,
+            third_person: table,
+        };
+        offset_sprite_display(
+            HeldItemPlacement::DeclaredOffsets(ItemRenderOffsets {
+                main_hand: hand,
+                off_hand: hand,
+            }),
+            HeldItemHandSide::Main,
+            HeldItemPerspective::FirstPerson,
+            SQUARE_16,
+            1.0,
+        )
+        .unwrap()
+    }
+
+    /// Regression: the faces across a flattened axis stay visible, so the normals the actor shader
+    /// normalizes must keep their direction. Held X, Y and Z are native -X, -Z and -Y.
+    #[test]
+    fn a_flattened_axis_keeps_the_normals_of_its_visible_faces() {
+        for (scale, held_normal, expected) in [
+            ([0.05, 0.0, 0.05], Vec3::Z, Vec3::NEG_Y),
+            ([0.0, 0.05, 0.05], Vec3::X, Vec3::NEG_X),
+            ([0.05, 0.05, 0.0], Vec3::Y, Vec3::NEG_Z),
+        ] {
+            let matrix = display_matrix(first_person_display_with_scale(scale));
+            for sign in [1.0, -1.0] {
+                let normal = matrix.transform_vector3(held_normal * sign);
+                assert_near(normal.normalize_or_zero(), expected * sign, 1e-5);
+                assert!(normal.length_squared() > 1e-10, "{normal} is too short");
+            }
+        }
+    }
+
+    /// With two flat axes no face has any area, so the sprite gains no size and stays hidden.
+    #[test]
+    fn a_table_that_hides_the_sprite_keeps_its_scale() {
+        for (scale, axis_scale) in [
+            ([0.0, 0.0, 0.0], Vec3::ZERO),
+            ([0.05, 0.0, 0.0], Vec3::new(0.8, 0.0, 0.0)),
+        ] {
+            assert_eq!(
+                first_person_display_with_scale(scale).axis_scale,
+                axis_scale
+            );
+        }
+    }
+
+    /// A table with no flat axis draws with exactly its own scale, including a mirrored one.
+    #[test]
+    fn a_table_with_no_flat_axis_keeps_its_scale() {
+        assert_eq!(
+            first_person_display_with_scale([0.05, -0.02, 0.08]).axis_scale,
+            Vec3::new(0.05, 0.08, -0.02) * 16.0
         );
     }
 
