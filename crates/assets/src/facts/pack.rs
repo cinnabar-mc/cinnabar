@@ -50,6 +50,8 @@ domain!(PackTexture {
     StrawBed
 });
 domain!(PackBlock {
+    RedstoneTorch,
+    UnlitRedstoneTorch,
     Beacon,
     Obsidian,
     Glass,

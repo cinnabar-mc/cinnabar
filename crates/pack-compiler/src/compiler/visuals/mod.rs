@@ -21,6 +21,7 @@ pub(in crate::compiler) mod coral;
 pub(in crate::compiler) mod cross;
 pub(in crate::compiler) mod crystals;
 pub(in crate::compiler) mod cube;
+pub(in crate::compiler) mod diode;
 pub(in crate::compiler) mod dispatcher;
 pub(in crate::compiler) mod doors;
 pub(in crate::compiler) mod dragon_egg;

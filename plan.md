@@ -173,6 +173,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Hand-use prediction resolves either clicked half against its matching partner
   and changes the lower half's open state; matched server and artwork acceptance
   remains incomplete.
+- [ ] Close redstone component visuals. Redstone torches, repeater delay and output torches and
+  comparator rear and front torches draw at their native positions from each block state.
+  Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
+  neighbour check, and redstone wire, which draws neither its power tint nor its connections.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
