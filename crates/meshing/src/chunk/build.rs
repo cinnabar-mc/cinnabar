@@ -40,13 +40,12 @@ pub fn mesh_sub_chunk_with_lighting<S: crate::lighting::MeshLightSampler + ?Size
             let _ = neighbourhood.insert(face_offset(face), neighbour);
         }
     }
-    mesh_sub_chunk_core(
+    mesh_sub_chunk_core::<false, S>(
         classifier,
         visuals,
         network_id_mode,
         &neighbourhood,
         light_sampler,
-        false,
         MeshOptions::default(),
         &mut crate::MeshScratch::default(),
     )
@@ -147,13 +146,12 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_scratch<
     scratch: &mut crate::MeshScratch,
 ) -> ChunkMesh {
     scratch.reset();
-    let output = mesh_sub_chunk_core(
+    let output = mesh_sub_chunk_core::<true, S>(
         classifier,
         visuals,
         network_id_mode,
         neighbourhood,
         light_sampler,
-        true,
         options,
         scratch,
     );
@@ -161,13 +159,16 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_scratch<
     output
 }
 
-fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
+/// Builds independent streams; legacy callers omit liquids that need the full neighbourhood.
+fn mesh_sub_chunk_core<
+    const INCLUDE_LIQUIDS: bool,
+    S: crate::lighting::MeshLightSampler + ?Sized,
+>(
     classifier: &BlockClassifier,
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
-    include_liquids: bool,
     options: MeshOptions<'_>,
     scratch: &mut crate::MeshScratch,
 ) -> ChunkMesh {
@@ -553,7 +554,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         },
     );
 
-    let (liquid_quads, liquid_lighting) = if include_liquids {
+    let (liquid_quads, liquid_lighting) = if INCLUDE_LIQUIDS {
         mesh_liquids(
             *classifier,
             visuals,

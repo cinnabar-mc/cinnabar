@@ -389,8 +389,8 @@ impl<'a> PaletteFacts<'a> {
         }
         self.decoded = false;
         let mut decoded = std::mem::take(&mut self.scratch.decoded);
+        decoded.voxels.clear();
         decoded.voxels.resize(SIDE * SIDE * SIDE, 0);
-        decoded.voxels.fill(0);
         decoded.entries.clear();
         decoded.shelters.clear();
         decoded.model_candidates.clear();
@@ -405,8 +405,8 @@ impl<'a> PaletteFacts<'a> {
             }
             radix <<= storage.bits_per_index();
         }
+        self.scratch.answer_of.clear();
         self.scratch.answer_of.resize(combinations, u16::MAX);
-        self.scratch.answer_of.fill(u16::MAX);
         for (linear, voxel) in decoded.voxels.iter_mut().enumerate() {
             let key = usize::from(*voxel);
             if self.scratch.answer_of[key] == u16::MAX {

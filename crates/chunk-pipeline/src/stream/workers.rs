@@ -395,7 +395,8 @@ pub(crate) fn observe(now: Moment) {
 /// Runs one cooperative turn using native foreground and background eligibility.
 #[cfg(any(test, target_arch = "wasm32"))]
 fn run_one(shared: &Shared, now: Moment, scratch: &mut WorkerScratch) -> bool {
-    let Some(job) = shared.lock().take_cooperative(now) else {
+    let job = shared.lock().take_cooperative(now);
+    let Some(job) = job else {
         scratch.release_if_idle(now);
         return false;
     };
