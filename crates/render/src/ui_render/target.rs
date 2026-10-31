@@ -147,8 +147,16 @@ impl NativeUiTarget {
 
     /// A temporal consumer may use only this frame's complete, matching native scene pair.
     #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
-    pub(crate) fn compatible(&self, device: &RenderDevice, target: &ViewTarget) -> bool {
-        self.is_available() && self.matches(device, target, self.extent())
+    pub(crate) fn compatible(
+        &self,
+        device: &RenderDevice,
+        cache: &PipelineCache,
+        sharpen: bool,
+        target: &ViewTarget,
+    ) -> bool {
+        self.seedable(device, target)
+            && cache.get_render_pipeline(self.present_pipeline).is_some()
+            && self.seed_pass(cache, sharpen, target).is_some()
     }
 
     /// Whether the completed native UI scene has been encoded into the real output this frame.
@@ -160,6 +168,31 @@ impl NativeUiTarget {
     pub(crate) fn mark_presented(&self) {
         if self.is_ready() {
             self.presented.store(true, Ordering::Relaxed);
+        }
+    }
+
+    /// Whether this target's scene pair and output can take this view's world.
+    fn seedable(&self, device: &RenderDevice, target: &ViewTarget) -> bool {
+        self.matches(device, target, self.extent())
+            && target
+                .out_texture()
+                .map(|output| crate::render_bounds::extent(output))
+                == Some(self.extent())
+    }
+
+    /// The pass `seed` encodes: a same-size copy, or the best ready upscale.
+    fn seed_pass(
+        &self,
+        cache: &PipelineCache,
+        sharpen: bool,
+        target: &ViewTarget,
+    ) -> Option<UpscalePass> {
+        if crate::render_bounds::extent(target.main_texture_view()) == self.extent() {
+            cache
+                .get_render_pipeline(self.seed_pipelines.bilinear)
+                .map(|_| UpscalePass::Bilinear)
+        } else {
+            self.seed_pipelines.ready_pass(cache, sharpen)
         }
     }
 
@@ -178,12 +211,7 @@ impl NativeUiTarget {
         context: &mut RenderContext,
         target: &ViewTarget,
     ) -> bool {
-        if !self.matches(context.render_device(), target, self.extent())
-            || target
-                .out_texture()
-                .map(|output| crate::render_bounds::extent(output))
-                != Some(self.extent())
-        {
+        if !self.seedable(context.render_device(), target) {
             return false;
         }
         if self.is_ready() {
@@ -198,14 +226,7 @@ impl NativeUiTarget {
         let sharpness = world
             .get_resource::<crate::render_scale::RenderScaleSharpen>()
             .and_then(|filter| filter.0);
-        let native_size = crate::render_bounds::extent(target.main_texture_view()) == self.extent();
-        let Some(pass) = (if native_size {
-            cache
-                .get_render_pipeline(self.seed_pipelines.bilinear)
-                .map(|_| UpscalePass::Bilinear)
-        } else {
-            self.seed_pipelines.ready_pass(cache, sharpness.is_some())
-        }) else {
+        let Some(pass) = self.seed_pass(cache, sharpness.is_some(), target) else {
             return false;
         };
         let sharpen = pass == UpscalePass::Easu && sharpness.is_some();

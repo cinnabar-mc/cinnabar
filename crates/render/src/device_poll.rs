@@ -63,25 +63,48 @@ impl FramesInFlight {
         latest: Option<std::time::Duration>,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
         self.0.push_back(queue.submit([]));
-        let bounded = self.0.len() > MAX_FRAMES_IN_FLIGHT;
-        let poll = if bounded {
-            PollType::Wait {
+        match poll_target(self.0.len(), latest) {
+            PollTarget::None => device.poll(PollType::Poll),
+            PollTarget::Oldest => device.poll(PollType::Wait {
                 submission_index: self.0.pop_front(),
                 timeout: None,
+            }),
+            PollTarget::Newest(timeout) => {
+                let result = device.poll(PollType::Wait {
+                    submission_index: self.0.back().cloned(),
+                    timeout: Some(timeout),
+                });
+                if result.is_ok() {
+                    self.0.clear();
+                } else if self.0.len() > MAX_FRAMES_IN_FLIGHT {
+                    // A late candidate still keeps the in-flight bound.
+                    device.poll(PollType::Wait {
+                        submission_index: self.0.pop_front(),
+                        timeout: None,
+                    })?;
+                }
+                result
             }
-        } else if let Some(timeout) = latest {
-            PollType::Wait {
-                submission_index: self.0.back().cloned(),
-                timeout: Some(timeout),
-            }
-        } else {
-            PollType::Poll
-        };
-        let result = device.poll(poll);
-        if latest.is_some() && !bounded && result.is_ok() {
-            self.0.clear();
         }
-        result
+    }
+}
+
+/// The outstanding submission one frame's poll waits for.
+#[derive(Debug, PartialEq, Eq)]
+enum PollTarget {
+    None,
+    Oldest,
+    /// The newest frame, within a deadline; completing it also completes every older frame.
+    Newest(std::time::Duration),
+}
+
+/// A presenter's candidate waits for its own frame, which a full in-flight queue must not
+/// replace with the already-finished oldest frame.
+fn poll_target(outstanding: usize, latest: Option<std::time::Duration>) -> PollTarget {
+    match latest {
+        Some(timeout) => PollTarget::Newest(timeout),
+        None if outstanding > MAX_FRAMES_IN_FLIGHT => PollTarget::Oldest,
+        None => PollTarget::None,
     }
 }
 

@@ -48,6 +48,8 @@ pub(super) fn views(
     mut jobs: Local<Jobs>,
     overlays: Option<Res<render_scene::ScreenOverlayScene>>,
     ui: Option<Res<crate::ui_render::UiGpu>>,
+    cache: Res<bevy::render::render_resource::PipelineCache>,
+    sharpen: Option<Res<crate::render_scale::RenderScaleSharpen>>,
 ) {
     for entity in &removed {
         commands
@@ -120,7 +122,8 @@ pub(super) fn views(
                     view.viewport,
                     request.reset_epoch,
                 ));
-            if native.is_some_and(|native| native.compatible(&device, target)) {
+            let sharpen = sharpen.as_ref().is_some_and(|filter| filter.0.is_some());
+            if native.is_some_and(|native| native.compatible(&device, &cache, sharpen, target)) {
                 commands.entity(entity).insert(FrameGenerationActive);
             }
             continue;
