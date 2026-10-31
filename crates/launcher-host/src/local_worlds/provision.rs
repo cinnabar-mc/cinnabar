@@ -17,8 +17,6 @@ use super::{
 
 /// Probes how the dedicated server can run here.
 pub(crate) type Detector = Arc<dyn Fn() -> RuntimeInfo + Send + Sync>;
-/// Runs for each detection result that becomes current.
-pub(crate) type DetectedHook = Arc<dyn Fn(&RuntimeInfo) + Send + Sync>;
 /// Prepares an installed server before setup can report readiness.
 pub(crate) type Preparation =
     Arc<dyn Fn(&Path, &Provisioner, &Cancel) -> Result<(), WorldError> + Send + Sync>;
@@ -153,7 +151,6 @@ pub(crate) struct Provisioner {
 #[derive(Default)]
 struct Hooks {
     detect: Option<Detector>,
-    on_detected: Option<DetectedHook>,
     prepare: Option<Preparation>,
     prepared: Option<Prepared>,
 }
@@ -220,10 +217,6 @@ impl Provisioner {
         check.is_none_or(|check| check(binary))
     }
 
-    pub(crate) fn on_detected(&self, hook: DetectedHook) {
-        lock(&self.hooks).on_detected = Some(hook);
-    }
-
     /// Re-probes the runtime (after the user starts Docker) and returns the runtime in effect, which
     /// is a newer probe's result when one overtook this one.
     pub(crate) fn redetect(&self) -> RuntimeInfo {
@@ -270,23 +263,15 @@ impl Provisioner {
     /// Applies `info` (`None` for no result) unless a newer generation already took effect.
     fn finish_detect(&self, generation: u64, info: Option<RuntimeInfo>) {
         let order = lock(&self.detect_order);
-        let fresh = {
+        {
             let mut state = lock(&self.state);
-            match info {
-                Some(info) if generation > state.applied => {
-                    state.applied = generation;
-                    state.runtime = Some(info.clone());
-                    Some(info)
-                }
-                _ => None,
+            if let Some(info) = info
+                && generation > state.applied
+            {
+                state.applied = generation;
+                state.runtime = Some(info);
             }
         };
-        let hook = lock(&self.hooks).on_detected.clone();
-        if let Some(info) = fresh
-            && let Some(hook) = hook
-        {
-            hook(&info);
-        }
         drop(order);
         let mut state = lock(&self.state);
         state.probing -= 1;

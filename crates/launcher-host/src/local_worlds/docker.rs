@@ -189,7 +189,7 @@ pub(crate) fn detect_runtime(
     }
     if !platform.runs_containers() {
         return RuntimeInfo::none(
-            "Bedrock Dedicated Server is unavailable on this platform; use Dragonfly for local worlds",
+            "Bedrock Dedicated Server is unavailable on this platform",
             None,
         );
     }

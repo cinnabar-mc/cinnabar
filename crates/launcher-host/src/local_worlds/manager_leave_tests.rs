@@ -9,7 +9,7 @@ use crate::local_worlds::test_support::{FAKE_BDS, installed_provisioner};
 fn bds_fixture(runner: &Arc<FakeRunner>) -> Fixture {
     let runner: Arc<dyn Runner> = runner.clone();
     fixture(|parts, dir| {
-        parts.runners.bds = Some(runner);
+        parts.runner = Some(runner);
         parts.setup = Some(Arc::new(installed_provisioner(dir.path(), LINUX, FAKE_BDS)));
     })
 }

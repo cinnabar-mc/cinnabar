@@ -9,9 +9,7 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use launcher::local_worlds::{
     in_world::{Applied, Timing, timing},
     options::OptionChanges,
-    world::{
-        NATURAL_TERRAIN_REQUIRES_BDS, NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldUpdate,
-    },
+    world::{NewWorld, Prefs, PrefsUpdate, SetupState, World, WorldUpdate},
 };
 
 use crate::lifecycle::children::{self, ExitHookGuard};
@@ -19,7 +17,7 @@ use crate::lifecycle::children::{self, ExitHookGuard};
 use super::{
     Cancel, CancelHandle, cancel_pair, lock,
     process::{HostGrant, Instance, Runner, SAVE_BUDGET, StartSpec},
-    provision::{Provisioner, RuntimeInfo, RuntimeKind},
+    provision::Provisioner,
     store::Store,
     world::{WorldError, validate_name},
 };
@@ -43,44 +41,12 @@ pub enum Host {
     Xuid(String),
 }
 
-/// The runner of each backend; a missing one cannot host worlds.
-#[derive(Clone, Default)]
-pub(crate) struct Runners {
-    pub bds: Option<Arc<dyn Runner>>,
-    pub dragonfly: Option<Arc<dyn Runner>>,
-}
-
-impl Runners {
-    fn start(&self, spec: &StartSpec, cancel: &Cancel) -> Result<Arc<dyn Instance>, WorldError> {
-        let runner = match spec.world.backend {
-            Backend::Bds => &self.bds,
-            Backend::Dragonfly => &self.dragonfly,
-        };
-        runner
-            .as_ref()
-            .ok_or(WorldError::BackendUnavailable)?
-            .start(spec, cancel)
-    }
-
-    /// When `backend`'s runner applies the host grant; Dragonfly and a missing runner grant nobody.
-    fn host_grant(&self, backend: Backend) -> HostGrant {
-        match (backend, &self.bds) {
-            (Backend::Bds, Some(runner)) => runner.host_grant(),
-            (Backend::Bds, None) | (Backend::Dragonfly, _) => HostGrant::None,
-        }
-    }
-}
-
 /// What a [`Manager`] is built from.
 pub(crate) struct Parts {
     pub store: Arc<Store>,
-    pub runners: Runners,
+    pub runner: Option<Arc<dyn Runner>>,
     /// The dedicated-server installer whose status is reported and whose EULA gates BDS worlds.
     pub setup: Option<Arc<Provisioner>>,
-    /// Lets a Docker re-probe change the default backend of new worlds.
-    pub auto_backend: bool,
-    /// Backends that cannot host worlds here, with the reason for the log.
-    pub unavailable: Vec<(Backend, String)>,
     pub stop_timeout: Duration,
     /// How long a create waits for a runtime detection in flight.
     pub runtime_wait: Duration,
@@ -92,22 +58,12 @@ impl Parts {
     pub(crate) fn new(store: Arc<Store>) -> Self {
         Self {
             store,
-            runners: Runners::default(),
+            runner: None,
             setup: None,
-            auto_backend: false,
-            unavailable: Vec::new(),
             stop_timeout: DEFAULT_STOP_TIMEOUT,
             runtime_wait: DEFAULT_RUNTIME_WAIT,
             host_wait: DEFAULT_HOST_WAIT,
         }
-    }
-}
-
-/// Prefer the dedicated server wherever a complete runtime is available.
-pub(crate) fn default_backend(runtime: &RuntimeInfo) -> Backend {
-    match runtime.kind {
-        RuntimeKind::Native | RuntimeKind::Container | RuntimeKind::Translated => Backend::Bds,
-        RuntimeKind::None => Backend::Dragonfly,
     }
 }
 
@@ -119,9 +75,8 @@ pub struct Manager {
 
 struct Inner {
     store: Arc<Store>,
-    runners: Runners,
+    runner: Option<Arc<dyn Runner>>,
     setup: Option<Arc<Provisioner>>,
-    unavailable: Vec<(Backend, String)>,
     stop_timeout: Duration,
     runtime_wait: Duration,
     life: Mutex<Life>,
@@ -146,7 +101,6 @@ struct Life {
     state: WorldState,
     world: Option<World>,
     instance: Option<Arc<dyn Instance>>,
-    paused: bool,
     failure: Option<String>,
     /// Cancels the start in progress when dropped.
     cancel_start: Option<CancelHandle>,
@@ -177,27 +131,6 @@ impl Retiring {
 
 impl Manager {
     pub(crate) fn from_parts(parts: Parts) -> Self {
-        if let Some(setup) = &parts.setup {
-            let store = Arc::clone(&parts.store);
-            let auto = parts.auto_backend;
-            let unavailable = parts.unavailable.clone();
-            setup.on_detected(Arc::new(move |info: &RuntimeInfo| {
-                tracing::info!(
-                    "local world runtime detected: {} ({})",
-                    info.kind.as_str(),
-                    info.reason
-                );
-                if auto {
-                    let backend = default_backend(info);
-                    store.set_default_backend(backend);
-                    if let Some((_, reason)) =
-                        unavailable.iter().find(|(known, _)| *known == backend)
-                    {
-                        tracing::error!("the default local world backend is unavailable: {reason}");
-                    }
-                }
-            }));
-        }
         Self {
             inner: Arc::new_cyclic(|inner| Inner {
                 _exit: {
@@ -209,9 +142,8 @@ impl Manager {
                     })
                 },
                 store: parts.store,
-                runners: parts.runners,
+                runner: parts.runner,
                 setup: parts.setup,
-                unavailable: parts.unavailable,
                 stop_timeout: parts.stop_timeout,
                 runtime_wait: parts.runtime_wait,
                 life: Mutex::default(),
@@ -257,15 +189,11 @@ impl Manager {
         self.inner.store.save_thumbnail(id, image)
     }
 
-    /// Saves a new world; a BDS world is refused where BDS cannot run. Unless Dragonfly was asked
-    /// for, it first waits out a runtime detection in flight, so no world is saved against a guess.
+    /// Saves a BDS world after any runtime detection completes; unsupported hosts save nothing.
     pub fn create(&self, world: &NewWorld) -> Result<World, WorldError> {
         let mut world = world.clone();
         world.name = validate_name(&world.name)?;
         let backend = self.creatable_backend(world.backend)?;
-        if !world.generator.supports_backend(backend) {
-            return Err(WorldError::Invalid(NATURAL_TERRAIN_REQUIRES_BDS.to_owned()));
-        }
         world.backend = Some(backend);
         self.inner.store.create(&world)
     }
@@ -288,26 +216,18 @@ impl Manager {
 
     /// The backend a new world runs on, or why none can be saved yet.
     fn creatable_backend(&self, requested: Option<Backend>) -> Result<Backend, WorldError> {
+        if requested == Some(Backend::LegacyDragonfly) {
+            return Err(WorldError::LegacyWorld);
+        }
         if let Some(setup) = &self.inner.setup
-            && requested != Some(Backend::Dragonfly)
             && !setup.await_runtime(self.inner.runtime_wait)
         {
             return Err(WorldError::RuntimePending);
         }
-        let backend = requested.unwrap_or_else(|| self.inner.store.default_backend());
-        if let Some((_, reason)) = self
-            .inner
-            .unavailable
-            .iter()
-            .find(|(known, _)| *known == backend)
-        {
-            tracing::error!("cannot create a local world: {reason}");
+        if !self.bds_runnable() {
             return Err(WorldError::BackendUnavailable);
         }
-        if backend == Backend::Bds && !self.bds_runnable() {
-            return Err(WorldError::BackendUnavailable);
-        }
-        Ok(backend)
+        Ok(Backend::Bds)
     }
 
     fn bds_runnable(&self) -> bool {
@@ -402,8 +322,7 @@ impl Manager {
             .accept_eula()
     }
 
-    /// Applies `update`, re-probing Docker first when asked, and returns the saved preferences. A
-    /// re-probe only changes the backend of worlds created afterwards.
+    /// Applies `update`, re-probing Docker first when asked, and returns the saved preferences.
     pub fn prefs(&self, update: PrefsUpdate) -> Result<Prefs, WorldError> {
         if update.redetect
             && let Some(setup) = &self.inner.setup
@@ -413,13 +332,6 @@ impl Manager {
         match update.docker_prompt_dismissed {
             Some(dismissed) => self.inner.store.update_prefs(dismissed),
             None => Ok(self.inner.store.prefs()),
-        }
-    }
-
-    /// Readies a Dragonfly server ahead of an open, while the worlds are on screen.
-    pub fn prepare(&self) {
-        if let Some(runner) = &self.inner.runners.dragonfly {
-            runner.prepare();
         }
     }
 
@@ -440,7 +352,10 @@ impl Manager {
         }
         let world = self.inner.store.get(id)?;
         let dir = self.inner.store.dir(id)?;
-        if world.backend == Backend::Bds {
+        if world.backend == Backend::LegacyDragonfly {
+            return Err(WorldError::LegacyWorld);
+        }
+        {
             let setup = self
                 .inner
                 .setup
@@ -469,7 +384,6 @@ impl Manager {
         life.world = Some(world.clone());
         life.instance = None;
         life.failure = None;
-        life.paused = false;
         life.cancel_start = Some(handle);
         life.start_done = Some(start_done);
         self.set_state(&mut life, WorldState::Starting);
@@ -502,7 +416,11 @@ impl Manager {
                 break;
             }
         }
-        let grant = self.inner.runners.host_grant(spec.world.backend);
+        let grant = self
+            .inner
+            .runner
+            .as_ref()
+            .map_or(HostGrant::None, |runner| runner.host_grant());
         // Set before launch, so a new world's creation run counts against the host's wait.
         let host_deadline = Instant::now() + self.inner.host_wait;
         let host_xuid = match grant {
@@ -525,7 +443,12 @@ impl Manager {
                         options_unapplied,
                         host_xuid: host_xuid.clone(),
                     };
-                    let started = self.inner.runners.start(&fresh, cancel);
+                    let started = self
+                        .inner
+                        .runner
+                        .as_ref()
+                        .ok_or(WorldError::BackendUnavailable)
+                        .and_then(|runner| runner.start(&fresh, cancel));
                     fresh_world = Some(fresh.world);
                     started
                 },
@@ -563,16 +486,11 @@ impl Manager {
             life.world = Some(world);
         }
         life.instance = Some(Arc::clone(&instance));
-        let paused = life.paused && instance.can_pause();
-        life.paused = paused;
         self.set_state(&mut life, WorldState::Running);
         drop(host_guard);
         drop(life);
         if let Err(error) = self.inner.store.touch(&spec.world.id, &applied) {
             tracing::warn!("record when {} was last played: {error}", spec.world.id);
-        }
-        if paused {
-            let _ = instance.set_paused(true);
         }
         let watched = Arc::clone(&instance);
         if !self.background(move |manager| manager.watch(&watched)) {
@@ -724,13 +642,10 @@ impl Manager {
         }
     }
 
-    /// Ends any standby server, cancels a start in progress and asks the running server to save
+    /// Cancels a start in progress and asks the running server to save
     /// and stop without waiting; the exit sweep then waits out its save budget. A lifecycle lock
     /// held by the exiting thread skips the request.
     pub(crate) fn request_exit_stop(&self) {
-        if let Some(runner) = &self.inner.runners.dragonfly {
-            runner.discard_standby();
-        }
         let mut life = match self.inner.life.try_lock() {
             Ok(life) => life,
             Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
@@ -756,34 +671,6 @@ impl Manager {
                 .wait_while(running, |running| *running > 0)
                 .unwrap_or_else(std::sync::PoisonError::into_inner),
         );
-    }
-
-    /// Freezes or resumes the running world; a request while starting applies once it runs.
-    pub fn set_paused(&self, paused: bool) -> Result<(), WorldError> {
-        let mut life = lock(&self.inner.life);
-        let state = life.state;
-        match state {
-            WorldState::Starting => {
-                life.paused = paused;
-                Ok(())
-            }
-            WorldState::Running => {
-                let Some(instance) = life.instance.clone() else {
-                    return Err(WorldError::NotOpen);
-                };
-                if !instance.can_pause() {
-                    return Ok(());
-                }
-                life.paused = paused;
-                drop(life);
-                instance
-                    .set_paused(paused)
-                    .map_err(|error| WorldError::Failed(error.to_string()))
-            }
-            WorldState::Idle | WorldState::Stopping | WorldState::Failed => {
-                Err(WorldError::NotOpen)
-            }
-        }
     }
 
     /// A receiver that wakes after lifecycle changes and updates to the active world report.

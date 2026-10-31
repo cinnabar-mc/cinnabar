@@ -4,7 +4,7 @@ use launcher::local_worlds::world::{Generator, UnavailableReason};
 
 use super::{report::target_for, *};
 use crate::local_worlds::{
-    provision::Platform,
+    provision::{Platform, RuntimeInfo, RuntimeKind},
     test_support::{FakeInstance, FakeRunner, scratch},
 };
 use bridge::{LocalWorld, Transport};
@@ -35,6 +35,11 @@ fn fixture(build: impl FnOnce(&mut Parts, &tempfile::TempDir)) -> Fixture {
     let dir = scratch();
     let store = Arc::new(Store::open(dir.path().join("worlds")).expect("store"));
     let mut parts = Parts::new(store);
+    let mut setup = Provisioner::new(dir.path().join("fixture-bds"), String::new());
+    setup.platform = LINUX;
+    let setup = Arc::new(setup);
+    setup.accept_eula().expect("accept fixture EULA");
+    parts.setup = Some(setup);
     build(&mut parts, &dir);
     Fixture {
         manager: Manager::from_parts(parts),
@@ -45,8 +50,7 @@ fn fixture(build: impl FnOnce(&mut Parts, &tempfile::TempDir)) -> Fixture {
 fn with_runner(runner: &Arc<FakeRunner>) -> Fixture {
     let runner: Arc<dyn Runner> = runner.clone();
     fixture(|parts, _| {
-        parts.runners.dragonfly = Some(Arc::clone(&runner));
-        parts.runners.bds = Some(runner);
+        parts.runner = Some(runner);
     })
 }
 
@@ -87,7 +91,7 @@ fn open_runs_the_world_and_close_stops_its_server() {
     let target = report.target.expect("running target");
     assert_eq!(
         (target.address.as_str(), target.transport),
-        ("127.0.0.1:1", Transport::RakNet)
+        ("127.0.0.1:1", Transport::NetherNet)
     );
     manager
         .open(&world.id, None)
@@ -103,7 +107,7 @@ fn open_runs_the_world_and_close_stops_its_server() {
 fn bds_world(runner: &Arc<FakeRunner>) -> (Fixture, World) {
     let runner: Arc<dyn Runner> = runner.clone();
     let fixture = fixture(|parts, dir| {
-        parts.runners.bds = Some(runner);
+        parts.runner = Some(runner);
         parts.setup = Some(provisioner(dir, LINUX));
     });
     fixture.manager.accept_eula().expect("accept");
@@ -397,36 +401,6 @@ fn a_reopen_waits_for_cleanup_after_the_old_server_exits() {
     );
 }
 
-/// The exit hook ends an unused standby server instead of leaving it to the save grace.
-#[test]
-fn the_exit_sweep_discards_the_standby_server() {
-    let runner = Arc::new(FakeRunner::default());
-    let fixture = with_runner(&runner);
-    fixture.manager.request_exit_stop();
-    assert_eq!(
-        runner.discarded.load(std::sync::atomic::Ordering::SeqCst),
-        1
-    );
-}
-
-#[test]
-fn preparing_readies_only_the_dragonfly_runner() {
-    let dragonfly = Arc::new(FakeRunner::default());
-    let bds = Arc::new(FakeRunner::default());
-    let (dragonfly_runner, bds_runner): (Arc<dyn Runner>, Arc<dyn Runner>) =
-        (dragonfly.clone(), bds.clone());
-    let fixture = fixture(|parts, _| {
-        parts.runners.dragonfly = Some(dragonfly_runner);
-        parts.runners.bds = Some(bds_runner);
-    });
-    fixture.manager.prepare();
-    assert_eq!(
-        dragonfly.prepared.load(std::sync::atomic::Ordering::SeqCst),
-        1
-    );
-    assert_eq!(bds.prepared.load(std::sync::atomic::Ordering::SeqCst), 0);
-}
-
 #[test]
 fn another_world_is_busy_while_one_runs() {
     let runner = Arc::new(FakeRunner::default());
@@ -513,25 +487,6 @@ fn the_core_report_follows_the_start() {
 }
 
 #[test]
-fn a_pause_applies_while_running_and_queues_while_starting() {
-    let (runner, release) = FakeRunner::gated();
-    let runner = Arc::new(runner);
-    let fixture = with_runner(&runner);
-    let manager = &fixture.manager;
-    let world = manager.create(&flat("w")).expect("create");
-    assert!(matches!(manager.set_paused(true), Err(WorldError::NotOpen)));
-    manager.open(&world.id, None).expect("open");
-    manager.set_paused(true).expect("queued pause");
-    drop(release);
-    wait_for(manager, WorldState::Running);
-    let instance = runner.last();
-    test_time::eventually("the queued pause", || !lock(&instance.paused).is_empty());
-    manager.set_paused(false).expect("resume");
-    assert_eq!(*lock(&instance.paused), [true, false]);
-    assert!(!manager.status().paused);
-}
-
-#[test]
 fn an_unexpected_exit_fails_the_world() {
     let runner = Arc::new(FakeRunner::default());
     let fixture = with_runner(&runner);
@@ -614,30 +569,26 @@ fn the_exit_sweep_cancels_a_start_in_progress() {
     );
 }
 
+/// BDS never reports simulation pause, including while its process starts.
 #[test]
-fn a_server_that_cannot_pause_is_never_marked_paused() {
-    let runner = Arc::new(FakeRunner {
-        can_pause: Some(false),
-        ..FakeRunner::default()
-    });
+fn bds_status_never_claims_simulation_pause() {
+    let (runner, release) = FakeRunner::gated();
+    let runner = Arc::new(runner);
     let fixture = with_runner(&runner);
     let manager = &fixture.manager;
     let world = manager.create(&flat("w")).expect("create");
     manager.open(&world.id, None).expect("open");
-    assert!(!wait_for(manager, WorldState::Running).pause_supported);
-    manager.set_paused(true).expect("pause");
-    assert!(!manager.status().paused);
+    let starting = manager.status();
+    assert!(!starting.pause_supported && !starting.paused);
+    drop(release);
+    let running = wait_for(manager, WorldState::Running);
+    assert!(!running.pause_supported && !running.paused);
 }
 
 #[test]
 fn bds_worlds_need_a_supported_platform_and_the_eula() {
     let runner = Arc::new(FakeRunner::default());
-    let unconfigured = with_runner(&runner);
-    unconfigured
-        .manager
-        .inner
-        .store
-        .set_default_backend(Backend::Bds);
+    let unconfigured = fixture(|parts, _| parts.setup = None);
     let saved = unconfigured
         .manager
         .inner
@@ -654,8 +605,7 @@ fn bds_worlds_need_a_supported_platform_and_the_eula() {
     ));
     let configured = fixture(|parts, dir| {
         let runner: Arc<dyn Runner> = runner.clone();
-        parts.runners.bds = Some(Arc::clone(&runner));
-        parts.runners.dragonfly = Some(runner);
+        parts.runner = Some(Arc::clone(&runner));
         parts.setup = Some(provisioner(dir, LINUX));
     });
     let manager = &configured.manager;
@@ -691,13 +641,13 @@ fn bds_worlds_need_a_supported_platform_and_the_eula() {
         Err(WorldError::BackendUnavailable)
     ));
     let dragonfly = NewWorld {
-        backend: Some(Backend::Dragonfly),
+        backend: Some(Backend::LegacyDragonfly),
         ..flat("x")
     };
     unsupported
         .manager
         .create(&dragonfly)
-        .expect("Dragonfly stays available");
+        .expect_err("legacy hosts cannot create worlds");
 }
 
 #[test]
@@ -716,10 +666,10 @@ fn a_missing_runner_cannot_host_its_backend() {
 /// BDS advertising on LAN is reached through that advertisement and its selected level.
 #[test]
 fn bds_targets_use_lan_discovery_when_the_server_advertises() {
-    let mut world = crate::local_worlds::test_support::world();
-    let plain = FakeInstance::new(false);
+    let world = crate::local_worlds::test_support::world();
+    let plain = FakeInstance::new();
     assert_eq!(target_for(&world, &plain).transport, Transport::NetherNet);
-    let mut lan = FakeInstance::new(false);
+    let mut lan = FakeInstance::new();
     lan.lan = Some("127.0.0.1:7552".into());
     let target = target_for(&world, &lan);
     assert_eq!(
@@ -735,13 +685,11 @@ fn bds_targets_use_lan_discovery_when_the_server_advertises() {
         )
     );
     assert_eq!(target.address, "127.0.0.1:1");
-    world.backend = Backend::Dragonfly;
-    assert_eq!(target_for(&world, &lan).transport, Transport::RakNet);
 }
 
-/// The unavailable reason reaches the status, and a Retry that finds Docker flips the default.
+/// A Retry that finds Docker enables creation without a fallback host.
 #[test]
-fn a_redetect_that_finds_docker_flips_the_default_backend() {
+fn a_redetect_that_finds_docker_allows_bds_creation() {
     let fixture = fixture(|parts, dir| {
         let setup = provisioner(dir, MAC);
         setup.set_runtime(RuntimeInfo::none(
@@ -754,7 +702,6 @@ fn a_redetect_that_finds_docker_flips_the_default_backend() {
             unavailable: None,
         }));
         parts.setup = Some(setup);
-        parts.auto_backend = true;
     });
     let manager = &fixture.manager;
     let status = manager.status();
@@ -779,42 +726,6 @@ fn a_redetect_that_finds_docker_flips_the_default_backend() {
         })
         .expect("create");
     assert_eq!(world.backend, Backend::Bds);
-}
-
-/// A forced backend survives a re-probe, and saved worlds never switch backends silently.
-#[test]
-fn a_forced_backend_survives_redetection() {
-    let fixture = fixture(|parts, dir| {
-        let setup = provisioner(dir, MAC);
-        setup.set_detector(Arc::new(|| RuntimeInfo {
-            kind: RuntimeKind::Container,
-            reason: "docker up".into(),
-            unavailable: None,
-        }));
-        parts.setup = Some(setup);
-    });
-    let manager = &fixture.manager;
-    let old = manager.create(&flat("old")).expect("create");
-    let redetect = PrefsUpdate {
-        redetect: true,
-        ..PrefsUpdate::default()
-    };
-    manager.prefs(redetect).expect("retry");
-    let new = manager
-        .create(&NewWorld {
-            backend: None,
-            ..flat("n")
-        })
-        .expect("create");
-    assert_eq!(
-        new.backend,
-        Backend::Dragonfly,
-        "the forced default changed"
-    );
-    assert_eq!(
-        manager.inner.store.get(&old.id).expect("old").backend,
-        Backend::Dragonfly
-    );
 }
 
 #[test]
@@ -850,9 +761,7 @@ fn pending(dir: &tempfile::TempDir, parts: &mut Parts) -> crossbeam_channel::Sen
     let (answer, probe) = crossbeam_channel::bounded::<RuntimeInfo>(0);
     let setup = provisioner(dir, MAC);
     setup.set_detector(Arc::new(move || probe.recv().expect("probe answer")));
-    parts.store.set_default_backend(Backend::Bds);
     parts.setup = Some(Arc::clone(&setup));
-    parts.auto_backend = true;
     setup.detect_in_background(RuntimeInfo::checking());
     answer
 }
@@ -869,7 +778,7 @@ fn docker_up() -> RuntimeInfo {
     }
 }
 
-/// A world created while the probe runs takes the backend the probe settles on, never the guess.
+/// Creation waits for detection and saves nothing when BDS cannot run.
 #[test]
 fn a_create_during_detection_waits_for_the_result() {
     let mut answer = None;
@@ -885,20 +794,11 @@ fn a_create_during_detection_waits_for_the_result() {
         "the create returned before detection settled"
     );
     answer.send(docker_down()).expect("answer");
-    let world = outcome
+    let result = outcome
         .recv_timeout(test_time::DEFAULT_TIMEOUT)
-        .expect("the create returned")
-        .expect("create");
-    assert_eq!(world.backend, Backend::Dragonfly);
-    for backend in [None, Some(Backend::Dragonfly)] {
-        let normal = fixture.manager.create(&NewWorld {
-            name: "normal".into(),
-            backend,
-            ..NewWorld::default()
-        });
-        assert!(matches!(normal, Err(WorldError::Invalid(_))), "{normal:?}");
-        assert_eq!(fixture.manager.list().expect("list").len(), 1);
-    }
+        .expect("create returned");
+    assert!(matches!(result, Err(WorldError::BackendUnavailable)));
+    assert!(fixture.manager.list().expect("list").is_empty());
 }
 
 /// A probe that outlasts the wait refuses the create instead of saving a guess.
@@ -931,10 +831,8 @@ fn an_overlapping_redetect_keeps_the_newest_result() {
         answer.recv().expect("probe answer")
     }));
     let store = Arc::new(Store::open(dir.path().join("worlds")).expect("store"));
-    store.set_default_backend(Backend::Bds);
     let mut parts = Parts::new(store);
     parts.setup = Some(Arc::clone(&setup));
-    parts.auto_backend = true;
     let fixture = Fixture {
         manager: Manager::from_parts(parts),
         _dir: dir,
@@ -971,55 +869,6 @@ fn an_overlapping_redetect_keeps_the_newest_result() {
         })
         .expect("create");
     assert_eq!(world.backend, Backend::Bds);
-}
-
-/// Asking for Dragonfly outright never waits on a Docker probe.
-#[test]
-fn an_explicit_dragonfly_create_skips_pending_detection() {
-    let mut answer = None;
-    let fixture = fixture(|parts, dir| {
-        answer = Some(pending(dir, parts));
-        parts.runtime_wait = Duration::from_secs(60);
-    });
-    let answer = answer.expect("probe");
-    let world = fixture
-        .manager
-        .create(&NewWorld {
-            backend: Some(Backend::Dragonfly),
-            ..flat("flat")
-        })
-        .expect("create");
-    assert_eq!(world.backend, Backend::Dragonfly);
-    answer.send(docker_up()).expect("answer");
-}
-
-/// With Docker down and no Dragonfly server, nothing can host the fallback, so nothing is saved.
-#[test]
-fn a_create_refuses_the_fallback_when_its_server_is_missing() {
-    let mut answer = None;
-    let fixture = fixture(|parts, dir| {
-        answer = Some(pending(dir, parts));
-        parts.unavailable.push((
-            Backend::Dragonfly,
-            "local world server binary not found".into(),
-        ));
-    });
-    answer.expect("probe").send(docker_down()).expect("answer");
-    let setup = fixture.manager.inner.setup.clone().expect("setup");
-    assert!(setup.await_runtime(test_time::DEFAULT_TIMEOUT));
-    for world in [
-        flat("auto"),
-        NewWorld {
-            backend: Some(Backend::Dragonfly),
-            ..flat("explicit")
-        },
-    ] {
-        assert!(matches!(
-            fixture.manager.create(&world),
-            Err(WorldError::BackendUnavailable)
-        ));
-    }
-    assert!(fixture.manager.list().expect("list").is_empty());
 }
 
 #[test]
@@ -1085,3 +934,69 @@ mod host;
 #[cfg(unix)]
 #[path = "manager_leave_tests.rs"]
 mod leave;
+
+/// Legacy worlds remain intact and manageable, and never launch a replacement generator.
+#[test]
+fn legacy_worlds_are_preserved_and_never_started() {
+    let runner = Arc::new(FakeRunner::default());
+    let fixture = with_runner(&runner);
+    let manager = &fixture.manager;
+    for backend in [None, Some("dragonfly")] {
+        let world = manager.create(&flat("Legacy")).unwrap();
+        let directory = manager.inner.store.dir(&world.id).unwrap();
+        let metadata = directory.join("world.json");
+        let mut record: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&metadata).unwrap()).unwrap();
+        if let Some(backend) = backend {
+            record["backend"] = backend.into();
+        } else {
+            record.as_object_mut().unwrap().remove("backend");
+        }
+        std::fs::write(&metadata, record.to_string()).unwrap();
+        std::fs::create_dir_all(directory.join("db/db")).unwrap();
+        let blocks = directory.join("db/db/blocks.ldb");
+        std::fs::write(&blocks, b"preserved blocks").unwrap();
+        let before = std::fs::read(&metadata).unwrap();
+        assert!(matches!(
+            manager.open(&world.id, None),
+            Err(WorldError::LegacyWorld)
+        ));
+        assert_eq!(std::fs::read(&metadata).unwrap(), before);
+        assert_eq!(std::fs::read(&blocks).unwrap(), b"preserved blocks");
+        assert_eq!(manager.status().state, WorldState::Idle);
+        assert!(lock(&runner.started).is_empty());
+        assert!(
+            manager
+                .list()
+                .unwrap()
+                .iter()
+                .any(|saved| saved.id == world.id && saved.backend == Backend::LegacyDragonfly)
+        );
+        manager
+            .update(
+                &world.id,
+                &WorldUpdate {
+                    name: Some("Kept".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            manager.inner.store.get(&world.id).unwrap().backend,
+            Backend::LegacyDragonfly
+        );
+        assert_eq!(std::fs::read(blocks).unwrap(), b"preserved blocks");
+    }
+}
+
+/// No caller can revive the removed host through an older create request.
+#[test]
+fn legacy_host_requests_are_refused_without_saving() {
+    let fixture = fixture(|_, _| {});
+    let result = fixture.manager.create(&NewWorld {
+        backend: Some(Backend::LegacyDragonfly),
+        ..flat("Legacy")
+    });
+    assert!(matches!(result, Err(WorldError::LegacyWorld)));
+    assert!(fixture.manager.list().unwrap().is_empty());
+}

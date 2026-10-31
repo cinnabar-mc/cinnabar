@@ -1340,6 +1340,7 @@ exports = [
     "render_api::primitive_shapes::PrimitiveText",
 ]
 
+# Player local worlds use BDS. Dragonfly runs only in checkout developer tools.
 [[crates]]
 name = "launcher-host"
 path = "crates/launcher-host"

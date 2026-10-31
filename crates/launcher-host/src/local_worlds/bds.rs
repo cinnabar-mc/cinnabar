@@ -130,7 +130,6 @@ impl Runner for BdsRunner {
                 Launch {
                     address: loopback(port),
                     timeout: self.start_timeout.unwrap_or(BDS_START_TIMEOUT),
-                    can_pause: false,
                     ready: |line| line.contains(BDS_READY_MARKER),
                     label: format!("{label} {}", spec.world.id),
                     // Records the ending before the exit is reported, so a stopped create run's
@@ -245,10 +244,6 @@ impl Instance for BdsInstance {
         self.process.address()
     }
 
-    fn set_paused(&self, _paused: bool) -> io::Result<()> {
-        Ok(())
-    }
-
     fn request_stop(&self) {
         self.process.request_stop();
     }
@@ -261,12 +256,6 @@ impl Instance for BdsInstance {
 
     fn exited(&self) -> Receiver<()> {
         self.process.exited()
-    }
-
-    /// BDS registers no sim-time pause (`/globalpause`), gamerules leave mobs and redstone running,
-    /// and suspending the process would also freeze the connection.
-    fn can_pause(&self) -> bool {
-        false
     }
 
     fn max_players(&self) -> Option<u32> {

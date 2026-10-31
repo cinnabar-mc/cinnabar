@@ -21,8 +21,7 @@ const (
 	GameModeCreative  = bridgecontract.GameModeCreative
 	GameModeAdventure = bridgecontract.GameModeAdventure
 
-	BackendBDS       = bridgecontract.BackendBds       // Bedrock Dedicated Server: vanilla worldgen and mobs
-	BackendDragonfly = bridgecontract.BackendDragonfly // built-in server
+	BackendBDS = bridgecontract.BackendBds // Bedrock Dedicated Server: vanilla worldgen and mobs
 )
 
 // State is the lifecycle of the launcher's open world.

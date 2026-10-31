@@ -268,14 +268,6 @@ fn execute(
             manager.leave();
             return None;
         }
-        Effect::SetPaused(paused) => {
-            let _ = manager.set_paused(paused);
-            return None;
-        }
-        Effect::Prepare => {
-            manager.prepare();
-            return None;
-        }
         Effect::OpenUrl(_) => return None,
     })
 }
@@ -379,7 +371,7 @@ mod tests {
             .create(&NewWorld {
                 name: "w".into(),
                 generator: Generator::Flat,
-                backend: Some(bridge::Backend::Dragonfly),
+                backend: Some(bridge::Backend::Bds),
                 ..NewWorld::default()
             })
             .expect("create");
@@ -406,7 +398,7 @@ mod tests {
             .create(&NewWorld {
                 name: "w".into(),
                 generator: Generator::Flat,
-                backend: Some(bridge::Backend::Dragonfly),
+                backend: Some(bridge::Backend::Bds),
                 ..NewWorld::default()
             })
             .expect("create");

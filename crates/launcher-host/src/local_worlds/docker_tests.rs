@@ -49,7 +49,7 @@ fn native_hosts_never_probe_docker() {
     );
 }
 
-/// `docker info` decides between the container runtime and Dragonfly.
+/// `docker info` decides whether the container runtime can host worlds.
 #[cfg(unix)]
 #[test]
 fn the_docker_probe_picks_the_container_or_reports_it_stopped() {

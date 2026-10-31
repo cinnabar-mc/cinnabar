@@ -21,14 +21,6 @@ pub(crate) fn lan_address(port: u16) -> String {
     loopback(if port == 0 { LAN_DISCOVERY_PORT } else { port })
 }
 
-/// A free loopback UDP port for a Dragonfly server.
-pub(crate) fn free_loopback_port() -> Result<u16, WorldError> {
-    UdpSocket::bind((LOCAL_SERVER_HOST, 0))
-        .and_then(|socket| socket.local_addr())
-        .map(|address| address.port())
-        .map_err(|error| failed(format!("reserve loopback port: {error}")))
-}
-
 /// Reserves the TCP signaling port and the UDP window above it for `players`, or selects one when
 /// `port` is zero. The ports are released before the server starts.
 pub(crate) fn free_bds_port(players: u32, port: u16) -> Result<u16, WorldError> {

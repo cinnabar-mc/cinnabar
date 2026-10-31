@@ -429,7 +429,6 @@ fn snapshot_local_worlds() {
         ),
     ));
     menu.update(Input::BeginCreate);
-    menu.update(Input::SetBackend(Backend::Bds));
     menu.update(Input::SubmitCreate);
     menu.apply(Event::Prefs(
         Prefs::default(),

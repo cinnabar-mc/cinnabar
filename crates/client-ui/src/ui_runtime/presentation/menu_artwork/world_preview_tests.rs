@@ -99,7 +99,7 @@ fn the_edited_world_gets_atlas_space_from_play_and_storage() {
         game_mode: bridge::GameMode::Survival,
         generator: Default::default(),
         difficulty: Default::default(),
-        backend: bridge::Backend::Dragonfly,
+        backend: bridge::Backend::LegacyDragonfly,
         seed: 0,
         created_unix: 0,
         last_played_unix: 0,
