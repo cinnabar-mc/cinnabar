@@ -7,13 +7,14 @@ use bevy::{
 };
 use launcher_host::renderer_startup::fullscreen::FullscreenGuard;
 use render_scene::startup_presentation::StartupPresentation;
+use std::sync::{Arc, Mutex};
 
-type Save = std::thread::JoinHandle<(FullscreenGuard, bool, Result<(), String>)>;
+type Save = std::thread::JoinHandle<(bool, Result<(), String>)>;
 
 /// Keeps native entry behind its journal write and completion behind a new presentation.
 #[derive(Default, Resource)]
 pub struct FullscreenTransition {
-    guard: Option<FullscreenGuard>,
+    guard: Option<Arc<Mutex<FullscreenGuard>>>,
     saving: Option<Save>,
     armed: bool,
     requested: Option<bool>,
@@ -45,7 +46,7 @@ fn initialize(
                 menu.sync_fullscreen(false);
                 settings.set_fullscreen(false);
             }
-            transition.guard = Some(guard);
+            transition.guard = Some(Arc::new(Mutex::new(guard)));
         }
         Err(error) => {
             transition.blocked = true;
@@ -71,35 +72,61 @@ impl FullscreenTransition {
             return;
         };
         match worker.join() {
-            Ok((guard, armed, result)) => {
-                self.guard = Some(guard);
-                match result {
-                    Ok(()) => self.armed = armed,
-                    Err(error) => {
-                        self.blocked = true;
-                        bevy::log::warn!("Fullscreen recovery could not save: {error}");
-                    }
+            Ok((armed, result)) => match result {
+                Ok(()) => self.armed = armed,
+                Err(error) => {
+                    self.blocked = true;
+                    bevy::log::warn!("Fullscreen recovery could not save: {error}");
                 }
-            }
+            },
             Err(_) => self.blocked = true,
         }
     }
 
     /// Starts one ordered storage operation; callers poll its handle without waiting.
     fn save(&mut self, armed: bool) {
-        let Some(mut guard) = self.guard.take() else {
+        self.save_with(armed, |guard, armed| {
+            std::thread::Builder::new()
+                .name("fullscreen-recovery".into())
+                .spawn(move || {
+                    let mut guard = guard.lock().unwrap_or_else(|error| error.into_inner());
+                    let result = if armed { guard.begin() } else { guard.clear() };
+                    (armed, result.map_err(|error| format!("{error:#}")))
+                })
+        });
+    }
+
+    /// Retains journal ownership even when the injected worker launcher returns an error.
+    fn save_with(
+        &mut self,
+        armed: bool,
+        spawn: impl FnOnce(Arc<Mutex<FullscreenGuard>>, bool) -> std::io::Result<Save>,
+    ) {
+        let Some(guard) = self.guard.as_ref().map(Arc::clone) else {
             return;
         };
-        match std::thread::Builder::new()
-            .name("fullscreen-recovery".into())
-            .spawn(move || {
-                let result = if armed { guard.begin() } else { guard.clear() };
-                (guard, armed, result.map_err(|error| format!("{error:#}")))
-            }) {
+        match spawn(Arc::clone(&guard), armed) {
             Ok(worker) => self.saving = Some(worker),
             Err(error) => {
                 self.blocked = true;
                 bevy::log::warn!("Fullscreen recovery worker could not start: {error}");
+                // A successful transition must not retain crash attribution just because
+                // the cleanup worker could not start. This fallback only unlinks the marker.
+                if !armed {
+                    match guard
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .clear()
+                    {
+                        Ok(()) => {
+                            self.armed = false;
+                            self.blocked = false;
+                        }
+                        Err(error) => {
+                            bevy::log::warn!("Fullscreen recovery could not clear: {error:#}")
+                        }
+                    }
+                }
             }
         }
     }
@@ -153,8 +180,11 @@ fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut transition: ResMut<Full
         return;
     }
     transition.finish_save();
-    if let Some(guard) = transition.guard.as_mut()
-        && let Err(error) = guard.clear()
+    if let Some(guard) = transition.guard.as_ref()
+        && let Err(error) = guard
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear()
     {
         bevy::log::warn!("Fullscreen recovery could not cancel: {error:#}");
     }

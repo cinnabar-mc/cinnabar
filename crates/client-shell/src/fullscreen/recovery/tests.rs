@@ -222,3 +222,39 @@ fn a_settings_reload_cannot_bypass_the_durable_entry_barrier() {
     );
     enter(&mut app, window);
 }
+
+#[test]
+fn cleanup_worker_start_failure_preserves_fullscreen_after_crash_or_close() {
+    for orderly in [false, true] {
+        let layout = launcher::test_support::scratch("fullscreen-worker-failure");
+        let saved = SavedVideoSettings {
+            fullscreen: true,
+            gui_scale_offset: 1,
+        };
+        video_settings::save(&layout.user_config_root, saved).unwrap();
+        let (mut app, window) = app(layout.clone());
+        enter(&mut app, window);
+        let feedback = app.world().resource::<StartupPresentation>();
+        feedback.record_mode_frame(feedback.pending_mode_change().unwrap());
+        app.world_mut()
+            .resource_mut::<FullscreenTransition>()
+            .save_with(false, |_, _| {
+                Err(std::io::Error::other("thread creation failed"))
+            });
+        assert!(!app.world().resource::<FullscreenTransition>().armed);
+        if orderly {
+            app.world_mut().write_message(AppExit::Success);
+            app.update();
+        }
+        drop(app);
+        assert!(
+            !FullscreenGuard::open(&layout.user_config_root)
+                .unwrap()
+                .recovered
+        );
+        assert_eq!(
+            video_settings::load(&layout.user_config_root).unwrap(),
+            saved
+        );
+    }
+}
