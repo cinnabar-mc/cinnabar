@@ -1063,7 +1063,11 @@ The bounded burst/neutrality recovery policy remains provisional. Per-frame admi
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
 Same-frame hand actions still announce their selection first; matching their complete
-native packet order remains incomplete.
+native packet order remains incomplete. A hotbar press behind pending work applies
+locally when its frame ends, because the native digit handler has no such gate. A press
+during an accepted item release still expires, which is a confirmed gap. A queued attack
+press takes the newer slot; native's order for that case and its mouse-wheel path are
+unverified.
 
 ### Held block placement
 
