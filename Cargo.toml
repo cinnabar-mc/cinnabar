@@ -59,6 +59,7 @@ members = [
     "crates/resource-pack",
     "crates/server-experience",
     "crates/shaderpack",
+    "crates/shaderpack-worker",
     "crates/zip-footer",
     "crates/render",
     "crates/render-api",

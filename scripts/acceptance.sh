@@ -179,10 +179,18 @@ manifest_path = root / "crates/protocol/Cargo.toml"
 lock_path = root / "Cargo.lock"
 upstream_path = root / "crates/protocol/vendor/UPSTREAM.md"
 license_path = root / "crates/protocol/vendor/LICENSE"
-required_paths = [manifest_path, lock_path, upstream_path, license_path]
+target_path = root / "assets/bedrock-target.json"
+required_paths = [manifest_path, lock_path, upstream_path, license_path, target_path]
 for path in required_paths:
     if not path.is_file():
         raise SystemExit(f"protocol dependency provenance input is missing: {path}")
+
+target = json.loads(target_path.read_text(encoding="utf-8-sig"))
+for field in ("codec_crate", "codec_package"):
+    if not isinstance(target.get(field), str) or not re.fullmatch(r"[a-z][a-z0-9-]*", target[field]):
+        raise SystemExit(f"Bedrock target manifest must pin a valid {field}")
+codec_alias = target["codec_crate"]
+codec_package = target["codec_package"]
 
 def read_bounded_output(stream, label, maximum_bytes):
     length = stream.tell()
@@ -234,13 +242,13 @@ if len(protocol_packages) != 1:
         f"cargo metadata must contain exactly one canonical protocol package, found {len(protocol_packages)}"
     )
 expected_dependencies = {
-    "bedrock-protocol-1-26-60": [],
+    codec_package: [],
 }
 for dependency_name, expected_features in expected_dependencies.items():
     matches = [
         dependency
         for dependency in protocol_packages[0].get("dependencies", [])
-        if dependency.get("name") == dependency_name or dependency.get("rename") == dependency_name
+        if dependency.get("name") == dependency_name or dependency.get("rename") == codec_alias
     ]
     if len(matches) != 1:
         raise SystemExit(
@@ -256,9 +264,10 @@ for dependency_name, expected_features in expected_dependencies.items():
         raise SystemExit(
             f"cargo metadata dependency {dependency_name} is missing {', '.join(missing)}"
         )
-    if dependency["name"] != dependency_name or dependency["rename"] is not None:
+    expected_rename = None if dependency_name == codec_alias else codec_alias
+    if dependency["name"] != dependency_name or dependency["rename"] != expected_rename:
         raise SystemExit(
-            f"protocol dependency provenance drifted: {dependency_name} must not be renamed"
+            f"protocol dependency provenance drifted: {dependency_name} must use the target codec package and alias"
         )
     if (
         dependency["source"] is not None
@@ -270,7 +279,7 @@ for dependency_name, expected_features in expected_dependencies.items():
         raise SystemExit(
             f"protocol dependency provenance drifted: {dependency_name} must be one normal non-target non-optional local dependency"
         )
-    vendored_manifest = root / f"crates/protocol/vendor/{dependency_name}/Cargo.toml"
+    vendored_manifest = root / f"crates/protocol/vendor/{codec_alias}/Cargo.toml"
     if not vendored_manifest.is_file():
         raise SystemExit(
             f"protocol dependency provenance drifted: {dependency_name} vendored path has no Cargo.toml"
@@ -293,7 +302,7 @@ for dependency_name, expected_features in expected_dependencies.items():
 upstream = upstream_path.read_text(encoding="utf-8-sig")
 metadata_lines = [
     f"- Axolotl Stack merge revision: `{axolotl_stack_revision}`",
-    f"- Generator commit: `{protocolgen_revision}` (`generated/1.26.60/rust-contract`)",
+    f"- Generator commit: `{protocolgen_revision}` (`generated/{target['game_version']}/rust-contract`)",
     f"- Retained license normalized SHA-256: `{license_sha256}`",
 ]
 for line in metadata_lines:
@@ -314,7 +323,7 @@ for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
     if not name_match:
         continue
     name = name_match.group(1)
-    if name != "bedrock-protocol-1-26-60":
+    if name not in expected_dependencies:
         continue
     resolved.add(name)
     resolution_key = re.search(r"(?m)^\s*(source|checksum)\s*=", block)
@@ -322,7 +331,7 @@ for block in re.split(r"(?m)^\s*\[\[package\]\]\s*$", lock)[1:]:
         raise SystemExit(
             f"Cargo.lock local package {name} has a {resolution_key.group(1)} entry"
         )
-for dependency in ("bedrock-protocol-1-26-60",):
+for dependency in expected_dependencies:
     if dependency not in resolved:
         raise SystemExit(f"Cargo.lock does not contain local package {dependency}")
 PY

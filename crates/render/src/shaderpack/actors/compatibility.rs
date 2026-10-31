@@ -169,7 +169,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 layers: 1,
-                rgba8: std::sync::Arc::from([255; 4]),
+                rgba8: [255; 4].into(),
                 color_mask,
                 multitexture,
             };

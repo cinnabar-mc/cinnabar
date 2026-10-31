@@ -3325,10 +3325,12 @@ impl wire::Encode for MapInfoRequest {
 impl wire::Decode for MapInfoRequest {
     fn decode(reader: &mut wire::Reader<'_>) -> wire::DecodeResult<Self> {
         let map_unique_id = <ActorUniqueID as wire::Decode>::decode(reader)?;
-        let client_pixels_list = wire::decode_collection_u32le::<PixelRequest>(
+        let client_pixels_list = wire::decode_collection_u32le_limits::<PixelRequest>(
             reader,
             crate::fields::MAP_INFO_REQUEST_CLIENT_PIXELS_LIST,
             6,
+            0,
+            16384,
         )?;
         Ok(Self {
             map_unique_id,
@@ -5693,10 +5695,12 @@ impl wire::Decode for NetworkChunkPublisherUpdate {
             wire::validate_number_limits(value.0, Some(0), None)?;
             value
         };
-        let server_built_chunks_list = wire::decode_collection_u32le::<ChunkPos>(
+        let server_built_chunks_list = wire::decode_collection_u32le_limits::<ChunkPos>(
             reader,
             crate::fields::NETWORK_CHUNK_PUBLISHER_UPDATE_SERVER_BUILT_CHUNKS_LIST,
             2,
+            0,
+            9216,
         )?;
         Ok(Self {
             new_position_for_view,
@@ -6662,8 +6666,10 @@ impl wire::Decode for PlayerAuthInput {
 /// this packet. Every item must be part of a group, any items that are not part of a group will need to
 /// reference an "anonymous group" which has an empty name OR no icon. The order of Groups and Items is how
 /// the client will render items in the creative inventory compared to the previous, hard coded order.
+///
 /// Below is an example of defining 2 ungrouped items, 2 grouped items and then another 2 ungrouped items, all
 /// in the nature category.
+///
 /// CreativeContent{ Groups: []protocol.CreativeGroup{ {Category: 1}, // No name or icon, this is the
 /// "anonymous group" {Category: 1, Name: "itemGroup.name.planks", Icon: protocol.ItemStack{...}}, // A
 /// "planks" group {Category: 1}, // Another "anonymous group" }, Items: []protocol.CreativeItem{

@@ -51,6 +51,8 @@ pub struct EntityPackSkips {
     pub over_budget: u32,
     /// Files dropped because the pack failed to compile with them and succeeded without.
     pub isolated: u32,
+    /// Attachables whose description could not be read into a binding.
+    pub unusable_attachables: u32,
 }
 
 /// A pack's entity catalog. Symbols a pack shares with vanilla resolve as
@@ -429,7 +431,10 @@ fn compile_selected(
                 assets: compilation.assets,
                 reference_outcomes: compilation.reference_outcomes,
                 equipment_bindings: compilation.equipment_bindings,
-                skipped,
+                skipped: EntityPackSkips {
+                    unusable_attachables: compilation.unusable_attachables,
+                    ..skipped
+                },
                 payloads,
             })
         }),

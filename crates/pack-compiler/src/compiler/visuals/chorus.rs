@@ -1,5 +1,5 @@
 //! Chorus plants grow arms toward their neighbours and short stubs elsewhere; flowers are three
-//! crossed bars.
+//! crossed bars, drawn with withered art at their final age.
 
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
@@ -19,18 +19,8 @@ const REACH_CONNECTED: i16 = 64;
 const REACH_SHORT: i16 = 16;
 const REACH_THIN: i16 = 32;
 
-#[derive(Default)]
-pub(in crate::compiler) struct Templates {
-    plants: BTreeMap<u32, u32>,
-    flowers: BTreeMap<[u32; 6], u32>,
-}
-
 pub(in crate::compiler) fn is_plant(record: &RegistryRecord) -> bool {
     record.name.as_ref() == B::ChorusPlant.identifier()
-}
-
-fn is_flower(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == B::ChorusFlower.identifier()
 }
 
 /// Marks the one block a plant above treats as ground to root into.
@@ -195,6 +185,25 @@ pub(in crate::compiler) fn plant_quads(
     quads
 }
 
+/// The age at which a flower can no longer grow and shows its withered art.
+const WITHERED_AGE: u32 = 5;
+
+pub(in crate::compiler) fn is_flower(record: &RegistryRecord) -> bool {
+    record.name.as_ref() == B::ChorusFlower.identifier()
+}
+
+/// The terrain array entry a flower's age selects, for flowers only.
+pub(in crate::compiler) fn flower_variant(record: &RegistryRecord) -> Option<usize> {
+    if !is_flower(record) {
+        return None;
+    }
+    let age = canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::Age.name(),
+    )?;
+    Some(usize::from(age == WITHERED_AGE))
+}
+
 /// Three full-length bars along each axis, each with one cross section.
 fn flower_quads(materials: [u32; 6]) -> Vec<ModelQuad> {
     const LOW: i16 = 32;
@@ -210,55 +219,67 @@ fn flower_quads(materials: [u32; 6]) -> Vec<ModelQuad> {
         .collect()
 }
 
+/// Compiles flowers, leaving packs without their art to the provisional shape.
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
-    templates: &mut Templates,
+    templates: &mut BTreeMap<[u32; 6], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
-    if is_plant(record) {
-        let mut visual = diagnostic_visual(record);
-        if let Some(material) = inputs.material(record, BlockFace::Up) {
-            let template = if let Some(&template) = templates.plants.get(&material) {
-                template
-            } else {
-                let first = storage.templates.len() as u32;
-                for offset in 0..chorus::TEMPLATE_COUNT {
-                    let quads = plant_quads(material, offset & 63, offset >> 6);
-                    push_model_template(
-                        quads,
-                        assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT,
-                        storage.templates,
-                        storage.quads,
-                    )?;
-                }
-                templates.plants.insert(material, first);
-                first
-            };
-            set_model_visual(&mut visual, [material; 6], template);
-        }
-        return Ok(CompileRuleResult::Compiled(visual));
+    if !is_flower(record) {
+        return Ok(CompileRuleResult::NoMatch);
     }
-    if is_flower(record) {
-        let mut visual = diagnostic_visual(record);
-        if let Some(materials) = inputs.materials(record) {
-            let template = if let Some(&template) = templates.flowers.get(&materials) {
-                template
-            } else {
-                let template = push_model_template(
-                    flower_quads(materials),
-                    assets::MODEL_TEMPLATE_FLAG_CHORUS,
+    let Some(materials) = inputs.materials(record) else {
+        return Ok(CompileRuleResult::NoMatch);
+    };
+    let template = if let Some(&template) = templates.get(&materials) {
+        template
+    } else {
+        let template = push_model_template(
+            flower_quads(materials),
+            assets::MODEL_TEMPLATE_FLAG_CHORUS,
+            storage.templates,
+            storage.quads,
+        )?;
+        templates.insert(materials, template);
+        template
+    };
+    let mut visual = diagnostic_visual(record);
+    set_model_visual(&mut visual, materials, template);
+    Ok(CompileRuleResult::Compiled(visual))
+}
+
+/// Compiles a plant's whole template bank once per art; packs without the art stay diagnostic.
+pub(in crate::compiler) fn compile_plant_rule(
+    record: &RegistryRecord,
+    inputs: &RuleInputs<'_>,
+    templates: &mut BTreeMap<u32, u32>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<CompileRuleResult, AssetError> {
+    if !is_plant(record) {
+        return Ok(CompileRuleResult::NoMatch);
+    }
+    let mut visual = diagnostic_visual(record);
+    if let Some(material) = inputs.material(record, BlockFace::Up) {
+        let template = if let Some(&template) = templates.get(&material) {
+            template
+        } else {
+            let first = storage.templates.len() as u32;
+            for offset in 0..chorus::TEMPLATE_COUNT {
+                let quads = plant_quads(material, offset & 63, offset >> 6);
+                push_model_template(
+                    quads,
+                    assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT,
                     storage.templates,
                     storage.quads,
                 )?;
-                templates.flowers.insert(materials, template);
-                template
-            };
-            set_model_visual(&mut visual, materials, template);
-        }
-        return Ok(CompileRuleResult::Compiled(visual));
+            }
+            templates.insert(material, first);
+            first
+        };
+        set_model_visual(&mut visual, [material; 6], template);
     }
-    Ok(CompileRuleResult::NoMatch)
+    Ok(CompileRuleResult::Compiled(visual))
 }
 
 #[cfg(test)]

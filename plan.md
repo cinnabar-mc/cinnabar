@@ -80,7 +80,7 @@ stonecutter selection, cursor dragging, block passengers and registered audio pa
 are decoded, counted and skipped until their client features are implemented.
 The target catalog includes fire and wire connection states with empty collision;
 collision, selection and connection-rendering acceptance for those states remains incomplete.
-Chorus plants, disc presses, ice crystals and icicles remain reserved because their
+Disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
 remains incomplete. The official matching-protocol preview resource pack supplies
 property domains and HUD inputs, including the combined hotbar-slot renderer.
@@ -167,18 +167,27 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
-- [ ] Close paired-door presentation and interaction acceptance, including lower/upper
-  state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
+- [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
+  native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
+  leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
   Hand-use prediction resolves either clicked half against its matching partner
   and changes the lower half's open state; matched server and artwork acceptance
   remains incomplete.
+- [ ] Close redstone component visuals. Redstone torches, repeater delay and output torches and
+  comparator rear and front torches draw at their native positions from each block state.
+  Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
+  neighbour check, and redstone wire, which draws neither its power tint nor its connections.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close chorus visuals. Plants grow arms toward chorus neighbours and end stone below, with
   position-selected stubs elsewhere, and flowers draw their three bars. The connection block states
   added in 1.26.60 are not read: placement selects from the neighbours, as the 26.30 reference does,
   so whether the 1.26.60 client reads those states instead is unverified.
+- [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
+  and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
+  inactive and cooldown phases, and calibrated sensors keep their provisional shape without
+  tendrils, crystal or facing-mapped faces.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
@@ -579,8 +588,20 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Script-based helmet inference is provisional and recognizes
-specific head/hand branch names. General slot inference and complete texture-budget
-and rendered qualification remain incomplete.
+specific head/hand branch names. General slot inference and rendered qualification remain
+incomplete. A pack's attachables have no binding or texture count limit, and all their art
+is decoded and placed at join. Native queues each texture when it is first requested, and
+no native count limit has been found, so this is not yet matched: decoded art past
+Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading
+remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
+so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
+
+Confirmed gap: native keeps and draws every render controller whose condition passes,
+while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
+controller ahead of the body draws only the cosmetic, with no limb animation, and
+other passing layers such as hats and capes never appear. Closing this needs per-layer
+condition and geometry evaluation, posing and drawing, and attachable parent-bone
+lookup across the passing list.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -1078,7 +1099,11 @@ The bounded burst/neutrality recovery policy remains provisional. Per-frame admi
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
 Same-frame hand actions still announce their selection first; matching their complete
-native packet order remains incomplete.
+native packet order remains incomplete. A hotbar press behind pending work applies
+locally when its frame ends, because the native digit handler has no such gate. A press
+during an accepted item release still expires, which is a confirmed gap. A queued attack
+press takes the newer slot; native's order for that case and its mouse-wheel path are
+unverified.
 
 ### Held block placement
 
@@ -1231,6 +1256,10 @@ Packaging builds reject `--freecam` and `--auto-fly` and omit their movement sys
 First-run setup retains extracted resource versions, bound to their pinned archive hashes,
 so compiler updates reuse source packs while rebuilding stale carriers. Packaged upgrade and
 rollback acceptance of this reuse remains incomplete.
+On macOS and extracted Linux AppDirs, a staged update's carriers build in the background at
+the lowest priority with bounded parallelism, and its first launch promotes them without
+setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
+captures of a game running beside the background build remain incomplete.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
@@ -1292,8 +1321,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
-  CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
-  is from one report.
+  CPU-culled indirect draws. The version bound is from one report. The same drivers compile with
+  FXC: that adapter lost the device building an indirect-validation pipeline with DXC and fell back
+  to the software adapter. A player reported a stable launch with `WGPU_DX12_COMPILER=fxc`, and
+  their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
+  on. No log confirms the compiler of that run, automatic FXC selection has not run on that
+  hardware, and its terrain stays far over the frame budget.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
@@ -1791,9 +1824,9 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
-artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
-that the session entity pack also keeps, so those pixels stay resident twice during a
-session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
+artwork pixels. Prepared actor artwork pages reference each pack entity and equipment
+texture's allocation as a page layer instead of copying it, so session artwork pixels stay
+resident once; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed

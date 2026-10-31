@@ -68,7 +68,7 @@ impl GpuGlint {
             width: source.width,
             height: source.height,
             layers: 1,
-            rgba8: Arc::clone(&source.rgba8),
+            rgba8: Arc::clone(&source.rgba8).into(),
             color_mask: false,
             multitexture: false,
         };
@@ -481,23 +481,37 @@ fn upload_page(
     })?;
     #[cfg(test)]
     work_tests::record_upload(page.rgba8.len());
-    gpu_allocation::checked(device, "actor page upload", page.rgba8.len() as u64, || {
-        queue.profiled_write_texture(
-            TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: default(),
-                aspect: default(),
-            },
-            &page.rgba8,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(size.width * 4),
-                rows_per_image: Some(size.height),
-            },
-            size,
-        )
-    })?;
+    // Each allocation holds whole layers; shared layers upload without being joined first.
+    let layer_bytes = (size.width * size.height * 4) as usize;
+    let mut first_layer = 0;
+    for part in page.rgba8.parts() {
+        let layers = (part.len() / layer_bytes.max(1)) as u32;
+        gpu_allocation::checked(device, "actor page upload", part.len() as u64, || {
+            queue.profiled_write_texture(
+                TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: first_layer,
+                    },
+                    aspect: default(),
+                },
+                part,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(size.width * 4),
+                    rows_per_image: Some(size.height),
+                },
+                Extent3d {
+                    depth_or_array_layers: layers,
+                    ..size
+                },
+            )
+        })?;
+        first_layer += layers;
+    }
     Some(texture)
 }
 

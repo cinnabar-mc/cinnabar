@@ -47,12 +47,18 @@ pub const EQUIPMENT_CARRIER_MAGIC: [u8; 8] = *b"MCBEEQP1";
 /// Includes authored use profiles, food nutrition, component durations and use-modifiers presence.
 /// Older carriers need a rebuild.
 pub const EQUIPMENT_CARRIER_VERSION: u32 = 5;
+/// Startup carrier bound. A server pack's catalog has no binding count limit.
 pub const MAX_EQUIPMENT_BINDINGS: usize = 1024;
 pub const MAX_EQUIPMENT_IDENTIFIER_BYTES: usize = 256;
+/// Startup carrier bound. A server pack's catalog has no texture count limit.
 pub const MAX_EQUIPMENT_TEXTURES: usize = 256;
 pub const MAX_EQUIPMENT_TEXTURE_SIDE: u16 = crate::MAX_ACTOR_TEXTURE_SIDE;
-/// Held and worn item art; entity art has its own, larger budget.
+/// Startup carrier bound on held and worn item art.
 pub const MAX_EQUIPMENT_PIXEL_BYTES: usize = 256 * 1024 * 1024;
+/// Cinnabar's ceiling on the decoded attachable art held for one server pack, matching entity art.
+/// No such native limit is known: native queues textures when first requested. Rasters past it
+/// are counted and logged by the pack compile.
+pub const MAX_PACK_EQUIPMENT_PIXEL_BYTES: usize = crate::MAX_ACTOR_PIXEL_BYTES;
 const MAX_EQUIPMENT_METADATA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_EQUIPMENT_CARRIER_BYTES: usize =
     MAX_EQUIPMENT_PIXEL_BYTES + MAX_EQUIPMENT_METADATA_BYTES;
@@ -257,6 +263,8 @@ pub struct RuntimeEquipmentCatalog {
 
 #[path = "equipment/decode.rs"]
 mod decode;
+mod session;
+pub(crate) use session::SessionEquipmentEncoding;
 
 impl RuntimeEquipmentCatalog {
     /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
@@ -271,8 +279,8 @@ impl RuntimeEquipmentCatalog {
         bindings.dedup_by(|later, earlier| binding_key(later) == binding_key(earlier));
         textures.sort_by(|left, right| left.identifier.cmp(&right.identifier));
         textures.dedup_by(|later, earlier| later.identifier == earlier.identifier);
-        validate(&identity, &identity, &bindings)?;
-        validate_textures(&textures)?;
+        validate_binding_entries(&identity, &identity, &bindings)?;
+        validate_texture_entries(&textures, MAX_PACK_EQUIPMENT_PIXEL_BYTES)?;
         Ok(Self {
             source_manifest_sha256: identity,
             entity_blob_sha256: identity,
@@ -513,14 +521,7 @@ pub fn encode_equipment_catalog_with_use_profiles(
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(payload_bytes.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&payload_bytes);
-    bytes.extend_from_slice(&(textures.len() as u32).to_le_bytes());
-    for texture in textures {
-        bytes.extend_from_slice(&(texture.identifier.len() as u16).to_le_bytes());
-        bytes.extend_from_slice(texture.identifier.as_bytes());
-        bytes.extend_from_slice(&texture.width.to_le_bytes());
-        bytes.extend_from_slice(&texture.height.to_le_bytes());
-        bytes.extend_from_slice(&texture.rgba8);
-    }
+    write_textures(&mut bytes, textures).expect("writing to memory cannot fail");
     let hash = Sha256::digest(&bytes);
     bytes.extend_from_slice(&hash);
     if bytes.len() > MAX_EQUIPMENT_CARRIER_BYTES {
@@ -529,16 +530,42 @@ pub fn encode_equipment_catalog_with_use_profiles(
     Ok(bytes)
 }
 
+/// Writes the texture records [`decode::read_textures`] reads back.
+fn write_textures(
+    out: &mut dyn std::io::Write,
+    textures: &[EquipmentTexture],
+) -> std::io::Result<()> {
+    out.write_all(&(textures.len() as u32).to_le_bytes())?;
+    for texture in textures {
+        out.write_all(&(texture.identifier.len() as u16).to_le_bytes())?;
+        out.write_all(texture.identifier.as_bytes())?;
+        out.write_all(&texture.width.to_le_bytes())?;
+        out.write_all(&texture.height.to_le_bytes())?;
+        out.write_all(&texture.rgba8)?;
+    }
+    Ok(())
+}
+
+/// Validates a startup carrier's bindings, including its count bound.
 fn validate(
     source_manifest_sha256: &[u8; 32],
     entity_blob_sha256: &[u8; 32],
     bindings: &[EquipmentBinding],
 ) -> Result<(), AssetError> {
-    if source_manifest_sha256 == &[0; 32]
-        || entity_blob_sha256 == &[0; 32]
-        || bindings.len() > MAX_EQUIPMENT_BINDINGS
-    {
-        return Err(invalid("equipment catalog provenance or count is invalid"));
+    if bindings.len() > MAX_EQUIPMENT_BINDINGS {
+        return Err(invalid("equipment catalog binding count is invalid"));
+    }
+    validate_binding_entries(source_manifest_sha256, entity_blob_sha256, bindings)
+}
+
+/// Validates provenance and each binding, without bounding how many there are.
+fn validate_binding_entries(
+    source_manifest_sha256: &[u8; 32],
+    entity_blob_sha256: &[u8; 32],
+    bindings: &[EquipmentBinding],
+) -> Result<(), AssetError> {
+    if source_manifest_sha256 == &[0; 32] || entity_blob_sha256 == &[0; 32] {
+        return Err(invalid("equipment catalog provenance is invalid"));
     }
     let mut previous = None;
     for binding in bindings {
@@ -581,10 +608,19 @@ fn validate_item_use(item_use: &[ItemUseDuration]) -> Result<(), AssetError> {
     Ok(())
 }
 
+/// Validates a startup carrier's textures, including its count and pixel bounds.
 fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
     if textures.len() > MAX_EQUIPMENT_TEXTURES {
         return Err(invalid("equipment texture count exceeds bound"));
     }
+    validate_texture_entries(textures, MAX_EQUIPMENT_PIXEL_BYTES)
+}
+
+/// Validates each texture and their total pixels, without bounding how many there are.
+fn validate_texture_entries(
+    textures: &[EquipmentTexture],
+    max_pixel_bytes: usize,
+) -> Result<(), AssetError> {
     let mut previous: Option<&str> = None;
     let mut pixel_bytes = 0usize;
     for texture in textures {
@@ -593,7 +629,7 @@ fn validate_textures(textures: &[EquipmentTexture]) -> Result<(), AssetError> {
             .ok_or_else(|| invalid("equipment texture dimensions exceed bound"))?;
         pixel_bytes = pixel_bytes
             .checked_add(bytes)
-            .filter(|total| *total <= MAX_EQUIPMENT_PIXEL_BYTES)
+            .filter(|total| *total <= max_pixel_bytes)
             .ok_or_else(|| invalid("equipment texture pixel budget exceeded"))?;
         if previous.is_some_and(|previous| previous >= texture.identifier.as_ref())
             || texture.rgba8.len() != bytes
@@ -680,7 +716,7 @@ mod tests {
         }
     }
 
-    fn sample() -> Vec<EquipmentBinding> {
+    pub(super) fn sample() -> Vec<EquipmentBinding> {
         vec![
             EquipmentBinding {
                 identifier: "minecraft:diamond_helmet".into(),

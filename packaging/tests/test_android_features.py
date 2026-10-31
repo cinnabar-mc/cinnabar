@@ -9,16 +9,21 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+# The shader-pack compiler's Cargo package, from the runtime table.
+WORKER_PACKAGE = next(package for _, package, role in
+                      (line.split() for line in (ROOT / "packaging/common/runtime-binaries.txt").read_text().splitlines())
+                      if role == "SHADERPACK_WORKER")
 
 
 class AndroidFeatureTests(unittest.TestCase):
     def test_client_and_compiler_build_without_optional_features(self):
-        """Build both hosts on the available Bash versions without optional feature arguments."""
+        """Build the client and both compilers on the available Bash versions without optional features."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in ["Cargo.toml", "packaging/android/build-apk.sh",
                          "packaging/android/runtime.json", "packaging/android/client/Cargo.toml",
-                         "packaging/common/stage-payload.sh", "crates/launcher/src/lib.rs"]:
+                         "packaging/common/stage-payload.sh", "packaging/common/runtime-binaries.txt",
+                         "crates/launcher/src/lib.rs"]:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, target)
@@ -47,10 +52,11 @@ class AndroidFeatureTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 77, result.stderr)
                 builds = [json.loads(line) for line in log.read_text().splitlines()]
                 builds = [args for args in builds if args[0] == "ndk"]
-                self.assertEqual(len(builds), 2)
+                self.assertEqual(len(builds), 3)
                 for args in builds:
                     self.assertNotIn("--features", args)
                 self.assertEqual(builds[1][builds[1].index("-p") + 1], "asset-compiler")
+                self.assertEqual(builds[2][builds[2].index("-p") + 1], WORKER_PACKAGE)
 
 
 if __name__ == "__main__":

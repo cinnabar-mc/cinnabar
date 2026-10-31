@@ -108,6 +108,7 @@ impl PreparedSessionResources {
                     (resources.pages, resources.locations) = resources
                         .pages
                         .with_equipment_rasters(&EquipmentRuntime::pack_rasters(catalog));
+                    log_unplaced_rasters(catalog, &resources.locations);
                 }
                 if let Some(glint) = EquipmentRuntime::actor_glint(catalog) {
                     resources.pages = resources.pages.with_actor_glint(glint);
@@ -291,6 +292,26 @@ pub(crate) fn session_icons<'a>(
 }
 
 /// Compares optional immutable source allocations without scanning their contents.
+/// Logs each pack attachable raster that found no artwork page, then their total.
+fn log_unplaced_rasters(
+    catalog: &assets::RuntimeEquipmentCatalog,
+    locations: &[Option<ActorArtworkLocation>],
+) {
+    let mut unplaced = 0usize;
+    for (texture, location) in catalog.textures().iter().zip(locations) {
+        if location.is_none() {
+            unplaced += 1;
+            bevy::log::warn!(
+                identifier = texture.identifier.as_ref(),
+                "server pack attachable texture has no artwork page"
+            );
+        }
+    }
+    if unplaced > 0 {
+        bevy::log::warn!(unplaced, "server pack attachable textures were not placed");
+    }
+}
+
 fn same_snapshot<T>(left: Option<&Arc<T>>, right: Option<&Arc<T>>) -> bool {
     match (left, right) {
         (Some(left), Some(right)) => Arc::ptr_eq(left, right),

@@ -74,7 +74,8 @@ use visuals::{
         is_chiseled_bookshelf_record,
     },
     cactus::{
-        cactus_inventory_is_exact, cactus_material_descriptors, is_cactus_name, is_cactus_record,
+        cactus_inventory_is_exact, cactus_material_descriptors, cactus_quads, is_cactus_name,
+        is_cactus_record,
     },
     cake::{
         cake_inventory_is_exact, cake_material_descriptors, cake_source_alpha_is_exact,
@@ -387,6 +388,11 @@ fn compile_pack_sources(
         {
             descriptor_keys.insert(descriptor, key);
         }
+        if visuals::sculk::is_record(record)
+            && let Some((descriptor, key)) = visuals::sculk::attachment_descriptor(&pack, record)
+        {
+            descriptor_keys.insert(descriptor, key);
+        }
         if fallback.contains(record) {
             for face in BlockFace::ALL {
                 if let Some((descriptor, key)) = descriptor_for(fallback, &pack, record, face) {
@@ -507,6 +513,7 @@ fn compile_pack_sources(
             || is_liquid(record)
             || visuals::fire::is_record(record)
             || visuals::potted_plants::is_record(record)
+            || visuals::sunflower::is_record(record)
         {
             &BlockFace::ALL
         } else if is_aquatic_cross(record) {

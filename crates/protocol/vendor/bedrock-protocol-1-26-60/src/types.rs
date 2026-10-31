@@ -10057,7 +10057,7 @@ impl wire::Decode for DynamicValue {
             4 => Self::String(reader.read_str(crate::fields::DYNAMIC_VALUE_STRING)?),
             5 => Self::List({
                 let declared = u64::from(reader.read_var_u32()?);
-                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_LIST, declared, 1)?;
+                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_LIST, declared, 0)?;
                 let mut out: Vec<DynamicValue> = wire::alloc_vec(count)?;
                 for _ in 0..count {
                     wire::push(
@@ -10071,7 +10071,7 @@ impl wire::Decode for DynamicValue {
             }),
             6 => Self::Map({
                 let declared = u64::from(reader.read_var_u32()?);
-                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_MAP, declared, 2)?;
+                let count = reader.checked_count(crate::fields::DYNAMIC_VALUE_MAP, declared, 1)?;
                 let mut out: Vec<(wire::Str, DynamicValue)> = wire::alloc_vec(count)?;
                 for _ in 0..count {
                     let key = reader.read_str(crate::fields::DYNAMIC_VALUE_MAP_KEY)?;
