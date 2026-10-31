@@ -200,7 +200,7 @@ mod snapshot_tests {
         }
         .snapshot();
         let args = reference_args(&records, &[0], camera, indices, |_| true);
-        let expected = std::array::from_fn(|stream| {
+        let expected: [u64; STREAM_COUNT] = std::array::from_fn(|stream| {
             args[stream]
                 .iter()
                 .map(|draw| u64::from(draw[0]) * u64::from(draw[1]))
