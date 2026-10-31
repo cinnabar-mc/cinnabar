@@ -120,6 +120,14 @@ If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
+An optional `render/frame-generation` build feature provides SDR world-image
+optical flow, camera/depth interpolation and disocclusion filling. It has no
+production caller or Video control and adds no generated presentations. Pipeline
+and storage preparation runs before use; invalid inputs and explicit cuts reset
+history. World depth and native colour may have different resolutions. Runtime
+composition, scheduling/bypass policy, latency, hardware cost and platform visual
+acceptance remain incomplete; see the [backend contract](crates/render/src/frame_generation/README.md).
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh

@@ -6,6 +6,15 @@ a current implementation audit; check the owning code and later entries before
 calling work unstarted. Test files listed below establish existing coverage, not
 a fresh passing run or full gate acceptance.
 
+## Frame interpolation backend
+
+The optional `render/frame-generation` build feature contains optical flow and
+camera/depth interpolation for native-sized SDR world colour. It remains absent
+from production rendering and Video settings. Synthetic GPU fixtures cover block
+motion, camera motion, cut detection, explicit history resets, invalid inputs and
+depth at 10% resolution. No composition, presented-frame pacing, measured latency,
+hardware performance or in-world visual gate closes from these backend fixtures.
+
 ## Browser host composition
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected
