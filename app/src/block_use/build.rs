@@ -29,6 +29,8 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
     repeats_while_held: bool,
+    /// The crop state a seed item plants; block items place their own block.
+    planted: Option<u32>,
 }
 
 impl BuildInput {
@@ -144,14 +146,30 @@ fn prepare(
         {
             local_use = LocalUse::Nothing;
         }
-        let destination = placement.as_ref().map_or_else(
-            || {
-                surroundings
-                    .destination(observed.target.position, observed.target.face)
-                    .0
-            },
-            |placement| placement.position,
-        );
+        // Seed items plant through their own use rather than as block items.
+        let planted = (ready
+            && caps.can_build
+            && local_use == LocalUse::Nothing
+            && placement.is_none()
+            && observed.selection.item.block_runtime_id() == 0
+            && observed.selection.item.count() > 0)
+            .then(|| {
+                predicted_seed_planting(&context.collisions, stream, world, &context.ui, &observed)
+            })
+            .flatten();
+        if planted.is_some() {
+            local_use = LocalUse::Place;
+        }
+        let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
+            placement.as_ref().map_or_else(
+                || {
+                    surroundings
+                        .destination(observed.target.position, observed.target.face)
+                        .0
+                },
+                |placement| placement.position,
+            )
+        });
         let predicted = placement
             .filter(|_| local_use == LocalUse::Place)
             .map(|placement| {
@@ -163,7 +181,8 @@ fn prepare(
                             .map(|(position, block)| (position, 0, block)),
                     )
                     .collect::<Vec<_>>()
-            });
+            })
+            .or_else(|| planted.map(|(cell, crop)| vec![(cell, 0, crop)]));
         let predicted = predicted.or_else(|| {
             (local_use == LocalUse::Interact)
                 .then(|| {
@@ -188,10 +207,16 @@ fn prepare(
             surroundings.clicked,
             traits,
         );
-        Some((local_use, destination, predicted, repeats_while_held))
+        Some((
+            local_use,
+            destination,
+            predicted,
+            repeats_while_held,
+            planted.map(|(_, crop)| crop),
+        ))
     })
     .ok()?;
-    let (local_use, destination, predicted, repeats_while_held) = prepared.value?;
+    let (local_use, destination, predicted, repeats_while_held, planted) = prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -222,6 +247,7 @@ fn prepare(
             change,
             cooldown,
             repeats_while_held,
+            planted,
         },
     })
 }
@@ -344,14 +370,21 @@ pub(crate) fn advance(
         );
     }
     if plan.local_use == LocalUse::Place {
-        let position = plan.destination;
+        // A seed sounds at the block it was used on, where the server voices its copy too.
+        let position = if plan.planted.is_some() {
+            observed.target.position
+        } else {
+            plan.destination
+        };
         context
             .audio_cues
             .write(client_audio::audio::LocalBlockCue::Place {
                 position,
-                block_runtime_id: stream.resolve_block_network_id(u32::from_ne_bytes(
-                    observed.selection.item.block_runtime_id().to_ne_bytes(),
-                )) as i32,
+                block_runtime_id: plan.planted.unwrap_or_else(|| {
+                    stream.resolve_block_network_id(u32::from_ne_bytes(
+                        observed.selection.item.block_runtime_id().to_ne_bytes(),
+                    ))
+                }) as i32,
             });
     }
     // Java re-equips the held item after each placement.

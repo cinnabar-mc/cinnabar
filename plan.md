@@ -178,10 +178,12 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
-  plane and top art with its direction. Observers, crafters, dispensers, droppers and piston
-  bodies select each face's slot, UV turn and texture variant from their state. Piston bodies
-  remain full cubes: the native three-quarter body and its separately drawn head are
-  incomplete. Jigsaw and vault faces, carved pumpkins and native-server captures remain.
+  plane and top art with its direction. Pumpkins pick their face slot and variant from their
+  direction and class. Observers, crafters, dispensers, droppers, piston bodies, jigsaws and
+  vaults select each face's slot, UV turn and texture variant from their state; vaults also
+  draw their inward-facing cutout interior. Piston bodies remain full cubes: the native
+  three-quarter body and its separately drawn head are incomplete. Native-server captures
+  remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -192,8 +194,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   with stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close cake presentation at representative bite states, with stable exact
   model-stream witnesses and zero contamination counters.
-- [ ] Close candle-cake flame-particle and native-world presentation acceptance;
+- [ ] Close candle and candle-cake native-world presentation acceptance, including smoke and
+  flame placement against a native view; the ambient sampler emits their particles, but
   isolated composite geometry and texture fixtures do not establish the full result.
+- [ ] Voice the lit candle's ambient crackle. The callback consumes the shared roll, but no
+  ambient block callback routes a sound to the audio engine yet.
 - [ ] Close farmland presentation at representative moisture states, with matched
   native views, stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
@@ -201,7 +206,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
 - [ ] Select terrain-array entries for the remaining block classes. Pumpkins, cave vines,
   pale hanging moss and mangrove propagules follow their native class; the families in the
-  input crate's open-array check (candles, copper bulbs, cocoa, eggs, nether wart and others)
+  input crate's open-array check (copper bulbs, cocoa, eggs, nether wart and others)
   still draw entry zero until each class's variant source is verified.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
@@ -256,9 +261,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
-  stonecutter saw do this. Standalone candles are not compiled yet; their wicks need the same
-  marking when they are. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
-  corner instead of interpolating across the face with the stalk's random offset, so the
+  stonecutter saw and candle wicks do this. Inset cuboid faces, such as bamboo stems and candle sides, still pick the
+  nearest AO corner instead of interpolating across the face with the stalk's random offset, so the
   inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
@@ -406,6 +410,11 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+The HUD paper doll keeps the world's gliding tilt. It still draws an elytra as chest armor
+boxes, not the attachable's wings; that remains a confirmed gap.
+Rockets carrying an owner in actor data read as attached to an entity, so the rocket
+controller hides them; the native query body was not readable, so that mapping is inferred
+from its description and the rocket tick.
 A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
@@ -523,8 +532,10 @@ for actors with the push-towards-closest-space flag, which is not modelled.
 
 Camera aim-policy reports are sent only for cameras configured by server presets,
 distinguish both third-person views and retry changes that have not entered the outbound
-queue. Which camera wins when an inherited first-person preset competes with the base
-camera is unverified. Complete camera activation acceptance remains open.
+queue. Camera and spline registries are scoped to the current session, including the first
+frame after a reconnect, while dimension changes retain them. Which camera wins when an
+inherited first-person preset competes with the base camera is unverified. Complete camera
+activation acceptance remains open.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -590,6 +601,11 @@ and rendered qualification remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Classic and slim skins take the built-in skin pack's models, which are not in the fetched
+  pack, so they derive from its `geometry.humanoid.custom` and `geometry.humanoid.customSlim`.
+  The slim left leg drops the fetched copy's mirror to match in-game output and the newest
+  identified public copy of that skin pack; public copies disagree on this flag, and the target
+  version's own `skin_packs/vanilla/geometry.json` is unverified.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified, and the other native
@@ -842,10 +858,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Menu Cancel (`key.menuCancel`) is a remappable keyboard and mouse control that defaults to
   the mouse Back button, as in vanilla. It cancels menus, containers, the bed screen, chat
   popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
-  Escape and platform Back keys, outranks a hotbar slot on the same button, and its keyboard
-  binding yields to focused text boxes; binding capture still accepts the button. Vanilla's
-  handling of a keyboard Menu Cancel inside text boxes is unverified, and cross-platform device
-  acceptance remains incomplete.
+  Escape and platform Back keys, and its keyboard binding yields to focused text boxes;
+  binding capture still accepts the button. Remapping another action onto its control unassigns
+  Menu Cancel, and its untouched default yields to a saved action on that button. Resetting the
+  Menu Cancel row restores its default and unassigns the saved rows holding it. Vanilla unassigns
+  duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
+  rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
+  cross-platform device acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -959,6 +978,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  Items with a registry `minecraft:seed` rule predict planting on a declared block's
+  declared face into air: the swing, place sound, consumed item and the crop's default
+  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
+  block-name aliases such as `grass` remain incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -1181,6 +1204,9 @@ The sound-definition catalog matches the current sample-pack pin; compiler cover
 checks a UI sound and guards the manifest associated with the sound-definition digest.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+World sounds use the native distance curves: inverse from one block by default, linear
+with only a maximum, inverse from the definition's minimum otherwise, and start within
+16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
@@ -1301,7 +1327,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
-  import or rejection. Mod update downloads stage in app-owned storage. Mod installation uses a
+  import or rejection. Mod update downloads stage in app-owned storage. Revision-aware mod
+  declarations select compatible releases through the API using the native build's
+  full stamped commit and supported mod API revisions. New capabilities append a revision
+  while retaining older supported revisions; unsupported APIs and catalogue failures
+  do not fall back to latest;
+  bounded digest-checked downloads retain registration, settings and grants. Live published
+  catalogue and reload acceptance remain open. Mod installation uses a
   no-overwrite rename instead of a hard link, which Android forbids; device acceptance and skin
   chosen documents into app cache storage before importing them. Mod installation and resource-pack
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
@@ -1363,11 +1395,17 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   removal, consent, custom screen transitions and media qualification. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
-  normal polls) to catch writes with unchanged metadata on every platform. Local frame fuel
+  normal polls) to catch writes with unchanged metadata on every platform. Authority changes
+  and completed admissions wake the loader directly. Identical panel bundles share immutable
+  resolved catalogs while a presenter retains them; each reload gets fresh publisher and
+  input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
   resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Unmeasured shared
+  qualification remains incomplete. Host-observed world entry admits one larger frame
+  callback per mod and session, with one extra slot shared across mods per update and
+  unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
+  and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;

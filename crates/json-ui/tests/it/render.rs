@@ -94,6 +94,33 @@ fn image_tints_read_color_targets_and_names() {
     );
 }
 
+#[test]
+fn label_color_alpha_does_not_hide_a_sidebar_header() {
+    let header = ctrl(
+        "header",
+        "label",
+        json!({
+            "text": "\u{e123}", "size": [30, 10],
+            "color": [1, 1, 1, 0], "alpha": 0.5
+        }),
+        vec![],
+    );
+    let nodes = draw(&header);
+    let header = node(&nodes, "header");
+    assert!(matches!(&header.draw, Draw::Text { text, color, .. }
+        if text == "\u{e123}" && *color == [255; 4]));
+    assert_eq!(header.alpha, 0.5);
+
+    let image = ctrl(
+        "image",
+        "image",
+        json!({"texture": "icon", "size": [16, 16], "color": [1, 1, 1, 0]}),
+        vec![],
+    );
+    assert!(matches!(&draw(&image)[0].draw, Draw::Sprite { color, .. }
+        if color[3] == 0));
+}
+
 // `bilinear` and `grayscale` reach the sprite.
 #[test]
 fn sampling_flags_reach_the_sprite() {

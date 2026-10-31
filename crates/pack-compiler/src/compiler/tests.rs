@@ -20,6 +20,8 @@ mod brewing_stand;
 mod bubble_column;
 #[path = "tests/campfire.rs"]
 mod campfire;
+#[path = "tests/candle.rs"]
+mod candle;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
 #[path = "tests/command_block.rs"]

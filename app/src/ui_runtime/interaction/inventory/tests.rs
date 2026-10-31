@@ -99,10 +99,10 @@ fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     }
 }
 
-/// Vanilla's screen mapping cancels on Menu Cancel (Mouse 4 by default) and binds no hotbar
-/// action, so a hotbar slot sharing that button does not keep the inventory open.
+/// Binding a hotbar slot to Mouse 4 takes the button from Menu Cancel, so it moves the item and
+/// the inventory stays open.
 #[test]
-fn mouse_back_bound_to_hotbar_still_closes_inventory() {
+fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
     use bevy::input::mouse::MouseButtonInput;
     use launcher::menu::settings_options::BindingId;
     use semantic_input::PhysicalControl;
@@ -133,14 +133,18 @@ fn mouse_back_bound_to_hotbar_still_closes_inventory() {
         app.update();
 
         assert!(
-            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
             "ordered={ordered}"
         );
         let player = app.world().resource::<client_state::PlayerRuntime>();
-        assert!(
-            player.inventory.ledger().displayed_stack(3).is_none(),
+        let ledger = player.inventory.ledger();
+        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
+        assert_eq!(
+            ledger.displayed_stack(3).map(|stack| stack.count),
+            Some(2),
             "ordered={ordered}"
         );
+        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
     }
 }
 

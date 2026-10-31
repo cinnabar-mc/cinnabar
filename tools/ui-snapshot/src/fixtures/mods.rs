@@ -112,6 +112,7 @@ fn view(metadata: bool) -> Fixture {
                         icon: Some(icon()),
                         update_repository: None,
                         update_url: None,
+                        revision_update: None,
                     },
                 ),
                 card(

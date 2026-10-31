@@ -9,7 +9,7 @@ and [third-person placement](third-person-camera.md).
 
 | Area | Vanilla rule | Coverage |
 | --- | --- | --- |
-| Preset IDs and inheritance | IDs index the current server registry. Child fields override parents; named native parents still contribute inherited fields. Missing parents and cycles do not select a camera. | Inheritance/unknown/cycle/long-chain regression tests. |
+| Preset IDs and inheritance | IDs index the current session's server registry. Joining another session drops camera and spline registries before activation; dimension changes retain them. Retired-session instructions cannot restore old presets. Child fields override parents; named native parents still contribute inherited fields. Missing parents and cycles do not select a camera. | Session replacement, inheritance/unknown/cycle/long-chain regression tests. |
 | Set values | Omitted position and rotation keep earlier instruction overrides for that preset; explicit fields win over inherited defaults. Facing wins over a simultaneous rotation. | Per-preset state and regression tests. |
 | Facing | Distances below 0.01 blocks retain the previous direction; a nearly vertical target retains yaw. | Coincident, vertical and horizontal facing tests. |
 | Default and offset reset | `default=true` removes instruction position/rotation. It preserves offset overrides unless `remove_ignore_starting_values` is also true; that flag alone does nothing. | Defaults and offset reset matrix tests. |

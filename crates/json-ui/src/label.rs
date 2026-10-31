@@ -83,11 +83,11 @@ pub(crate) fn text(control: &ResolvedControl) -> String {
         .to_owned()
 }
 
-/// The text colour: a disabled label (or one under a disabled control) uses
-/// `locked_color` (default its colour) with its alpha scaled by `locked_alpha`.
+/// Text takes RGB from its colour and opacity from the control's alpha.
+/// Disabled labels use `locked_color` and scale opacity by `locked_alpha`.
 pub(crate) fn color(control: &ResolvedControl, enabled: bool) -> [u8; 4] {
     let white = [255, 255, 255, 255];
-    let base = match control.properties.get("#color") {
+    let mut base = match control.properties.get("#color") {
         Some(value) => crate::emit::color_value(value).unwrap_or(white),
         None => control
             .properties
@@ -95,6 +95,7 @@ pub(crate) fn color(control: &ResolvedControl, enabled: bool) -> [u8; 4] {
             .and_then(crate::emit::color_value)
             .unwrap_or(white),
     };
+    base[3] = 255;
     if enabled {
         return base;
     }
@@ -104,7 +105,7 @@ pub(crate) fn color(control: &ResolvedControl, enabled: bool) -> [u8; 4] {
         .and_then(crate::emit::color_value)
         .unwrap_or(base);
     let alpha = widgets::bound_number(control, "locked_alpha").unwrap_or(1.0);
-    locked[3] = (f64::from(locked[3]) * alpha.clamp(0.0, 1.0)).round() as u8;
+    locked[3] = (255.0 * alpha.clamp(0.0, 1.0)).round() as u8;
     locked
 }
 

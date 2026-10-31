@@ -19,8 +19,63 @@ pub struct ModMetadata {
     pub update_repository: Option<GitHubRepository>,
     /// Author opt-in to automatic installation of a named latest-release WASM asset.
     pub update_url: Option<GitHubModAsset>,
+    /// Revision-aware catalogue opt-in; older hosts ignore this separate declaration.
+    pub revision_update: Option<RevisionModUpdate>,
     /// Encoded PNG source that decoded within the icon section's limits.
     pub icon: Option<Arc<[u8]>>,
+}
+
+/// An exact mod identity and its existing trusted release-asset source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RevisionModUpdate {
+    pub source: GitHubModAsset,
+    pub package: String,
+    pub revision: String,
+    pub api_revision: String,
+}
+
+impl RevisionModUpdate {
+    /// Parses a bounded declaration; malformed identities never opt into legacy latest updates.
+    pub fn parse(bytes: &[u8]) -> Option<Self> {
+        #[derive(serde::Deserialize)]
+        struct Declaration {
+            source: String,
+            package: String,
+            revision: String,
+            api_revision: String,
+        }
+        if bytes.len() > 1024 {
+            return None;
+        }
+        let declaration: Declaration = serde_json::from_slice(bytes).ok()?;
+        let package = declaration.package;
+        let revision = declaration.revision;
+        if package.is_empty()
+            || package.len() > 128
+            || !package.as_bytes()[0].is_ascii_lowercase()
+                && !package.as_bytes()[0].is_ascii_digit()
+            || !package.bytes().all(|b| {
+                b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+            })
+            || declaration.api_revision.len() != 40
+            || !declaration
+                .api_revision
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || revision.len() != 40
+            || !revision
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        {
+            return None;
+        }
+        Some(Self {
+            source: GitHubModAsset::parse(&declaration.source)?,
+            package,
+            revision,
+            api_revision: declaration.api_revision,
+        })
+    }
 }
 
 /// A public GitHub repository, excluding credentials, queries and arbitrary URL paths.
