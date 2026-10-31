@@ -175,6 +175,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   remains incomplete.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
+  and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
+  inactive and cooldown phases, and calibrated sensors keep their provisional shape without
+  tendrils, crystal or facing-mapped faces.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
