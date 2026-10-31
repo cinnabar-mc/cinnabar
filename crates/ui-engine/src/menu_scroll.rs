@@ -18,6 +18,7 @@ pub struct MenuScrolls<F> {
     /// (an engine view: the pointer's last virtual position along its axis).
     drag: Option<(String, f32)>,
     screen: Option<String>,
+    page: Option<u8>,
     focused: Option<F>,
     focused_bounds: Option<UiRect>,
     focused_viewport: Option<[f64; 4]>,
@@ -34,6 +35,7 @@ impl<F> Default for MenuScrolls<F> {
             areas: Vec::new(),
             drag: None,
             screen: None,
+            page: None,
             focused: None,
             focused_bounds: None,
             focused_viewport: None,
@@ -79,6 +81,22 @@ impl<F: PartialEq> MenuScrolls<F> {
             self.drag = None;
             self.touch = None;
             self.screen = Some(screen);
+            self.page = None;
+            self.focused = None;
+            self.focused_bounds = None;
+            self.focused_viewport = None;
+        }
+    }
+
+    /// Forgets the outgoing page's views when a screen swaps pages, keeping `kept`, the view the
+    /// screen draws around every page. Call after [`Self::begin_frame`] in the same menu frame.
+    pub fn begin_page(&mut self, page: u8, kept: &str) {
+        if self.page != Some(page) {
+            self.offsets.retain(|key, _| key == kept);
+            self.motion.retain(|key, _| key == kept);
+            self.drag = None;
+            self.touch = None;
+            self.page = Some(page);
             self.focused = None;
             self.focused_bounds = None;
             self.focused_viewport = None;
@@ -451,6 +469,28 @@ mod tests {
         scrolls.drag(None, false);
         assert!(!scrolls.dragging());
         scrolls.begin_frame("other".to_owned());
+        assert!(scrolls.offsets().is_empty());
+    }
+
+    /// A page swap forgets only the page's views; leaving the screen forgets the kept view too.
+    #[test]
+    fn page_changes_keep_the_shared_view_until_the_screen_changes() {
+        let mut scrolls = MenuScrolls::<()>::default();
+        scrolls.begin_frame("settings".to_owned());
+        scrolls.begin_page(1, "list");
+        let mut page = area();
+        page.key = "page".to_owned();
+        page.viewport = UiRect::new(point(200.0, 0.0), point(300.0, 100.0)).unwrap();
+        scrolls.set_areas(vec![area(), page]);
+        assert!(scrolls.wheel(point(50.0, 50.0), -2.0, false));
+        assert!(scrolls.wheel(point(250.0, 50.0), -2.0, false));
+        scrolls.begin_frame("settings".to_owned());
+        scrolls.begin_page(1, "list");
+        assert_eq!(scrolls.offsets().len(), 2);
+        scrolls.begin_page(2, "list");
+        assert_eq!(scrolls.offsets()["list"], 20.0);
+        assert_eq!(scrolls.offsets().get("page"), None);
+        scrolls.begin_frame("home".to_owned());
         assert!(scrolls.offsets().is_empty());
     }
 }
