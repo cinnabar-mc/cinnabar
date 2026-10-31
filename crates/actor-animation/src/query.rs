@@ -240,6 +240,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         return variant;
     }
     match name.descriptor().handler {
+        // An actor with no limited life syncs a negative span, which reads as zero.
+        MolangQueryHandler::IntegerMetadata(key) if name == Q::LifeSpan => {
+            return metadata_number(actor, key).unwrap_or(0.0).max(0.0);
+        }
         MolangQueryHandler::IntegerMetadata(key) => {
             return metadata_number(actor, key).unwrap_or(0.0);
         }

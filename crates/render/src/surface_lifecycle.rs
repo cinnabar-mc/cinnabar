@@ -4,20 +4,46 @@ use bevy::{
     render::{
         Render, RenderSystems,
         camera::ExtractedCamera,
-        view::{ViewTarget, window::create_surfaces},
+        renderer::RenderDevice,
+        view::{
+            ViewTarget,
+            window::{ExtractedWindow, SurfaceData, create_surfaces},
+        },
     },
 };
 
+/// Releases inactive and suspended camera outputs before Bevy repairs a window surface.
 pub(crate) fn install(render_app: &mut SubApp) {
     render_app.add_systems(
         Render,
-        release_orphan_targets::<ViewTarget>
+        (
+            release_orphan_targets::<ViewTarget>,
+            release_retained_targets::<ViewTarget>.run_if(surface_repair_pending),
+        )
             .in_set(RenderSystems::PrepareViews)
             .before(create_surfaces),
     );
 }
 
-/// Inactive and zero-size cameras lose `ExtractedCamera` during extraction, but Bevy
+/// A lost surface needs every old output released, including outputs of retargeted cameras.
+fn surface_repair_pending(
+    surfaces: Query<(&ExtractedWindow, &SurfaceData)>,
+    device: Res<RenderDevice>,
+) -> bool {
+    surfaces.iter().any(|(window, surface)| {
+        window.is_drawable(device.limits().max_texture_dimension_2d)
+            && surface.needs_reconfiguration()
+    })
+}
+
+/// Drops all retained outputs before repair, since a camera may now name a different target.
+fn release_retained_targets<T: Component>(mut commands: Commands, targets: Query<Entity, With<T>>) {
+    for entity in &targets {
+        commands.entity(entity).remove::<T>();
+    }
+}
+
+/// Inactive, zero-size and oversized cameras lose `ExtractedCamera` during extraction, but Bevy
 /// retains their `ViewTarget`. Its output view must drop before DXGI resizes the window.
 /// Bevy's ordinary resize cleanup only sees targets with an extracted camera.
 fn release_orphan_targets<T: Component>(
@@ -47,6 +73,7 @@ mod tests {
     #[derive(Resource)]
     struct SurfaceOwner(Weak<()>);
 
+    /// Asserts that deferred removal released every retained output before configuration.
     fn configure_surface(owner: Res<SurfaceOwner>) {
         assert!(
             owner.0.upgrade().is_none(),
@@ -54,6 +81,7 @@ mod tests {
         );
     }
 
+    /// Builds an extracted camera without allocating GPU resources.
     fn camera() -> ExtractedCamera {
         ExtractedCamera {
             target: None,
@@ -86,6 +114,31 @@ mod tests {
         schedule.add_systems(configure_surface.after(release_orphan_targets::<RetainedTarget>));
         schedule.run(&mut world);
         assert!(!world.entity(entity).contains::<RetainedTarget>());
+    }
+
+    #[test]
+    fn repair_releases_active_and_retargeted_outputs_before_reconfiguration() {
+        let mut world = World::new();
+        let retained = Arc::new(());
+        world.insert_resource(SurfaceOwner(Arc::downgrade(&retained)));
+        let active = world
+            .spawn((RetainedTarget(retained.clone()), camera()))
+            .id();
+        let mut changed_target = camera();
+        changed_target.target = Some(bevy::camera::NormalizedRenderTarget::TextureView(
+            bevy::camera::ManualTextureViewHandle(0),
+        ));
+        let retargeted = world.spawn((RetainedTarget(retained), changed_target)).id();
+        let mut schedule = Schedule::default();
+        schedule.add_systems((
+            release_retained_targets::<RetainedTarget>,
+            configure_surface.after(release_retained_targets::<RetainedTarget>),
+        ));
+        schedule.run(&mut world);
+        assert!(!world.entity(active).contains::<RetainedTarget>());
+        assert!(!world.entity(retargeted).contains::<RetainedTarget>());
+        assert!(world.entity(active).contains::<ExtractedCamera>());
+        assert!(world.entity(retargeted).contains::<ExtractedCamera>());
     }
 
     #[test]

@@ -26,9 +26,32 @@ pub struct DrawOrder {
 }
 
 impl DrawOrder {
-    #[cfg(test)]
+    /// Record slots in the order consumed by the decision buffer.
     pub fn slots(&self) -> &[u32] {
         &self.slots
+    }
+
+    /// Keeps captured feedback aligned with a supplied visible order, then appends unused slots.
+    pub fn set_visible_prefix(&mut self, prefix: &[u32], slots: usize) {
+        self.keys.clear();
+        self.keys.resize(slots, 0);
+        self.slots.clear();
+        for &slot in prefix {
+            if let Some(seen) = self.keys.get_mut(slot as usize)
+                && *seen == 0
+            {
+                *seen = 1;
+                self.slots.push(slot);
+            }
+        }
+        self.slots.extend(
+            self.keys
+                .iter()
+                .enumerate()
+                .filter_map(|(slot, &seen)| (seen == 0).then_some(slot as u32)),
+        );
+        self.eye = None;
+        self.stale_from = 0;
     }
 
     /// Brings the order up to `records` for an eye in sub-chunk `eye`.
@@ -120,6 +143,13 @@ pub fn eye_sub_chunk(position: Vec3) -> [i32; 3] {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn visible_prefix_keeps_feedback_ranks_and_every_remaining_slot() {
+        let mut order = super::DrawOrder::default();
+        order.set_visible_prefix(&[3, 1], 5);
+        assert_eq!(order.slots(), &[3, 1, 0, 2, 4]);
+    }
+
     use super::super::model::CullRecordSource;
     use super::*;
 

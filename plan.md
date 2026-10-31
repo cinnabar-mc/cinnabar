@@ -118,7 +118,19 @@ Menus, HUD and inventory previews retain native output pixels; the hand, world-s
 nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
 If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
-Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+Lost surfaces are recreated on the existing device after retained outputs are released.
+Repeated acquisition validation failures escalate from configuration to recreation.
+Zero-size and oversized windows suspend window rendering and resume at a valid size.
+Displayed recovery on Vulkan, DX12 and Wayland, oversized native-window resize,
+displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+
+An optional `render/frame-generation` build feature provides SDR world-image
+optical flow, camera/depth interpolation and disocclusion filling. It has no
+production caller or Video control and adds no generated presentations. Pipeline
+and storage preparation runs before use; invalid inputs and explicit cuts reset
+history. World depth and native colour may have different resolutions. Runtime
+composition, scheduling/bypass policy, latency, hardware cost and platform visual
+acceptance remain incomplete; see the [backend contract](crates/render/src/frame_generation/README.md).
 
 ### Terrain, materials and biome acceptance
 
@@ -284,7 +296,19 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Matched-output frame-time and movement qualification remain incomplete.
+  A developer-supplied cost calibration can select Hi-Z indirect cull passes by
+  captured submitted indices per stream, matched to adapter, backend, viewport and
+  sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
+  and configuration changes restart admission before selecting work.
+  Matched-output frame-time and movement qualification remain incomplete; no
+  hardware cost calibration or default change is qualified.
+  `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
+  current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
+  subset leaves colour writes off; the late pass retains each CPU stream's colour
+  order. Other devices retain their existing paths. Near-plane crossings and large
+  boxes remain visible, and unavailable tests draw the complete ordered terrain.
+  Matched-output frame-time and movement qualification remain incomplete;
+  raster occlusion stays off by default pending hardware acceptance.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
@@ -317,7 +341,10 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   same publication limits and poll deadline. Staged worker completions receive a bounded
   share first, so fresh removals cannot starve staged empty or geometry results. Geometry
   preparation waits for worker and result capacity while urgent reserves and independent
-  removals retain service. Eviction skips a second removal for settled air with an
+  removals retain service. GPU upload preparation also stops admitting after its elapsed
+  allowance, allowing one eligible upload to progress and retaining deferred permits and
+  priority order. Matched burst-frame, streaming and join qualification remain open.
+  Eviction skips a second removal for settled air with an
   acknowledged GPU publication; dirty or unfinished sections still publish removals.
   Biome-only heights without section or publication ownership skip withdrawals;
   surviving meshes still invalidate when their sampled biome data retires.
@@ -356,14 +383,27 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
+  Meshing workers retain palette decode and opaque/two-sided cube working buffers between
+  sections. Oversized temporary buffers are discarded after a job, and idle workers release
+  mesh scratch after five seconds. Published streams keep independent ownership. Hardware
+  allocation, idle-memory and return-to-flight measurements remain open.
   Foreground chunk-data offload requires a full allocation of service polling
   that advanced commits; idle waits and worker-only service do not count.
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
   completion and refill work before intake, without renewing intake's allocation.
   Intake keeps bounded progress even after its allocation expires.
+  Decode, light and mesh result reads defer when a producer holds their bounded
+  mailbox, preserving FIFO acceptance and capacity without waiting for publication.
+  Saturated-producer frame and service-reclaim hardware qualification remains open.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
+  Meshing workers finalize shared geometry streams; main-world publication and render
+  extraction retain those allocations through upload and retirement.
   Matched-output hardware preparation and streaming qualification remain open.
+  Far terrain remains disabled in Video settings. Coarsening retains overlapping
+  fallback tiles until their replacement covers every known column, and its near
+  mask follows changes to the outer view distance. Restoration, smooth transitions,
+  owner-approved captures and on/off hardware profiling at 32+ chunks remain incomplete.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.
@@ -723,7 +763,9 @@ lookup across the passing list.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
-  Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
+  Dried-ghast inventory previews keep separate body and tentacle artwork.
+  Held and dropped dried ghasts keep the world shape, but their tentacles remain incomplete: they
+  draw with body art because the shared block item sheet has six tiles.
   Sensor previews retain inactive tendrils and the calibration crystal with independent lighting.
   Shrieker previews retain open inner walls, bone caps and a separate inner floor.
   Large and small dripleaf previews use their distinct carried leaves and stems.
@@ -766,7 +808,10 @@ revealing it fits the fabric to the current body and armor without replaying hid
 Equipped motion is sampled only for a submitted world attachment or a visible HUD preview.
 Attachment selection, texture lookup and HUD vertex storage are reused on steady frames.
 Animated attachment poses recycle storage after readers release their frame, preserving
-retained poses. Self-collision, world collision, allocation-free fabric and preview particles,
+retained poses. World particle output, actor preparation scratch and released immutable
+publications reuse storage, with sustained low use releasing oversized allocations.
+Unchanged particle lists skip instance uploads; changed material offsets or replacement
+buffers restore the live ranges. Self-collision, world collision, allocation-free fabric and preview particles,
 GPU animation playback and hardware performance qualification remain open.
 Ground-following pets have per-wearer movement, collision-shape grounding, one-block
 hops with checked flight paths and landings, heading-aware animated body clearance,
@@ -1067,6 +1112,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Desktop fullscreen entry is journaled until the platform reports the window settled
+  (AppKit's enter notification on macOS, the compositor's configure on Wayland) and a
+  presentation extracted afterwards completes. An interrupted entry resets only fullscreen
+  on the next launch; successful entry and orderly exits preserve the preference, and a
+  client launched during another's entry waits for its lease. X11 reports the request
+  before the window manager applies it, so its settle confirmation is incomplete; native
+  compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
@@ -1829,6 +1881,16 @@ Use the current [live-testing guide](docs/agents/live-testing.md) as the single 
 reference hardware, frame/hitch, streaming, join and capture budgets. Capture the
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
+Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-frame
+spans, trace exports and developer-control state on supported desktop and Android
+platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
+accuracy and sampling overhead still need hardware acceptance.
+
+The scripted resident-render benchmark copies a frozen fixture and isolated user template,
+flies real-time camera paths and exports exact interval statistics with native stage spans.
+It rejects lost frame evidence and incompatible report conditions. Visible-cohort readiness,
+authoritative streaming routes, GPU source-frame coverage, repeated-run confidence intervals,
+shipping-artifact equivalence and hardware release qualification remain incomplete.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
@@ -1840,6 +1902,12 @@ Leaving for the menu retains only the newest server archives within a 128 MiB ca
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
 off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
 remain unmeasured.
+Decoded menu artwork uses a provisional byte budget of four full artwork atlases,
+including spare pixel capacity and per-entry ownership costs. Current artwork stays
+resident above that budget; older unused images are evicted by draw recency and decode
+again on demand. Unresized 8-bit images convert directly to RGBA8 with unchanged pixels;
+resizing and higher-precision input retain the float path. Menu route-cycle captures
+must still qualify the retention budget, re-decode latency and memory savings.
 Actor artwork uploads page rows within a per-frame byte budget, prioritizes current
 demand and finishes pending uploads before prewarming more pages. Complete pages bind
 atomically; compatible old pages stay visible during replacement. Artwork arrays
@@ -1875,6 +1943,11 @@ including hands, labels and the base UI raster. Enhanced water, shadows and shaf
 disable sampling while their required targets are unavailable. Injected failures cover
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
+Empty terrain arenas return to their starting capacity after retained allocations and
+submitted readers retire. Failed terrain growth retries once with unmapped host-visible
+storage when the device enables that feature, with allocation and release counters.
+Discrete-GPU memory placement, pressure recovery and frame-pacing qualification remain
+incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
