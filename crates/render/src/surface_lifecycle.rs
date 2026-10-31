@@ -4,7 +4,10 @@ use bevy::{
     render::{
         Render, RenderSystems,
         camera::ExtractedCamera,
-        view::{ViewTarget, window::create_surfaces},
+        view::{
+            ViewTarget,
+            window::{SurfaceData, create_surfaces},
+        },
     },
 };
 
@@ -12,10 +15,25 @@ use bevy::{
 pub(crate) fn install(render_app: &mut SubApp) {
     render_app.add_systems(
         Render,
-        release_orphan_targets::<ViewTarget>
+        (
+            release_orphan_targets::<ViewTarget>,
+            release_retained_targets::<ViewTarget>.run_if(surface_repair_pending),
+        )
             .in_set(RenderSystems::PrepareViews)
             .before(create_surfaces),
     );
+}
+
+/// A lost surface needs every old output released, including outputs of retargeted cameras.
+fn surface_repair_pending(surfaces: Query<&SurfaceData>) -> bool {
+    surfaces.iter().any(SurfaceData::needs_reconfiguration)
+}
+
+/// Drops all retained outputs before repair, since a camera may now name a different target.
+fn release_retained_targets<T: Component>(mut commands: Commands, targets: Query<Entity, With<T>>) {
+    for entity in &targets {
+        commands.entity(entity).remove::<T>();
+    }
 }
 
 /// Inactive, zero-size and oversized cameras lose `ExtractedCamera` during extraction, but Bevy
@@ -89,6 +107,27 @@ mod tests {
         schedule.add_systems(configure_surface.after(release_orphan_targets::<RetainedTarget>));
         schedule.run(&mut world);
         assert!(!world.entity(entity).contains::<RetainedTarget>());
+    }
+
+    #[test]
+    fn repair_releases_active_and_retargeted_outputs_before_reconfiguration() {
+        let mut world = World::new();
+        let retained = Arc::new(());
+        world.insert_resource(SurfaceOwner(Arc::downgrade(&retained)));
+        let active = world
+            .spawn((RetainedTarget(retained.clone()), camera()))
+            .id();
+        let retargeted = world.spawn((RetainedTarget(retained), camera())).id();
+        let mut schedule = Schedule::default();
+        schedule.add_systems((
+            release_retained_targets::<RetainedTarget>,
+            configure_surface.after(release_retained_targets::<RetainedTarget>),
+        ));
+        schedule.run(&mut world);
+        assert!(!world.entity(active).contains::<RetainedTarget>());
+        assert!(!world.entity(retargeted).contains::<RetainedTarget>());
+        assert!(world.entity(active).contains::<ExtractedCamera>());
+        assert!(world.entity(retargeted).contains::<ExtractedCamera>());
     }
 
     #[test]
