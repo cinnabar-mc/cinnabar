@@ -190,6 +190,9 @@ pub struct TextWrap {
     pub chop: WordChop,
     /// Keeps a glyph wider than the line so the control can clip its ink.
     pub allow_visual_overflow: bool,
+    /// Keeps the requested line boxes and baseline when glyph ink extends above or below them.
+    /// JSON-UI labels let bitmap icons overflow without enlarging their content height.
+    pub allow_vertical_overflow: bool,
     /// Lines past this drop and the last kept one ends in `...`.
     pub max_lines: Option<u16>,
     /// The grid, in 1/65536 output pixels, that alignment offsets truncate onto, as vanilla
