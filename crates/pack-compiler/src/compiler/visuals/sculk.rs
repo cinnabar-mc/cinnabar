@@ -1,7 +1,7 @@
 //! Sculk sensors grow crossed tendrils from a half-height body; shriekers are an open bowl.
 //!
-//! The tendrils and the shrieker's inner floor use carried art, which reaches the compiled
-//! material table through the unused `West` slot: the side walls all draw from `North`.
+//! The tendrils and the shrieker's inner floor use carried art, registered as a material of its
+//! own beside the six body faces.
 
 use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
@@ -38,9 +38,9 @@ fn kind(record: &RegistryRecord) -> Option<Kind> {
     }
 }
 
-/// Whether `face` holds this record's carried attachment art instead of a world face.
-pub(in crate::compiler) fn is_attachment_face(record: &RegistryRecord, face: BlockFace) -> bool {
-    face == BlockFace::West && kind(record).is_some()
+/// Whether the record is a sculk sensor or shrieker, which carry attachment art.
+pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
+    kind(record).is_some()
 }
 
 fn state_value(record: &RegistryRecord, property: &str) -> Option<u64> {
@@ -109,16 +109,17 @@ fn surface(
 }
 
 /// A half-height body open to the sky, with four two-sided tendril planes standing on it.
-fn sensor_quads(side: u32, down: u32, up: u32, tendril: u32) -> Vec<ModelQuad> {
+fn sensor_quads(faces: [u32; 6], tendril: u32) -> Vec<ModelQuad> {
     let mut quads: Vec<_> = BlockFace::ALL
         .into_iter()
         .map(|face| {
-            let material = match face {
-                BlockFace::Down => down,
-                BlockFace::Up => up,
-                _ => side,
-            };
-            surface(face, BODY, [0; 3], material, face != BlockFace::Up)
+            surface(
+                face,
+                BODY,
+                [0; 3],
+                faces[face as usize],
+                face != BlockFace::Up,
+            )
         })
         .collect();
     for ([x, z], slope) in [
@@ -146,9 +147,10 @@ fn sensor_quads(side: u32, down: u32, up: u32, tendril: u32) -> Vec<ModelQuad> {
 
 /// Outer walls culled by their neighbour, uncullable inner walls facing the other way, an inner
 /// floor, and a rim drawn on both its faces.
-fn shrieker_quads(side: u32, down: u32, top: u32, floor: u32) -> Vec<ModelQuad> {
+fn shrieker_quads(faces: [u32; 6], floor: u32) -> Vec<ModelQuad> {
     use BlockFace::{Down, East, North, South, Up, West};
-    let mut quads = vec![surface(Down, BODY, [0; 3], down, true)];
+    let top = faces[Up as usize];
+    let mut quads = vec![surface(Down, BODY, [0; 3], faces[Down as usize], true)];
     for (outside, inside, offset) in [
         (North, South, [0, 0, -WALL_OFFSET]),
         (East, West, [WALL_OFFSET, 0, 0]),
@@ -156,8 +158,20 @@ fn shrieker_quads(side: u32, down: u32, top: u32, floor: u32) -> Vec<ModelQuad> 
         (West, East, [-WALL_OFFSET, 0, 0]),
     ] {
         for bounds in [BODY, TEETH] {
-            quads.push(surface(outside, bounds, [0; 3], side, true));
-            quads.push(surface(inside, bounds, offset, side, false));
+            quads.push(surface(
+                outside,
+                bounds,
+                [0; 3],
+                faces[outside as usize],
+                true,
+            ));
+            quads.push(surface(
+                inside,
+                bounds,
+                offset,
+                faces[inside as usize],
+                false,
+            ));
         }
     }
     quads.push(surface(Up, BODY, [0; 3], floor, false));
@@ -171,7 +185,7 @@ fn shrieker_quads(side: u32, down: u32, top: u32, floor: u32) -> Vec<ModelQuad> 
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
-    templates: &mut BTreeMap<(bool, [u32; 4]), u32>,
+    templates: &mut BTreeMap<(bool, [u32; 6], u32), u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
     let Some(kind) = kind(record) else {
@@ -180,25 +194,24 @@ pub(in crate::compiler) fn compile_rule(
     let Some(materials) = inputs.materials(record) else {
         return Ok(CompileRuleResult::NoMatch);
     };
-    let side = materials[BlockFace::North as usize];
-    let down = materials[BlockFace::Down as usize];
-    let up = materials[BlockFace::Up as usize];
-    let attachment = materials[BlockFace::West as usize];
-    let key = (kind == Kind::Shrieker, [side, down, up, attachment]);
+    let Some(attachment) = attachment_descriptor(inputs.pack, record)
+        .and_then(|(descriptor, _)| inputs.material_by_descriptor.get(&descriptor).copied())
+    else {
+        return Ok(CompileRuleResult::NoMatch);
+    };
+    let key = (kind == Kind::Shrieker, materials, attachment);
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
         let quads = match kind {
-            Kind::Sensor => sensor_quads(side, down, up, attachment),
-            Kind::Shrieker => shrieker_quads(side, down, up, attachment),
+            Kind::Sensor => sensor_quads(materials, attachment),
+            Kind::Shrieker => shrieker_quads(materials, attachment),
         };
         let template = push_model_template(quads, 0, storage.templates, storage.quads)?;
         templates.insert(key, template);
         template
     };
-    let mut body = materials;
-    body[BlockFace::West as usize] = side;
     let mut visual = diagnostic_visual(record);
-    set_model_visual(&mut visual, body, template);
+    set_model_visual(&mut visual, materials, template);
     Ok(CompileRuleResult::Compiled(visual))
 }

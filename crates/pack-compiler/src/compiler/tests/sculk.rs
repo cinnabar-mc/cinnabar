@@ -1,6 +1,6 @@
 use super::*;
 use assets::{
-    CompiledBiomeAssets, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelQuad,
+    BlockFace, CompiledBiomeAssets, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, ModelQuad,
 };
 
 const ART: [(&str, u8); 10] = [
@@ -21,6 +21,17 @@ fn marker(name: &str) -> u8 {
 }
 
 fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
+    fixture_with(serde_json::json!({
+        "down": "sculk_sensor_bottom",
+        "side": "sculk_sensor_side",
+        "up": "sculk_sensor_top",
+    }))
+}
+
+/// Compiles the sculk blocks with the given `textures` entry for the sensor.
+fn fixture_with(
+    sensor_textures: serde_json::Value,
+) -> (assets::CompiledAssets, Vec<RegistryRecord>) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -83,11 +94,7 @@ fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
                     "side": "sculk_sensor_tendril_active",
                     "up": "sculk_sensor_tendril_inactive",
                 },
-                "textures": {
-                    "down": "sculk_sensor_bottom",
-                    "side": "sculk_sensor_side",
-                    "up": "sculk_sensor_top",
-                },
+                "textures": sensor_textures,
             },
             "sculk_shrieker": {
                 "carried_textures": "sculk_shrieker_inner_top",
@@ -246,4 +253,43 @@ fn sculk_shriekers_are_a_bowl_with_inner_walls_a_floor_and_a_rim() {
         seen += 1;
     }
     assert!(seen >= 2);
+}
+
+/// A pack may give each side of the body its own art; the tendrils keep their carried art.
+#[test]
+fn sculk_sensor_bodies_keep_a_packs_art_for_each_face() {
+    let (compiled, records) = fixture_with(serde_json::json!({
+        "down": "sculk_sensor_bottom",
+        "east": "sculk_shrieker_side",
+        "north": "sculk_sensor_side",
+        "south": "sculk_shrieker_bottom",
+        "up": "sculk_sensor_top",
+        "west": "sculk_shrieker_top",
+    }));
+    let record = records
+        .iter()
+        .find(|record| {
+            record.name.as_ref() == "minecraft:sculk_sensor"
+                && state_value(record, "sculk_sensor_phase") == 0
+        })
+        .unwrap();
+    let quads = quads(&compiled, record);
+    for (face, name) in [
+        (BlockFace::Down, "sculk_sensor_bottom"),
+        (BlockFace::Up, "sculk_sensor_top"),
+        (BlockFace::North, "sculk_sensor_side"),
+        (BlockFace::South, "sculk_shrieker_bottom"),
+        (BlockFace::West, "sculk_shrieker_top"),
+        (BlockFace::East, "sculk_shrieker_side"),
+    ] {
+        assert_eq!(
+            art(&compiled, &quads[face as usize]),
+            marker(name),
+            "{face:?}"
+        );
+    }
+    assert_eq!(
+        art(&compiled, &quads[6]),
+        marker("sculk_sensor_tendril_inactive")
+    );
 }

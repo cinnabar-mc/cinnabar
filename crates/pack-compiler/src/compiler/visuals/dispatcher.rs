@@ -151,7 +151,7 @@ struct VisualCompiler {
     diode_torches: super::diode::TorchMaterials,
     diode_templates: BTreeMap<super::diode::TemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
-    sculk_templates: BTreeMap<(bool, [u32; 4]), u32>,
+    sculk_templates: BTreeMap<(bool, [u32; 6], u32), u32>,
     spore_blossom_templates: BTreeMap<[u32; 2], u32>,
     azalea_templates: BTreeMap<[u32; 3], u32>,
     chorus_flower_templates: BTreeMap<[u32; 6], u32>,

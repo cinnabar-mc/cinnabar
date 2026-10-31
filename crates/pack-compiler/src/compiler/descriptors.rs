@@ -10,9 +10,6 @@ pub(super) fn descriptor_for(
     if visuals::command_block::is_record(record) {
         return visuals::command_block::descriptor(pack, record, face);
     }
-    if visuals::sculk::is_attachment_face(record, face) {
-        return visuals::sculk::attachment_descriptor(pack, record);
-    }
     if visuals::speleothem::is_record(record) {
         return visuals::speleothem::descriptor(pack, record);
     }
