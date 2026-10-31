@@ -119,10 +119,10 @@ fn draw_body(rendered: &ActorRenderFrame, runtime_id: u64, out: &Path) -> (usize
             let (width, height) = page.dimensions();
             let (width, height) = (usize::from(width), usize::from(height));
             let bytes = width * height * 4;
-            if (layer + 1) * bytes > page.rgba8.len() {
+            let Some(skin) = page.rgba8.get(layer * bytes..(layer + 1) * bytes) else {
                 continue;
-            }
-            (width, height, page.rgba8.range(layer * bytes, bytes))
+            };
+            (width, height, skin)
         };
         let uv_anim = instance.uv_anim;
         let shade = |uv: [f32; 2]| {

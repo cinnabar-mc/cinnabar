@@ -55,27 +55,47 @@ impl PagePixels {
         }
     }
 
-    /// The bytes in `start..start + len`, borrowed when one allocation holds them all.
-    /// Panics when the range is outside the page, like slice indexing.
-    pub fn range(&self, start: usize, len: usize) -> Cow<'_, [u8]> {
+    /// Address of this page's storage, stable across clones and unique among live pages, unlike
+    /// a layer's address, which other pages may share. Hold a clone to keep it from being reused.
+    pub fn storage_id(&self) -> usize {
+        match &self.0 {
+            Storage::Joined(pixels) => Arc::as_ptr(pixels).cast::<u8>() as usize,
+            Storage::Layers(layers) => Arc::as_ptr(layers).cast::<u8>() as usize,
+        }
+    }
+
+    /// The bytes in `range`, borrowed when one allocation holds them all, or `None` when the
+    /// range is reversed or outside the page.
+    pub fn get(&self, range: std::ops::Range<usize>) -> Option<Cow<'_, [u8]>> {
+        if range.start > range.end || range.end > self.len() {
+            return None;
+        }
         let mut offset = 0;
         for part in self.parts() {
-            if start >= offset && start + len <= offset + part.len() {
-                return Cow::Borrowed(&part[start - offset..start - offset + len]);
+            if range.start >= offset && range.end <= offset + part.len() {
+                return Some(Cow::Borrowed(
+                    &part[range.start - offset..range.end - offset],
+                ));
             }
             offset += part.len();
         }
-        assert!(start + len <= offset, "page range out of bounds");
-        let mut joined = Vec::with_capacity(len);
+        let mut joined = Vec::with_capacity(range.len());
         let mut offset = 0;
         for part in self.parts() {
-            let (from, to) = (start.max(offset), (start + len).min(offset + part.len()));
+            let (from, to) = (range.start.max(offset), range.end.min(offset + part.len()));
             if from < to {
                 joined.extend_from_slice(&part[from - offset..to - offset]);
             }
             offset += part.len();
         }
-        Cow::Owned(joined)
+        Some(Cow::Owned(joined))
+    }
+
+    /// The bytes in `start..start + len`, borrowed when one allocation holds them all.
+    /// Panics when the range is outside the page, like slice indexing.
+    pub fn range(&self, start: usize, len: usize) -> Cow<'_, [u8]> {
+        self.get(start..start + len)
+            .expect("page range out of bounds")
     }
 
     /// Every byte in one slice, borrowed when the page is a single allocation.
@@ -193,6 +213,11 @@ mod tests {
         assert!(matches!(shared.range(4, 4), Cow::Borrowed(_)));
         assert_eq!(shared.range(2, 4).as_ref(), &[3, 4, 5, 6]);
         assert_eq!(shared.joined().as_ref(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(shared.get(6..9).is_none());
+        assert_eq!(shared.storage_id(), shared.clone().storage_id());
+        // Pages that share a first layer are still distinct storage.
+        let other = PagePixels::from_layers([&layers[0], &Arc::from([0, 0, 0, 0])]);
+        assert_ne!(shared.storage_id(), other.storage_id());
     }
 
     #[test]
