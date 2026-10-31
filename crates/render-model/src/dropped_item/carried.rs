@@ -1,4 +1,5 @@
-//! Blocks an actor's renderer draws with its body, such as the block an enderman carries.
+//! Blocks an actor's renderer draws with its body: the block an enderman carries and the pumpkin
+//! a snow golem wears.
 
 use glam::{Affine3A, Mat3A, Vec3, Vec3A};
 
@@ -38,6 +39,38 @@ pub fn enderman_carried_block_transform(
         * Affine3A::from_scale(Vec3::splat(actor_scale.recip()))
         * rig_from_entity
         * entity_from_block;
+    world_from_block
+        .is_finite()
+        .then(|| rows_from_affine(world_from_block))
+}
+
+/// Height above the feet of the point a snow golem's pumpkin turns about, at actor scale one.
+const SNOW_GOLEM_PUMPKIN_PIVOT_BLOCKS: f32 = 1.3047;
+/// Height of the pumpkin's centre above that point while the head rests.
+const SNOW_GOLEM_PUMPKIN_ABOVE_PIVOT_BLOCKS: f32 = 0.2930;
+const SNOW_GOLEM_PUMPKIN_SCALE: f32 = 0.625;
+
+/// Places the centred pumpkin a snow golem wears. `world_from_model` is the body's rig placement
+/// (faces -Z with its right side at +X, feet at the origin), and the head angles are its world yaw
+/// and its pitch, in degrees.
+///
+/// The rest pose turns the block half a turn about the vertical, so its south face looks forward.
+#[must_use]
+pub fn snow_golem_pumpkin_transform(
+    world_from_model: [[f32; 4]; 3],
+    head_yaw_degrees: f32,
+    head_pitch_degrees: f32,
+) -> Option<[[f32; 4]; 3]> {
+    let world_from_rig = affine_from_rows(world_from_model);
+    let forward = -world_from_rig.matrix3.z_axis;
+    let body_yaw_degrees = (-forward.x).atan2(forward.z).to_degrees();
+    let world_from_block = world_from_rig
+        * Affine3A::from_translation(Vec3::Y * SNOW_GOLEM_PUMPKIN_PIVOT_BLOCKS)
+        * Affine3A::from_rotation_y((body_yaw_degrees - head_yaw_degrees).to_radians())
+        * Affine3A::from_rotation_x(-head_pitch_degrees.to_radians())
+        * Affine3A::from_translation(Vec3::Y * SNOW_GOLEM_PUMPKIN_ABOVE_PIVOT_BLOCKS)
+        * Affine3A::from_rotation_y(std::f32::consts::PI)
+        * Affine3A::from_scale(Vec3::splat(SNOW_GOLEM_PUMPKIN_SCALE));
     world_from_block
         .is_finite()
         .then(|| rows_from_affine(world_from_block))
@@ -112,5 +145,38 @@ mod tests {
         let axes = affine_from_rows(rows).matrix3;
         assert!((Vec3::from(axes.x_axis).length() - 0.5).abs() < 1e-5);
         assert!(enderman_carried_block_transform(facing_south([0.0; 3], 1.0), 0.0).is_none());
+    }
+
+    #[test]
+    fn a_resting_snow_golem_wears_its_pumpkin_above_the_head_facing_forward() {
+        let rows = snow_golem_pumpkin_transform(facing_south([10.0, 64.0, 10.0], 1.0), 0.0, 0.0)
+            .expect("finite");
+        let transform = affine_from_rows(rows);
+        let centre = transform.transform_point3(Vec3::ZERO);
+        assert!((centre.x - 10.0).abs() < 1e-5);
+        assert!((centre.y - 65.5977).abs() < 1e-3);
+        assert!((centre.z - 10.0).abs() < 1e-5);
+        assert!((transform.matrix3.y_axis.length() - 0.625).abs() < 1e-5);
+        // The golem faces world south here, and the block's south face looks the same way.
+        assert!(transform.matrix3.z_axis.z > 0.0);
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_follows_the_head_about_its_pivot() {
+        let placed = |yaw, pitch| {
+            let rows = snow_golem_pumpkin_transform(facing_south([0.0; 3], 1.0), yaw, pitch);
+            affine_from_rows(rows.expect("finite"))
+        };
+        // Yaw turns the block in place.
+        let turned = placed(90.0, 0.0);
+        assert!(
+            turned
+                .transform_point3(Vec3::ZERO)
+                .distance(placed(0.0, 0.0).transform_point3(Vec3::ZERO))
+                < 1e-4
+        );
+        assert!(turned.matrix3.z_axis.z.abs() < 1e-4);
+        // Looking down carries the block forward, toward south here.
+        assert!(placed(0.0, 45.0).transform_point3(Vec3::ZERO).z > 0.1);
     }
 }

@@ -31,6 +31,8 @@ pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
 pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
 /// The actor type whose native renderer draws its synced carried block.
 pub const ENDERMAN_IDENTIFIER: &str = "minecraft:enderman";
+/// The actor type whose native renderer draws a carved pumpkin on its head until sheared.
+pub const SNOW_GOLEM_IDENTIFIER: &str = "minecraft:snow_golem";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]

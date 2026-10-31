@@ -408,7 +408,7 @@ pub fn prepare_actor_render_frame(
         fishing_line_anchors.push(anchor);
     }
     let carried_blocks = stream.map_or_else(Vec::new, |stream| {
-        carried_blocks::carried_blocks_for(&batch, stream)
+        carried_blocks::carried_blocks_for(&batch, stream, step.partial_tick)
     });
     drop(preparation);
     register_geometries(

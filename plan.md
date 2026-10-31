@@ -630,8 +630,10 @@ lookup across the passing list.
   version's own `skin_packs/vanilla/geometry.json` is unverified.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
-  material, tint and invisible-carrier behavior are unverified, and the other native
-  additional-rendering layers (iron golem, mooshroom, snow golem, minecart) remain unaudited.
+  material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
+  until sheared, turning with their head at the native offset and scale; its hurt overlay and
+  invisible-carrier behavior are unverified. The other native additional-rendering layers (iron
+  golem, mooshroom, minecart) remain unaudited.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.

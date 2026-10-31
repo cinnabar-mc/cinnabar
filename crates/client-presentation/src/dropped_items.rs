@@ -39,6 +39,7 @@ mod dials;
 mod lighting;
 mod preparation;
 mod source_cost;
+use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
 use preparation::DropPreparation;
@@ -799,11 +800,16 @@ impl DroppedItemPublisher<'_, '_> {
                 }
                 let air = stream.air_block_id();
                 for carried in carried_blocks {
-                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
-                    if id == air {
-                        continue;
-                    }
-                    let mode = stream.network_id_mode();
+                    let (mode, id) = match carried.block {
+                        CarriedBlockId::Wire(id) => {
+                            let id = stream.resolve_block_network_id(id);
+                            if id == air {
+                                continue;
+                            }
+                            (stream.network_id_mode(), id)
+                        }
+                        CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
+                    };
                     let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;
