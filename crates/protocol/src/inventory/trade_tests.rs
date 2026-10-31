@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::{packets::UpdateTrade, wire};
+use bedrock_protocol_1_26_60::{packets::UpdateTrade, wire};
 
 #[test]
 fn update_trade_reaches_inventory_without_a_container_open() {
@@ -105,7 +105,7 @@ fn trade_and_close_packets_share_the_full_window_id_domain() {
         })
         .unwrap();
         let super::InventoryEvent::Close(close) =
-            super::normalize_container_close(bedrock_protocol_1_26_51::packets::ContainerClose {
+            super::normalize_container_close(bedrock_protocol_1_26_60::packets::ContainerClose {
                 container_id: wire::U8(id),
                 ..Default::default()
             })

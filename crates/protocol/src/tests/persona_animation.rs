@@ -1,9 +1,9 @@
-use bedrock_protocol_1_26_51::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
-use bedrock_protocol_1_26_51::packets::PlayerList as PlayerListPacket;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
+use bedrock_protocol_1_26_60::packets::PlayerList as PlayerListPacket;
+use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, AnimatedImageData, PlayerListData, SerializedSkinRef, SkinImage,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{ActorEvent, PlayerListEntry, PlayerSkin, WorldEvent, into_world_event};
 
 #[test]
@@ -13,6 +13,7 @@ fn persona_animation_raster_survives_player_list_normalization() {
     let animation_bytes = 32 * 64 * 4;
     let packet = PlayerListPacket {
         entries: vec![PlayerListData::AddEntry {
+            play_fab_id: Default::default(),
             action: Default::default(),
             uuid: Default::default(),
             actor_unique_id: ActorUniqueID(0),

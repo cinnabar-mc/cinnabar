@@ -14,6 +14,7 @@ const MOVEMENT_ENV: &str = "CINNABAR_MOD_MOVEMENT";
 const INTERACTION_ENV: &str = "CINNABAR_MOD_INTERACTION";
 const SETTINGS_ENV: &str = "CINNABAR_MOD_SETTINGS";
 const RENDER_ENV: &str = "CINNABAR_MOD_RENDER";
+const RENDER_MATERIAL_ENV: &str = "CINNABAR_MOD_RENDER_MATERIAL";
 const BLOCK_HIGHLIGHTS_ENV: &str = "CINNABAR_MOD_BLOCK_HIGHLIGHTS";
 const FULLBRIGHT_ENV: &str = "CINNABAR_MOD_FULLBRIGHT";
 const RENDER_DEPTH_ENV: &str = "CINNABAR_MOD_RENDER_DEPTH";
@@ -66,6 +67,7 @@ pub fn environment_grants() -> ModGrants {
         interaction: std::env::var(INTERACTION_ENV).is_ok_and(|value| value == "1"),
         settings: std::env::var(SETTINGS_ENV).is_ok_and(|value| value == "1"),
         render: std::env::var(RENDER_ENV).is_ok_and(|value| value == "1"),
+        render_material: std::env::var(RENDER_MATERIAL_ENV).is_ok_and(|value| value == "1"),
         block_highlights: std::env::var(BLOCK_HIGHLIGHTS_ENV).is_ok_and(|value| value == "1"),
         fullbright: std::env::var(FULLBRIGHT_ENV).is_ok_and(|value| value == "1"),
         render_depth: std::env::var(RENDER_DEPTH_ENV).is_ok_and(|value| value == "1"),

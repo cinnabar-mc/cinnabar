@@ -97,7 +97,7 @@ fn arbitrary_stone(sequential_id: u32, network_hash: u32) -> RegistryRecord {
 }
 
 #[test]
-fn assetc_compiles_a_v2193_triple_whose_air_sits_at_an_arbitrary_identity() {
+fn assetc_compiles_a_v2225_triple_whose_air_sits_at_an_arbitrary_identity() {
     // Real registries number states densely from zero, which the light
     // registry's per-record binding requires; these identities are arbitrary
     // in the sense that they match no pinned protocol constant.
@@ -113,12 +113,12 @@ fn assetc_compiles_a_v2193_triple_whose_air_sits_at_an_arbitrary_identity() {
         arbitrary_air(ARBITRARY_AIR_ID, ARBITRARY_AIR_HASH),
         arbitrary_stone(1, 0x00b1_6c7b),
     ];
-    let registry_fixture = registry_bytes_for_protocol(2193, &records);
-    let light_fixture = light_registry_bytes_for_protocol(2193, &registry_fixture, records.len());
+    let registry_fixture = registry_bytes_for_protocol(2225, &records);
+    let light_fixture = light_registry_bytes_for_protocol(2225, &registry_fixture, records.len());
     let registry = directory.path().join("block-registry.bin");
     let light_registry = directory.path().join("light-registry.bin");
-    fs::write(&registry, &registry_fixture).expect("write v2193 block registry fixture");
-    fs::write(&light_registry, &light_fixture).expect("write v2193 light registry fixture");
+    fs::write(&registry, &registry_fixture).expect("write v2225 block registry fixture");
+    fs::write(&light_registry, &light_fixture).expect("write v2225 light registry fixture");
 
     let output = run_assetc_compile(directory.path(), &resource_pack, &registry, &light_registry);
     assert!(
@@ -161,11 +161,11 @@ fn assetc_rejects_a_mixed_version_triple_naming_both_files() {
         arbitrary_air(0, 0x00a1_7e57),
         arbitrary_stone(1, 0x00b1_6c7b),
     ];
-    let block_registry_bytes = registry_bytes_for_protocol(2193, &records);
-    // The light leg claims protocol 1001 while its BREG binding is 2193.
+    let block_registry_bytes = registry_bytes_for_protocol(2225, &records);
+    // The light leg claims protocol 1001 while its BREG binding is 2225.
     let light_fixture =
         light_registry_bytes_for_protocol(1001, &block_registry_bytes, records.len());
-    let registry = directory.path().join("block-registry-v2193.bin");
+    let registry = directory.path().join("block-registry-v2225.bin");
     let light_registry = directory.path().join("light-registry-v1001.bin");
     fs::write(&registry, &block_registry_bytes).expect("write block registry fixture");
     fs::write(&light_registry, &light_fixture).expect("write light registry fixture");
@@ -176,10 +176,10 @@ fn assetc_rejects_a_mixed_version_triple_naming_both_files() {
         "a mixed-version triple must fail closed"
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(stderr.contains("block-registry-v2193.bin"), "{stderr}");
+    assert!(stderr.contains("block-registry-v2225.bin"), "{stderr}");
     assert!(stderr.contains("light-registry-v1001.bin"), "{stderr}");
     assert!(
-        stderr.contains("2193") && stderr.contains("1001"),
+        stderr.contains("2225") && stderr.contains("1001"),
         "{stderr}"
     );
 }

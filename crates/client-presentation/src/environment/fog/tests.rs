@@ -39,10 +39,17 @@ fn fog_samples_outside_nether_height_keep_the_dimension_biome() {
             distances: Box::new([]),
         }],
     );
+    let mut cached = CameraBiomes::default();
     for height in [129.0, -1.0] {
+        let position = [0.5, height, 0.5];
+        let biomes = lattice_biomes(&stream, position);
         assert_eq!(
-            fog_biome_samples(&stream, [0.5, height, 0.5], &bindings),
+            fog_biome_samples(&biomes, stream.current_dimension(), &bindings),
             [Some(FogProfileIndex(0)); render_model::PRECIPITATION_SAMPLE_OFFSETS.len()]
+        );
+        assert_eq!(
+            cached.sample(&stream, position),
+            (stream.camera_biome_id(position), biomes)
         );
     }
 }

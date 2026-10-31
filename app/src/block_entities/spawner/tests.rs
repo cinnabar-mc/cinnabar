@@ -1,5 +1,6 @@
 use super::*;
 
+mod preparation;
 mod rescan;
 
 /// Builds an authored display with two controller layers and an explicit pack texture.
@@ -104,6 +105,8 @@ fn fixture_with_identifier(
         spins: Default::default(),
         poses: Default::default(),
         layers: Default::default(),
+        listing: None,
+        scratch: PreparationScratch::default(),
     };
     (pool, stream, artwork)
 }
@@ -122,7 +125,7 @@ fn draw(
         stream,
         artwork,
         0.5,
-        vec![(runtime, position, Default::default())],
+        &[(runtime, position, Default::default())],
     )
 }
 
@@ -142,13 +145,13 @@ fn regression_retired_display_poses_release_their_bone_allocations() {
     .unwrap();
     let bones = Arc::downgrade(&presentation.submission.input.current_bones);
     drop(presentation);
-    pool.actors.retain(&BTreeSet::new());
+    pool.actors.retain(|_| false);
     assert!(
         bones.upgrade().is_some(),
         "recently drawn poses remain cached"
     );
     for _ in 0..256 {
-        display_batch(&mut pool, &stream, &artwork, 0.5, Vec::new());
+        display_batch(&mut pool, &stream, &artwork, 0.5, &[]);
     }
     assert!(
         bones.upgrade().is_none(),
@@ -855,9 +858,9 @@ fn regression_column_invalidation_does_not_retain_the_entity_index() {
             1,
             "cached columns must allow entity updates without copying the index"
         );
-        assert!(first.is_current(&store.chunk(key.chunk()).unwrap().shared_block_entities()));
+        assert!(first.is_current(store.chunk(key.chunk()).unwrap()));
         store.commit_block_entity_update(key, initial).unwrap();
-        assert!(first.is_current(&store.chunk(key.chunk()).unwrap().shared_block_entities()));
+        assert!(first.is_current(store.chunk(key.chunk()).unwrap()));
         let other = BlockEntityKey::new(1, 1, 64, 0);
         store
             .commit_block_entity_update(
@@ -872,7 +875,7 @@ fn regression_column_invalidation_does_not_retain_the_entity_index() {
             index.upgrade().is_none(),
             "the old index must be released on edits"
         );
-        assert!(!first.is_current(&source));
+        assert!(!first.is_current(store.chunk(key.chunk()).unwrap()));
         let second = column(source, Some(&first));
         assert_eq!(second.displays.len(), usize::from(id == "MobSpawner"));
         if id == "MobSpawner" {

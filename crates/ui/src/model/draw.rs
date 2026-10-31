@@ -54,6 +54,9 @@ impl FrameAffine {
     fn apply(&self, vertices: &mut [UiVertex]) {
         let [a, b, c, d] = self.linear;
         for vertex in vertices {
+            if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX != 0 {
+                continue;
+            }
             let w = vertex.clip_w;
             if w == 0.0 {
                 continue;
@@ -101,8 +104,10 @@ fn emit_untransformed(
         UiVisual::TintedMesh { mesh, color } => {
             let start = vertices.len();
             mesh::emit_mesh(mesh, bounds, clip, vertices, indices, batches)?;
-            for vertex in &mut vertices[start..] {
-                vertex.color = *color;
+            if !mesh.is_skinned() {
+                for vertex in &mut vertices[start..] {
+                    vertex.color = *color;
+                }
             }
             Ok(())
         }
@@ -171,6 +176,11 @@ fn emit_untransformed(
             uv,
             color,
         }
+        | UiVisual::RgbCoverageSprite {
+            texture_page,
+            uv,
+            color,
+        }
         | UiVisual::GlintSprite {
             texture_page,
             uv,
@@ -184,6 +194,7 @@ fn emit_untransformed(
             } else {
                 0
             };
+            let start = vertices.len();
             emit_quad(
                 bounds,
                 [
@@ -200,7 +211,13 @@ fn emit_untransformed(
                 vertices,
                 indices,
                 batches,
-            )
+            )?;
+            if matches!(visual, UiVisual::RgbCoverageSprite { .. }) {
+                for vertex in &mut vertices[start..] {
+                    vertex.style_flags |= render_api::UI_STYLE_RGB_COVERAGE;
+                }
+            }
+            Ok(())
         }
         UiVisual::Gradient {
             texture_page,

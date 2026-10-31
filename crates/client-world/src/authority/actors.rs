@@ -2,6 +2,11 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Shares immutable base analysis with display actors, preserving separate session state.
+    pub fn actor_animation_catalog(&self) -> Option<actor_animation::ActorAnimationCatalog> {
+        self.actors.animation_catalog()
+    }
+
     /// Reads the target's component proof without predicting unknown native interactions.
     pub fn offered_use(
         &self,
@@ -141,8 +146,17 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
-    /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
-    /// actors to [`Self::advance_actor_interpolation_frame`].
+    /// Returns completed previous/current feet and interpolation steps for interaction diagnostics.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        (
+            actor.previous_pose.position,
+            actor.position,
+            actor.interpolation_ticks_remaining,
+        )
+    }
+
+    /// Predicts remote motion for vehicle and collision queries, leaving interaction boxes
+    /// at the completed simulation pose until [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
@@ -618,12 +632,9 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// The actor's interaction boxes where this frame's due ticks put it, for picks.
+    /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
-        match self.actors.pick_pose(actor.runtime_id) {
-            Some(pose) => actor.hit_boxes_at_pose(pose),
-            None => actor.hit_boxes(),
-        }
+        actor.hit_boxes()
     }
     /// Counts retained actors in this session.
     pub fn actor_count(&self) -> usize {

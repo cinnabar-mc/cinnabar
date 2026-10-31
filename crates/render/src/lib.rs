@@ -107,6 +107,9 @@ mod queue_writes;
 mod screen_overlay_render;
 mod shader_asset;
 mod shader_safety;
+#[cfg(test)]
+#[path = "shader_safety/spirv_tests.rs"]
+mod shader_spirv_tests;
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
@@ -190,6 +193,9 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+#[cfg(test)]
+#[path = "startup_presentation/timing_tests.rs"]
+mod startup_timing_tests;
 mod stock_systems;
 pub use stock_systems::StockSystemsPlugin;
 mod world_passes;

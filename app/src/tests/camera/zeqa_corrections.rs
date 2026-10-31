@@ -74,6 +74,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             yaw,
             head_yaw: yaw,
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
+            interact_rotation: [-bevy_pitch.to_degrees(), yaw],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
             vehicle: None,

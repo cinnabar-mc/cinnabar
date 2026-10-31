@@ -89,6 +89,7 @@ fn traced_movement_packets(tick: u64) -> (protocol::Packet, protocol::Packet) {
         yaw: 0.0,
         head_yaw: 0.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 0.0],
         flags: protocol::PlayerInputFlags::NONE,
         input_mode: protocol::PlayerInputMode::Mouse,
         vehicle: None,

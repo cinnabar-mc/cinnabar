@@ -33,7 +33,7 @@ pub(super) fn compile_pack(
 
 /// Builds one canonical-shaped `minecraft:air` record at an explicit identity.
 ///
-/// Real protocol-1001/2193 registries carry exactly one such record, so
+/// Real protocol-1001/2225 registries carry exactly one such record, so
 /// family-isolated synthetic fixtures append one through
 /// [`with_canonical_air`] to satisfy the same compile-time contract.
 pub(super) fn canonical_air_record(sequential_id: u32, network_hash: u32) -> RegistryRecord {

@@ -199,7 +199,17 @@ fn held_keys_follow_press_and_release_and_stay_bounded() {
     for index in 0..mod_api::MAX_CONTROL_KEYS * 2 {
         physical.track_held(format!("Key{index}"), true);
     }
-    assert_eq!(physical.held_keys.len(), mod_api::MAX_CONTROL_KEYS);
+    assert_eq!(physical.held_sample().len(), mod_api::MAX_CONTROL_KEYS);
+    assert!(
+        physical
+            .held_sample()
+            .windows(2)
+            .all(|keys| keys[0] < keys[1])
+    );
+    let omitted = physical.held_keys[mod_api::MAX_CONTROL_KEYS].clone();
+    let released = physical.held_keys[0].clone();
+    physical.track_held(released, false);
+    assert!(physical.held_sample().contains(&omitted));
     physical.discard_pending(None, None);
     assert!(physical.held_keys.is_empty());
 }
@@ -328,4 +338,116 @@ fn wheel_notches_scroll_up_positive_and_scale_pixel_wheels() {
     scroll.unit = MouseScrollUnit::Pixel;
     scroll.delta.y = -24.0;
     assert_eq!(wheel_notches(&scroll), -1.5);
+}
+
+#[test]
+fn desktop_name_order_and_cap_match_raw_held_projection() {
+    let mut physical = PhysicalControls::default();
+    let usages: Vec<_> = client_shell::physical_input::DESKTOP_KEYS
+        .iter()
+        .filter_map(|(_, key)| key.usage())
+        .collect();
+    let mut runtime = crate::semantic_controls::SemanticInputRuntime::default();
+    let snapshot = runtime
+        .route_and_finalize(semantic_input::DeviceFrame {
+            keyboard_mouse: Some(semantic_input::KeyboardMouseFrame {
+                keys: usages,
+                mouse_buttons: vec![1, 2, 3],
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
+        .unwrap();
+    let all_names: Vec<_> = snapshot
+        .admitted_desktop
+        .iter()
+        .filter_map(|control| super::super::bindings::physical_name(*control))
+        .collect();
+    for name in all_names.iter().rev() {
+        physical.track_held(name.clone(), true);
+    }
+    let input = semantic_input::finalized::FinalizedInput::from_finalized(snapshot);
+    let admitted = super::super::bindings::admitted_keys(input.snapshot(), true);
+    assert_eq!(admitted.len(), mod_api::MAX_CONTROL_KEYS);
+    assert_eq!(admitted, physical.held_sample());
+    assert!(all_names.len() > admitted.len());
+}
+
+/// A reservation removes both primary keys and modifiers before the router's final sample.
+#[test]
+fn reserved_controls_stay_capturable_but_do_not_satisfy_native_pulse_gates() {
+    use crate::semantic_controls::{
+        PendingDeviceFrame, SemanticInputRuntime, SemanticRouteState, SemanticTouchTargets,
+        collect_raw_input, finalize_semantic_input_after_ui_authority, route_semantic_input,
+    };
+    use bevy::input::touch::Touches;
+    use bevy::window::CursorGrabMode;
+    let mut keys = ButtonInput::default();
+    keys.press(KeyCode::KeyK);
+    keys.press(KeyCode::ShiftLeft);
+    let mut mouse = ButtonInput::default();
+    mouse.press(MouseButton::Left);
+    mouse.press(MouseButton::Right);
+    let mut physical = PhysicalControls::default();
+    physical.seed_held(keys.get_pressed());
+    physical.track_held("MouseLeft".into(), true);
+    physical.track_held("MouseRight".into(), true);
+    let reserved = vec![
+        "KeyK".into(),
+        "ShiftLeft".into(),
+        "MouseLeft".into(),
+        "MouseRight".into(),
+    ];
+    consume_reserved(&mut keys, Some(&mut mouse), &reserved, None, None);
+    let mut app = App::new();
+    app.insert_resource(keys)
+        .insert_resource(mouse)
+        .init_resource::<AccumulatedMouseMotion>()
+        .init_resource::<Touches>()
+        .init_resource::<SemanticTouchTargets>()
+        .init_resource::<PendingDeviceFrame>()
+        .init_resource::<SemanticInputRuntime>()
+        .init_resource::<SemanticRouteState>()
+        .init_resource::<client_state::SemanticInputSnapshot>()
+        .add_systems(
+            Update,
+            (
+                collect_raw_input,
+                route_semantic_input,
+                finalize_semantic_input_after_ui_authority,
+            )
+                .chain(),
+        );
+    app.world_mut().spawn((
+        Window {
+            focused: true,
+            ..Default::default()
+        },
+        CursorOptions {
+            grab_mode: CursorGrabMode::Locked,
+            visible: false,
+            ..Default::default()
+        },
+        PrimaryWindow,
+    ));
+    app.update();
+    let snapshot = app
+        .world()
+        .resource::<client_state::SemanticInputSnapshot>()
+        .snapshot()
+        .unwrap()
+        .clone();
+    assert!(
+        crate::modding::bindings::admission_tests::assert_equivalent(
+            snapshot,
+            semantic_input::ControlSettings::builtin(),
+            false,
+            false
+        )
+        .is_empty()
+    );
+    assert_eq!(
+        physical.held_sample(),
+        ["KeyK", "MouseLeft", "MouseRight", "ShiftLeft"]
+    );
 }

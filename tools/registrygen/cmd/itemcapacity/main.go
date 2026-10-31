@@ -17,20 +17,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
 )
 
 const (
-	targetVersion        = "1.26.52.3"
-	targetProtocol       = 2193
-	targetProbeRows      = 1623
-	targetRetailRows     = 1590
-	targetBinarySHA256   = "0a490c711d4a2ce075debcd979e8862b7eaba008373f9970f0edbb67f98f9207"
-	targetLogSHA256      = "84c7865c3c5a5e70358d504adf47f2221b11c1bac94b30f5e668e41a206809be"
-	targetRetailSHA256   = "6f186e8f781c611722cd28ece47f643112732a89e18cd9beab9d414243750821"
-	targetScriptSHA256   = "c7d3312f08083001aa695368806730379bd0e1b787dbb236eb0ae566e0d43cc4"
-	targetManifestSHA256 = "317e96cb230dadcf60331d7b7aaa63d912527840cad13659d1cfb159f126c4f9"
-	maximumInputBytes    = 16 << 20
-	packHeader           = "Pack Stack - [00] Local item capacity probe (id: a0318bd0-ae1c-4c36-9008-074c5c5cb4df, version: 1.0.0) @ behavior_packs/cinnabar_capacity_probe"
+	maximumInputBytes = 16 << 20
+	packHeader        = "Pack Stack - [00] Local item capacity probe (id: a0318bd0-ae1c-4c36-9008-074c5c5cb4df, version: 1.0.0) @ behavior_packs/cinnabar_capacity_probe"
 )
 
 //go:embed probe/main.js
@@ -79,45 +72,47 @@ func main() {
 	probeLogPath := flag.String("probe-log", "", "path to the complete public server probe log")
 	retailPath := flag.String("retail-items", "", "path to the retail item allowlist TSV")
 	outPath := flag.String("out", "", "capacity TSV output path")
+	measurementPath := flag.String("measurement", "", "path to reviewed measurement metadata")
 	provenancePath := flag.String("provenance-out", "", "provenance JSON output path")
 	flag.Parse()
 
-	if err := run(*probeLogPath, *retailPath, *outPath, *provenancePath); err != nil {
+	if err := run(*probeLogPath, *retailPath, *outPath, *provenancePath, *measurementPath); err != nil {
 		fmt.Fprintln(os.Stderr, "itemcapacity:", err)
 		os.Exit(1)
 	}
 }
 
-func run(probeLogPath, retailPath, outPath, provenancePath string) error {
-	if probeLogPath == "" || retailPath == "" || outPath == "" || provenancePath == "" {
-		return errors.New("-probe-log, -retail-items, -out, and -provenance-out are required")
+func run(probeLogPath, retailPath, outPath, provenancePath, measurementPath string) error {
+	if probeLogPath == "" || retailPath == "" || outPath == "" || provenancePath == "" || measurementPath == "" {
+		return errors.New("-probe-log, -retail-items, -out, -provenance-out, and -measurement are required")
 	}
 	if outPath == provenancePath {
 		return errors.New("capacity and provenance output paths must differ")
 	}
-	if got := sha256Hex(probeScript); got != targetScriptSHA256 {
-		return fmt.Errorf("bundled probe script hash %s does not match pinned hash", got)
+	measurement, err := readMeasurement(measurementPath)
+	if err != nil {
+		return err
 	}
-	if got := sha256Hex(probeManifest); got != targetManifestSHA256 {
-		return fmt.Errorf("bundled probe manifest hash %s does not match pinned hash", got)
+	if sha256Hex(probeScript) != measurement.Source.ProbeScriptSHA256 || sha256Hex(probeManifest) != measurement.Source.ProbeManifestSHA256 {
+		return errors.New("bundled probe does not match measurement metadata")
 	}
 
 	logBytes, err := readBounded(probeLogPath)
 	if err != nil {
 		return fmt.Errorf("read probe log: %w", err)
 	}
-	if got := sha256Hex(logBytes); got != targetLogSHA256 {
+	if got := sha256Hex(logBytes); got != measurement.Source.ProbeLogSHA256 {
 		return fmt.Errorf("probe log hash %s does not match pinned hash", got)
 	}
 	retailBytes, err := readBounded(retailPath)
 	if err != nil {
 		return fmt.Errorf("read retail allowlist: %w", err)
 	}
-	if got := sha256Hex(retailBytes); got != targetRetailSHA256 {
+	if got := sha256Hex(retailBytes); got != measurement.RetailAllowlist.SHA256 {
 		return fmt.Errorf("retail allowlist hash %s does not match pinned hash", got)
 	}
 
-	rows, err := parseProbeLog(logBytes, probeExpectations{version: targetVersion, rowCount: targetProbeRows})
+	rows, err := parseProbeLog(logBytes, probeExpectations{version: measurement.GameVersion, rowCount: measurement.Source.ItemTypeCount})
 	if err != nil {
 		return err
 	}
@@ -125,25 +120,17 @@ func run(probeLogPath, retailPath, outPath, provenancePath string) error {
 	if err != nil {
 		return err
 	}
-	if len(allowlist) != targetRetailRows {
-		return fmt.Errorf("retail allowlist contains %d rows, want %d", len(allowlist), targetRetailRows)
+	if len(allowlist) != measurement.RetailAllowlist.Entries {
+		return fmt.Errorf("retail allowlist contains %d rows, want %d", len(allowlist), measurement.RetailAllowlist.Entries)
 	}
 	projected, err := projectRetail(rows, allowlist)
 	if err != nil {
 		return err
 	}
 	table := encodeCapacityTable(projected)
-	metadata := provenance{
-		Schema: "cinnabar-item-capacity-provenance", SchemaVersion: 1,
-		GameVersion: targetVersion, ProtocolVersion: targetProtocol,
-		Source: provenanceSource{
-			PublicBinarySHA256: targetBinarySHA256, ProbeLogSHA256: targetLogSHA256,
-			ProbeScriptSHA256: targetScriptSHA256, ProbeManifestSHA256: targetManifestSHA256,
-			ItemTypeCount: targetProbeRows, Failures: 0,
-		},
-		RetailAllowlist: provenanceArtifact{Entries: len(allowlist), SHA256: targetRetailSHA256},
-		Output:          provenanceArtifact{Entries: len(projected), SHA256: sha256Hex(table)},
-	}
+	metadata := measurement
+	metadata.Output = provenanceArtifact{Entries: len(projected), SHA256: sha256Hex(table)}
+
 	metadataBytes, err := encodeProvenance(metadata)
 	if err != nil {
 		return err
@@ -157,6 +144,38 @@ func run(probeLogPath, retailPath, outPath, provenancePath string) error {
 	return nil
 }
 
+// readMeasurement validates the caller's recorded inputs before reading a raw measurement.
+func readMeasurement(path string) (provenance, error) {
+	data, err := readBounded(path)
+	if err != nil {
+		return provenance{}, err
+	}
+	var measurement provenance
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&measurement); err != nil {
+		return provenance{}, err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		return provenance{}, errors.New("measurement metadata has trailing JSON")
+	}
+	if measurement.Schema != "cinnabar-item-capacity-provenance" || measurement.SchemaVersion != 1 ||
+		measurement.ProtocolVersion != shared.ProtocolVersion || !strings.HasPrefix(measurement.GameVersion, shared.MinecraftVersion+".") ||
+		measurement.Source.ItemTypeCount <= 0 || measurement.Source.Failures != 0 || measurement.RetailAllowlist.Entries <= 0 {
+		return provenance{}, errors.New("measurement metadata does not match the target or contains failed rows")
+	}
+	for _, digest := range []string{measurement.Source.PublicBinarySHA256, measurement.Source.ProbeLogSHA256,
+		measurement.Source.ProbeScriptSHA256, measurement.Source.ProbeManifestSHA256, measurement.RetailAllowlist.SHA256} {
+		decoded, err := hex.DecodeString(digest)
+		if err != nil || len(decoded) != sha256.Size || digest != strings.ToLower(digest) {
+			return provenance{}, errors.New("invalid measurement digest")
+		}
+	}
+	return measurement, nil
+}
+
+// encodeProvenance writes stable measurement metadata for the caller's evidence store.
 func encodeProvenance(metadata provenance) ([]byte, error) {
 	contents, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {

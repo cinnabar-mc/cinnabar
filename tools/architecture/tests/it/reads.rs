@@ -249,7 +249,7 @@ fn nested_package_literals_keep_real_parent_reads_without_inventing_inputs() {
 #[test]
 fn policy_selected_identifier_sources_require_architecture_read_declarations() {
     let vocabulary =
-        include_str!("../../../../crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv");
+        include_str!("../../../../crates/assets/data/vanilla-pack-vocabulary-1.26.60.tsv");
     for declared in [false, true] {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();

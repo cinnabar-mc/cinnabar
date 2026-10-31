@@ -144,6 +144,7 @@ fn snapshot(selected: bool) {
         [255; 4],
     );
     let input = UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [128; 2],
         safe_area: [0; 4],

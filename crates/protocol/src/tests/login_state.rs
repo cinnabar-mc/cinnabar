@@ -2,19 +2,19 @@
 
 use std::time::Duration;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ConnectionDisconnectFailReason, PlayStatusType, ServerboundLoadingScreenType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, ChunkRadiusUpdated, ClientCacheBlobStatus, ClientCacheMissResponse, ClientCacheStatus,
     Disconnect, ItemRegistry, LevelChunk, NetworkStackLatency, PacketId, PlayStatus,
     ServerboundLoadingScreen, SetLocalPlayerAsInitialized, SetTime, StartGame,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorRuntimeID, ChunkPos, DimensionType, DisconnectMessages, ItemData, MissingBlobData,
     SubChunkMetadata,
 };
-use bedrock_protocol_1_26_51::wire::{self, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Encode};
 use bridge::contract::{KIND_BATCH, KIND_CONNECT, KIND_DISCONNECT, KIND_HANDOFF, KIND_TRANSFER};
 use bytes::{BufMut, Bytes, BytesMut};
 use futures::{SinkExt, StreamExt};
@@ -294,7 +294,7 @@ async fn run_core(
         chunk_radius: wire::ZigZag32(i32::from(requested_radius)),
     });
     let spawn = Packet::new(PlayStatus {
-        status: PlayStatusType::Playerspawn,
+        status: PlayStatusType::PlayerSpawn,
     });
     let prerequisites = match script.order {
         SpawnOrder::RadiusThenSpawn => [item_registry(), radius, spawn],
@@ -309,7 +309,7 @@ async fn run_core(
             finish_packets.as_slice(),
             [
                 packets::Packet::ServerboundLoadingScreen(ServerboundLoadingScreen {
-                    loading_screen_packet_type: ServerboundLoadingScreenType::Endloadingscreen,
+                    loading_screen_packet_type: ServerboundLoadingScreenType::EndLoadingScreen,
                     ..
                 }),
                 packets::Packet::SetLocalPlayerAsInitialized(SetLocalPlayerAsInitialized {

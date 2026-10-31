@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bevy",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "actor-animation"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cosmetics",
@@ -409,7 +409,7 @@ dependencies = [
 
 [[package]]
 name = "architecture"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cfg-expr",
@@ -463,7 +463,7 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -489,7 +489,7 @@ dependencies = [
 
 [[package]]
 name = "assets"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
@@ -716,7 +716,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bedrock-protocol-1-26-51"
+name = "bedrock-protocol-1-26-60"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "bedrock-replay"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bridge",
@@ -748,7 +748,7 @@ dependencies = [
 [[package]]
 name = "bevy"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_internal",
  "tracing",
@@ -757,7 +757,7 @@ dependencies = [
 [[package]]
 name = "bevy_a11y"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "accesskit",
  "bevy_app",
@@ -769,7 +769,7 @@ dependencies = [
 [[package]]
 name = "bevy_android"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "android-activity",
 ]
@@ -777,7 +777,7 @@ dependencies = [
 [[package]]
 name = "bevy_anti_alias"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -799,7 +799,7 @@ dependencies = [
 [[package]]
 name = "bevy_app"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_derive",
  "bevy_ecs",
@@ -821,7 +821,7 @@ dependencies = [
 [[package]]
 name = "bevy_asset"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "async-broadcast",
  "async-channel",
@@ -863,7 +863,7 @@ dependencies = [
 [[package]]
 name = "bevy_asset_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -874,7 +874,7 @@ dependencies = [
 [[package]]
 name = "bevy_camera"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -900,7 +900,7 @@ dependencies = [
 [[package]]
 name = "bevy_clipboard"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "arboard",
  "bevy_app",
@@ -915,7 +915,7 @@ dependencies = [
 [[package]]
 name = "bevy_color"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_curve",
  "bevy_math",
@@ -931,7 +931,7 @@ dependencies = [
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -960,7 +960,7 @@ dependencies = [
 [[package]]
 name = "bevy_curve"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "approx",
  "bevy_math",
@@ -974,7 +974,7 @@ dependencies = [
 [[package]]
 name = "bevy_derive"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -984,7 +984,7 @@ dependencies = [
 [[package]]
 name = "bevy_diagnostic"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "atomic-waker",
  "bevy_app",
@@ -1000,7 +1000,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "arrayvec",
  "bevy_ecs_macros",
@@ -1029,7 +1029,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs_macro_logic"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -1040,7 +1040,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_ecs_macro_logic",
  "bevy_macro_utils",
@@ -1052,7 +1052,7 @@ dependencies = [
 [[package]]
 name = "bevy_encase_derive"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "encase_derive_impl",
@@ -1061,7 +1061,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1078,7 +1078,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -1089,7 +1089,7 @@ dependencies = [
 [[package]]
 name = "bevy_gilrs"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1104,7 +1104,7 @@ dependencies = [
 [[package]]
 name = "bevy_gizmos"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1128,7 +1128,7 @@ dependencies = [
 [[package]]
 name = "bevy_gizmos_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1138,7 +1138,7 @@ dependencies = [
 [[package]]
 name = "bevy_image"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1166,7 +1166,7 @@ dependencies = [
 [[package]]
 name = "bevy_input"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1182,7 +1182,7 @@ dependencies = [
 [[package]]
 name = "bevy_input_focus"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1198,7 +1198,7 @@ dependencies = [
 [[package]]
 name = "bevy_internal"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_a11y",
  "bevy_android",
@@ -1242,7 +1242,7 @@ dependencies = [
 [[package]]
 name = "bevy_light"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1268,7 +1268,7 @@ dependencies = [
 [[package]]
 name = "bevy_log"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "android_log-sys",
  "bevy_app",
@@ -1286,7 +1286,7 @@ dependencies = [
 [[package]]
 name = "bevy_macro_utils"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1297,7 +1297,7 @@ dependencies = [
 [[package]]
 name = "bevy_material"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_asset",
  "bevy_derive",
@@ -1319,7 +1319,7 @@ dependencies = [
 [[package]]
 name = "bevy_material_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1329,7 +1329,7 @@ dependencies = [
 [[package]]
 name = "bevy_math"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "approx",
  "bevy_reflect",
@@ -1345,7 +1345,7 @@ dependencies = [
 [[package]]
 name = "bevy_mesh"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1379,7 +1379,7 @@ checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 [[package]]
 name = "bevy_pbr"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "arrayvec",
  "bevy_app",
@@ -1422,7 +1422,7 @@ dependencies = [
 [[package]]
 name = "bevy_platform"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bytemuck",
  "critical-section",
@@ -1444,7 +1444,7 @@ dependencies = [
 [[package]]
 name = "bevy_post_process"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1470,12 +1470,12 @@ dependencies = [
 [[package]]
 name = "bevy_ptr"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 
 [[package]]
 name = "bevy_reflect"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "assert_type_match",
  "bevy_platform",
@@ -1502,7 +1502,7 @@ dependencies = [
 [[package]]
 name = "bevy_reflect_derive"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "indexmap",
@@ -1515,7 +1515,7 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -1574,7 +1574,7 @@ dependencies = [
 [[package]]
 name = "bevy_render_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_extract_macros",
  "bevy_macro_utils",
@@ -1586,7 +1586,7 @@ dependencies = [
 [[package]]
 name = "bevy_shader"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_asset",
  "bevy_platform",
@@ -1602,7 +1602,7 @@ dependencies = [
 [[package]]
 name = "bevy_shape"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "arrayvec",
  "bevy_math",
@@ -1617,7 +1617,7 @@ dependencies = [
 [[package]]
 name = "bevy_state"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1632,7 +1632,7 @@ dependencies = [
 [[package]]
 name = "bevy_state_macros"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1642,7 +1642,7 @@ dependencies = [
 [[package]]
 name = "bevy_tasks"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -1660,7 +1660,7 @@ dependencies = [
 [[package]]
 name = "bevy_time"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1674,7 +1674,7 @@ dependencies = [
 [[package]]
 name = "bevy_transform"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1691,7 +1691,7 @@ dependencies = [
 [[package]]
 name = "bevy_utils"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "async-channel",
  "bevy_platform",
@@ -1703,7 +1703,7 @@ dependencies = [
 [[package]]
 name = "bevy_window"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1719,7 +1719,7 @@ dependencies = [
 [[package]]
 name = "bevy_winit"
 version = "0.20.0"
-source = "git+https://github.com/cinnabar-mc/bevy?rev=a55f971f1deb7a069fac3cab1e3e62518bfa0efb#a55f971f1deb7a069fac3cab1e3e62518bfa0efb"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=35c49889b6c04a1aa86744ecba09586c392c2a31#35c49889b6c04a1aa86744ecba09586c392c2a31"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1824,7 +1824,7 @@ dependencies = [
 
 [[package]]
 name = "block-transform"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "block2"
@@ -1859,7 +1859,7 @@ dependencies = [
 
 [[package]]
 name = "bootstrap-ui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -1906,7 +1906,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2199,7 +2199,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2257,7 +2257,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "acceptance",
  "actor-animation",
@@ -2293,7 +2293,7 @@ dependencies = [
  "gameplay",
  "glam",
  "image",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2362,7 +2362,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-android"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -2379,7 +2379,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "experience-runtime",
@@ -2399,7 +2399,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-ios"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "cinnabar",
@@ -2412,7 +2412,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-mcp"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "developer-control",
  "diagnostics",
@@ -2492,7 +2492,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-audio"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2502,7 +2502,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "pack-json",
  "particles",
  "player-state",
@@ -2527,7 +2527,7 @@ dependencies = [
 
 [[package]]
 name = "client-extensions"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2537,7 +2537,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "fontdue",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "mod-api",
  "mod-host",
  "mod-render",
@@ -2556,7 +2556,7 @@ dependencies = [
 
 [[package]]
 name = "client-interaction"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2569,7 +2569,7 @@ dependencies = [
  "client-world",
  "diagnostics",
  "gameplay",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -2584,7 +2584,7 @@ dependencies = [
 
 [[package]]
 name = "client-presentation"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2597,7 +2597,7 @@ dependencies = [
  "diagnostics",
  "glam",
  "image",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "client-runtime"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2657,7 +2657,7 @@ dependencies = [
 
 [[package]]
 name = "client-session"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "bridge",
  "bytes",
@@ -2681,7 +2681,7 @@ dependencies = [
 
 [[package]]
 name = "client-shell"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "ash",
  "assets",
@@ -2730,7 +2730,7 @@ dependencies = [
 
 [[package]]
 name = "client-state"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "bevy",
  "player-state",
@@ -2741,7 +2741,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2755,7 +2755,7 @@ dependencies = [
  "env-compat",
  "glam",
  "image",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "js-sys",
  "json-ui",
  "launcher",
@@ -2801,13 +2801,13 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "cosmetics"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "serde",
  "serde_json",
@@ -3277,7 +3277,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "bootstrap-ui",
  "bytes",
@@ -3307,7 +3307,7 @@ dependencies = [
 
 [[package]]
 name = "crash-report"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "libc",
  "regex",
@@ -3554,7 +3554,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -3566,7 +3566,7 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "cinnabar-cxb",
  "crash-report",
@@ -3598,7 +3598,7 @@ dependencies = [
 
 [[package]]
 name = "diagnostics"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "android_log-sys",
  "assets",
@@ -3717,7 +3717,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "same-file",
@@ -3765,7 +3765,7 @@ checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
 
 [[package]]
 name = "dragonfly-extension-client"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
 ]
@@ -3871,7 +3871,7 @@ dependencies = [
 
 [[package]]
 name = "env-compat"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "equivalent"
@@ -3947,7 +3947,7 @@ dependencies = [
 
 [[package]]
 name = "experience-macros"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3956,14 +3956,14 @@ dependencies = [
 
 [[package]]
 name = "experience-probe"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "block-transform",
@@ -3981,7 +3981,7 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "experience-macros",
@@ -4000,7 +4000,7 @@ dependencies = [
 
 [[package]]
 name = "experience-space-client"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
  "serde",
@@ -4009,7 +4009,7 @@ dependencies = [
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
  "serde_json",
@@ -4029,7 +4029,7 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "far-terrain"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "criterion",
@@ -4080,7 +4080,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "first-run"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -4332,14 +4332,14 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
  "block-transform",
  "client-world",
  "env-compat",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "meshing",
  "player-state",
  "protocol",
@@ -4667,7 +4667,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
@@ -5004,7 +5004,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bytes",
@@ -5014,6 +5014,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -5185,18 +5186,19 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "pack-json",
  "serde",
  "serde_json",
+ "smallvec",
  "test-alloc",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -5213,7 +5215,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "image",
  "json-ui",
@@ -5260,7 +5262,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -5280,7 +5282,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-host"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "async-io",
@@ -5669,7 +5671,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "serde_json",
 ]
@@ -5709,7 +5711,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -5928,7 +5930,7 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "serde",
  "serde_json",
@@ -5936,8 +5938,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "mod-docs"
+version = "0.1.31"
+dependencies = [
+ "anyhow",
+ "mod-api",
+ "mod-host",
+ "server-experience",
+ "tempfile",
+ "ui",
+ "wit-parser 0.247.0",
+]
+
+[[package]]
 name = "mod-host"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -5961,6 +5976,7 @@ dependencies = [
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",
+ "wasm-encoder 0.247.0",
  "wasm-metadata",
  "wasmparser 0.247.0",
  "wasmtime",
@@ -5973,18 +5989,21 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
+ "assets",
  "bytemuck",
+ "meshing",
  "mod-api",
  "naga",
  "serde",
  "test-alloc",
+ "world",
 ]
 
 [[package]]
 name = "mod-ui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "glam",
@@ -6033,7 +6052,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -6060,7 +6079,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6739,7 +6758,7 @@ dependencies = [
 
 [[package]]
 name = "oreui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -6782,7 +6801,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compile-input"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -6795,7 +6814,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6812,7 +6831,7 @@ dependencies = [
 
 [[package]]
 name = "pack-entity-compiler"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -6829,7 +6848,7 @@ dependencies = [
 
 [[package]]
 name = "pack-font-compiler"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "fontdue",
@@ -6844,7 +6863,7 @@ dependencies = [
 
 [[package]]
 name = "pack-json"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "serde",
  "serde_json",
@@ -6852,7 +6871,7 @@ dependencies = [
 
 [[package]]
 name = "pack-runtime"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -6919,11 +6938,12 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bytemuck",
  "pack-json",
+ "protocol-ids",
  "render-model",
  "serde_json",
  "tracing",
@@ -7041,10 +7061,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "client-world",
- "inventory 0.1.28",
+ "inventory 0.1.31",
 ]
 
 [[package]]
@@ -7087,6 +7107,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a106d1259c23fac8e543272398ae0e3c0b8d33c88ed73d0cc71b0f1d902618"
 dependencies = [
  "portable-atomic",
+]
+
+[[package]]
+name = "portal-view-mod"
+version = "0.1.31"
+dependencies = [
+ "mod-api",
 ]
 
 [[package]]
@@ -7311,11 +7338,11 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "base64",
- "bedrock-protocol-1-26-51",
+ "bedrock-protocol-1-26-60",
  "block-transform",
  "bridge",
  "bytes",
@@ -7342,7 +7369,7 @@ dependencies = [
 
 [[package]]
 name = "protocol-ids"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "pulley-interpreter"
@@ -7739,7 +7766,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "base64",
  "serde_json",
@@ -7751,7 +7778,7 @@ dependencies = [
 
 [[package]]
 name = "render"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bevy",
@@ -7780,6 +7807,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "shaderpack",
+ "spirv",
  "tempfile",
  "test-alloc",
  "test-time",
@@ -7793,11 +7821,11 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "render-model"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -7823,14 +7851,14 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
 
 [[package]]
 name = "render-scene"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bevy",
@@ -7905,7 +7933,7 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "aes",
  "pack-json",
@@ -7923,7 +7951,7 @@ dependencies = [
 
 [[package]]
 name = "rich-presence"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "crossbeam-channel",
  "discord-presence",
@@ -8171,7 +8199,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen-probe-mod"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
  "mod-api",
@@ -8232,7 +8260,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "semver"
@@ -8327,7 +8355,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -8370,7 +8398,7 @@ dependencies = [
 
 [[package]]
 name = "shaderpack"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "ciborium",
@@ -8420,7 +8448,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -8458,7 +8486,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simulation-clock"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "slab"
@@ -8725,7 +8753,7 @@ dependencies = [
 
 [[package]]
 name = "test-alloc"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "test-assembler"
@@ -8738,7 +8766,7 @@ dependencies = [
 
 [[package]]
 name = "test-time"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "thiserror"
@@ -8805,7 +8833,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
@@ -9290,7 +9318,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "criterion",
@@ -9306,7 +9334,7 @@ dependencies = [
 
 [[package]]
 name = "ui-engine"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "crossbeam-channel",
@@ -9326,12 +9354,12 @@ dependencies = [
 
 [[package]]
 name = "ui-screens"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cosmetics",
  "image",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "json-ui",
  "launcher",
  "player-state",
@@ -9341,6 +9369,7 @@ dependencies = [
  "resource-pack",
  "semantic-input",
  "serde_json",
+ "sha2",
  "tracing",
  "ui",
  "ui-engine",
@@ -9349,14 +9378,14 @@ dependencies = [
 
 [[package]]
 name = "ui-snapshot"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
  "client-ui",
  "cosmetics",
  "image",
- "inventory 0.1.28",
+ "inventory 0.1.31",
  "json-ui",
  "jsonui-editor",
  "launcher",
@@ -9420,7 +9449,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "update-installer"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "rustix 1.1.4",
@@ -9434,7 +9463,7 @@ dependencies = [
 
 [[package]]
 name = "update-manifest"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "base64",
  "ring",
@@ -10158,7 +10187,7 @@ dependencies = [
 
 [[package]]
 name = "web-client"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -10216,7 +10245,7 @@ dependencies = [
 
 [[package]]
 name = "web-transport"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "bridge",
  "bytes",
@@ -10289,7 +10318,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -10317,7 +10346,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -10350,7 +10379,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10358,7 +10387,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10366,7 +10395,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10374,7 +10403,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -10429,7 +10458,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10438,7 +10467,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=de534fdc798c6a3850848faa702d9466ad7b89f7#de534fdc798c6a3850848faa702d9466ad7b89f7"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=060bd0bdbc5975dc9e48840b391e276d5ccb4355#060bd0bdbc5975dc9e48840b391e276d5ccb4355"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -11275,11 +11304,11 @@ dependencies = [
 
 [[package]]
 name = "workspace-declarations"
-version = "0.1.28"
+version = "0.1.31"
 
 [[package]]
 name = "world"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "block-transform",
  "criterion",
@@ -11556,7 +11585,7 @@ dependencies = [
 
 [[package]]
 name = "zip-footer"
-version = "0.1.28"
+version = "0.1.31"
 dependencies = [
  "thiserror 2.0.18",
  "zip",

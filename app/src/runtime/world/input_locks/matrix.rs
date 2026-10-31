@@ -156,7 +156,9 @@ impl Harness {
                 match request {
                     PendingRequest::JumpEdge => {
                         assert!(sample.input.jump.released);
-                        sample.processed.jump_initiated
+                        // A tap released before the tick sends its edge without jumping.
+                        assert!(!sample.processed.jump_initiated);
+                        sample.input.jump.pressed
                     }
                     PendingRequest::SneakEdge => {
                         assert!(sample.input.sneak.released);

@@ -326,3 +326,58 @@ fn dismissing_custom_settings_submits_its_values_before_controller_termination()
     store.flush_settings_request(false, || false);
     assert_eq!(settings_packets(&mut runtime), [edited_settings_answer(7)]);
 }
+
+#[test]
+fn settings_handoff_retires_on_tab_changes_without_a_duplicate_answer() {
+    for flushed in [false, true] {
+        let mut runtime = UiRuntime::new(1);
+        let store = runtime.server_forms_mut();
+        store.flush_settings_request(true, || true);
+        store.select_settings_form(true);
+        custom_settings(store, 7);
+        edit_settings(store);
+        store
+            .respond_at(
+                store.active().unwrap().identity,
+                LocalFormAction::CustomElements,
+                1,
+            )
+            .unwrap();
+        let mut packets = if flushed {
+            settings_packets(&mut runtime)
+        } else {
+            Vec::new()
+        };
+        let store = runtime.server_forms_mut();
+        store.select_settings_form(false);
+        store.select_settings_form(true);
+        assert!(
+            store.active().is_none(),
+            "answered settings reopened; flushed={flushed}"
+        );
+        store.flush_settings_request(false, || false);
+        packets.extend(settings_packets(&mut runtime));
+        assert_eq!(packets, [edited_settings_answer(7)], "flushed={flushed}");
+    }
+}
+
+#[test]
+fn settings_reply_replaces_the_handoff_without_inheriting_its_deadline() {
+    let mut runtime = UiRuntime::new(1);
+    let store = runtime.server_forms_mut();
+    store.select_settings_form(true);
+    custom_settings(store, 7);
+    store
+        .respond_at(
+            store.active().unwrap().identity,
+            LocalFormAction::CustomElements,
+            1,
+        )
+        .unwrap();
+    assert_eq!(settings_packets(&mut runtime).len(), 1);
+    let store = runtime.server_forms_mut();
+    custom_settings(store, 8);
+    store.advance_form_handoff(1 + super::FORM_HANDOFF_GRACE_MILLIS);
+    assert_eq!(store.active().map(|entry| entry.form_id), Some(8));
+    assert!(!store.handoff_pending());
+}

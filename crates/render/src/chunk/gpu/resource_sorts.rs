@@ -4,7 +4,7 @@ use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
 use render_scene::{ChunkBiomeTints, ChunkRenderInstance, ChunkTextureAssets};
 
-pub(super) struct ResourceView {
+pub(in crate::chunk) struct ResourceView {
     pub(super) entity: Entity,
     pub(super) transform: GlobalTransform,
     /// Whether the view displaces water, so flat water must be sorted too.

@@ -53,15 +53,28 @@ Cinnabar previously let received Instabuild override `instant_break`, so surviva
 could take the creative mining route after a mode change despite the correct HUD.
 The capability now follows the confirmed game mode only. Regressions cover
 Survival with Instabuild enabled, Creative with it disabled, and a committed
-Creative → Survival → Creative transition while retaining the same wire evidence.
-Other ability grants and the passive evidence owner are unchanged. Vanilla mode-layer
-refresh is a separate incomplete gate; clearing all received layers
-would incorrectly discard higher-priority server grants.
+Creative → Survival → Creative transition.
 
 In the October 4 macOS/Metal scratch-BDS run, the console confirmed the local
 player's Creative-to-Survival transition. The user tested the rebuilt client and
 confirmed that breaking and dropped-item testing now work correctly. The
 capability matrix and retained-evidence transition regressions also pass.
+
+## Mode changes rewrite the mode-owned ability layers
+
+A vanilla game-mode change rewrites the player's ability layers in place; the
+server need not follow it with `UpdateAbilities`.
+Every change first clears the whole spectator layer. Survival and Adventure
+then define Flying, MayFly, Instabuild, Invulnerable and NoClip as false in the
+base layer. Creative grants MayFly, Instabuild and Invulnerable there and clears
+NoClip, leaving Flying as it was. Spectator defines its own layer instead. Higher
+layers, such as command grants, keep outranking the base layer, and a later
+`UpdateAbilities` replaces every layer again.
+
+Cinnabar applies the same assignment to its retained ability layers when it
+commits a mode. Before, it kept the last received layers, so a player who
+joined in Survival could not fly after `/gamemode creative`, and one who joined
+in Creative could still double-jump into flight after `/gamemode survival`.
 
 ## Adventure block permission
 

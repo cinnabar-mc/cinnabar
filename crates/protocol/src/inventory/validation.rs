@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use super::{InventoryPacketError, MAX_ITEM_NBT_BYTES};
 

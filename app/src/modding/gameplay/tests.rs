@@ -289,6 +289,29 @@ fn missing_authority_or_gameplay_context_clears_the_snapshot() {
     assert!(app.world().resource::<ResultSnapshot>().0.is_none());
 }
 
+/// Inventory requests need gameplay eligibility without also granting actor observations.
+#[test]
+fn inventory_only_grants_receive_gameplay_eligibility_without_player_rows() {
+    let mut app = app();
+    app.world_mut().resource_mut::<Request>().grants = ModGrants {
+        inventory: true,
+        ..Default::default()
+    };
+    app.world_mut()
+        .resource_mut::<ClientWorld>()
+        .stream
+        .as_mut()
+        .unwrap()
+        .submit(1, player(2, [2.0, 0.0, 0.0]))
+        .unwrap();
+    app.update();
+    let snapshot = app.world().resource::<ResultSnapshot>().0.as_ref().unwrap();
+    assert!(snapshot.players.is_empty());
+    app.world_mut().resource_mut::<Request>().allowed = false;
+    app.update();
+    assert!(app.world().resource::<ResultSnapshot>().0.is_none());
+}
+
 #[test]
 fn acceptance_camera_blocks_snapshot_even_while_presentation_is_paused() {
     let mut app = app();

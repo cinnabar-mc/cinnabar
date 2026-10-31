@@ -20,6 +20,7 @@ struct PlacementLine {
 #[derive(Debug, Default)]
 pub struct BuildIntention {
     last_success: Option<[i32; 3]>,
+    last_outcome: Option<LocalUse>,
     line: Option<PlacementLine>,
     placement: bool,
     first_world_hit: Option<[f32; 3]>,
@@ -29,6 +30,12 @@ impl BuildIntention {
     /// Returns the destination remembered for the start/stop item-use-on actions.
     pub fn last_success_destination(&self) -> Option<[i32; 3]> {
         self.last_success
+    }
+
+    /// Prevents a placement press from being reinterpreted as an interaction with the
+    /// block that was just predicted into the same cell before the button release arrives.
+    pub fn suppress_post_place_interaction(&self, position: [i32; 3]) -> bool {
+        self.last_outcome == Some(LocalUse::Place) && self.last_success == Some(position)
     }
 
     /// The initial world intercept keeps orientation-sensitive items consistent while held.
@@ -115,6 +122,7 @@ impl BuildIntention {
         }
         self.placement = placement;
         if outcome != LocalUse::Nothing {
+            self.last_outcome = Some(outcome);
             if previous.is_none() {
                 self.first_world_hit = Some(world_hit);
             }

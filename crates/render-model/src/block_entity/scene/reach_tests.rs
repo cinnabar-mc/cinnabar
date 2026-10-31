@@ -65,7 +65,7 @@ fn anchored_models_stay_within_the_cull_reach_and_beams_leave_it() {
         BlockEntityKind::Banner(BannerModel {
             mount,
             base: [0.5; 3],
-            layers: Vec::new(),
+            layers: Vec::new().into(),
         })
     };
     let anchored = [

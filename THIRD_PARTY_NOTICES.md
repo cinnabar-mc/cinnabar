@@ -44,18 +44,18 @@ the corresponding license texts are in `assets/licenses/GCC-GPL-3.0.txt` and
 ## Native Bedrock catalog facts
 
 Block hardness, ordinary-tool tags, harvest requirements and recipe item tags
-come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/cf01aa84b74df45df5fa24569e1ac358e4afbb87/generated/data).
-Its selected native 1.26.51 measurements are from
+come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/2aaf70061542d2d0c7cce25653ba494a2a320842/generated/data).
+Its selected native 1.26.60 measurements are from
 [didntpot/bedrock-data](https://github.com/didntpot/bedrock-data), commit
-`bb896a46ba856c58383e3cfb962a38c45a0dea78`, under CC0-1.0. The source lock and
+`1e041bf547b7c12e94d2b998f68d5ed146975742`, under CC0-1.0. The source lock and
 upstream licence are retained in protocolgen. Sword/shears speed targets still
 use the provisional Prismarine input described below; complete mining parity
 remains incomplete.
 
 ## Block property and component data
 
-`crates/assets/data/block-properties-v2193.json` and
-`crates/assets/data/block-components-v2193.tsv` contain selected metadata facts
+`crates/assets/data/block-properties-v2225.json` and
+`crates/assets/data/block-components-v2225.tsv` contain selected metadata facts
 from the sample archive pinned in `assets/vanilla-source.json`. The sample files
 carry the notice “(c) Mojang AB. All rights reserved.” and are subject to the
 [Minecraft End User License Agreement](https://www.minecraft.net/en-us/eula).
@@ -358,7 +358,7 @@ SOFTWARE.
 - Copyright: Copyright (c) 2019-2026 GeyserMC
 - Upstream license SHA-256:
   `4f49de5134b13de98672e8f870aae5d36f5b415086fb1c6fdf832b78c47c7094`
-- Use: `crates/assets/data/java-mapping-v2193.bin` is generated from its Java-to-Bedrock
+- Use: `crates/assets/data/java-mapping-v2225.bin` is generated from its Java-to-Bedrock
   block-state, biome and item mappings and from the archive's MCProtocolLib network exports
   (`mcpl/data/networkTags.nbt` block and biome tags, `mcpl/data/networkCodec.nbt` Java biome
   registry). GeyserMC licenses only its contributors' own work; it does not relicense
@@ -398,7 +398,7 @@ THE SOFTWARE.
 - Upstream license SHA-256:
   `7380cf017734f26977e907a07fd806e9dcba38023d522b7c6e56bd3a2482b08a`
 - Use: the Java entity type to Bedrock entity id pairs in
-  `crates/assets/data/java-mapping-v2193.bin` are read from its `VanillaEntities.java` and
+  `crates/assets/data/java-mapping-v2225.bin` are read from its `VanillaEntities.java` and
   `BedrockEntityDefinitions.java`.
 
 <!-- BEGIN GEYSERMC-GEYSER-MIT -->

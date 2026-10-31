@@ -22,9 +22,9 @@ pub use npc::{
 };
 pub(crate) use npc::{normalize_npc_dialogue, normalize_server_settings};
 
-use bedrock_protocol_1_26_51::enums::ModalFormCancelReason;
-use bedrock_protocol_1_26_51::packets::{ModalFormRequest, ModalFormResponse};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::ModalFormCancelReason;
+use bedrock_protocol_1_26_60::packets::{ModalFormRequest, ModalFormResponse};
+use bedrock_protocol_1_26_60::wire;
 use serde::{
     Deserializer,
     de::{DeserializeSeed, IgnoredAny},
@@ -477,7 +477,7 @@ pub fn modal_form_busy_response(form_id: u32) -> crate::Packet {
     crate::Packet::new(ModalFormResponse {
         form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(ModalFormCancelReason::Userbusy),
+        form_cancel_reason: Some(ModalFormCancelReason::UserBusy),
     })
 }
 
@@ -487,6 +487,6 @@ pub fn modal_form_cancel_response(form_id: u32) -> crate::Packet {
     crate::Packet::new(ModalFormResponse {
         form_id: wire::VarUInt(form_id),
         json_response: None,
-        form_cancel_reason: Some(ModalFormCancelReason::Userclosed),
+        form_cancel_reason: Some(ModalFormCancelReason::UserClosed),
     })
 }

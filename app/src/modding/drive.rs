@@ -27,6 +27,8 @@ pub(super) struct ModObservation<'w, 's> {
     /// The damage shake that `read-damage-shake` reports.
     damage_shake: Option<Res<'w, client_presentation::camera::actor_effects::PresentedDamageShake>>,
     native_camera: Local<'s, native_camera::NativeCamera>,
+    bindings: Local<'s, bindings::Bindings>,
+    input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
 }
 
 #[allow(
@@ -67,6 +69,8 @@ pub(super) fn drive_mod(
         relayed,
         damage_shake,
         mut native_camera,
+        mut bindings,
+        input_settings,
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
@@ -162,6 +166,7 @@ pub(super) fn drive_mod(
         clear_touch_buttons(&mut presentation);
         gameplay.apply_movement_intents(None, false);
         gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         return;
     };
     if extension.suspended {
@@ -175,6 +180,7 @@ pub(super) fn drive_mod(
         gameplay.apply_native_input(None, &ui);
         gameplay.apply_movement_intents(None, false);
         gameplay.apply_control_modes(None);
+        gameplay.apply_movement_input(None, false, &ui);
         if let Some(drawing) = drawing.as_deref_mut() {
             drawing.update(None, packet_render::session(&gameplay));
             if let Some(scene) = render_scene.as_deref_mut() {
@@ -222,7 +228,11 @@ pub(super) fn drive_mod(
         &mut screen_input,
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
-    let controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    controls.keys_admitted = bindings::admitted_keys(
+        gameplay.input.as_deref().and_then(|input| input.snapshot()),
+        captured && !absorbed,
+    );
     let chat_events = std::mem::take(&mut extension.chat_events);
     let previous_cues = cues.as_ref().map_or_else(Vec::new, |feed| feed.0.clone());
     let registrations: Vec<_> = extension
@@ -294,6 +304,18 @@ pub(super) fn drive_mod(
         .screen_owner()
         .filter(|&owner| extension.hosts.host(owner).is_recovering());
     let mut callback_failures = Vec::new();
+    if let Some(input_settings) = input_settings.as_ref() {
+        let bindings = bindings.sample(input_settings.controls_update().1);
+        for index in 0..extension.hosts.host_count() {
+            if let Err(error) = extension
+                .hosts
+                .host_mut(index)
+                .observe_input_bindings(std::sync::Arc::clone(&bindings))
+            {
+                warn!(%error, "mod input bindings rejected");
+            }
+        }
+    }
     multi::run_frame_callbacks(
         &mut extension.hosts,
         multi::FrameInput {
@@ -461,6 +483,7 @@ pub(super) fn drive_mod(
     );
     gameplay.apply_movement_intents(merged.movement_intents, captured && !absorbed);
     gameplay.apply_control_modes(merged.control_modes);
+    gameplay.apply_movement_input(merged.movement_input, captured && !absorbed, &ui);
     send_commands(network.as_deref(), ui.session_id(), merged.commands);
     if let Some(mut cues) = cues {
         cues.0 = merged.cues;

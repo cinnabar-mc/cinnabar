@@ -3,8 +3,8 @@
 
 //! Packet entries with only their header parsed, so play can route by ID and decode bodies lazily.
 
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::codec::SessionFailure;

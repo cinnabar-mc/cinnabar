@@ -1,4 +1,8 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod anvil;
 mod crafting;
 mod crafting_authority;

@@ -1,9 +1,9 @@
 use std::ops::{BitOr, BitOrAssign};
 
-use bedrock_protocol_1_26_51::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
-use bedrock_protocol_1_26_51::packets::PlayerAuthInput;
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, PlayerInputTick};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
+use bedrock_protocol_1_26_60::packets::PlayerAuthInput;
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, PlayerInputTick};
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 mod interactions;
@@ -155,6 +155,8 @@ pub struct PlayerAuthInputSnapshot {
     pub yaw: f32,
     pub head_yaw: f32,
     pub camera_orientation: [f32; 3],
+    /// Pitch and yaw of the interaction ray, independent of actor and head facing.
+    pub interact_rotation: [f32; 2],
     pub flags: PlayerInputFlags,
     pub input_mode: PlayerInputMode,
     /// The vehicle the client predicts. The wire then carries its position and delta in
@@ -225,6 +227,7 @@ pub fn player_auth_input_with_mining_request(
         .chain(snapshot.raw_move_vector)
         .chain([snapshot.pitch, snapshot.yaw, snapshot.head_yaw])
         .chain(snapshot.camera_orientation)
+        .chain(snapshot.interact_rotation)
         .chain(snapshot.vehicle.iter().flat_map(|vehicle| {
             vehicle
                 .position
@@ -279,7 +282,7 @@ pub fn player_auth_input_with_mining_request(
         input_mode: match snapshot.input_mode {
             PlayerInputMode::Mouse => InputMode::Mouse,
             PlayerInputMode::Touch => InputMode::Touch,
-            PlayerInputMode::GamePad => InputMode::Gamepad,
+            PlayerInputMode::GamePad => InputMode::GamePad,
         },
         play_mode: ClientPlayMode::Normal,
         // 1.26.40 agrees with gophertunnel here, which writes the interaction
@@ -288,7 +291,7 @@ pub fn player_auth_input_with_mining_request(
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
         new_interaction_model: NewInteractionModel::Crosshair,
-        interact_rotation: [snapshot.pitch, snapshot.yaw].into(),
+        interact_rotation: snapshot.interact_rotation.into(),
         client_tick: PlayerInputTick(tick),
         pos_delta: snapshot
             .vehicle
@@ -319,79 +322,79 @@ type InputFlagItem = InputData;
 const INPUT_FLAG_ITEMS: [(InputFlagItem, &str); 66] = [
     (Item::Ascend, "Ascend"),
     (Item::Descend, "Descend"),
-    (Item::Northjump, "NorthJump"),
-    (Item::Jumpdown, "JumpDown"),
-    (Item::Sprintdown, "SprintDown"),
-    (Item::Changeheight, "ChangeHeight"),
+    (Item::NorthJump, "NorthJump"),
+    (Item::JumpDown, "JumpDown"),
+    (Item::SprintDown, "SprintDown"),
+    (Item::ChangeHeight, "ChangeHeight"),
     (Item::Jumping, "Jumping"),
-    (Item::Autojumpinginwater, "AutoJumpingInWater"),
+    (Item::AutoJumpingInWater, "AutoJumpingInWater"),
     (Item::Sneaking, "Sneaking"),
-    (Item::Sneakdown, "SneakDown"),
+    (Item::SneakDown, "SneakDown"),
     (Item::Up, "Up"),
     (Item::Down, "Down"),
     (Item::Left, "Left"),
     (Item::Right, "Right"),
-    (Item::Upleft, "UpLeft"),
-    (Item::Upright, "UpRight"),
-    (Item::Wantup, "WantUp"),
-    (Item::Wantdown, "WantDown"),
-    (Item::Wantdownslow, "WantDownSlow"),
-    (Item::Wantupslow, "WantUpSlow"),
+    (Item::UpLeft, "UpLeft"),
+    (Item::UpRight, "UpRight"),
+    (Item::WantUp, "WantUp"),
+    (Item::WantDown, "WantDown"),
+    (Item::WantDownSlow, "WantDownSlow"),
+    (Item::WantUpSlow, "WantUpSlow"),
     (Item::Sprinting, "Sprinting"),
-    (Item::Ascendblock, "AscendBlock"),
-    (Item::Descendblock, "DescendBlock"),
-    (Item::Sneaktoggledown, "SneakToggleDown"),
-    (Item::Persistsneak, "PersistSneak"),
-    (Item::Startsprinting, "StartSprinting"),
-    (Item::Stopsprinting, "StopSprinting"),
-    (Item::Startsneaking, "StartSneaking"),
-    (Item::Stopsneaking, "StopSneaking"),
-    (Item::Startswimming, "StartSwimming"),
-    (Item::Stopswimming, "StopSwimming"),
-    (Item::Startjumping, "StartJumping"),
-    (Item::Startgliding, "StartGliding"),
-    (Item::Stopgliding, "StopGliding"),
-    (Item::Performiteminteraction, "PerformItemInteraction"),
-    (Item::Performblockactions, "PerformBlockActions"),
-    (Item::Performitemstackrequest, "PerformItemStackRequest"),
-    (Item::Handledteleport, "HandledTeleport"),
+    (Item::AscendBlock, "AscendBlock"),
+    (Item::DescendBlock, "DescendBlock"),
+    (Item::SneakToggleDown, "SneakToggleDown"),
+    (Item::PersistSneak, "PersistSneak"),
+    (Item::StartSprinting, "StartSprinting"),
+    (Item::StopSprinting, "StopSprinting"),
+    (Item::StartSneaking, "StartSneaking"),
+    (Item::StopSneaking, "StopSneaking"),
+    (Item::StartSwimming, "StartSwimming"),
+    (Item::StopSwimming, "StopSwimming"),
+    (Item::StartJumping, "StartJumping"),
+    (Item::StartGliding, "StartGliding"),
+    (Item::StopGliding, "StopGliding"),
+    (Item::PerformItemInteraction, "PerformItemInteraction"),
+    (Item::PerformBlockActions, "PerformBlockActions"),
+    (Item::PerformItemStackRequest, "PerformItemStackRequest"),
+    (Item::HandledTeleport, "HandledTeleport"),
     (Item::Emoting, "Emoting"),
-    (Item::Missedswing, "MissedSwing"),
-    (Item::Startcrawling, "StartCrawling"),
-    (Item::Stopcrawling, "StopCrawling"),
-    (Item::Startflying, "StartFlying"),
-    (Item::Stopflying, "StopFlying"),
-    (Item::Clientackserverdata, "ClientAckServerData"),
+    (Item::MissedSwing, "MissedSwing"),
+    (Item::StartCrawling, "StartCrawling"),
+    (Item::StopCrawling, "StopCrawling"),
+    (Item::StartFlying, "StartFlying"),
+    (Item::StopFlying, "StopFlying"),
+    (Item::ClientAckServerData, "ClientAckServerData"),
     (
-        Item::Isinclientpredictedvehicle,
+        Item::IsInClientPredictedVehicle,
         "IsInClientPredictedVehicle",
     ),
-    (Item::Paddlingleft, "PaddlingLeft"),
-    (Item::Paddlingright, "PaddlingRight"),
-    (Item::Blockbreakingdelayenabled, "BlockBreakingDelayEnabled"),
-    (Item::Horizontalcollision, "HorizontalCollision"),
-    (Item::Verticalcollision, "VerticalCollision"),
-    (Item::Downleft, "DownLeft"),
-    (Item::Downright, "DownRight"),
-    (Item::Startusingitem, "StartUsingItem"),
+    (Item::PaddlingLeft, "PaddlingLeft"),
+    (Item::PaddlingRight, "PaddlingRight"),
+    (Item::BlockBreakingDelayEnabled, "BlockBreakingDelayEnabled"),
+    (Item::HorizontalCollision, "HorizontalCollision"),
+    (Item::VerticalCollision, "VerticalCollision"),
+    (Item::DownLeft, "DownLeft"),
+    (Item::DownRight, "DownRight"),
+    (Item::StartUsingItem, "StartUsingItem"),
     (
-        Item::Iscamerarelativemovementenabled,
+        Item::IsCameraRelativeMovementEnabled,
         "IsCameraRelativeMovementEnabled",
     ),
     (
-        Item::Isrotcontrolledbymovedirection,
+        Item::IsRotControlledByMoveDirection,
         "IsRotControlledByMoveDirection",
     ),
-    (Item::Startspinattack, "StartSpinAttack"),
-    (Item::Stopspinattack, "StopSpinAttack"),
-    (Item::Ishotbaronlytouch, "IsHotbarOnlyTouch"),
-    (Item::Jumpreleasedraw, "JumpReleasedRaw"),
-    (Item::Jumppressedraw, "JumpPressedRaw"),
-    (Item::Jumpcurrentraw, "JumpCurrentRaw"),
-    (Item::Sneakreleasedraw, "SneakReleasedRaw"),
-    (Item::Sneakpressedraw, "SneakPressedRaw"),
-    (Item::Sneakcurrentraw, "SneakCurrentRaw"),
-    (Item::Internalupdate, "InternalUpdate"),
+    (Item::StartSpinAttack, "StartSpinAttack"),
+    (Item::StopSpinAttack, "StopSpinAttack"),
+    (Item::IsHotbarOnlyTouch, "IsHotbarOnlyTouch"),
+    (Item::JumpReleasedRaw, "JumpReleasedRaw"),
+    (Item::JumpPressedRaw, "JumpPressedRaw"),
+    (Item::JumpCurrentRaw, "JumpCurrentRaw"),
+    (Item::SneakReleasedRaw, "SneakReleasedRaw"),
+    (Item::SneakPressedRaw, "SneakPressedRaw"),
+    (Item::SneakCurrentRaw, "SneakCurrentRaw"),
+    (Item::InternalUpdate, "InternalUpdate"),
 ];
 
 /// Expands the bitset the app owns into the current wire flag list.
@@ -464,7 +467,7 @@ mod locomotion_flag_tests {
     fn sneak_current_raw_encodes_past_the_first_word() {
         assert_eq!(
             input_data_items(PlayerInputFlags::SNEAK_CURRENT_RAW),
-            [Item::Sneakcurrentraw]
+            [Item::SneakCurrentRaw]
         );
     }
 }

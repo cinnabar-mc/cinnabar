@@ -54,7 +54,10 @@ pub(crate) fn drive_sign_editor(
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     // A data-driven form owns the keys: an editor opened under it waits, and a sign edit
     // requested meanwhile opens once the form closes.
-    if runtime.credits().owns_input() || runtime.data_driven_ui().owns_input() {
+    if runtime.resource_pack_loading()
+        || runtime.credits().owns_input()
+        || runtime.data_driven_ui().owns_input()
+    {
         keyboard.clear();
         *owned_last_frame = false;
         return;
@@ -108,7 +111,13 @@ pub(crate) fn drive_sign_editor(
     let mut finish = runtime.sign_editor_mut().take_finish_request();
     let mut explicit_finish = false;
     if input_available {
-        if mouse.just_pressed(MouseButton::Back) {
+        // The editor takes every typed key, so only a mouse Menu Cancel finishes it here.
+        if client_shell::menu::settings_options::control_bindings::menu_cancel_mouse(
+            menu.as_deref(),
+            &mouse,
+        )
+        .is_some()
+        {
             finish = true;
             explicit_finish = true;
         }

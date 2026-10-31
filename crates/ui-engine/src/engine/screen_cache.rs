@@ -63,17 +63,23 @@ struct Resolved {
     reference: String,
     catalog: Arc<Catalog>,
     context: Context,
-    root: Arc<ResolvedControl>,
-    /// The screen asks to stay cached once closed (`cache_screen`).
-    cached: bool,
+    /// Policy queries leave descendants unresolved until the screen is actually drawn.
+    root: Option<Arc<ResolvedControl>>,
+    settings: json_ui::ScreenSettings,
 }
 
 /// Makes room for one more tree: the oldest whose screen does not ask to stay
 /// cached leaves first, as vanilla retains `cache_screen` visual trees.
 fn make_room(entries: &mut Vec<Resolved>) {
-    let uncached = entries.iter().filter(|entry| !entry.cached).count();
+    let uncached = entries
+        .iter()
+        .filter(|entry| !entry.settings.cache_screen)
+        .count();
     if uncached >= SLOTS || entries.len() >= SLOTS + CACHED_SLOTS {
-        let index = entries.iter().position(|entry| !entry.cached).unwrap_or(0);
+        let index = entries
+            .iter()
+            .position(|entry| !entry.settings.cache_screen)
+            .unwrap_or(0);
         entries.remove(index);
     }
 }
@@ -205,6 +211,36 @@ impl ScreenCache {
         bind(&mut bindings[index].state)
     }
 
+    /// Reads only root policy once per catalog and context, retaining it with the screen's cache.
+    pub fn settings(
+        &self,
+        reference: &str,
+        catalog: &Arc<Catalog>,
+        context: &Context,
+    ) -> json_ui::ScreenSettings {
+        let same = |entry: &Resolved| {
+            entry.reference == reference
+                && Arc::ptr_eq(&entry.catalog, catalog)
+                && entry.context == *context
+        };
+        if let Some(entry) = lock(&self.resolved).iter().find(|entry| same(entry)) {
+            return entry.settings;
+        }
+        let settings = json_ui::root_settings(reference, catalog, context).unwrap_or_default();
+        let mut entries = lock(&self.resolved);
+        if !entries.iter().any(same) {
+            make_room(&mut entries);
+            entries.push(Resolved {
+                reference: reference.to_owned(),
+                catalog: Arc::clone(catalog),
+                context: context.clone(),
+                root: None,
+                settings,
+            });
+        }
+        settings
+    }
+
     /// The resolved tree of `reference` under `context`, else `resolve()`'s.
     pub fn resolved(
         &self,
@@ -218,19 +254,27 @@ impl ScreenCache {
                 && Arc::ptr_eq(&entry.catalog, catalog)
                 && entry.context == *context
         };
-        if let Some(entry) = lock(&self.resolved).iter().find(|entry| same(entry)) {
-            return Some(Arc::clone(&entry.root));
+        if let Some(root) = lock(&self.resolved)
+            .iter()
+            .find(|entry| same(entry))
+            .and_then(|entry| entry.root.clone())
+        {
+            return Some(root);
         }
         let root = Arc::new(resolve()?);
+        let settings = json_ui::ScreenSettings::from_properties(&root.properties);
         let mut entries = lock(&self.resolved);
-        if !entries.iter().any(same) {
+        if let Some(entry) = entries.iter_mut().find(|entry| same(entry)) {
+            entry.root = Some(Arc::clone(&root));
+            entry.settings = settings;
+        } else {
             make_room(&mut entries);
             entries.push(Resolved {
                 reference: reference.to_owned(),
                 catalog: Arc::clone(catalog),
                 context: context.clone(),
-                cached: json_ui::ScreenSettings::from_properties(&root.properties).cache_screen,
-                root: Arc::clone(&root),
+                settings,
+                root: Some(Arc::clone(&root)),
             });
         }
         Some(root)

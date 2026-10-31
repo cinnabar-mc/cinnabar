@@ -64,6 +64,8 @@ impl Default for PreviewEquipment {
 /// Identity and authoritative item state used to select each hand's native model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewHandItem {
+    /// Banner decoration retained from the selected shield stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Registry facts when a live stack is available; standalone previews use their compiled model.
     pub grip: Option<assets::item::grip::ItemGrip>,
     /// Live stack shine; absent context retains the compiled model choice.
@@ -195,7 +197,7 @@ fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
 }
 
 /// The triangles of armor slot `slot`, with normalized model UVs, in blocks.
-pub(super) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
+pub(in crate::ui_runtime::presentation) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
     let mut vertices = Vec::new();
     for armor in slot_boxes(slot) {
         let px = 1.0 / 16.0;

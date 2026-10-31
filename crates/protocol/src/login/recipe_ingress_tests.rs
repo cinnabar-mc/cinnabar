@@ -14,8 +14,8 @@ fn empty_clear_recipe_packet_is_published_without_generic_materialization() {
 
 #[test]
 fn recipe_unlocks_reach_the_world_inventory_consumer() {
-    let packet = crate::Packet::new(bedrock_protocol_1_26_51::packets::UnlockedRecipes {
-        packet_type: bedrock_protocol_1_26_51::enums::PacketType::Initiallyunlockedrecipes,
+    let packet = crate::Packet::new(bedrock_protocol_1_26_60::packets::UnlockedRecipes {
+        packet_type: bedrock_protocol_1_26_60::enums::PacketType::InitiallyUnlockedRecipes,
         unlocked_recipes_list: vec!["test:recipe".into()],
     });
     let mut bytes = crate::encode(&packet).unwrap();
@@ -33,7 +33,7 @@ fn recipe_unlocks_reach_the_world_inventory_consumer() {
 
 #[test]
 fn recipe_unlocks_are_allowlisted_and_both_normalizers_agree() {
-    use bedrock_protocol_1_26_51::packets::{PacketId, UnlockedRecipes};
+    use bedrock_protocol_1_26_60::packets::{PacketId, UnlockedRecipes};
     assert!(crate::world::routes_world_packet(PacketId::UnlockedRecipes));
     let packet = crate::Packet::new(UnlockedRecipes {
         packet_type: u32::MAX.into(),

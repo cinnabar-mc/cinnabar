@@ -353,6 +353,7 @@ fn faded(visual: &UiVisual, opacity: f32, meshes: &mut BTreeMap<usize, Arc<UiMes
         UiVisual::TintedMesh { color, .. }
         | UiVisual::Solid { color, .. }
         | UiVisual::Sprite { color, .. }
+        | UiVisual::RgbCoverageSprite { color, .. }
         | UiVisual::ColorMaskSprite { color, .. }
         | UiVisual::RotatedSprite { color, .. }
         | UiVisual::GlintSprite { color, .. }

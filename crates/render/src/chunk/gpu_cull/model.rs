@@ -158,6 +158,16 @@ pub const fn group_count(slots: u32, workgroup: u32) -> u32 {
     slots.div_ceil(workgroup)
 }
 
+/// Word of the enabled-bits buffer where the slot draw order begins, after `capacity` slot bits.
+pub const fn order_base(capacity: u32) -> u32 {
+    capacity.div_ceil(32)
+}
+
+/// Words of the enabled-bits buffer: one bit per slot, then the slot visited at each rank.
+pub const fn enabled_words(capacity: u32) -> u64 {
+    order_base(capacity) as u64 + capacity as u64
+}
+
 /// One resident sub-chunk's opaque draws, indexed by its arena metadata slot.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Pod, Zeroable)]
@@ -398,6 +408,8 @@ pub struct CullViewUniform {
     pub index_counts: [u32; 4],
     /// Per-stream [`region_draws`]; the kernels drop commands and clamp counts past it.
     pub region_draws: [u32; 4],
+    /// [`order_base`] of the slot draw order the count and emit kernels visit.
+    pub order: [u32; 4],
 }
 
 impl CullViewUniform {
@@ -441,6 +453,7 @@ impl CullViewUniform {
             regions: CullStream::ALL.map(|stream| args_region(capacity, phase, stream)),
             index_counts: input.index_counts,
             region_draws: CullStream::ALL.map(|stream| region_draws(capacity, stream)),
+            order: [order_base(capacity), 0, 0, 0],
         }
     }
 }
@@ -456,16 +469,18 @@ pub fn frustum_slack(plane: [f32; 4], center: [f32; 3]) -> f32 {
     FRUSTUM_RELATIVE_SLACK * (plane[3].abs() + spread) + FRUSTUM_ABSOLUTE_SLACK
 }
 
-/// Compacted draws for `visible` slots in slot order, as the emit kernel's commands perform them
-/// once resolved through [`resolve_culled_args`].
+/// Compacted draws for `visible` slots in draw `order`, as the emit kernel's commands perform
+/// them once resolved through [`resolve_culled_args`].
 pub fn reference_args(
     records: &[CullRecord],
+    order: &[u32],
     camera: CullCamera,
     index_counts: [u32; STREAM_COUNT],
     visible: impl Fn(usize) -> bool,
 ) -> [Vec<[u32; ARGS_WORDS as usize]>; STREAM_COUNT] {
     let mut args: [Vec<[u32; 5]>; STREAM_COUNT] = Default::default();
-    for (slot, record) in records.iter().enumerate() {
+    for slot in order.iter().map(|&slot| slot as usize) {
+        let record = &records[slot];
         if !record.is_live() || !visible(slot) {
             continue;
         }

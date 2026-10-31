@@ -78,6 +78,7 @@ pub(super) fn head_feed() -> client_world::LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
@@ -353,6 +354,7 @@ fn retained_item_does_not_use_the_selected_items_clock() {
 fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
     let item = |identifier: &str| WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -386,6 +388,7 @@ fn native_and_modern_items_stay_retained_until_equip_adopts_them() {
 fn outgoing_main_use_is_idle_while_offhand_keeps_the_actual_owner_use() {
     let item = |identifier: &str| WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -464,6 +467,7 @@ fn mixed_native_map_swaps_publish_the_outgoing_mesh_until_adoption() {
     );
     let item = |identifier: &str| WornItem {
         map_id: (identifier == FILLED_MAP).then_some(266),
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),
@@ -628,6 +632,7 @@ fn worn(identifier: &str) -> WornItem {
     WornItem {
         variant: Default::default(),
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(identifier),

@@ -48,7 +48,7 @@ fn basic_parameter_shapes_follow_the_pinned_wire_ids() {
 fn permission_names_resolve_through_generated_levels() {
     for (name, expected) in [
         ("any", CommandPermissionLevel::Any),
-        ("gamedirectors", CommandPermissionLevel::Gamedirectors),
+        ("gamedirectors", CommandPermissionLevel::GameDirectors),
         ("admin", CommandPermissionLevel::Admin),
         ("host", CommandPermissionLevel::Host),
         ("owner", CommandPermissionLevel::Owner),

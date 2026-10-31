@@ -27,14 +27,13 @@ fn engine() -> FormEngine {
 
 /// Paints one editor frame through the same path used by the client.
 fn paint(
-    ui: &mut ModUi,
+    ui: &mut HudEditor,
     engine: &FormEngine,
     font: &assets::RuntimeFontCatalog,
     layouts: &mut ui::TextLayoutCache,
     now: f64,
 ) {
-    let icons = ui.mod_hud_editor_icons(|_, _| None).unwrap();
-    ui.paint_mod_hud_editor(
+    ui.paint(
         Some(engine),
         &mut PaintFrame {
             layouts,
@@ -54,104 +53,20 @@ fn paint(
             next: &mut 1,
             renderers: &mut [],
         },
-        &icons,
+        true,
     );
-    assert!(ui.mod_hud_editor_open());
-}
-
-#[test]
-fn amendment_hidden_artwork_and_steady_frames_retain_catalog_bindings_and_text() {
-    let engine = engine();
-    let font = ui_engine::test_support::fixture_font();
-    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
-    let mut hud = Hud {
-        inspector_size: Some([180., 120.]),
-        cards: vec![ui::mod_hud::Card {
-            id: "disabled".into(),
-            title: "Hidden module".into(),
-            visible: false,
-            ..Default::default()
-        }],
-        ..Default::default()
-    };
-    ui.open_mod_hud_editor(&hud).unwrap();
-    ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
-    paint(&mut ui, &engine, &font, &mut layouts, 1.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    assert!(
-        !editor.screen.nodes().iter().any(|node| matches!(&node.draw,
-        json_ui::Draw::Text { text, .. } if text == "Hidden module"))
-    );
-    let catalog = Arc::clone(editor.catalog.as_ref().unwrap());
-    let data = Arc::clone(&editor.data);
-    let passes = editor.screen.passes;
-    let shaped = layouts.built_layout_count();
-    paint(&mut ui, &engine, &font, &mut layouts, 2.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    assert!(Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
-    assert!(Arc::ptr_eq(&data, &editor.data));
-    assert_eq!(editor.screen.passes, passes);
-    assert_eq!(layouts.built_layout_count(), shaped);
-    for action in ["hud.grid", "hud.snap", "hud.visibility:0"] {
-        ui.mod_hud_editor.as_mut().unwrap().action(action, &mut []);
-        paint(&mut ui, &engine, &font, &mut layouts, 3.);
-        assert!(Arc::ptr_eq(
-            &catalog,
-            ui.mod_hud_editor
-                .as_ref()
-                .unwrap()
-                .catalog
-                .as_ref()
-                .unwrap()
-        ));
-    }
-    assert!(
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .screen
-            .nodes()
-            .iter()
-            .any(|node| matches!(&node.draw,
-        json_ui::Draw::Text { text, .. } if text == "Hidden module"))
-    );
-    hud.inspector_size = Some([220., 160.]);
-    ui.update_mod_hud_editor(&hud).unwrap();
-    paint(&mut ui, &engine, &font, &mut layouts, 4.);
-    assert!(Arc::ptr_eq(
-        &catalog,
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .catalog
-            .as_ref()
-            .unwrap()
-    ));
+    assert!(ui.is_open());
 }
 
 /// A short distance must not let its wider annotation cover the selected widget or nearby keys.
 #[test]
 fn measurement_captions_keep_selected_and_neighboring_artwork_clear() {
-    let mut ui = ModUi::default();
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
     let hud: Hud = serde_json::from_value(serde_json::json!({"cards":[
         {"id":"fps","anchor":"top_left","offset":[12,37],"width":56,"row_height":18,"rows":[{"label":"FPS","value":"144"}]},
         {"id":"keys","anchor":"top_left","offset":[0,60],"width":70,"row_height":26,"rows":[{"label":"W","value":""},{"label":"A S D","value":""},{"label":"SPACE","value":""}]}
     ]})).unwrap();
-    ui.open_mod_hud_editor(&hud).unwrap();
-    let editor = ui.mod_hud_editor.as_mut().unwrap();
+    let mut ui = HudEditor::new(&hud).unwrap();
+    let editor = &mut ui;
     editor.viewport = [400., 240.];
     editor.selected = Some(0);
     let data = editor.data();
@@ -182,203 +97,15 @@ fn measurement_captions_keep_selected_and_neighboring_artwork_clear() {
     }
 }
 
-/// Authored editor typography stays centered inside the distance pill rather than filling its band.
-#[test]
-fn compact_editor_typography_centers_measurements_in_their_backgrounds() {
-    let mut ui = ModUi::default();
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
-    let hud: Hud = serde_json::from_str(r#"{"editor_style":{"font":"sans","text_scale":0.5,"measurement":[0.1,0.2,0.3,1]},"cards":[{"id":"fps","width":56,"offset":[37,41],"rows":[{"label":"FPS","value":"144"}]}]}"#).unwrap();
-    ui.open_mod_hud_editor(&hud).unwrap();
-    ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
-    let engine = engine();
-    let font = ui_engine::test_support::fixture_font();
-    let font = font
-        .with_named_font(ui::mod_panel::SANS_FONT_NAME, &font)
-        .unwrap();
-    paint(
-        &mut ui,
-        &engine,
-        &font,
-        &mut ui::TextLayoutCache::new(64, 1 << 24),
-        1.,
-    );
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    let mut labels = 0;
-    for node in editor.screen.nodes() {
-        if let json_ui::Draw::Text {
-            text,
-            scale,
-            options,
-            ..
-        } = &node.draw
-            && node.key.contains("measurement_")
-            && node.key.contains("label")
-            && !text.is_empty()
-        {
-            labels += 1;
-            assert_eq!(*scale, MEASUREMENT_FONT_SCALE as f32);
-            assert_eq!(
-                options.font_type.as_deref(),
-                Some(ui::mod_panel::SANS_FONT_NAME)
-            );
-            assert!(node.dest.h < MEASUREMENT_PILL_HEIGHT);
-            assert!(
-                node.dest.y >= node.clip.y
-                    && node.dest.y + node.dest.h <= node.clip.y + node.clip.h
-            );
-        }
-    }
-    assert_eq!(labels, 2);
-}
-
-/// Native selection chrome reserves its full measured caption before placing the inspector and guides.
-#[test]
-fn measured_selection_caption_stays_compact_and_clear_of_the_inspector() {
-    let engine = engine();
-    let font = ui_engine::test_support::fixture_font();
-    let font = font
-        .with_named_font(ui::mod_panel::SANS_FONT_NAME, &font)
-        .unwrap();
-    for width in [56., 130., 400.] {
-        for scale in [0.25, 1.] {
-            let hud: Hud = serde_json::from_value(serde_json::json!({
-                "editor_style":{"selection_caption":true,"font":"sans","text_scale":0.5,"top_clearance":44},
-                "inspector_size":[104,204],
-                "cards":[{"id":"fps","editor_label":"FPS","width":width,"scale":scale,"offset":[12,37],"rows":[{"label":"","value":"144 FPS"}]}]
-            })).unwrap();
-            let mut ui = ModUi::default();
-            ui.set_mod_panel(
-                crate::PanelUiOwner::Environment(0),
-                Some(&crate::test_support::sample_panel()),
-            )
-            .unwrap();
-            ui.set_mod_panel_open(true);
-            ui.open_mod_hud_editor(&hud).unwrap();
-            ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
-            paint(
-                &mut ui,
-                &engine,
-                &font,
-                &mut ui::TextLayoutCache::new(64, 1 << 24),
-                1.,
-            );
-            let editor = ui.mod_hud_editor.as_ref().unwrap();
-            let caption = editor.caption_bounds.unwrap();
-            assert_eq!(
-                caption[2], 64.,
-                "caption followed widget width {width} at scale {scale}"
-            );
-            let inspector = [editor.inspector.at[0], editor.inspector.at[1], 104., 204.];
-            let overlaps = |a: [f64; 4], b: [f64; 4]| {
-                a[0] < b[0] + b[2] && a[0] + a[2] > b[0] && a[1] < b[1] + b[3] && a[1] + a[3] > b[1]
-            };
-            assert!(
-                !overlaps(caption, inspector),
-                "inspector covers the caption"
-            );
-            assert!(editor.screen.nodes().iter().any(|node| node.key.contains("selection_caption") && matches!(&node.draw,json_ui::Draw::Custom { data,.. } if data.get("radius").and_then(serde_json::Value::as_f64)==Some(3.5)) && node.dest.w == 64.));
-            for axis in 0..2 {
-                if editor
-                    .data
-                    .global_value(&format!("#measurement_{axis}_visible"))
-                    != Some(&Scalar::Bool(true))
-                {
-                    continue;
-                }
-                let Scalar::Json(value) = editor
-                    .data
-                    .global_value(&format!("#measurement_{axis}_pill"))
-                    .unwrap()
-                else {
-                    panic!("caption position")
-                };
-                let point: [f64; 2] = serde_json::from_value(value.clone()).unwrap();
-                let Some(Scalar::Num(width)) = editor
-                    .data
-                    .global_value(&format!("#measurement_{axis}_pill_width"))
-                else {
-                    panic!("pill width")
-                };
-                let pill = [point[0], point[1], *width, MEASUREMENT_PILL_HEIGHT];
-                assert!(!overlaps(pill, caption) && !overlaps(pill, inspector));
-                assert!(pill[1] >= 44., "measurement overlaps the authored toolbar");
-            }
-        }
-    }
-}
-
-#[test]
-fn guest_slider_fill_follows_panel_values_without_rebuilding_or_churning_data() {
-    let engine = engine();
-    let font = ui_engine::test_support::fixture_font();
-    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
-    let mut panel = crate::test_support::sample_panel();
-    let index = panel
-        .controls
-        .iter()
-        .position(|c| matches!(c, ui::mod_panel::Control::Slider { .. }))
-        .unwrap();
-    let fill = format!("#row_{index}_fill");
-    ui.set_mod_panel(crate::PanelUiOwner::Environment(0), Some(&panel))
-        .unwrap();
-    ui.set_mod_panel_open(true);
-    ui.open_mod_hud_editor(&Hud::default()).unwrap();
-    paint(&mut ui, &engine, &font, &mut layouts, 1.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    assert_eq!(
-        editor.data.global_value(&fill),
-        Some(&Scalar::Num(f64::from(0.35_f32)))
-    );
-    let catalog = Arc::clone(editor.catalog.as_ref().unwrap());
-    let data = Arc::clone(&editor.data);
-    paint(&mut ui, &engine, &font, &mut layouts, 2.);
-    assert!(Arc::ptr_eq(
-        &data,
-        &ui.mod_hud_editor.as_ref().unwrap().data
-    ));
-    if let ui::mod_panel::Control::Slider { value, .. } = &mut panel.controls[index] {
-        *value = 80.;
-    }
-    // A same-shape guest republish keeps the editor open and only moves the fill.
-    ui.set_mod_panel(crate::PanelUiOwner::Environment(0), Some(&panel))
-        .unwrap();
-    assert!(ui.mod_hud_editor_open());
-    paint(&mut ui, &engine, &font, &mut layouts, 3.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    assert_eq!(
-        editor.data.global_value(&fill),
-        Some(&Scalar::Num(f64::from(0.8_f32)))
-    );
-    assert!(Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
-    let data = Arc::clone(&editor.data);
-    paint(&mut ui, &engine, &font, &mut layouts, 4.);
-    assert!(Arc::ptr_eq(
-        &data,
-        &ui.mod_hud_editor.as_ref().unwrap().data
-    ));
-}
-
 /// Opens an editor over `cards` and paints its first frame.
 fn painted(
-    ui: &mut ModUi,
+    ui: &mut HudEditor,
     engine: &FormEngine,
     font: &assets::RuntimeFontCatalog,
     layouts: &mut ui::TextLayoutCache,
     cards: Vec<ui::mod_hud::Card>,
 ) {
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
-    ui.open_mod_hud_editor(&Hud {
+    *ui = HudEditor::new(&Hud {
         cards,
         ..Default::default()
     })
@@ -443,21 +170,21 @@ fn distance_pill_label_paints_inside_its_background() {
     let engine = engine();
     let font = ui_engine::test_support::fixture_font();
     let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
+    let mut ui = HudEditor::new(&Hud::default()).unwrap();
     let card = ui::mod_hud::Card {
         id: "fps".into(),
         position: Some([0.5, 0.]),
         ..Default::default()
     };
     painted(&mut ui, &engine, &font, &mut layouts, vec![card]);
-    ui.mod_hud_editor.as_mut().unwrap().selected = Some(0);
-    ui.mod_hud_editor.as_mut().unwrap().data_dirty = true;
+    ui.selected = Some(0);
+    ui.data_dirty = true;
     paint(&mut ui, &engine, &font, &mut layouts, 2.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
+    let editor = &ui;
     let Some(Scalar::Text(label)) = editor.data.global_value("#measurement_0_label") else {
         panic!("label")
     };
-    let measurement = ui::mod_hud::EditorStyle::default()
+    let measurement = EditorStyle::default()
         .measurement
         .map(|v| (v * 255.).round() as u8);
     let nodes = editor.screen.nodes();
@@ -517,7 +244,7 @@ fn card_outlines_follow_hover_and_selection_without_rebuilding() {
     let engine = engine();
     let font = ui_engine::test_support::fixture_font();
     let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
+    let mut ui = HudEditor::new(&Hud::default()).unwrap();
     let cards = vec![
         ui::mod_hud::Card {
             id: "a".into(),
@@ -532,11 +259,8 @@ fn card_outlines_follow_hover_and_selection_without_rebuilding() {
         },
     ];
     painted(&mut ui, &engine, &font, &mut layouts, cards);
-    let style = ui::mod_hud::EditorStyle::default();
-    let color = |ui: &ModUi, index: usize| match ui
-        .mod_hud_editor
-        .as_ref()
-        .unwrap()
+    let style = EditorStyle::default();
+    let color = |ui: &HudEditor, index: usize| match ui
         .data
         .global_value(&format!("#bounds_{index}_color"))
     {
@@ -545,7 +269,7 @@ fn card_outlines_follow_hover_and_selection_without_rebuilding() {
     };
     assert_eq!(color(&ui, 0), [0.; 4]);
     assert_eq!(color(&ui, 1), [0.; 4]);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
+    let editor = &ui;
     assert!(
         editor.screen.nodes().iter().any(|node| matches!(&node.draw,
             json_ui::Draw::Custom { data, .. } if data.get("radius").and_then(serde_json::Value::as_f64) == Some(8.))),
@@ -562,139 +286,70 @@ fn card_outlines_follow_hover_and_selection_without_rebuilding() {
         (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale + frame.origin[0],
         (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
     ];
-    ui.mod_hud_editor
-        .as_mut()
-        .unwrap()
-        .pointer(at, false, false, &mut []);
+    ui.pointer(at, false, false, &mut []);
     paint(&mut ui, &engine, &font, &mut layouts, 2.);
     assert_eq!(color(&ui, 0), style.outline);
     assert_eq!(color(&ui, 1), [0.; 4]);
-    let editor = ui.mod_hud_editor.as_mut().unwrap();
+    let editor = &mut ui;
     assert!(Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
     editor.selected = Some(1);
     editor.data_dirty = true;
     paint(&mut ui, &engine, &font, &mut layouts, 3.);
     assert_eq!(color(&ui, 1), style.selected);
-    assert!(Arc::ptr_eq(
-        &catalog,
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .catalog
-            .as_ref()
-            .unwrap()
-    ));
+    assert!(Arc::ptr_eq(&catalog, ui.catalog.as_ref().unwrap()));
 }
 
-/// A hovered text plate keeps its outline through live remeasurement and template rebuilds.
+/// Fixed touch previews keep measured bounds, cached chrome and one-shot save results.
 #[test]
-fn hovered_outline_survives_text_plate_remeasurement_and_rebuilds() {
+fn fixed_touch_preview_retains_geometry_and_chrome_without_a_personal_panel() {
     let engine = engine();
     let font = ui_engine::test_support::fixture_font();
     let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
-    let mut hud: Hud = serde_json::from_value(serde_json::json!({"cards":[{"id":"fps",
-        "position":[0.5,0.5],"rows":[{"label":"","value":"1"}],"text_plate":{}}]}))
-    .unwrap();
-    painted(&mut ui, &engine, &font, &mut layouts, hud.cards.clone());
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    let frame = editor.frame.as_ref().unwrap();
-    let hit = frame
-        .hits
-        .iter()
-        .find(|hit| hit.pressed.as_deref() == Some("hud.card:0"))
-        .unwrap();
-    let at = [
-        (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale + frame.origin[0],
-        (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
-    ];
-    ui.mod_hud_editor
-        .as_mut()
-        .unwrap()
-        .pointer(at, false, false, &mut []);
-    paint(&mut ui, &engine, &font, &mut layouts, 2.);
-    let outline = || {
-        ui::mod_hud::EditorStyle::default()
-            .outline
-            .map(|v| serde_json::json!(v))
-    };
-    let bound = |ui: &ModUi| {
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .data
-            .global_value("#bounds_0_color")
-            .cloned()
-    };
-    assert_eq!(bound(&ui), Some(Scalar::Json(serde_json::json!(outline()))));
-    hud.cards[0].rows[0].value = "123456".into();
-    ui.update_mod_hud_editor(&hud).unwrap();
-    paint(&mut ui, &engine, &font, &mut layouts, 3.);
-    assert_eq!(bound(&ui), Some(Scalar::Json(serde_json::json!(outline()))));
-    let catalog = Arc::clone(
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .catalog
-            .as_ref()
-            .unwrap(),
-    );
-    hud.cards[0].text_plate.as_mut().unwrap().style.radius = 4.;
-    ui.update_mod_hud_editor(&hud).unwrap();
-    paint(&mut ui, &engine, &font, &mut layouts, 4.);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    assert!(!Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
-    assert_eq!(bound(&ui), Some(Scalar::Json(serde_json::json!(outline()))));
-}
-
-/// A card replaced under a still pointer is outlined on the next pointer event over the same key.
-#[test]
-fn hovered_outline_follows_a_card_replaced_under_the_pointer() {
-    let engine = engine();
-    let font = ui_engine::test_support::fixture_font();
-    let mut layouts = ui::TextLayoutCache::new(64, 1 << 24);
-    let mut ui = ModUi::default();
-    let card = |id: &str| ui::mod_hud::Card {
-        id: id.into(),
-        position: Some([0.5, 0.5]),
-        ..Default::default()
-    };
-    painted(&mut ui, &engine, &font, &mut layouts, vec![card("a")]);
-    let editor = ui.mod_hud_editor.as_ref().unwrap();
-    let frame = editor.frame.as_ref().unwrap();
-    let hit = frame
-        .hits
-        .iter()
-        .find(|hit| hit.pressed.as_deref() == Some("hud.card:0"))
-        .unwrap();
-    let at = [
-        (hit.rect.x + hit.rect.w * 0.5) as f32 * frame.scale + frame.origin[0],
-        (hit.rect.y + hit.rect.h * 0.5) as f32 * frame.scale + frame.origin[1],
-    ];
-    let hover = |ui: &mut ModUi| {
-        ui.mod_hud_editor
-            .as_mut()
-            .unwrap()
-            .pointer(at, false, false, &mut [])
-    };
-    hover(&mut ui);
-    paint(&mut ui, &engine, &font, &mut layouts, 2.);
-    ui.update_mod_hud_editor(&Hud {
-        cards: vec![card("b")],
+    let mut editor = HudEditor::new(&Hud {
+        cards: vec![ui::mod_hud::Card {
+            id: "jump".into(),
+            editor_label: "Jump".into(),
+            editor_size: Some([76., 52.]),
+            anchor: ui::mod_hud::Anchor::BottomRight,
+            offset: [12., 20.],
+            width: 1.,
+            cells: vec![ui::mod_hud::Cell::default()],
+            ..Default::default()
+        }],
         ..Default::default()
     })
     .unwrap();
-    paint(&mut ui, &engine, &font, &mut layouts, 3.);
-    hover(&mut ui);
-    paint(&mut ui, &engine, &font, &mut layouts, 4.);
+    paint(&mut editor, &engine, &font, &mut layouts, 1.);
+    let bounds = editor.rectangles().next().unwrap().1;
+    assert_eq!([bounds[2], bounds[3]], [76., 52.]);
+    for action in [
+        "hud.save",
+        "hud.cancel",
+        "hud.undo",
+        "hud.redo",
+        "hud.reset",
+        "hud.grid",
+        "hud.snap",
+    ] {
+        assert!(editor.action_bounds(action).is_some(), "missing {action}");
+    }
+    let catalog = Arc::clone(editor.catalog.as_ref().unwrap());
+    let passes = editor.screen.passes;
+    let shaped = layouts.built_layout_count();
+    paint(&mut editor, &engine, &font, &mut layouts, 2.);
+    assert!(Arc::ptr_eq(&catalog, editor.catalog.as_ref().unwrap()));
+    assert_eq!(editor.screen.passes, passes);
+    assert_eq!(layouts.built_layout_count(), shaped);
+    assert_eq!(editor.rectangles().next().unwrap().1, bounds);
+    editor.host_key("Enter", Default::default());
+    let result = editor.take_result().unwrap();
+    assert!(result.saved);
+    result.validate().unwrap();
     assert_eq!(
-        ui.mod_hud_editor
-            .as_ref()
-            .unwrap()
-            .data
-            .global_value("#bounds_0_color"),
-        Some(&Scalar::Json(serde_json::json!(
-            ui::mod_hud::EditorStyle::default().outline
-        )))
+        result.placements[0].anchor,
+        ui::mod_hud::Anchor::BottomRight
     );
+    assert_eq!(result.placements[0].offset, [12., 20.]);
+    assert_eq!(result.placements[0].position, None);
+    assert!(editor.take_result().is_none());
 }

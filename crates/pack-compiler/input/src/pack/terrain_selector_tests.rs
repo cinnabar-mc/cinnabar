@@ -9,7 +9,7 @@ use super::terrain::read_terrain;
 fn record(properties: &str) -> RegistryRecord {
     let protocol = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
         protocol,
     )
     .unwrap();
@@ -155,7 +155,7 @@ fn lightning_rod_model_arrays_keep_powered_selection_with_custom_keys() {
     let root = fixture();
     let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap();
@@ -189,7 +189,7 @@ fn lightning_rod_model_arrays_keep_powered_selection_with_custom_keys() {
 fn lightning_rod_model_arrays_reject_incompatible_ranges() {
     let root = fixture();
     let records = assets::read_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap();
@@ -213,7 +213,7 @@ fn lightning_rod_model_arrays_reject_incompatible_ranges() {
 /// Each registered state of `name` in the active registry.
 fn registered(name: &str) -> Vec<RegistryRecord> {
     assets::read_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap()
@@ -417,7 +417,7 @@ fn vanilla_multi_entry_arrays_are_selected_or_known_open() {
     let pack = super::read_pack(&root).unwrap();
     let mut unselected = std::collections::BTreeSet::new();
     for record in assets::read_registry_for_protocol(
-        include_bytes!("../../../../assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap()

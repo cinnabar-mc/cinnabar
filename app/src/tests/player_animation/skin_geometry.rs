@@ -211,7 +211,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
     .unwrap();
     let mut batch = actors::select_actor_presentations(1, false, None, [body]);
     let mut scene = ActorRenderScene::with_runtime_entity_assets(&entities).unwrap();
-    let mut layers = skin_layers::SkinLayerCache::default();
+    let mut layers = skin_layers::ActorLayerCache::default();
     let mut geometries = Vec::new();
     let artwork = layers
         .apply(
@@ -220,6 +220,7 @@ fn animated_skin_uses_its_own_rectangular_texture_geometry_and_uv_frame() {
             |id| world.authority().actor_rig(id),
             &mut skin_rig::SkinRigCache::default(),
             |geometry| geometries.push(geometry),
+            |_, _| None,
         )
         .unwrap();
     assert_eq!(artwork.pages()[0].dimensions(), (24, 512));

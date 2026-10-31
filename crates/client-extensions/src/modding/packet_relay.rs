@@ -178,7 +178,7 @@ impl PacketModLoader {
     }
 
     /// Replaces obsolete native input and consumes a recent result without waiting for WASI.
-    pub fn native_frame(&self, frame: Option<mod_api::native_frame::Frame>) -> Option<FrameOutput> {
+    pub fn native_frame(&self, frame: Option<mod_host::NativeFrame>) -> Option<FrameOutput> {
         self.inner
             .native_frame
             .try_lock()

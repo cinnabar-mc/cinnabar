@@ -278,12 +278,12 @@ fn item_carrier_fixture() -> CompiledEntityAssetsV4 {
     .with_unresolved_interactions()
 }
 
-const DEFAULT_BINDINGS: &[u8] = include_bytes!("../../data/default-sprite-bindings-1.26.50.json");
+const DEFAULT_BINDINGS: &[u8] = include_bytes!("../../data/default-sprite-bindings-1.26.60.json");
 
 fn default_binding_fixture() -> CompiledEntityAssetsV4 {
     let mut compiled = item_carrier_fixture();
     compiled.sources[1] = entity::EntityAssetSource {
-        path: "registry/default-sprite-bindings-1.26.50.json".into(),
+        path: "registry/default-sprite-bindings-1.26.60.json".into(),
         source_bytes: DEFAULT_BINDINGS.len() as u32,
         source_sha256: Sha256::digest(DEFAULT_BINDINGS).into(),
     };

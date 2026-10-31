@@ -164,3 +164,20 @@ fn permission_revocation_survives_malformed_or_missing_component_metadata() {
         }
     }
 }
+
+/// The largest accepted collection, with long paths, saves to a file the watcher can read back.
+#[test]
+fn a_full_mod_collection_stays_readable_after_saving() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let mut selected = Registration::empty();
+    selected.mods = (0..mod_api::MAX_LOADED_MODS)
+        .map(|index| Entry {
+            component: root.join(format!("{index:0>200}.wasm")),
+            enabled: index % 2 == 0,
+            ..Default::default()
+        })
+        .collect();
+    write_selection(&root.join(REGISTRATION_FILE), selected).unwrap();
+    assert_eq!(read(root).mods.len(), mod_api::MAX_LOADED_MODS);
+}

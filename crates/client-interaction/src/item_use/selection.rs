@@ -86,7 +86,7 @@ pub(super) fn air_use_for_stack(
     let canonical = stream.authority().canonical_item_stack(stack)?;
     let quick_charge = protocol::item_enchantment_level(
         &stack.extra_data,
-        i16::from(Enchantment::Quickcharge.wire_value()),
+        i16::from(Enchantment::QuickCharge.wire_value()),
     )
     .unwrap_or(0);
     let profile = stream.authority().item_use_profile(stack.network_id);

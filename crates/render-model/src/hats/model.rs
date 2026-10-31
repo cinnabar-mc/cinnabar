@@ -218,6 +218,7 @@ pub(super) fn build(
     };
     flex.resize(parents.len(), 0.0);
     rest_rotations.resize(parents.len(), Quat::IDENTITY);
+    original.revalidate().ok()?;
     let mut rig = HatRig {
         playback,
         companion,

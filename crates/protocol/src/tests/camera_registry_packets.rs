@@ -1,20 +1,20 @@
 use ::protocol;
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     CameraAimAssistAction, CameraAimAssistPresetOperation, CameraPresetAudioListener,
     ClientCameraAimAssistAction, TargetMode,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, CameraAimAssist, CameraAimAssistActorPriority, CameraAimAssistPresets, CameraInstruction,
     CameraPresets, CameraSpline,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     CameraAimAssistActorPriorityData, CameraAimAssistCategoryDefinition,
     CameraAimAssistCategoryPriorities, CameraAimAssistPresetDefinition,
     CameraAimAssistPresetExclusionDefinition, CameraInstructionData, CameraPreset,
     CameraPresetList, CameraSplineControlPoint, CameraSplineDefinition, CameraSplineInstruction,
     CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{CameraEvent, CameraSplineKind, WorldEvent, WorldPacketError, into_world_event};
 
 /// Exercises the owned wire codec before checking normalized camera data.
@@ -38,7 +38,7 @@ fn camera_activation_acknowledges_selected_camera_and_support_separately() {
         panic!("activation packet")
     };
     assert_eq!(set.camera_preset_id.to_str().unwrap(), "a".repeat(64));
-    assert_eq!(set.action, ClientCameraAimAssistAction::Setfromcamerapreset);
+    assert_eq!(set.action, ClientCameraAimAssistAction::SetFromCameraPreset);
     assert!(set.allow_aim_assist);
     let packets::Packet::ClientCameraAimAssist(clear) =
         *protocol::camera_aim_assist_activation_packet("", false, true).data
@@ -215,7 +215,7 @@ fn camera_aim_registry_preserves_categories_exclusions_and_item_settings() {
             default_item_settings: Some("combat".into()),
             liquid_targeting_list: vec!["minecraft:bucket".into()],
         }],
-        operation: CameraAimAssistPresetOperation::Addtoexisting,
+        operation: CameraAimAssistPresetOperation::AddToExisting,
     });
     let CameraEvent::AimAssistPresets(registry) = event else {
         panic!("aim registry")

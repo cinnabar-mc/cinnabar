@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::PlayerSkin as PlayerSkinPacket;
+use bedrock_protocol_1_26_60::packets::PlayerSkin as PlayerSkinPacket;
 
 use super::{ActorEvent, normalize_player_skin};
 

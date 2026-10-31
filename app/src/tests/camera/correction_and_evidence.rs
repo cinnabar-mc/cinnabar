@@ -347,7 +347,7 @@ fn movement_evidence_is_production_shaped_exact_bounded_and_dimension_correlated
     assert_eq!(identity_json.as_object().unwrap().len(), 15);
     assert_eq!(identity_json["schema"], "rust-mcbe-movement-identity-v1");
     assert_eq!(identity_json["target"], "Zeqa");
-    assert_eq!(identity_json["protocol"], 2193);
+    assert_eq!(identity_json["protocol"], 2225);
     assert_eq!(identity_json["session_generation"], 7);
     assert_eq!(identity_json["preg_sha256"], "11".repeat(32));
     assert_eq!(identity_json["breg_sha256"], "22".repeat(32));

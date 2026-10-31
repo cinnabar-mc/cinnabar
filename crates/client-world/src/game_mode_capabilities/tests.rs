@@ -351,3 +351,45 @@ fn ability_axes_higher_flying_denial_wins() {
         }
     }
 }
+
+/// A mode change rewrites only the base and spectator layers, keeping other abilities.
+#[test]
+fn mode_assignment_rewrites_only_mode_owned_layers() {
+    use super::assign_mode_layers;
+    use ability_bit as b;
+
+    let spectator = AbilityLayerEvidence {
+        layer_type: super::SPECTATOR_LAYER_TYPE,
+        ..layer(b::MINE, b::MINE)
+    };
+    let command = AbilityLayerEvidence {
+        layer_type: 3,
+        ..layer(b::MAY_FLY, 0)
+    };
+    let base = layer(b::FLYING | b::BUILD, b::FLYING | b::BUILD);
+    let layers = [base, spectator, command];
+
+    let creative = assign_mode_layers(&layers, Creative);
+    assert_eq!(creative.len(), 2, "the spectator layer is cleared");
+    assert_eq!(creative[1], command);
+    let expected = b::FLYING | b::BUILD | b::MAY_FLY | b::INSTANT_BUILD | b::INVULNERABLE;
+    assert_eq!(creative[0].abilities, expected | b::NO_CLIP);
+    assert_eq!(
+        creative[0].values, expected,
+        "Flying is kept and NoClip cleared"
+    );
+
+    let survival = assign_mode_layers(&layers, Survival);
+    assert_eq!(survival[0].values, b::BUILD);
+
+    let spectating = assign_mode_layers(&[command], Spectator);
+    assert_eq!(spectating[0], command);
+    assert_eq!(spectating[1].layer_type, super::SPECTATOR_LAYER_TYPE);
+    assert_eq!(
+        spectating[1].values,
+        b::FLYING | b::INVULNERABLE | b::NO_CLIP
+    );
+    assert_eq!(spectating[1].abilities & b::BUILD, b::BUILD);
+
+    assert_eq!(assign_mode_layers(&layers, Unknown), [base, command]);
+}

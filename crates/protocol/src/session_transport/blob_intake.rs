@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 use std::mem::size_of;
 
 use super::{Inbound, RawPacket, SessionError, SessionTransport};
@@ -49,7 +49,6 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
                         .received
                         .remove(self.blob_scan.cursor)
                         .expect("scanned packet");
-                    self.delivered = packet.trace_position;
                     self.observe(&packet);
                     return Ok(Some(Inbound::Packet(packet)));
                 }

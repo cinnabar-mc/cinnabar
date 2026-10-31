@@ -19,7 +19,7 @@ pub const CONTAINER_NAME_HOTBAR: u8 = protocol_ids::ContainerName::HotBar.wire_v
 pub const CONTAINER_NAME_CREATED_OUTPUT: u8 =
     protocol_ids::ContainerName::CreatedOutput.wire_value();
 /// The last container name the pinned protocol enumerates.
-pub const LAST_CONTAINER_NAME: u8 = protocol_ids::ContainerName::RecipeFurnaceItems.wire_value();
+pub const LAST_CONTAINER_NAME: u8 = protocol_ids::ContainerName::Count.wire_value() - 1;
 
 /// Classifies one decoded container name; `None` for codes this protocol
 /// version does not enumerate.
@@ -38,7 +38,7 @@ pub const fn container_window(name: u8) -> Option<ContainerWindow> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::enums::ContainerEnumName as Name;
+    use bedrock_protocol_1_26_60::enums::ContainerEnumName as Name;
 
     use super::*;
 
@@ -55,17 +55,17 @@ mod tests {
             assert_eq!(container_window(code).is_some(), known, "code {code}");
         }
         let fixed = [
-            (Name::Armorcontainer, ContainerWindow::Armor),
+            (Name::ArmorContainer, ContainerWindow::Armor),
             (
-                Name::Combinedhotbarandinventorycontainer,
+                Name::CombinedHotbarAndInventoryContainer,
                 ContainerWindow::Player,
             ),
-            (Name::Hotbarcontainer, ContainerWindow::Player),
-            (Name::Inventorycontainer, ContainerWindow::Player),
-            (Name::Offhandcontainer, ContainerWindow::Offhand),
-            (Name::Craftinginputcontainer, ContainerWindow::Ui),
-            (Name::Cursorcontainer, ContainerWindow::Ui),
-            (Name::Createdoutputcontainer, ContainerWindow::Ui),
+            (Name::HotbarContainer, ContainerWindow::Player),
+            (Name::InventoryContainer, ContainerWindow::Player),
+            (Name::OffhandContainer, ContainerWindow::Offhand),
+            (Name::CraftingInputContainer, ContainerWindow::Ui),
+            (Name::CursorContainer, ContainerWindow::Ui),
+            (Name::CreatedOutputContainer, ContainerWindow::Ui),
         ];
         for code in 0..=LAST_CONTAINER_NAME {
             let name = decoded(code);

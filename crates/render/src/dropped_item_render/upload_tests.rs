@@ -44,9 +44,14 @@ fn potted_block_artwork_keeps_its_resolution_and_alpha() {
         rotation: 0,
     });
     let mut world = item_world();
-    world
-        .resource_mut::<DroppedItemScene>()
-        .publish(1, Arc::from([model.clone()]), &[], &[], 1.0);
+    world.resource_mut::<DroppedItemScene>().publish(
+        1,
+        Arc::from([model.clone()]),
+        &[],
+        &[],
+        &[],
+        1.0,
+    );
     world.run_system_once(prepare_items).unwrap();
     let gpu = world.resource::<ItemGpu>();
     assert_eq!(gpu._atlas.as_ref().unwrap().width(), side);
@@ -94,7 +99,7 @@ fn hd_dropped_sprites_keep_their_source_pixels_and_physical_extent() {
     let mut world = item_world();
     world
         .resource_mut::<DroppedItemScene>()
-        .publish(1, Arc::from([model]), &[], &[], 1.0);
+        .publish(1, Arc::from([model]), &[], &[], &[], 1.0);
     world.run_system_once(prepare_items).unwrap();
     assert_eq!(
         world.resource::<ItemGpu>()._atlas.as_ref().unwrap().width(),
@@ -127,9 +132,14 @@ fn unaffordable_wide_sprite_does_not_hide_unrelated_small_items() {
         {
             let small_index = 1 - oversized_index;
             let mut world = item_world();
-            world
-                .resource_mut::<DroppedItemScene>()
-                .publish(1, Arc::from(models), &[], &[], 1.0);
+            world.resource_mut::<DroppedItemScene>().publish(
+                1,
+                Arc::from(models),
+                &[],
+                &[],
+                &[],
+                1.0,
+            );
             world.run_system_once(prepare_items).unwrap();
             let gpu = world.resource::<ItemGpu>();
             assert_eq!(gpu._atlas.as_ref().unwrap().width(), MIN_ITEM_ATLAS_SIDE);
@@ -179,7 +189,7 @@ fn checkerboard_items_cannot_overflow_the_aggregate_geometry_upload() {
         .min(assets::texture::policy::MAX_SUBSCRIBER_BYTES as u64);
     world
         .resource_mut::<DroppedItemScene>()
-        .publish(1, models.into(), &[], &[], 1.0);
+        .publish(1, models.into(), &[], &[], &[], 1.0);
     world.run_system_once(prepare_items).unwrap();
     let gpu = world.resource::<ItemGpu>();
     assert!(gpu.mesh_buffer.as_ref().unwrap().size() <= limit);
@@ -238,7 +248,7 @@ fn rejected_hd_geometry_cannot_enlarge_the_atlas_or_hide_small_items() {
             let mut world = item_world();
             world
                 .resource_mut::<DroppedItemScene>()
-                .publish(1, models.into(), &[], &[], 1.0);
+                .publish(1, models.into(), &[], &[], &[], 1.0);
             world.run_system_once(prepare_items).unwrap();
             let gpu = world.resource::<ItemGpu>();
             assert_eq!(gpu._atlas.as_ref().unwrap().width(), MIN_ITEM_ATLAS_SIDE);
@@ -371,7 +381,7 @@ fn hidden_item_catalog_is_prepared_before_visibility() {
     };
     {
         let mut scene = world.resource_mut::<DroppedItemScene>();
-        scene.publish(1, Arc::from([model]), &[], &[], 1.0);
+        scene.publish(1, Arc::from([model]), &[], &[], &[], 1.0);
         scene.publish_terrain_instances(1, &[hidden]);
     }
     system.run((), &mut world).unwrap();
@@ -450,7 +460,7 @@ fn steady_uploads_empty_item_scene_allocates_and_uploads_nothing() {
     system.run((), &mut world).unwrap();
     let gpu = world.resource::<ItemGpu>();
     assert_eq!(gpu.dynamic_count, 3);
-    assert_eq!(gpu.identity_instance, 0);
+    assert_eq!(gpu.dynamic_draws, [(0..3, 0)]);
     assert_eq!(gpu.upload_calls, 3);
     world.resource_mut::<DroppedItemScene>().clear();
     let allocated = test_alloc::thread_allocations();
@@ -471,6 +481,7 @@ fn reclaimed_slots_leave_live_model_indices_and_atlas_layers_intact() {
     world.resource_mut::<DroppedItemScene>().publish(
         1,
         Arc::from([sprite.clone(), DroppedItemModel::Vacant, sprite]),
+        &[],
         &[],
         &[],
         1.0,
@@ -521,6 +532,7 @@ fn cull_modes_follow_models_and_preserve_instance_order_and_mirrored_transforms(
         1,
         Arc::from([sprite, plane]),
         &[make(0, 1.0), make(1, 1.0), make(0, -1.0), make(0, 1.0)],
+        &[],
         &[],
         1.0,
     );
@@ -586,6 +598,7 @@ fn glinting_copies_carry_the_item_glint_scale_across_their_sprite() {
         scene.publish(
             1,
             Arc::from([DroppedItemModel::NativeSprite(sprite)]),
+            &[],
             &[],
             &[],
             1.0,
@@ -736,9 +749,14 @@ fn occupied_item_frames_retain_staging_and_draw_storage() {
         overlay_rgba8: 0,
         glint: false,
     };
-    world
-        .resource_mut::<DroppedItemScene>()
-        .publish(1, Arc::from([model]), &[instance], &[], 1.0);
+    world.resource_mut::<DroppedItemScene>().publish(
+        1,
+        Arc::from([model]),
+        &[instance],
+        &[],
+        &[],
+        1.0,
+    );
     let mut system = IntoSystem::into_system(prepare_items);
     system.initialize(&mut world);
     system.run((), &mut world).unwrap();
@@ -759,8 +777,8 @@ fn occupied_item_frames_retain_staging_and_draw_storage() {
         assert_eq!(gpu.current_scratch, [true]);
         assert_eq!(gpu.draws.len(), 1);
         assert_eq!(gpu.draws[0].instance, 0);
-        assert_eq!(gpu.identity_instance, 1);
-        assert_eq!(gpu.instance_scratch.len(), 2);
+        assert!(gpu.dynamic_draws.is_empty());
+        assert_eq!(gpu.instance_scratch.len(), 1);
     }
 }
 
@@ -794,4 +812,37 @@ fn admitted_framed_cubes_and_overflow_sprite_all_have_draw_ranges() {
         prepared.atlas.len() / (prepared.side * prepared.side * 4) as usize,
         254
     );
+}
+
+#[test]
+fn dynamic_light_runs_draw_with_their_own_light_and_share_equal_levels() {
+    let mut world = item_world();
+    let mut system = IntoSystem::into_system(prepare_items);
+    system.initialize(&mut world);
+    let vertex = ItemMeshVertex {
+        position: [0.0; 3],
+        uv: [0.0; 2],
+        normal: [0.0, 1.0, 0.0],
+        layer: 0,
+        color: render_model::OPAQUE_WHITE,
+        glint_scale: [0.0; 2],
+    };
+    let run = |end, block, sky| render_model::DynamicLightRun { end, block, sky };
+    {
+        let mut scene = world.resource_mut::<DroppedItemScene>();
+        scene.dynamic = Arc::from([vertex; 15]);
+        scene.dynamic_light = Arc::from([run(3, 0, 4), run(6, 7, 0), run(9, 0, 4)]);
+    }
+    system.run((), &mut world).unwrap();
+    let gpu = world.resource::<ItemGpu>();
+    assert_eq!(
+        gpu.dynamic_draws,
+        [(0..3, 0), (3..6, 1), (6..9, 0), (9..15, 2)]
+    );
+    let lights: Vec<_> = gpu
+        .instance_scratch
+        .iter()
+        .map(|instance| [instance.meta[1], instance.meta[2]])
+        .collect();
+    assert_eq!(lights, [[0, 4], [7, 0], [15, 15]]);
 }

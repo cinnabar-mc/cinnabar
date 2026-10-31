@@ -1,5 +1,17 @@
 use super::*;
 
+/// Admission prepares bounds after wind joints, playback and cloth replace source vertices.
+#[test]
+fn admitted_cosmetic_geometry_keeps_its_prepared_bone_bounds() {
+    for item in [fixture::bunny(), fixture::dragon_wings(), fixture::cloth()] {
+        let geometry = &rig(item).geometry;
+        assert!(geometry.vertex_fingerprint().is_some());
+        for vertex in geometry.vertices.iter() {
+            assert!(geometry.bone_bounds(vertex.bone_index as usize).is_some());
+        }
+    }
+}
+
 #[test]
 fn cosmetic_preview_vertices_follow_each_biped_attachment_bone() {
     let source = fixture::bunny();

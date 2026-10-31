@@ -7,7 +7,7 @@ pub(super) const CAPTION_HEIGHT: f64 = 14.;
 impl HudEditor {
     /// Measures the selected name and scale with the same host face used to paint them.
     pub(super) fn measure_caption(&mut self, text: &dyn json_ui::TextMeasure) -> bool {
-        let style = self.draft.editor_style.unwrap_or_default();
+        let style = EditorStyle::default();
         let Some(card) = self
             .selected
             .and_then(|index| self.draft.cards.get(index))
@@ -42,16 +42,10 @@ impl HudEditor {
         selection: Option<[f64; 4]>,
     ) -> Option<[f64; 4]> {
         self.caption_bounds = selection
-            .filter(|_| {
-                self.draft
-                    .editor_style
-                    .unwrap_or_default()
-                    .selection_caption
-            })
+            .filter(|_| EditorStyle::default().selection_caption)
             .map(|[x, y, _, h]| {
                 let width = self.caption_width.min(self.viewport[0]);
-                let clearance =
-                    f64::from(self.draft.editor_style.unwrap_or_default().top_clearance);
+                let clearance = f64::from(EditorStyle::default().top_clearance);
                 let top = if y >= clearance + CAPTION_HEIGHT + 4. {
                     y - CAPTION_HEIGHT - 4.
                 } else {

@@ -1,6 +1,8 @@
 package cinnabar:server-experience@1.5.0;
 
 /// Host-owned JSON-UI widgets and the bundle's signed modal screens.
+/// Player mods import this interface's types; its functions are available only to client parts.
+/// Grants: The signed client bundle's `ui` permission for widgets and `modal_ui` for modal mutations; modal-size reads the current admitted modal.
 interface ui {
     /// A value bound into a screen property, in the forms the JSON-UI engine's bindings read:
     /// `numbers` carries arrays such as a colour `[r, g, b, a]` or an offset `[x, y]`.
@@ -12,10 +14,12 @@ interface ui {
         numbers(list<f64>),
     }
 
+    /// Sets one declared widget's plain text under this bundle's UI permission.
     set-widget: func(id: string, text: string) -> result<_, string>;
     /// Opens (or switches to) a template the manifest indexes under `templates`, as a modal
     /// over gameplay; `none` closes the modal.
     open-screen: func(template: option<string>) -> result<_, string>;
+    /// Closes this bundle's modal screen without selecting another template.
     @since(version = 1.1.0)
     close-screen: func() -> result<_, string>;
     /// Replaces a collection's rows: a JSON array of objects mapping a `#binding` name to a value
@@ -58,12 +62,16 @@ interface ui {
 }
 
 /// Named actions, available only while the host grants focus.
+/// Grants: The signed client bundle's `input` permission and host-owned focus.
 interface input {
+    /// Reports a named action edge only while the bundle owns host-granted focus.
     pressed: func(action: string) -> bool;
 }
 
 /// The host validates each record against its signed channel schema.
+/// Grants: The signed client bundle's `messaging` permission and declared channel schema.
 interface messaging {
+    /// Sends a typed record only on a signed channel and schema authorized for this bundle.
     send: func(channel: string, schema: u16, record-json: list<u8>) -> result<_, string>;
     /// During init, sends the registry request and defers callbacks until a successful dispatch
     /// on confirmation-channel. The SDK validates its fingerprint and runs authored init there.
@@ -73,12 +81,17 @@ interface messaging {
 }
 
 /// Retained presentation objects; no ECS, shaders or graphics API handles.
+/// Grants: The signed client bundle's `scene` permission.
 interface scene {
+    /// Retains or replaces the object with this bundle-local ID; none removes it.
     put: func(id: u32, object-json: option<list<u8>>) -> result<_, string>;
 }
 
 /// Media IDs reference signed descriptors, never guest-selected URLs.
+/// Grants: The signed client bundle's `media` permission and indexed descriptors.
 interface media {
+    /// Playback requests against a signed media descriptor.
     enum operation { prepare, play, pause, seek, stop }
+    /// Requests playback state or a seek position in milliseconds for an authorized media ID.
     control: func(id: string, op: operation, position-ms: u64) -> result<_, string>;
 }

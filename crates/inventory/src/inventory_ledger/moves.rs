@@ -22,6 +22,42 @@ pub enum DropSource {
 }
 
 impl PlayerInventoryLedger {
+    /// Exchanges a player cell with the offhand without opening a screen. Uses the ordinary
+    /// request queue and equipment rules; unknown cells and a held cursor are refused.
+    pub fn begin_windowless_offhand_swap(
+        &mut self,
+        slot: u8,
+    ) -> Result<i32, InventoryGestureError> {
+        if self.storage.is_some()
+            || self.cursor_stack().is_some()
+            || self
+                .gear_slot_state(InventoryTarget::Offhand)
+                .is_none_or(|state| matches!(state, super::PlayerInventorySlot::Unknown))
+        {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let generation = self.gesture_preflight(false)?;
+        let (source, destination) = (Cell::Inventory(slot), Cell::Offhand);
+        self.check_surfaces([source, destination])?;
+        let from = self.movable(source)?;
+        let to = self.movable(destination)?;
+        if let Some(from) = &from
+            && self
+                .placement_capacity(destination, &from.stack)
+                .is_some_and(|limit| from.stack.count > limit)
+        {
+            return Err(super::validation::placement_refused(destination));
+        }
+        let identity = self.window_address();
+        let built = match (from, to) {
+            (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
+            (Some(from), None) => place(source, destination, &from, identity)?,
+            (None, Some(to)) => place(destination, source, &to, identity)?,
+            (None, None) => return Err(InventoryGestureError::EmptyGesture),
+        };
+        self.submit_built(built, generation)
+    }
+
     /// Deletes the requested cursor amount, or the whole selection when unspecified.
     pub fn begin_destroy_cursor(
         &mut self,

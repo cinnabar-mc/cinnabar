@@ -1,8 +1,8 @@
 //! LevelChunk payloads decode as slices of the received buffer rather than copies.
 
-use bedrock_protocol_1_26_51::packets::LevelChunk;
-use bedrock_protocol_1_26_51::types::SubChunkMetadata;
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::packets::LevelChunk;
+use bedrock_protocol_1_26_60::types::SubChunkMetadata;
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 use bytes::Bytes;
 
 fn packet(payload_len: usize) -> LevelChunk {
@@ -54,7 +54,8 @@ fn shared_decode_accepts_payload_near_the_transport_envelope_without_a_global_ca
 #[test]
 fn shared_decode_rejects_adversarial_payload_and_metadata_lengths() {
     let mut overflowing_payload = encode(&packet(0)).to_vec();
-    assert_eq!(overflowing_payload.pop(), Some(0));
+    assert_eq!(overflowing_payload.pop(), Some(0)); // Biome-update flag.
+    assert_eq!(overflowing_payload.pop(), Some(0)); // Empty payload length.
     overflowing_payload.extend_from_slice(&[0xff, 0xff, 0xff, 0xff, 0x10]);
     let error = decode_shared(&Bytes::from(overflowing_payload))
         .expect_err("payload length beyond u32 must fail");
@@ -64,7 +65,8 @@ fn shared_decode_rejects_adversarial_payload_and_metadata_lengths() {
     );
 
     let mut truncated_payload = encode(&packet(0)).to_vec();
-    assert_eq!(truncated_payload.pop(), Some(0));
+    assert_eq!(truncated_payload.pop(), Some(0)); // Biome-update flag.
+    assert_eq!(truncated_payload.pop(), Some(0)); // Empty payload length.
     wire::Writer::new(&mut truncated_payload)
         .write_var_u32(1024)
         .expect("encode declared length");
@@ -89,8 +91,9 @@ fn shared_decode_rejects_adversarial_payload_and_metadata_lengths() {
         ..LevelChunk::default()
     };
     let mut oversized_metadata = encode(&packet).to_vec();
-    assert_eq!(oversized_metadata.pop(), Some(0));
-    assert_eq!(oversized_metadata.pop(), Some(0));
+    assert_eq!(oversized_metadata.pop(), Some(0)); // Biome-update flag.
+    assert_eq!(oversized_metadata.pop(), Some(0)); // Empty payload length.
+    assert_eq!(oversized_metadata.pop(), Some(0)); // Empty metadata length.
     wire::Writer::new(&mut oversized_metadata)
         .write_var_u32(i32::MAX as u32)
         .expect("encode oversized metadata length");

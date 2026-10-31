@@ -53,6 +53,9 @@ mod attack_while_using_tests;
 #[path = "published_tests/attack_validation.rs"]
 mod attack_validation_tests;
 
+#[path = "published_tests/attack_mod_reach.rs"]
+mod attack_mod_reach_tests;
+
 #[path = "published_tests/attack_frame.rs"]
 mod attack_frame_tests;
 
@@ -139,7 +142,7 @@ fn fixture_with_entity_assets(
     let collisions = PhysicsCollisionRegistries::from_assets(
         bytes,
         &records,
-        include_bytes!("../../../crates/assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../crates/assets/data/block-physics-v2225.bin"),
         version,
     )
     .unwrap();

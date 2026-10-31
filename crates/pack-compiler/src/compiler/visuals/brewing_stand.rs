@@ -82,7 +82,7 @@ fn quads(materials: [u32; 6], bottles: [bool; 3]) -> Vec<ModelQuad> {
             positions: [[128, 256, 128], [128, 0, 128], [x, 0, z], [x, 256, z]],
             uvs: [[2048, 0], [2048, 4096], [outer_u, 4096], [outer_u, 0]],
             material: materials[BlockFace::Up as usize],
-            flags: MODEL_QUAD_FLAG_TWO_SIDED,
+            flags: MODEL_QUAD_FLAG_TWO_SIDED | assets::MODEL_QUAD_FLAG_INHERITED_SHADE,
         });
     }
     quads

@@ -27,7 +27,7 @@ pub(in crate::compiler) enum CompileRuleResult {
 /// Wire identity of the one record that resolves as canonical air for a
 /// compiled registry. Derived from registry content at compile time instead
 /// of pinning one legacy protocol's sequential ID and network hash, so a
-/// protocol-2193 triple whose air sits at different identities compiles the
+/// protocol-2225 triple whose air sits at different identities compiles the
 /// same exact Invisible route.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::compiler) struct CanonicalAirIdentity {
@@ -156,11 +156,13 @@ struct VisualCompiler {
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
+    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6], bool), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
     candle_cake_templates: BTreeMap<[u32; 4], u32>,
     hollow_container_templates: BTreeMap<(super::hollow_containers::VesselState, Vec<u32>), u32>,
+    hopper_templates: BTreeMap<([u32; 6], u8), u32>,
 }
 
 impl VisualCompiler {
@@ -271,6 +273,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.command_block_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
+        ordered_rule!(super::mapped_face::compile_rule(
+            record,
+            inputs,
+            &mut self.mapped_face_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads
@@ -488,6 +499,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.hollow_container_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::hopper::compile_rule(
+            record,
+            inputs,
+            &mut self.hopper_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

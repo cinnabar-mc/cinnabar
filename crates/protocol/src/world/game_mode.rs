@@ -1,7 +1,7 @@
 //! Local-player game-mode reduction shared by StartGame and runtime updates.
 
-use bedrock_protocol_1_26_51::enums::GameType;
-use bedrock_protocol_1_26_51::packets::{StartGame, UpdatePlayerGameType};
+use bedrock_protocol_1_26_60::enums::LevelGameType;
+use bedrock_protocol_1_26_60::packets::{StartGame, UpdatePlayerGameType};
 
 pub(super) fn targeted_update(packet: UpdatePlayerGameType) -> crate::UiEvent {
     crate::UiEvent::PlayerGameMode {
@@ -13,7 +13,7 @@ pub(super) fn targeted_update(packet: UpdatePlayerGameType) -> crate::UiEvent {
     }
 }
 
-/// One Bedrock `GameType` wire value reduced to the distinctions the HUD needs.
+/// One Bedrock `LevelGameType` wire value reduced to the distinctions the HUD needs.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 enum GameTypeValue {
     Survival,
@@ -27,16 +27,16 @@ enum GameTypeValue {
     Other(i32),
 }
 
-impl From<GameType> for GameTypeValue {
-    fn from(mode: GameType) -> Self {
+impl From<LevelGameType> for GameTypeValue {
+    fn from(mode: LevelGameType) -> Self {
         match mode {
-            GameType::Survival => Self::Survival,
-            GameType::Creative => Self::Creative,
-            GameType::Adventure => Self::Adventure,
-            GameType::Default => Self::Default,
-            GameType::Spectator => Self::Spectator,
-            GameType::Undefined => Self::Other(-1),
-            GameType::Unknown(value) => Self::Other(value),
+            LevelGameType::Survival | LevelGameType::WorldDefault => Self::Survival,
+            LevelGameType::Creative => Self::Creative,
+            LevelGameType::Adventure => Self::Adventure,
+            LevelGameType::Default => Self::Default,
+            LevelGameType::Spectator => Self::Spectator,
+            LevelGameType::Undefined => Self::Other(-1),
+            LevelGameType::Unknown(value) => Self::Other(value),
         }
     }
 }
@@ -107,7 +107,7 @@ impl PlayerGameMode {
 
     /// Typed wire value for a runtime SetPlayerGameType or SetDefaultGameType packet.
     #[must_use]
-    pub(crate) fn update_from_game_mode(mode: GameType) -> crate::GameModeUpdate {
+    pub(crate) fn update_from_game_mode(mode: LevelGameType) -> crate::GameModeUpdate {
         Self::update_from_game_type(mode.into())
     }
 
@@ -168,7 +168,7 @@ mod player_game_mode_tests {
                 Some(PlayerGameMode::Spectator)
             );
             let update = PlayerGameMode::update_from_game_mode(
-                bedrock_protocol_1_26_51::enums::GameType::Unknown(value),
+                bedrock_protocol_1_26_60::enums::LevelGameType::Unknown(value),
             );
             assert_eq!(update, crate::GameModeUpdate::LegacyViewer);
             assert_eq!(update.hud_mode(), Some(PlayerGameMode::Spectator));

@@ -21,14 +21,14 @@ const maxDeviceProfileBytes = 4 << 10
 // deviceLeaseTimeout bounds the wait for another core initializing the same profile.
 const deviceLeaseTimeout = 10 * time.Second
 
-// LoadDevice reports the host OS and hardware model, keeping the install's saved device ID.
+// LoadDevice reports a compatible login OS and the host hardware model, keeping the saved device ID.
 // Cores sharing path hold a lease across profile updates. An empty path keeps a new ID in memory. The
 // error reports a profile that could not be saved; the profile is still usable.
 func LoadDevice(path string) (device.Profile, error) {
-	return loadDevice(path, device.Profile{OS: nativeDeviceOS(runtime.GOOS), Model: strings.TrimSpace(nativeDeviceModel())})
+	return loadDevice(path, device.Profile{OS: loginDeviceOS(runtime.GOOS), Model: strings.TrimSpace(nativeDeviceModel())})
 }
 
-// loadDevice refreshes host claims and reuses a saved ID when its format matches the host.
+// loadDevice refreshes login claims and reuses a saved ID when its format matches the profile.
 func loadDevice(path string, profile device.Profile) (device.Profile, error) {
 	format := login.ClientData{DeviceOS: profile.OS}.ExpectedDeviceIDFormat()
 	if format == login.DeviceIDFormatInvalid {
@@ -76,8 +76,8 @@ func readDevice(path string) (device.Profile, bool) {
 	return profile, true
 }
 
-// nativeDeviceOS maps the core's build target to the Bedrock platform it runs on.
-func nativeDeviceOS(goos string) protocol.DeviceOS {
+// loginDeviceOS maps the build target to a device platform accepted at login.
+func loginDeviceOS(goos string) protocol.DeviceOS {
 	switch goos {
 	case "android":
 		return protocol.DeviceAndroid
@@ -85,10 +85,9 @@ func nativeDeviceOS(goos string) protocol.DeviceOS {
 		return protocol.DeviceIOS
 	case "darwin":
 		return protocol.DeviceOSX
-	case "windows":
+	case "windows", "linux":
+		// Linux uses the Windows desktop service identity and its login platform.
 		return protocol.DeviceWin32
-	case "linux":
-		return protocol.DeviceLinux
 	default:
 		return protocol.DeviceUnknown
 	}

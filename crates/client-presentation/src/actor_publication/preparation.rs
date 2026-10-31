@@ -22,7 +22,7 @@ pub struct ActorFrameState {
     pub(super) hat_state: super::hats::HatState,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
-    pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
+    pub(super) skin_layers: crate::presentation::skin_layers::ActorLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
     pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
@@ -67,8 +67,7 @@ impl ActorFrameState {
         self.step
     }
 
-    /// This frame's actor clock step once remote motion is predicted, before actor
-    /// preparation consumes it.
+    /// This frame's staged actor clock step, before actor preparation consumes it.
     pub fn motion_step(&self) -> Option<crate::actor_clock::ActorFrameStep> {
         self.motion_step
     }
@@ -84,7 +83,7 @@ impl ActorFrameState {
     }
 }
 
-/// Predicts remote poses from the supplied interval, independently of local physics.
+/// Stages remote motion from the supplied interval, independently of local physics.
 /// Live actor publication later consumes the same step.
 pub fn advance_actor_motion(
     state: &mut ActorFrameState,
@@ -273,6 +272,8 @@ pub fn advance_actor_frame(
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();
+        equipment.begin_shield_frame();
+        equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
     let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;

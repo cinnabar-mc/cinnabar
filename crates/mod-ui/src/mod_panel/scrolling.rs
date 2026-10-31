@@ -145,3 +145,48 @@ impl ModPanel {
 fn along(metrics: &ScrollMetrics, point: [f64; 2]) -> f64 {
     point[usize::from(!metrics.horizontal)]
 }
+
+/// Adopts each laid-out scroll view's clamped offset. After a route change, `prune` also
+/// drops carried offsets of scroll views the new surface lacks; otherwise a view the layout
+/// did not report this frame keeps its offset.
+pub(super) fn reconcile_scroll(
+    view: &mut json_ui::ViewState,
+    report: &json_ui::LayoutReport,
+    prune: bool,
+) {
+    view.scroll
+        .retain(|key, offset| match report.scrolls.get(key) {
+            Some(metrics) => {
+                *offset = metrics.offset;
+                true
+            }
+            None => !prune,
+        });
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use json_ui::{LayoutReport, ScrollMetrics, ViewState};
+
+    /// Only the first layout after a route change forgets views it does not report.
+    #[test]
+    fn unreported_offsets_survive_unless_pruned() {
+        let mut view = ViewState::default();
+        view.scroll.insert("shown".into(), 90.);
+        view.scroll.insert("hidden".into(), 40.);
+        let mut report = LayoutReport::default();
+        report.scrolls.insert(
+            "shown".into(),
+            ScrollMetrics {
+                offset: 60.,
+                ..Default::default()
+            },
+        );
+        super::reconcile_scroll(&mut view, &report, false);
+        assert_eq!(view.scroll.get("shown"), Some(&60.));
+        assert_eq!(view.scroll.get("hidden"), Some(&40.));
+        super::reconcile_scroll(&mut view, &report, true);
+        assert_eq!(view.scroll.get("shown"), Some(&60.));
+        assert_eq!(view.scroll.get("hidden"), None);
+    }
+}

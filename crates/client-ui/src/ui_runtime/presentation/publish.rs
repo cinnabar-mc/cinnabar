@@ -20,6 +20,7 @@ pub fn capture_hud_frame(
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
+    dynamic_textures::observe_session(presentation, runtime.session_id());
     presentation.capture_local_player_identity(
         world.map(|world| world.local_player()),
         runtime.session_id(),
@@ -34,6 +35,9 @@ pub fn capture_hud_frame(
         .gameplay_hud()
         .mount_unique_id()
         .and_then(|unique| world.and_then(|world| world.actor_health_by_unique(unique)));
+    prepare_shield_art(player_runtime, runtime, presentation, world, |stack| {
+        world?.canonical_item_stack(stack)
+    });
     let mut inventory_cache = presentation
         .inventory_cache
         .take()
@@ -141,6 +145,65 @@ pub fn capture_hud_frame(
     frame.attack_indicator_charge = Some(1.0);
     observations::note_diagnostics(runtime, presentation);
     (equipment.held_item_icon, equipment.offhand_icon)
+}
+
+/// Keeps the visible stack set stable before inventory caches retain any icon addresses.
+pub(super) fn prepare_shield_art(
+    player: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
+    resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
+) {
+    use inventory::inventory_ledger::InventoryTarget;
+    let mut inventory_cache = presentation
+        .inventory_cache
+        .take()
+        .expect("inventory cache retained");
+    inventory_cache.prepare(
+        player,
+        &ItemResolver {
+            runtime,
+            presentation,
+            authority: world,
+        },
+    );
+    let ledger = runtime.inventory_ledger(player);
+    let mut appearances = Vec::new();
+    let mut observe = |stack: &protocol::NetworkItemStack| {
+        if let Some(pattern) = resolve(stack).and_then(|item| item.shield_pattern) {
+            appearances.push(pattern);
+        }
+    };
+    for stack in inventory_cache.stacks() {
+        observe(stack);
+    }
+    if runtime.inventory_open() {
+        let creative =
+            crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime);
+        for item in creative
+            .iter()
+            .skip(runtime.screen_state().creative_row * screens::GRID_COLUMNS)
+            .take(screens::GRID_CELLS)
+        {
+            observe(&item.stack);
+        }
+        for stack in recipes::screen_previews(player, runtime).stacks() {
+            observe(stack);
+        }
+        for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
+            observe(stack);
+        }
+    }
+    for stack in ledger
+        .cursor_stack()
+        .into_iter()
+        .chain(runtime.local_offhand_stack(player))
+    {
+        observe(stack);
+    }
+    presentation.inventory_cache = Some(inventory_cache);
+    presentation.prepare_shield_icons(appearances);
 }
 
 /// The hovered container cell's stack and its custom name: what the tooltip shows, and what a

@@ -4,9 +4,9 @@ use bytes::Buf;
 
 #[test]
 fn primitive_shapes_raw_ingress_retains_valid_changes_and_counts_odd_entries() {
-    use bedrock_protocol_1_26_51::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as Kind;
-    use bedrock_protocol_1_26_51::packets::PrimitiveShapes;
-    use bedrock_protocol_1_26_51::types::{PrimitiveShape, PrimitiveShapeExtraShapeData as Extra};
+    use bedrock_protocol_1_26_60::enums::ScriptModuleMinecraftScriptPrimitiveShapeType as Kind;
+    use bedrock_protocol_1_26_60::packets::PrimitiveShapes;
+    use bedrock_protocol_1_26_60::types::{PrimitiveShape, PrimitiveShapeExtraShapeData as Extra};
 
     let packet: Packet = crate::Packet::new(PrimitiveShapes {
         array_of_primitive_shapes_can_be_a_mix_of_new_updated_or_removed: vec![

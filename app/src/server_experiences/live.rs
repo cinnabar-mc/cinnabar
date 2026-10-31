@@ -482,6 +482,7 @@ impl<H: Worker> Live<H> {
         }
         for instance in self.instances.values_mut() {
             let mut current = context.clone();
+            current.blocks = instance.presentation.block_statuses();
             for key in instance
                 .drawing_references
                 .iter()

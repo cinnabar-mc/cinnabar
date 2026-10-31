@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::apply::BagScope;
 use super::native;
 use super::spec::{Kind, Source, ViewScope};
-use super::{Binder, Node};
+use super::{Binder, Node, Src};
 use crate::predicate::{self, Scalar};
 
 /// Changed-value notifications followed in one refresh, as the client's bag
@@ -20,6 +20,81 @@ pub(super) const VIEW_PASSES: usize = 20;
 const EXPANSION_ROUNDS: usize = 8;
 
 type Path = Vec<usize>;
+
+/// Reuses resolved view sources while the exact ordered template tree stays unchanged.
+#[derive(Clone, Debug, Default)]
+pub(super) struct ViewWork {
+    list: Vec<(Path, usize)>,
+    path: Path,
+    sources: Vec<ViewSource>,
+    shape: Vec<ViewNode>,
+    source_count: usize,
+}
+
+/// One immutable source and its position in the ordered expanded tree.
+#[derive(Clone)]
+struct ViewNode {
+    src: Src,
+    key: u64,
+    children: usize,
+}
+
+impl std::fmt::Debug for ViewNode {
+    /// Reports source identity without dumping its entire owning template tree.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ViewNode")
+            .field("name", &self.src.name())
+            .field("key", &self.key)
+            .field("children", &self.children)
+            .finish()
+    }
+}
+
+/// Records the exact current tree in reusable storage and reports any identity or order change.
+fn refresh_shape(node: &Node, shape: &mut Vec<ViewNode>, next: &mut usize) -> bool {
+    let src = node.track.source(&node.src);
+    let mut changed = match shape.get_mut(*next) {
+        Some(previous)
+            if previous.key == node.key
+                && previous.children == node.children.len()
+                && previous.src.same(src) =>
+        {
+            false
+        }
+        Some(previous) => {
+            previous.src.clone_from(src);
+            previous.key = node.key;
+            previous.children = node.children.len();
+            true
+        }
+        None => {
+            shape.push(ViewNode {
+                src: src.clone(),
+                key: node.key,
+                children: node.children.len(),
+            });
+            true
+        }
+    };
+    *next += 1;
+    for child in &node.children {
+        changed |= refresh_shape(child, shape, next);
+    }
+    changed
+}
+
+#[derive(Clone, Debug, Default)]
+struct ViewSource {
+    path: Path,
+    found: bool,
+}
+
+impl ViewSource {
+    /// Borrows only a source resolved against the current tree.
+    fn path(&self) -> Option<&[usize]> {
+        self.found.then_some(self.path.as_slice())
+    }
+}
 
 fn node_at<'n>(root: &'n Node, path: &[usize]) -> &'n Node {
     path.iter().fold(root, |node, &index| &node.children[index])
@@ -31,18 +106,24 @@ fn node_at_mut<'n>(root: &'n mut Node, path: &[usize]) -> &'n mut Node {
 }
 
 /// Every view binding, as `(control path, binding index)`, in tree order.
-fn views(node: &Node, path: &mut Path, out: &mut Vec<(Path, usize)>) {
+fn views(node: &Node, path: &mut Path, out: &mut Vec<(Path, usize)>, used: &mut usize) {
     if node.track.quiet() && !node.track.views_below {
         return;
     }
     for (index, binding) in node.bindings.iter().enumerate() {
         if matches!(binding.kind, Kind::View { .. }) {
-            out.push((path.clone(), index));
+            if let Some((previous, binding)) = out.get_mut(*used) {
+                previous.clone_from(path);
+                *binding = index;
+            } else {
+                out.push((path.clone(), index));
+            }
+            *used += 1;
         }
     }
     for (index, child) in node.children.iter().enumerate() {
         path.push(index);
-        views(child, path, out);
+        views(child, path, out, used);
         path.pop();
     }
 }
@@ -124,10 +205,17 @@ impl SourceNames {
     }
 
     /// Resolve a sibling source relative to its parent, including the parent itself.
-    fn sibling(&self, path: &[usize], name: &str) -> Option<Path> {
-        let (_, parent) = path.split_last()?;
-        let relative = self.siblings.get(parent)?.get(name)?;
-        Some(parent.iter().chain(relative).copied().collect())
+    fn sibling(&self, path: &[usize], name: &str, out: &mut Path) -> bool {
+        let Some((_, parent)) = path.split_last() else {
+            return false;
+        };
+        let Some(relative) = self.siblings.get(parent).and_then(|names| names.get(name)) else {
+            return false;
+        };
+        out.clear();
+        out.extend_from_slice(parent);
+        out.extend_from_slice(relative);
+        true
     }
 }
 
@@ -143,10 +231,11 @@ impl Binder<'_> {
     /// Settle every view until no observed value changes, building subtrees
     /// views reveal and hidden ones holding a control a view names.
     pub(super) fn settle_views(&mut self, root: &mut Node) {
+        let mut work = std::mem::take(&mut self.state.view_work);
         let mut tried = HashSet::new();
         let mut settled = false;
         for _ in 0..EXPANSION_ROUNDS {
-            let (missed, converged) = self.settle_round(root);
+            let (missed, converged) = self.settle_round(root, &mut work);
             let mut expanded = false;
             for name in missed {
                 if tried.insert(name.clone()) {
@@ -160,6 +249,7 @@ impl Binder<'_> {
             }
         }
         self.state.views_settled = settled;
+        self.state.view_work = work;
     }
 
     /// Build the hidden subtrees whose templates hold a control named `name`,
@@ -180,34 +270,51 @@ impl Binder<'_> {
 
     /// Passes of view notifications; returns the source names that missed and whether no
     /// value changed in the last pass.
-    fn settle_round(&mut self, root: &mut Node) -> (Vec<String>, bool) {
-        let mut list = Vec::new();
-        views(root, &mut Path::new(), &mut list);
+    fn settle_round(&mut self, root: &mut Node, work: &mut ViewWork) -> (Vec<String>, bool) {
+        let mut used = 0;
+        work.path.clear();
+        views(root, &mut work.path, &mut work.list, &mut used);
+        let list = &work.list[..used];
         let mut missed = Vec::new();
         if list.is_empty() {
             return (missed, true);
         }
-        let names = SourceNames::new(root, &list);
-        let sources: Vec<_> = list
-            .iter()
-            .map(|(path, index)| {
-                let source = self.source_of(root, &names, path, *index);
-                if let Err(name) = &source {
-                    missed.push(name.clone());
+        let mut shape_nodes = 0;
+        let changed = refresh_shape(root, &mut work.shape, &mut shape_nodes);
+        let sources_stand =
+            !changed && shape_nodes == work.shape.len() && used == work.source_count;
+        work.shape.truncate(shape_nodes);
+        if sources_stand {
+            for ((path, index), source) in list.iter().zip(&work.sources) {
+                if !source.found
+                    && let Kind::View { control, .. } = &node_at(root, path).bindings[*index].kind
+                {
+                    missed.push(control.clone());
                 }
-                source.ok()
-            })
-            .collect();
-        self.notify_creation_inputs(root, &list, &sources);
+            }
+        } else {
+            let names = SourceNames::new(root, list);
+            work.sources.resize_with(used, ViewSource::default);
+            for ((path, index), source) in list.iter().zip(&mut work.sources) {
+                let resolved = self.source_of(root, &names, path, *index, &mut source.path);
+                source.found = resolved.is_ok();
+                if let Err(name) = resolved {
+                    missed.push(name);
+                }
+            }
+            work.source_count = used;
+        }
+        let sources = &work.sources;
+        self.notify_creation_inputs(root, list, sources);
         // Without a fixed point last bind, every view runs as if new.
         let unchanged = self.state.views_settled;
         for _ in 0..VIEW_PASSES {
             let mut changed = false;
-            for ((path, index), source) in list.iter().zip(&sources) {
-                if unchanged && self.stands(root, path, *index, source.as_deref()) {
+            for ((path, index), source) in list.iter().zip(sources) {
+                if unchanged && self.stands(root, path, *index, source.path()) {
                     continue;
                 }
-                changed |= self.notify(root, path, *index, source.as_deref());
+                changed |= self.notify(root, path, *index, source.path());
             }
             if !changed {
                 return (missed, true);
@@ -222,7 +329,7 @@ impl Binder<'_> {
         &mut self,
         root: &mut Node,
         list: &[(Path, usize)],
-        sources: &[Option<Path>],
+        sources: &[ViewSource],
     ) {
         let mut queued = HashSet::new();
         let mut pending = VecDeque::new();
@@ -240,7 +347,9 @@ impl Binder<'_> {
         }
         let mut readers = HashMap::<_, Vec<usize>>::new();
         for (slot, ((path, index), source)) in list.iter().zip(sources).enumerate() {
-            let Some(source) = source else { continue };
+            let Some(source) = source.path() else {
+                continue;
+            };
             let Kind::View {
                 source: expression, ..
             } = &node_at(root, path).bindings[*index].kind
@@ -263,7 +372,7 @@ impl Binder<'_> {
                 }
                 remaining -= 1;
                 let (path, index) = &list[slot];
-                if self.notify(root, path, *index, sources[slot].as_deref()) {
+                if self.notify(root, path, *index, sources[slot].path()) {
                     let node = node_at(root, path);
                     if let Kind::View { target, .. } = &node.bindings[*index].kind {
                         let output = (node.key, target.clone());
@@ -309,21 +418,30 @@ impl Binder<'_> {
         names: &SourceNames,
         path: &Path,
         index: usize,
-    ) -> Result<Path, String> {
+        out: &mut Path,
+    ) -> Result<(), String> {
         let node = node_at(root, path);
         let Kind::View { control, scope, .. } = &node.bindings[index].kind else {
             return Err(String::new());
         };
-        let found = match scope {
-            ViewScope::Own => Some(path.clone()),
-            ViewScope::Global => names.global.get(control).cloned(),
-            ViewScope::Sibling => names.sibling(path, control),
+        let source = match scope {
+            ViewScope::Own => Some(path.as_slice()),
+            ViewScope::Global => names.global.get(control).map(Vec::as_slice),
+            ViewScope::Sibling => {
+                return names
+                    .sibling(path, control, out)
+                    .then_some(())
+                    .ok_or_else(|| control.clone());
+            }
             ViewScope::Ancestor => (0..path.len())
                 .rev()
-                .map(|depth| path[..depth].to_vec())
+                .map(|depth| &path[..depth])
                 .find(|ancestor| node_at(root, ancestor).src.name() == control),
         };
-        found.ok_or_else(|| control.clone())
+        let source = source.ok_or_else(|| control.clone())?;
+        out.clear();
+        out.extend_from_slice(source);
+        Ok(())
     }
 
     /// Run one view: its first bind applies the target, registration writes a

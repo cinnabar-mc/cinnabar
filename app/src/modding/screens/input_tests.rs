@@ -249,8 +249,9 @@ fn observe_keys(
 ) {
     let modifiers = input.modifiers(true);
     let cursor = observed.pointer;
-    let pressed = pointer_events(
+    let (pressed, cancel) = pointer_events(
         &mut presentation,
+        None,
         cursor,
         modifiers,
         &mut input,
@@ -273,6 +274,7 @@ fn observe_keys(
             menu: None,
             cursor,
             pressed,
+            cancel,
         },
         &mut input,
         &mut observed.keys,
@@ -927,77 +929,114 @@ fn declared_keys_use_modifiers_at_each_press() {
     }
 }
 
+/// Escape, the default Menu Cancel mouse button and a key-bound Menu Cancel each return from a
+/// player mod's view.
 #[test]
 fn production_mod_driver_delivers_declared_keys_and_view_escape() {
-    let (mut app, window) = input_app();
-    let dir = tempfile::tempdir().unwrap();
-    write_transition_probe(dir.path(), "0.1.0");
-    let mut host = deferred_tests::load_driver_host(dir.path());
-    let package = host.package().unwrap();
-    if !draw_package_view(&mut app, &package.id, &package.files) {
-        return;
-    }
-    let layout = app
-        .world()
-        .resource::<UiPresentationResource>()
-        .mod_ui()
-        .mod_screen_layout()
-        .cloned();
-    assert!(layout.is_some());
-    host.dispatch(vec![
-        ModEvent::ScreenChanged(layout),
-        ModEvent::Action {
-            id: "probe.view".into(),
-            index: None,
-        },
-    ])
-    .unwrap();
-    assert!(host.screens().view.is_some());
-    let mut configured = App::new();
-    super::super::install(&mut configured, vec![host]);
-    app.insert_resource(
-        configured
-            .world_mut()
-            .remove_resource::<ModRuntime>()
-            .unwrap(),
-    )
-    .insert_resource(crate::environment::VisualTimeOverride(None))
-    .init_resource::<super::super::interaction::ModInteraction>()
-    .add_systems(
-        Update,
-        (
-            super::super::begin_mod_frame,
-            drive_chat_keyboard_input,
-            super::super::drive_mod,
+    for closer in ["escape", "menu cancel mouse", "menu cancel key"] {
+        let (mut app, window) = input_app();
+        let dir = tempfile::tempdir().unwrap();
+        write_transition_probe(dir.path(), "0.1.0");
+        let mut host = deferred_tests::load_driver_host(dir.path());
+        let package = host.package().unwrap();
+        if !draw_package_view(&mut app, &package.id, &package.files) {
+            return;
+        }
+        let layout = app
+            .world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_screen_layout()
+            .cloned();
+        assert!(layout.is_some());
+        host.dispatch(vec![
+            ModEvent::ScreenChanged(layout),
+            ModEvent::Action {
+                id: "probe.view".into(),
+                index: None,
+            },
+        ])
+        .unwrap();
+        assert!(host.screens().view.is_some());
+        let mut configured = App::new();
+        super::super::install(&mut configured, vec![host]);
+        app.insert_resource(
+            configured
+                .world_mut()
+                .remove_resource::<ModRuntime>()
+                .unwrap(),
         )
-            .chain(),
-    );
-    // Initial lifecycle callbacks use the event lane before physical input arrives.
-    app.update();
-    send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
-    assert!(matches!(
-            app.world().resource::<ModRuntime>().hosts.host(0).screens().data.values.get("#key"),
-            Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
-    ));
-    send(
-        &mut app,
-        window,
-        KeyCode::Escape,
-        ButtonState::Pressed,
-        None,
-    );
-    let runtime = app.world().resource::<ModRuntime>();
-    assert!(runtime.hosts.host(0).screens().view.is_none());
-    assert_eq!(
-        runtime
-            .hosts
-            .host(0)
-            .screens()
-            .data
-            .values
-            .get("#view_closed"),
-        Some(&server_experience::screen::Value::Integer(1))
-    );
+        .insert_resource(crate::environment::VisualTimeOverride(None))
+        .init_resource::<super::super::interaction::ModInteraction>()
+        .add_systems(
+            Update,
+            (
+                super::super::begin_mod_frame,
+                drive_chat_keyboard_input,
+                super::super::drive_mod,
+            )
+                .chain(),
+        );
+        // Initial lifecycle callbacks use the event lane before physical input arrives.
+        app.update();
+        send(&mut app, window, KeyCode::KeyR, ButtonState::Pressed, None);
+        assert!(matches!(
+                app.world().resource::<ModRuntime>().hosts.host(0).screens().data.values.get("#key"),
+                Some(server_experience::screen::Value::Text(key)) if key.starts_with("probe.show:")
+        ));
+        match closer {
+            "escape" => send(
+                &mut app,
+                window,
+                KeyCode::Escape,
+                ButtonState::Pressed,
+                None,
+            ),
+            "menu cancel key" => {
+                let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
+                assert!(client_shell::menu::test_support::remap_control(
+                    &mut menu,
+                    launcher::menu::settings_options::BindingId::MenuCancel
+                        .row(false)
+                        .unwrap(),
+                    semantic_input::PhysicalControl::KeyboardUsage(
+                        client_shell::physical_input::keyboard_usage(KeyCode::KeyX).unwrap(),
+                    ),
+                ));
+                app.insert_resource(menu);
+                send(
+                    &mut app,
+                    window,
+                    KeyCode::KeyX,
+                    ButtonState::Pressed,
+                    Some("x"),
+                );
+            }
+            _ => {
+                app.world_mut()
+                    .resource_mut::<ButtonInput<MouseButton>>()
+                    .press(MouseButton::Back);
+                app.world_mut().write_message(MouseButtonInput {
+                    button: MouseButton::Back,
+                    state: ButtonState::Pressed,
+                    window,
+                });
+                app.update();
+            }
+        }
+        let runtime = app.world().resource::<ModRuntime>();
+        assert!(runtime.hosts.host(0).screens().view.is_none(), "{closer}");
+        assert_eq!(
+            runtime
+                .hosts
+                .host(0)
+                .screens()
+                .data
+                .values
+                .get("#view_closed"),
+            Some(&server_experience::screen::Value::Integer(1))
+        );
+    }
 }
 
 #[test]

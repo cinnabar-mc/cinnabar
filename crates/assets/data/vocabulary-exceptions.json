@@ -25,9 +25,9 @@
     },
     {
       "reference": {
-        "file": "block-item-routes-v2193.json",
+        "file": "block-item-routes-v2225.json",
         "location": {
-          "pointer": "/routes/12/identifier"
+          "pointer": "/routes/14/identifier"
         },
         "domain": "item",
         "identifier": "minecraft:air"
@@ -36,9 +36,9 @@
     },
     {
       "reference": {
-        "file": "block-item-routes-v2193.json",
+        "file": "block-item-routes-v2225.json",
         "location": {
-          "pointer": "/routes/397/identifier"
+          "pointer": "/routes/420/identifier"
         },
         "domain": "item",
         "identifier": "minecraft:invisible_bedrock"
@@ -1294,7 +1294,7 @@
     },
     {
       "reference": {
-        "file": "default-sprite-bindings-1.26.50.json",
+        "file": "default-sprite-bindings-1.26.60.json",
         "location": {
           "pointer": "/routes/17/identifier"
         },
@@ -1467,6 +1467,39 @@
         "identifier": "minecraft:shield"
       },
       "reason": "Retained provisional compatibility entry outside the metadata actor vocabulary; its interaction behavior remains incomplete."
+    },
+    {
+      "reference": {
+        "file": "block-destroy-v2225.tsv",
+        "location": {
+          "pointer": "/404/0"
+        },
+        "domain": "block",
+        "identifier": "minecraft:disc_press"
+      },
+      "reason": "The current catalog declares this block, but the pack vocabulary omits it and its carrier states remain reserved until geometry is verified."
+    },
+    {
+      "reference": {
+        "file": "facts-expansion-v2225.tsv",
+        "location": {
+          "pointer": "/404/0"
+        },
+        "domain": "block",
+        "identifier": "minecraft:disc_press"
+      },
+      "reason": "The current catalog declares this block, but the pack vocabulary omits it and its carrier states remain reserved until geometry is verified."
+    },
+    {
+      "reference": {
+        "file": "registry-policy.json",
+        "location": {
+          "pointer": "/unresolved_retail/1"
+        },
+        "domain": "block",
+        "identifier": "minecraft:disc_press"
+      },
+      "reason": "The current catalog declares this block, but the pack vocabulary omits it and its carrier states remain reserved until geometry is verified."
     }
   ]
 }

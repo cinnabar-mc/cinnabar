@@ -5,14 +5,14 @@
 //! renderers against the live state.
 
 use json_ui::vanilla::Reference;
-use std::{collections::BTreeMap, num::NonZeroU64, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc};
 
 use json_ui::{Catalog, Context, DataSource, HudBindings, HudChanges, HudModel, hud_clocks};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, IconRef};
 use ui_engine::{
     cached_screen::CachedScreen,
     engine::{
-        FormEngine, PaintBounds, PaintObserver, RetainedPaint, ScreenArt,
+        FormEngine, RetainedPaint, ScreenArt,
         item_renderer::ItemRenderer,
         pack_catalog::CarrierRestore,
         screen::{CustomRenderer, PaintError, PaintFrame, ScreenRegistry},
@@ -89,34 +89,17 @@ pub fn register(registry: &mut ScreenRegistry) {
         restore: titles::restore,
     });
     catalog.after_layers(chat::prefer_builtin);
-    catalog.after_layers(|catalog, _| {
-        mark_bottom_region(catalog);
-        Vec::new()
-    });
 }
 
-/// Installs the original HUD artwork and marks its resolved bottom subtree.
+/// Installs the original HUD artwork below server layers.
 fn install_java_hud(catalog: &mut Catalog) {
     catalog.apply_pack(JAVA_HUD_PACK.iter().map(|(path, _, bytes)| (*path, *bytes)));
-    mark_bottom_region(catalog);
-}
-
-/// Tags the native root after pack layering so aliases and inherited children retain its scope.
-fn mark_bottom_region(catalog: &mut Catalog) {
-    if let Some(root) = catalog.lookup_mut("hud", BOTTOM_HUD_ROOT) {
-        root.props.insert(
-            json_ui::transform::PAINT_REGION_PROPERTY.into(),
-            serde_json::json!(BOTTOM_HUD_REGION.get()),
-        );
-    }
 }
 
 /// The HUD and crosshair screens, carried across frames.
 #[derive(Default)]
 pub struct HudScreens {
     pub hud: CachedScreen,
-    /// The last native bottom-HUD paint bounds, `[x, y, width, height]` in shared GUI pixels.
-    pub editor_keep_out: Option<[f64; 4]>,
     /// The crosshair overlay screen.
     pub crosshair: CachedScreen,
     /// The toast screen, drawn above everything in game.
@@ -177,8 +160,6 @@ impl RetainedHud {
 pub struct HudInput<'a> {
     /// The crosshair overlay rather than the HUD.
     pub crosshair: bool,
-    /// Observe actual native bottom-HUD painting while the host's layout editor is open.
-    pub capture_keep_out: bool,
     /// Whether the caller's renderers in the paint frame draw exactly as they did when this
     /// screen was last painted, so an otherwise unchanged paint may be reused.
     pub renderers_unchanged: bool,
@@ -265,7 +246,6 @@ impl HudScreens {
     ) -> Result<Option<EngineFrame>, PaintError> {
         let HudInput {
             crosshair,
-            capture_keep_out,
             renderers_unchanged,
             catalog,
             context,
@@ -303,12 +283,7 @@ impl HudScreens {
                 &self.chat_local_player,
             )
         };
-        let bounds = PaintBounds::default();
         let art = ScreenArt {
-            paint_bounds: (capture_keep_out && !crosshair).then_some(PaintObserver {
-                bounds: &bounds,
-                region: BOTTOM_HUD_REGION,
-            }),
             text_format: Some(&text_format),
             nearest_sampling: true,
             clocks: Some(&self.clocks),
@@ -327,7 +302,7 @@ impl HudScreens {
             let mut hud_renderer = HudRenderer {
                 hud: paint,
                 hunger_update: Some(&advance_hunger),
-                bounds: (capture_keep_out && !crosshair).then_some(&bounds),
+                bounds: None,
             };
             let mut renderers: Vec<&mut dyn CustomRenderer> = Vec::with_capacity(caller.len() + 2);
             for renderer in caller.iter_mut() {
@@ -358,14 +333,6 @@ impl HudScreens {
             retained.drawn = matches!(drawn, Ok(Some(_)))
                 .then(|| (paint.clone(), icons.to_vec(), [color, mention]));
             retained.hunger = advanced.into_inner();
-        }
-        if !crosshair {
-            self.editor_keep_out = drawn
-                .as_ref()
-                .ok()
-                .and_then(|frame| frame.as_ref())
-                .and(bounds.get())
-                .map(|b| [b[0], b[1], b[2] - b[0], b[3] - b[1]].map(|v| f64::from(v / px)));
         }
         drawn
     }
@@ -400,29 +367,5 @@ impl HudScreens {
     #[cfg(any(test, feature = "test-support"))]
     pub fn clocks(&self) -> &BTreeMap<String, f64> {
         &self.clocks
-    }
-}
-
-/// The built-in bottom HUD root owns image frames, item icons, labels and native controls.
-pub const BOTTOM_HUD_ROOT: &str = "centered_gui_elements_at_bottom_middle";
-const BOTTOM_HUD_REGION: NonZeroU64 = NonZeroU64::new(1).unwrap();
-
-#[cfg(test)]
-mod keep_out_contract_tests {
-    use super::*;
-
-    #[test]
-    fn bottom_keep_out_root_matches_the_built_in_layout() {
-        let mut catalog = Catalog::from_files([
-            ("ui/_global_variables.json", b"{}".as_slice()),
-            (
-                "ui/_ui_defs.json",
-                br#"{"ui_defs":["ui/hud_screen.json"]}"#.as_slice(),
-            ),
-            ("ui/hud_screen.json", br#"{"namespace":"hud"}"#.as_slice()),
-        ])
-        .unwrap();
-        install_java_hud(&mut catalog);
-        assert!(catalog.lookup("hud", BOTTOM_HUD_ROOT).is_some());
     }
 }

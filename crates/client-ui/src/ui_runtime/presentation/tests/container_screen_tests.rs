@@ -652,6 +652,12 @@ fn opening_the_inventory_reuses_the_screen_prepared_while_closed() {
     presentation
         .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
         .unwrap();
+    test_time::eventually("closed inventory preparation", || {
+        presentation
+            .build(&player_runtime, &runtime, 0, [1280, 720], dpi)
+            .unwrap();
+        !presentation.engine_inventory_preparation_pending()
+    });
     let prepared = presentation.engine_container_resolves();
     assert_eq!(prepared, 1, "the closed inventory was not prepared");
     for now in [50, 100] {

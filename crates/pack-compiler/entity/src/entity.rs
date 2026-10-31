@@ -42,7 +42,7 @@ mod sanitize;
 mod vanilla_refs;
 mod versions;
 pub use molang::{BlockMolang, BlockStateValue, ItemTagMolang, compile_molang_expression};
-pub use sample_omissions::missing_harness_bindings;
+pub use sample_omissions::missing_equipment_bindings;
 pub use vanilla_refs::compile_vanilla_entity_refs;
 
 pub(crate) use pack::compile_entity_pack_unless;
@@ -311,7 +311,7 @@ fn compile_with_behavior(
     {
         return Err(invalid("entity source-byte total or count exceeds bound"));
     }
-    let route_path: Box<str> = "registry/block-item-routes-v2193.json".into();
+    let route_path: Box<str> = "registry/block-item-routes-v2225.json".into();
     sources.push(EntityAssetSource {
         path: route_path.clone(),
         source_bytes: route_bytes.len() as u32,

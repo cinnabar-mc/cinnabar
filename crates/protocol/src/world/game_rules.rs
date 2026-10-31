@@ -1,35 +1,65 @@
 //! The world rules the client reads from StartGame and GameRulesChanged.
 
-use bedrock_protocol_1_26_51::packets::StartGame;
-use bedrock_protocol_1_26_51::types::{GameRule, GameRuleValue};
+use bedrock_protocol_1_26_60::packets::StartGame;
+use bedrock_protocol_1_26_60::{
+    types::{GameRule, GameRuleValue, LevelGameRule, LevelGameRuleValue},
+    wire,
+};
 
 /// Reads the authoritative `doDaylightCycle` switch from a rule list; only a boolean value counts.
-pub(super) fn daylight_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
+pub(super) fn daylight_cycle_rule_update(rules: &[impl BooleanRule]) -> Option<bool> {
     bool_rule(rules, "dodaylightcycle")
 }
 
 /// The `doweathercycle` rule gates vanilla's seasonal palette accumulation.
-pub(super) fn weather_cycle_rule_update(rules: &[GameRule]) -> Option<bool> {
+pub(super) fn weather_cycle_rule_update(rules: &[impl BooleanRule]) -> Option<bool> {
     bool_rule(rules, "doweathercycle")
 }
 
-fn bool_rule(rules: &[GameRule], name: &str) -> Option<bool> {
+/// Reads boolean values from both startup rules and runtime rule changes.
+pub(super) trait BooleanRule {
+    /// Returns the rule name and its boolean value, if the declaration is boolean.
+    fn boolean(&self) -> (&wire::Str, Option<bool>);
+}
+
+impl BooleanRule for GameRule {
+    fn boolean(&self) -> (&wire::Str, Option<bool>) {
+        (
+            &self.rule_name,
+            match self.rule_value {
+                GameRuleValue::Bool(value) => Some(value),
+                _ => None,
+            },
+        )
+    }
+}
+
+impl BooleanRule for LevelGameRule {
+    fn boolean(&self) -> (&wire::Str, Option<bool>) {
+        (
+            &self.rule_name,
+            match self.rule_value {
+                LevelGameRuleValue::Variant1(value) => Some(value),
+                _ => None,
+            },
+        )
+    }
+}
+
+/// Finds the first boolean declaration whose name matches without case.
+fn bool_rule(rules: &[impl BooleanRule], name: &str) -> Option<bool> {
     rules.iter().find_map(|rule| {
-        if rule
-            .rule_name
+        let (rule_name, value) = rule.boolean();
+        rule_name
             .as_bytes()
             .eq_ignore_ascii_case(name.as_bytes())
-            && let GameRuleValue::Bool(enabled) = &rule.rule_value
-        {
-            Some(*enabled)
-        } else {
-            None
-        }
+            .then_some(value)
+            .flatten()
     })
 }
 
 /// Reads the native death controller's two boolean game rules.
-pub(super) fn death_rules(rules: &[GameRule]) -> crate::DeathRules {
+pub(super) fn death_rules(rules: &[impl BooleanRule]) -> crate::DeathRules {
     crate::DeathRules {
         show_messages: bool_rule(rules, "showdeathmessages"),
         immediate_respawn: bool_rule(rules, "doimmediaterespawn"),
@@ -51,7 +81,7 @@ impl crate::DeathRules {
     }
 }
 
-pub(super) fn hud_rules(rules: &[GameRule]) -> crate::HudRules {
+pub(super) fn hud_rules(rules: &[impl BooleanRule]) -> crate::HudRules {
     crate::HudRules {
         show_coordinates: bool_rule(rules, "showcoordinates"),
         show_days_played: bool_rule(rules, "showdaysplayed"),
@@ -70,7 +100,7 @@ impl crate::HudRules {
 }
 
 /// Reads only boolean declarations of the two independent crafting rules.
-pub(super) fn crafting_rules(rules: &[GameRule]) -> crate::CraftingRules {
+pub(super) fn crafting_rules(rules: &[impl BooleanRule]) -> crate::CraftingRules {
     crate::CraftingRules {
         recipes_unlock: bool_rule(rules, "recipesunlock"),
         limited_crafting: bool_rule(rules, "dolimitedcrafting"),
@@ -87,7 +117,7 @@ impl crate::CraftingRules {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::wire;
 
     #[test]
     fn death_rules_preserve_absent_and_non_boolean_values() {
@@ -110,7 +140,7 @@ mod tests {
                 immediate_respawn: Some(true),
             }
         );
-        assert!(death_rules(&[]).is_empty());
+        assert!(death_rules(&[] as &[GameRule]).is_empty());
         let invalid = GameRule {
             rule_value: GameRuleValue::Int32(wire::I32LE(1)),
             ..rules[0].clone()
@@ -125,7 +155,7 @@ mod tests {
             rule_can_be_modified: false,
             rule_value: value,
         };
-        assert_eq!(weather_cycle_rule_update(&[]), None);
+        assert_eq!(weather_cycle_rule_update(&[] as &[GameRule]), None);
         assert_eq!(
             weather_cycle_rule_update(&[rule(
                 "doWeatherCycle",

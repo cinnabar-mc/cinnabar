@@ -1,5 +1,8 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
+mod item;
+use item::held_item;
+
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
     block_entity_geometry::shulker_color_from_block_name,
@@ -24,6 +27,7 @@ const DEFAULT_SIGN_COLOR: i32 = -0x1000000;
 pub(super) struct HeldItem {
     pub(super) identifier: Arc<str>,
     pub(super) metadata: u32,
+    pub(super) shield_pattern: Option<Arc<render_api::ShieldPattern>>,
 }
 
 /// A retained plant block with all typed state selectors used to resolve its world identity.
@@ -149,18 +153,6 @@ fn frame_rotation(nbt: &NbtCompound) -> f32 {
         .filter(|degrees| degrees.is_finite())
         .map(|degrees| degrees.rem_euclid(8.0 * ITEM_FRAME_ROTATION_STEP_DEGREES))
         .unwrap_or(0.0)
-}
-
-/// Reads a usable retained item stack.
-fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
-    let name = stack.string("Name").filter(|name| !name.is_empty())?;
-    Some(HeldItem {
-        identifier: Arc::from(name),
-        metadata: stack
-            .integer("Damage")
-            .and_then(|damage| u32::try_from(damage).ok())
-            .unwrap_or(0),
-    })
 }
 
 /// Selects one leading half from a valid pair.

@@ -22,8 +22,12 @@ mod cosmetic_particles;
 mod cosmetic_previews;
 mod fire;
 mod held;
+pub(super) mod hud_model;
 mod live_player;
 mod pack_equipment;
+mod shield_icons;
+mod world_shield;
+pub use world_shield::WorldShieldArtwork;
 mod sources;
 use sources::{ModulatedMeshes, gui_cube_sheet, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
@@ -123,11 +127,15 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 
 #[derive(Default)]
 pub(super) struct GuiModels {
+    pub(super) shield_icons: shield_icons::ShieldIcons,
     pub(super) enabled: bool,
+    #[cfg(test)]
+    hud_cpu_reference: bool,
     pub(super) sources: PreparedGuiModels,
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
@@ -140,6 +148,7 @@ pub(super) struct GuiModels {
 /// Static item meshes and atlas pages prepared off the menu frame.
 #[derive(Default)]
 pub struct PreparedGuiModels {
+    pub(super) shield: Option<Arc<shield_icons::Source>>,
     pub(super) color_masks: super::color_icons::MaskRefs,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) cape: Option<render_model::cape::CapeRig>,
@@ -148,7 +157,7 @@ pub struct PreparedGuiModels {
     pub(super) faded_thumbnails: BTreeSet<IconKey>,
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
-    held: BTreeMap<assets::ItemVisualKey, held::HeldModel>,
+    held: held::HeldModels,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
 }
 
@@ -247,6 +256,7 @@ impl GuiModelPreparation {
             }
         }
         let mut models = BTreeMap::new();
+        let mut shield = None;
         if let Some(equipment) = equipment {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
@@ -266,6 +276,10 @@ impl GuiModelPreparation {
                 let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
                 if let Some(mesh) = item_gui::shield(geometry, texture, source) {
                     models.insert(icon_key(icon), mesh);
+                    shield = Some(Arc::new(shield_icons::Source {
+                        geometry: geometry.clone(),
+                        texture: texture.clone(),
+                    }));
                 }
             }
         }
@@ -383,6 +397,7 @@ impl GuiModelPreparation {
             render_model::hats::rig(hat);
         }
         Ok(PreparedGuiModels {
+            shield,
             color_masks: super::color_icons::prepare(
                 entities,
                 icons,
@@ -437,6 +452,7 @@ impl UiPresentationRuntime {
         sources: PreparedGuiModels,
     ) -> Result<(), UiPresentationError> {
         self.gui_models.sources = sources;
+        self.gui_models.shield_icons = Default::default();
         self.gui_models.clear_selected_hands();
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
@@ -522,17 +538,29 @@ impl UiPresentationRuntime {
             },
             |mesh, color, glint| modulated_meshes.get(mesh, color, glint),
         );
+        self.gui_models
+            .shield_icons
+            .apply(nodes, &mut modulated_meshes);
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
         if let Some(key) = self.player_preview_icon.map(icon_key) {
+            let shared_hud = self.player_preview_view == player_preview::PreviewView::Hud
+                && self.hud_preview_view == player_preview::PreviewView::Hud;
             // Screens draw over the HUD, so their doll is admitted first.
             for (in_hud, view) in [
                 (false, self.player_preview_view),
                 (true, self.hud_preview_view),
             ] {
+                if shared_hud && !in_hud {
+                    continue;
+                }
                 let targets = PreviewTargets {
                     key,
-                    hud: hud.clone(),
+                    hud: if shared_hud {
+                        0..nodes.len()
+                    } else {
+                        hud.clone()
+                    },
                     in_hud,
                 };
                 self.apply_gui_player_model_in(nodes, viewport, safe_area, effects, &targets, view);
@@ -557,6 +585,80 @@ impl UiPresentationRuntime {
             .enumerate()
             .any(|(index, node)| is_preview(index, node.visual()))
         {
+            return;
+        }
+        if view == player_preview::PreviewView::Hud
+            && !self.hud_cpu_reference()
+            && self.gui_models.live_player.body.geometry.is_some()
+        {
+            let instances = nodes
+                .iter()
+                .enumerate()
+                .filter(|(index, node)| is_preview(*index, node.visual()))
+                .count();
+            let held = self.preview_held_models([true; 2]);
+            let player = self.hud_player_mesh(held, |cache, mask, indices, batches| {
+                let prospective = ui::UiTree::check_visual_budget_with_mesh(
+                    nodes
+                        .iter()
+                        .enumerate()
+                        .filter(|(index, node)| !is_preview(*index, node.visual()))
+                        .map(|(_, node)| node.visual()),
+                    indices,
+                    batches,
+                    instances,
+                );
+                match prospective {
+                    Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
+                    Ok(_) => {
+                        let Some(probe) = cache.batch_probe(mask) else {
+                            return false;
+                        };
+                        let mut baseline = nodes.to_vec();
+                        replace_model_icons(
+                            &mut baseline,
+                            Some(targets),
+                            &self.gui_models.sources.faded_thumbnails,
+                            || Some(probe),
+                            |_| None,
+                            modulated,
+                        );
+                        RetainedDraw::build(
+                            &baseline,
+                            viewport,
+                            UiScale::default(),
+                            safe_area,
+                            effects,
+                        )
+                        .is_ok_and(|draw| {
+                            draw.draw_list().batches.len() <= UiLimits::MAX_DRAW_BATCHES
+                        })
+                    }
+                    Err(_) => false,
+                }
+            });
+            if let Some(player) = player {
+                for (index, node) in nodes.iter_mut().enumerate() {
+                    if !targets.shows(index, node.visual()) {
+                        continue;
+                    }
+                    let (color, glint) = match node.visual() {
+                        UiVisual::Sprite { color, .. } => (*color, false),
+                        UiVisual::GlintSprite { color, .. } => (*color, true),
+                        _ => continue,
+                    };
+                    let mesh = if glint {
+                        modulated(&player, [255; 4], true)
+                    } else {
+                        Some(Arc::clone(&player))
+                    };
+                    if let Some(mesh) = mesh {
+                        *node = node
+                            .clone()
+                            .with_visual(UiVisual::TintedMesh { mesh, color });
+                    }
+                }
+            }
             return;
         }
         let Some(sources) = self.gui_player_sources(view) else {
@@ -663,95 +765,22 @@ impl UiPresentationRuntime {
         self.gui_player_mesh_with_held([true; 2])
     }
 
+    /// Selects the explicitly materialized CPU witness only in conformance tests.
+    fn hud_cpu_reference(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.gui_models.hud_cpu_reference
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
     /// Omits held geometry when it would exhaust the surrounding inventory or HUD frame.
     #[cfg(test)]
     fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
         self.gui_player_mesh_with_models(self.preview_held_models(include_held))
-    }
-
-    /// Resolves cached source geometry without projecting or allocating UI vertices.
-    fn preview_held_models(
-        &self,
-        include_held: [bool; 2],
-    ) -> [Option<player_preview::PreviewHeldModel>; 2] {
-        std::array::from_fn(|index| {
-            let hand = &self.player_preview_gear.hands[index];
-            if !include_held[index] {
-                return None;
-            }
-            let hand = hand.as_ref()?;
-            let pack_model_suppressed = !self.player_preview_gear.show_custom_item_models
-                && self
-                    .gui_models
-                    .pack_equipment
-                    .source
-                    .as_ref()
-                    .is_some_and(|pack| {
-                        self.gui_models.selected_held[index]
-                            .as_ref()
-                            .is_some_and(|selected| Arc::ptr_eq(&selected.artwork, pack))
-                    });
-            if let Some(selected) = self.gui_models.selected_held[index]
-                .as_ref()
-                .filter(|_| !pack_model_suppressed)
-                && selected.ready
-                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
-                && selected.item.metadata == hand.metadata
-            {
-                return Some(
-                    selected
-                        .model
-                        .as_ref()?
-                        .with_grip(hand.grip)
-                        .with_glint(hand.glint),
-                );
-            }
-            let (identifier, metadata) = Self::item_icon_key(
-                &hand.identifier,
-                hand.metadata,
-                hand.use_animation,
-                hand.charged_projectile,
-                None,
-            );
-            let held = |metadata| {
-                self.gui_models.sources.held.get(&assets::ItemVisualKey {
-                    identifier: identifier.into(),
-                    metadata,
-                })
-            };
-            let base = (!pack_model_suppressed)
-                .then(|| held(metadata).or_else(|| held(0)))
-                .flatten();
-            let model = if !pack_model_suppressed
-                && let Some((source, vertices)) =
-                    self.session_icons.held_block(identifier, metadata)
-            {
-                player_preview::PreviewHeldModel {
-                    source,
-                    vertices,
-                    hand_pivots: self.gui_models.sources.hand_pivots?,
-                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
-                }
-            } else if base.is_none_or(held::HeldModel::is_sprite)
-                && self.session_item_icon(identifier, metadata).is_some()
-            {
-                let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;
-                match base {
-                    Some(base) => base.with_sprite(source, vertices),
-                    None => player_preview::PreviewHeldModel {
-                        source,
-                        vertices,
-                        hand_pivots: self.gui_models.sources.hand_pivots?,
-                        placements: [player_preview::PreviewHeldPlacement::Sprite {
-                            hand_equipped: false,
-                        }; 2],
-                    },
-                }
-            } else {
-                base?.model(self.icon_catalog.as_deref()?)?
-            };
-            Some(model.with_grip(hand.grip).with_glint(hand.glint))
-        })
     }
 
     /// Builds a test preview directly from prepared source layers and selected hand models.
@@ -792,25 +821,36 @@ impl UiPresentationRuntime {
         // Only the HUD doll draws the live actor; other renderers pose the menu model.
         let live =
             (view == player_preview::PreviewView::Hud).then_some(&self.gui_models.live_player);
-        let body = if let Some(live) = live {
-            Some((live.vertices.as_slice(), &live.parts))
-                .filter(|(vertices, _)| !vertices.is_empty())
-        } else {
-            self.menu_preview_model
-                .vertices
-                .as_deref()
-                .map(|vertices| (vertices, &unposed))
-        };
+        let body = self
+            .menu_preview_model
+            .vertices
+            .as_deref()
+            .filter(|_| live.is_none())
+            .map(|vertices| (vertices, &unposed));
+        #[cfg(test)]
+        let body = live
+            .and_then(|live| {
+                Some((live.vertices.as_slice(), &live.parts))
+                    .filter(|(vertices, _)| !vertices.is_empty())
+            })
+            .or(body);
         let cape = self.menu_preview_model.cape_key.as_deref().and_then(|key| {
             if self.gui_models.wearing_elytra {
                 return None;
             }
-            let vertices = if let Some(live) = live {
-                let vertices = live.cape_vertices.as_slice();
-                if vertices.is_empty() {
+            let vertices = if let Some(_live) = live {
+                #[cfg(not(test))]
+                {
                     return None;
                 }
-                vertices
+                #[cfg(test)]
+                {
+                    let vertices = _live.cape_vertices.as_slice();
+                    if vertices.is_empty() {
+                        return None;
+                    }
+                    vertices
+                }
             } else {
                 player_preview::cape::rest_vertices()
             };
@@ -831,8 +871,15 @@ impl UiPresentationRuntime {
             let Some(icon) = self.menu_artwork_icon(&hat.texture_key()) else {
                 continue;
             };
-            let vertices = if let Some(live) = live {
-                live.hat_vertices.get(&hat).map_or(&[][..], Vec::as_slice)
+            let vertices = if let Some(_live) = live {
+                #[cfg(not(any(test, feature = "test-support")))]
+                {
+                    &[][..]
+                }
+                #[cfg(any(test, feature = "test-support"))]
+                {
+                    _live.hat_vertices.get(&hat).map_or(&[][..], Vec::as_slice)
+                }
             } else {
                 self.gui_models.cosmetics.vertices(hat)
             };

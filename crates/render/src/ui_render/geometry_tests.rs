@@ -15,6 +15,7 @@ fn input() -> UiRenderInput {
     )
     .unwrap();
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64; 2],
         safe_area: [0; 4],
@@ -156,5 +157,166 @@ fn geometry_upload_oom_retries_changed_bytes_in_retained_arenas() {
         assert_eq!(stats.accepted_revision, Some(2));
         assert_eq!(stats.uploaded_vertices, 3);
         assert_eq!(stats.uploaded_indices, 3);
+    }
+}
+
+/// Builds an admitted palette-addressed triangle on the ordinary player-skin page.
+fn model_input() -> UiRenderInput {
+    let mut frame = input();
+    for vertex in Arc::make_mut(&mut frame.vertices) {
+        vertex.style_flags |= render_api::UI_STYLE_MODEL_VERTEX;
+        vertex.overlay_color = [0., 0., 1., 0.];
+    }
+    Arc::make_mut(&mut frame.batches)[0] = frame.batches[0]
+        .with_depth_test(true)
+        .with_depth_write(true)
+        .with_isolated_depth_scope(Some(7));
+    let bone = render_model::UiModelBone {
+        screen: glam::Mat4::IDENTITY.to_cols_array_2d(),
+        normal: [[1., 0., 0., 0.], [0., 1., 0., 0.], [0., 0., 1., 0.]],
+        overlay: [0.; 4],
+        uv_rect: [0., 0., 1., 1.],
+        uv_cross: [0.; 4],
+        tint: [1.; 4],
+        styles: [0; 4],
+    };
+    frame.models = Arc::from([render_model::UiModelPose {
+        scope: 7,
+        bones: Arc::from([bone]),
+        bounds: UiScissor::new(0, 0, 64, 64),
+    }]);
+    frame
+}
+
+/// Animated model palettes never upload the resident mesh or replace its shared arenas.
+#[test]
+fn animated_ui_model_updates_only_the_bone_palette() {
+    let mut world = ordered_command_tests::binding_world();
+    let mut frame = model_input();
+    let bone = frame.models[0].bones[0];
+    publish(&mut world, frame.clone());
+    world.run_system_once(prepare_ui_resources).unwrap();
+    let gpu = world.resource::<UiGpu>();
+    let writes = gpu.geometry_writes;
+    let arenas = (
+        gpu.vertex_arena_id,
+        gpu.index_arena_id,
+        gpu.models.buffer.id(),
+    );
+    for step in 2..6 {
+        frame.revision = step;
+        let mut moved = bone;
+        moved.screen[3][0] = step as f32;
+        frame.models = Arc::from([render_model::UiModelPose {
+            scope: 7,
+            bones: Arc::from([moved]),
+            bounds: UiScissor::new(0, 0, 64, 64),
+        }]);
+        publish(&mut world, frame.clone());
+        world.run_system_once(prepare_ui_resources).unwrap();
+        let gpu = world.resource::<UiGpu>();
+        assert_eq!(gpu.accepted_revision, Some(step));
+        assert_eq!(
+            gpu.geometry_writes, writes,
+            "model animation uploaded static geometry"
+        );
+        assert_eq!(
+            (
+                gpu.vertex_arena_id,
+                gpu.index_arena_id,
+                gpu.models.buffer.id()
+            ),
+            arenas
+        );
+        let stats = world.resource::<UiRenderStatsResource>().snapshot();
+        assert_eq!((stats.uploaded_vertices, stats.uploaded_indices), (0, 0));
+        assert_eq!(stats.draw_calls, 1);
+    }
+}
+
+/// Failed palette allocation or writes retain the last baseline and retry the same publication.
+#[test]
+fn model_palette_oom_retries_without_committing_or_replacing_resident_bindings() {
+    for grow in [false, true] {
+        for stage in ["retained UI model bone palette", "UI model palette upload"] {
+            if !grow && stage == "retained UI model bone palette" {
+                continue;
+            }
+            let mut world = ordered_command_tests::binding_world();
+            let mut frame = model_input();
+            publish(&mut world, frame.clone());
+            world.run_system_once(prepare_ui_resources).unwrap();
+            let buffer = world.resource::<UiGpu>().models.buffer.id();
+            frame.revision += 1;
+            let mut bone = frame.models[0].bones[0];
+            bone.screen[3][0] += 5.;
+            Arc::make_mut(&mut frame.models)[0].bones = vec![bone; if grow { 2 } else { 1 }].into();
+            publish(&mut world, frame);
+            let reached = Rc::new(Cell::new(false));
+            let seen = reached.clone();
+            let failure = crate::gpu_allocation::inject(move |label, _| {
+                if label == stage {
+                    seen.set(true);
+                    true
+                } else {
+                    false
+                }
+            });
+            world.run_system_once(prepare_ui_resources).unwrap();
+            let gpu = world.resource::<UiGpu>();
+            assert!(reached.get(), "failure boundary not reached: {stage}");
+            assert_eq!(gpu.accepted_revision, None);
+            assert_eq!(gpu.last_admitted_revision, Some(1));
+            assert!(gpu.batches.is_empty());
+            assert_eq!(gpu.models.buffer.id(), buffer);
+            drop(failure);
+            world.run_system_once(prepare_ui_resources).unwrap();
+            let gpu = world.resource::<UiGpu>();
+            assert_eq!(gpu.accepted_revision, Some(2));
+            assert_eq!(gpu.last_admitted_revision, Some(2));
+            assert_eq!(gpu.models.buffer.id() != buffer, grow);
+        }
+    }
+}
+
+/// An interrupted in-place write must rewrite all bones, even when the next pose restores old data.
+#[test]
+fn failed_model_palette_upload_repairs_restored_and_partly_changed_poses() {
+    for restore_original in [false, true] {
+        let mut world = ordered_command_tests::binding_world();
+        let mut original = model_input();
+        let bone = original.models[0].bones[0];
+        Arc::make_mut(&mut original.models)[0].bones = Arc::from([bone; 2]);
+        publish(&mut world, original.clone());
+        world.run_system_once(prepare_ui_resources).unwrap();
+        let mut changed = original.clone();
+        changed.revision = 2;
+        Arc::make_mut(&mut Arc::make_mut(&mut changed.models)[0].bones)[0].screen[3][0] = 5.;
+        publish(&mut world, changed);
+        let failure = crate::gpu_allocation::inject(|label, _| label == "UI model palette upload");
+        world.run_system_once(prepare_ui_resources).unwrap();
+        assert_eq!(world.resource::<UiGpu>().accepted_revision, None);
+        drop(failure);
+        let mut repaired = original;
+        repaired.revision = 3;
+        if !restore_original {
+            Arc::make_mut(&mut Arc::make_mut(&mut repaired.models)[0].bones)[1].screen[3][1] = 7.;
+        }
+        publish(&mut world, repaired);
+        let uploaded = Rc::new(Cell::new(0));
+        let observed = Rc::clone(&uploaded);
+        let witness = crate::gpu_allocation::inject(move |label, bytes| {
+            if label == "UI model palette upload" {
+                observed.set(bytes);
+            }
+            false
+        });
+        world.run_system_once(prepare_ui_resources).unwrap();
+        assert_eq!(world.resource::<UiGpu>().accepted_revision, Some(3));
+        assert_eq!(
+            uploaded.get(),
+            (2 * size_of::<render_model::UiModelBone>()) as u64
+        );
+        drop(witness);
     }
 }

@@ -90,8 +90,16 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
         let indices = &input.indices
             [batch.first_index as usize..(batch.first_index + batch.index_count) as usize];
         for triangle in indices.as_chunks::<3>().0 {
-            let corners: [UiRenderVertex; 3] =
-                std::array::from_fn(|corner| input.vertices[triangle[corner] as usize]);
+            let pose = batch
+                .isolated_depth_scope
+                .and_then(|scope| input.models.iter().find(|pose| pose.scope == scope));
+            let corners: [UiRenderVertex; 3] = std::array::from_fn(|corner| {
+                render_model::project_ui_model_vertex(
+                    input.vertices[triangle[corner] as usize],
+                    pose,
+                )
+                .expect("validated model palette")
+            });
             let [du, dv] = offset(triangle[0] as usize);
             fill(
                 &mut image,
@@ -162,9 +170,13 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                         .round() as u8;
                         texel = [luma, luma, luma, texel[3]];
                     }
-                    Some(premultiply(std::array::from_fn(|channel| {
+                    let mut rgba = premultiply(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
-                    })))
+                    }));
+                    if corners[0].style_flags & render_api::UI_STYLE_RGB_COVERAGE != 0 {
+                        rgba[3] *= f32::from(texel[0].max(texel[1]).max(texel[2])) / 255.0;
+                    }
+                    Some(rgba)
                 },
                 batch.blend_mode == UI_BLEND_INVERT,
             );
@@ -351,6 +363,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [2, 2],
                 safe_area: [0; 4],
@@ -395,6 +408,7 @@ mod tests {
                     ..vertex(position[0], position[1])
                 });
             rasterize(&UiRenderInput {
+                models: Default::default(),
                 revision: 1,
                 viewport_size: [3, 1],
                 safe_area: [0; 4],

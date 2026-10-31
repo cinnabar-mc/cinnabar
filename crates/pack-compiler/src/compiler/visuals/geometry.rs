@@ -19,23 +19,33 @@ pub(in crate::compiler) fn vanilla_cuboid_quads(
     quads
 }
 
+/// The native `Flip` value that mirrors a face's texture horizontally.
+pub(in crate::compiler) const FLIP_MIRROR: u8 = 4;
+
+/// Turns `quad`'s UVs by a native `Flip` value: 1 and 2 are opposite quarter turns, 3 a half
+/// turn and [`FLIP_MIRROR`] a horizontal mirror.
+pub(in crate::compiler) fn flip_uvs(quad: &mut ModelQuad, flip: u8) {
+    for uv in &mut quad.uvs {
+        let [u, v] = *uv;
+        *uv = match flip {
+            1 => [v, 4096 - u],
+            2 => [4096 - v, u],
+            3 => [4096 - u, 4096 - v],
+            FLIP_MIRROR => [4096 - u, v],
+            _ => [u, v],
+        };
+    }
+}
+
 /// Full-cube native quads with each face's UVs flipped by its native `Flip` value
-/// (1 and 2 are opposite quarter turns, 3 a half turn), keeping each quad's own face culling.
+/// ([`flip_uvs`]), keeping each quad's own face culling.
 pub(in crate::compiler) fn flipped_cube_quads(
     materials: [u32; 6],
     flips: [u8; 6],
 ) -> [ModelQuad; 6] {
     let mut quads = vanilla_cuboid_quads(materials, [0; 3], [256; 3]);
     for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
-        for uv in &mut quad.uvs {
-            let [u, v] = *uv;
-            *uv = match flips[face as usize] {
-                1 => [v, 4096 - u],
-                2 => [4096 - v, u],
-                3 => [4096 - u, 4096 - v],
-                _ => [u, v],
-            };
-        }
+        flip_uvs(quad, flips[face as usize]);
         quad.flags |= (quad.flags & MODEL_QUAD_FLAG_FACE_MASK) << 4;
     }
     quads

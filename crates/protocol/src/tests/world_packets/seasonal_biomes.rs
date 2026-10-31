@@ -1,5 +1,5 @@
 use super::*;
-use bedrock_protocol_1_26_51::types::{BiomeClimateData, BiomeDefinitionChunkGenData};
+use bedrock_protocol_1_26_60::types::{BiomeClimateData, BiomeDefinitionChunkGenData};
 
 #[test]
 fn biome_snow_accumulation_preserves_optional_wire_climate_and_ignores_nonfinite_optional_data() {

@@ -1,20 +1,20 @@
 use std::{fs, process::Command};
 
-use assets::{HUD_SOURCE_MANIFEST_SHA256, HudTextureRole, RuntimeHudCatalog};
+use assets::{HudTextureRole, RuntimeHudCatalog, hud_source_manifest_sha256};
 use pack_compiler::compile_hud_assets;
 use sha2::{Digest, Sha256};
 
-const SOURCE_MANIFEST: &[u8] = include_bytes!("../../../../assets/hud-source-v2193.json");
+const SOURCE_MANIFEST: &[u8] = include_bytes!("../../../../assets/hud-source-v2225.json");
 
 #[test]
-fn tracked_hud_manifest_is_the_reviewed_protocol_2193_identity() {
+fn tracked_hud_manifest_is_the_reviewed_protocol_2225_identity() {
     let canonical = SOURCE_MANIFEST
         .split(|byte| *byte == b'\r')
         .flat_map(|part| part.iter().copied())
         .collect::<Vec<_>>();
     assert_eq!(
         <[u8; 32]>::from(Sha256::digest(&canonical)),
-        HUD_SOURCE_MANIFEST_SHA256
+        hud_source_manifest_sha256()
     );
     let text = std::str::from_utf8(SOURCE_MANIFEST).unwrap();
     let pinned = assets::vanilla_source();
@@ -24,7 +24,7 @@ fn tracked_hud_manifest_is_the_reviewed_protocol_2193_identity() {
         pinned.archive.as_ref(),
         pinned.sha256.as_ref(),
         pinned.url.as_ref(),
-        "\"protocol\": 2193",
+        "\"protocol\": 2225",
         "ui/scoreboards.json",
         "ui/hud_screen.json",
         "textures/ui/heart.png",
@@ -46,7 +46,7 @@ fn modified_or_custom_hud_manifest_is_rejected_before_pack_ingestion() {
     assert!(
         error
             .to_string()
-            .contains("reviewed protocol-2193 identity")
+            .contains("reviewed protocol-2225 identity")
     );
     assert!(!error.to_string().contains("could not be read"));
 }
@@ -77,7 +77,7 @@ fn exact_official_sample_pack_compiles_all_reviewed_hud_sources() {
 
     assert_eq!(
         compiled.report.source_manifest_sha256,
-        HUD_SOURCE_MANIFEST_SHA256
+        hud_source_manifest_sha256()
     );
     assert_eq!(compiled.report.textures, HudTextureRole::ALL.len());
     assert_eq!(runtime.textures().len(), HudTextureRole::ALL.len());

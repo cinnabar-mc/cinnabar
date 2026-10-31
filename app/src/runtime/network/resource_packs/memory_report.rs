@@ -127,10 +127,6 @@ fn only(pick: impl FnOnce(&mut Changes)) -> Changes {
 }
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "the memory report prints PACK_COMPILE_MEMORY lines on stderr"
-)]
 fn pack_compile_memory_report() {
     let Some(paths) = join_fixture("pack_compile_memory_report") else {
         return;

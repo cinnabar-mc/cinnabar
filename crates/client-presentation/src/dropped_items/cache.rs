@@ -11,9 +11,11 @@ use render_model::{
 
 mod planning;
 mod publication;
+mod shields;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) enum ModelKey {
+    Shield(client_ui::ui_runtime::presentation::gui_models::WorldShieldArtwork),
     PottedBlock {
         id: u32,
     },
@@ -85,6 +87,8 @@ pub(crate) struct ModelCache {
     sprite_only: bool,
     planning: bool,
     costs: HashMap<ModelKey, ItemModelCost>,
+    /// Current shield consumers also bound the lifetime of their retained pack sources.
+    shield_demand: HashSet<ModelKey>,
     planned: HashSet<ModelKey>,
     selected: HashSet<ModelKey>,
     budget_rejections: HashMap<(ModelKey, bool, bool), planning::RejectionBudget>,
@@ -235,6 +239,7 @@ impl ModelCache {
 
     /// Reuses a successfully admitted model while preserving current-consumer protection.
     pub(super) fn resident(&mut self, key: &ModelKey) -> Option<u32> {
+        self.observe_shield(key);
         let slot = *self.index.get(key)?;
         if self.planning {
             let cost = *self.costs.get(key).expect("resident has validated costs");
@@ -298,6 +303,7 @@ impl ModelCache {
 
     /// Starts demand collection before any residency decisions are made.
     pub(super) fn begin_frame(&mut self) {
+        self.shield_demand.clear();
         self.frame = self
             .frame
             .checked_add(1)
@@ -424,6 +430,7 @@ impl ModelCache {
         cost: impl FnOnce() -> Option<ItemModelCost>,
         build: impl FnOnce() -> Option<DroppedItemModel>,
     ) -> Option<u32> {
+        self.observe_shield(&key);
         if self.planning {
             return self.plan_model(key, cost);
         }
@@ -577,6 +584,7 @@ impl ModelCache {
 
     /// Publishes current demand and fitting speculative frames at stable slots.
     pub(super) fn finish_frame(&mut self) {
+        self.retire_shields();
         if self.cube_plan_downgrades > 0 {
             tracing::debug!(
                 cube_plan_downgrades = self.cube_plan_downgrades,

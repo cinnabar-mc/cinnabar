@@ -16,6 +16,18 @@ pub const MAX_STARTER_SKINS_BYTES: usize = 128 * 1024;
 /// Skin geometry identifiers for the classic and slim player models.
 pub const CLASSIC_SKIN_GEOMETRY: &str = "geometry.humanoid.custom";
 pub const SLIM_SKIN_GEOMETRY: &str = "geometry.humanoid.customSlim";
+/// The bone the resource pack's slim model mirrors and the built-in skin pack's model does not.
+const SLIM_SKIN_UNMIRRORED_BONE: &str = "leftLeg";
+
+/// Whether a skin model drops the mirror its resource pack copy authors for `bone`.
+///
+/// Classic and slim skins use the built-in skin pack's models, which the fetched pack lacks.
+/// Consumers that derive a skin model from the resource pack apply this to match them.
+#[must_use]
+pub fn skin_model_unmirrors_bone(model: &str, bone: &str) -> bool {
+    model.eq_ignore_ascii_case(SLIM_SKIN_GEOMETRY)
+        && bone.eq_ignore_ascii_case(SLIM_SKIN_UNMIRRORED_BONE)
+}
 
 const HASH_BYTES: usize = 32;
 const HEADER_BYTES: usize = 12;

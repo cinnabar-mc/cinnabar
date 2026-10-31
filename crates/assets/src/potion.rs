@@ -704,9 +704,18 @@ mod tests {
             .iter()
             .map(|entry| entry["name"].as_str().unwrap())
             .collect();
+        let unresolved = ["minecraft:freezing", "minecraft:long_freezing"];
+        for name in unresolved {
+            assert!(
+                !POTION_DESCRIPTORS
+                    .iter()
+                    .any(|potion| potion.identifier == name)
+            );
+        }
         let admitted: BTreeSet<_> = POTION_DESCRIPTORS
             .iter()
             .map(|potion| potion.identifier)
+            .chain(unresolved)
             .collect();
         assert_eq!(names, admitted);
     }

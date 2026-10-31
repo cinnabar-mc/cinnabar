@@ -2,15 +2,15 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ContainerEnumName as Name, ItemDescriptorType as DescriptorKind,
     ItemStackRequestActionType as Kind,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     FullContainerName, ItemDescriptor, ItemInstance, RecipeIngredient, RecipeNetID,
     StackRequestAction as Item, StackRequestSlotInfo,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 use super::super::InventoryPacketError;
 use super::super::container_policy::{ContainerWindow, container_window};
@@ -236,7 +236,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             primary_effect,
             secondary_effect,
         } => Item::BeaconPaymentActionData {
-            action_type: Kind::Screenbeaconpayment,
+            action_type: Kind::ScreenBeaconPayment,
             primary_effect_id: wire::ZigZag32(*primary_effect),
             secondary_effect_id: wire::ZigZag32(*secondary_effect),
         },
@@ -245,7 +245,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             predicted_durability,
             stack_network_id,
         } => Item::MineBlockActionData {
-            action_type: Kind::Screenhudmineblock,
+            action_type: Kind::ScreenHudMineBlock,
             slot: wire::ZigZag32(*hotbar_slot),
             predicted_durability: wire::ZigZag32(*predicted_durability),
             net_id_variant: wire::I32LE(*stack_network_id),
@@ -254,7 +254,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             recipe_network_id,
             crafts: count,
         } => Item::CraftRecipeActionData {
-            action_type: Kind::Craftrecipe,
+            action_type: Kind::CraftRecipe,
             recipe_net_id: RecipeNetID(*recipe_network_id),
             number_of_requested_crafts: wire::U8(crafts(*count)?),
         },
@@ -263,7 +263,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             crafts: count,
             ingredients,
         } => Item::CraftRecipeAutoActionData {
-            action_type: Kind::Craftrecipeauto,
+            action_type: Kind::CraftRecipeAuto,
             recipe_net_id: RecipeNetID(*recipe_network_id),
             number_of_requested_crafts: wire::U8(crafts(*count)?),
             ingredients: ingredients
@@ -278,7 +278,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             creative_item_network_id,
             crafts: count,
         } => Item::CraftCreativeActionData {
-            action_type: Kind::Craftcreative,
+            action_type: Kind::CraftCreative,
             creative_item_net_id: wire::VarUInt(*creative_item_network_id),
             number_of_requested_crafts: wire::U8(crafts(*count)?),
         },
@@ -286,7 +286,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             recipe_network_id,
             filtered_string_index,
         } => Item::CraftRecipeOptionalActionData {
-            action_type: Kind::Craftrecipeoptional,
+            action_type: Kind::CraftRecipeOptional,
             recipe_net_id: RecipeNetID(*recipe_network_id),
             filtered_string_index: wire::I32LE(*filtered_string_index),
         },
@@ -295,7 +295,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             crafts: count,
             repair_cost,
         } => Item::CraftRepairAndDisenchantActionData {
-            action_type: Kind::Craftrepairanddisenchant,
+            action_type: Kind::CraftRepairAndDisenchant,
             recipe_net_id: wire::I32LE(*recipe_network_id),
             number_of_requested_crafts: wire::U8(crafts(*count)?),
             repair_cost: wire::ZigZag32(*repair_cost),
@@ -304,7 +304,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             pattern,
             crafts: count,
         } => Item::CraftLoomActionData {
-            action_type: Kind::Craftloom,
+            action_type: Kind::CraftLoom,
             pattern_name_id: wire::Str::from(&**pattern),
             num_crafts: wire::U8(crafts(*count)?),
         },
@@ -312,7 +312,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
             results,
             crafts: count,
         } => Item::CraftResultsActionData {
-            action_type: Kind::Craftresults,
+            action_type: Kind::CraftResults,
             craft_results: results.iter().map(craft_result).collect(),
             num_crafts: wire::U8(crafts(*count)?),
         },
@@ -322,7 +322,7 @@ pub(super) fn encode(action: &StackRequestAction) -> Result<Item, InventoryPacke
 fn craft_result(result: &CraftResult) -> ItemInstance {
     ItemInstance {
         item_descriptor: ItemDescriptor::ItemNameDescriptorData {
-            descriptor_type: DescriptorKind::Itemname,
+            descriptor_type: DescriptorKind::ItemName,
             full_name: wire::Str::from(&*result.identifier),
             aux_value: wire::ZigZag32(result.aux),
         },
@@ -338,12 +338,12 @@ fn item_descriptor(descriptor: &StackItemDescriptor) -> ItemDescriptor {
             descriptor_type: DescriptorKind::Empty,
         },
         StackItemDescriptor::Name { identifier, aux } => ItemDescriptor::ItemNameDescriptorData {
-            descriptor_type: DescriptorKind::Itemname,
+            descriptor_type: DescriptorKind::ItemName,
             full_name: wire::Str::from(&**identifier),
             aux_value: wire::ZigZag32(*aux),
         },
         StackItemDescriptor::Tag(tag) => ItemDescriptor::ItemTagDescriptorData {
-            descriptor_type: DescriptorKind::Itemtag,
+            descriptor_type: DescriptorKind::ItemTag,
             item_tag: wire::Str::from(&**tag),
         },
     }
@@ -358,26 +358,26 @@ fn slot(slot: StackRequestSlot) -> Result<StackRequestSlotInfo, InventoryPacketE
     };
     let (container_name, wire_slot, dynamic_id) = match slot.container {
         C::PlayerInventory if slot.slot < crate::HOTBAR_SLOT_COUNT => {
-            (Name::Hotbarcontainer, slot.slot, None)
+            (Name::HotbarContainer, slot.slot, None)
         }
         C::PlayerInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            (Name::Inventorycontainer, slot.slot, None)
+            (Name::InventoryContainer, slot.slot, None)
         }
         C::CombinedInventory if slot.slot < PLAYER_INVENTORY_SLOTS => {
-            (Name::Combinedhotbarandinventorycontainer, slot.slot, None)
+            (Name::CombinedHotbarAndInventoryContainer, slot.slot, None)
         }
-        C::Cursor if slot.slot == 0 => (Name::Cursorcontainer, 0, None),
-        C::Armor if slot.slot < ARMOR_SLOTS => (Name::Armorcontainer, slot.slot, None),
+        C::Cursor if slot.slot == 0 => (Name::CursorContainer, 0, None),
+        C::Armor if slot.slot < ARMOR_SLOTS => (Name::ArmorContainer, slot.slot, None),
         C::Offhand if matches!(slot.slot, 0 | OFFHAND_WIRE_SLOT) => {
-            (Name::Offhandcontainer, OFFHAND_WIRE_SLOT, None)
+            (Name::OffhandContainer, OFFHAND_WIRE_SLOT, None)
         }
         C::CraftingInput if CRAFTING_INPUT_SLOTS.contains(&slot.slot) => {
-            (Name::Craftinginputcontainer, slot.slot, None)
+            (Name::CraftingInputContainer, slot.slot, None)
         }
         C::CreatedOutput if slot.slot == CREATED_OUTPUT_SLOT => {
-            (Name::Createdoutputcontainer, slot.slot, None)
+            (Name::CreatedOutputContainer, slot.slot, None)
         }
-        C::LevelEntity { dynamic_id } => (Name::Levelentitycontainer, slot.slot, dynamic_id),
+        C::LevelEntity { dynamic_id } => (Name::LevelEntityContainer, slot.slot, dynamic_id),
         C::OpenWindow { name, dynamic_id }
             if container_window(name) == Some(ContainerWindow::Open) =>
         {
@@ -406,8 +406,8 @@ fn open_window_name(code: u8) -> Option<Name> {
 
 #[cfg(test)]
 mod tests {
-    use bedrock_protocol_1_26_51::packets::{self, ItemStackRequest};
-    use bedrock_protocol_1_26_51::wire::{Decode, Encode};
+    use bedrock_protocol_1_26_60::packets::{self, ItemStackRequest};
+    use bedrock_protocol_1_26_60::wire::{Decode, Encode};
 
     use super::super::item_stack_request_packet;
     use super::*;
@@ -445,7 +445,7 @@ mod tests {
             let info = slot(at(StackRequestContainer::CombinedInventory, cell, 7)).unwrap();
             assert_eq!(
                 info.full_container_name.container_name,
-                Name::Combinedhotbarandinventorycontainer
+                Name::CombinedHotbarAndInventoryContainer
             );
             assert_eq!(info.slot.0, cell);
         }

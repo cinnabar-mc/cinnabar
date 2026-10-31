@@ -19,24 +19,19 @@ import (
 const validBlockedFoundation = `{
   "schema": "cinnabar.registry-foundation.v1",
   "status": "blocked",
-  "game_version": "1.26.50",
-  "protocol": 2193,
+  "game_version": "1.26.60",
+  "protocol": 2225,
   "formats": {"block": "BREG1003", "light": "LREG1001", "biome": "BIOREG01"},
   "outputs": {
-    "block": "crates/assets/data/block-registry-v2193.bin",
-    "light": "crates/assets/data/block-light-registry-v2193.bin",
-    "biome": "crates/assets/data/biome-registry-v2193.bin"
+    "block": "crates/assets/data/block-registry-v2225.bin",
+    "light": "crates/assets/data/block-light-registry-v2225.bin",
+    "biome": "crates/assets/data/biome-registry-v2225.bin"
   },
   "sources": {
     "protocolgen": {
       "module": "` + shared.ModulePath + `",
       "source_lock_sha256": "` + shared.SourceLockSHA256 + `",
       "cloudburst_ref": "` + shared.CloudburstRef + `"
-    },
-    "bds": {
-      "archive_sha256": "2c9b98d07d2504786996f2335980e88bd969b4a77514925e75471a1349995825",
-      "executable_sha256": "19c88569af2e4b7d984e999055a31cbcb0799dacf8bbbf7371eda42f5772a443",
-      "overlay_sha256": "f7cc20dd63cc799381368b55104d8a7b7dd20fc654a655a2188833db9f663339"
     }
   },
   "missing": [
@@ -81,14 +76,14 @@ func TestRegistryFoundationRejectsMalformedAndTrailingJSON(t *testing.T) {
 
 func TestRegistryFoundationRejectsVersionHashMagicAndLegacyOutputs(t *testing.T) {
 	tests := map[string]string{
-		"game version":   strings.Replace(validBlockedFoundation, `"1.26.50"`, `"1.26.51"`, 1),
-		"protocol":       strings.Replace(validBlockedFoundation, `2193`, `2192`, 1),
+		"game version":   strings.Replace(validBlockedFoundation, `"1.26.60"`, `"1.26.51"`, 1),
+		"protocol":       strings.Replace(validBlockedFoundation, `2225`, `2192`, 1),
 		"uppercase hash": strings.Replace(validBlockedFoundation, shared.SourceLockSHA256, strings.ToUpper(shared.SourceLockSHA256), 1),
 		"short hash":     strings.Replace(validBlockedFoundation, shared.SourceLockSHA256, `abcd`, 1),
 		"block magic":    strings.Replace(validBlockedFoundation, `BREG1003`, `BREG1002`, 1),
 		"light magic":    strings.Replace(validBlockedFoundation, `LREG1001`, `LREG1002`, 1),
 		"biome magic":    strings.Replace(validBlockedFoundation, `BIOREG01`, `BIOREG02`, 1),
-		"legacy output":  strings.Replace(validBlockedFoundation, `block-registry-v2193.bin`, `block-registry-v1001.bin`, 1),
+		"legacy output":  strings.Replace(validBlockedFoundation, `block-registry-v2225.bin`, `block-registry-v1001.bin`, 1),
 	}
 	for name, input := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -148,8 +143,8 @@ func TestRegistryFoundationReadyRequiresThreeSeparatelyBoundProjections(t *testi
 func TestRegistryFoundationValidationCreatesNoOutputs(t *testing.T) {
 	root := filepath.Join("..", "..")
 	outputs := []string{
-		"crates/assets/data/block-registry-v2193.bin",
-		"crates/assets/data/block-light-registry-v2193.bin",
+		"crates/assets/data/block-registry-v2225.bin",
+		"crates/assets/data/block-light-registry-v2225.bin",
 	}
 	before := make(map[string][]byte, len(outputs))
 	for _, output := range outputs {
@@ -180,7 +175,7 @@ func TestRegistryFoundationCommandExitContract(t *testing.T) {
 		t.Fatalf("build foundationcheck: %v\n%s", err, output)
 	}
 	dir := t.TempDir()
-	blocked := filepath.Join("..", "..", "assets", "registry-foundation-v2193.json")
+	blocked := filepath.Join("..", "..", "assets", "registry-foundation-v2225.json")
 	ready := filepath.Join(dir, "ready.json")
 	malformed := filepath.Join(dir, "malformed.json")
 	if err := os.WriteFile(ready, []byte(validReadyFoundation()), 0o600); err != nil {
@@ -243,9 +238,9 @@ func TestRegistryFoundationMakeTargetIsIsolatedAndReady(t *testing.T) {
 	text := string(makefile)
 	for _, required := range []string{
 		".DEFAULT_GOAL := help",
-		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2193.json",
+		"REGISTRY_FOUNDATION_MANIFEST ?= assets/registry-foundation-v2225.json",
 		"registry-foundation-check:",
-		"Validate the exact protocol-2193 registry foundation",
+		"Validate the exact protocol-2225 registry foundation",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Makefile missing %q", required)
@@ -333,12 +328,16 @@ func TestRegistryFoundationFollowsTargetBlockPin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	biome, err := targetpin.Hash("biome_registry")
+	if err != nil {
+		t.Fatal(err)
+	}
 	changed := strings.Repeat("a", 64)
 	dir := t.TempDir()
 	if err := os.Mkdir(filepath.Join(dir, "assets"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed, "light_registry": light}})
+	target, err := json.Marshal(map[string]any{"hashes": map[string]string{"block_registry": changed, "light_registry": light, "biome_registry": biome}})
 	if err != nil {
 		t.Fatal(err)
 	}

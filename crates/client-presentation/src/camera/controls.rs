@@ -1,19 +1,21 @@
 //! Camera input routing and deterministic acceptance movement.
 
 use bevy::{
-    prelude::{EulerRot, Quat, Res, ResMut, Resource, Single, Time, Transform, Vec2, Vec3},
+    prelude::{EulerRot, Quat, Res, ResMut, Resource, Time, Transform, Vec2, Vec3},
     window::{CursorGrabMode, CursorOptions, Window},
 };
 use semantic_input::Action;
-use std::f32::consts::TAU;
+#[cfg(feature = "developer-control")]
+use {bevy::prelude::Single, std::f32::consts::TAU};
 
-use super::{
-    AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, CameraSettingsAuthority, FlyCamera,
-    PITCH_LIMIT, ServerCameraView, fov, look,
-};
+#[cfg(feature = "developer-control")]
+use super::{AUTO_FLY_MAX_HORIZONTAL_BLOCKS, AUTO_FLY_PERIOD_SECONDS, FlyCamera};
+use super::{CameraSettingsAuthority, PITCH_LIMIT, ServerCameraView, fov, look};
 use crate::local_player::LocalViewPose;
 
+#[cfg(feature = "developer-control")]
 const AUTO_FLY_RADIUS_BLOCKS: f32 = AUTO_FLY_MAX_HORIZONTAL_BLOCKS * 0.5;
+#[cfg(feature = "developer-control")]
 const AUTO_FLY_VERTICAL_BLOCKS: f32 = 8.0;
 
 /// Enables deterministic camera movement for `--auto-fly` acceptance runs.
@@ -22,9 +24,12 @@ pub struct AutoFly {
     enabled: bool,
     capture_pending: bool,
     presentation_paused: bool,
+    #[cfg(feature = "developer-control")]
     path_anchor: Option<Vec3>,
+    #[cfg(feature = "developer-control")]
     last_path_position: Option<Vec3>,
     look_target: Option<Vec3>,
+    #[cfg(feature = "developer-control")]
     elapsed_seconds: f32,
 }
 
@@ -42,9 +47,12 @@ impl AutoFly {
             enabled,
             capture_pending,
             presentation_paused: false,
+            #[cfg(feature = "developer-control")]
             path_anchor: None,
+            #[cfg(feature = "developer-control")]
             last_path_position: None,
             look_target: None,
+            #[cfg(feature = "developer-control")]
             elapsed_seconds: 0.0,
         }
     }
@@ -99,6 +107,7 @@ impl AutoFly {
 
 #[must_use]
 /// Samples the deterministic closed acceptance path.
+#[cfg(feature = "developer-control")]
 pub fn auto_fly_offset(seconds: f32) -> Vec3 {
     let phase = seconds.rem_euclid(AUTO_FLY_PERIOD_SECONDS) / AUTO_FLY_PERIOD_SECONDS;
     let angle = phase * TAU;
@@ -243,6 +252,7 @@ pub fn update_look(
 }
 
 /// Advances acceptance movement or the local non-physics fly camera.
+#[cfg(feature = "developer-control")]
 #[allow(
     clippy::too_many_arguments,
     reason = "Input permissions and independently scheduled resources have separate owners."

@@ -19,6 +19,11 @@ pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
 pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
 
 mod guest;
+mod input;
+pub use input::{
+    MAX_CONTROL_KEY_BYTES, MAX_CONTROL_KEYS, MAX_INPUT_ACTION_BYTES, MAX_INPUT_BINDINGS,
+    MAX_INPUT_BINDINGS_PER_READ, control_key_valid,
+};
 pub mod native_camera;
 pub mod native_frame;
 pub mod native_menu;
@@ -50,7 +55,7 @@ pub const MAX_CAMERA_DELTA_RADIANS: f32 = 0.25;
 pub const MAX_ENTITY_REACH_BLOCKS: f32 = 6.0;
 /// Maximum opt-in delay of post-login application packets in either direction.
 pub const MAX_PACKET_DELAY_MS: u32 = 1_000;
-/// Bounded control and settings payloads for personal components.
+/// Bounded serialized personal settings.
 pub const MAX_SETTINGS_BYTES: usize = 16 * 1024;
 /// Inventory requests one player-mod callback may make.
 pub const MAX_INVENTORY_REQUESTS: usize = 4;
@@ -87,6 +92,11 @@ pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
 pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
 /// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
 pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
+/// Supported mod API revisions, oldest to newest. Append a revision when adding
+/// capabilities; remove an older revision only when it is no longer supported.
+pub const COMPATIBILITY_REVISIONS_JSON: &str = include_str!("../compatibility-revisions.json");
+/// Optional JSON source, package and full mod revision for host-compatible update selection.
+pub const REVISION_UPDATE_SECTION: &str = "cinnabar:extension/revision-update@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
@@ -99,15 +109,6 @@ pub const COMPONENT_ASSET_SECTIONS: [&str; 6] = [
     NOTICES_SECTION,
     ICON_SECTION,
 ];
-pub const MAX_CONTROL_KEYS: usize = 64;
-/// Maximum bytes in a physical key name supplied by local controls.
-pub const MAX_CONTROL_KEY_BYTES: usize = 32;
-/// Whether a physical key name fits the shared controls wire contract.
-pub fn control_key_valid(key: &str) -> bool {
-    !key.is_empty()
-        && key.len() <= MAX_CONTROL_KEY_BYTES
-        && key.bytes().all(|c| c.is_ascii_alphanumeric())
-}
 
 /// Maximum nearby mobs in one snapshot, and the radius they are drawn from.
 pub const MAX_GAMEPLAY_MOBS: usize = 64;
@@ -136,8 +137,8 @@ pub const MAX_CUE_NAME_BYTES: usize = 32;
 pub const MAX_CUE_VALUES: usize = 8;
 /// Cues delivered to one callback from every loaded mod.
 pub const MAX_INCOMING_CUES: usize = 64;
-/// Local mods running at once.
-pub const MAX_LOADED_MODS: usize = 4;
+/// Structural bound on local mods running at once; frame fuel and memory budgets limit their cost.
+pub const MAX_LOADED_MODS: usize = 256;
 
 /// Render capability budgets, per instance or per committed callback.
 pub const MAX_RENDER_PASSES: usize = 8;

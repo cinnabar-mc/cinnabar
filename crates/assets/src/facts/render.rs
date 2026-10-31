@@ -13,6 +13,7 @@ pub enum BlockRenderKind {
     HangingSign,
     Lantern,
     FlowerPot,
+    Hopper,
     BambooFence,
     BambooGate,
     NetherBrickFence,
@@ -51,6 +52,18 @@ pub enum BlockRenderKind {
     LitFurnace,
     /// Horizontal face-directional cube that turns every face toward its direction.
     FacingCube,
+    /// Observer cube whose authored faces and UVs turn with its facing.
+    Observer,
+    /// Dispenser or dropper cube whose front slot follows its facing.
+    Dispenser,
+    /// Crafter cube whose authored faces and UVs turn with its orientation.
+    Crafter,
+    /// Piston body whose top, bottom and side slots follow its head.
+    PistonBase,
+    /// Jigsaw cube whose authored faces and UVs turn with its facing and rotation.
+    Jigsaw,
+    /// Vault whose cutout shell turns with its direction and draws an inward interior.
+    Vault,
     CommandBlock,
     Composter,
     Cauldron,
@@ -107,7 +120,7 @@ pub fn block_render_fact(identifier: &str) -> BlockRenderFact {
     static KINDS: OnceLock<BTreeMap<&'static str, BlockRenderFact>> = OnceLock::new();
     KINDS
         .get_or_init(|| {
-            let mut rows = include_str!("../../data/facts-expansion-v2193.tsv").lines();
+            let mut rows = include_str!("../../data/facts-expansion-v2225.tsv").lines();
             assert_eq!(
                 rows.next(),
                 Some("identifier\ttraits\trules\tprovisional\trender")
@@ -211,6 +224,7 @@ impl BlockRenderKind {
             | R::SeaPickle
             | R::BrewingStand
             | R::Campfire
+            | R::Hopper
             | R::Grindstone
             | R::Stonecutter
             | R::TripwireHook
@@ -227,7 +241,13 @@ impl BlockRenderKind {
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
             R::Crystal => (true, true, false, true),
-            R::CommandBlock => (true, false, false, true),
+            R::CommandBlock
+            | R::Observer
+            | R::Dispenser
+            | R::Crafter
+            | R::PistonBase
+            | R::Jigsaw => (true, false, false, true),
+            R::Vault => (true, true, false, true),
             R::EndPortalFrame | R::Lantern => (true, true, true, true),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass

@@ -406,3 +406,33 @@ fn snapshot_declarations_keep_native_permissions_and_update_metadata_together() 
     assert!(declared.requested.unwrap().unwrap().controls);
     assert_eq!(declared.metadata.update_url.unwrap().asset(), "native.wasm");
 }
+
+#[test]
+fn revision_updates_disable_legacy_fallback_even_when_invalid_or_duplicated() {
+    let base = wat::parse_str("(component)").unwrap();
+    let declaration = serde_json::json!({
+        "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
+        "package": "example-mod", "api_revision": "a".repeat(40), "revision": "a".repeat(40),
+    })
+    .to_string();
+    for data in [declaration.as_bytes(), b"invalid"] {
+        let mut bytes = base.clone();
+        section(
+            &mut bytes,
+            mod_api::UPDATE_URL_SECTION,
+            b"https://github.com/example/mod/releases/latest/download/mod.wasm",
+        );
+        section(&mut bytes, mod_api::REVISION_UPDATE_SECTION, data);
+        let metadata = read(&bytes).metadata;
+        assert!(metadata.update_url.is_none());
+        assert!(metadata.update_repository.is_none());
+        assert_eq!(
+            metadata.revision_update.is_some(),
+            data == declaration.as_bytes()
+        );
+        section(&mut bytes, mod_api::REVISION_UPDATE_SECTION, data);
+        let metadata = read(&bytes).metadata;
+        assert!(metadata.revision_update.is_none());
+        assert!(metadata.update_url.is_none());
+    }
+}

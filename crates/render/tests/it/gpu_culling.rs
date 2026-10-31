@@ -7,6 +7,9 @@ mod kernels;
 mod model;
 #[path = "../../src/chunk/gpu_cull/occlusion.rs"]
 mod occlusion;
+#[path = "../../src/chunk/gpu_cull/order.rs"]
+mod order;
+mod order_draws;
 mod raster;
 #[path = "../../src/chunk/gpu_cull/storage.rs"]
 mod storage;
@@ -150,6 +153,8 @@ struct Culler<'a> {
     kernels: CullKernels,
     storage: CullStorage,
     slots: u32,
+    /// The slot visited at each rank: a fixed shuffle, so compaction must follow it.
+    order: Vec<u32>,
 }
 
 impl<'a> Culler<'a> {
@@ -159,12 +164,25 @@ impl<'a> Culler<'a> {
             .write_buffer(&storage.records, 0, bytemuck::cast_slice(records));
         gpu.queue
             .write_buffer(&storage.enabled, 0, bytemuck::cast_slice(enabled));
+        let mut order = (0..records.len() as u32).collect::<Vec<_>>();
+        let mut lcg = Lcg(0x5eed);
+        for rank in (1..order.len()).rev() {
+            order.swap(rank, lcg.next(rank as u32 + 1) as usize);
+        }
+        storage.write_order(&gpu.queue, 0, &order);
         Self {
             gpu,
             kernels: CullKernels::new(&gpu.device),
             storage,
             slots: records.len() as u32,
+            order,
         }
+    }
+
+    /// Visits slots in `order` from now on.
+    fn set_order(&mut self, order: Vec<u32>) {
+        self.storage.write_order(&self.gpu.queue, 0, &order);
+        self.order = order;
     }
 
     fn set_history(&self, history: &[u32]) {
@@ -458,9 +476,13 @@ fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
         );
         checked_boundary_free += usize::from(visible == must);
         let camera_split = CullCamera::new(Some(camera.eye.as_dvec3().to_array()));
-        let expected = reference_args(&records, camera_split, INDEX_COUNTS, |slot| {
-            visible.contains(&slot)
-        });
+        let expected = reference_args(
+            &records,
+            &culler.order,
+            camera_split,
+            INDEX_COUNTS,
+            |slot| visible.contains(&slot),
+        );
         assert_eq!(late, expected, "late compaction");
 
         // Next frame draws everything early and nothing late.
@@ -486,12 +508,13 @@ fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
             .collect::<BTreeSet<_>>();
         assert_eq!(
             early,
-            reference_args(&records, camera_split, INDEX_COUNTS, |s| drawn_early
-                .contains(&s))
+            reference_args(&records, &culler.order, camera_split, INDEX_COUNTS, |s| {
+                drawn_early.contains(&s)
+            })
         );
         assert_eq!(
             late,
-            reference_args(&records, camera_split, INDEX_COUNTS, |s| {
+            reference_args(&records, &culler.order, camera_split, INDEX_COUNTS, |s| {
                 visible.contains(&s) && !stale.contains(&s)
             })
         );

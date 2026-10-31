@@ -436,6 +436,55 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
         arena.bind_group_buffers = None;
         return;
     };
+    let mut entries = entries(
+        view_binding,
+        &arena,
+        texture_assets,
+        &clock,
+        biome_tints,
+        &atmosphere,
+    );
+    if pipeline.compact {
+        if !compact.prepare(&render_device, &render_queue, &mut entries) {
+            arena.bind_group = None;
+            arena.transparent_bind_group = None;
+            arena.bind_group_buffers = None;
+            return;
+        }
+        entries
+            .iter_mut()
+            .find(|entry| entry.binding == 2)
+            .unwrap()
+            .resource = compact.binding();
+    }
+    let transparent_bind_group = render_device.create_bind_group(
+        "transparent packed chunk bind group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),
+        &entries,
+    );
+    let opaque_entries: Vec<_> = entries
+        .into_iter()
+        .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
+        .collect();
+    let bind_group = render_device.create_bind_group(
+        "opaque packed chunk bind group",
+        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
+        &opaque_entries,
+    );
+    arena.bind_group = Some(bind_group);
+    arena.transparent_bind_group = Some(transparent_bind_group);
+    arena.bind_group_buffers = Some(buffers);
+}
+
+/// Builds the canonical terrain bindings for both world and independently placed geometry.
+pub(in crate::chunk) fn entries<'a>(
+    view_binding: BindingResource<'a>,
+    arena: &'a ChunkGpuArena,
+    texture_assets: &'a PreparedChunkTextureAssets,
+    clock: &'a ChunkGpuAnimationClock,
+    biome_tints: &'a PreparedChunkBiomeTints,
+    atmosphere: &'a AtmosphereGpu,
+) -> Vec<BindGroupEntry<'a>> {
     let mut entries = vec![
         BindGroupEntry {
             binding: 0,
@@ -520,36 +569,7 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
                 resource: BindingResource::TextureView(view),
             }),
     );
-    if pipeline.compact {
-        if !compact.prepare(&render_device, &render_queue, &mut entries) {
-            arena.bind_group = None;
-            arena.transparent_bind_group = None;
-            arena.bind_group_buffers = None;
-            return;
-        }
-        entries
-            .iter_mut()
-            .find(|entry| entry.binding == 2)
-            .unwrap()
-            .resource = compact.binding();
-    }
-    let transparent_bind_group = render_device.create_bind_group(
-        "transparent packed chunk bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.transparent_bind_group_layout),
-        &entries,
-    );
-    let opaque_entries: Vec<_> = entries
-        .into_iter()
-        .filter(|entry| entry.binding != TRANSPARENT_REFS_BINDING)
-        .collect();
-    let bind_group = render_device.create_bind_group(
-        "opaque packed chunk bind group",
-        &pipeline_cache.get_bind_group_layout(&pipeline.bind_group_layout),
-        &opaque_entries,
-    );
-    arena.bind_group = Some(bind_group);
-    arena.transparent_bind_group = Some(transparent_bind_group);
-    arena.bind_group_buffers = Some(buffers);
+    entries
 }
 
 /// Adds runtime source dimensions when a layer's physical page uses another pixel scale.

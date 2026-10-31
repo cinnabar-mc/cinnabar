@@ -18,7 +18,12 @@ use bevy::{
     window::{CursorOptions, PrimaryWindow},
 };
 use client_shell::{
-    menu::MenuRuntime,
+    menu::{
+        MenuRuntime,
+        settings_options::control_bindings::{
+            menu_cancel_key, menu_cancel_mouse, menu_cancel_pressed,
+        },
+    },
     physical_input::{keyboard_key, scroll_unit},
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
@@ -98,9 +103,39 @@ pub(crate) fn drive_server_form_input(
     mut stick: Local<[bool; 4]>,
 ) {
     let (window, mut cursor) = window.into_inner();
+    let handoff_now_millis = time
+        .as_ref()
+        .map(|time| u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX));
+    let had_active_form = runtime.server_forms().active().is_some();
+    let handoff_expired =
+        handoff_now_millis.is_some_and(|now_millis| runtime.advance_form_handoff(now_millis));
+    if handoff_expired && let Some(focus) = focus.as_deref_mut() {
+        focus.authorize_screen_return();
+    }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    let had_active_form = runtime.server_forms().active().is_some();
+    if runtime.resource_pack_loading() {
+        // Keep the loading cover authoritative while the replacement pack is being published.
+        // In particular, do not let a held edge answer the form behind it.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        *owned_last_frame = false;
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
     if runtime.credits().owns_input() {
         wheel.clear();
         keyboard.clear();
@@ -153,6 +188,28 @@ pub(crate) fn drive_server_form_input(
         *owned_last_frame = false;
         return;
     }
+    if runtime.server_forms().handoff_pending() {
+        // Keep the old surface painted, but consume every edge while the server may replace it.
+        // Otherwise a held mouse/key edge could answer the replacement form as soon as it lands.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        *owned_last_frame = true;
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
     if !runtime.server_forms().owns_input() {
         wheel.clear();
         keyboard.clear();
@@ -189,6 +246,10 @@ pub(crate) fn drive_server_form_input(
         .cloned();
     if input_available && let Some(frame) = engine_frame {
         let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
+        let key_presses: Vec<_> = keyboard
+            .read()
+            .filter(|input| input.state == ButtonState::Pressed)
+            .collect();
         let input = engine_input::EngineInput {
             touch: pointer_source.as_ref().is_some_and(|source| source.0),
             pointer_edges,
@@ -201,9 +262,12 @@ pub(crate) fn drive_server_form_input(
                 .read()
                 .map(|event| (event.y, scroll_unit(event.unit)))
                 .collect(),
-            typed: keyboard
-                .read()
-                .filter(|input| input.state == ButtonState::Pressed)
+            menu_cancel: key_presses
+                .iter()
+                .find(|input| menu_cancel_key(menu.as_deref(), input.key_code))
+                .map(|input| keyboard_key(input.key_code)),
+            typed: key_presses
+                .iter()
                 .map(|input| {
                     (
                         keyboard_key(input.key_code),
@@ -216,11 +280,10 @@ pub(crate) fn drive_server_form_input(
                         .into_iter()
                         .map(|(key, text)| (key, text, false)),
                 )
-                .chain(mouse.just_pressed(MouseButton::Back).then_some((
-                    KeyboardKey::Escape,
-                    None,
-                    false,
-                )))
+                .chain(
+                    menu_cancel_mouse(menu.as_deref(), &mouse)
+                        .map(|_| (KeyboardKey::Escape, None, false)),
+                )
                 .collect(),
             now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
@@ -253,7 +316,8 @@ pub(crate) fn drive_server_form_input(
                 .server_forms_mut()
                 .scroll_rows((-pixels).clamp(-4096.0, 4096.0) as i32);
         }
-        let action = if keys.just_pressed(KeyCode::Escape) || mouse.just_pressed(MouseButton::Back)
+        let action = if keys.just_pressed(KeyCode::Escape)
+            || menu_cancel_pressed(menu.as_deref(), &keys, &mouse, false)
         {
             Some((identity, LocalFormAction::Dismiss))
         } else if keys.just_pressed(KeyCode::Enter)
@@ -286,11 +350,20 @@ pub(crate) fn drive_server_form_input(
             None
         };
         if let Some((identity, action)) = action {
-            let _ = runtime.respond_to_server_form(identity, action);
+            let _ = runtime.respond_to_server_form_at(
+                identity,
+                action,
+                handoff_now_millis.unwrap_or_default(),
+            );
         }
     } else {
         wheel.clear();
         keyboard.clear();
+    }
+    if runtime.server_forms().handoff_pending()
+        && let Some(focus) = focus.as_deref_mut()
+    {
+        focus.authorize_screen_return();
     }
     if had_active_form
         && runtime.server_forms().active().is_none()

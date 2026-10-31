@@ -5,3 +5,4 @@ mod recipe_discovery;
 
 mod recipe_rules;
 mod recipe_unlocks;
+mod shield_crafting;

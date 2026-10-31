@@ -34,7 +34,7 @@ func writeBlockItemRouteTable(output, bregPath string) error {
 	if err != nil {
 		return err
 	}
-	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol, protocol == v2193BlockProtocol)
+	table, err := generateBlockItemRouteTable(world.Items(), records, breg, world.DefaultBlockRegistry, protocol, protocol == v2225BlockProtocol)
 	if err != nil {
 		return err
 	}
@@ -57,7 +57,7 @@ func encodeBlockItemRouteTable(table BlockItemRouteTable, protocol uint32) ([]by
 		return nil, err
 	}
 	encoded = append(encoded, '\n')
-	if protocol == v2193BlockProtocol {
+	if protocol == v2225BlockProtocol {
 		// This semantic-neutral byte revision forces existing autocrlf checkouts
 		// to rematerialize the active carrier after its tracked-LF pin lands.
 		encoded = bytes.Replace(encoded, []byte(`"schema":`), []byte(`"schema" :`), 1)

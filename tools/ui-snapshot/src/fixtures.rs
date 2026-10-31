@@ -42,6 +42,10 @@ pub struct State {
 pub enum Fixture {
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
+    /// Opaque black-backed cursor art on contrasting backgrounds.
+    CrosshairCoverage {
+        fixed: bool,
+    },
     /// Original sprite samples before and after alpha-only outline shading.
     SpriteOutline {
         outline: bool,
@@ -81,6 +85,8 @@ pub enum Fixture {
         raised: bool,
     },
     Loading(ui::LoadingStage),
+    /// The client-owned cover shown while a resource-pack snapshot is published.
+    ResourcePackLoading,
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
@@ -104,6 +110,11 @@ pub enum Fixture {
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An answered form after immediate retirement or during its visual handoff.
+    #[cfg(feature = "test-support")]
+    FormHandoff {
+        retained: bool,
+    },
     /// A script form shown through data-driven UI.
     #[cfg(feature = "test-support")]
     DataDriven(protocol::ddui::ScriptedScreen),
@@ -150,6 +161,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    asset_free("crosshair-coverage-before", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: false }
+    }),
+    asset_free("crosshair-coverage", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: true }
+    }),
     asset_free("sprite-outline-before", [800, 240], || {
         Fixture::SpriteOutline { outline: false }
     }),
@@ -493,6 +510,18 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::Loading(ui::LoadingStage::BuildingTerrain),
+    },
+    State {
+        name: "resource-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
+    },
+    State {
+        name: "resource-pack-loading-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
     },
     State {
         name: "disconnect",

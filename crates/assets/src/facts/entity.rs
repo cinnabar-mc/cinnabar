@@ -18,8 +18,8 @@ macro_rules! source {
         pub const SOURCE_BYTES: &[u8] = include_bytes!(concat!("../../data/", $file));
     };
 }
-source!("entity-facts-v2193.bin");
-pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v2193.tsv";
+source!("entity-facts-v2225.bin");
+pub const EXPANSION_PATH: &str = "crates/assets/data/entity-facts-expansion-v2225.tsv";
 pub const MAGIC: &[u8; 8] = b"EFACT001";
 pub const MAX_BYTES: usize = 1024 * 1024;
 /// Interaction-box inflation when an actor has no constructor override.
@@ -29,6 +29,8 @@ pub const DEFAULT_ACTOR_PICK_RADIUS: f32 = 0.1;
 pub const NPC_COMPONENT_IDENTIFIER: &str = "minecraft:npc";
 /// Behavior component key for tripod-camera interactions, independent of the actor's identity.
 pub const TRIPOD_CAMERA_COMPONENT_IDENTIFIER: &str = "minecraft:tripod_camera";
+/// The actor type whose native renderer draws its synced carried block.
+pub const ENDERMAN_IDENTIFIER: &str = "minecraft:enderman";
 
 /// Native behavior families used by class-specific actor consumers.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq, Deserialize, Serialize)]
@@ -216,7 +218,7 @@ impl EntityFacts {
             || facts.records.len() > u16::MAX as usize
             || facts.actors_sha256
                 != <[u8; 32]>::from(Sha256::digest(include_bytes!(
-                    "../../../protocol/data/retail_actors_1_26_50.txt"
+                    "../../../protocol/data/retail_actors_1_26_60.txt"
                 )))
             || !facts
                 .records
@@ -238,7 +240,7 @@ impl EntityFacts {
         {
             return Err(bad());
         }
-        if !include_str!("../../../protocol/data/retail_actors_1_26_50.txt")
+        if !include_str!("../../../protocol/data/retail_actors_1_26_60.txt")
             .lines()
             .all(|name| {
                 facts

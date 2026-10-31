@@ -1,7 +1,7 @@
 use super::*;
-use bedrock_protocol_1_26_51::enums::SubChunkRequestResult;
-use bedrock_protocol_1_26_51::packets::{ClientCacheMissResponse, SubChunk, UpdateBlock};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::enums::SubChunkRequestResult;
+use bedrock_protocol_1_26_60::packets::{ClientCacheMissResponse, SubChunk, UpdateBlock};
+use bedrock_protocol_1_26_60::types::{
     BlockPos, DimensionType, MissingBlobData, SubChunkData, SubChunkPos, SubChunkPosOffset,
 };
 

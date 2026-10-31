@@ -28,16 +28,10 @@ pub mod test_support;
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
-use ui::{
-    IconRef,
-    mod_hud::{Hud, MAX_HUD_ROWS},
-};
-
 /// Every mod- and experience-owned surface's state, carried across builds.
 #[derive(Default)]
 pub struct ModUi {
     mod_hud: Option<mod_hud::ModHud>,
-    mod_hud_editor: Option<mod_hud_editor::HudEditor>,
     /// Vanilla HUD elements mods hide.
     hidden_elements: ui::mod_hud::HiddenElements,
     /// Mods' HUD surfaces.
@@ -62,27 +56,4 @@ pub struct ModUi {
 fn personal_context() -> &'static json_ui::Context {
     static CONTEXT: std::sync::OnceLock<json_ui::Context> = std::sync::OnceLock::new();
     CONTEXT.get_or_init(json_ui::Context::default)
-}
-
-/// Each personal HUD row's item icon, in card order, as the host's item atlas resolves it.
-pub struct RowIcons {
-    icons: [Option<IconRef>; MAX_HUD_ROWS],
-    count: usize,
-}
-
-impl RowIcons {
-    /// Resolves every row naming an item through `icon`, by identifier and metadata.
-    fn resolve(hud: &Hud, icon: impl Fn(&str, u32) -> Option<IconRef>) -> Self {
-        let mut icons = [None; MAX_HUD_ROWS];
-        let mut count = 0;
-        for row in hud.cards.iter().flat_map(|card| &card.rows) {
-            icons[count] = row.item.as_deref().and_then(|id| icon(id, row.metadata));
-            count += 1;
-        }
-        Self { icons, count }
-    }
-
-    fn as_slice(&self) -> &[Option<IconRef>] {
-        &self.icons[..self.count]
-    }
 }

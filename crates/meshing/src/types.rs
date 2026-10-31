@@ -257,6 +257,12 @@ impl PackedModelDrawRef {
     }
 }
 
+/// First bit of a model light sample's shade face: the model face id (`1..=6`,
+/// down/up/west/east/north/south, unturned) whose face coefficient shades the quad in place
+/// of its own normal, or `0` to keep its own normal. The three bits above the emitting-face
+/// flag are otherwise unused.
+pub const LIGHT_SAMPLE_SHADE_FACE_SHIFT: u32 = 12;
+
 /// Four face-specific packed light/AO samples in template-quad order.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]

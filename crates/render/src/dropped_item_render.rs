@@ -57,7 +57,8 @@ use render_model::{DroppedItemModel, MIN_ITEM_ATLAS_SIDE};
 use std::ops::Range;
 use {
     render_model::{
-        ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES,
+        DYNAMIC_LIGHT_LEVELS, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES,
+        MAX_DYNAMIC_ITEM_VERTICES,
         dropped_item::{DroppedItemBounds, DroppedItemCullView, ITEM_MESH_VERTEX_BYTES},
     },
     render_scene::DroppedItemScene,
@@ -161,8 +162,9 @@ struct ItemGpu {
     /// Current model slots given priority during the last resource rebuild.
     prioritized_models: Vec<bool>,
     dynamic_count: u32,
-    /// Instance slot holding the identity transform used for dynamic geometry.
-    identity_instance: u32,
+    /// This frame's dynamic vertex ranges, each with the identity-transform instance holding its
+    /// light levels.
+    dynamic_draws: Vec<(Range<u32>, u32)>,
     /// This frame's `(vertex range, instance index)` draws.
     draws: Vec<ItemDraw>,
     /// Reused per-frame instance staging for the instance buffer upload.
@@ -266,7 +268,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         instance_buffer: device.create_buffer(&BufferDescriptor {
             label: Some("bounded dropped item instances"),
-            size: ((MAX_DROPPED_ITEM_INSTANCES + 1) * size_of::<GpuItemInstance>()) as u64,
+            size: ((MAX_DROPPED_ITEM_INSTANCES + DYNAMIC_LIGHT_LEVELS)
+                * size_of::<GpuItemInstance>()) as u64,
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -286,7 +289,7 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         models_revision: u64::MAX,
         prioritized_models: Vec::new(),
         dynamic_count: 0,
-        identity_instance: 0,
+        dynamic_draws: Vec::new(),
         draws: Vec::new(),
         instance_scratch: Vec::new(),
         current_scratch: Vec::new(),
@@ -350,7 +353,7 @@ fn prepare_items(
     {
         gpu.draws.clear();
         gpu.dynamic_count = 0;
-        gpu.identity_instance = 0;
+        gpu.dynamic_draws.clear();
         return;
     }
     let mut instances = std::mem::take(&mut gpu.instance_scratch);
@@ -389,16 +392,7 @@ fn prepare_items(
         });
         instances.push(glint::pack_instance(instance));
     }
-    gpu.identity_instance = instances.len() as u32;
-    instances.push(GpuItemInstance {
-        rows: [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-        ],
-        meta: [0, 15, 15, 0],
-        glint: [0.0; 4],
-    });
+    dynamic_light_draws(&scene, &mut instances, &mut gpu.dynamic_draws);
     uploads.write(
         &gpu.instance_buffer,
         0,
@@ -859,12 +853,49 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
         if gpu.dynamic_count != 0 {
             pass.set_render_pipeline(two_sided);
             pass.set_vertex_buffer(0, gpu.dynamic_buffer.slice(..));
-            pass.draw(
-                0..gpu.dynamic_count,
-                gpu.identity_instance..gpu.identity_instance + 1,
-            );
+            for (vertices, instance) in &gpu.dynamic_draws {
+                pass.draw(vertices.clone(), *instance..*instance + 1);
+            }
         }
         RenderCommandResult::Success
+    }
+}
+
+/// Splits the dynamic vertices into whole-triangle light runs. Each distinct light pair gets one
+/// identity-transform instance; vertices after the last run draw at full brightness.
+fn dynamic_light_draws(
+    scene: &DroppedItemScene,
+    instances: &mut Vec<GpuItemInstance>,
+    draws: &mut Vec<(Range<u32>, u32)>,
+) {
+    draws.clear();
+    let count = scene.dynamic.len() as u32;
+    let mut light_instances = [None; DYNAMIC_LIGHT_LEVELS];
+    let mut start = 0;
+    let runs = scene
+        .dynamic_light
+        .iter()
+        .map(|run| (run.end, run.block, run.sky));
+    for (end, block, sky) in runs.chain(std::iter::once((count, 15, 15))) {
+        let end = end.min(count) / 3 * 3;
+        if end <= start {
+            continue;
+        }
+        let [block, sky] = [block, sky].map(|level| u32::from(level.min(15)));
+        let instance = *light_instances[(block * 16 + sky) as usize].get_or_insert_with(|| {
+            instances.push(GpuItemInstance {
+                rows: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ],
+                meta: [0, block, sky, 0],
+                glint: [0.0; 4],
+            });
+            instances.len() as u32 - 1
+        });
+        draws.push((start..end, instance));
+        start = end;
     }
 }
 

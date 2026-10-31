@@ -21,7 +21,6 @@ fn class_visual_contracts_cover_passable_and_solid_families() {
                 "weeping_vines",
                 "pale_hanging_moss",
                 "end_gateway",
-                "chorus_plant",
                 "oak_double_slab",
                 "smooth_stone_double_slab",
                 "double_cut_copper_slab",

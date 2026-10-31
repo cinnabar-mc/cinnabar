@@ -134,13 +134,26 @@ fn canonical_registry_arrival_and_replacement_invalidate_without_slot_writes() {
     let unknown = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert!(unknown.contents.unwrap().inventory_icons.0[0].is_none());
     assert!(unknown.item_names.unwrap().is_empty());
+    let revision = presentation
+        .inventory_preparation_revision
+        .load(std::sync::atomic::Ordering::Relaxed);
     assert!(stream.seed_item_registry(registry("fixture:one")));
     let one = capture(&mut cache, &player, &runtime, &presentation, &stream);
+    let ready_revision = presentation
+        .inventory_preparation_revision
+        .load(std::sync::atomic::Ordering::Relaxed);
+    assert_ne!(ready_revision, revision);
     let one_art = one.contents.unwrap();
     assert!(one_art.inventory_icons.0[0].is_some());
     assert_eq!(one.item_names.unwrap()[&(ITEM_ID, 0)].as_ref(), "One");
     let unchanged = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert!(unchanged.contents.is_none() && unchanged.decorations.is_none());
+    assert_eq!(
+        presentation
+            .inventory_preparation_revision
+            .load(std::sync::atomic::Ordering::Relaxed),
+        ready_revision
+    );
     assert!(stream.seed_item_registry(registry("fixture:two")));
     let two = capture(&mut cache, &player, &runtime, &presentation, &stream);
     assert_ne!(
@@ -291,6 +304,34 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         .unwrap();
     assert_eq!(open.crafting.output.as_ref().unwrap().1.count, 2);
     assert!(open.crafting.icons[0].is_some());
+    let capture_frame = |runtime: &mut UiRuntime, presentation: &mut UiPresentationRuntime| {
+        let authority = stream.authority().inventory_ui();
+        presentation.dress_player_preview(
+            &player,
+            runtime,
+            Some(authority),
+            Default::default(),
+            |stack| authority.canonical_item_stack(stack),
+        );
+        super::super::capture_hud_frame(
+            &player,
+            runtime,
+            presentation,
+            Some(authority),
+            semantic_input::PerspectiveMode::FirstPerson,
+            0,
+            Default::default(),
+        );
+    };
+    capture_frame(&mut runtime, &mut presentation);
+    let calls =
+        crate::ui_runtime::inventory_ingress::CRAFTING_MATCH_CALLS.with(std::cell::Cell::get);
+    capture_frame(&mut runtime, &mut presentation);
+    assert_eq!(
+        crate::ui_runtime::inventory_ingress::CRAFTING_MATCH_CALLS.with(std::cell::Cell::get),
+        calls,
+        "a nonempty grid without shields must not rematch unchanged frames"
+    );
     runtime.session.inventory_open = false;
     capture(&mut cache, &player, &runtime, &presentation, &stream);
     let icons = Arc::new(SessionIcons {
@@ -366,4 +407,104 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         }
         assert_eq!(output_visible, visible, "sequence {sequence}");
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn unopened_inventory_preparation_keeps_names_without_repeating_artwork() {
+    let mut player = player_state::PlayerState::new(1);
+    let mut runtime = crate::test_support::inventory_session(&mut player);
+    runtime.set_server_ui(Some(Arc::new(
+        crate::ui_runtime::presentation::forms::ServerUiPack {
+            ui_layers: vec![vec![
+                (
+                    "ui/_ui_defs.json".into(),
+                    br#"{"ui_defs":["ui/crafting.json"]}"#.to_vec(),
+                ),
+                (
+                    "ui/crafting.json".into(),
+                    br#"{"namespace":"crafting","inventory_screen":{"type":"screen"}}"#.to_vec(),
+                ),
+            ]],
+            ..Default::default()
+        },
+    )));
+    player
+        .inventory
+        .ledger_mut()
+        .apply(&InventoryEvent::Content(protocol::InventoryContentEvent {
+            container: ContainerIdentity::window(0),
+            slots: Arc::from([NetworkItemStack {
+                network_id: ITEM_ID,
+                count: 1,
+                ..NetworkItemStack::empty()
+            }]),
+            storage_item: NetworkItemStack::empty(),
+        }));
+    let mut presentation = crate::test_support::mini_engine_presentation();
+    let mut stream = stream();
+    assert!(stream.seed_item_registry(registry("fixture:one")));
+    let mut cache = InventoryCache::default();
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert_eq!(update.item_names.unwrap()[&(ITEM_ID, 0)].as_ref(), "One");
+    presentation
+        .build(
+            &player,
+            &runtime,
+            0,
+            [320, 240],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(presentation.engine_inventory_preparation_pending());
+    assert!(
+        !presentation.inventory_preparation_needed(&player, &runtime),
+        "unchanged sources must not request recipe artwork again while pending"
+    );
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert!(
+        update.item_names.is_none(),
+        "pending preparation must retain the unchanged name projection"
+    );
+    test_time::eventually("closed inventory readiness", || {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [320, 240],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+        !presentation.engine_inventory_preparation_pending()
+    });
+    let update = cache.capture(
+        &player,
+        &ItemResolver {
+            runtime: &runtime,
+            presentation: &presentation,
+            authority: Some(stream.authority().inventory_ui()),
+        },
+        &ItemIconFrames::default(),
+    );
+    assert!(
+        update.item_names.is_none(),
+        "an unopened prepared screen must keep its inputs until the real open"
+    );
 }

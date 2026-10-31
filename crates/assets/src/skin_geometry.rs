@@ -59,11 +59,20 @@ impl SkinGeometry {
             return None;
         }
         let source = serde_json::to_string(geometry).ok()?;
+        let mut bones = geometry.bones.to_vec();
+        for bone in &mut bones {
+            if crate::starter_skins::skin_model_unmirrors_bone(&geometry.identifier, &bone.name) {
+                bone.mirror = None;
+                for cube in &mut bone.cubes {
+                    cube.mirror = false;
+                }
+            }
+        }
         let mut skin = finish(
             geometry.identifier.to_string(),
             Some(geometry.texture_width),
             Some(geometry.texture_height),
-            geometry.bones.to_vec(),
+            bones,
             vec![None; geometry.bones.len()],
             "",
             &source,

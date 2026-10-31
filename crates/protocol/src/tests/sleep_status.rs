@@ -1,7 +1,7 @@
 //! The world's sleep status, which servers send as a generic level event.
 
-use bedrock_protocol_1_26_51::packets::LevelEventGeneric;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::LevelEventGeneric;
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 use protocol::{SleepStatusEvent, UiEvent, WorldEvent, into_world_event};
 
@@ -34,7 +34,7 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
     let loose = Bytes::copy_from_slice(&nbt[2..nbt.len() - 1]);
     let packet = LevelEventGeneric {
         event_id: wire::ZigZag32(9801),
-        ctd: wire::NetworkNbt(loose.clone()),
+        ctd: wire::NetworkCompoundNbt(loose.clone()),
     };
     assert_eq!(
         into_world_event(protocol::Packet::new(packet), 0).unwrap(),
@@ -44,7 +44,7 @@ fn sleeping_players_generic_level_event_carries_its_compound() {
     );
     let other = LevelEventGeneric {
         event_id: wire::ZigZag32(1),
-        ctd: wire::NetworkNbt(Bytes::from(int_compound(&[]))),
+        ctd: wire::NetworkCompoundNbt(Bytes::from(int_compound(&[]))),
     };
     assert_eq!(
         into_world_event(protocol::Packet::new(other), 0).unwrap(),

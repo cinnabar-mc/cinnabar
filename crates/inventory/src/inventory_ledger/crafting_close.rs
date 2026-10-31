@@ -18,6 +18,12 @@ impl PlayerInventoryLedger {
         screen_input_cells(self.window_kind()).chain(std::iter::once(Cell::Cursor))
     }
 
+    /// Whether server-owned inputs still require close cleanup, independently of predictions.
+    pub(super) fn has_confirmed_close_inputs(&self) -> bool {
+        self.close_return_cells()
+            .any(|cell| self.confirmed.get(cell).is_some())
+    }
+
     /// Build every return against one staged ledger, so an identity, pressure,
     /// or capacity failure cannot publish a partial cleanup or lose an input.
     pub(super) fn return_crafting_on_close(&mut self) -> Result<bool, InventoryGestureError> {

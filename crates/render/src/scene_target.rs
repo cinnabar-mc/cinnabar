@@ -320,6 +320,22 @@ pub(crate) fn unavailable(world: &World, view: Entity) -> bool {
     world.get::<SceneTargetUnavailable>(view).is_some()
 }
 
+/// Selects retained content's colour attachment only while the view's scene is drawable.
+pub(crate) fn retained_color_attachment<'a>(
+    world: &'a World,
+    view: Entity,
+    target: &'a bevy::render::view::ViewTarget,
+    encoded: bool,
+) -> Option<RenderPassColorAttachment<'a>> {
+    if unavailable(world, view) {
+        return None;
+    }
+    Some(world.get::<SceneTarget>(view).map_or_else(
+        || target.get_color_attachment(),
+        |scene| scene.color_attachment(target, encoded),
+    ))
+}
+
 /// Target sizes whose multisampled scene colour ran out of memory; those views render
 /// single-sampled until their size changes.
 #[derive(Resource, Default)]

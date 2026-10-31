@@ -257,7 +257,7 @@ func encodeWithMetadata(metadata RegistryMetadata, records []Record) ([]byte, er
 	if len(records) > maxRecordCount {
 		return nil, fmt.Errorf("too many records: %d exceeds %d", len(records), maxRecordCount)
 	}
-	if metadata.Protocol != registryProtocol && metadata.Protocol != v2193BlockProtocol {
+	if metadata.Protocol != registryProtocol && metadata.Protocol != v2225BlockProtocol {
 		return nil, fmt.Errorf("registry protocol %d is unsupported", metadata.Protocol)
 	}
 	if metadata.CanonicalStates != uint32(len(records)) {

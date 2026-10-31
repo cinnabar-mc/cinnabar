@@ -205,7 +205,7 @@ pub fn components() -> &'static BTreeMap<String, BlockTraits> {
     static FACTS: OnceLock<BTreeMap<String, BlockTraits>> = OnceLock::new();
     FACTS.get_or_init(|| {
         let mut facts = BTreeMap::new();
-        for row in include_str!("../../data/block-components-v2193.tsv")
+        for row in include_str!("../../data/block-components-v2225.tsv")
             .lines()
             .skip(1)
         {
