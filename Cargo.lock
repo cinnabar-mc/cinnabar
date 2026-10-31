@@ -8419,6 +8419,7 @@ name = "shaderpack-worker"
 version = "0.1.31"
 dependencies = [
  "naga",
+ "serde_json",
  "shaderpack",
  "tempfile",
  "test-time",
