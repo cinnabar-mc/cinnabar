@@ -42,7 +42,8 @@ pub(in crate::compiler) fn compile_rule(
     let Some(materials) = inputs.materials(record) else {
         return Ok(CompileRuleResult::NoMatch);
     };
-    let key = [BlockFace::East, BlockFace::North, BlockFace::Up].map(|face| materials[face as usize]);
+    let key =
+        [BlockFace::East, BlockFace::North, BlockFace::Up].map(|face| materials[face as usize]);
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {

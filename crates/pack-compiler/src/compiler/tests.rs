@@ -10,6 +10,8 @@ use assets::{RegistryRecord, TILE_SIZE, VisualKind, VisualSupport};
 mod anvil;
 #[path = "tests/authored_models.rs"]
 mod authored_models;
+#[path = "tests/azalea.rs"]
+mod azalea;
 #[path = "tests/barrel.rs"]
 pub(crate) mod barrel;
 #[path = "tests/beacon.rs"]
@@ -68,8 +70,6 @@ mod lightning_rod;
 mod mapped_face;
 #[path = "tests/potted_plants.rs"]
 mod potted_plants;
-#[path = "tests/azalea.rs"]
-mod azalea;
 #[path = "tests/sea_pickle.rs"]
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]

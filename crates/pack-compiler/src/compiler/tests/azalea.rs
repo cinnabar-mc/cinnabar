@@ -110,8 +110,8 @@ fn azalea_bushes_cross_their_stem_through_a_floorless_canopy() {
     {
         let visual = compiled.visuals[record.sequential_id as usize];
         let template = compiled.model_templates[visual.model_template as usize];
-        let quads = &compiled.model_quads[template.quad_start as usize..]
-            [..template.quad_count as usize];
+        let quads =
+            &compiled.model_quads[template.quad_start as usize..][..template.quad_count as usize];
         assert_eq!(quads.len(), 7);
         assert!(
             quads
@@ -129,8 +129,7 @@ fn azalea_bushes_cross_their_stem_through_a_floorless_canopy() {
         for quad in canopy {
             let ys = quad.positions.map(|position| position[1]);
             assert_ne!(
-                ys,
-                [0; 4],
+                ys, [0; 4],
                 "the canopy has no floor: {}",
                 record.canonical_state
             );
