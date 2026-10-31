@@ -410,6 +410,7 @@ fn frame_budget(
         accrued_bytes.min(config.maximum_frame_bytes),
     )
     .with_zero_byte_operations_per_frame(zero_byte_operations_per_frame)
+    .with_preparation_time(config.maximum_frame_preparation_time)
 }
 
 /// Restores a reduced item cap without exceeding its configured maximum.

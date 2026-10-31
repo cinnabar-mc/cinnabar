@@ -630,7 +630,11 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     };
 
     const COHORT_ITEMS: usize = 6_951;
-    let config = PublicationServiceConfig::DEFAULT;
+    // This fixture checks work per frame; elapsed-time admission has separate deterministic tests.
+    let config = PublicationServiceConfig {
+        maximum_frame_preparation_time: Duration::MAX,
+        ..PublicationServiceConfig::DEFAULT
+    };
     let runtime_assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let stream = chunk_pipeline::WorldStream::new_with_assets(
         WorldBootstrap {

@@ -68,6 +68,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     profiler: Option<Res<RuntimeStageProfiler>>,
 ) {
     let budget = &*limits.budget;
+    let deadline = PreparationDeadline::new(Instant::now(), budget.max_preparation_time);
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("prepare_gpu_chunks").entered();
     let ChunkUploadPublication {
@@ -234,8 +235,13 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             }
         }
     }
+    let mut time_limited = false;
     for entity in fairness.examination_order(&selected) {
         if upload_reservation.items >= frame_items {
+            break;
+        }
+        if !deadline.admits_more(Instant::now(), successful_updates.len()) {
+            time_limited = true;
             break;
         }
         let Ok((_, instance)) = all_instances.get(entity) else {
@@ -673,6 +679,7 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
     upload_stats.model_streams_validated = model_streams_validated;
     upload_stats.range_plans = range_plans;
     upload_stats.candidates_deferred = selected.len().saturating_sub(successful_updates.len());
+    upload_stats.time_limited = time_limited;
     #[cfg(feature = "tracy")]
     if let Some(client) = tracy_client::Client::running() {
         use tracy_client::plot_name;
@@ -692,6 +699,10 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             plot_name!("terrain upload deferred"),
             upload_stats.candidates_deferred as f64,
         );
+        client.plot(
+            plot_name!("terrain upload time limited"),
+            f64::from(u8::from(time_limited)),
+        );
     }
     if upload_stats.chunk_updates > upload_stats.chunk_budget {
         bevy::log::warn!(
@@ -699,6 +710,26 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
             upload_stats.chunk_updates,
             upload_stats.chunk_budget,
         );
+    }
+}
+
+/// Elapsed-time allowance for one frame's upload preparation loop, from a caller-read start.
+#[derive(Clone, Copy, Debug)]
+pub(in crate::chunk) struct PreparationDeadline {
+    started: Instant,
+    allowance: Duration,
+}
+
+impl PreparationDeadline {
+    /// Starts the allowance at the render edge's supplied observation.
+    pub(in crate::chunk) const fn new(started: Instant, allowance: Duration) -> Self {
+        Self { started, allowance }
+    }
+
+    /// Whether another candidate may be prepared at `now`; a frame that has admitted nothing
+    /// always may, so one expensive item still progresses.
+    pub(in crate::chunk) fn admits_more(self, now: Instant, admitted: usize) -> bool {
+        admitted == 0 || now.saturating_duration_since(self.started) < self.allowance
     }
 }
 

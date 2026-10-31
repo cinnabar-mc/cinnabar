@@ -22,6 +22,7 @@ pub(in crate::chunk) struct ChunkGpuUploadStats {
     pub(in crate::chunk) model_streams_validated: usize,
     pub(in crate::chunk) range_plans: usize,
     pub(in crate::chunk) candidates_deferred: usize,
+    pub(in crate::chunk) time_limited: bool, // preparation stopped at its elapsed allowance
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
