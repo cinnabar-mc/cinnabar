@@ -304,7 +304,8 @@ pub(super) fn present(world: &mut World) {
             let real_deadline = presenter.pacer.real_deadline(now(), held.interval_ns);
             let real = world
                 .get::<SurfaceData>(held.window)
-                .map(|surface| surface.surface().get_current_texture());
+                .and_then(SurfaceData::surface)
+                .map(wgpu::Surface::get_current_texture);
             match real {
                 Some(
                     wgpu::CurrentSurfaceTexture::Success(real)
