@@ -2,6 +2,7 @@
 
 mod client;
 mod content_rules;
+mod damage;
 mod item_metadata;
 mod overlays;
 mod redstone;

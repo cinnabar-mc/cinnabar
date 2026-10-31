@@ -34,7 +34,7 @@
 //! vanilla containers at or next to the anchor and its network. A block whose rule makes it a
 //! `redstone` block reads the power it receives with [`Callback::redstone_power`] and sets what
 //! it emits with [`Callback::set_redstone_power`]. [`Callback::game_mode`] reads the actor's
-//! [`GameMode`].
+//! [`GameMode`], and [`Callback::damage`] hurts the actor.
 
 /// Bindings generated from `wit/server/server.wit`.
 // The canonical-ABI shims for `on-place` and `on-break` take the flattened
