@@ -7164,6 +7164,8 @@
       "Farmland": "minecraft:farmland",
       "ResinClump": "minecraft:resin_clump",
       "Dirt": "minecraft:dirt",
+      "WeepingVines": "minecraft:weeping_vines",
+      "TwistingVines": "minecraft:twisting_vines",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",

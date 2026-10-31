@@ -61,6 +61,8 @@ domain!(PackBlock {
     Farmland,
     ResinClump,
     Dirt,
+    WeepingVines,
+    TwistingVines,
     CobblestoneWall,
     Air,
     Stone,

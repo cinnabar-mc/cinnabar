@@ -80,6 +80,8 @@ mod torch;
 mod trapdoor;
 #[path = "tests/tripwire_hook.rs"]
 mod tripwire_hook;
+#[path = "tests/vine_stem.rs"]
+mod vine_stem;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
