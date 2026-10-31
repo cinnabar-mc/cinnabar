@@ -421,7 +421,9 @@ fn cull_emit(
     }
     let offset = group_sums[wid.x] + sums[lid] - mine;
     let record = records[ranked_slot(gid.x, 0u)];
-    solid_runs(record, true, offset.x);
+    if (mine.x != 0u) {
+        solid_runs(record, true, offset.x);
+    }
     if (mine.y != 0u) {
         let cutout = cutout_range(record);
         write_args(offset.y, 1u, record, cutout.x, cutout.y);

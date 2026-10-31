@@ -299,3 +299,48 @@ fn raster_box_ordered_fallback_keeps_each_streams_cpu_order_and_complete_candida
     }
     assert_eq!(culler.args(CullPhase::Late), expected);
 }
+
+#[test]
+fn raster_box_mixed_orders_leave_hidden_solid_commands_zero_on_fixed_submission() {
+    let Some(gpu) = Gpu::for_fixture("mixed raster stream orders") else {
+        return;
+    };
+    let records: Vec<_> = (0..2)
+        .map(|index| {
+            CullRecord::new(&CullRecordSource {
+                base_vertex: index * 4,
+                bounds: [[0; 3], [1; 3]],
+                cube: (index as u32 * 4)..(index as u32 * 4 + 1),
+                solid_ends: [1; 6],
+                model: if index == 0 { 0..0 } else { 20..21 },
+                ..Default::default()
+            })
+            .unwrap()
+        })
+        .collect();
+    let mut culler = Culler::new(&gpu, &records, &[3]);
+    culler.set_order(vec![1, 0]);
+    culler.storage.write_stream_order(&gpu.queue, 1, 0, &[0, 1]);
+    culler.set_history(&[0, model::HISTORY_RASTER_VISIBLE]);
+    culler
+        .storage
+        .write_uniform(&gpu.queue, CullPhase::Late, &input(2));
+    let groups = culler
+        .kernels
+        .bind_groups(&gpu.device, &culler.storage, None);
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    encoder.clear_buffer(&culler.storage.args, 0, None);
+    culler
+        .kernels
+        .encode_cull(&mut encoder, &groups[1], culler.slots, None);
+    gpu.queue.submit([encoder.finish()]);
+    let bytes = read_buffer(&gpu, &culler.storage.args, culler.storage.args.size());
+    let words: &[u32] = bytemuck::cast_slice(&bytes);
+    let tail =
+        args_region(culler.storage.capacity, CullPhase::Late, CullStream::Solid) + ARGS_WORDS;
+    assert_eq!(
+        words[tail as usize + 1],
+        0,
+        "a model-only rank cannot emit its hidden cube record into cleared fixed tails"
+    );
+}
