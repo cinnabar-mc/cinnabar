@@ -142,10 +142,24 @@ pub(super) fn render_plugin(
                             *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
                             instance = create(wgpu::Dx12Compiler::Fxc);
                         }
+                        let mut native =
+                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        let current = dx12_shader_compiler.borrow().clone();
+                        if let Some(legacy) = render::device_settings::adapter_requiring_fxc(
+                            &current,
+                            native.iter().map(wgpu::Adapter::get_info),
+                        ) {
+                            log(format_args!(
+                                "Renderer DX12 shader compiler: FXC, since {} driver {} loses the device with DXC",
+                                legacy.name, legacy.driver
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
+                            native =
+                                bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        }
                         let mut found = Vec::new();
-                        for adapter in
-                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
-                        {
+                        for adapter in native {
                             if let Err(error) = meets_requirements(&adapter) {
                                 failures.push(format!(
                                     "{} ({backend:?}): {error:#}",

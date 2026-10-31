@@ -21,6 +21,7 @@ struct Runtime {
     application_id: String,
     core_library: String,
     compiler_library: String,
+    shaderpack_worker_library: String,
 }
 
 fn runtime() -> &'static Runtime {
@@ -33,7 +34,11 @@ fn runtime() -> &'static Runtime {
 
 /// The install layout for the app's private files and the APK's native-library directory.
 fn layout(files_dir: &Path, native_library_dir: &Path) -> InstallLayout {
-    InstallLayout::android(files_dir, native_library_dir.join(&runtime().core_library))
+    InstallLayout::android(
+        files_dir,
+        native_library_dir.join(&runtime().core_library),
+        native_library_dir.join(&runtime().shaderpack_worker_library),
+    )
 }
 
 #[bevy::prelude::bevy_main]

@@ -73,6 +73,7 @@ pub fn before_run(assets_overridden: bool) -> Result<bool> {
     if !layout.is_installed() {
         return Ok(true);
     }
+    update::on_next_release(first_run::prepare_next_release);
     update::check_in_background(&layout);
 
     if !assets_overridden {
