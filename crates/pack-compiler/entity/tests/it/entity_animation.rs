@@ -291,6 +291,16 @@ fn a_selecting_controller_stays_when_no_plain_controller_passes() {
 }
 
 #[test]
+fn a_selecting_controller_stays_ahead_of_a_controller_this_pack_does_not_define() {
+    let (controller, candidates) = cosmetic_rig(serde_json::json!([
+        {"controller.render.hat": "!variable.is_first_person"},
+        {"controller.render.external": "!variable.is_first_person"}
+    ]));
+    assert_eq!(controller.as_ref(), "controller.render.hat");
+    assert_eq!(candidates, 3);
+}
+
+#[test]
 fn an_unconditional_selecting_controller_keeps_the_rig() {
     let (controller, candidates) = cosmetic_rig(serde_json::json!([
         "controller.render.hat",

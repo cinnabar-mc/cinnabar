@@ -242,7 +242,8 @@ pub(super) fn compile_rigs(
         };
         let Some((render_name, optional_condition)) =
             select_render_controller(description.get("render_controllers"), |name| {
-                !geometry_selections.contains_key(&(name.into(), entity_symbol as u32))
+                matches!(render_indices.get(name), Some(Some(_)))
+                    && !geometry_selections.contains_key(&(name.into(), entity_symbol as u32))
             })
         else {
             outcomes.push(reject(RejectReason::MissingRequiredReference));
@@ -531,7 +532,8 @@ impl RigScripts {
 ///
 /// The native renderer draws a list of controllers, but a rig holds one. A pack can list conditional
 /// cosmetics that pick a geometry from an array ahead of the plain body controller, so a passing
-/// conditional entry that selects its geometry yields to a later passing one with `fixed_geometry`.
+/// conditional entry that selects its geometry yields to a later passing one with `fixed_geometry`,
+/// which reports a controller this pack defines unambiguously without selecting its geometry.
 fn select_render_controller(
     value: Option<&Value>,
     fixed_geometry: impl Fn(&str) -> bool,
