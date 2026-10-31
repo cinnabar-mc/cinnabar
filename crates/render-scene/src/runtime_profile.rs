@@ -99,6 +99,7 @@ pub enum RuntimeStage {
     /// Owned GPU-cull passes, measured during per-pass profiling outside Metal.
     GpuCullEarly,
     GpuCullHiz,
+    GpuCullRaster,
     GpuCullLate,
     GpuTerrainLate,
     /// Draw categories timed inside passes; only with aggregate profiling on capable adapters.
@@ -145,7 +146,7 @@ pub enum RuntimeStage {
 }
 
 impl RuntimeStage {
-    pub const ALL: [Self; 93] = [
+    pub const ALL: [Self; 94] = [
         Self::ActorSessionSetup,
         Self::PackReload,
         Self::WorldPoll,
@@ -208,6 +209,7 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuCullEarly,
         Self::GpuCullHiz,
+        Self::GpuCullRaster,
         Self::GpuCullLate,
         Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
@@ -242,7 +244,7 @@ impl RuntimeStage {
     ];
 
     /// GPU diagnostics, including labelled completion latency, in the tail of [`Self::ALL`].
-    pub const GPU: [Self; 48] = [
+    pub const GPU: [Self; 49] = [
         Self::GpuFrame,
         Self::GpuShadows,
         Self::GpuOpaque,
@@ -260,6 +262,7 @@ impl RuntimeStage {
         Self::GpuBlit,
         Self::GpuCullEarly,
         Self::GpuCullHiz,
+        Self::GpuCullRaster,
         Self::GpuCullLate,
         Self::GpuTerrainLate,
         Self::GpuTerrainOpaque,
@@ -393,6 +396,7 @@ impl RuntimeStage {
             Self::GpuBlit => "gpu_blit",
             Self::GpuCullEarly => "gpu_cull_early",
             Self::GpuCullHiz => "gpu_cull_hiz",
+            Self::GpuCullRaster => "gpu_cull_raster",
             Self::GpuCullLate => "gpu_cull_late",
             Self::GpuTerrainLate => "gpu_terrain_late",
             Self::GpuTerrainOpaque => "gpu_terrain_opaque",

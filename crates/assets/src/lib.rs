@@ -71,31 +71,30 @@ mod vanilla_refs;
 pub mod vocabulary;
 pub mod weather_textures;
 pub use actor::{
-    ACTOR_CARRIER_MAGIC, ACTOR_CARRIER_VERSION, ActorArtworkBinding, ActorPoseMode, ActorTexture,
-    MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES, MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE,
-    MAX_ACTOR_TEXTURES, RuntimeActorCatalog, actor_sources_keeping_alpha, encode_actor_catalog,
+    ActorArtworkBinding, ActorPoseMode, ActorTexture, MAX_ACTOR_BINDINGS, MAX_ACTOR_CARRIER_BYTES,
+    MAX_ACTOR_PIXEL_BYTES, MAX_ACTOR_TEXTURE_SIDE, MAX_ACTOR_TEXTURES, RuntimeActorCatalog,
+    actor_sources_keeping_alpha, encode_actor_catalog,
     native_actor_texture_preserves_fractional_alpha, native_actor_texture_uses_color_mask,
     native_actor_texture_uses_multitexture, native_actor_uses_multitexture,
     neutral_actor_geometry_sampled_texels, neutral_actor_geometry_uvs_are_supported,
     neutral_actor_material_is_supported, neutral_actor_pose_mode,
 };
 pub use atmosphere::{
-    ATMOSPHERE_BLOB_MAGIC, ATMOSPHERE_BLOB_VERSION, AtmosphereRole, AtmosphereTexture,
-    BiomeVisualProfile, CelestialBorderTexel, CelestialTile, CompiledAtmosphereAssets, FogDistance,
-    FogDistanceMode, FogMedium, FogProfile, MAX_ENVIRONMENT_IDENTIFIER_BYTES,
-    MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog, RuntimeAtmosphereAssets,
-    atmosphere_texture_specs, composite_celestial, encode_atmosphere_blob,
+    AtmosphereRole, AtmosphereTexture, BiomeVisualProfile, CelestialBorderTexel, CelestialTile,
+    CompiledAtmosphereAssets, FogDistance, FogDistanceMode, FogMedium, FogProfile,
+    MAX_ENVIRONMENT_IDENTIFIER_BYTES, MAX_ENVIRONMENT_PROFILES, MAX_FOG_DISTANCES, ResolvedFog,
+    RuntimeAtmosphereAssets, atmosphere_texture_specs, composite_celestial, encode_atmosphere_blob,
 };
 pub use audio::{
-    AUDIO_CARRIER_MAGIC, AudioAlternative, AudioCatalogError, AudioDefinition,
-    MAX_AUDIO_ALTERNATIVES, MAX_AUDIO_ALTERNATIVES_PER_DEFINITION, MAX_AUDIO_CARRIER_BYTES,
-    MAX_AUDIO_CATEGORY_BYTES, MAX_AUDIO_DEFINITIONS, MAX_AUDIO_IDENTIFIER_BYTES,
-    MAX_AUDIO_PATH_BYTES, MAX_AUDIO_SUBTITLE_BYTES, RuntimeAudioCatalog, encode_audio_catalog,
+    AudioAlternative, AudioCatalogError, AudioDefinition, MAX_AUDIO_ALTERNATIVES,
+    MAX_AUDIO_ALTERNATIVES_PER_DEFINITION, MAX_AUDIO_CARRIER_BYTES, MAX_AUDIO_CATEGORY_BYTES,
+    MAX_AUDIO_DEFINITIONS, MAX_AUDIO_IDENTIFIER_BYTES, MAX_AUDIO_PATH_BYTES,
+    MAX_AUDIO_SUBTITLE_BYTES, RuntimeAudioCatalog, encode_audio_catalog,
 };
 pub use audio_pcm::{
-    AudioPcmError, AudioPcmExpectedIdentity, AudioPcmMode, MAX_AUDIO_PCM_BYTES,
-    MAX_AUDIO_PCM_CARRIER_BYTES, MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm,
-    reviewed_audio_pcm_identity, validate_audio_pcm_catalog,
+    AudioPcmError, AudioPcmExpectedIdentity, AudioPcmMode, MAX_AUDIO_PCM_CARRIER_BYTES,
+    MAX_AUDIO_PCM_SOURCE_BYTES, RuntimeAudioPcm, encode_audio_pcm, reviewed_audio_pcm_identity,
+    validate_audio_pcm_catalog,
 };
 pub use biome::{
     BIOME_REGISTRY_MAGIC, BIOME_RULE_FLAG_GRASS_SHADED, BIOME_TINT_FLAG_SEASONAL_FOLIAGE,
@@ -176,37 +175,33 @@ pub use equipment::{
     EquipmentBinding, EquipmentCategory, EquipmentColorMask, EquipmentItemFacts,
     EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
-    MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
-    MAX_PACK_EQUIPMENT_PIXEL_BYTES, RuntimeEquipmentCatalog, color_mask_texel,
-    encode_equipment_catalog, encode_equipment_catalog_full,
-    encode_equipment_catalog_with_attack_timings, encode_equipment_catalog_with_textures,
-    encode_equipment_catalog_with_use_profiles,
+    MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES, MAX_PACK_EQUIPMENT_PIXEL_BYTES,
+    RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
+    encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
+    encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
 };
 pub use font::{
-    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
-    FONT_FACE_BUNDLE_SCHEMA, FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS,
-    FONT_STYLE_COVERAGE_GAMMA, FONT_STYLE_OUTLINE_COVERAGE, FONT_STYLE_SDF, FontCatalogError,
-    FontCatalogIdentity, FontFaceRaster, FontLineMetrics, FontPixels, FontRendering,
-    FontTexturePage, GlyphMetrics, MAX_FONT_CARRIER_BYTES, MAX_FONT_GLYPHS, MAX_FONT_KERNING_PAIRS,
-    MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES, MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES,
-    RuntimeFontCatalog, decode_font_face_bundle, encode_font_catalog, encode_font_face_bundle,
-    rasterize_outline_font,
+    CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_SCHEMA,
+    FONT_FALLBACK_ATLAS_SIDE, FONT_RASTER_EM_PIXELS, FONT_STYLE_COVERAGE_GAMMA,
+    FONT_STYLE_OUTLINE_COVERAGE, FONT_STYLE_SDF, FontCatalogError, FontCatalogIdentity,
+    FontFaceRaster, FontLineMetrics, FontPixels, FontRendering, FontTexturePage, GlyphMetrics,
+    MAX_FONT_CARRIER_BYTES, MAX_FONT_GLYPHS, MAX_FONT_PAGE_SIDE, MAX_FONT_PAGES,
+    MAX_FONT_PATH_BYTES, MAX_FONT_SOURCE_BYTES, RuntimeFontCatalog, decode_font_face_bundle,
+    encode_font_catalog, encode_font_face_bundle, rasterize_outline_font,
 };
 pub use fsb::{DecodedSound, FsbError, MAX_FSB_INPUT_BYTES, MAX_FSB_PCM_BYTES, decode_fsb5};
 pub use glyph_sheet::{CellGlyph, GlyphAtlas, GlyphSheet, SHEET_GRID, SheetGlyph};
 pub use glyph_sheet::{extract_cells, is_private_use_glyph, pack_cells, texel_size_64};
 pub use hud::{
-    HUD_CARRIER_MAGIC, HUD_CARRIER_VERSION, HUD_ICONS_SHEET_SIZE, HudCatalogError, HudTexture,
-    HudTextureRole, MAX_HUD_TEXTURE_BYTES, RuntimeHudCatalog, encode_hud_catalog,
-    hud_source_manifest_sha256,
+    HUD_ICONS_SHEET_SIZE, HudCatalogError, HudTexture, HudTextureRole, MAX_HUD_TEXTURE_BYTES,
+    RuntimeHudCatalog, encode_hud_catalog, hud_source_manifest_sha256,
 };
 pub use icon::{
-    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, ICON_CARRIER_MAGIC,
-    ICON_CARRIER_VERSION, IconBlockModel, IconBlockSheet, IconEntry, IconSprite,
-    MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES, MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES,
-    MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog, compose_block_item_sheet,
-    encode_icon_catalog, encode_icon_catalog_with_block_sheets, encode_icon_catalog_with_blocks,
-    encode_icon_catalog_with_sources,
+    BLOCK_ITEM_FACE_SIDE, BLOCK_ITEM_SHEET_GRID, BLOCK_ITEM_SHEET_SIZE, IconBlockModel,
+    IconBlockSheet, IconEntry, IconSprite, MAX_ICON_BLOCK_SHEETS, MAX_ICON_CARRIER_BYTES,
+    MAX_ICON_ENTRIES, MAX_ICON_KEY_BYTES, MAX_ICON_SIDE, MAX_ICON_SPRITES, RuntimeIconCatalog,
+    compose_block_item_sheet, encode_icon_catalog, encode_icon_catalog_with_block_sheets,
+    encode_icon_catalog_with_blocks, encode_icon_catalog_with_sources,
 };
 pub use item::{
     BlockVisualId, ItemActionPhase, ItemDisplayScalar, ItemDisplayTransform, ItemIconRef,
@@ -215,9 +210,9 @@ pub use item::{
     MAX_BLOCK_VISUALS, MAX_ITEM_IDENTIFIER_BYTES, MAX_ITEM_VISUAL_ALIASES, MAX_ITEM_VISUALS,
 };
 pub use lang::{
-    LANG_CARRIER_MAGIC, LANG_CARRIER_VERSION, LangCatalogError, LangEntry, MAX_LANG_CARRIER_BYTES,
-    MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES, MAX_LANG_VALUE_BYTES, RuntimeLangCatalog,
-    VANILLA_EN_US_LANG_SHA256, encode_lang_catalog, is_language_code,
+    LangCatalogError, LangEntry, MAX_LANG_CARRIER_BYTES, MAX_LANG_ENTRIES, MAX_LANG_KEY_BYTES,
+    MAX_LANG_VALUE_BYTES, RuntimeLangCatalog, VANILLA_EN_US_LANG_SHA256, encode_lang_catalog,
+    is_language_code,
 };
 pub use light_registry::{LightProperties, read_light_registry, read_light_registry_for_protocol};
 pub use model::{
@@ -249,8 +244,7 @@ pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
     ACTOR_FLAME_TEXTURE, MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES,
     MAX_PARTICLE_EFFECTS, MAX_PARTICLE_KEY_BYTES, MAX_PARTICLE_TEXTURE_SIDE, MAX_PARTICLE_TEXTURES,
-    PARTICLE_CARRIER_MAGIC, PARTICLE_CARRIER_VERSION, ParticleEffectFile, ParticleTexture,
-    RuntimeParticleAssets, encode_particle_catalog,
+    ParticleEffectFile, ParticleTexture, RuntimeParticleAssets, encode_particle_catalog,
 };
 pub use physics_registry::{
     BlockPhysicsFlags, BlockPhysicsRecord, PhysicsRegistry, SurfaceResponse,
@@ -277,9 +271,8 @@ pub use runtime::{
     server_defined_blocks_for_registry,
 };
 pub use skin_geometry::{
-    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
-    SkinGeometryBounds, SkinGeometryError, parse_skin_geometry, parse_skin_geometry_layer,
-    skin_geometry_name,
+    MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry, SkinGeometryBounds,
+    SkinGeometryError, parse_skin_geometry, parse_skin_geometry_layer, skin_geometry_name,
 };
 pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
 pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
