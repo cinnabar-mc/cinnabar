@@ -148,6 +148,7 @@ impl Instance {
             callback_budget: None,
             filter_identity: super::action_filter::next_identity(),
             consecutive_frame_overruns: 0,
+            world_entry: Default::default(),
         })
     }
 
@@ -216,6 +217,7 @@ impl Instance {
             self.store.data().drawing_policy,
         )?;
         candidate.callback_budget = budget;
+        candidate.world_entry = self.world_entry;
         candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();
         candidate.set_text_measure(self.store.data().hud.text.clone());
         Ok(candidate)

@@ -32,6 +32,10 @@ pub trait Backend: 'static {
 
     /// The canonical package byte limit used by both import picking and update downloading.
     const MAX_SOURCE_BYTES: usize;
+    /// JSON array of API revisions supported by this native build.
+    const MOD_API_REVISIONS_JSON: &'static str = "[]";
+    /// Full commit stamped into this native binary; unstamped builds cannot request updates.
+    const HOST_REVISION: &'static str = "";
 
     /// Reads the canonical registration with statuses matched to its request and reload counters.
     fn registered(directory: &Path) -> Vec<Self::Registered>;

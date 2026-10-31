@@ -3,7 +3,11 @@
 use super::*;
 
 /// Waits for a matching worker result while draining earlier registration observations.
-fn wait_update(watcher: &Watcher, what: &str, mut matches: impl FnMut(&Update) -> bool) -> Update {
+pub(super) fn wait_update(
+    watcher: &Watcher,
+    what: &str,
+    mut matches: impl FnMut(&Update) -> bool,
+) -> Update {
     let mut accepted = None;
     test_time::eventually(what, || {
         while let Ok(update) = watcher.updates.try_recv() {
@@ -18,7 +22,7 @@ fn wait_update(watcher: &Watcher, what: &str, mut matches: impl FnMut(&Update) -
 }
 
 /// Selects exactly one fixture without changing its grants or reload counter.
-fn select_entry(root: &std::path::Path, entry: Entry) {
+pub(super) fn select_entry(root: &std::path::Path, entry: Entry) {
     fs::write(
         root.join(REGISTRATION_FILE),
         serde_json::to_vec(&Registration {

@@ -3410,6 +3410,22 @@
       ]
     },
     {
+      "id": "render-jigsaw",
+      "fact": "render:Jigsaw",
+      "status": "verified",
+      "members": [
+        "minecraft:jigsaw"
+      ]
+    },
+    {
+      "id": "render-vault",
+      "fact": "render:Vault",
+      "status": "verified",
+      "members": [
+        "minecraft:vault"
+      ]
+    },
+    {
       "id": "render-composter",
       "fact": "render:Composter",
       "status": "provisional",

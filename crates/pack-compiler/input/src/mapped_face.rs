@@ -1,10 +1,12 @@
 //! Cube blocks whose class turns its authored faces with its state.
 //!
 //! Each placed face reads one authored `blocks.json` slot and turns that slot's UVs by a
-//! native flip (1 and 2 are opposite quarter turns, 3 a half turn). Observers and crafters
-//! use fixed per-state tables; dispensers, droppers and piston bases derive theirs from
-//! their facing. Every table is indexed in the native facing order
-//! ([`BlockFace::FACING_ORDER`]).
+//! native flip (1 and 2 are opposite quarter turns, 3 a half turn, 4 a horizontal mirror).
+//! Observers, crafters and vaults use fixed per-state tables; dispensers, droppers and piston
+//! bases derive theirs from their facing, and jigsaws from a rotated frame.
+//! Every table is indexed in the native facing order ([`BlockFace::FACING_ORDER`]).
+
+mod jigsaw;
 
 use assets::{
     BlockFace, RegistryRecord,
@@ -20,6 +22,9 @@ pub enum Family {
     Crafter,
     /// Piston and sticky-piston bodies; the head is drawn separately.
     PistonBase,
+    Jigsaw,
+    /// Vaults, whose cutout shell also draws an inward-facing interior.
+    Vault,
 }
 
 /// The family that owns `record`'s face mapping, if any.
@@ -29,6 +34,8 @@ pub fn family(record: &RegistryRecord) -> Option<Family> {
         BlockRenderKind::Dispenser => Family::Dispenser,
         BlockRenderKind::Crafter => Family::Crafter,
         BlockRenderKind::PistonBase => Family::PistonBase,
+        BlockRenderKind::Jigsaw => Family::Jigsaw,
+        BlockRenderKind::Vault => Family::Vault,
         _ => return None,
     })
 }
@@ -111,6 +118,21 @@ const PISTON_FLIPS: [[u8; 6]; 6] = [
     [2, 2, 2, 2, 0, 0],
 ];
 
+/// Vault slots for each `minecraft:cardinal_direction`: the front (authored north) faces
+/// the direction.
+const VAULT_SLOTS: [[u8; 6]; 4] = [
+    [0, 1, 3, 2, 5, 4],
+    [0, 1, 5, 4, 2, 3],
+    [0, 1, 2, 3, 4, 5],
+    [0, 1, 4, 5, 3, 2],
+];
+const VAULT_FLIPS: [[u8; 6]; 4] = [
+    [3, 3, 0, 0, 0, 0],
+    [1, 2, 0, 0, 0, 0],
+    [0; 6],
+    [2, 1, 0, 0, 0, 0],
+];
+
 /// Native facing indices of the authored slots the formula-driven families read.
 const DOWN: u8 = 0;
 const UP: u8 = 1;
@@ -120,34 +142,52 @@ const EAST: u8 = 5;
 
 /// Resolves `record`'s face mapping; `None` for other blocks and malformed states.
 pub fn mapping(record: &RegistryRecord) -> Option<FaceMapping> {
-    let family = family(record)?;
-    if family == Family::Crafter {
-        let index = orientation_index(record)?;
-        return Some(FaceMapping {
-            slots: CRAFTER_SLOTS[index],
-            flips: CRAFTER_FLIPS[index],
-        });
+    let table = |slots: &[[u8; 6]], flips: &[[u8; 6]], index: usize| {
+        Some(FaceMapping {
+            slots: *slots.get(index)?,
+            flips: *flips.get(index)?,
+        })
+    };
+    match family(record)? {
+        Family::Observer => table(&OBSERVER_SLOTS, &OBSERVER_FLIPS, facing(record)?),
+        Family::Crafter => table(
+            &CRAFTER_SLOTS,
+            &CRAFTER_FLIPS,
+            domain_index(record, BlockProperty::Orientation)?,
+        ),
+        Family::Vault => table(
+            &VAULT_SLOTS,
+            &VAULT_FLIPS,
+            domain_index(record, BlockProperty::MinecraftCardinalDirection)?,
+        ),
+        Family::Dispenser => {
+            let facing = facing(record)?;
+            Some(FaceMapping {
+                slots: std::array::from_fn(|face| dispenser_slot(face, facing)),
+                flips: [0; 6],
+            })
+        }
+        Family::PistonBase => {
+            let facing = facing(record)?;
+            Some(FaceMapping {
+                slots: std::array::from_fn(|face| piston_slot(face, facing)),
+                flips: PISTON_FLIPS[facing],
+            })
+        }
+        Family::Jigsaw => {
+            let rotation = match record.property(BlockProperty::Rotation)? {
+                StateValue::Int(rotation @ 0..=3) => *rotation as usize,
+                _ => return None,
+            };
+            let (slots, flips) = jigsaw::mapping(facing(record)?, rotation);
+            Some(FaceMapping { slots, flips })
+        }
     }
-    let facing = facing(record)?;
-    Some(match family {
-        Family::Observer => FaceMapping {
-            slots: OBSERVER_SLOTS[facing],
-            flips: OBSERVER_FLIPS[facing],
-        },
-        Family::Dispenser => FaceMapping {
-            slots: std::array::from_fn(|face| dispenser_slot(face, facing)),
-            flips: [0; 6],
-        },
-        Family::PistonBase => FaceMapping {
-            slots: std::array::from_fn(|face| piston_slot(face, facing)),
-            flips: PISTON_FLIPS[facing],
-        },
-        Family::Crafter => unreachable!("crafters map by orientation"),
-    })
 }
 
 /// The terrain array entry the class draws: lit observer backs, triggered and crafting
-/// crafters, and the vertical dispenser variant (whose single-entry arrays draw their first).
+/// crafters, the vertical dispenser variant (whose single-entry arrays draw their first),
+/// and the vault's state (ominous vaults use the second four entries).
 pub fn texture_variant(record: &RegistryRecord) -> Option<usize> {
     let flag = |key| match record.property(key) {
         Some(StateValue::Bool(set)) => Some(*set),
@@ -159,7 +199,11 @@ pub fn texture_variant(record: &RegistryRecord) -> Option<usize> {
         Family::Crafter if flag(BlockProperty::Crafting)? => 2,
         Family::Crafter => usize::from(flag(BlockProperty::TriggeredBit)?),
         Family::Dispenser => usize::from(facing(record)? < 2),
-        Family::PistonBase => 0,
+        Family::PistonBase | Family::Jigsaw => 0,
+        Family::Vault => {
+            domain_index(record, BlockProperty::VaultState)?
+                + 4 * usize::from(flag(BlockProperty::Ominous)?)
+        }
     })
 }
 
@@ -186,18 +230,17 @@ fn facing(record: &RegistryRecord) -> Option<usize> {
     (facing < BlockFace::FACING_ORDER.len()).then_some(facing)
 }
 
-/// The crafter's `orientation` as its index in the property's value domain.
-fn orientation_index(record: &RegistryRecord) -> Option<usize> {
-    let StateValue::String(value) = record.property(BlockProperty::Orientation)? else {
+/// A string state's index in its property's value domain, which follows the native enum.
+fn domain_index(record: &RegistryRecord, property: BlockProperty) -> Option<usize> {
+    let StateValue::String(value) = record.property(property)? else {
         return None;
     };
-    let PropertyDomain::String(values) = BlockProperty::Orientation.domain() else {
+    let PropertyDomain::String(values) = property.domain() else {
         return None;
     };
     values
         .iter()
         .position(|candidate| *candidate == value.as_ref())
-        .filter(|&index| index < CRAFTER_SLOTS.len())
 }
 
 /// Dispenser fronts use the authored south slot when horizontal and the east slot when
