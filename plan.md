@@ -74,6 +74,9 @@ closes no gate and provides no new runtime or performance evidence.
 The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
+Server batch intake accepts replay movement bursts without a packet-count cap while
+retaining byte and framing checks. Live replay seek/teleport qualification and
+version-matched native batch-size acceptance remain incomplete.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
 The generated codec and Go integrations target protocol 2225. New matchmaking,
 stonecutter selection, cursor dragging, block passengers and registered audio packets
