@@ -7,6 +7,7 @@ use std::{
 };
 
 /// Releases the OS lock when its owner finishes, including across inherited descriptors.
+#[derive(Debug)]
 pub(super) struct Lease(pub(super) fs::File);
 
 impl Drop for Lease {
@@ -31,17 +32,18 @@ static ACTIVE: Mutex<Active> = Mutex::new(Active {
 
 impl Active {
     /// Records ownership without extending the OS lease beyond the startup guard.
-    pub(super) fn register(&mut self, root: &Path, lease: &Arc<Lease>) {
+    pub(super) fn register(&mut self, sentinel: &Path, lease: &Arc<Lease>) {
         self.leases.retain(|(_, lease)| lease.strong_count() != 0);
-        self.leases.push((root.to_owned(), Arc::downgrade(lease)));
+        self.leases
+            .push((sentinel.to_owned(), Arc::downgrade(lease)));
     }
 
     /// Revokes future writes and cancels only sentinels still leased by this process.
     fn cancel(&mut self) {
         self.terminating = true;
-        for (root, lease) in self.leases.drain(..) {
+        for (sentinel, lease) in self.leases.drain(..) {
             if let Some(_lease) = lease.upgrade()
-                && let Err(error) = fs::remove_file(root.join(super::SENTINEL_FILE))
+                && let Err(error) = fs::remove_file(sentinel)
                 && error.kind() != std::io::ErrorKind::NotFound
             {
                 tracing::warn!(%error, "could not cancel renderer startup on termination");

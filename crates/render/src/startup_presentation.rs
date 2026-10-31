@@ -65,7 +65,7 @@ impl Plugin for StartupPresentationPlugin {
 
 /// The surface generation belonging to this extracted frame, even if main has advanced.
 #[derive(Default, Resource)]
-struct ExtractedSurfaceEpoch(Option<u64>);
+struct ExtractedSurfaceEpoch(Option<u64>, Option<u64>);
 
 /// Snapshots generation while main-world window extraction is still exclusive.
 fn extract_surface_epoch(
@@ -73,6 +73,7 @@ fn extract_surface_epoch(
     mut epoch: ResMut<ExtractedSurfaceEpoch>,
 ) {
     epoch.0 = feedback.content_epoch();
+    epoch.1 = feedback.pending_mode_change();
 }
 
 #[derive(Default, Resource)]
@@ -80,6 +81,7 @@ struct PresentationProbe {
     surface: Option<Entity>,
     submitted: u8,
     content_submitted: Option<u64>,
+    mode_submitted: Option<u64>,
     offscreen_submitted: bool,
 }
 
@@ -105,6 +107,9 @@ fn capture_surface(
 ) {
     probe.surface = if probe.submitted < StartupPresentation::REQUIRED_FRAMES
         || probe.content_submitted != epoch.0
+        || epoch
+            .1
+            .is_some_and(|mode| probe.mode_submitted != Some(mode))
     {
         windows
             .iter()
@@ -153,6 +158,16 @@ fn observe_presentation(
         .filter(|(_, window)| window.swap_chain_texture.is_none())
         .map(|(main, _)| main.id());
     let consumed = presented_window.is_some();
+    if let Some(mode) = epoch.1
+        && consumed
+        && probe.mode_submitted != Some(mode)
+    {
+        probe.mode_submitted = Some(mode);
+        let feedback = feedback.clone();
+        crate::device_poll::on_frame_complete(&queue, move || {
+            feedback.record_mode_frame(mode);
+        });
+    }
     if let Some(epoch) = epoch.0
         && consumed
         && probe.content_submitted != Some(epoch)

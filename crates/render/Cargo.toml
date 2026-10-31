@@ -46,6 +46,7 @@ render-model = { path = "../render-model" }
 meshing = { path = "../meshing" }
 particles = { path = "../particles" }
 rayon.workspace = true
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2.workspace = true
 world = { path = "../world" }

@@ -26,7 +26,7 @@ pub struct DrawOrder {
 }
 
 impl DrawOrder {
-    #[cfg(test)]
+    /// Record slots in the order consumed by the decision buffer.
     pub fn slots(&self) -> &[u32] {
         &self.slots
     }
