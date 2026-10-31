@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [package.metadata.cinnabar]
-platform-specific = ["windows"]
+platform-specific = ["macos", "windows"]
 reads = [
     "app/Cargo.toml",
     "crates/*/Cargo.toml",
@@ -37,11 +37,11 @@ crash-report = { path = "../crash-report" }
 android_log-sys = "0.3"
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", default-features = false, features = ["fs", "std", "stdio", "pipe"] }
+rustix = { version = "1", default-features = false, features = ["fs", "std", "stdio", "pipe", "time"] }
 
 [target.'cfg(windows)'.dependencies]
 libc = "0.2"
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Pipes"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_System_Console", "Win32_System_Pipes", "Win32_System_Threading"] }
 
 [dev-dependencies]
 client-ui = { path = "../client-ui" }
