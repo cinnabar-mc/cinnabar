@@ -191,6 +191,55 @@ fn selectable_geometry_pack(index: &str, members: &[&str]) -> TempDir {
     pack
 }
 
+/// Lists an array-selecting hat controller and a plain body controller in the given entries.
+fn cosmetic_controller_pack(render_controllers: serde_json::Value) -> TempDir {
+    let pack =
+        selectable_geometry_pack("query.variant", &["Geometry.default", "Geometry.alternate"]);
+    let entity = serde_json::json!({
+        "format_version": "1.10.0",
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:test",
+            "geometry": {"default": "geometry.a", "alternate": "geometry.b"},
+            "animations": {"move": "animation.test.walk"},
+            "render_controllers": render_controllers,
+            "scripts": {"animate": ["move"]}
+        }}
+    });
+    write(
+        pack.path(),
+        "entity/test.entity.json",
+        &serde_json::to_vec(&entity).unwrap(),
+    );
+    let controllers = serde_json::json!({
+        "format_version": "1.8.0",
+        "render_controllers": {
+            "controller.render.hat": {
+                "arrays": {"geometries": {"Array.hats": ["Geometry.default", "Geometry.alternate"]}},
+                "geometry": "Array.hats[query.variant]"
+            },
+            "controller.render.body": {"geometry": "Geometry.default"}
+        }
+    });
+    write(
+        pack.path(),
+        "render_controllers/test.render_controllers.json",
+        &serde_json::to_vec(&controllers).unwrap(),
+    );
+    pack
+}
+
+/// Reports the identifier of the rig's render controller and its geometry candidate count.
+fn cosmetic_rig(render_controllers: serde_json::Value) -> (Box<str>, u16) {
+    let pack = cosmetic_controller_pack(render_controllers);
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let rig = compiled.rig_bindings[0];
+    let controller = rig.render_controller.unwrap();
+    (
+        compiled.symbols[controller as usize].identifier.clone(),
+        u16::from(rig.geometry_count),
+    )
+}
+
 /// Evaluates a numeric selection expression with the same value supplied for every query.
 pub(super) fn evaluate_selection_expression(
     compiled: &assets::CompiledEntityAssets,
@@ -219,6 +268,36 @@ pub(super) fn evaluate_selection_expression(
     }
     assert_eq!(stack.len(), 1);
     stack[0]
+}
+
+#[test]
+fn a_conditional_cosmetic_selector_does_not_replace_the_plain_body_controller() {
+    let (controller, candidates) = cosmetic_rig(serde_json::json!([
+        {"controller.render.hat": "!variable.is_first_person"},
+        {"controller.render.body": "!variable.is_first_person"}
+    ]));
+    assert_eq!(controller.as_ref(), "controller.render.body");
+    assert_eq!(candidates, 1, "a body rig has no variant-selected geometry");
+}
+
+#[test]
+fn a_selecting_controller_stays_when_no_plain_controller_passes() {
+    let (controller, candidates) = cosmetic_rig(serde_json::json!([
+        {"controller.render.hat": "!variable.is_first_person"},
+        {"controller.render.body": "variable.is_first_person"}
+    ]));
+    assert_eq!(controller.as_ref(), "controller.render.hat");
+    assert_eq!(candidates, 3);
+}
+
+#[test]
+fn an_unconditional_selecting_controller_keeps_the_rig() {
+    let (controller, candidates) = cosmetic_rig(serde_json::json!([
+        "controller.render.hat",
+        "controller.render.body"
+    ]));
+    assert_eq!(controller.as_ref(), "controller.render.hat");
+    assert_eq!(candidates, 3);
 }
 
 fn selected_geometry(index: f32, members: &[&str]) -> Box<str> {

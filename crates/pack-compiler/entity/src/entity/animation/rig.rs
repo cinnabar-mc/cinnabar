@@ -241,7 +241,9 @@ pub(super) fn compile_rigs(
             Some(Some(geometry)) => *geometry,
         };
         let Some((render_name, optional_condition)) =
-            select_render_controller(description.get("render_controllers"))
+            select_render_controller(description.get("render_controllers"), |name| {
+                !geometry_selections.contains_key(&(name.into(), entity_symbol as u32))
+            })
         else {
             outcomes.push(reject(RejectReason::MissingRequiredReference));
             continue;
@@ -524,10 +526,18 @@ impl RigScripts {
     }
 }
 
-/// First render controller that a remote third-person view selects: an unconditional entry or
-/// one whose condition holds with every query and variable at its zero default.
-fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>)> {
+/// Render controller that draws a remote third-person body: an unconditional entry, or the first
+/// entry whose condition holds with every query and variable at its zero default.
+///
+/// The native renderer draws a list of controllers, but a rig holds one. A pack can list conditional
+/// cosmetics that pick a geometry from an array ahead of the plain body controller, so a passing
+/// conditional entry that selects its geometry yields to a later passing one with `fixed_geometry`.
+fn select_render_controller(
+    value: Option<&Value>,
+    fixed_geometry: impl Fn(&str) -> bool,
+) -> Option<(&str, Option<&str>)> {
     let mut first = None;
+    let mut passing = None;
     for entry in value?.as_array()? {
         let (identifier, condition) = match entry {
             Value::String(identifier) => (identifier.as_str(), None),
@@ -541,10 +551,16 @@ fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>
         if condition.is_none_or(|condition| {
             MolangCompiler::evaluate_default(condition).is_some_and(|value| value != 0.0)
         }) {
-            return Some((identifier, condition));
+            if fixed_geometry(identifier) {
+                return Some((identifier, condition));
+            }
+            if condition.is_none() {
+                return Some(passing.unwrap_or((identifier, condition)));
+            }
+            passing.get_or_insert((identifier, condition));
         }
     }
-    first
+    passing.or(first)
 }
 
 /// Indexes one named-map kind by identifier; only definitions that differ make it ambiguous.

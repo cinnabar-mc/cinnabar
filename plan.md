@@ -797,6 +797,11 @@ camera-driven choices live between ticks. Dynamic per-bone material rules, selec
 admission and in-world qualification remain incomplete. The samples omit the iron
 golem's body controller; it is completed from the pack's default controller until a
 pinned pack defines it.
+A rig holds one render controller, while the native renderer draws a list of them for
+each actor. When a pack lists conditional controllers that pick a geometry from an array
+ahead of a plain body controller, the rig takes the body. Those cosmetic controllers are
+not drawn, which is a confirmed gap, and how native builds that list from entry
+conditions is unverified.
 Thrown tridents draw their pack model placed by the native flight rotation, with the
 item foil when enchanted. A trident with a present owner draws vanilla's loyalty rope
 strips, growing two segments for each tick it returns. Actors publish the native
