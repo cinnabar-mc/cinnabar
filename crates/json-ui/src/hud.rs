@@ -42,6 +42,8 @@ pub struct HudModel {
     /// Lumine array list moves it to the screen's top right).
     pub tip: Option<Timed>,
     pub item_name: Option<Timed>,
+    /// Jukebox notification, emitted by `item_text_factory` independently of the action bar.
+    pub jukebox_popup: Option<Timed>,
     pub chat: Vec<Timed>,
     /// Optional presentation color; parser inputs retain the original message bytes.
     pub chat_color: Option<char>,
@@ -148,6 +150,7 @@ pub fn hud_context(base: &Context) -> Context {
 const TITLE_CLOCK: &str = "hud_title_text";
 const ACTIONBAR_CLOCK: &str = "hud_actionbar_text";
 const ITEM_NAME_CLOCK: &str = "item_name_text";
+const JUKEBOX_CLOCK: &str = "jukebox_text";
 /// The tip text's own fade clock, named by `hud_tip_text`'s `$destroy_id`.
 const TIP_CLOCK: &str = "popup_tip_text";
 
@@ -165,6 +168,10 @@ pub fn hud_clocks(model: &HudModel) -> std::collections::BTreeMap<String, f64> {
             model.item_name.as_ref().map(|item| item.born),
         ),
         (TIP_CLOCK, model.tip.as_ref().map(|tip| tip.born)),
+        (
+            JUKEBOX_CLOCK,
+            model.jukebox_popup.as_ref().map(|popup| popup.born),
+        ),
     ]
     .into_iter()
     .filter_map(|(clock, born)| Some((clock.to_owned(), born?)))
@@ -385,20 +392,32 @@ fn text_data(data: &mut DataSource, model: &HudModel) {
             ],
         );
     }
+    let mut item_text = Vec::new();
     if let Some(item) = &model.item_name {
         data.set_global("#item_text", Scalar::Text(item.text.clone()));
-        data.set_factory(
-            "item_text_factory",
-            vec![
-                FactoryItem::new("item_text", 0.0)
-                    .clocked(ITEM_NAME_CLOCK)
-                    .named("item_name_text")
-                    .var("localize", Value::Bool(false))
-                    .var("show_survival_padding", Value::Bool(model.survival_ui))
-                    .var("show_text_background", Value::Bool(false))
-                    .var("item_text_background_alpha", Value::from(0.0)),
-            ],
+        item_text.push(
+            FactoryItem::new("item_text", 0.0)
+                .clocked(ITEM_NAME_CLOCK)
+                .named("item_name_text")
+                .var("localize", Value::Bool(false))
+                .var("show_survival_padding", Value::Bool(model.survival_ui))
+                .var("show_text_background", Value::Bool(false))
+                .var("item_text_background_alpha", Value::from(0.0)),
         );
+    }
+    if let Some(popup) = &model.jukebox_popup {
+        data.set_global("#jukebox_text", Scalar::Text(popup.text.clone()));
+        item_text.push(
+            FactoryItem::new("jukebox_text", 0.0)
+                .clocked(JUKEBOX_CLOCK)
+                .named(JUKEBOX_CLOCK)
+                .var("destroy_id", Value::from(JUKEBOX_CLOCK))
+                .var("localize", Value::Bool(false))
+                .var("show_survival_padding", Value::Bool(model.survival_ui)),
+        );
+    }
+    if !item_text.is_empty() {
+        data.set_factory("item_text_factory", item_text);
     }
 }
 

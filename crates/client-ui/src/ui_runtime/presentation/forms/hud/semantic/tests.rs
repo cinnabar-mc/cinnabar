@@ -204,6 +204,51 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
+    let mut fixture = Fixture::default();
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((0, 1, 0)), 50);
+    fixture.frame.selected_item_name = Some(Arc::from("Item"));
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Action"), 1, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_popup(Arc::from("Popup"), 2, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
+    fixture.frame.now_millis = 125;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "Popup");
+    assert_eq!(cache.model.jukebox_popup.as_ref().unwrap().text, "Jukebox");
+
+    fixture
+        .runtime
+        .observe_selected_item_identity_value(Some((1, 2, 0)), 150);
+    fixture.frame.selected_item_name = Some(Arc::from("New item"));
+    fixture.frame.now_millis = 150;
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "New item");
+    fixture.frame.now_millis = 2_500;
+    fixture.check(&mut cache);
+    assert!(
+        cache.model.item_name.is_none(),
+        "the superseded popup cannot return"
+    );
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+}
+
+#[test]
 fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     let mut fixture = Fixture::default();
     fixture

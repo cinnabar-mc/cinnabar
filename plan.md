@@ -940,6 +940,12 @@ Outgoing chat uses the session's login name and XUID. Server-authored actor name
 remain available for local presentation and text resolution.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
+Text-packet popups no longer replace SetTitle action bars. Ordinary popups use the
+item-text factory, while jukebox notifications keep their own text and factory clock.
+Clocked HUD controls recreate after a completed destruction animation when their request
+clock advances.
+Matched native popup lifetime, selected-item precedence and simultaneous HUD-frame
+qualification remain incomplete.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.

@@ -305,13 +305,31 @@ impl SemanticHud {
                 .filter(|text| text.visible_at(now))
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
+        changed |= refresh_timed(
+            &mut self.model.jukebox_popup,
+            runtime
+                .hud()
+                .jukebox_popup()
+                .filter(|text| text.visible_at(now))
+                .map(|text| (text.text.as_ref(), text.started_millis)),
+        );
         let item_name = runtime
             .selected_item_changed_millis()
             .filter(|changed| now.saturating_sub(*changed) < ITEM_NAME_MILLIS)
             .zip(frame.selected_item_name.as_deref())
             .filter(|_| self.model.hotbar_visible && player.selected_hotbar_slot().is_some())
             .map(|(changed, name)| (bounded_visible_text(name), changed));
-        changed |= refresh_timed(&mut self.model.item_name, item_name);
+        let popup = runtime
+            .hud()
+            .popup()
+            .filter(|text| text.visible_at(now))
+            .filter(|text| {
+                runtime
+                    .selected_item_changed_millis()
+                    .is_none_or(|changed| text.started_millis >= changed)
+            })
+            .map(|text| (bounded_visible_text(&text.text), text.started_millis));
+        changed |= refresh_timed(&mut self.model.item_name, popup.or(item_name));
         changed
     }
 
