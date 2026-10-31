@@ -1,6 +1,7 @@
 //! Camera-space item placement and first-person arm visibility.
 
 use super::*;
+use render_api::{HeldItemHandSide, HeldItemPerspective, HeldItemPlacement};
 
 impl EquipmentRuntime {
     /// The body pose with every bone but the visible arms (and their sleeves) zero-scaled, as
@@ -81,7 +82,9 @@ impl EquipmentRuntime {
         input: actor_animation::AttachableAnimationInput<'_>,
     ) -> Option<FirstPersonItem> {
         let mesh = self.held_mesh_with_use(item, input)?;
-        self.first_person_item_from_mesh(body, item, hand, profile, input, mesh)
+        self.first_person_item_from_mesh(body, item, hand, profile, input, mesh, |runtime| {
+            runtime.held_mesh_dimensions(item, input)
+        })
     }
 
     /// Places a custom item's ordinary icon under the first-person hand stack.
@@ -101,10 +104,13 @@ impl EquipmentRuntime {
             profile,
             input,
             (mesh, location, false, span),
+            |runtime| runtime.held_icon_dimensions(item),
         )
     }
 
-    /// Places an admitted mesh under the native first-person hand transform.
+    /// Places an admitted mesh under the native first-person hand transform. `dimensions` is the
+    /// texel size of the sprite that mesh draws.
+    #[allow(clippy::too_many_arguments)]
     fn first_person_item_from_mesh(
         &mut self,
         body: &ActorRigSubmission,
@@ -113,6 +119,7 @@ impl EquipmentRuntime {
         profile: render_api::CombatVisuals,
         input: actor_animation::AttachableAnimationInput<'_>,
         (mesh, location, block, span): (EntityRigId, ActorArtworkLocation, bool, [f32; 2]),
+        dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
     ) -> Option<FirstPersonItem> {
         let (_, bones) = self.body_bones_for(body.input.rig)?;
         let pose_len = bones.names.len();
@@ -141,10 +148,25 @@ impl EquipmentRuntime {
         } else {
             hand
         };
-        let mut bone = view_bone(super::super::display::first_person_display_for_profile(
-            shape, hand, profile,
-        ))?;
-        bone.translation_scale[3] *= input.main_hand_scale();
+        let placement = push::held_sprite_placement(item, block);
+        let bone = if placement == HeldItemPlacement::Retail {
+            let mut bone = view_bone(super::super::display::first_person_display_for_profile(
+                shape, hand, profile,
+            ))?;
+            bone.translation_scale[3] *= input.main_hand_scale();
+            bone
+        } else {
+            let table = render_model::equipment::offset_sprite_display(
+                placement,
+                HeldItemHandSide::Main,
+                HeldItemPerspective::FirstPerson,
+                dimensions(self)?,
+                input.main_hand_scale(),
+            )?;
+            view_bone(super::super::display::first_person_offset_display(
+                table, hand,
+            ))?
+        };
         let poses = self
             .poses
             .share(body, FIRST_PERSON_ITEM_LAYER, [&[bone], &[bone]]);
@@ -167,28 +189,17 @@ impl EquipmentRuntime {
         body: &ActorRigSubmission,
         item: &WornItem,
     ) -> Option<FirstPersonItem> {
-        let (mesh, location, block, span) = self.held_mesh_with_use(
-            item,
-            actor_animation::AttachableAnimationInput {
-                off_hand: true,
-                ..Default::default()
-            },
-        )?;
+        let input = actor_animation::AttachableAnimationInput {
+            off_hand: true,
+            ..Default::default()
+        };
+        let (mesh, location, block, span) = self.held_mesh_with_use(item, input)?;
         let equipped = item.grip.upright().unwrap_or(false);
         let bone = if block {
             super::super::first_person::offhand_pose(equipped, true)
         } else {
-            let dimensions = self.native_sprite_dimensions(item).or_else(|| {
-                let sprite = self
-                    .session_sprite(&item.identifier, item.metadata)
-                    .and_then(|(index, _, _)| self.session_sprite_pixels(index))
-                    .or_else(|| {
-                        self.held_icon_index(item)
-                            .and_then(|index| self.icons.sprites().get(index))
-                    })?;
-                Some([sprite.width, sprite.height])
-            })?;
-            super::super::first_person::offhand_sprite_pose(equipped, dimensions)
+            let dimensions = self.held_mesh_dimensions(item, input)?;
+            offhand_sprite_bone(item, equipped, dimensions)
         }?;
         let poses = self
             .poses
@@ -214,16 +225,8 @@ impl EquipmentRuntime {
     ) -> Option<FirstPersonItem> {
         let (mesh, location, span) = self.held_icon_mesh(item)?;
         let equipped = item.grip.upright().unwrap_or(false);
-        let dimensions = self
-            .session_sprite(&item.identifier, item.metadata)
-            .and_then(|(index, _, _)| self.session_sprite_pixels(index))
-            .map(|sprite| [sprite.width, sprite.height])
-            .or_else(|| {
-                self.held_icon_index(item)
-                    .and_then(|index| self.icons.sprites().get(index))
-                    .map(|sprite| [sprite.width, sprite.height])
-            })?;
-        let bone = super::super::first_person::offhand_sprite_pose(equipped, dimensions)?;
+        let dimensions = self.held_icon_dimensions(item)?;
+        let bone = offhand_sprite_bone(item, equipped, dimensions)?;
         let poses = self
             .poses
             .share(body, FIRST_PERSON_OFFHAND_LAYER, [&[bone], &[bone]]);
@@ -239,4 +242,24 @@ impl EquipmentRuntime {
             java_normal_axis: bevy::math::Vec3::Z,
         })
     }
+}
+
+/// The first-person off-hand bone of a flat sprite: its render offsets table with no lead of its
+/// own and no held item scale, or the retail off-hand pose.
+fn offhand_sprite_bone(
+    item: &WornItem,
+    equipped: bool,
+    dimensions: [u16; 2],
+) -> Option<render_model::RenderBoneTransform> {
+    let placement = push::held_sprite_placement(item, false);
+    if placement == HeldItemPlacement::Retail {
+        return super::super::first_person::offhand_sprite_pose(equipped, dimensions);
+    }
+    view_bone(render_model::equipment::offset_sprite_display(
+        placement,
+        HeldItemHandSide::Off,
+        HeldItemPerspective::FirstPerson,
+        dimensions,
+        1.0,
+    )?)
 }

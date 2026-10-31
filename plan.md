@@ -653,6 +653,14 @@ lookup across the passing list.
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
   weapon sprites and custom-model icon fallbacks.
+  Server-defined flat items use the default in-hand tables or a declared
+  `minecraft:render_offsets` component in both hands and perspectives, with the first-person
+  swing that path uses in every combat profile. Remaining: retail items flagged component based
+  still take the retail path (same rest pose, different swing), the options-gated view bob and use
+  animations other than eating and drinking are not applied to offset items, the inventory
+  player preview ignores declared tables, and winding under negative scales is unverified.
+  Field-by-field defaults for a partial component, and how a string value arrives over the
+  network, are inferred from the component loader rather than observed on a vanilla client.
   Decorated shield stacks retain their cloth base and ordered banner layers for inventory
   icons, previews and both held hands. Pattern textures follow the active pack and recoverable
   artwork caches. Dropped and framed shields use the authored static model and retain their
