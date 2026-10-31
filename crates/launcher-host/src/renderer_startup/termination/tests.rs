@@ -1,4 +1,5 @@
 use super::*;
+use crate::renderer_startup::fullscreen::FullscreenGuard;
 use crate::renderer_startup::{Attempt, Stage, StartupGuard};
 use launcher::graphics_backend::Backend;
 
@@ -20,6 +21,16 @@ fn termination_fixture() {
     crate::lifecycle::children::install_exit_hooks(|| {});
     let mut guard = StartupGuard::open(Path::new(&root)).unwrap();
     guard.begin(attempt()).unwrap();
+    crate::video_settings::save(
+        Path::new(&root),
+        crate::video_settings::SavedVideoSettings {
+            fullscreen: true,
+            gui_scale_offset: 0,
+        },
+    )
+    .unwrap();
+    let mut fullscreen = FullscreenGuard::open(Path::new(&root)).unwrap();
+    fullscreen.begin().unwrap();
     match std::env::var("CINNABAR_TERMINATION_MODE").unwrap().as_str() {
         "panic" => panic!("renderer fixture panic must retain its sentinel"),
         "cancel" => {
@@ -28,6 +39,7 @@ fn termination_fixture() {
             assert!(guard.presented().is_err());
             assert!(StartupGuard::pending(Path::new(&root)).unwrap().is_none());
             assert!(StartupGuard::open(Path::new(&root)).is_err());
+            assert!(fullscreen.begin().is_err());
         }
         mode => {
             let signal = match mode {
@@ -95,6 +107,12 @@ fn handled_termination_cancels_startup_but_panics_remain_recoverable() {
                     })
                 );
                 let next = StartupGuard::open(root.path()).unwrap();
+                let fullscreen = FullscreenGuard::open(root.path()).unwrap();
+                assert_eq!(fullscreen.recovered, mode == "panic");
+                assert_eq!(
+                    crate::video_settings::load(root.path()).unwrap().fullscreen,
+                    mode != "panic"
+                );
                 if mode == "panic" {
                     assert_eq!(next.recovery.failed_backends(), [Backend::Vulkan]);
                 } else {
@@ -113,7 +131,10 @@ fn completed_leases_cannot_cancel_another_startup() {
     let mut first = StartupGuard::open(root.path()).unwrap();
     first.begin(attempt()).unwrap();
     let mut active = Active::default();
-    active.register(root.path(), first.lock.as_ref().unwrap());
+    active.register(
+        &root.path().join(super::super::SENTINEL_FILE),
+        first.lock.as_ref().unwrap(),
+    );
     // A child can retain this descriptor between fork and exec.
     let inherited_descriptor = first.lock.as_ref().unwrap().0.try_clone().unwrap();
     first.presented().unwrap();

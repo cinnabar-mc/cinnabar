@@ -244,6 +244,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || super::speleothem::is_record(record)
         || super::chorus::is_flower(record)
         || super::spore_blossom::is_record(record)
+        || super::dripleaf::is_record(record)
         || super::trip_wire::is_record(record)
         || super::scaffolding::is_record(record)
         || matches!(

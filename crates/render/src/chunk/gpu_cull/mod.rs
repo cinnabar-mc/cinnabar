@@ -34,6 +34,7 @@ pub(in crate::chunk) mod unit_mask;
 #[cfg(test)]
 mod vendor_tests;
 mod visibility_admission;
+mod work_admission;
 
 use bevy::{
     camera::{primitives::Frustum, visibility::RenderLayers},
@@ -209,7 +210,7 @@ pub(in crate::chunk) fn install(app: &mut App) {
         cull
     });
     render_app
-        .init_resource::<feedback::GpuCullFeedback>()
+        .insert_resource(feedback::GpuCullFeedback::from_env())
         .init_resource::<ChunkHiddenEntities>()
         .add_systems(ExtractSchedule, extract_hidden_chunks)
         .add_systems(

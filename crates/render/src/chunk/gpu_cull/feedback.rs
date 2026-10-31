@@ -8,8 +8,11 @@ use std::sync::{
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 
-use super::model::{DECISION_CANDIDATE, DECISION_HIDDEN};
+use super::model::{DECISION_CANDIDATE, DECISION_HIDDEN, STREAM_COUNT};
 use super::visibility_admission::{PROBE_INTERVAL, VisibilityAdmission};
+use super::work_admission::{
+    CALIBRATION_ENV, Calibration, SubmittedWork, WorkContext, rejected_work,
+};
 
 const IDLE: u8 = 0;
 const RECORDING: u8 = 1;
@@ -28,10 +31,11 @@ struct Admission {
 }
 
 impl Admission {
-    /// Unknown views start with fresh occlusion; unprofitable views draw conservatively.
-    fn select(&mut self, view: Option<Entity>) -> bool {
+    /// Unknown views and `restart` start with fresh occlusion; unprofitable views draw
+    /// conservatively.
+    fn select(&mut self, view: Option<Entity>, restart: bool) -> bool {
         self.frame += 1;
-        if self.view != view {
+        if self.view != view || restart {
             self.view = view;
             self.policy = None;
             self.first_frame = self.frame;
@@ -41,6 +45,15 @@ impl Admission {
                 .policy
                 .as_mut()
                 .is_none_or(|policy| policy.select_work(self.frame))
+    }
+
+    /// Measured results from older view selections cannot admit the current view's work.
+    fn observe_profitability(&mut self, view: Entity, frame: u64, profitable: bool) {
+        if self.view == Some(view) && frame >= self.first_frame {
+            self.policy
+                .get_or_insert_default()
+                .observe_profitability(frame, profitable);
+        }
     }
 
     /// Feedback from a previous selection cannot change the current view's admission.
@@ -61,6 +74,7 @@ struct Sample {
     view: Entity,
     frame: u64,
     slots: u32,
+    work: Option<(WorkContext, Vec<[u64; STREAM_COUNT]>)>,
 }
 
 /// The previous prepared cull and the storage whose visibility history it updates.
@@ -79,15 +93,40 @@ pub(super) struct GpuCullFeedback {
     next_sample: u64,
     prepared: Option<PreparedHistory>,
     encoded_frame: AtomicU64,
+    calibration: Option<Calibration>,
+    context: Option<WorkContext>,
 }
 
 impl GpuCullFeedback {
-    /// Consumes completed samples for future submission choices without waiting.
-    pub(super) fn select(&mut self, view: Option<Entity>) -> bool {
-        if self.admission.view != view {
+    /// Loads an opt-in measured calibration; absent or invalid files retain the default policy.
+    pub(super) fn from_env() -> Self {
+        let calibration = env_compat::var_os(CALIBRATION_ENV)
+            .and_then(|path| {
+                std::fs::read(path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Calibration>(&bytes).ok())
+            })
+            .filter(Calibration::valid);
+        Self {
+            calibration,
+            ..Default::default()
+        }
+    }
+
+    /// Uncalibrated frames do not construct work snapshots or inspect adapter metadata.
+    pub(super) fn calibrated(&self) -> bool {
+        self.calibration.is_some()
+    }
+
+    /// Consumes completed samples for future submission choices without waiting. A changed
+    /// `context` restarts admission, so no measured verdict outlives its configuration.
+    pub(super) fn select(&mut self, view: Option<Entity>, context: Option<WorkContext>) -> bool {
+        let restart = self.calibration.is_some() && self.context != context;
+        self.context = context;
+        if self.admission.view != view || restart {
             self.next_sample = 0;
         }
-        let selected = self.admission.select(view);
+        let selected = self.admission.select(view, restart);
         if let Some(sample) = &self.sample {
             match sample.state.load(Ordering::Acquire) {
                 MAPPED => {
@@ -96,10 +135,22 @@ impl GpuCullFeedback {
                         .slice(..u64::from(sample.slots) * 4)
                         .get_mapped_range()
                     {
-                        let (candidates, hidden) = rejection_counts(bytemuck::cast_slice(&data));
+                        let decisions = bytemuck::cast_slice(&data);
+                        let (candidates, hidden) = rejection_counts(decisions);
                         bevy::log::debug!(candidates, hidden, "terrain occlusion feedback");
-                        self.admission
-                            .observe(sample.view, sample.frame, candidates, hidden);
+                        match self.measured_profitability(sample, decisions, candidates) {
+                            Some(profitable) => self.admission.observe_profitability(
+                                sample.view,
+                                sample.frame,
+                                profitable,
+                            ),
+                            None => self.admission.observe(
+                                sample.view,
+                                sample.frame,
+                                candidates,
+                                hidden,
+                            ),
+                        }
                     }
                     sample.buffer.unmap();
                     sample.state.store(IDLE, Ordering::Release);
@@ -116,6 +167,30 @@ impl GpuCullFeedback {
             })
     }
 
+    /// The calibrated verdict for a sample, or `None` when the count policy must decide because
+    /// no candidates, weights or matching measurement are available.
+    fn measured_profitability(
+        &self,
+        sample: &Sample,
+        decisions: &[u32],
+        candidates: usize,
+    ) -> Option<bool> {
+        let calibration = self.calibration.as_ref().filter(|_| candidates != 0)?;
+        let (context, weights) = sample
+            .work
+            .as_ref()
+            .filter(|(context, _)| self.context.as_ref() == Some(context))?;
+        let (candidate_indices, hidden_indices) = rejected_work(decisions, weights);
+        let profitable = calibration.profitable(context, hidden_indices)?;
+        bevy::log::debug!(
+            ?candidate_indices,
+            ?hidden_indices,
+            profitable,
+            "terrain weighted occlusion feedback"
+        );
+        Some(profitable)
+    }
+
     /// Reserves storage only for occasional selected frames, retaining it between samples.
     pub(super) fn prepare(
         &mut self,
@@ -123,6 +198,7 @@ impl GpuCullFeedback {
         view: Entity,
         slots: u32,
         decisions: &wgpu::Buffer,
+        work: Option<SubmittedWork<'_>>,
     ) {
         let frame = self.admission.frame;
         let warm = self.prepared.as_ref().is_some_and(|previous| {
@@ -177,9 +253,16 @@ impl GpuCullFeedback {
                 view,
                 frame: 0,
                 slots: 0,
+                work: None,
             });
         }
         let sample = self.sample.as_mut().expect("sample storage was ensured");
+        sample.work = self
+            .calibration
+            .as_ref()
+            .and(self.context.clone())
+            .zip(work)
+            .map(|(context, work)| (context, work.snapshot()));
         sample.view = view;
         sample.frame = self.admission.frame;
         sample.slots = slots;
