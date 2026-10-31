@@ -129,7 +129,8 @@ fn chunk_preparation_releases_idle_storage_and_reuploads_the_same_key() {
         app.world().resource::<RenderQueue>(),
         &arena.quad_buffer,
     );
-    let expected: &[u8] = bytemuck::cast_slice(&instance.cube_quads);
+    let words: Vec<_> = instance.cube_quads.iter().map(PackedQuad::words).collect();
+    let expected: &[u8] = bytemuck::cast_slice(&words);
     assert_eq!(&actual[..expected.len()], expected);
 }
 

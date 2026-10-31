@@ -1,6 +1,6 @@
 //! Checked construction and memory placement for terrain buffers.
 
-use super::arena::{INITIAL_ARENA_CAPACITIES, INITIAL_INDIRECT_CAPACITY};
+use super::arena::{INITIAL_ARENA_CAPACITIES, INITIAL_INDIRECT_CAPACITY, SharedBiomeRanges};
 use super::telemetry::ArenaMemoryTelemetry;
 use crate::chunk::*;
 
