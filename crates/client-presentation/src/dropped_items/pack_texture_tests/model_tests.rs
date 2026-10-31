@@ -230,7 +230,7 @@ fn carried_blocks_draw_world_models_at_their_placement_and_skip_air() {
         [0.0, 0.0, 0.5, 10.75],
     ];
     let carried = |block_runtime_id| crate::actor_publication::carried_blocks::CarriedBlock {
-        block_runtime_id,
+        block: crate::actor_publication::carried_blocks::CarriedBlockId::Wire(block_runtime_id),
         world_from_block: placement,
         light: (4, 12),
     };
