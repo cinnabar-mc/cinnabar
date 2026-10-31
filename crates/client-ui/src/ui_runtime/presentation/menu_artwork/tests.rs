@@ -43,13 +43,13 @@ fn server_details_art_fits_alongside_all_catalog_logos_without_home_promotions()
             } else {
                 width
             };
-            cache.decoded.insert(
+            cache.insert(
                 key,
-                Arc::new(Artwork {
+                Artwork {
                     width,
                     height,
                     pixels: vec![255; width as usize * height as usize * 4],
-                }),
+                },
             );
         }
         let atlas = pack(&set, &cache, 0, true);
@@ -87,13 +87,13 @@ fn settings_atlas_prepares_the_actual_profile_gamerpic_without_a_head_substituti
         .find(|source| source.key().0 == view.feeds.profile.picture_path)
         .unwrap();
     let mut cache = DecodeCache::default();
-    cache.decoded.insert(
+    cache.insert(
         source.key(),
-        Arc::new(Artwork {
+        Artwork {
             width: 8,
             height: 8,
             pixels: vec![255; 8 * 8 * 4],
-        }),
+        },
     );
     let prepared = pack(&set, &cache, 0, true);
     let picture = prepared.refs.get(&view.feeds.profile.picture_path).unwrap();
@@ -117,13 +117,13 @@ fn large_artwork_does_not_crowd_out_a_prioritized_gamerpic() {
         } else {
             MAX_ARTWORK_SIDE
         };
-        cache.decoded.insert(
+        cache.insert(
             source.key(),
-            Arc::new(Artwork {
+            Artwork {
                 width: side,
                 height: side,
                 pixels: vec![90; side as usize * side as usize * 4],
-            }),
+            },
         );
     }
     let packed = pack(&set, &cache, 0, true);
@@ -208,7 +208,8 @@ fn profile_replacement_atlas_preserves_the_portrait_fallback() {
         ..Default::default()
     };
     let mut cache = DecodeCache::default();
-    cache.decode(&cache.missing(&home), &home);
+    let missing = cache.missing(&home);
+    cache.decode(&missing);
     assert!(pack(&home, &cache, 0, true).refs.contains_key(&portrait));
     view.screen = launcher::menu::MenuScreen::Profile;
     for tab in [
@@ -223,7 +224,8 @@ fn profile_replacement_atlas_preserves_the_portrait_fallback() {
                 paths: view_paths(&view),
                 ..Default::default()
             };
-            cache.decode(&cache.missing(&profile), &profile);
+            let missing = cache.missing(&profile);
+            cache.decode(&missing);
             let replacement = pack(&profile, &cache, 1, true);
             assert!(
                 replacement.refs.contains_key(&portrait),
@@ -255,10 +257,11 @@ fn superseded_artwork_batches_keep_the_decode_cache_bounded() {
                 .collect(),
             ..Default::default()
         };
-        cache.decode(&cache.missing(&set), &set);
+        let missing = cache.missing(&set);
+        cache.decode(&missing);
         assert_eq!(cache.decoded.len(), 1);
         let source = sources(&set).pop().unwrap();
-        assert_eq!(&cache.decoded[&source.key()].pixels[..4], &color);
+        assert_eq!(&cache.get(&source.key()).unwrap().pixels[..4], &color);
     }
 }
 
@@ -266,17 +269,177 @@ fn superseded_artwork_batches_keep_the_decode_cache_bounded() {
 #[test]
 fn cancelled_artwork_batches_evict_obsolete_paths() {
     let mut cache = DecodeCache::default();
-    let bytes: Arc<[u8]> = png(8, 8, [10, 20, 30, 255]).into();
-    for revision in 0..2000 {
+    let bytes: Arc<[u8]> = png(512, 512, [10, 20, 30, 255]).into();
+    let per_image = 512 * 512 * 4;
+    for revision in 0..RETAINED_DECODE_BYTES / per_image * 2 / FIRST_BATCH {
         let set = ArtworkSet {
-            oversized: [(format!("changing-{revision}"), Arc::clone(&bytes))]
-                .into_iter()
+            images: (0..FIRST_BATCH * 2)
+                .map(|index| (format!("changing-{revision}-{index}"), Arc::clone(&bytes)))
                 .collect(),
             ..Default::default()
         };
-        cache.decode(&cache.missing(&set), &set);
-        assert!(cache.decoded.len() <= MAX_DECODED);
+        let missing = cache.missing(&set);
+        cache.decode(&missing[..FIRST_BATCH]);
+        assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+        assert_eq!(
+            cache.missing(&set).len(),
+            FIRST_BATCH,
+            "the decoded art stays"
+        );
     }
+}
+
+/// Art a fixture set draws, each image a quarter of the retention budget.
+fn quarter_budget_set(cache: &mut DecodeCache, names: &[&str]) -> ArtworkSet {
+    let set = ArtworkSet {
+        paths: names.iter().map(|name| ((*name).into(), 64)).collect(),
+        ..Default::default()
+    };
+    let pixels = RETAINED_DECODE_BYTES / 4;
+    for source in sources(&set) {
+        cache.insert(
+            source.key(),
+            Artwork {
+                width: (pixels / 4) as u32,
+                height: 1,
+                pixels: vec![0; pixels],
+            },
+        );
+    }
+    set
+}
+
+/// Over budget, the art drawn longest ago goes first and evicted art decodes again on demand.
+#[test]
+fn decode_cache_evicts_least_recently_drawn_art_by_bytes() {
+    let mut cache = DecodeCache::default();
+    let oldest = quarter_budget_set(&mut cache, &["oldest"]);
+    assert!(cache.missing(&oldest).is_empty());
+    let older = quarter_budget_set(&mut cache, &["older-a", "older-b"]);
+    assert!(cache.missing(&older).is_empty());
+    assert_eq!(cache.decoded.len(), 3, "under budget nothing is evicted");
+    let current = quarter_budget_set(&mut cache, &["current"]);
+    assert!(cache.missing(&current).is_empty());
+    assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+    assert!(cache.get(&sources(&current)[0].key()).is_some());
+    for source in sources(&older) {
+        assert!(cache.get(&source.key()).is_some(), "newer art was evicted");
+    }
+    assert_eq!(cache.missing(&oldest).len(), 1, "evicted art decodes again");
+}
+
+/// Art the current set draws is never evicted, even when it alone exceeds the budget.
+#[test]
+fn drawn_art_outlives_the_byte_budget() {
+    let mut cache = DecodeCache::default();
+    let names = ["a", "b", "c", "d", "e", "f"];
+    let set = quarter_budget_set(&mut cache, &names);
+    assert!(cache.missing(&set).is_empty());
+    assert!(cache.retained_bytes() > RETAINED_DECODE_BYTES);
+    assert!(cache.missing(&set).is_empty(), "drawn art was evicted");
+    cache.missing(&ArtworkSet::default());
+    assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+}
+
+#[test]
+fn decode_cache_charges_spare_capacity_and_releases_replaced_pixels() {
+    let mut path = String::with_capacity(256);
+    path.push_str("spare-capacity");
+    let key = (path, THUMBNAIL_SIDE, None);
+    let mut pixels = Vec::with_capacity(4096);
+    pixels.extend_from_slice(&[10, 20, 30, 255]);
+    let expected = size_of::<(DecodeKey, Cached)>()
+        + 2 * size_of::<usize>()
+        + size_of::<Artwork>()
+        + key.0.capacity()
+        + pixels.capacity();
+    let replacement_key = key.clone();
+    let mut cache = DecodeCache::default();
+    cache.insert(
+        key,
+        Artwork {
+            width: 1,
+            height: 1,
+            pixels,
+        },
+    );
+    let cached = cache.decoded.values().next().unwrap();
+    assert_eq!(cache.retained_bytes(), expected);
+    let old_pixels = Arc::downgrade(&cached.art);
+    cache.insert(
+        replacement_key,
+        Artwork {
+            width: 1,
+            height: 1,
+            pixels: vec![255; 4],
+        },
+    );
+    assert_eq!(cache.decoded.len(), 1);
+    assert!(old_pixels.upgrade().is_none());
+    assert!(cache.retained_bytes() < expected);
+}
+
+#[test]
+fn drawing_cached_art_refreshes_its_eviction_priority() {
+    let mut cache = DecodeCache::default();
+    let reused = quarter_budget_set(&mut cache, &["reused"]);
+    cache.missing(&reused);
+    let older = quarter_budget_set(&mut cache, &["older"]);
+    cache.missing(&older);
+    cache.missing(&reused);
+    let current = quarter_budget_set(&mut cache, &["current-a", "current-b"]);
+    cache.missing(&current);
+    assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+    assert!(cache.get(&sources(&reused)[0].key()).is_some());
+    assert!(cache.get(&sources(&older)[0].key()).is_none());
+    assert!(cache.missing(&current).is_empty());
+}
+
+#[test]
+fn evicted_art_decodes_again_with_the_same_pixels() {
+    let mut cache = DecodeCache::default();
+    let image: Arc<[u8]> = png(8, 8, [10, 20, 30, 128]).into();
+    let set = ArtworkSet {
+        images: vec![("redecode".into(), image)],
+        ..Default::default()
+    };
+    let missing = cache.missing(&set);
+    cache.decode(&missing);
+    let key = sources(&set)[0].key();
+    let expected = cache.get(&key).unwrap().pixels.clone();
+    let current = quarter_budget_set(&mut cache, &["a", "b", "c", "d"]);
+    cache.missing(&current);
+    assert!(cache.get(&key).is_none());
+    let missing = cache.missing(&set);
+    assert_eq!(missing.len(), 1);
+    cache.decode(&missing);
+    assert_eq!(cache.get(&key).unwrap().pixels, expected);
+    assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+}
+
+#[test]
+fn small_art_stays_cached_when_old_large_art_is_evicted() {
+    let mut cache = DecodeCache::default();
+    let large = quarter_budget_set(&mut cache, &["large-a", "large-b", "large-c"]);
+    cache.missing(&large);
+    let image: Arc<[u8]> = png(2, 2, [255; 4]).into();
+    let small = ArtworkSet {
+        images: (0..FIRST_BATCH)
+            .map(|index| (format!("small-{index}"), Arc::clone(&image)))
+            .collect(),
+        ..Default::default()
+    };
+    let missing = cache.missing(&small);
+    cache.decode(&missing);
+    let current = quarter_budget_set(&mut cache, &["current"]);
+    cache.missing(&current);
+    assert!(cache.retained_bytes() <= RETAINED_DECODE_BYTES);
+    assert!(cache.missing(&small).is_empty());
+    assert!(
+        sources(&large)
+            .iter()
+            .any(|source| cache.get(&source.key()).is_none())
+    );
 }
 
 #[test]
@@ -289,7 +452,8 @@ fn replacing_pack_bytes_invalidates_decoded_artwork() {
                 .collect(),
             ..Default::default()
         };
-        cache.decode(&cache.missing(&set), &set);
+        let missing = cache.missing(&set);
+        cache.decode(&missing);
         let atlas = pack(&set, &cache, 0, true);
         let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
         let page = &atlas.pages[usize::from(art.page)];
@@ -318,7 +482,8 @@ fn oversized_server_textures_keep_full_resolution() {
         ..Default::default()
     };
     let mut cache = DecodeCache::default();
-    cache.decode(&cache.missing(&set), &set);
+    let missing = cache.missing(&set);
+    cache.decode(&missing);
     let atlas = pack(&set, &cache, 0, true);
     let art = atlas.refs[&format!("{SERVER_ART_PREFIX}{TITLE_KEY}")];
     let [u0, v0, u1, v1] = art.uv;
@@ -354,7 +519,7 @@ fn grayscale_conversion_obeys_the_decode_memory_budget() {
 fn oversized_source_sets_cannot_defeat_the_decode_cache_bound() {
     let bytes: Arc<[u8]> = png(2, 2, [255; 4]).into();
     let set = ArtworkSet {
-        oversized: (0..MAX_DECODED + 1)
+        oversized: (0..MAX_ARTWORKS + 1)
             .map(|i| (format!("texture-{i}"), bytes.clone()))
             .collect(),
         ..Default::default()
@@ -362,8 +527,76 @@ fn oversized_source_sets_cannot_defeat_the_decode_cache_bound() {
     let mut cache = DecodeCache::default();
     let missing = cache.missing(&set);
     assert!(missing.len() <= MAX_ARTWORKS);
-    cache.decode(&missing, &set);
-    assert!(cache.decoded.len() <= MAX_DECODED);
+    cache.decode(&missing);
+    assert!(cache.decoded.len() <= MAX_ARTWORKS);
+}
+
+/// Unresized 8-bit art converts straight to RGBA8 with the float round trip's exact bytes.
+#[test]
+fn direct_rgba8_conversion_matches_the_float_round_trip() {
+    use image::{DynamicImage, ImageBuffer};
+    let byte = |x: u32, y: u32, salt: u32| ((x * 7 + y * 13 + salt) % 256) as u8;
+    let images = [
+        DynamicImage::ImageLuma8(ImageBuffer::from_fn(256, 1, |x, _| image::Luma([x as u8]))),
+        DynamicImage::ImageLumaA8(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::LumaA([x as u8, y as u8])
+        })),
+        DynamicImage::ImageRgb8(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::Rgb([x as u8, y as u8, byte(x, y, 1)])
+        })),
+        DynamicImage::ImageRgba8(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::Rgba([x as u8, y as u8, byte(x, y, 2), byte(y, x, 3)])
+        })),
+        DynamicImage::ImageRgba16(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::Rgba([(x * 257) as u16, (y * 255) as u16, 32_768, 65_535])
+        })),
+    ];
+    for image in images {
+        let color = image.color();
+        let mut bytes = Vec::new();
+        image
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        let expected = DynamicImage::ImageRgba32F(image.into_rgba32f()).into_rgba8();
+        let (pixels, width, height) = decode_bytes(&bytes, 256).unwrap();
+        assert_eq!((width, height), expected.dimensions(), "{color:?}");
+        assert!(pixels == expected.into_raw(), "{color:?} pixels differ");
+    }
+}
+
+#[test]
+fn unresized_rgba8_reuses_decoded_storage() {
+    let image = image::RgbaImage::from_pixel(32, 32, image::Rgba([10, 20, 30, 128]));
+    let pixels = image.as_raw().as_ptr();
+    let direct = fitted_rgba8(image::DynamicImage::ImageRgba8(image));
+    assert_eq!(direct.as_raw().as_ptr(), pixels);
+    assert!(direct.pixels().all(|pixel| pixel.0 == [10, 20, 30, 128]));
+}
+
+#[test]
+fn unresized_high_precision_art_keeps_float_round_trip_rounding() {
+    use image::{DynamicImage, ImageBuffer};
+    let images = [
+        DynamicImage::ImageLuma16(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::Luma([(x * 256 + y) as u16])
+        })),
+        DynamicImage::ImageLumaA16(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::LumaA([(x * 256 + y) as u16, (y * 256 + x) as u16])
+        })),
+        DynamicImage::ImageRgb16(ImageBuffer::from_fn(256, 256, |x, y| {
+            image::Rgb([(x * 256 + y) as u16, 32_768, 65_535])
+        })),
+        DynamicImage::ImageRgb32F(ImageBuffer::from_fn(256, 1, |x, _| {
+            image::Rgb([x as f32 / 255.0, -0.5, 1.5])
+        })),
+        DynamicImage::ImageRgba32F(ImageBuffer::from_fn(256, 1, |x, _| {
+            image::Rgba([x as f32 / 255.0, 0.5, 0.0, (255 - x) as f32 / 255.0])
+        })),
+    ];
+    for image in images {
+        let expected = DynamicImage::ImageRgba32F(image.clone().into_rgba32f()).into_rgba8();
+        assert_eq!(fitted_rgba8(image), expected);
+    }
 }
 
 #[test]

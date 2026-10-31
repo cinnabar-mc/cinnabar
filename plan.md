@@ -1838,6 +1838,12 @@ Leaving for the menu retains only the newest server archives within a 128 MiB ca
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
 off the frame and rebuilt on rejoin. Rejoin rebuild latency and menu-memory acceptance
 remain unmeasured.
+Decoded menu artwork uses a provisional byte budget of four full artwork atlases,
+including spare pixel capacity and per-entry ownership costs. Current artwork stays
+resident above that budget; older unused images are evicted by draw recency and decode
+again on demand. Unresized 8-bit images convert directly to RGBA8 with unchanged pixels;
+resizing and higher-precision input retain the float path. Menu route-cycle captures
+must still qualify the retention budget, re-decode latency and memory savings.
 Actor artwork uploads page rows within a per-frame byte budget, prioritizes current
 demand and finishes pending uploads before prewarming more pages. Complete pages bind
 atomically; compatible old pages stay visible during replacement. Artwork arrays
