@@ -32,6 +32,8 @@ pub trait Backend: 'static {
 
     /// The canonical package byte limit used by both import picking and update downloading.
     const MAX_SOURCE_BYTES: usize;
+    /// Full commit stamped into this native binary; unstamped builds cannot request compatible updates.
+    const HOST_REVISION: &'static str = "unknown";
 
     /// Reads the canonical registration with statuses matched to its request and reload counters.
     fn registered(directory: &Path) -> Vec<Self::Registered>;

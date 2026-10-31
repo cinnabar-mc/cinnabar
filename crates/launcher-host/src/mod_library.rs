@@ -73,9 +73,13 @@ impl Service {
         Ok(Self {
             commands,
             published,
-            updates: crate::mod_updates::Checker::start(staging, B::MAX_SOURCE_BYTES)
-                .map_err(|error| tracing::warn!("Mod update checks unavailable: {error}"))
-                .ok(),
+            updates: crate::mod_updates::Checker::start(
+                staging,
+                B::MAX_SOURCE_BYTES,
+                B::HOST_REVISION,
+            )
+            .map_err(|error| tracing::warn!("Mod update checks unavailable: {error}"))
+            .ok(),
             checks: false,
             automatic: false,
             busy: false,

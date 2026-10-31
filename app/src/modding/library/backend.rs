@@ -38,6 +38,7 @@ impl Backend for AppBackend {
     type Declarations = (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata);
     type Receipt = selection::Receipt;
     type Permit = removal::Permit;
+    const HOST_REVISION: &'static str = diagnostics::session::COMMIT;
     const MAX_SOURCE_BYTES: usize = mod_host::packet_mod::MAX_PACKET_MOD_BYTES;
 
     /// Uses the same schema and matched statuses as the registration watcher.

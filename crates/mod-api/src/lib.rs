@@ -92,6 +92,8 @@ pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
 pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
 /// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
 pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
+/// Optional JSON source, package and full mod revision for host-compatible update selection.
+pub const REVISION_UPDATE_SECTION: &str = "cinnabar:extension/revision-update@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
