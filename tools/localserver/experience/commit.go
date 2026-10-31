@@ -190,6 +190,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, w := range plan.powers {
 		h.applyPower(tx, exp, ev.instance, w)
 	}
+	if plan.motion != nil {
+		plan.motion.apply(actor)
+	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
@@ -297,6 +300,8 @@ type commitPlan struct {
 	containers []containerWrite
 	// powers are the validated set_redstone_power ops, in their order.
 	powers []powerWrite
+	// motion is the validated set_velocity or knock_back op, if any.
+	motion *actorMotion
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -553,6 +558,12 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
 			}
 			plan.powers = append(plan.powers, w)
+		case op.SetVelocity != nil || op.KnockBack != nil:
+			motion, err := motionOf(op, actorID, plan.motion)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
+			}
+			plan.motion = motion
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}
