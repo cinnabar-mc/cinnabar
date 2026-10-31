@@ -12,6 +12,7 @@ pub(super) fn descriptor_for(
     }
     if visuals::speleothem::is_record(record) {
         return visuals::speleothem::descriptor(pack, record);
+    }
     if visuals::sunflower::is_head_face(record, face) {
         return visuals::sunflower::head_descriptor(pack, record, face);
     }
