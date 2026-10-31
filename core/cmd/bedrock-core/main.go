@@ -24,6 +24,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/internal/lifeline"
 	"github.com/hashimthearab/rust-mcbe/core/internal/locale"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
+	"github.com/hashimthearab/rust-mcbe/core/lanworlds"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/localworld"
 	"github.com/hashimthearab/rust-mcbe/core/packcache"
@@ -269,6 +270,8 @@ func runWithResourcePackCacheFactory(
 	}
 	var statusStore *control.Store
 	var controlServer *control.Server
+	lanWorlds := lanworlds.New(logger)
+	defer lanWorlds.Close()
 	packetDelay := new(proxy.PacketDelay)
 	if opts.controlStatus && opts.catalogFile == "" {
 		// Bound before authentication so a launcher can poll the device code.
@@ -421,7 +424,7 @@ func runWithResourcePackCacheFactory(
 			controlServer.SetCinnabarAPI(api)
 		}
 		controlServer.SetLogger(logger)
-		controlServer.SetServices(launcherControl{service})
+		controlServer.SetServices(launcherControl{Service: service, lan: lanWorlds})
 		sessionTarget = service.SessionTarget
 		if account != nil {
 			go service.PublishSignedIn(ctx)
@@ -491,6 +494,7 @@ func runWithResourcePackCacheFactory(
 		ServerTrust:                 serverTrust,
 		SessionTarget:               sessionTarget,
 		Device:                      &deviceProfile,
+		LAN:                         lanWorlds,
 	})
 	if controlServer != nil {
 		serveErr = errors.Join(serveErr, controlServer.Close())

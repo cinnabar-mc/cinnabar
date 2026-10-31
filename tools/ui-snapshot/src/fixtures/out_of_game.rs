@@ -206,6 +206,27 @@ pub(super) fn play_worlds() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the Worlds tab with a NetherNet and a RakNet LAN world above a saved world.
+pub(super) fn play_worlds_lan() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!()
+    };
+    let lan = |address: &str, game_mode: &str, players: &str| launcher::menu::MenuLanCard {
+        level_name: "Bedrock level".to_owned(),
+        server_name: "Dedicated Server".to_owned(),
+        game_mode: game_mode.to_owned(),
+        hardcore: false,
+        players: players.to_owned(),
+        address: address.to_owned(),
+    };
+    view.lan_worlds = vec![
+        lan("lan/12345", "Creative", "1/10 players"),
+        lan("lan/raknet/192.168.1.20:19132", "Survival", "0/10 players"),
+    ]
+    .into();
+    Fixture::Menu(view)
+}
+
 /// Shows the modal over the Worlds tab while a world file is copied in.
 pub(super) fn play_worlds_importing() -> Fixture {
     let Fixture::Menu(mut view) = play_worlds() else {

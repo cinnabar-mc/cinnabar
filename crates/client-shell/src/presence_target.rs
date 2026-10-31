@@ -103,6 +103,8 @@ pub fn presence_target(address: &str, local_world: bool) -> rich_presence::Targe
         ConnectTarget::Gathering(_) => (Destination::Experience, Some(address.to_owned())),
         ConnectTarget::Friend(_) => (Destination::FriendWorld, Some(address.to_owned())),
         ConnectTarget::Realm(_) => (Destination::Realm, None),
+        // A LAN world is only reachable on its own network, so it is never offered to follow.
+        ConnectTarget::Lan(_) => (Destination::FriendWorld, None),
     };
     let badge = match &destination {
         Destination::Server(_) => resolve_server_badge(address),

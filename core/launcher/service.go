@@ -24,6 +24,7 @@ import (
 	"github.com/hashimthearab/rust-mcbe/core/control"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
+	"github.com/hashimthearab/rust-mcbe/core/lanworlds"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 	"github.com/hashimthearab/rust-mcbe/core/xboxpresence"
 	"github.com/sandertv/gophertunnel/minecraft/realms"
@@ -248,7 +249,7 @@ func (s *Service) Target(ctx context.Context, kind, value string) (string, error
 	if err != nil {
 		return "", err
 	}
-	if kind != control.TargetRakNet {
+	if kind != control.TargetRakNet && kind != control.TargetLAN {
 		account, err := s.source()
 		if err != nil {
 			return "", err
@@ -283,6 +284,11 @@ func upstreamTarget(kind, value string) (string, error) {
 			return "", control.ErrInvalidTarget
 		}
 		return bridgecontract.FriendTargetPrefix + value, nil
+	case control.TargetLAN:
+		if _, _, ok := lanworlds.ParseTarget(value); !ok {
+			return "", control.ErrInvalidTarget
+		}
+		return bridgecontract.LANTargetPrefix + value, nil
 	case control.TargetGathering:
 		id, err := uuid.Parse(value)
 		if err != nil || id == uuid.Nil {

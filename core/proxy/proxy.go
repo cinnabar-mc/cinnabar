@@ -63,6 +63,8 @@ type Config struct {
 	SessionTarget func(ctx context.Context, kind, value string) (string, error)
 	// Device, when set, is the install's device, claimed on every session login in place of the client's.
 	Device *device.Profile
+	// LAN, when set, resolves the NetherNet LAN worlds the launcher lists.
+	LAN LANWorlds
 }
 
 const maxInitialTransferHops = 8
@@ -94,6 +96,9 @@ func Serve(ctx context.Context, cfg Config) (err error) {
 		transfers = new(TransferState)
 	}
 	dial := func(ctx context.Context, address string) (*resolvedUpstreamTarget, error) {
+		if isLANTarget(address) {
+			return resolveLANTarget(ctx, address, cfg.LAN, cfg.Account)
+		}
 		return resolveUpstreamTarget(ctx, address, cfg.Account, logger, cfg.ServerTrust)
 	}
 	online := func(ctx context.Context) (*resolvedUpstreamTarget, error) {

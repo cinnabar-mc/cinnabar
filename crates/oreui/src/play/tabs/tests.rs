@@ -38,3 +38,12 @@ fn focused_middle_play_tab_keeps_its_right_outline_above_the_next_tab() {
         .1;
     assert_eq!(visible, OUTLINE);
 }
+
+/// LAN rows count toward the Worlds tab, so a tab showing only LAN worlds is never `(0)`.
+#[test]
+fn worlds_tab_counts_lan_worlds() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    assert_eq!(worlds_label(&view), "Worlds (0)");
+    view.lan_worlds = vec![launcher::menu::MenuLanCard::default()].into();
+    assert_eq!(worlds_label(&view), "Worlds (1)");
+}

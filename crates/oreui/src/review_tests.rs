@@ -1,6 +1,6 @@
 //! Small in-memory fixtures for overflow and scrolling review regressions.
 use super::paint::Canvas;
-use launcher::menu::{InboxItem, MenuFriendCard, MenuRealmCard};
+use launcher::menu::{InboxItem, LocalWorldCard, MenuFriendCard, MenuLanCard, MenuRealmCard};
 use std::collections::HashMap;
 use ui_engine::scroll::ScrollArea;
 use ui_engine::test_support::fixture_font;
@@ -142,6 +142,57 @@ fn review_world_list_reveals_the_last_entry() {
     assert!(
         hits.iter()
             .any(|(action, _)| *action == MenuAction::PlayFriend(39))
+    );
+}
+
+/// LAN worlds list between friends' worlds and local worlds, each row joining its own world.
+#[test]
+fn review_lan_worlds_list_after_friends_and_before_local_worlds() {
+    let mut view = MenuView::new(true, "Test".into());
+    view.friends = vec![MenuFriendCard {
+        gamertag: "Friend".into(),
+        world_name: "Shared".into(),
+        members: "1/8 players".into(),
+        xuid: "1".into(),
+        max_members: 8,
+    }]
+    .into();
+    view.lan_worlds = vec![MenuLanCard {
+        level_name: "LAN World".into(),
+        server_name: "Host".into(),
+        game_mode: "Creative".into(),
+        hardcore: false,
+        players: "1/8 players".into(),
+        address: "lan/12345".into(),
+    }]
+    .into();
+    view.local_worlds = vec![LocalWorldCard {
+        name: "Mine".into(),
+        game_mode: "Survival".into(),
+        world_type: String::new(),
+        server: String::new(),
+        date: String::new(),
+        size: String::new(),
+        thumbnail: None,
+    }]
+    .into();
+    let (_, hits, _) = paint(HashMap::new(), |c| {
+        play::draw(c, &view, [1280.0, 720.0], &HashMap::new()).unwrap()
+    });
+    let top = |wanted: MenuAction| {
+        hits.iter()
+            .find(|(action, _)| *action == wanted)
+            .map(|(_, rect)| rect.min().y())
+            .unwrap_or_else(|| panic!("{wanted:?} has no row"))
+    };
+    let (friend, lan, local) = (
+        top(MenuAction::PlayFriend(0)),
+        top(MenuAction::PlayLan(0)),
+        top(MenuAction::PlayLocalWorld(0)),
+    );
+    assert!(
+        friend < lan && lan < local,
+        "rows at {friend}, {lan}, {local}"
     );
 }
 

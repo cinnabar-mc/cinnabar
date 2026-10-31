@@ -131,7 +131,7 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
         left += button_width + gap;
     }
     let list_top = body[1] + button_height + space(canvas, 1);
-    if view.friends.is_empty() && view.local_worlds.is_empty() {
+    if view.friends.is_empty() && view.lan_worlds.is_empty() && view.local_worlds.is_empty() {
         let card = [body[0], list_top, body[2], list_top + canvas.r(18.0)];
         panel(canvas, card)?;
         let pad = space(canvas, 4);
@@ -180,6 +180,26 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
             edit: None,
             thumbnail: None,
         })
+        .chain(
+            view.lan_worlds
+                .iter()
+                .enumerate()
+                .map(|(index, world)| WorldEntry {
+                    title: world.level_name.clone(),
+                    subtitle: world.server_name.clone(),
+                    tag: "LAN world",
+                    world_type: game_mode_tag(&world.game_mode).to_owned(),
+                    server: if world.hardcore {
+                        "Hardcore".to_owned()
+                    } else {
+                        String::new()
+                    },
+                    meta: [world.players.clone(), String::new()],
+                    action: MenuAction::PlayLan(index),
+                    edit: None,
+                    thumbnail: None,
+                }),
+        )
         .chain(
             view.local_worlds
                 .iter()

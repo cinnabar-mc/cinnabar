@@ -471,6 +471,7 @@ impl MenuRuntime {
                     ]);
                 }
                 actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
+                actions.extend((0..self.lan_worlds.len()).map(MenuAction::PlayLan));
                 actions.extend((0..self.realms.len()).map(MenuAction::PlayRealm));
                 actions.extend(
                     self.servers

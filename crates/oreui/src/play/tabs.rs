@@ -13,6 +13,12 @@ use {
 #[cfg(test)]
 mod tests;
 
+/// The Worlds tab's label, counting every row the tab lists.
+fn worlds_label(view: &MenuView) -> String {
+    let count = view.friends.len() + view.lan_worlds.len() + view.local_worlds.len();
+    format!("Worlds ({count})")
+}
+
 pub(super) fn draw(
     canvas: &mut Canvas<'_>,
     view: &MenuView,
@@ -22,7 +28,7 @@ pub(super) fn draw(
     if let Some(transitions) = canvas.transitions.as_deref_mut() {
         transitions.begin_play(selected as u8);
     }
-    let worlds = format!("Worlds ({})", view.friends.len() + view.local_worlds.len());
+    let worlds = worlds_label(view);
     let labels = [worlds.as_str(), "Realms", "Servers"];
     let screens = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
     let role = canvas.role(NEUTRAL);
