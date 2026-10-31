@@ -182,7 +182,12 @@ Far-summary extraction now has global copied-work admission, a background lane a
 explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
 sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
 releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
-performance qualification remain incomplete. No phase or performance gate closes here.
+performance qualification remain incomplete. Coarsening keeps overlapping fallback tiles
+until their replacement covers all known columns; near masks also track the outer view
+distance. Regressions cover partial solid/empty coarsening and horizon changes. The Far
+Terrain control remains unavailable; owner-approved rendered comparisons, smooth transitions
+and matched on/off hardware profiles at 32+ chunks are still required. No phase or
+performance gate closes here.
 
 ## P2.5-NATIVE-BIOME
 
