@@ -72,7 +72,7 @@ fn equipment_texture_large_raster_round_trips_the_cache_carrier() {
 #[test]
 fn equipment_texture_catalog_rejects_aggregate_pixel_overflow() {
     let rgba8: Arc<[u8]> = vec![0; 1024 * 1024 * 4].into();
-    let textures = (0..=crate::MAX_EQUIPMENT_PIXEL_BYTES / rgba8.len())
+    let textures = (0..=crate::MAX_PACK_EQUIPMENT_PIXEL_BYTES / rgba8.len())
         .map(|index| EquipmentTexture {
             identifier: format!("textures/items/{index:03}").into(),
             width: 1024,
@@ -81,4 +81,29 @@ fn equipment_texture_catalog_rejects_aggregate_pixel_overflow() {
         })
         .collect();
     assert!(RuntimeEquipmentCatalog::from_parts([1; 32], vec![], textures).is_err());
+}
+
+#[test]
+fn a_server_pack_catalog_has_no_binding_or_texture_count_limit() {
+    let bindings = (0..=crate::MAX_EQUIPMENT_BINDINGS)
+        .map(|index| {
+            let mut binding = super::tests::sample().remove(0);
+            binding.identifier = format!("custom:item_{index:05}").into();
+            binding
+        })
+        .collect();
+    let textures = (0..=crate::MAX_EQUIPMENT_TEXTURES)
+        .map(|index| raster(&format!("textures/items/{index:05}"), 1, 1))
+        .collect();
+    let catalog = RuntimeEquipmentCatalog::from_parts([1; 32], bindings, textures).unwrap();
+    assert_eq!(catalog.bindings().len(), crate::MAX_EQUIPMENT_BINDINGS + 1);
+    assert_eq!(catalog.textures().len(), crate::MAX_EQUIPMENT_TEXTURES + 1);
+}
+
+#[test]
+fn the_startup_carrier_keeps_its_count_bound() {
+    let textures = (0..=crate::MAX_EQUIPMENT_TEXTURES)
+        .map(|index| raster(&format!("textures/items/{index:05}"), 1, 1))
+        .collect::<Vec<_>>();
+    assert!(encode_equipment_catalog_with_textures([1; 32], [2; 32], &[], &textures).is_err());
 }

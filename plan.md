@@ -575,8 +575,12 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Script-based helmet inference is provisional and recognizes
-specific head/hand branch names. General slot inference and complete texture-budget
-and rendered qualification remain incomplete.
+specific head/hand branch names. General slot inference and rendered qualification remain
+incomplete. A pack's attachables have no binding or texture count limit, and all their art
+is decoded and placed at join. Native queues each texture when it is first requested, and
+no native count limit has been found, so this is not yet matched: decoded art past
+Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading
+remains confirmed incomplete.
 
 Confirmed gap: native keeps and draws every render controller whose condition passes,
 while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
