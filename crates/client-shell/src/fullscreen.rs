@@ -12,7 +12,9 @@ use launcher::menu::settings_options::BindingId;
 
 use {crate::menu::MenuRuntime, client_state::RuntimeSettings};
 
+mod native;
 pub(crate) mod recovery;
+pub use native::NativeFullscreen;
 pub use recovery::FullscreenTransition;
 use render_scene::startup_presentation::StartupPresentation;
 
@@ -69,6 +71,7 @@ pub fn apply_runtime_fullscreen_setting(
     mut observed_generation: Local<u64>,
     mut transition: Option<ResMut<FullscreenTransition>>,
     feedback: Option<Res<StartupPresentation>>,
+    native: Option<Res<NativeFullscreen>>,
 ) {
     let Ok(mut window) = windows.single_mut() else {
         return;
@@ -91,7 +94,11 @@ pub fn apply_runtime_fullscreen_setting(
         }
     }
     if let Some(transition) = transition.as_deref_mut() {
-        transition.update(&mut window, feedback.as_deref());
+        transition.update(
+            &mut window,
+            feedback.as_deref(),
+            native.and_then(|native| native.0),
+        );
     }
     let fullscreen = transition
         .as_ref()

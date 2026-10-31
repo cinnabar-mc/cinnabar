@@ -41,8 +41,15 @@ fn enter(app: &mut App, window: Entity) {
     });
 }
 
+/// Settles the platform into fullscreen, then starts the presentation that must follow it.
+fn settle(app: &mut App) {
+    app.world_mut().resource_mut::<NativeFullscreen>().0 = Some(true);
+    app.update();
+}
+
 /// Completes the exact mode's render feedback and drains the asynchronous journal removal.
 fn present(app: &mut App) {
+    settle(app);
     let feedback = app.world().resource::<StartupPresentation>();
     let epoch = feedback.pending_mode_change().unwrap();
     feedback.record_mode_frame(epoch);
@@ -234,6 +241,7 @@ fn cleanup_worker_start_failure_preserves_fullscreen_after_crash_or_close() {
         video_settings::save(&layout.user_config_root, saved).unwrap();
         let (mut app, window) = app(layout.clone());
         enter(&mut app, window);
+        settle(&mut app);
         let feedback = app.world().resource::<StartupPresentation>();
         feedback.record_mode_frame(feedback.pending_mode_change().unwrap());
         app.world_mut()
@@ -256,5 +264,95 @@ fn cleanup_worker_start_failure_preserves_fullscreen_after_crash_or_close() {
             video_settings::load(&layout.user_config_root).unwrap(),
             saved
         );
+    }
+}
+
+#[test]
+fn a_presentation_before_the_platform_settles_cannot_clear_entry_attribution() {
+    let layout = launcher::test_support::scratch("fullscreen-unsettled");
+    video_settings::save(
+        &layout.user_config_root,
+        SavedVideoSettings {
+            fullscreen: true,
+            gui_scale_offset: 1,
+        },
+    )
+    .unwrap();
+    let (mut first, window) = app(layout.clone());
+    enter(&mut first, window);
+    // The renderer keeps presenting while the window is still windowed or animating.
+    for native in [Some(false), None, Some(false), None] {
+        first.world_mut().resource_mut::<NativeFullscreen>().0 = native;
+        let feedback = first.world().resource::<StartupPresentation>();
+        feedback.record_completed_frame();
+        if let Some(epoch) = feedback.pending_mode_change() {
+            feedback.record_mode_frame(epoch);
+        }
+        first.update();
+    }
+    let transition = first.world().resource::<FullscreenTransition>();
+    assert!(transition.armed && transition.saving.is_none());
+    drop(first);
+    let (mut next, window) = app(layout.clone());
+    next.update();
+    assert!(!is_fullscreen(next.world().get::<Window>(window).unwrap()));
+    assert!(
+        !video_settings::load(&layout.user_config_root)
+            .unwrap()
+            .fullscreen
+    );
+}
+
+#[test]
+fn a_client_launched_during_another_transition_follows_it_once_released() {
+    for crashed in [false, true] {
+        let layout = launcher::test_support::scratch("fullscreen-contended");
+        video_settings::save(
+            &layout.user_config_root,
+            SavedVideoSettings {
+                fullscreen: true,
+                gui_scale_offset: 1,
+            },
+        )
+        .unwrap();
+        let mut other = FullscreenGuard::open(&layout.user_config_root).unwrap();
+        other.begin().unwrap();
+        let (mut second, window) = app(layout.clone());
+        second.update();
+        second.update();
+        assert!(!is_fullscreen(
+            second.world().get::<Window>(window).unwrap()
+        ));
+        if crashed {
+            drop(other);
+            test_time::eventually("recovery opened after the other client crashed", || {
+                second.update();
+                let transition = second.world().resource::<FullscreenTransition>();
+                transition.guard.is_some() && transition.opening.is_none()
+            });
+            second.update();
+            assert!(!is_fullscreen(
+                second.world().get::<Window>(window).unwrap()
+            ));
+            assert!(
+                !second
+                    .world()
+                    .resource::<RuntimeSettings>()
+                    .user_settings_update()
+                    .1
+                    .video
+                    .fullscreen
+            );
+            assert!(
+                !video_settings::load(&layout.user_config_root)
+                    .unwrap()
+                    .fullscreen
+            );
+        } else {
+            other.clear().unwrap();
+            drop(other);
+            enter(&mut second, window);
+            assert!(second.world().resource::<FullscreenTransition>().armed);
+        }
     }
 }

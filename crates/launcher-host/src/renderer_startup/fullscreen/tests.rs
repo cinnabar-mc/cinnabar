@@ -84,3 +84,27 @@ fn idle_clients_release_the_lease_and_cannot_clear_another_transition() {
     drop(second);
     assert!(FullscreenGuard::open(dir.path()).unwrap().recovered);
 }
+
+#[test]
+fn a_waiting_open_follows_the_other_transitions_outcome() {
+    for crashed in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let settings = saved(dir.path());
+        let mut active = FullscreenGuard::open(dir.path()).unwrap();
+        active.begin().unwrap();
+        let root = dir.path().to_owned();
+        let waiting = std::thread::spawn(move || {
+            FullscreenGuard::open_waiting(&root).map(|guard| guard.recovered)
+        });
+        if crashed {
+            drop(active);
+        } else {
+            active.clear().unwrap();
+        }
+        assert_eq!(waiting.join().unwrap().unwrap(), crashed);
+        assert_eq!(
+            video_settings::load(dir.path()).unwrap().fullscreen,
+            !crashed && settings.fullscreen
+        );
+    }
+}

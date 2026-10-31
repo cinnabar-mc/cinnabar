@@ -3,29 +3,51 @@
 use super::*;
 use bevy::{
     app::OnAppExitSystems,
-    prelude::{App, AppExit, IntoScheduleConfigs, Last, Res, Resource, Startup},
+    prelude::{App, AppExit, IntoScheduleConfigs, Last, Resource, Startup, Update},
 };
 use launcher_host::renderer_startup::fullscreen::FullscreenGuard;
 use render_scene::startup_presentation::StartupPresentation;
-use std::sync::{Arc, Mutex};
+use std::{
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 type Save = std::thread::JoinHandle<(bool, Result<(), String>)>;
+type Open = std::thread::JoinHandle<Result<FullscreenGuard, String>>;
 
-/// Keeps native entry behind its journal write and completion behind a new presentation.
+/// What an armed journal still waits for before it may be cleared.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Completion {
+    /// The mode was assigned, but the platform has not yet settled into it.
+    Native(bool),
+    /// The platform settled; a presentation extracted afterwards must complete.
+    Frame(u64),
+    /// Only the journal removal remains.
+    Done,
+}
+
+/// Keeps native entry behind its journal write and completion behind a settled presentation.
 #[derive(Default, Resource)]
 pub struct FullscreenTransition {
+    root: Option<PathBuf>, // Unset when recovery does not cover the primary window.
     guard: Option<Arc<Mutex<FullscreenGuard>>>,
+    opening: Option<Open>,
     saving: Option<Save>,
     armed: bool,
     requested: Option<bool>,
-    presentation: Option<u64>,
-    blocked: bool,
+    completion: Option<Completion>,
+    blocked: bool, // Storage failed; the next request retries.
 }
 
 /// Installs recovery before settings apply and cancellation after orderly exit requests.
 pub(crate) fn configure(app: &mut App) {
     app.init_resource::<FullscreenTransition>()
+        .init_resource::<NativeFullscreen>()
         .add_systems(Startup, initialize)
+        .add_systems(
+            Update,
+            super::native::sample.before(apply_runtime_fullscreen_setting),
+        )
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
 }
 
@@ -36,10 +58,15 @@ fn initialize(
     mut settings: ResMut<RuntimeSettings>,
     mut menu: ResMut<MenuRuntime>,
 ) {
-    if launcher::FULLSCREEN_ONLY || !windows.iter().any(|window| window.visible) {
+    // Android's native window ignores mode requests, so it has no transition to attribute.
+    if launcher::FULLSCREEN_ONLY
+        || cfg!(target_os = "android")
+        || !windows.iter().any(|window| window.visible)
+    {
         return;
     }
-    match FullscreenGuard::open(&menu.layout().user_config_root) {
+    let root = menu.layout().user_config_root.clone();
+    match FullscreenGuard::open(&root) {
         Ok(guard) => {
             if guard.recovered {
                 menu.take_fullscreen_change();
@@ -48,19 +75,17 @@ fn initialize(
             }
             transition.guard = Some(Arc::new(Mutex::new(guard)));
         }
-        Err(error) => {
-            transition.blocked = true;
-            bevy::log::warn!("Fullscreen recovery could not start: {error:#}");
-        }
+        // Entry opens again once requested, waiting out another client's transition.
+        Err(error) => bevy::log::warn!("Fullscreen recovery is not open yet: {error:#}"),
     }
+    transition.root = Some(root);
 }
 
 impl FullscreenTransition {
     /// Retains the newest input while the preceding durable write is still running.
     pub(super) fn request(&mut self, fullscreen: bool) {
-        if self.guard.is_some() && !self.armed {
-            self.blocked = false;
-        }
+        // New intent retries storage or a lease that failed for an earlier request.
+        self.blocked = false;
         self.requested = Some(fullscreen);
     }
 
@@ -76,7 +101,12 @@ impl FullscreenTransition {
         };
         match worker.join() {
             Ok((armed, result)) => match result {
-                Ok(()) => self.armed = armed,
+                Ok(()) => {
+                    self.armed = armed;
+                    if !armed {
+                        self.completion = None;
+                    }
+                }
                 Err(error) => {
                     self.blocked = true;
                     bevy::log::warn!("Fullscreen recovery could not save: {error}");
@@ -84,6 +114,53 @@ impl FullscreenTransition {
             },
             Err(_) => self.blocked = true,
         }
+    }
+
+    /// Opens recovery off the frame thread; it waits while another client owns a transition.
+    fn open(&mut self) {
+        let Some(root) = self.root.clone() else {
+            return;
+        };
+        match std::thread::Builder::new()
+            .name("fullscreen-recovery-open".into())
+            .spawn(move || {
+                FullscreenGuard::open_waiting(&root).map_err(|error| format!("{error:#}"))
+            }) {
+            Ok(worker) => self.opening = Some(worker),
+            Err(error) => {
+                self.blocked = true;
+                bevy::log::warn!("Fullscreen recovery could not start opening: {error}");
+            }
+        }
+    }
+
+    /// Adopts an opened journal; false while the open still waits for another client.
+    fn finish_open(&mut self) -> bool {
+        if self
+            .opening
+            .as_ref()
+            .is_some_and(|worker| !worker.is_finished())
+        {
+            return false;
+        }
+        let Some(worker) = self.opening.take() else {
+            return true;
+        };
+        match worker.join() {
+            Ok(Ok(guard)) => {
+                // Another client's interrupted entry reset the shared preference; stay windowed.
+                if guard.recovered {
+                    self.requested = None;
+                }
+                self.guard = Some(Arc::new(Mutex::new(guard)));
+            }
+            Ok(Err(error)) => {
+                self.blocked = true;
+                bevy::log::warn!("Fullscreen recovery could not open: {error}");
+            }
+            Err(_) => self.blocked = true,
+        }
+        true
     }
 
     /// Starts one ordered storage operation; callers poll its handle without waiting.
@@ -123,6 +200,7 @@ impl FullscreenTransition {
                     {
                         Ok(()) => {
                             self.armed = false;
+                            self.completion = None;
                             self.blocked = false;
                         }
                         Err(error) => {
@@ -134,17 +212,36 @@ impl FullscreenTransition {
         }
     }
 
-    /// Applies only journaled entry and rejects stale, already-submitted frame completions.
-    pub(super) fn update(&mut self, window: &mut Window, feedback: Option<&StartupPresentation>) {
-        if self
-            .saving
-            .as_ref()
-            .is_some_and(|worker| !worker.is_finished())
+    /// Applies only journaled entry, and clears it only after the platform settled and a
+    /// presentation extracted afterwards completed. `native` is the platform's settled state.
+    pub(super) fn update(
+        &mut self,
+        window: &mut Window,
+        feedback: Option<&StartupPresentation>,
+        native: Option<bool>,
+    ) {
+        if self.root.is_none() {
+            if let Some(fullscreen) = self.requested.take()
+                && fullscreen != is_fullscreen(window)
+            {
+                window.mode = window_mode(fullscreen);
+            }
+            return;
+        }
+        if !self.finish_open()
+            || self
+                .saving
+                .as_ref()
+                .is_some_and(|worker| !worker.is_finished())
         {
             return;
         }
         self.finish_save();
-        if self.blocked {
+        if self.guard.is_none() && !self.blocked && self.requested == Some(true) {
+            self.open();
+            return;
+        }
+        if self.blocked || self.guard.is_none() {
             if self.requested == Some(false) {
                 window.mode = window_mode(false);
                 self.requested = None;
@@ -152,26 +249,38 @@ impl FullscreenTransition {
             return;
         }
         if let Some(fullscreen) = self.requested {
-            if fullscreen == is_fullscreen(window) {
-                self.requested = None;
-            } else if fullscreen && self.guard.is_some() && !self.armed {
+            if fullscreen && !self.armed && !is_fullscreen(window) {
                 self.save(true);
                 return;
-            } else if !fullscreen || self.guard.is_some() {
+            }
+            self.requested = None;
+            if fullscreen != is_fullscreen(window) {
                 window.mode = window_mode(fullscreen);
-                self.requested = None;
                 if self.armed {
-                    self.presentation = feedback.map(StartupPresentation::begin_mode_change);
+                    // This frame's native sample predates the request, so it cannot confirm it.
+                    self.completion = Some(Completion::Native(fullscreen));
+                    return;
                 }
             }
         }
-        if self.armed
-            && self.requested.is_none()
-            && (self.presentation.is_some_and(|epoch| {
-                feedback.is_some_and(|feedback| feedback.mode_change_completed(epoch))
-            }) || (self.presentation.is_none() && !is_fullscreen(window)))
-        {
-            self.presentation = None;
+        if !self.armed {
+            return;
+        }
+        match self.completion {
+            Some(Completion::Native(fullscreen)) if native == Some(fullscreen) => {
+                if let Some(feedback) = feedback {
+                    self.completion = Some(Completion::Frame(feedback.begin_mode_change()));
+                }
+            }
+            Some(Completion::Frame(epoch))
+                if feedback.is_some_and(|feedback| feedback.mode_change_completed(epoch)) =>
+            {
+                self.completion = Some(Completion::Done);
+            }
+            None if !is_fullscreen(window) => self.completion = Some(Completion::Done),
+            _ => {}
+        }
+        if self.completion == Some(Completion::Done) {
             self.save(false);
         }
     }

@@ -30,9 +30,19 @@ pub struct FullscreenGuard {
 impl FullscreenGuard {
     /// Recovers an interrupted entry before settings are applied, preserving other video values.
     pub fn open(root: &Path) -> Result<Self> {
-        let _active = termination::active()?;
+        Self::open_with(root, false)
+    }
+
+    /// Like [`Self::open`], but blocks until another client's active transition releases its lease.
+    pub fn open_waiting(root: &Path) -> Result<Self> {
+        Self::open_with(root, true)
+    }
+
+    /// Takes the OS lease before process termination state, so a wait never stalls shutdown.
+    fn open_with(root: &Path, wait: bool) -> Result<Self> {
         fs::create_dir_all(root)?;
-        let _lease = lease(root)?;
+        let _lease = lease(root, wait)?;
+        let _active = termination::active()?;
         let owner = Owner::current()?;
         let recovered = super::load::<Pending>(&root.join(SENTINEL))?.is_some();
         if recovered {
@@ -53,7 +63,7 @@ impl FullscreenGuard {
     pub fn begin(&mut self) -> Result<()> {
         let mut active = termination::active()?;
         if self.lease.is_none() {
-            let lease = lease(&self.root)?;
+            let lease = lease(&self.root, false)?;
             active.register(&self.root.join(SENTINEL), &lease);
             self.lease = Some(lease);
         }
@@ -81,22 +91,27 @@ impl FullscreenGuard {
 }
 
 /// Leases only active journal work, so idle clients can share the same preferences.
-fn lease(root: &Path) -> Result<Arc<termination::Lease>> {
+fn lease(root: &Path, wait: bool) -> Result<Arc<termination::Lease>> {
     let file = fs::File::options()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
         .open(root.join(LOCK))?;
-    file.try_lock()
-        .map_err(|error| match error {
-            fs::TryLockError::WouldBlock => std::io::Error::new(
-                std::io::ErrorKind::WouldBlock,
-                "another client owns fullscreen recovery",
-            ),
-            fs::TryLockError::Error(error) => error,
-        })
-        .context("another client owns fullscreen recovery")?;
+    if wait {
+        file.lock()
+            .context("could not wait for fullscreen recovery")?;
+    } else {
+        file.try_lock()
+            .map_err(|error| match error {
+                fs::TryLockError::WouldBlock => std::io::Error::new(
+                    std::io::ErrorKind::WouldBlock,
+                    "another client owns fullscreen recovery",
+                ),
+                fs::TryLockError::Error(error) => error,
+            })
+            .context("another client owns fullscreen recovery")?;
+    }
     Ok(Arc::new(termination::Lease(file)))
 }
 

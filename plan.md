@@ -1065,9 +1065,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
-  Desktop fullscreen entry is journaled until a new-mode presentation completes. An
-  interrupted entry resets only fullscreen on the next launch; successful entry and
-  orderly exits preserve the preference. Native compositor failure acceptance remains open.
+  Desktop fullscreen entry is journaled until the platform reports the window settled
+  (AppKit's enter notification on macOS, the compositor's configure on Wayland) and a
+  presentation extracted afterwards completes. An interrupted entry resets only fullscreen
+  on the next launch; successful entry and orderly exits preserve the preference, and a
+  client launched during another's entry waits for its lease. X11 reports the request
+  before the window manager applies it, so its settle confirmation is incomplete; native
+  compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
