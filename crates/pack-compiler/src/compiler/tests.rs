@@ -76,10 +76,10 @@ mod potted_plants;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
-#[path = "tests/spore_blossom.rs"]
-mod spore_blossom;
 #[path = "tests/speleothem.rs"]
 mod speleothem;
+#[path = "tests/spore_blossom.rs"]
+mod spore_blossom;
 #[path = "tests/stonecutter.rs"]
 mod stonecutter;
 #[path = "tests/straw_beds.rs"]
