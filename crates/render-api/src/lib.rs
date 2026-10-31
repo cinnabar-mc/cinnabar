@@ -73,6 +73,10 @@ pub const STARTUP_BENCHMARK_ENV: &str = "CINNABAR_STARTUP_BENCHMARK";
 
 /// Absolute directory that replaces the platform's user config and data roots.
 pub const USER_ROOT_ENV: &str = "CINNABAR_USER_ROOT";
+/// Environment option selecting the bounded stage-trace event budget.
+pub const STAGE_PROFILE_EVENTS_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
+/// Largest explicit stage trace; overflow is reported rather than treated as complete evidence.
+pub const MAX_STAGE_PROFILE_EVENTS: usize = 2_097_152;
 
 /// Flat sprite alpha weights the dye RGB carried in the vertex overlay field.
 pub const UI_STYLE_SPRITE_COLOR_MASK: u32 = 1 << 16;

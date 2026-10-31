@@ -1861,6 +1861,12 @@ spans, trace exports and developer-control state on supported desktop and Androi
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
 
+The scripted resident-render benchmark copies a frozen fixture and isolated user template,
+flies real-time camera paths and exports exact interval statistics with native stage spans.
+It rejects lost frame evidence and incompatible report conditions. Visible-cohort readiness,
+authoritative streaming routes, GPU source-frame coverage, repeated-run confidence intervals,
+shipping-artifact equivalence and hardware release qualification remain incomplete.
+
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
 artwork pixels. Prepared actor artwork pages reference each pack entity and equipment

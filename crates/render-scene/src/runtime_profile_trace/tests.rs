@@ -1,5 +1,16 @@
 use super::*;
 
+#[test]
+fn workload_marker_returns_the_exact_exported_monotonic_origin() {
+    let trace = FrameTrace::build(None, Instant::now(), 4);
+    let origin = trace.marker("benchmark_path_start", 7);
+    let snapshot = trace
+        .snapshot(&trace.events.lock().unwrap(), usize::MAX, None)
+        .json();
+    assert_eq!(snapshot["traceEvents"][0]["ts"], origin.as_secs_f64() * 1e6);
+    assert_eq!(snapshot["traceEvents"][0]["frame_id"], 7);
+}
+
 /// Missing frame boundaries cannot grow pending windows or hide dropped requests.
 #[test]
 fn pending_hitches_stay_bounded_without_frame_markers() {

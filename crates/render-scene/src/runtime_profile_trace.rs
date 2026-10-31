@@ -20,8 +20,8 @@ use std::{
 use web_time::{Instant, SystemTime, UNIX_EPOCH};
 
 const TRACE_CAPACITY: usize = 131_072;
-const MAX_TRACE_CAPACITY: usize = 2_097_152;
-const TRACE_CAPACITY_ENV: &str = "CINNABAR_STAGE_PROFILE_EVENTS";
+const MAX_TRACE_CAPACITY: usize = render_api::MAX_STAGE_PROFILE_EVENTS;
+const TRACE_CAPACITY_ENV: &str = render_api::STAGE_PROFILE_EVENTS_ENV;
 /// Normal play retains recent completed spans even without an export path.
 const GAMEPLAY_CAPACITY: usize = 4096;
 const HITCH_PRE_FRAMES: u64 = 4;
@@ -119,6 +119,20 @@ pub struct FrameTrace {
 }
 
 impl FrameTrace {
+    /// Records a workload boundary and returns its offset, shared by route sampling and export.
+    pub fn marker(&self, name: &'static str, frame_id: u64) -> Duration {
+        let started = self.epoch.elapsed();
+        self.push(TraceEvent {
+            name,
+            started,
+            elapsed: Duration::ZERO,
+            thread: std::thread::current().id(),
+            frame_id: Some(frame_id),
+            args: TraceArgs::Span { thread_cpu: None },
+        });
+        started
+    }
+
     /// Preallocates recent history, using the larger recording budget for explicit exports.
     pub fn new(path: Option<PathBuf>, epoch: Instant) -> Self {
         let capacity = if path.is_some() {
