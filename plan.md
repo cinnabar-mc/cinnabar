@@ -1398,7 +1398,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   New packet grants take effect after reconnecting; sessions without packet mods retain
   caching. Live server qualification remains incomplete.
   Local mods and server experiences still need runtime/input isolation, reload/reorder/
-  removal, consent, custom screen transitions and media qualification. Source polling
+  removal, consent, custom screen transitions and media qualification. Server Experience
+  helpers have a restricted launch on Linux only (Landlock, seccomp, delegated cgroup memory
+  and task limits, resource limits, descriptor audit, contained compilation, fault-injection
+  tests); macOS and Windows refuse it, Linux without delegated memory and pids controllers
+  refuses it, CPU time stays unbounded where the cpu controller is not delegated, path
+  metadata, inotify and robust-list reads remain a known information leak, the Linux launch
+  awaits independent security review, and the client does not call it, so production execution
+  stays closed. Source polling
   reuses immutable source bytes and verified packages while their selected files retain the
   same identity and change timestamps, with content revalidated every two seconds (four
   normal polls) to catch writes with unchanged metadata on every platform. Authority changes
