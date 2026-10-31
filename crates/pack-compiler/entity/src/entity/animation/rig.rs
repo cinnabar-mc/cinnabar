@@ -259,6 +259,7 @@ pub(super) fn compile_rigs(
         };
         let mut ambiguous_animation = false;
         let mut static_fallback = false;
+        let mut dropped_animation_root = false;
         let mut geometry_candidates = vec![(geometry, None)];
         match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
             Some(GeometrySelection::Supported(selectable)) => geometry_candidates.extend(
@@ -324,7 +325,7 @@ pub(super) fn compile_rigs(
                     Some(condition) => match molang.compile(&condition) {
                         Ok(weight) => Some(weight),
                         Err(_) => {
-                            static_fallback = true;
+                            dropped_animation_root = true;
                             continue;
                         }
                     },
@@ -348,8 +349,8 @@ pub(super) fn compile_rigs(
                 {
                     animation_bindings.push((name.clone(), clip, weight, root_order(name)));
                 } else {
-                    // A reference the pack never defines leaves the rig static.
-                    static_fallback = true;
+                    // One missing root must not disable independently compiled roots.
+                    dropped_animation_root = true;
                 }
             }
             animation_bindings.sort_by(|left, right| (left.3, &left.0).cmp(&(right.3, &right.0)));
@@ -362,6 +363,10 @@ pub(super) fn compile_rigs(
                 controllers: controller_bindings,
             });
         }
+        static_fallback |= dropped_animation_root
+            && pending_geometries
+                .iter()
+                .all(|geometry| geometry.animations.is_empty() && geometry.controllers.is_empty());
         if ambiguous_animation {
             // Keep the body, but never select an arbitrary duplicate or run a controller
             // that could indirectly read it. This remains an incomplete rest-pose fallback.
@@ -374,7 +379,7 @@ pub(super) fn compile_rigs(
         static_fallback |= optional_condition
             .is_some_and(|expression| MolangCompiler::default().compile(expression).is_err());
         let scripts = RigScripts::compile(description, molang)?;
-        if static_fallback || scripts.dropped > 0 {
+        if static_fallback || dropped_animation_root || scripts.dropped > 0 {
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,

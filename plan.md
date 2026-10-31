@@ -597,6 +597,10 @@ lookup across the passing list.
   and interpolate with its frame fraction, independently of remote actor ticks.
   Linux captures cover third-person running jumps in both modes; other platforms
   and matched native qualification remain open.
+  Missing animation roots and unsupported root weights no longer disable other
+  compiled clips or controllers on the same rig. Compiler regressions cover player
+  definitions and carrier round trips. Native error-handling parity and confirmation
+  against the reported server pack remain incomplete; no live replay was performed.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
