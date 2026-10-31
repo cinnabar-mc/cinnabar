@@ -120,7 +120,7 @@ pub fn window_mode(fullscreen: bool) -> WindowMode {
 }
 
 /// Queues guarded native entry, or applies it directly for adapters without recovery.
-fn set_fullscreen(
+pub(crate) fn set_fullscreen(
     window: &mut Window,
     fullscreen: bool,
     transition: Option<&mut FullscreenTransition>,

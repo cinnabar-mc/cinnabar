@@ -18,7 +18,12 @@ fn app(layout: launcher::install_layout::InstallLayout) -> (App, Entity) {
         .insert_resource(menu)
         .add_systems(
             Update,
-            (toggle_fullscreen_hotkey, apply_runtime_fullscreen_setting).chain(),
+            (
+                toggle_fullscreen_hotkey,
+                apply_runtime_fullscreen_setting,
+                crate::settings_runtime::apply_window_settings,
+            )
+                .chain(),
         );
     configure(&mut app);
     let window = app
@@ -190,4 +195,30 @@ fn cancelling_pending_entry_leaves_windowed_and_does_not_reenter() {
             .unwrap()
             .recovered
     );
+}
+
+#[test]
+fn a_settings_reload_cannot_bypass_the_durable_entry_barrier() {
+    let layout = launcher::test_support::scratch("fullscreen-reload");
+    let (mut app, window) = app(layout);
+    app.update();
+    let mut user = app
+        .world()
+        .resource::<RuntimeSettings>()
+        .user_settings_update()
+        .1
+        .clone();
+    user.video.fullscreen = true;
+    app.world_mut()
+        .resource_mut::<RuntimeSettings>()
+        .replace_user_settings(user);
+    app.update();
+    assert!(!is_fullscreen(app.world().get::<Window>(window).unwrap()));
+    assert!(
+        app.world()
+            .resource::<FullscreenTransition>()
+            .saving
+            .is_some()
+    );
+    enter(&mut app, window);
 }
