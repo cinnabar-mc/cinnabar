@@ -578,6 +578,13 @@ fallback for held models. Script-based helmet inference is provisional and recog
 specific head/hand branch names. General slot inference and complete texture-budget
 and rendered qualification remain incomplete.
 
+Confirmed gap: native keeps and draws every render controller whose condition passes,
+while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
+controller ahead of the body draws only the cosmetic, with no limb animation, and
+other passing layers such as hats and capes never appear. Closing this needs per-layer
+condition and geometry evaluation, posing and drawing, and attachable parent-bone
+lookup across the passing list.
+
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
@@ -1074,7 +1081,11 @@ The bounded burst/neutrality recovery policy remains provisional. Per-frame admi
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
 Same-frame hand actions still announce their selection first; matching their complete
-native packet order remains incomplete.
+native packet order remains incomplete. A hotbar press behind pending work applies
+locally when its frame ends, because the native digit handler has no such gate. A press
+during an accepted item release still expires, which is a confirmed gap. A queued attack
+press takes the newer slot; native's order for that case and its mouse-wheel path are
+unverified.
 
 ### Held block placement
 
@@ -1787,9 +1798,9 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
-artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
-that the session entity pack also keeps, so those pixels stay resident twice during a
-session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
+artwork pixels. Prepared actor artwork pages reference each pack entity and equipment
+texture's allocation as a page layer instead of copying it, so session artwork pixels stay
+resident once; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed
