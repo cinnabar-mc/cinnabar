@@ -11,23 +11,31 @@ pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
     name == B::PointedDripstone.identifier() || name == B::SulfurSpike.identifier()
 }
 
+/// The block face whose art each thickness draws, in the thickness property's domain order: tip,
+/// frustum, middle, base and merge.
+const THICKNESS_FACES: [BlockFace; 5] = [
+    BlockFace::North,
+    BlockFace::Down,
+    BlockFace::South,
+    BlockFace::Up,
+    BlockFace::West,
+];
+
 /// Reads the block face whose art a thickness draws and its terrain array entry: stalactite art
 /// comes first, then stalagmite art.
 fn state(record: &RegistryRecord) -> Option<(BlockFace, usize)> {
-    use assets::facts::BlockProperty;
-    let face = match canonical_state_str(
+    use assets::facts::{BlockProperty, PropertyDomain};
+    let PropertyDomain::String(thicknesses) = BlockProperty::DripstoneThickness.domain() else {
+        return None;
+    };
+    let thickness = canonical_state_str(
         &record.canonical_state,
         BlockProperty::DripstoneThickness.name(),
-    )?
-    .as_ref()
-    {
-        "tip" => BlockFace::North,
-        "frustum" => BlockFace::Down,
-        "middle" => BlockFace::South,
-        "base" => BlockFace::Up,
-        "merge" => BlockFace::West,
-        _ => return None,
-    };
+    )?;
+    let index = thicknesses
+        .iter()
+        .position(|value| *value == thickness.as_ref())?;
+    let face = *THICKNESS_FACES.get(index)?;
     let hanging = canonical_state_u32(&record.canonical_state, BlockProperty::Hanging.name())? != 0;
     Some((face, usize::from(!hanging)))
 }
