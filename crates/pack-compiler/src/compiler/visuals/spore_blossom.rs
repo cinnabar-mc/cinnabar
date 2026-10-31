@@ -15,8 +15,11 @@ const REACH: i16 = 384;
 const BACK: i16 = -128;
 const FULL_UV: u16 = 4096;
 
-/// Each petal's corners and the art corner each one samples; the art's top row is the tip.
-fn petals() -> [([[i16; 3]; 4], [[u16; 2]; 4]); 4] {
+/// A petal's corners and the art corner each one samples.
+type Petal = ([[i16; 3]; 4], [[u16; 2]; 4]);
+
+/// The four petals; the art's top row is the tip.
+fn petals() -> [Petal; 4] {
     [
         (
             [
