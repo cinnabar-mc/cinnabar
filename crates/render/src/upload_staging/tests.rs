@@ -81,6 +81,30 @@ fn batches_larger_than_the_pool_queue_only_the_overflow() {
     assert_eq!(&written[..OVERSIZED], &bytes[..]);
 }
 
+#[test]
+fn generated_batches_keep_slice_batch_bytes_and_overflow_order() {
+    let bytes: Vec<u8> = (0..OVERSIZED).map(|byte| byte as u8).collect();
+    let (device, queue, staging, target) = setup();
+    staging.write_generated(&device, &queue, 3, |index| match index {
+        0 => (&target, 0, bytes.as_slice()),
+        1 => (&target, 8, &[99; 8]),
+        _ => (&target, 0, &[]),
+    });
+    let actual = finish(&device, &queue, &staging, &target);
+    let (device, queue, staging, target) = setup();
+    staging.write_batch(
+        &device,
+        &queue,
+        &[
+            (&target, 0, bytes.as_slice()),
+            (&target, 8, &[99; 8]),
+            (&target, 0, &[]),
+        ],
+    );
+    let expected = finish(&device, &queue, &staging, &target);
+    assert_eq!(actual, expected);
+}
+
 /// Unstaged bytes that overlap older staged copies land after them; later staged bytes land last.
 #[test]
 fn overlapping_fallback_preserves_pooled_fallback_and_later_pooled_bytes() {
