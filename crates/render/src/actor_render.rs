@@ -361,6 +361,15 @@ fn prepare_actor_resources(
 ) {
     // Preparation can replace any part of the queued identity, even before queue runs.
     gpu.queued_draw = None;
+    if frame.rig.instances.is_empty() {
+        gpu.bones.idle_frame();
+        let mut receipts = gpu
+            .receipt_scratch
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        receipts.clear();
+        receipts.finish_frame();
+    }
     let raw_views = crate::actor::gpu::ArtworkRawViews::current(raw_views);
     gpu.artwork.set_raw_views(raw_views);
     gpu.skins.set_raw_views(raw_views);

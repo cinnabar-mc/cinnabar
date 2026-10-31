@@ -125,6 +125,11 @@ impl BoneFrame {
 }
 
 impl BoneResidency {
+    /// Advances scratch retirement for an empty rendered frame, even without a new publication.
+    pub fn idle_frame(&mut self) {
+        self.scratch.discard_frame();
+    }
+
     /// Forgets all uploaded ownership while keeping only bounded allocation capacity.
     pub fn clear(&mut self) {
         self.slots.clear();
