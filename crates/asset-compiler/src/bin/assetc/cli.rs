@@ -379,6 +379,12 @@ pub(super) enum Command {
         accept_eula: bool,
         #[arg(long)]
         clouds_override: Option<PathBuf>,
+        /// Most carriers built at once; defaults to one per core.
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..))]
+        jobs: Option<u16>,
+        /// Exit as soon as stdin closes, so a run ends with the process that started it.
+        #[arg(long)]
+        lifeline: bool,
     },
     /// Print every checkout-relative file `prepare --kit` reads; installers stage exactly these.
     KitFiles {

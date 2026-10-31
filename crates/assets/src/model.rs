@@ -118,6 +118,12 @@ pub const MODEL_TEMPLATE_FLAG_HEAVY_CORE: u32 = 1 << 21;
 pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 /// Azalea templates select a separate stem and canopy for inventory previews.
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
+/// Pointed dripstone and sulfur spike crosses slide around their column by a narrower offset.
+pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
+/// Downward-growing vine: two stem planes then two tip planes, chosen by the cell below.
+pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
+/// Upward-growing vine: two stem planes then two tip planes, chosen by the cell above.
+pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -126,6 +132,8 @@ pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
         0 | MODEL_TEMPLATE_FLAG_BAMBOO
             | MODEL_TEMPLATE_FLAG_SHORT_GRASS
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_WEEPING_VINE
+            | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     )
 }
 /// Number of positional sprite variants in each bubble-column surface group.
@@ -194,6 +202,9 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_HEAVY_CORE
             | MODEL_TEMPLATE_FLAG_SHELF
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_SPELEOTHEM
+            | MODEL_TEMPLATE_FLAG_WEEPING_VINE
+            | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

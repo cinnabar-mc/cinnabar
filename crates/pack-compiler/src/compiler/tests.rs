@@ -26,6 +26,8 @@ mod campfire;
 mod candle;
 #[path = "tests/candle_cake.rs"]
 mod candle_cake;
+#[path = "tests/chorus_flower.rs"]
+mod chorus_flower;
 #[path = "tests/command_block.rs"]
 mod command_block;
 #[path = "tests/component_cross.rs"]
@@ -74,16 +76,22 @@ mod potted_plants;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/speleothem.rs"]
+mod speleothem;
 #[path = "tests/stonecutter.rs"]
 mod stonecutter;
 #[path = "tests/straw_beds.rs"]
 mod straw_beds;
+#[path = "tests/sunflower.rs"]
+mod sunflower;
 #[path = "tests/torch.rs"]
 mod torch;
 #[path = "tests/trapdoor.rs"]
 mod trapdoor;
 #[path = "tests/tripwire_hook.rs"]
 mod tripwire_hook;
+#[path = "tests/vine_stem.rs"]
+mod vine_stem;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();

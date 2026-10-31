@@ -33,9 +33,14 @@ pub(super) struct Options {
     pub json: bool,
     pub accept_eula: bool,
     pub clouds_override: Option<PathBuf>,
+    pub jobs: Option<usize>,
+    pub lifeline: bool,
 }
 
 pub(super) fn prepare(options: Options) -> Result<(), Box<dyn Error>> {
+    if options.lifeline {
+        exit_when_stdin_closes();
+    }
     let workspace = options
         .workspace
         .clone()
@@ -92,9 +97,17 @@ pub(super) fn prepare(options: Options) -> Result<(), Box<dyn Error>> {
         clear_outputs(carrier, &context);
     }
     write_stamp(&context.out, &stamp)?;
-    let result = execute(&context, &plan, stamp, &report);
+    let result = execute(&context, &plan, stamp, &report, options.jobs);
     report.summary(&plan, started.elapsed());
     result.map_err(Into::into)
+}
+
+/// Ends the process once stdin reaches EOF, which a parent's exit or crash also causes.
+fn exit_when_stdin_closes() {
+    thread::spawn(|| {
+        let _ = std::io::copy(&mut std::io::stdin().lock(), &mut std::io::sink());
+        std::process::exit(1);
+    });
 }
 
 /// Removes a carrier's earlier outputs so a failed optional rebuild leaves nothing stale behind.
@@ -117,8 +130,15 @@ struct Queue {
     abort: Option<String>,
 }
 
-/// Builds the stale carriers on a worker per core, recording each outcome in the stamp as it lands.
-fn execute(context: &Context, plan: &Plan, stamp: Stamp, report: &Reporter) -> Result<(), String> {
+/// Builds the stale carriers on `workers` threads (one per core when unset), recording each
+/// outcome in the stamp as it lands.
+fn execute(
+    context: &Context,
+    plan: &Plan,
+    stamp: Stamp,
+    report: &Reporter,
+    workers: Option<usize>,
+) -> Result<(), String> {
     let jobs = &plan.stale;
     let queue = Mutex::new(Queue {
         pending: (0..jobs.len()).collect(),
@@ -127,8 +147,8 @@ fn execute(context: &Context, plan: &Plan, stamp: Stamp, report: &Reporter) -> R
     });
     let changed = Condvar::new();
     let stamp = Mutex::new(stamp);
-    let workers = thread::available_parallelism()
-        .map_or(4, usize::from)
+    let workers = workers
+        .unwrap_or_else(|| thread::available_parallelism().map_or(4, usize::from))
         .min(jobs.len());
     thread::scope(|scope| {
         for _ in 0..workers {

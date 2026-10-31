@@ -25,8 +25,9 @@ Every client build includes the experimental shader-pack renderer. Shaders start
 pack loading and GPU pipeline creation wait until a pack is selected. `plan.md` lists
 the remaining gaps.
 
-The client uses `assetc` as a disposable CPU compiler process. Ordinary developer and
-package builds include it (`make play` builds both hosts). The compiler limits
+The client runs `shaderpack-worker` (`crates/shaderpack-worker`) beside the core as a
+disposable CPU compiler process; `make play` and every package build it. It is separate from
+`assetc`, so shader-pack changes leave carrier fingerprints unchanged. The compiler limits
 live Rust heap storage, CPU time, elapsed time and result size. The client kills and
 reaps a cancelled or expired compiler, and reports a crashed compiler as a pack load
 failure. GPU pipelines are built on the client's load thread after CPU translation.
@@ -37,5 +38,5 @@ a compiler crash can terminate the app. The IPA installs `BudgetAllocator` for h
 `ShaderPack::translate` remains an in-process API for trusted fixtures and tools.
 
 ```sh
-cargo test --locked -p shaderpack
+cargo test --locked -p shaderpack -p shaderpack-worker
 ```

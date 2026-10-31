@@ -148,6 +148,46 @@ mod tests {
         assert_eq!(compiled.textures[0].height, 1024);
     }
 
+    // An empty face map disables every face, while a cube with no `uv` keeps box UV at the origin.
+    #[test]
+    fn a_cube_with_an_empty_face_map_has_no_faces() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:hitbox","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/hitbox"},"geometry":{"default":"geometry.hitbox"},"render_controllers":["controller.render.hitbox"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.hitbox","texture_width":8,"texture_height":8},"bones":[{"name":"root","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[8,8,8],"uv":{}},{"origin":[0,0,0],"size":[8,8,8]}]}]}]}"#;
+        let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.hitbox":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let compiled = compile_actor_pack(vec![
+            ("entity/hitbox.json".into(), entity.to_vec()),
+            ("models/entity/hitbox.geo.json".into(), geometry.to_vec()),
+            ("render_controllers/hitbox.json".into(), controller.to_vec()),
+            ("textures/entity/hitbox.png".into(), png),
+        ])
+        .unwrap()
+        .expect("entity compiles");
+        assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
+        let cubes = &compiled.entities.geometries[0].bones[0].cubes;
+        let assets::EntityGeometryUv::Faces(faces) = &cubes[0].uv else {
+            panic!(
+                "an empty face map must stay per-face, got {:?}",
+                cubes[0].uv
+            );
+        };
+        assert_eq!(
+            [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down
+            ],
+            [&None; 6]
+        );
+        assert!(matches!(cubes[1].uv, assets::EntityGeometryUv::Box(_)));
+    }
+
     // A cancelled compile stops at its next stage instead of decoding artwork; uncancelled, the
     // same files compile as the plain entry point compiles them.
     #[test]

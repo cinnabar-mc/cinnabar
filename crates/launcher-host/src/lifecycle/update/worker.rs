@@ -13,6 +13,8 @@ use time::OffsetDateTime;
 use update_installer::stage::{self, Download, Selection};
 use update_manifest::{TrustedKeys, channel::Channel, select::Check};
 
+/// The verified stage below the update directory that Restart installs.
+const READY_STAGE: &str = "ready";
 const UNVERIFIED_INSTALLATION: &str = "Could not read the installed version. Automatic installation is unavailable; use the downloaded package to repair the installation.";
 
 /// A manual check bypasses scheduling and cached manifests without enabling automatic checks.
@@ -277,7 +279,7 @@ fn run(
     {
         state.stable_available = true;
     }
-    let destination = root.join("ready");
+    let destination = root.join(READY_STAGE);
     stage::recover(&destination, &keys, check, OffsetDateTime::now_utc())?;
     // A postponed stage stays offered while periodic checks continue, and a newer release replaces it.
     let retained = STATE.lock().ok().and_then(|state| state.ready.clone());
@@ -308,7 +310,7 @@ fn run(
             generation,
         );
     }
-    prepare_offer(&lease, &keys, check, generation);
+    prepare_offer(layout, &lease, &keys, check, generation);
     if (!preferences.checks && !switch_now && mode != FetchMode::Manual) || !active(generation) {
         return Ok(());
     }
@@ -489,13 +491,15 @@ fn run(
             verified,
             generation,
         );
-        prepare_offer(&lease, &keys, check, generation);
+        prepare_offer(layout, &lease, &keys, check, generation);
         record(&stamp_path, stamp_check, now_secs())
     })
 }
 
-/// Unpacks the writable offer beside its installation, so Restart only has to swap it in.
+/// Unpacks the writable offer beside its installation, so Restart only has to swap it in, then
+/// hands its prep kit to [`NEXT_RELEASE`].
 fn prepare_offer(
+    layout: &InstallLayout,
     lease: &update_installer::lease::Lease,
     keys: &TrustedKeys,
     check: Check<'_>,
@@ -512,24 +516,52 @@ fn prepare_offer(
         .lock()
         .ok()
         .filter(|state| state.accepts_worker(generation))
-        .and_then(|state| state.ready.clone())
-        .filter(|ready| ready.notice.writable)
+        .map(|state| state.ready.clone().filter(|ready| ready.notice.writable))
     else {
         return;
     };
+    let Some(ready) = ready else {
+        // An expired or switched offer whose payload remains may be offered again.
+        if !lease.root().join(READY_STAGE).exists() {
+            next_release(layout, None);
+        }
+        return;
+    };
     let result = handoff::apply_target(&ready).and_then(|target| {
-        update_installer::apply::prepare(
+        let candidate = update_installer::apply::prepare(
             &ready.stage,
             &target,
             keys,
             check,
             OffsetDateTime::now_utc(),
             lease,
-        )
+        )?;
+        if let Some(kit) = candidate_kit(layout, &target, &candidate) {
+            next_release(layout, Some(&kit));
+        }
+        Ok(())
     });
     if let Err(error) = result {
         tracing::debug!("prepare update: {error:#}");
     }
+}
+
+/// Runs the registered [`super::NextRelease`] hook, if any.
+fn next_release(layout: &InstallLayout, kit: Option<&Path>) {
+    if let Some(hook) = NEXT_RELEASE.get() {
+        hook(layout, kit);
+    }
+}
+
+/// The prep kit inside an unpacked `candidate` for `target`, where the running install keeps its
+/// own; `None` when this process runs from elsewhere or the candidate is a single file.
+pub(super) fn candidate_kit(
+    layout: &InstallLayout,
+    target: &Path,
+    candidate: &Path,
+) -> Option<PathBuf> {
+    let kit = candidate.join(layout.prep_kit().strip_prefix(target).ok()?);
+    kit.is_dir().then_some(kit)
 }
 
 /// Publishes worker progress only while its channel and consent are still current.
