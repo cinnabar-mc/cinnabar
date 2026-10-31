@@ -248,6 +248,25 @@ fn malformed_rehashed_headers_cannot_bypass_carrier_policy_or_limits() {
 }
 
 #[test]
+fn catalog_slim_skin_draws_its_left_leg_unmirrored() {
+    use assets::starter_skins::{CLASSIC_SKIN_GEOMETRY, SLIM_SKIN_GEOMETRY};
+    let mirrored = |identifier: &str, bone: &str| {
+        let mut model = geometry(
+            [1.0; 3],
+            assets::EntityGeometryUv::Box([assets::EntityGeometryScalar::ZERO; 2]),
+        );
+        model.identifier = identifier.into();
+        model.bones[0].name = bone.into();
+        model.bones[0].mirror = Some(true);
+        model.bones[0].cubes[0].mirror = true;
+        assets::SkinGeometry::from_catalog(&model).unwrap().bones[0].cubes[0].mirror
+    };
+    assert!(!mirrored(SLIM_SKIN_GEOMETRY, "leftLeg"));
+    assert!(mirrored(SLIM_SKIN_GEOMETRY, "rightLeg"));
+    assert!(mirrored(CLASSIC_SKIN_GEOMETRY, "leftLeg"));
+}
+
+#[test]
 fn catalog_skin_preserves_head_bob_flag_and_old_carriers_default_to_bobbing() {
     let mut model = geometry(
         [1.0; 3],

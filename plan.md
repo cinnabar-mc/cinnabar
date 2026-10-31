@@ -589,6 +589,11 @@ and rendered qualification remain incomplete.
   establish native animation behavior.
   Skin cubes retain signed extents after negative inflation. Rendered qualification of
   server-modified skins, including standard 64-pixel appearances, remains incomplete.
+  Classic and slim skins take the built-in skin pack's models, which are not in the fetched
+  pack, so they derive from its `geometry.humanoid.custom` and `geometry.humanoid.customSlim`.
+  The slim left leg drops the fetched copy's mirror to match in-game output and the newest
+  identified public copy of that skin pack; public copies disagree on this flag, and the target
+  version's own `skin_packs/vanilla/geometry.json` is unverified.
   Endermen draw their synced carried block, including crossed plants, with its world model
   at the native carried-block transform and the body's light. Its hurt overlay, per-layer
   material, tint and invisible-carrier behavior are unverified, and the other native
