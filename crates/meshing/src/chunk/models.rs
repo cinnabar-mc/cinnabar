@@ -27,6 +27,11 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
+/// A vine template's stem planes, which come before its tip planes.
+const VINE_STEM_QUADS: u32 = 0b0011;
+/// A vine template's tip planes.
+pub(crate) const VINE_TIP_QUADS: u32 = 0b1100;
+
 /// Chooses a vine template's stem planes where the same vine continues in its growth
 /// direction and its tip planes where it ends; `None` for every other template.
 pub(crate) fn vine_quad_mask<'a>(
@@ -50,7 +55,11 @@ pub(crate) fn vine_quad_mask<'a>(
             .model_templates()
             .get(next.model_template as usize)
             .is_some_and(|template| template.flags & vine != 0);
-    Some(if continues { 0b0011 } else { 0b1100 })
+    Some(if continues {
+        VINE_STEM_QUADS
+    } else {
+        VINE_TIP_QUADS
+    })
 }
 
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
