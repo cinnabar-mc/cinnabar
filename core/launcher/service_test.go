@@ -263,6 +263,7 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 		{gatherings.Address{NetworkProtocol: gatherings.NetworkProtocolDefault, IPv4Address: "203.0.113.7", Port: 19132}, "203.0.113.7:19132"},
 		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNetJSONRPC, NetherNetID: "1234"}, "nethernet/jsonrpc/1234"},
 		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, NetherNetID: "1234"}, "nethernet/websocket/1234"},
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, IPv4Address: "play.example.test", Port: 19132}, "play.example.test:19132"},
 	} {
 		f := newFixture(t, testAccount())
 		var joined []uuid.UUID
@@ -284,6 +285,12 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 	}
 	if err := f.service.Connect(context.Background(), control.TargetGathering, id.String()); err == nil {
 		t.Fatal("an assignment without a host was selected")
+	}
+	f.service.cfg.JoinGathering = func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error) {
+		return &gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet}, nil
+	}
+	if err := f.service.Connect(context.Background(), control.TargetGathering, id.String()); err == nil {
+		t.Fatal("a NetherNet assignment without an ID or host was selected")
 	}
 	if err := f.service.Connect(context.Background(), control.TargetGathering, "not-a-uuid"); !errors.Is(err, control.ErrInvalidTarget) {
 		t.Fatalf("malformed experience ID err = %v", err)

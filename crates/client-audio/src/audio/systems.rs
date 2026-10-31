@@ -577,6 +577,20 @@ pub fn pump_audio(
     engine.submit_sources(sources, device.as_deref_mut());
 }
 
+/// Applies optional sound decisions before submitting admitted sources to the device.
+pub fn pump_audio_filtered(
+    time: Res<Time>,
+    listener: super::engine::Listener,
+    settings: Res<AudioSettings>,
+    mut engine: ResMut<AudioEngine>,
+    mut device: Option<NonSendMut<AudioDevice>>,
+    filter: impl FnMut(&[super::engine::SoundEvent]) -> Option<Vec<bool>>,
+) {
+    engine.poll_server();
+    let sources = engine.pump_filtered(Some(listener), time.delta_secs(), &settings, filter);
+    engine.submit_sources(sources, device.as_deref_mut());
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::engine::Listener;

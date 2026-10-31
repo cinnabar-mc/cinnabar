@@ -229,6 +229,29 @@ Types: [`action-binding`](input.md#type-action-binding).
 
 ## Functions
 
+<a id="read-container-screen"></a>
+
+### `read-container-screen`
+
+```wit
+read-container-screen: func() -> result<option<string>, string>;
+```
+
+Current open container screen identity, requiring controls permission.
+None outside containers. Observation does not grant pointer ownership.
+
+<a id="position-pointer"></a>
+
+### `position-pointer`
+
+```wit
+position-pointer: func(x: f32, y: f32) -> result<_, string>;
+```
+
+Requests one pointer move in normalized window coordinates (0..1 on each axis).
+Requires controls permission and a focused container. Staged until callback success;
+consumed once, discarded if the screen changed. Does not press buttons or capture input.
+
 <a id="read-bindings"></a>
 
 ### `read-bindings`

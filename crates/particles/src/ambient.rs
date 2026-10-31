@@ -1,13 +1,15 @@
-//! Native ambient sampling, its shared random stream, and leaf/fire admission.
+//! Native ambient sampling, its shared random stream, and leaf/fire/candle admission.
 
 use assets::native_material::NativeMaterialFacts;
 
+mod candle;
 mod fire;
 mod random;
 mod sampler;
 #[cfg(test)]
 mod tests;
 
+pub use candle::{CANDLE_FLAME_EFFECT, CANDLE_SMOKE_EFFECT, emit_candle_effects};
 pub use fire::{FIRE_SMOKE_EFFECT, emit_fire_smoke};
 pub use random::AmbientRandom;
 pub use sampler::{MIN_SAMPLES, SamplePlan, Sampler};

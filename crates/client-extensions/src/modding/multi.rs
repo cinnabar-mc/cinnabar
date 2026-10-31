@@ -385,6 +385,37 @@ impl ModHosts {
         false
     }
 
+    /// Admitted sound filters see the same observations; any cancellation wins.
+    /// A failing filter is quarantined and contributes no cancellations to this batch.
+    pub fn filter_sounds(&mut self, events: &[mod_host::SoundEvent]) -> Vec<bool> {
+        let mut accepted = vec![true; events.len()];
+        let mut remaining = mod_api::TOTAL_SOUND_FILTER_FUEL;
+        for host in &mut self.hosts {
+            // Preserve the full callback allowance; later observers pass through this frame.
+            if remaining < mod_host::FRAME_FUEL {
+                break;
+            }
+            if !host.has_sound_filter() {
+                continue;
+            }
+            match host.filter_sounds(events.to_vec()) {
+                Ok(verdict) => {
+                    for (accepted, play) in accepted.iter_mut().zip(verdict) {
+                        *accepted &= play;
+                    }
+                }
+                Err(error) => bevy::log::warn!("Mod sound filter failed: {error:#}"),
+            }
+            remaining = remaining.saturating_sub(host.last_fuel_used());
+        }
+        accepted
+    }
+
+    /// Avoids constructing observations when no active component opted in.
+    pub fn has_sound_filters(&self) -> bool {
+        self.hosts.iter().any(ModHost::has_sound_filter)
+    }
+
     /// Only the earliest active, granted, explicitly exporting component filters actions.
     pub fn action_filter_owner(&self) -> Option<usize> {
         (0..self.host_count()).find(|&i| self.host(i).action_filter_identity().is_some())

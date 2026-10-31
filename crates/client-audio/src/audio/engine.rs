@@ -10,7 +10,7 @@ use super::{
     bank::{PcmLookup, SoundBank},
     echo::{EchoLedger, EchoOrigin, EchoSubject},
     settings::AudioSettings,
-    voice::{VoiceShared, VoiceSource, attenuation, pan_for},
+    voice::{Rolloff, VoiceShared, VoiceSource, pan_for},
 };
 
 /// Concurrent voice ceiling; needs native measurement.
@@ -19,8 +19,8 @@ const MAX_QUEUED: usize = 256;
 /// Starts waiting on a decode, across frames.
 const MAX_PENDING: usize = 64;
 const MAX_SAME_SOUND: usize = 6;
-/// Audible radius of a positional sound without an explicit `max_distance`.
-const DEFAULT_MAX_DISTANCE: f32 = 16.0;
+/// Radius within which a world sound at unit volume may start; louder requests scale it.
+const START_RADIUS: f32 = 16.0;
 /// Seconds a managed loop takes to fade in or out; needs native measurement.
 const LOOP_FADE_SECONDS: f32 = 1.5;
 /// A one-shot still decoding after this long is dropped rather than played late.
@@ -33,6 +33,25 @@ mod music;
 pub struct Listener {
     pub position: [f32; 3],
     pub right: [f32; 3],
+}
+
+/// A routed playback request offered before decoding or voice creation.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoundEvent {
+    pub name: Arc<str>,
+    pub position: Option<[f32; 3]>,
+    pub looping: bool,
+}
+
+impl From<&SoundRequest> for SoundEvent {
+    /// Copies only the immutable facts needed for a playback decision.
+    fn from(request: &SoundRequest) -> Self {
+        Self {
+            name: request.name.clone(),
+            position: request.position,
+            looping: request.looping,
+        }
+    }
 }
 
 /// A request to play a named sound definition; ranges are sampled once at start.
@@ -117,8 +136,7 @@ struct Voice {
     target_level: f32,
     fade_per_second: f32,
     position: Option<[f32; 3]>,
-    min: f32,
-    max: f32,
+    rolloff: Rolloff,
     key: Option<&'static str>,
     jukebox: Option<[i32; 3]>,
     priority: u8,
@@ -356,14 +374,70 @@ impl AudioEngine {
         dt: f32,
         settings: &AudioSettings,
     ) -> Vec<VoiceSource> {
+        self.pump_inner(
+            listener,
+            dt,
+            settings,
+            None::<fn(&[SoundEvent]) -> Option<Vec<bool>>>,
+        )
+    }
+
+    /// Offers new starts once before decoding. None or malformed decisions play normally.
+    /// Previously admitted decoding requests and already playing voices are not reoffered.
+    pub fn pump_filtered(
+        &mut self,
+        listener: Option<Listener>,
+        dt: f32,
+        settings: &AudioSettings,
+        filter: impl FnMut(&[SoundEvent]) -> Option<Vec<bool>>,
+    ) -> Vec<VoiceSource> {
+        self.pump_inner(listener, dt, settings, Some(filter))
+    }
+
+    /// Shares playback ordering between ordinary and filtered pumps without idle observations.
+    fn pump_inner(
+        &mut self,
+        listener: Option<Listener>,
+        dt: f32,
+        settings: &AudioSettings,
+        filter: Option<impl FnMut(&[SoundEvent]) -> Option<Vec<bool>>>,
+    ) -> Vec<VoiceSource> {
         self.staged.retain(|source| !source.cancelled());
         self.voices.retain(|voice| !voice.shared.finished());
         self.clock += f64::from(dt.max(0.0));
         let mut started = Vec::new();
         self.resume_decoded(&mut started, listener, settings);
-        self.reconcile_loops(&mut started, listener, settings);
-        for request in std::mem::take(&mut self.queue) {
-            if let Some(source) = self.start(&request, listener, settings, None) {
+        self.update_loop_targets();
+        let missing = self.missing_loops();
+        let requests = std::mem::take(&mut self.queue);
+        let decisions = filter.and_then(|mut filter| {
+            let events: Vec<_> = requests
+                .iter()
+                .map(SoundEvent::from)
+                .chain(missing.iter().map(|(_, spec)| SoundEvent {
+                    name: spec.name.clone(),
+                    position: None,
+                    looping: true,
+                }))
+                .collect();
+            if events.is_empty() {
+                return None;
+            }
+            filter(&events).filter(|verdict| verdict.len() == events.len())
+        });
+        let allowed = |index: usize| decisions.as_ref().is_none_or(|v| v[index]);
+        let offset = requests.len();
+        let missing = missing
+            .into_iter()
+            .enumerate()
+            .filter(|(i, _)| allowed(offset + i))
+            .map(|(_, start)| start)
+            .collect();
+        self.reconcile_loops(&mut started, listener, settings, missing);
+        for (index, request) in requests.into_iter().enumerate() {
+            if allowed(index)
+                && let Some(source) = self.start(&request, listener, settings, None)
+            {
                 started.push(source);
             }
         }
@@ -415,12 +489,23 @@ impl AudioEngine {
         }
     }
 
-    fn reconcile_loops(
-        &mut self,
-        started: &mut Vec<VoiceSource>,
-        listener: Option<Listener>,
-        settings: &AudioSettings,
-    ) {
+    /// Snapshots loop starts before asking for decisions, so none bypass the filter.
+    fn missing_loops(&self) -> Vec<(&'static str, LoopSpec)> {
+        self.loops
+            .iter()
+            .filter(|(key, _)| {
+                !self.voices.iter().any(|voice| voice.key == Some(**key))
+                    && !self
+                        .pending
+                        .iter()
+                        .any(|start| start.managed.is_some_and(|(pending, _)| pending == **key))
+            })
+            .map(|(key, spec)| (*key, spec.clone()))
+            .collect()
+    }
+
+    /// Updates existing loop fades before deciding which replacement starts are missing.
+    fn update_loop_targets(&mut self) {
         let fade = 1.0 / LOOP_FADE_SECONDS;
         for voice in &mut self.voices {
             let Some(key) = voice.key else { continue };
@@ -436,18 +521,15 @@ impl AudioEngine {
                 }
             }
         }
-        let missing: Vec<(&'static str, LoopSpec)> = self
-            .loops
-            .iter()
-            .filter(|(key, _)| {
-                !self.voices.iter().any(|voice| voice.key == Some(**key))
-                    && !self
-                        .pending
-                        .iter()
-                        .any(|start| start.managed.is_some_and(|(pending, _)| pending == **key))
-            })
-            .map(|(key, spec)| (*key, spec.clone()))
-            .collect();
+    }
+
+    fn reconcile_loops(
+        &mut self,
+        started: &mut Vec<VoiceSource>,
+        listener: Option<Listener>,
+        settings: &AudioSettings,
+        missing: Vec<(&'static str, LoopSpec)>,
+    ) {
         for (key, spec) in missing {
             let mut request = SoundRequest::new(Arc::clone(&spec.name));
             request.looping = true;
@@ -479,10 +561,7 @@ impl AudioEngine {
                     ];
                     let distance =
                         (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
-                    (
-                        attenuation(distance, voice.min, voice.max),
-                        pan_for(delta, listener.right),
-                    )
+                    (voice.rolloff.gain(distance), pan_for(delta, listener.right))
                 }
                 (Some(_), None) => (0.0, 0.0),
                 (None, _) => (1.0, 0.0),
@@ -550,7 +629,7 @@ impl AudioEngine {
             .unwrap_or(alternatives[0]);
         let category = AudioCategory::from_definition(definition.category.as_deref());
         let request_volume = request.volume.sample(roll[1], roll[2]);
-        // Vanilla widens the audible range by the raw volume but clamps the playback gain to unity.
+        // Vanilla widens the start radius by the raw volume but clamps the playback gain to unity.
         let request_gain = if request_volume.is_finite() {
             request_volume.clamp(0.0, 1.0)
         } else {
@@ -563,8 +642,7 @@ impl AudioEngine {
         .clamp(0.05, 8.0);
         let flat = matches!(category, AudioCategory::Music | AudioCategory::Ui);
         let positional = request.position.is_some() && chosen.is_3d != Some(false) && !flat;
-        let min = definition.min_distance.unwrap_or(0.0).max(0.0);
-        let max = definition.max_distance.unwrap_or(DEFAULT_MAX_DISTANCE) * request_volume.max(1.0);
+        let rolloff = Rolloff::from_definition(definition.min_distance, definition.max_distance);
         let stream = chosen.stream == Some(true);
         let path = chosen.name.clone();
         let identifier = definition.identifier.clone();
@@ -579,8 +657,11 @@ impl AudioEngine {
                 .map(|axis| (position[axis] - listener.position[axis]).powi(2))
                 .sum::<f32>()
                 .sqrt();
-            distance_gain = attenuation(delta, min, max);
-            if distance_gain <= 0.0 {
+            distance_gain = rolloff.gain(delta);
+            // Loops and records keep playing out of range; only a fresh world sound is gated.
+            let gated = managed.is_none() && request.jukebox.is_none();
+            let beyond_start = gated && delta >= START_RADIUS * request_volume.max(1.0);
+            if distance_gain <= 0.0 || beyond_start {
                 self.stats.out_of_range += 1;
                 return None;
             }
@@ -674,8 +755,7 @@ impl AudioEngine {
                 0.0
             },
             position,
-            min,
-            max,
+            rolloff,
             key,
             jukebox: request.jukebox,
             priority: new_priority,

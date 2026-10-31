@@ -11,6 +11,7 @@ struct Allowance {
     frame: u64,
     events: usize,
     loads: usize,
+    world_entries: usize,
 }
 
 /// Whether a guest callback ran or must be delivered in a later frame.
@@ -36,6 +37,7 @@ impl CallbackBudget {
             frame: fuel,
             events: LARGE_CALLBACKS_PER_FRAME,
             loads: LARGE_CALLBACKS_PER_FRAME,
+            world_entries: LARGE_CALLBACKS_PER_FRAME,
         };
     }
     /// Reserves a full callback allowance, or defers it without reducing its guest fuel limit.
@@ -58,6 +60,17 @@ impl CallbackBudget {
             remaining.frame -= fuel;
         }
         Some(fuel)
+    }
+    /// Admits one world-entry callback per frame, charging its base to the ordinary pool.
+    /// Unused extra fuel is discarded rather than refunded to that pool.
+    pub(crate) fn reserve_world_entry_frame(&self) -> Option<u64> {
+        let mut remaining = self.0.lock().expect("mod callback budget");
+        if remaining.world_entries == 0 || remaining.frame < crate::FRAME_FUEL {
+            return None;
+        }
+        remaining.frame -= crate::FRAME_FUEL;
+        remaining.world_entries -= 1;
+        Some(crate::WORLD_ENTRY_FRAME_FUEL)
     }
     /// Returns regular-frame fuel which a completed callback did not use.
     pub(crate) fn refund(&self, fuel: u64) {
@@ -88,5 +101,32 @@ mod tests {
         assert_eq!(budget.reserve(event), None);
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
         assert_eq!(budget.reserve(LOAD_FUEL), Some(LOAD_FUEL));
+    }
+    #[test]
+    fn world_entry_lane_is_bounded_and_independent_of_events_and_loads() {
+        let budget = CallbackBudget::new(crate::FRAME_FUEL - 1);
+        assert_eq!(budget.reserve_world_entry_frame(), None);
+        budget.refund(1);
+        assert_eq!(
+            budget.reserve_world_entry_frame(),
+            Some(crate::WORLD_ENTRY_FRAME_FUEL)
+        );
+        assert_eq!(budget.remaining(), 0);
+        budget.refund(crate::FRAME_FUEL);
+        assert_eq!(budget.reserve_world_entry_frame(), None);
+        assert_eq!(budget.reserve(LOAD_FUEL), Some(LOAD_FUEL));
+        assert_eq!(
+            budget.reserve(server_experience::runtime::CALLBACK_FUEL),
+            Some(server_experience::runtime::CALLBACK_FUEL)
+        );
+        budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        assert_eq!(
+            budget.reserve_world_entry_frame(),
+            Some(crate::WORLD_ENTRY_FRAME_FUEL)
+        );
+        assert_eq!(
+            budget.remaining(),
+            mod_api::TOTAL_MOD_FRAME_FUEL - crate::FRAME_FUEL
+        );
     }
 }

@@ -116,6 +116,52 @@ fn hotbar_swap_uses_swap_or_place() {
     );
 }
 
+/// The hotbar stack joins a matching hovered stack instead of trading places with it.
+#[test]
+fn hotbar_key_merges_a_matching_stack_into_the_hovered_cell() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 24)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Place { amount: 16, source, destination })
+            if source.slot == 5 && destination.slot == 6 && destination.stack_network_id == 100
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 40);
+    assert!(ledger.displayed_stack(5).is_none());
+}
+
+/// A merge stops at the hovered stack's capacity and leaves the rest in the hotbar.
+#[test]
+fn hotbar_key_merge_leaves_what_does_not_fit() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 60)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Place { amount: 4, .. })
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 12);
+}
+
+/// A full hovered stack has no room, so the two stacks trade places.
+#[test]
+fn hotbar_key_swaps_with_a_full_matching_stack() {
+    let mut ledger = open_ledger(&[(6, stack(6, 100, 64)), (5, stack(6, 101, 16))]);
+    ledger
+        .begin_hotbar_swap(InventoryTarget::Player(6), 5)
+        .unwrap();
+    assert!(matches!(
+        ledger.newest_action(),
+        Some(StackRequestAction::Swap { .. })
+    ));
+    assert_eq!(ledger.displayed_stack(6).unwrap().count, 16);
+    assert_eq!(ledger.displayed_stack(5).unwrap().count, 64);
+}
+
 /// Drops send one Drop action and shrink the source; rejection restores it.
 #[test]
 fn drop_shrinks_the_source_until_rejected() {

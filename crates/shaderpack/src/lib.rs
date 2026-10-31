@@ -108,4 +108,5 @@ pub use reflection::{
 };
 pub use remove::remove_pack;
 pub use source::{MAX_ARCHIVE_BYTES, PackError, PackOrigin, PackSource};
+pub use transform::ALPHA_TESTED_OUTPUT;
 pub use translate::{ProgramTranslation, StageTranslation};
