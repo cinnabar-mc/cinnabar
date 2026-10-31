@@ -100,7 +100,7 @@ fn decoded_voxels_answer_as_packed_lookups() {
     let packed = facts();
     let mut decoded = facts();
     decoded.decode_voxels();
-    assert!(decoded.decoded.is_some());
+    assert!(decoded.decoded);
     for x in 0..=SIDE {
         for y in 0..SIDE {
             for z in 0..SIDE {
@@ -134,7 +134,7 @@ fn voxel_classes_match_each_voxels_answer() {
     let packed = facts();
     let mut decoded = facts();
     decoded.decode_voxels();
-    assert!(decoded.decoded.is_some());
+    assert!(decoded.decoded);
     for source in [&packed, &decoded] {
         let mut visits = vec![0_u8; SIDE * SIDE * SIDE];
         source.for_each_voxel_class(
@@ -147,4 +147,111 @@ fn voxel_classes_match_each_voxels_answer() {
         );
         assert!(visits.iter().all(|&count| count == 1));
     }
+}
+
+/// Observes every palette scratch allocation so warm jobs must keep their backing storage.
+fn palette_buffers(scratch: &PaletteScratch) -> [(usize, usize); 8] {
+    [
+        (
+            scratch.entries.as_ptr() as usize,
+            scratch.entries.capacity(),
+        ),
+        (
+            scratch.offsets.as_ptr() as usize,
+            scratch.offsets.capacity(),
+        ),
+        (
+            scratch.decoded.voxels.as_ptr() as usize,
+            scratch.decoded.voxels.capacity(),
+        ),
+        (
+            scratch.decoded.entries.as_ptr() as usize,
+            scratch.decoded.entries.capacity(),
+        ),
+        (
+            scratch.decoded.shelters.as_ptr() as usize,
+            scratch.decoded.shelters.capacity(),
+        ),
+        (
+            scratch.decoded.model_candidates.as_ptr() as usize,
+            scratch.decoded.model_candidates.capacity(),
+        ),
+        (
+            scratch.indices.as_ptr() as usize,
+            scratch.indices.capacity(),
+        ),
+        (
+            scratch.answer_of.as_ptr() as usize,
+            scratch.answer_of.capacity(),
+        ),
+    ]
+}
+
+#[test]
+fn warm_palette_jobs_keep_allocations_and_replace_poisoned_answers() {
+    let section = mixed_section();
+    let assets = RuntimeAssets::diagnostic();
+    let mut scratch = PaletteScratch::default();
+    let mut retained = None;
+    for _ in 0..3 {
+        let mut facts = PaletteFacts::with_scratch(
+            BlockClassifier::new(0),
+            &assets,
+            NetworkIdMode::Sequential,
+            &section,
+            scratch,
+        );
+        facts.decode_voxels();
+        let fresh = PaletteFacts::new(
+            BlockClassifier::new(0),
+            &assets,
+            NetworkIdMode::Sequential,
+            &section,
+        );
+        for x in 0..SIDE {
+            for y in 0..SIDE {
+                for z in 0..SIDE {
+                    assert_eq!(
+                        format!("{:?}", facts.at(x, y, z)),
+                        format!("{:?}", fresh.at(x, y, z))
+                    );
+                }
+            }
+        }
+        scratch = facts.scratch;
+        let buffers = palette_buffers(&scratch);
+        if let Some(retained) = retained {
+            assert_eq!(buffers, retained);
+        }
+        retained = Some(buffers);
+        scratch.decoded.voxels.fill(u16::MAX);
+        scratch.answer_of.fill(0);
+        scratch.decoded.entries.fill(ResolvedPaletteEntry::AIR);
+        scratch.decoded.shelters.fill(false);
+        scratch.decoded.model_candidates.fill(true);
+    }
+}
+
+#[test]
+fn palette_scratch_discards_every_oversized_buffer() {
+    let mut scratch = PaletteScratch::default();
+    let oversized = MAX_DECODED_COMBINATIONS * crate::scratch::RETAIN_MULTIPLIER + 1;
+    scratch.entries.resize(oversized, ResolvedPaletteEntry::AIR);
+    scratch.offsets.resize(oversized, 0);
+    scratch.decoded.voxels.resize(oversized, 0);
+    scratch
+        .decoded
+        .entries
+        .resize(oversized, ResolvedPaletteEntry::AIR);
+    scratch.decoded.shelters.resize(oversized, false);
+    scratch.decoded.model_candidates.resize(oversized, false);
+    scratch.indices.resize(oversized, 0);
+    scratch.answer_of.resize(oversized, 0);
+    scratch.reset();
+    assert_eq!(scratch.retained_bytes(), 0);
+    assert!(
+        palette_buffers(&scratch)
+            .iter()
+            .all(|&(_, capacity)| capacity == 0)
+    );
 }

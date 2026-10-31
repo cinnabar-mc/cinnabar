@@ -101,9 +101,10 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
         biome: &PackedBiomeRecord,
+        scratch: &mut ::meshing::MeshScratch,
     ) -> ChunkMesh {
         let overlays = self.overlays.resolve(&self.center);
-        ::meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        ::meshing::mesh_sub_chunk_in_neighbourhood_with_scratch(
             &classifier,
             runtime_assets,
             network_id_mode,
@@ -116,6 +117,7 @@ impl MeshSnapshot {
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
                 overlays: &overlays,
             },
+            scratch,
         )
     }
 

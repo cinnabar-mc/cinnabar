@@ -116,6 +116,7 @@ fn stem_colours_source() -> String {
 
 pub(crate) fn source(source: &str) -> String {
     source
+        .replace("CUBE_SEAM_MAX_STEP_VALUE", &format!("{:?}f", render_model::CUBE_SEAM_MAX_STEP))
         .replace("ACTOR_COMPACT_CURRENT_BONE_BASE", &format!("{}u", render_model::actor::MAX_ACTOR_POSE_BONES))
         .replace("TERRAIN_UNIT_QUADS", &format!("{}u", render_model::terrain_units::QUADS_PER_UNIT))
         .replace("TERRAIN_UNITS_PER_INSTANCE", &format!("{}u", render_model::terrain_units::UNITS_PER_INSTANCE))

@@ -297,7 +297,19 @@ acceptance. See the [runtime contract and hardware recipe](crates/render/src/fra
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Matched-output frame-time and movement qualification remain incomplete.
+  A developer-supplied cost calibration can select Hi-Z indirect cull passes by
+  captured submitted indices per stream, matched to adapter, backend, viewport and
+  sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
+  and configuration changes restart admission before selecting work.
+  Matched-output frame-time and movement qualification remain incomplete; no
+  hardware cost calibration or default change is qualified.
+  `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
+  current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
+  subset leaves colour writes off; the late pass retains each CPU stream's colour
+  order. Other devices retain their existing paths. Near-plane crossings and large
+  boxes remain visible, and unavailable tests draw the complete ordered terrain.
+  Matched-output frame-time and movement qualification remain incomplete;
+  raster occlusion stays off by default pending hardware acceptance.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
@@ -372,6 +384,10 @@ acceptance. See the [runtime contract and hardware recipe](crates/render/src/fra
   while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
+  Meshing workers retain palette decode and opaque/two-sided cube working buffers between
+  sections. Oversized temporary buffers are discarded after a job, and idle workers release
+  mesh scratch after five seconds. Published streams keep independent ownership. Hardware
+  allocation, idle-memory and return-to-flight measurements remain open.
   Foreground chunk-data offload requires a full allocation of service polling
   that advanced commits; idle waits and worker-only service do not count.
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
@@ -382,6 +398,8 @@ acceptance. See the [runtime contract and hardware recipe](crates/render/src/fra
   Saturated-producer frame and service-reclaim hardware qualification remains open.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
+  Meshing workers finalize shared geometry streams; main-world publication and render
+  extraction retain those allocations through upload and retirement.
   Matched-output hardware preparation and streaming qualification remain open.
   Far terrain remains disabled in Video settings. Coarsening retains overlapping
   fallback tiles until their replacement covers every known column, and its near
@@ -1091,6 +1109,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Desktop fullscreen entry is journaled until the platform reports the window settled
+  (AppKit's enter notification on macOS, the compositor's configure on Wayland) and a
+  presentation extracted afterwards completes. An interrupted entry resets only fullscreen
+  on the next launch; successful entry and orderly exits preserve the preference, and a
+  client launched during another's entry waits for its lease. X11 reports the request
+  before the window manager applies it, so its settle confirmation is incomplete; native
+  compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.

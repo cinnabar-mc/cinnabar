@@ -95,14 +95,17 @@ impl GpuTimestamps {
                 && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage)))
     }
 
-    /// Uses owned queries on Metal, for UI diagnostics, and for detailed late terrain.
+    /// Uses owned queries on Metal, for UI diagnostics, and for detailed terrain culling.
     pub(super) fn render_pass(
         &self,
         stage: RuntimeStage,
     ) -> Option<wgpu::RenderPassTimestampWrites<'_>> {
         let ui_pass = self.ui_categories
             && (stage == RuntimeStage::GpuUi || RuntimeStage::GPU_UI.contains(&stage));
-        if stage == RuntimeStage::GpuTerrainLate {
+        if matches!(
+            stage,
+            RuntimeStage::GpuTerrainLate | RuntimeStage::GpuCullRaster
+        ) {
             if cfg!(target_os = "macos") || !self.pass_detail {
                 return None;
             }
