@@ -32,15 +32,12 @@ pub(super) fn start() -> (Sender<Request>, Receiver<Request>, Receiver<Packed>) 
             };
             let missing = cache.missing(&current.set);
             if let Some(source) = missing.first() {
-                cache.decode(std::slice::from_ref(source), &current.set);
+                cache.decode(std::slice::from_ref(source));
                 continue;
             }
             let packed = pack(&current.set, &cache, current.id, true);
             match done.try_send(packed) {
-                Ok(()) => {
-                    cache.trim(&current.set);
-                    request = None;
-                }
+                Ok(()) => request = None,
                 Err(crossbeam_channel::TrySendError::Disconnected(_)) => return,
                 Err(crossbeam_channel::TrySendError::Full(_)) => {}
             }

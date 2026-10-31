@@ -31,6 +31,8 @@ pub struct EffectiveItemUse {
     pub movement: f64,
     pub cooldown: Option<ResolvedUseCooldown>,
     pub projectile: ItemProjectileRole,
+    /// How a flat sprite of this item sits in the hand.
+    pub held_placement: render_api::HeldItemPlacement,
 }
 
 impl Default for EffectiveItemUse {
@@ -45,8 +47,23 @@ impl Default for EffectiveItemUse {
             movement: 1.0,
             cooldown: None,
             projectile: ItemProjectileRole::None,
+            held_placement: render_api::HeldItemPlacement::Retail,
         }
     }
+}
+
+/// Server-defined items use render offsets. Retail identities with no component payload override
+/// keep the retail sprite transforms, whose rest pose those default tables reproduce.
+fn held_placement(entry: &CanonicalItemRegistryRecord) -> render_api::HeldItemPlacement {
+    use render_api::HeldItemPlacement::{DeclaredOffsets, DefaultOffsets, Retail};
+    if !entry.component_based || entry.unmodified_native {
+        return Retail;
+    }
+    entry
+        .components
+        .as_deref()
+        .and_then(|components| components.render_offsets)
+        .map_or(DefaultOffsets, DeclaredOffsets)
 }
 
 /// Resolves immutable rules outside gameplay; stack-dependent crossbow timing remains separate.
@@ -92,6 +109,7 @@ pub fn resolve_item_use(
                 ticks: cooldown.ticks,
             }),
         projectile: *projectile,
+        held_placement: render_api::HeldItemPlacement::Retail,
     }
 }
 
@@ -157,7 +175,10 @@ impl ItemStateStore {
             };
             profiles.insert(
                 entry.network_id,
-                resolve_item_use(&profile, ticks, category),
+                EffectiveItemUse {
+                    held_placement: held_placement(entry),
+                    ..resolve_item_use(&profile, ticks, category)
+                },
             );
         }
         self.projectile_roles = self
@@ -342,6 +363,44 @@ mod tests {
             canonical_empty_component_data: false,
             item_tags: Arc::from([]),
         }
+    }
+
+    /// Regression: a server item's in-hand facts must select render offsets over the retail grip.
+    #[test]
+    fn held_placement_follows_the_item_registry() {
+        use render_api::{DEFAULT_ITEM_RENDER_OFFSETS, HeldItemPlacement};
+        let declared = protocol::ItemComponents {
+            render_offsets: Some(DEFAULT_ITEM_RENDER_OFFSETS),
+            ..Default::default()
+        };
+        let mut legacy = entry(3, "test:legacy", Default::default());
+        legacy.component_based = false;
+        let retail = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:snowball")
+            .unwrap()
+            .clone();
+        let mut flagged_retail = retail.clone();
+        flagged_retail.component_based = true;
+        flagged_retail.canonical_empty_component_data = true;
+        let flagged_retail_id = flagged_retail.network_id;
+        let mut store = ItemStateStore::diagnostic();
+        assert!(store.apply_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([
+                entry(1, "test:default", Default::default()),
+                entry(2, "test:declared", declared),
+                legacy,
+                flagged_retail,
+            ]),
+        }));
+        let placement = |id| store.item_use_profile(id).held_placement;
+        assert_eq!(placement(1), HeldItemPlacement::DefaultOffsets);
+        assert_eq!(
+            placement(2),
+            HeldItemPlacement::DeclaredOffsets(DEFAULT_ITEM_RENDER_OFFSETS)
+        );
+        assert_eq!(placement(3), HeldItemPlacement::Retail);
+        assert_eq!(placement(flagged_retail_id), HeldItemPlacement::Retail);
     }
 
     #[test]
