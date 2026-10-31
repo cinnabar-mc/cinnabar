@@ -366,7 +366,7 @@ impl SemanticHud {
                     self.chat_rows.push(id);
                     let text = resolve_chat_line(line, |key| runtime.translation(key));
                     Timed {
-                        text: bounded_visible_text(text.as_ref()).to_owned(),
+                        text: text.into_owned(),
                         born: seconds(born),
                     }
                 })
