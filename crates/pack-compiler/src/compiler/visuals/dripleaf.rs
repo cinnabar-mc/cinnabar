@@ -91,6 +91,9 @@ fn to_model([x, y, z]: [f32; 3]) -> [i16; 3] {
     [x, y, z].map(|axis| (axis * PIXEL).round() as i16)
 }
 
+/// A two-sided quad with no face bits. Native writes one white vertex colour and one normal before
+/// every dripleaf vertex (`tessellateBigDripleafBlockInWorld`,
+/// `tessellateSmallDripleafBlockInWorld`), so walls take no per-face side shading.
 fn surface(corners: [[f32; 3]; 4], uvs: [[u16; 2]; 4], material: u32) -> ModelQuad {
     ModelQuad {
         positions: corners.map(to_model),
