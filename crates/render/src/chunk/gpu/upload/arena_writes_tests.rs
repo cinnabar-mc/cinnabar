@@ -166,7 +166,7 @@ fn worker_streams_survive_publication_extraction_and_retirement_without_payload_
     assert!(app.world().get::<ChunkRenderInstance>(entity).is_none());
     drop(app);
     let expected = mixed_mesh();
-    assert_eq!(expected.cube_quads(), extracted.cube_quads());
+    assert_eq!(expected.cube_quads(), extracted.quads());
     assert_eq!(expected.cube_lighting(), extracted.cube_lighting());
     assert_eq!(expected.model_refs(), extracted.model_refs());
     assert_eq!(expected.model_lighting(), extracted.model_lighting());
