@@ -193,6 +193,7 @@ pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::LoyaltyRopeModel;
+pub use block_entity::PistonArmModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
     AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,

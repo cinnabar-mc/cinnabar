@@ -3708,7 +3708,9 @@
         "minecraft:barrier",
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
-        "minecraft:moving_block"
+        "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
       ],
       "prefix": "light_block_"
     },
@@ -6307,6 +6309,20 @@
         "minecraft:bee_nest"
       ],
       "status": "provisional"
+    },
+    {
+      "entry": {
+        "nbt_id": "PistonArm",
+        "route": "model",
+        "renderer": "piston_arm",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ],
+      "status": "verified"
     },
     {
       "entry": {

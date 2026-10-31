@@ -29,6 +29,7 @@ use super::{
     loyalty_rope::LoyaltyRopeModel,
     mesh::{BlockEntityVertex, MeshBuilder},
     pot::DecoratedPotModel,
+    piston::PistonArmModel,
     shulker::ShulkerModel,
     sign::SignModel,
     skull::SkullModel,
@@ -40,6 +41,7 @@ use super::{
 pub enum BlockEntityKind {
     Chest(ChestModel),
     Shulker(ShulkerModel),
+    PistonArm(PistonArmModel),
     Skull(SkullModel),
     Banner(BannerModel),
     Bed(BedModel),
@@ -91,6 +93,7 @@ impl BlockEntityKind {
             | Self::DragonDeath(_) => false,
             Self::Chest(_)
             | Self::Shulker(_)
+            | Self::PistonArm(_)
             | Self::Banner(_)
             | Self::Sign(_)
             | Self::EnchantTable { .. }
@@ -517,6 +520,7 @@ fn emit_submission(
     match &submission.kind {
         BlockEntityKind::Chest(model) => super::chest::emit(builder, atlas, block, model),
         BlockEntityKind::Shulker(model) => super::shulker::emit(builder, atlas, block, model),
+        BlockEntityKind::PistonArm(model) => super::piston::emit(builder, atlas, block, model),
         BlockEntityKind::Skull(model) => super::skull::emit(builder, atlas, heads, block, model),
         BlockEntityKind::Banner(model) => super::banner::emit(builder, atlas, block, model, clock),
         BlockEntityKind::Bed(model) => super::bed::emit(builder, atlas, block, model, bed),

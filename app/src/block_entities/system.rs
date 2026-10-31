@@ -49,6 +49,7 @@ mod beacon;
 mod beacon_tests;
 mod bed;
 mod bell_rings;
+mod piston_arms;
 use bell_rings::{BELL_RING_EVENT_TYPE, bell_elapsed, prune_bell_rings};
 pub(super) mod columns;
 mod crystal_beams;
@@ -135,6 +136,7 @@ pub(crate) struct BlockEntityRuntime {
     layouts: TextLayoutCache,
     shapes: CrackShapeCache,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
+    piston_motions: HashMap<[i32; 3], piston_arms::PistonMotion>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
@@ -159,6 +161,7 @@ impl BlockEntityRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
+            piston_motions: HashMap::new(),
             missing_maps: Vec::new(),
             session: None,
             beam_source: None,
@@ -203,6 +206,7 @@ impl BlockEntityRuntime {
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
+        self.piston_motions.clear();
         self.books = books::TableBooks::default();
     }
 }
@@ -271,6 +275,7 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
         BlockEntityKind::Skull(_)
             | BlockEntityKind::Chalkboard(_)
             | BlockEntityKind::EnchantTable { .. }
+            | BlockEntityKind::PistonArm(_)
     ) {
         BlockEntityLight::Actor { block, sky }
     } else {
@@ -527,8 +532,14 @@ pub(crate) fn update_block_entity_scene(
                 budget,
                 columns::ColumnScan::is_current,
                 |previous| {
-                    let portals = portals::column_cells(chunk_key, chunk, |id| {
+                    let mut portals = portals::column_cells(chunk_key, chunk, |id| {
                         portal_kind(&collisions, mode, id)
+                            .or_else(|| piston_arms::resting(runtime, &collisions, mode, id))
+                    });
+                    // Actor data, when present, drives the head instead.
+                    portals.retain(|(block, kind)| {
+                        !matches!(kind, BlockEntityKind::PistonArm(_))
+                            || !piston_arms::has_actor(chunk, *block)
                     });
                     let entities = columns::routed_entities(
                         chunk,
@@ -564,7 +575,12 @@ pub(crate) fn update_block_entity_scene(
             settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
-            portals::submit(&mut submissions, &scan.portals, eye);
+            portals::submit(&mut submissions, &scan.portals, eye, |block, kind| {
+                piston_arms::light_sample(kind, *block).map_or(1.0.into(), |sample| {
+                    let (block_light, sky_light) = stream.light_level_at(sample);
+                    model_light(kind, block_light, sky_light, daylight)
+                })
+            });
             let portals = (submissions.len() - before_portals) as u32;
             work.candidates += portals;
             work.prepared += portals;
@@ -650,7 +666,9 @@ pub(crate) fn update_block_entity_scene(
                             stream.light_level_at(position)
                         })
                     } else {
-                        let (block_light, sky_light) = stream.light_level_at(center.to_array());
+                        let sample = piston_arms::light_sample(&kind, [x, y, z])
+                            .unwrap_or(center.to_array());
+                        let (block_light, sky_light) = stream.light_level_at(sample);
                         model_light(&kind, block_light, sky_light, daylight)
                     };
                     submissions.push(BlockEntitySubmission {
@@ -673,6 +691,7 @@ pub(crate) fn update_block_entity_scene(
     scans.retain(|_, scan| scan.seen_frame == frame_stamp);
     runtime.columns = scans;
     runtime.settled = settled.then_some(window);
+    piston_arms::prune(&mut runtime.piston_motions, now_seconds);
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)
@@ -814,6 +833,10 @@ fn resolve(
                 viewer_yaw_degrees: yaw_toward(context.eye, position),
             })
         }),
+        &Template::PistonArm { .. } => {
+            piston_arms::resolve(template, position, context.now_seconds, runtime)
+                .filter(|_| !hidden)
+        }
         &Template::Bell {
             attachment,
             direction,
