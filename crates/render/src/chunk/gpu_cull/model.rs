@@ -253,6 +253,26 @@ impl CullRecord {
         (self.solid_ends[slot / 2] >> (16 * (slot % 2))) & 0xffff
     }
 
+    /// Submitted indices per stream for this record and eye, before occlusion.
+    pub fn submitted_indices(
+        &self,
+        camera: CullCamera,
+        indices: [u32; STREAM_COUNT],
+    ) -> [u64; STREAM_COUNT] {
+        let solid: u64 = self
+            .solid_runs(camera.facing(self.origin))
+            .iter()
+            .map(|run| u64::from(run.end - run.start))
+            .sum();
+        let counts = [
+            solid,
+            self.cutout().len() as u64,
+            u64::from(self.model_count),
+            u64::from(self.liquid_count),
+        ];
+        std::array::from_fn(|stream| counts[stream] * u64::from(indices[stream]))
+    }
+
     /// Most draws the kernels can emit for this record in each stream, from any eye.
     pub fn max_draws(&self) -> [u32; STREAM_COUNT] {
         let solid_slots = (0..6)

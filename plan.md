@@ -292,6 +292,12 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
+  A developer-supplied cost calibration can select Hi-Z indirect cull passes by
+  captured submitted indices per stream, matched to adapter, backend, viewport and
+  sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
+  and configuration changes restart admission before selecting work.
+  Matched-output frame-time and movement qualification remain incomplete; no
+  hardware cost calibration or default change is qualified.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
   current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
   subset leaves colour writes off; the late pass retains each CPU stream's colour
@@ -373,6 +379,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   while the captured snapshots still match; changed outputs retain their existing scans.
   Near publication receipts consume changed residency columns between full snapshots,
   preserving unchanged receipts.
+  Meshing workers retain palette decode and opaque/two-sided cube working buffers between
+  sections. Oversized temporary buffers are discarded after a job, and idle workers release
+  mesh scratch after five seconds. Published streams keep independent ownership. Hardware
+  allocation, idle-memory and return-to-flight measurements remain open.
   Foreground chunk-data offload requires a full allocation of service polling
   that advanced commits; idle waits and worker-only service do not count.
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
