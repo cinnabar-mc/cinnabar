@@ -7212,7 +7212,6 @@
       "Observer": "minecraft:observer"
     },
     "selectors": {
-      "turtle_egg": "TurtleEgg",
       "door_lower": "Door",
       "door_upper": "Door",
       "red_flower": "Flower",

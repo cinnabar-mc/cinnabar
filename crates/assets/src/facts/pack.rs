@@ -95,8 +95,7 @@ domain!(TextureSelector {
     Wheat,
     Stem,
     CropStages,
-    Torchflower,
-    TurtleEgg
+    Torchflower
 });
 
 /// How a built-in block's world faces pick its authored face slots.

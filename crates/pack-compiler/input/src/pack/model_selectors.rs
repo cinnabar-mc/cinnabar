@@ -1,5 +1,5 @@
 use assets::RegistryRecord;
-use assets::facts::pack::{TextureSelector as S, rules};
+use assets::facts::pack::{PackBlock, TextureSelector as S, rules};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
@@ -27,8 +27,11 @@ pub(super) enum ModelTextureSelector {
     Stem,
     CropStages,
     Torchflower,
-    /// Art by `cracked_state`, in the property's domain order.
-    TurtleEgg,
+    /// Art by `cracked_state`, in the property's domain order; stages past the array fall back to
+    /// its first entry.
+    TurtleEgg {
+        count: usize,
+    },
 }
 
 impl ModelTextureSelector {
@@ -50,7 +53,6 @@ impl ModelTextureSelector {
             Some(S::Stem) => Self::Stem,
             Some(S::CropStages) => Self::CropStages,
             Some(S::Torchflower) => Self::Torchflower,
-            Some(S::TurtleEgg) => Self::TurtleEgg,
             None => match Self::mushroom_block(key) {
                 Some(block) => Self::Mushroom { block },
                 None => return Self::Single,
@@ -63,7 +65,7 @@ impl ModelTextureSelector {
         }
     }
 
-    /// Binds rod and anchor selectors to their pack texture keys, including custom keys.
+    /// Binds rod, anchor and turtle egg selectors to their pack texture keys, including custom keys.
     pub(super) fn bind_record(self, record: &RegistryRecord, count: usize) -> Self {
         if crate::respawn_anchor::is_record(record) {
             if count > 0 {
@@ -74,6 +76,12 @@ impl ModelTextureSelector {
         } else if crate::lightning_rod::is_record(record) {
             if count == Self::LightningRod.variant_count() {
                 Self::LightningRod
+            } else {
+                Self::Unresolved
+            }
+        } else if record.name.as_ref() == PackBlock::TurtleEgg.identifier() {
+            if count > 0 {
+                Self::TurtleEgg { count }
             } else {
                 Self::Unresolved
             }
@@ -95,9 +103,10 @@ impl ModelTextureSelector {
             Self::Flower => 11,
             Self::Sapling => 6,
             Self::LightningRod | Self::Powered | Self::Stem | Self::Torchflower => 2,
-            Self::Index { count, .. } | Self::RespawnAnchor { count } => count,
+            Self::Index { count, .. }
+            | Self::RespawnAnchor { count }
+            | Self::TurtleEgg { count } => count,
             Self::CropStages => 4,
-            Self::TurtleEgg => 3,
             Self::Single => 1,
             Self::Unresolved => 0,
         }
@@ -161,7 +170,7 @@ impl ModelTextureSelector {
                     assets::facts::BlockProperty::Growth.name(),
                 )? >= 4,
             ),
-            Self::TurtleEgg => {
+            Self::TurtleEgg { count } => {
                 let assets::facts::StateValue::String(state) =
                     record.property(assets::facts::BlockProperty::CrackedState)?
                 else {
@@ -172,7 +181,8 @@ impl ModelTextureSelector {
                 else {
                     return None;
                 };
-                domain.iter().position(|value| *value == state.as_ref())?
+                let stage = domain.iter().position(|value| *value == state.as_ref())?;
+                if stage < count { stage } else { 0 }
             }
             Self::Single => 0,
             Self::Unresolved => return None,

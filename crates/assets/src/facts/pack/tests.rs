@@ -109,7 +109,6 @@ fn pack_rules_preserve_legacy_selector_membership_and_indices() {
             "melon_stem" | "pumpkin_stem" => Some(TextureSelector::Stem),
             "carrots" | "potatoes" | "beetroot" => Some(TextureSelector::CropStages),
             "torchflower_crop" => Some(TextureSelector::Torchflower),
-            "turtle_egg" => Some(TextureSelector::TurtleEgg),
             _ => None,
         };
         assert_eq!(rules().selector(key), expected, "{key}");
