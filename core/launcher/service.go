@@ -310,16 +310,25 @@ func (s *Service) joinGathering(ctx context.Context, account *authcache.Account,
 }
 
 // gatheringTarget names the transport the assignment selects: host:port for RakNet, or the
-// NetherNet ID with its signaling dialect.
+// NetherNet ID with its signaling dialect. A NETHERNET assignment without an ID returns its
+// host:port, which is probed for NetherNet HTTP signaling like a typed server address.
 func gatheringTarget(address *gatherings.Address) (string, error) {
 	if address == nil {
 		return "", errors.New("launcher: gathering returned no address")
+	}
+	protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol))
+	if protocol == realms.NetworkProtocolNetherNet && strings.TrimSpace(address.NetherNetID) == "" {
+		host := strings.TrimSpace(address.IPv4Address)
+		if host == "" || address.Port == 0 {
+			return "", errors.New("launcher: NetherNet assignment has neither a NetherNet ID nor an address")
+		}
+		return net.JoinHostPort(host, strconv.Itoa(int(address.Port))), nil
 	}
 	dial, err := address.DialAddress()
 	if err != nil {
 		return "", err
 	}
-	switch realms.ParseNetworkProtocol(string(address.NetworkProtocol)) {
+	switch protocol {
 	case realms.NetworkProtocolNetherNet:
 		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingWebSocket + "/" + dial, nil
 	case realms.NetworkProtocolNetherNetJSONRPC:

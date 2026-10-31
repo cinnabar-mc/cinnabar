@@ -4,12 +4,21 @@
 
 These are Cinnabar sandbox and API limits. Counts apply per mod unless stated otherwise. Bytes count UTF-8 or encoded data, not characters. Fuel measures guest execution; host imports have separate allowances. Handle errors and spread work across callbacks.
 
+## Sound events
+
+| Constant | Value | Scope |
+| --- | ---: | --- |
+| `mod_api::TOTAL_SOUND_FILTER_FUEL` | 400000 | Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped. |
+| `mod_api::MAX_SOUND_FILTER_EVENTS` | 256 | New playback observations offered per audio frame; excess requests play normally. |
+| `mod_api::MAX_SOUND_NAME_BYTES` | 128 | Bytes in one offered sound-definition name. |
+
 ## Execution and packages
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
 | `mod_host::FRAME_FUEL` | 200000 | Fuel for one personal-mod frame; also the action filter's independent fuel allowance. |
-| `mod_api::TOTAL_MOD_FRAME_FUEL` | 400000 | Frame fuel shared by all local mods. |
+| `mod_api::TOTAL_MOD_FRAME_FUEL` | 400000 | Ordinary frame fuel shared by all local mods. |
+| `mod_host::WORLD_ENTRY_FRAME_FUEL` | 800000 | One frame callback per observed world session, subject to shared admission. |
 | `server_experience::runtime::CALLBACK_FUEL` | 10000000 | Ordinary event and client-part callback fuel. |
 | `server_experience::runtime::LOAD_FUEL` | 100000000 | Personal-mod init and data-changed fuel. |
 | `mod_host::MEMORY_BYTES` | 16777216 | Linear memory per personal mod. |
@@ -19,6 +28,10 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 | `mod_host::package::MAX_PACKAGE_BYTES` | 16777216 | Indexed directory package bytes. |
 | `mod_host::MAX_LABEL_BYTES` | 256 | Plain label bytes. |
 | `mod_api::MAX_SETTINGS_BYTES` | 16384 | Settings JSON bytes. |
+
+After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It reserves `FRAME_FUEL` from the ordinary shared pool; the extra allowance is discarded after the callback and never refunded into that pool. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.
+
+The guest's `budget.remaining-fuel` reports its actual current allowance. Action filters, events, loading, host-call limits and execution deadlines retain their existing limits. Fuel bounds guest execution work; it does not guarantee a wall-clock duration.
 
 ## Controls and presentation
 

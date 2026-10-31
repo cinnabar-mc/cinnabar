@@ -62,10 +62,14 @@ event_callbacks! {
     view_closed: () = "view-closed" => ModEvent::ViewClosed,
 }
 
+/// Canonical signature of a synchronous batch of sound playback decisions.
+type SoundCallback = TypedFunc<(Vec<crate::SoundEvent>,), (Vec<bool>,)>;
+
 pub(super) struct Exports {
     frame: TypedFunc<(), ()>,
     events: Events,
     filter: Option<TypedFunc<(super::ActionFrame,), (super::ActionVerdict,)>>,
+    sound_filter: Option<SoundCallback>,
 }
 
 impl Exports {
@@ -74,6 +78,7 @@ impl Exports {
         check::<()>(pre, INIT, true)?;
         check::<()>(pre, FRAME, true)?;
         Events::check(pre)?;
+        check_result::<(Vec<crate::SoundEvent>,), (Vec<bool>,)>(pre, "filter-sounds", false)?;
         check_result::<(super::ActionFrame,), (super::ActionVerdict,)>(pre, "filter-actions", false)
     }
 
@@ -95,8 +100,29 @@ impl Exports {
                 frame: frame.typed(&*store)?,
                 events,
                 filter: typed(store, instance, "filter-actions")?,
+                sound_filter: typed(store, instance, "filter-sounds")?,
             },
         ))
+    }
+
+    /// Whether this component explicitly exports cancellable sound observations.
+    pub(super) fn has_sound_filter(&self) -> bool {
+        self.sound_filter.is_some()
+    }
+
+    /// Executes a sound verdict without publishing ordinary frame output.
+    pub(super) fn filter_sounds(
+        &self,
+        store: &mut Store<State>,
+        events: Vec<crate::SoundEvent>,
+    ) -> Result<Vec<bool>> {
+        let filter = self
+            .sound_filter
+            .as_ref()
+            .context("component lacks filter-sounds")?;
+        let (verdict,) = filter.call(&mut *store, (events,))?;
+        filter.post_return(store)?;
+        Ok(verdict)
     }
 
     /// Whether this component explicitly opts into action filtering.
