@@ -1,5 +1,6 @@
 use super::super::classification::is_torch;
 use super::*;
+use assets::ModelQuad;
 use assets::{CompiledBiomeAssets, NetworkIdMode, RuntimeAssets};
 
 /// Compiles the matching registry states with one solid texture per block name.
