@@ -99,32 +99,28 @@ pub(super) fn carried_blocks_for(
         .filter(|body| body.input.identity.layer == render_model::ACTOR_LAYER_BODY)
         .filter_map(|body| {
             let actor = stream.authority().actor(body.input.identity.runtime_id)?;
-            let (block, world_from_block) =
-                if wears_pumpkin(&actor.kind, actor.is_sheared()) {
-                    let alpha = partial_tick.clamp(0.0, 1.0);
-                    let lerp = crate::presentation::actors::lerp_degrees;
-                    let head_yaw = lerp(actor.previous_pose.head_yaw, actor.head_yaw, alpha);
-                    let pitch = lerp(actor.previous_pose.pitch, actor.pitch, alpha);
-                    (
-                        CarriedBlockId::Pinned(snow_golem_pumpkin()?),
-                        render_model::dropped_item::snow_golem_pumpkin_transform(
-                            body.world_from_actor,
-                            head_yaw,
-                            pitch,
-                        )?,
-                    )
-                } else {
-                    (
-                        CarriedBlockId::Wire(carried_block_runtime_id(
-                            &actor.kind,
-                            &actor.metadata,
-                        )?),
-                        render_model::dropped_item::enderman_carried_block_transform(
-                            body.world_from_actor,
-                            actor.render_scale(),
-                        )?,
-                    )
-                };
+            let (block, world_from_block) = if wears_pumpkin(&actor.kind, actor.is_sheared()) {
+                let alpha = partial_tick.clamp(0.0, 1.0);
+                let lerp = crate::presentation::actors::lerp_degrees;
+                let head_yaw = lerp(actor.previous_pose.head_yaw, actor.head_yaw, alpha);
+                let pitch = lerp(actor.previous_pose.pitch, actor.pitch, alpha);
+                (
+                    CarriedBlockId::Pinned(snow_golem_pumpkin()?),
+                    render_model::dropped_item::snow_golem_pumpkin_transform(
+                        body.world_from_actor,
+                        head_yaw,
+                        pitch,
+                    )?,
+                )
+            } else {
+                (
+                    CarriedBlockId::Wire(carried_block_runtime_id(&actor.kind, &actor.metadata)?),
+                    render_model::dropped_item::enderman_carried_block_transform(
+                        body.world_from_actor,
+                        actor.render_scale(),
+                    )?,
+                )
+            };
             let light = carried_light(crate::presentation::actors::body_light(body, stream));
             Some(CarriedBlock {
                 block,
