@@ -159,7 +159,7 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
     if !matches_source(&previous) || !matches_source(&next) {
         return Err("The update source does not match the installed mod.".into());
     }
-    if let Some(expected) = &download.revision_update {
+    if let Some(expected) = download.revision_update.as_deref() {
         if next.revision_update.as_ref() != Some(expected)
             || !previous
                 .revision_update

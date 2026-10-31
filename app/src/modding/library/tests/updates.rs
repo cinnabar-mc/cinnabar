@@ -39,7 +39,8 @@ fn revision_aware_install_requires_the_exact_promised_replacement_identity() {
             &next,
         );
         download.revision_update =
-            ui::mod_metadata::RevisionModUpdate::parse(identity(&"b".repeat(40)).as_bytes());
+            ui::mod_metadata::RevisionModUpdate::parse(identity(&"b".repeat(40)).as_bytes())
+                .map(Box::new);
         assert_eq!(
             install::<AppBackend>(directory.path(), &download).is_ok(),
             matches

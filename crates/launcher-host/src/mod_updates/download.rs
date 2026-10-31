@@ -29,7 +29,7 @@ pub(super) struct Asset {
 
 /// A verified release artifact. Dropping it removes its temporary file.
 pub struct Downloaded {
-    pub revision_update: Option<ui::mod_metadata::RevisionModUpdate>,
+    pub revision_update: Option<Box<ui::mod_metadata::RevisionModUpdate>>,
     pub id: u64,
     pub version: String,
     pub repository: String,
@@ -234,7 +234,7 @@ async fn receive(
         "mod download SHA-256 mismatch"
     );
     Ok(Downloaded {
-        revision_update: asset.revision_update.clone(),
+        revision_update: asset.revision_update.clone().map(Box::new),
         id: candidate.id,
         version: version.into(),
         repository: candidate.repository.clone(),
