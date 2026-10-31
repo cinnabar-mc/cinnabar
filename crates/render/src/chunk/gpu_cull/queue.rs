@@ -13,7 +13,17 @@ pub(in crate::chunk) struct GpuCullQueue<'w, 's> {
     direct_support: Option<Res<'w, DirectOcclusionSupport>>,
     direct: Option<ResMut<'w, DirectOcclusionFrame>>,
     direct_state: Option<Res<'w, DirectOcclusion>>,
-    views: Query<'w, 's, (Option<&'static Frustum>, Option<&'static RenderLayers>)>,
+    adapter: Option<Res<'w, RenderAdapter>>,
+    views: Query<
+        'w,
+        's,
+        (
+            Option<&'static Frustum>,
+            Option<&'static RenderLayers>,
+            Option<&'static ExtractedView>,
+            Option<&'static Msaa>,
+        ),
+    >,
 }
 
 impl GpuCullQueue<'_, '_> {
@@ -41,19 +51,27 @@ impl GpuCullQueue<'_, '_> {
         if probing || !supported || !self.enabled() || draw_mode != ChunkDrawMode::MultiDrawIndirect
         {
             if let Some(feedback) = self.feedback.as_deref_mut() {
-                feedback.select(None);
+                feedback.select(None, None);
             }
             return None;
         }
         let view = select_gpu_cull_view(candidates, |entity| {
             self.views
                 .get(entity)
-                .is_ok_and(|(frustum, layers)| gpu_cull_view_eligible(frustum, layers))
+                .is_ok_and(|(frustum, layers, ..)| gpu_cull_view_eligible(frustum, layers))
         });
-        let admitted = self
-            .feedback
-            .as_deref_mut()
-            .is_none_or(|feedback| feedback.select(view));
+        let Some(feedback) = self.feedback.as_deref_mut() else {
+            return view;
+        };
+        let context = view.filter(|_| feedback.calibrated()).and_then(|entity| {
+            let (_, _, extracted, msaa) = self.views.get(entity).ok()?;
+            Some(work_admission::WorkContext::of(
+                &self.adapter.as_deref()?.get_info(),
+                extracted?,
+                *msaa?,
+            ))
+        });
+        let admitted = feedback.select(view, context);
         view.filter(|_| admitted)
     }
 
@@ -85,7 +103,7 @@ impl GpuCullQueue<'_, '_> {
         select_gpu_cull_view(candidates, |entity| {
             self.views
                 .get(entity)
-                .is_ok_and(|(frustum, layers)| gpu_cull_view_eligible(frustum, layers))
+                .is_ok_and(|(frustum, layers, ..)| gpu_cull_view_eligible(frustum, layers))
         })
     }
 

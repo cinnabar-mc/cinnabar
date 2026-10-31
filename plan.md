@@ -285,8 +285,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
   A developer-supplied cost calibration can select indirect cull passes by captured
-  submitted indices per stream, matched to backend, viewport and sample count.
-  Without a valid calibration the existing count policy remains active.
+  submitted indices per stream, matched to adapter, backend, viewport and sample
+  count. Samples without a matching measurement use the existing count policy,
+  and configuration changes restart admission before selecting work.
   Matched-output frame-time and movement qualification remain incomplete; no
   hardware cost calibration or default change is qualified.
 

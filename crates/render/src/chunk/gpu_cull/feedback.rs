@@ -31,10 +31,11 @@ struct Admission {
 }
 
 impl Admission {
-    /// Unknown views start with fresh occlusion; unprofitable views draw conservatively.
-    fn select(&mut self, view: Option<Entity>) -> bool {
+    /// Unknown views and `restart` start with fresh occlusion; unprofitable views draw
+    /// conservatively.
+    fn select(&mut self, view: Option<Entity>, restart: bool) -> bool {
         self.frame += 1;
-        if self.view != view {
+        if self.view != view || restart {
             self.view = view;
             self.policy = None;
             self.first_frame = self.frame;
@@ -117,12 +118,15 @@ impl GpuCullFeedback {
         self.calibration.is_some()
     }
 
-    /// Consumes completed samples for future submission choices without waiting.
-    pub(super) fn select(&mut self, view: Option<Entity>) -> bool {
-        if self.admission.view != view {
+    /// Consumes completed samples for future submission choices without waiting. A changed
+    /// `context` restarts admission, so no measured verdict outlives its configuration.
+    pub(super) fn select(&mut self, view: Option<Entity>, context: Option<WorkContext>) -> bool {
+        let restart = self.calibration.is_some() && self.context != context;
+        self.context = context;
+        if self.admission.view != view || restart {
             self.next_sample = 0;
         }
-        let selected = self.admission.select(view);
+        let selected = self.admission.select(view, restart);
         if let Some(sample) = &self.sample {
             match sample.state.load(Ordering::Acquire) {
                 MAPPED => {
@@ -131,34 +135,21 @@ impl GpuCullFeedback {
                         .slice(..u64::from(sample.slots) * 4)
                         .get_mapped_range()
                     {
-                        let (candidates, hidden) = rejection_counts(bytemuck::cast_slice(&data));
+                        let decisions = bytemuck::cast_slice(&data);
+                        let (candidates, hidden) = rejection_counts(decisions);
                         bevy::log::debug!(candidates, hidden, "terrain occlusion feedback");
-                        if let Some(calibration) = &self.calibration {
-                            if let Some((context, weights)) = &sample.work
-                                && self.context.as_ref() == Some(context)
-                                && self.admission.view == Some(sample.view)
-                                && sample.frame >= self.admission.first_frame
-                            {
-                                let (candidate_indices, hidden_indices) =
-                                    rejected_work(bytemuck::cast_slice(&data), weights);
-                                let profitable = calibration
-                                    .profitable(context, hidden_indices)
-                                    .unwrap_or(false);
-                                bevy::log::debug!(
-                                    ?candidate_indices,
-                                    ?hidden_indices,
-                                    profitable,
-                                    "terrain weighted occlusion feedback"
-                                );
-                                self.admission.observe_profitability(
-                                    sample.view,
-                                    sample.frame,
-                                    profitable,
-                                );
-                            }
-                        } else {
-                            self.admission
-                                .observe(sample.view, sample.frame, candidates, hidden);
+                        match self.measured_profitability(sample, decisions, candidates) {
+                            Some(profitable) => self.admission.observe_profitability(
+                                sample.view,
+                                sample.frame,
+                                profitable,
+                            ),
+                            None => self.admission.observe(
+                                sample.view,
+                                sample.frame,
+                                candidates,
+                                hidden,
+                            ),
                         }
                     }
                     sample.buffer.unmap();
@@ -176,6 +167,30 @@ impl GpuCullFeedback {
             })
     }
 
+    /// The calibrated verdict for a sample, or `None` when the count policy must decide because
+    /// no candidates, weights or matching measurement are available.
+    fn measured_profitability(
+        &self,
+        sample: &Sample,
+        decisions: &[u32],
+        candidates: usize,
+    ) -> Option<bool> {
+        let calibration = self.calibration.as_ref().filter(|_| candidates != 0)?;
+        let (context, weights) = sample
+            .work
+            .as_ref()
+            .filter(|(context, _)| self.context.as_ref() == Some(context))?;
+        let (candidate_indices, hidden_indices) = rejected_work(decisions, weights);
+        let profitable = calibration.profitable(context, hidden_indices)?;
+        bevy::log::debug!(
+            ?candidate_indices,
+            ?hidden_indices,
+            profitable,
+            "terrain weighted occlusion feedback"
+        );
+        Some(profitable)
+    }
+
     /// Reserves storage only for occasional selected frames, retaining it between samples.
     pub(super) fn prepare(
         &mut self,
@@ -186,14 +201,6 @@ impl GpuCullFeedback {
         work: Option<SubmittedWork<'_>>,
     ) {
         let frame = self.admission.frame;
-        if self.calibration.is_some()
-            && self.context.as_ref() != work.as_ref().map(|work| &work.context)
-        {
-            self.context = work.as_ref().map(|work| work.context.clone());
-            self.admission.policy = None;
-            self.admission.first_frame = frame;
-            self.next_sample = 0;
-        }
         let warm = self.prepared.as_ref().is_some_and(|previous| {
             previous.view == view
                 && previous.frame + 1 == frame
@@ -250,9 +257,12 @@ impl GpuCullFeedback {
             });
         }
         let sample = self.sample.as_mut().expect("sample storage was ensured");
-        sample.work = work
-            .filter(|_| self.calibration.is_some())
-            .map(|work| (work.context.clone(), work.snapshot()));
+        sample.work = self
+            .calibration
+            .as_ref()
+            .and(self.context.clone())
+            .zip(work)
+            .map(|(context, work)| (context, work.snapshot()));
         sample.view = view;
         sample.frame = self.admission.frame;
         sample.slots = slots;

@@ -220,7 +220,6 @@ pub(super) fn prepare_gpu_cull(
     views: Query<CullViewComponents>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
-    adapter: Res<RenderAdapter>,
 ) {
     let cull = &mut *cull;
     if !cull.ready {
@@ -274,11 +273,6 @@ pub(super) fn prepare_gpu_cull(
     let work = feedback
         .calibrated()
         .then(|| super::work_admission::SubmittedWork {
-            context: super::work_admission::WorkContext {
-                backend: format!("{:?}", adapter.get_info().backend),
-                size: [extracted.viewport.z, extracted.viewport.w],
-                samples: msaa.samples(),
-            },
             records: cull.table.records(),
             order: cull.order.slots(),
             camera: input.camera,

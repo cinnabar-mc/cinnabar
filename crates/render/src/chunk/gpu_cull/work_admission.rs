@@ -1,17 +1,32 @@
 //! Matches captured submitted work to measured costs for an exact render configuration.
 
 use super::model::{CullCamera, CullRecord, DECISION_CANDIDATE, DECISION_HIDDEN, STREAM_COUNT};
+use bevy::prelude::Msaa;
+use bevy::render::view::ExtractedView;
 use serde::Deserialize;
 
 pub(super) const CALIBRATION_ENV: &str = "CINNABAR_TERRAIN_CULL_CALIBRATION";
 
-/// Changing the backend, viewport or coverage pattern requires another cost measurement.
+/// Changing the adapter, backend, viewport or coverage pattern requires another cost measurement.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct WorkContext {
+    pub(super) adapter: String,
     pub(super) backend: String,
     pub(super) size: [u32; 2],
     pub(super) samples: u32,
+}
+
+impl WorkContext {
+    /// The configuration `view` renders with this frame.
+    pub(super) fn of(adapter: &wgpu::AdapterInfo, view: &ExtractedView, msaa: Msaa) -> Self {
+        Self {
+            adapter: adapter.name.clone(),
+            backend: format!("{:?}", adapter.backend),
+            size: [view.viewport.z, view.viewport.w],
+            samples: msaa.samples(),
+        }
+    }
 }
 
 /// Measured cull overhead and terrain cost per submitted index, in stream order.
@@ -55,7 +70,6 @@ impl Calibration {
 
 /// Borrows the current generation's records in the order used by GPU decision words.
 pub(super) struct SubmittedWork<'a> {
-    pub(super) context: WorkContext,
     pub(super) records: &'a [CullRecord],
     pub(super) order: &'a [u32],
     pub(super) camera: CullCamera,
@@ -103,6 +117,7 @@ mod tests {
     fn calibration() -> Calibration {
         Calibration {
             context: WorkContext {
+                adapter: "Test GPU".into(),
                 backend: "Vulkan".into(),
                 size: [1280, 720],
                 samples: 1,
@@ -133,9 +148,13 @@ mod tests {
     }
 
     #[test]
-    fn measurements_do_not_cross_backend_resolution_or_sample_count() {
+    fn measurements_do_not_cross_adapter_backend_resolution_or_sample_count() {
         let cost = calibration();
         for context in [
+            WorkContext {
+                adapter: "Other GPU".into(),
+                ..cost.context.clone()
+            },
             WorkContext {
                 backend: "Dx12".into(),
                 ..cost.context.clone()
@@ -188,11 +207,6 @@ mod snapshot_tests {
         })
         .unwrap()];
         let captured = SubmittedWork {
-            context: WorkContext {
-                backend: "Vulkan".into(),
-                size: [1280, 720],
-                samples: 1,
-            },
             records: &records,
             order: &[0],
             camera,
