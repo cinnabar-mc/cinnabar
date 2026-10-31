@@ -184,6 +184,7 @@ pub(in crate::compiler) fn is_cutout_model_visual(record: &RegistryRecord) -> bo
     block_render_fact(&record.name).kind.route().cutout
         || visuals::heavy_core::is_record(record)
         || visuals::speleothem::is_record(record)
+        || visuals::chorus::is_flower(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross

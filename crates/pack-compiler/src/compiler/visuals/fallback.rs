@@ -242,6 +242,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .overrides_fallback
         || super::heavy_core::is_record(record)
         || super::speleothem::is_record(record)
+        || super::chorus::is_flower(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
@@ -403,9 +404,10 @@ mod tests {
         let mut interned = BTreeMap::new();
         let mut seen = 0;
         for record in records.iter().filter(|record| {
-            record
+            (record
                 .traits
                 .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
+                && !super::super::chorus::is_flower(record))
                 || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
         }) {
             let (min, max, _) = inputs.fallback.entry(record).unwrap();

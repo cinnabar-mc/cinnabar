@@ -11,7 +11,7 @@ use {super::super::*, assets::BlockFace};
 /// The age at which a flower can no longer grow and shows its withered art.
 const WITHERED_AGE: u32 = 5;
 
-fn is_flower(record: &RegistryRecord) -> bool {
+pub(in crate::compiler) fn is_flower(record: &RegistryRecord) -> bool {
     record.name.as_ref() == B::ChorusFlower.identifier()
 }
 
