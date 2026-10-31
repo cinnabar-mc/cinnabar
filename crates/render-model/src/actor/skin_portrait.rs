@@ -192,8 +192,15 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
         });
     }
     if let Some(mesh) = &model.bones[index].poly_mesh {
-        for quad in &mesh.quads {
-            let corners = quad.map(|[position, normal, uv]| {
+        let quads = mesh.quads.iter().map(|&[a, b, c, d]| [a, b, c, a, c, d]);
+        let triangle_pairs = mesh
+            .triangles
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[[a, b, c], [d, e, f]]| [a, b, c, d, e, f]);
+        for polygon in quads.chain(triangle_pairs) {
+            let corners = polygon.map(|[position, normal, uv]| {
                 (
                     mesh.positions[position as usize].map(|value| value.get()),
                     mesh.normals[normal as usize].map(|value| value.get()),

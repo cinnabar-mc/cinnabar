@@ -66,7 +66,8 @@ impl EntityGeometryPolyMesh {
     fn parse_implicit_list(&mut self, mode: &str, skipped: &mut u32) {
         let count = self.positions.len();
         let corners = if mode == "tri_list" { 3 } else { 4 };
-        if count != self.normals.len() || count != self.uvs.len() || count % corners != 0 {
+        if count != self.normals.len() || count != self.uvs.len() || !count.is_multiple_of(corners)
+        {
             *skipped += 1;
             return;
         }

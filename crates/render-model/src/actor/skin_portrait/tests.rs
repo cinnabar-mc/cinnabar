@@ -129,3 +129,22 @@ fn polygon_front_respects_bottom_left_uv_origin() {
         );
     }
 }
+
+/// A rectangular face authored as two triangles reads the same as one quad.
+#[test]
+fn polygon_face_split_into_triangles_is_extracted() {
+    let mut skin = skin(CLASSIC_SKIN_SIDE as u32, false);
+    let uvs = [[8.0, 56.0], [16.0, 56.0], [16.0, 48.0], [8.0, 48.0]]
+        .map(|uv| uv.map(|v| v / CLASSIC_SKIN_SIDE as f32));
+    model(
+        &mut skin,
+        serde_json::json!([{"name":"head","poly_mesh":{
+            "normalized_uvs":true,
+            "positions":[[-4,32,-4],[4,32,-4],[4,24,-4],[-4,24,-4]],
+            "normals":[[0,0,-1]], "uvs":uvs,
+            "polys":[[[0,0,0],[1,0,1],[2,0,2]],[[0,0,0],[2,0,2],[3,0,3]]]
+        }}]),
+    );
+    let portrait = extract(&skin).unwrap();
+    assert_eq!(&portrait.pixels()[..4], &[8, 8, 40, 255]);
+}
