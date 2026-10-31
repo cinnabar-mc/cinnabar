@@ -526,8 +526,10 @@ for actors with the push-towards-closest-space flag, which is not modelled.
 
 Camera aim-policy reports are sent only for cameras configured by server presets,
 distinguish both third-person views and retry changes that have not entered the outbound
-queue. Which camera wins when an inherited first-person preset competes with the base
-camera is unverified. Complete camera activation acceptance remains open.
+queue. Camera and spline registries are scoped to the current session, including the first
+frame after a reconnect, while dimension changes retain them. Which camera wins when an
+inherited first-person preset competes with the base camera is unverified. Complete camera
+activation acceptance remains open.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
