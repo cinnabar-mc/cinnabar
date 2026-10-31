@@ -128,7 +128,7 @@ impl FrameTrace {
             elapsed: Duration::ZERO,
             thread: std::thread::current().id(),
             frame_id: Some(frame_id),
-            args: TraceArgs::None,
+            args: TraceArgs::Span { thread_cpu: None },
         });
         started
     }
