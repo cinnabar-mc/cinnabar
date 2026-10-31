@@ -1,5 +1,6 @@
 use super::*;
 use assets::CompiledBiomeAssets;
+use assets::{MODEL_QUAD_FLAG_TWO_SIDED, ModelQuad};
 
 const TOP: u8 = 10;
 const BOTTOM: u8 = 20;
