@@ -58,11 +58,18 @@ pub(in crate::compiler) fn attachment_descriptor(
     record: &RegistryRecord,
 ) -> Option<(Descriptor, Box<str>)> {
     let (face, variant) = match kind(record)? {
-        Kind::Sensor if state_value(record, "sculk_sensor_phase")? == 0 => (BlockFace::Down, 0),
+        Kind::Sensor
+            if state_value(
+                record,
+                assets::facts::BlockProperty::SculkSensorPhase.name(),
+            )? == 0 =>
+        {
+            (BlockFace::Down, 0)
+        }
         Kind::Sensor => (BlockFace::East, 0),
         Kind::Shrieker => (
             BlockFace::Up,
-            usize::from(state_value(record, "can_summon")? != 0),
+            usize::from(state_value(record, assets::facts::BlockProperty::CanSummon.name())? != 0),
         ),
     };
     let key: Box<str> =
