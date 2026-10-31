@@ -191,33 +191,28 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
             area: width * height,
         });
     }
-    if let Some(mesh) = &model.poly_meshes[index] {
-        // The skin parser triangulates each quad into six corners.
-        for vertices in mesh.vertices.as_chunks::<6>().0 {
-            if vertices.iter().any(|v| v.normal != [0.0, 0.0, -1.0]) {
+    if let Some(mesh) = &model.bones[index].poly_mesh {
+        for quad in &mesh.quads {
+            let corners = quad.map(|[position, normal, uv]| {
+                (
+                    mesh.positions[position as usize].map(|value| value.get()),
+                    mesh.normals[normal as usize].map(|value| value.get()),
+                    mesh.uvs[uv as usize].map(|value| value.get()),
+                )
+            });
+            if corners.iter().any(|corner| corner.1 != [0.0, 0.0, -1.0]) {
                 continue;
             }
-            let min_x = vertices
-                .iter()
-                .map(|v| v.position[0])
-                .fold(f32::INFINITY, f32::min);
-            let max_x = vertices
-                .iter()
-                .map(|v| v.position[0])
-                .fold(f32::NEG_INFINITY, f32::max);
-            let min_y = vertices
-                .iter()
-                .map(|v| v.position[1])
-                .fold(f32::INFINITY, f32::min);
-            let max_y = vertices
-                .iter()
-                .map(|v| v.position[1])
-                .fold(f32::NEG_INFINITY, f32::max);
+            let axis = |axis: usize| corners.iter().map(move |corner| corner.0[axis]);
+            let min_x = axis(0).fold(f32::INFINITY, f32::min);
+            let max_x = axis(0).fold(f32::NEG_INFINITY, f32::max);
+            let min_y = axis(1).fold(f32::INFINITY, f32::min);
+            let max_y = axis(1).fold(f32::NEG_INFINITY, f32::max);
             let uv = |x, y| {
-                let v = vertices
+                let corner = corners
                     .iter()
-                    .find(|v| v.position == [x, y, vertices[0].position[2]])?;
-                let [mut u, mut v] = v.uv;
+                    .find(|corner| corner.0 == [x, y, corners[0].0[2]])?;
+                let [mut u, mut v] = corner.2;
                 if mesh.normalized_uvs {
                     u *= model.texture_width as f32;
                     v *= model.texture_height as f32;

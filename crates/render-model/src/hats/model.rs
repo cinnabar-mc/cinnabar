@@ -1,6 +1,27 @@
 //! Builds bounded catalog attachments from verified geometry, texture and animation bytes.
 use super::*;
 
+/// Catalog meshes author unnormalized UVs as texel addresses, which vanilla's add-on meshes do
+/// not: it multiplies them by the texture size. Rewrites them to the normalized form that keeps
+/// their texels.
+fn resolve_catalog_pixel_uvs(model: &mut assets::SkinGeometry) {
+    let size = [model.texture_width, model.texture_height].map(f32::from);
+    let meshes = model
+        .bones
+        .iter_mut()
+        .filter_map(|bone| bone.poly_mesh.as_deref_mut());
+    for mesh in meshes.filter(|mesh| !mesh.normalized_uvs) {
+        for uv in &mut mesh.uvs {
+            let texel = [uv[0].get() / size[0], 1.0 - (1.0 - uv[1].get()) / size[1]];
+            *uv = texel.map(|value| {
+                assets::EntityGeometryScalar::new(value)
+                    .unwrap_or(assets::EntityGeometryScalar::ZERO)
+            });
+        }
+        mesh.normalized_uvs = true;
+    }
+}
+
 /// Decodes an admitted attachment and checks parents before producing immutable render data.
 pub(super) fn build(
     item: &cosmetics::Descriptor,
@@ -12,10 +33,11 @@ pub(super) fn build(
         r#"{{"geometry":{{"default":{}}}}}"#,
         serde_json::to_string(&item.geometry_id).ok()?
     );
-    let model = assets::parse_skin_geometry(&patch, geometry).ok()??;
+    let mut model = assets::parse_skin_geometry(&patch, geometry).ok()??;
     if model.bones.is_empty() {
         return None;
     }
+    resolve_catalog_pixel_uvs(&mut model);
     let mut original = crate::skin_geometry(&model, EntityRigId(0)).ok()?;
     if original.vertices.len() > 24_576
         || original.vertices.iter().any(|vertex| {

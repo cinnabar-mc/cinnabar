@@ -397,3 +397,22 @@ fn shoulder_parrot_sits_on_the_shoulder_and_coexists_with_head_and_back_slots() 
             .any(|pixel| pixel[3] > 0)
     );
 }
+
+/// Catalog pixel UVs address texels directly, unlike vanilla's add-on meshes, which multiply.
+#[test]
+fn catalog_pixel_uvs_keep_addressing_their_texels() {
+    let geometry = &rig(fixture::crown()).geometry;
+    assert!(!geometry.vertices.is_empty());
+    for vertex in geometry.vertices.iter() {
+        assert!(
+            (vertex.uv[1] - 0.5 / 32.0).abs() < 1.0e-6,
+            "{:?}",
+            vertex.uv
+        );
+        assert!(
+            vertex.uv[0] > 0.0 && vertex.uv[0] < 11.0 / 64.0,
+            "{:?}",
+            vertex.uv
+        );
+    }
+}

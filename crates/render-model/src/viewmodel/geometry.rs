@@ -40,6 +40,7 @@ pub fn validated_geometry(
             || b.reset == Some(true)
             || b.binding.is_some()
             || !b.texture_meshes.is_empty()
+            || b.poly_mesh.is_some()
         {
             return None;
         }

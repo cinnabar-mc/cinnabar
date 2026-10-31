@@ -235,7 +235,9 @@ pub(super) fn recognize(
 
 /// Only texture-mesh models without cubes sample a complete sprite instead of a UV atlas.
 fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
-    bones.iter().all(|bone| bone.cubes.is_empty())
+    bones
+        .iter()
+        .all(|bone| bone.cubes.is_empty() && bone.poly_mesh.is_none())
         && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
 }
 
@@ -248,6 +250,7 @@ fn full_texture_plane(
 
     if bones.iter().any(|bone| {
         !bone.texture_meshes.is_empty()
+            || bone.poly_mesh.is_some()
             || bone.inflate.is_some_and(|inflate| inflate != Scalar::ZERO)
             || bone.mirror == Some(true)
             || bone.never_render == Some(true)

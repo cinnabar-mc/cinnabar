@@ -607,6 +607,11 @@ lookup across the passing list.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
+  Entity, attachable and skin `poly_mesh` share native parsing, inheritance, UV resolution and
+  tessellation order. The rig's vertex capacity skips a mesh that would pass it, and no native
+  limit was found in parse or compile, so that capacity remains unverified parity work. The quad
+  split diagonal and any native tessellator limit are unverified; so is the native behaviour on
+  1.26.60 and later, read only on 26.30 and 1.26.50.26.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
   controllers) still reject the rig: native file load order is unverified.

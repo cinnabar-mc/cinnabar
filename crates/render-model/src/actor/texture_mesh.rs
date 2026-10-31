@@ -13,7 +13,7 @@ use super::{
     asset_geometry::{bone_bind_pivot, resolve_geometry_bones},
 };
 
-/// Builds cubes and pixel extrusions using the render controller's selected image. Every
+/// Builds cubes, polygons and pixel extrusions using the render controller's selected image. Every
 /// raster mesh in this geometry must refer to that image's local alias.
 pub fn attachable_geometry(
     assets: &RuntimeEntityAssets,
@@ -26,6 +26,7 @@ pub fn attachable_geometry(
         .get(geometry_index)
         .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
     let bones = resolve_geometry_bones(assets, geometry_index)?;
+    let texture_size = (geometry.texture_width, geometry.texture_height);
     let mut vertices = Vec::new();
     for (index, bone) in bones.iter().enumerate() {
         if bone.never_render == Some(true) {
@@ -36,11 +37,12 @@ pub fn attachable_geometry(
                 &mut vertices,
                 cube,
                 index as u32,
-                (geometry.texture_width, geometry.texture_height),
+                texture_size,
                 false,
                 0.0,
             )?;
         }
+        super::poly_mesh::append_quads(&mut vertices, bone, index as u32, texture_size)?;
         for mesh in &bone.texture_meshes {
             append_pixels(
                 &mut vertices,
@@ -52,6 +54,11 @@ pub fn attachable_geometry(
         }
         if vertices.len() > MAX_ACTOR_RIG_VERTICES {
             return Err(ActorRigGeometryError::CatalogCapacity);
+        }
+    }
+    for (index, bone) in bones.iter().enumerate() {
+        if bone.never_render != Some(true) {
+            super::poly_mesh::append_triangles(&mut vertices, bone, index as u32, texture_size)?;
         }
     }
     ActorRigGeometry::new(
@@ -101,7 +108,11 @@ pub fn attachable_raster_frame(
         .iter()
         .flat_map(|bone| bone.texture_meshes.iter().map(move |mesh| (bone, mesh)));
     let (bone, mesh) = meshes.next()?;
-    if meshes.next().is_some() || bones.iter().any(|bone| !bone.cubes.is_empty()) {
+    if meshes.next().is_some()
+        || bones
+            .iter()
+            .any(|bone| !bone.cubes.is_empty() || bone.poly_mesh.is_some())
+    {
         return None;
     }
     Some((

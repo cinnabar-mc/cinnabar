@@ -141,7 +141,8 @@ pub use entity::{
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator, EntityGeometryScalar,
+    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
+    EntityGeometryPolyCorner, EntityGeometryPolyMesh, EntityGeometryScalar,
     EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
     EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
@@ -277,8 +278,8 @@ pub use runtime::{
 };
 pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_CUBES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry,
-    SkinGeometryBounds, SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
-    parse_skin_geometry_layer, skin_geometry_name,
+    SkinGeometryBounds, SkinGeometryError, parse_skin_geometry, parse_skin_geometry_layer,
+    skin_geometry_name,
 };
 pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
 pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};
