@@ -130,6 +130,8 @@ pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
         0 | MODEL_TEMPLATE_FLAG_BAMBOO
             | MODEL_TEMPLATE_FLAG_SHORT_GRASS
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_WEEPING_VINE
+            | MODEL_TEMPLATE_FLAG_TWISTING_VINE
     )
 }
 /// Number of positional sprite variants in each bubble-column surface group.

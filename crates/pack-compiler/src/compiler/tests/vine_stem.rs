@@ -104,6 +104,7 @@ fn quad_reds(compiled: &assets::CompiledAssets, template: ModelTemplate) -> Vec<
 #[test]
 fn vines_compile_stem_planes_before_tip_planes_at_plant_width() {
     let (compiled, records) = fixture();
+    assets::encode_blob(&compiled).expect("vine templates pass blob validation");
     let mut seen = [0; 2];
     for record in records
         .iter()
