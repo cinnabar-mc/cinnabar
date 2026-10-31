@@ -1,9 +1,47 @@
 //! Retires immutable archives only after their replacement has been acknowledged.
 use super::{
-    ActivePack, CATALOG_FILE, Catalog, GlobalPackLibrary, LibraryError, atomic_write,
-    encode_catalog,
+    ActivePack, CATALOG_FILE, Catalog, GlobalPackLibrary, InstalledPack, LibraryError,
+    atomic_write, encode_catalog,
 };
 use std::{fs, path::Path};
+
+/// Drops entries whose archive is gone, as Bedrock ignores a configured pack it cannot find, and
+/// names the packs the player loses. A failed save only repeats this on the next open.
+pub(super) fn forget_missing(root: &Path, catalog: &mut Catalog) -> Vec<String> {
+    let gone = |pack: &InstalledPack| matches!(root.join(pack.filename()).try_exists(), Ok(false));
+    let selects = |active: &ActivePack, pack: &InstalledPack| {
+        active.id == pack.id && active.revision == pack.revision
+    };
+    let lost: Vec<InstalledPack> = catalog
+        .available
+        .iter()
+        .chain(&catalog.retained)
+        .filter(|pack| gone(pack))
+        .cloned()
+        .collect();
+    if lost.is_empty() {
+        return Vec::new();
+    }
+    let mut names: Vec<String> = lost
+        .iter()
+        .filter(|pack| {
+            catalog.available.contains(pack)
+                || catalog.active.iter().any(|active| selects(active, pack))
+        })
+        .map(|pack| pack.name.clone())
+        .collect();
+    names.sort();
+    names.dedup();
+    catalog.available.retain(|pack| !lost.contains(pack));
+    catalog.retained.retain(|pack| !lost.contains(pack));
+    let installed = |active: &ActivePack| !lost.iter().any(|pack| selects(active, pack));
+    catalog.active.retain(installed);
+    catalog.restore.retain(installed);
+    if let Ok(bytes) = encode_catalog(catalog) {
+        let _ = atomic_write(&root.join(CATALOG_FILE), &bytes);
+    }
+    names
+}
 
 /// Removes obsolete revisions after the newest preview has been acknowledged.
 pub(super) fn prune(root: &Path, catalog: &mut Catalog) -> Result<(), LibraryError> {
