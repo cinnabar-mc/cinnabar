@@ -9,6 +9,13 @@ use {
     std::{collections::HashSet, path::Path},
 };
 
+const DOWN_FACE: u32 = 1;
+const UP_FACE: u32 = 2;
+const WEST_FACE: u32 = 3;
+const EAST_FACE: u32 = 4;
+const NORTH_FACE: u32 = 5;
+const SOUTH_FACE: u32 = 6;
+
 fn write_door_trapdoor_pack(root: &Path) {
     write_pack(
         root,
@@ -201,6 +208,112 @@ fn assert_cutout_cuboid(compiled: &CompiledAssets, visual_id: usize) {
     }
 }
 
+/// Finds the compiled visual for one door pose in the fixture's record order.
+fn door_quads_for(
+    compiled: &CompiledAssets,
+    doors: &[RegistryRecord],
+    [direction, open, hinge]: [u32; 3],
+) -> Vec<assets::ModelQuad> {
+    let id = doors
+        .iter()
+        .position(|record| {
+            record.model_state.get(ModelStateField::Orientation) == Some(direction)
+                && record.model_state.get(ModelStateField::Open) == Some(open)
+                && record.model_state.get(ModelStateField::Hinge) == Some(hinge)
+                && record.model_state.get(ModelStateField::Flags) == Some(0)
+        })
+        .unwrap();
+    compiled_model_quads(compiled, id).to_vec()
+}
+
+/// Reads whether a side face's art runs against its unmirrored outside view.
+fn side_face_mirrored(quad: &assets::ModelQuad) -> bool {
+    let (mut low, mut high) = (quad.positions[0], quad.positions[0]);
+    let (mut low_u, mut high_u) = (quad.uvs[0][0], quad.uvs[0][0]);
+    let face = quad.flags & MODEL_QUAD_FLAG_FACE_MASK;
+    let axis = if matches!(face, WEST_FACE | EAST_FACE) {
+        2
+    } else {
+        0
+    };
+    for (position, uv) in quad.positions.iter().zip(quad.uvs) {
+        if position[axis] < low[axis] {
+            (low, low_u) = (*position, uv[0]);
+        }
+        if position[axis] > high[axis] {
+            (high, high_u) = (*position, uv[0]);
+        }
+    }
+    let reads_up_the_axis = low_u < high_u;
+    let unmirrored_reads_up_the_axis = matches!(face, WEST_FACE | SOUTH_FACE);
+    reads_up_the_axis != unmirrored_reads_up_the_axis
+}
+
+#[test]
+fn door_side_art_mirrors_by_swung_direction_open_state_and_hinge() {
+    let directory = tempfile::tempdir().expect("create door fixture");
+    write_door_trapdoor_pack(directory.path());
+    let doors = generated_family_records("minecraft:wooden_door", ModelFamily::Door);
+    let compiled = compile_pack(directory.path(), &doors).expect("compile all door states");
+    // Faces are named by the id the template carries; each row is direction, open, hinge.
+    for (pose, mirrored) in [
+        ([0, 0, 0], [SOUTH_FACE, EAST_FACE]),
+        ([0, 0, 1], [NORTH_FACE, WEST_FACE]),
+        ([0, 1, 0], [NORTH_FACE, EAST_FACE]),
+        ([0, 1, 1], [NORTH_FACE, WEST_FACE]),
+        ([1, 0, 0], [SOUTH_FACE, WEST_FACE]),
+        ([2, 0, 0], [SOUTH_FACE, WEST_FACE]),
+        ([3, 0, 0], [NORTH_FACE, WEST_FACE]),
+        ([3, 1, 0], [NORTH_FACE, WEST_FACE]),
+    ] {
+        for quad in door_quads_for(&compiled, &doors, pose) {
+            let face = quad.flags & MODEL_QUAD_FLAG_FACE_MASK;
+            if matches!(face, DOWN_FACE | UP_FACE) {
+                continue;
+            }
+            assert_eq!(
+                side_face_mirrored(&quad),
+                mirrored.contains(&face),
+                "pose {pose:?} face {face}"
+            );
+        }
+    }
+}
+
+#[test]
+fn door_caps_stretch_the_outer_art_rows_along_the_leaf() {
+    let directory = tempfile::tempdir().expect("create door fixture");
+    write_door_trapdoor_pack(directory.path());
+    let doors = generated_family_records("minecraft:wooden_door", ModelFamily::Door);
+    let compiled = compile_pack(directory.path(), &doors).expect("compile all door states");
+    for direction in 0..4 {
+        for quad in door_quads_for(&compiled, &doors, [direction, 0, 0]) {
+            let face = quad.flags & MODEL_QUAD_FLAG_FACE_MASK;
+            let rows = match face {
+                UP_FACE => (0, 768),
+                DOWN_FACE => (3328, 4096),
+                _ => continue,
+            };
+            let along_v = quad.uvs.map(|uv| uv[1]);
+            assert_eq!(*along_v.iter().min().unwrap(), rows.0, "{direction} {face}");
+            assert_eq!(*along_v.iter().max().unwrap(), rows.1, "{direction} {face}");
+            let along_u = quad.uvs.map(|uv| uv[0]);
+            assert_eq!(*along_u.iter().min().unwrap(), 0, "{direction} {face}");
+            assert_eq!(*along_u.iter().max().unwrap(), 4096, "{direction} {face}");
+            // The full width of the art lies along the leaf, not across its thickness.
+            let long_axis = if direction % 2 == 0 { 2 } else { 0 };
+            for (position, uv) in quad.positions.iter().zip(quad.uvs) {
+                let peer = quad.positions.iter().zip(quad.uvs).find(|(other, _)| {
+                    other[long_axis] != position[long_axis]
+                        && other[2 - long_axis] == position[2 - long_axis]
+                });
+                let (_, peer_uv) = peer.unwrap();
+                assert_ne!(uv[0], peer_uv[0], "{direction} {face}");
+            }
+        }
+    }
+}
+
 #[test]
 fn compiler_routes_every_generated_door_and_trapdoor_selector_to_exact_cutout_cuboids() {
     let directory = tempfile::tempdir().expect("create door/trapdoor fixture");
@@ -274,11 +387,18 @@ fn compiler_routes_every_generated_door_and_trapdoor_selector_to_exact_cutout_cu
             record.canonical_state
         );
         let expected_material = usize::from(flags & MODEL_FLAG_UPPER != 0) + 1;
-        assert!(
-            compiled_model_quads(&compiled_doors, id)
-                .iter()
-                .all(|quad| quad.material as usize == expected_material)
-        );
+        for quad in compiled_model_quads(&compiled_doors, id) {
+            let expected = match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
+                DOWN_FACE => 1,
+                UP_FACE => 2,
+                _ => expected_material,
+            };
+            assert_eq!(
+                quad.material as usize, expected,
+                "{}",
+                record.canonical_state
+            );
+        }
         if open == 0 {
             let peer = doors
                 .iter()

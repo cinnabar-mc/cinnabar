@@ -2,12 +2,15 @@ use super::context::{
     ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
-use super::geometry::cuboid_quads;
+use super::geometry::vanilla_cuboid_quads;
 use super::state::{exact_tagged_byte, exact_tagged_int, exact_tagged_string};
 use {
     super::super::*,
     assets::{BlockFace, door::DoorPose},
 };
+
+/// The three art rows, in 1/4096 tile units, that a door's top and bottom caps read.
+const CAP_ROWS: u16 = 768;
 
 /// A class keeps distinct topology even when a pack shares its artwork with another door.
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -97,14 +100,8 @@ pub(in crate::compiler) fn compile_rule(
             })?;
             for offset in 0..assets::door::TEMPLATE_COUNT {
                 let pose = DoorPose::from_offset(offset).expect("bounded door pose");
-                let material = if pose.upper { upper } else { lower };
-                let (min, max) = door_bounds(
-                    pose.direction,
-                    u32::from(pose.open),
-                    u32::from(pose.hinge_right),
-                );
                 push_model_template(
-                    cuboid_quads([material; 6], min, max).to_vec(),
+                    door_quads(pose, lower, upper).to_vec(),
                     assets::MODEL_TEMPLATE_FLAG_DOOR,
                     storage.templates,
                     storage.quads,
@@ -121,6 +118,90 @@ pub(in crate::compiler) fn compile_rule(
         visual.variant = pose.offset() << 2;
     }
     Ok(CompileRuleResult::Compiled(visual))
+}
+
+/// Builds one paired pose's cuboid: each half's sides read its own art, mirrored as the native
+/// door mirrors them, while the caps always stretch the top rows of the upper art and the bottom
+/// rows of the lower art across the leaf.
+pub(in crate::compiler) fn door_quads(pose: DoorPose, lower: u32, upper: u32) -> [ModelQuad; 6] {
+    let material = if pose.upper { upper } else { lower };
+    let (min, max) = door_bounds(
+        pose.direction,
+        u32::from(pose.open),
+        u32::from(pose.hinge_right),
+    );
+    let mut quads = vanilla_cuboid_quads([material; 6], min, max);
+    for (face, quad) in BlockFace::ALL.into_iter().zip(&mut quads) {
+        match face {
+            BlockFace::Up => {
+                quad.material = upper;
+                set_cap_uvs(quad, pose, face, [CAP_ROWS, 0], max);
+            }
+            BlockFace::Down => {
+                quad.material = lower;
+                set_cap_uvs(quad, pose, face, [4096, 4096 - CAP_ROWS], max);
+            }
+            _ if mirrors_side_art(pose, face) => {
+                for uv in &mut quad.uvs {
+                    uv[0] = 4096 - uv[0];
+                }
+            }
+            _ => {}
+        }
+    }
+    quads
+}
+
+/// Whether the native door mirrors this side face's art. The rule depends only on the leaf's
+/// swung direction, its open state and its hinge.
+fn mirrors_side_art(pose: DoorPose, face: BlockFace) -> bool {
+    let swung = match (pose.open, pose.hinge_right) {
+        (true, true) => pose.direction + 3,
+        (true, false) => pose.direction + 1,
+        (false, _) => pose.direction,
+    } & 3;
+    let listed = match swung {
+        0 => matches!(face, BlockFace::South | BlockFace::East),
+        1 | 2 => matches!(face, BlockFace::South | BlockFace::West),
+        _ => matches!(face, BlockFace::North | BlockFace::West),
+    };
+    pose.open ^ pose.hinge_right ^ listed
+}
+
+/// Stretches a strip of art rows over a cap: along the leaf's width, across its thickness, turned
+/// by the leaf's direction and mirrored by its hinge. `[v0, v1]` are the strip's start and end rows.
+fn set_cap_uvs(
+    quad: &mut ModelQuad,
+    pose: DoorPose,
+    face: BlockFace,
+    [v0, v1]: [u16; 2],
+    max: [i16; 3],
+) {
+    let turn = match (pose.open, pose.hinge_right) {
+        (true, true) => pose.direction + 1,
+        (true, false) => pose.direction + 3,
+        (false, _) => pose.direction,
+    } & 3;
+    let [u0, u1] = if pose.hinge_right {
+        [4096, 0]
+    } else {
+        [0, 4096]
+    };
+    let down = face == BlockFace::Down;
+    for (uv, position) in quad.uvs.iter_mut().zip(quad.positions) {
+        let (x, z) = (position[0] == max[0], position[2] == max[2]);
+        let (at_u1, at_v1) = match (down, turn) {
+            (false, 0) => (z, !x),
+            (false, 1) => (!x, !z),
+            (false, 2) => (!z, x),
+            (false, _) => (x, z),
+            (true, 0) => (z, x),
+            (true, 1) => (!x, z),
+            (true, 2) => (!z, !x),
+            (true, _) => (x, !z),
+        };
+        *uv = [if at_u1 { u1 } else { u0 }, if at_v1 { v1 } else { v0 }];
+    }
 }
 
 /// Builds the native door plane in fixed-point model coordinates.

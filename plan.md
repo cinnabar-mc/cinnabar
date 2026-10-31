@@ -167,8 +167,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
-- [ ] Close paired-door presentation and interaction acceptance, including lower/upper
-  state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
+- [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
+  native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
+  leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
   Hand-use prediction resolves either clicked half against its matching partner
   and changes the lower half's open state; matched server and artwork acceptance
