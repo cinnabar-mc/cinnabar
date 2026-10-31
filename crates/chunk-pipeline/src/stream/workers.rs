@@ -2,6 +2,8 @@
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
 mod priority;
+mod scratch;
+pub(crate) use scratch::WorkerScratch;
 #[cfg(feature = "tracy")]
 mod queue_lock;
 #[cfg(not(target_arch = "wasm32"))]
@@ -59,7 +61,7 @@ impl PoolSize {
     }
 }
 
-type Job = Box<dyn FnOnce(&mut world::LightSolverScratch) + Send + 'static>;
+type Job = Box<dyn FnOnce(&mut WorkerScratch) + Send + 'static>;
 type Queue = VecDeque<(Moment, Job)>;
 
 #[derive(Default)]
@@ -167,21 +169,37 @@ impl Shared {
 
     /// Sleeps atomically with queue release, excluding the sleep from lock ownership.
     #[cfg(not(target_arch = "wasm32"))]
-    fn wait<'a>(&'a self, guard: QueueGuard<'a>) -> QueueGuard<'a> {
+    fn wait<'a>(&'a self, guard: QueueGuard<'a>, timeout: Option<Duration>) -> QueueGuard<'a> {
         #[cfg(feature = "tracy")]
         {
             let (guard, owned, wait) = guard.end_ownership();
             let waiting = wait.entered();
-            let guard = self
-                .ready
-                .wait(guard)
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let guard = self.wait_guard(guard, timeout);
             QueueGuard::new(guard, owned, waiting.exit())
         }
         #[cfg(not(feature = "tracy"))]
-        self.ready
-            .wait(guard)
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.wait_guard(guard, timeout)
+    }
+
+    /// Releases the queue atomically, waking for work or an outstanding scratch deadline.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn wait_guard<'a>(
+        &self,
+        guard: MutexGuard<'a, Queues>,
+        timeout: Option<Duration>,
+    ) -> MutexGuard<'a, Queues> {
+        match timeout {
+            Some(timeout) => {
+                self.ready
+                    .wait_timeout(guard, timeout)
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .0
+            }
+            None => self
+                .ready
+                .wait(guard)
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        }
     }
 }
 
@@ -319,11 +337,11 @@ impl DispatchBatch<'_> {
         self.spawn_with_scratch(urgent, move |_| job());
     }
 
-    /// Gives a solve exclusive access to this worker's retained scratch buffers.
+    /// Gives a job exclusive access to this worker's retained light and mesh buffers.
     pub(super) fn spawn_with_scratch(
         &mut self,
         urgent: bool,
-        job: impl FnOnce(&mut world::LightSolverScratch) + Send + 'static,
+        job: impl FnOnce(&mut WorkerScratch) + Send + 'static,
     ) {
         self.jobs
             .push((self.pool.observed_at(), urgent, Box::new(job)));
@@ -376,20 +394,22 @@ pub(crate) fn observe(now: Moment) {
 
 /// Runs one cooperative turn using native foreground and background eligibility.
 #[cfg(any(test, target_arch = "wasm32"))]
-fn run_one(shared: &Shared, now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
+fn run_one(shared: &Shared, now: Moment, scratch: &mut WorkerScratch) -> bool {
     let Some(job) = shared.lock().take_cooperative(now) else {
+        scratch.release_if_idle(now);
         return false;
     };
     // Matches native workers: a panic cannot silently lose job permits.
     if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(scratch))).is_err() {
         std::process::abort();
     }
+    scratch.finished(now);
     true
 }
 
 /// Runs at most one browser world job; the host yields between calls.
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn run_browser_job(now: Moment, scratch: &mut world::LightSolverScratch) -> bool {
+pub(crate) fn run_browser_job(now: Moment, scratch: &mut WorkerScratch) -> bool {
     observe(now);
     let now = WORKERS.shared.lock().observed_at;
     run_one(&WORKERS.shared, now, scratch)
