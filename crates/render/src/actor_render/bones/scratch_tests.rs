@@ -69,7 +69,7 @@ fn preparation_scratch_trims_a_peak_and_recovers_after_rejection() {
 }
 
 #[test]
-fn unchanged_empty_render_frames_release_peak_scratch_and_publications() {
+fn unused_render_frames_release_peak_scratch_and_publications() {
     use super::super::tests::{app_with_noop_render_sub_app, generic_frame};
     use super::super::{ActorGpu, ActorRenderPlugin, prepare_actor_resources};
     use bevy::{
@@ -78,57 +78,63 @@ fn unchanged_empty_render_frames_release_peak_scratch_and_publications() {
     };
     use render_model::CapacityRetention;
 
-    let mut app = app_with_noop_render_sub_app();
-    app.add_plugins(ActorRenderPlugin);
-    app.finish();
-    let world = app.sub_app_mut(RenderApp).world_mut();
-    world.run_schedule(RenderStartup);
-    let mut populated = generic_frame();
-    let mut rig = frame(&(1..=200).map(|id| (id, 3)).collect::<Vec<_>>());
-    rig.geometry_vertices = populated.rig.geometry_vertices.clone();
-    populated.rig = rig;
-    populated.instance_pages = vec![1; populated.rig.instances.len()].into();
-    world.insert_resource(populated.clone());
-    world.run_system_once(prepare_actor_resources).unwrap();
-    let (instances, manifest, peak) = {
-        let gpu = world.resource::<ActorGpu>();
-        assert_eq!(gpu.instance_count as usize, populated.rig.instances.len());
-        let mut receipts = gpu.receipt_scratch.lock().unwrap();
-        receipts.extend_from_slice(&gpu.spans);
-        (
-            Arc::downgrade(&gpu.instances),
-            Arc::downgrade(&gpu.manifest),
-            gpu.bones.scratch.assignments.capacity(),
-        )
-    };
-    let mut empty = populated.clone();
-    empty.rig.frame_generation += 1;
-    empty.rig.instances = Arc::from([]);
-    empty.rig.manifest = Arc::from([]);
-    empty.rig.previous_bones = Arc::from([]);
-    empty.rig.current_bones = Arc::from([]);
-    empty.instance_pages = Arc::from([]);
-    world.insert_resource(empty);
-    for frame in 1..=CapacityRetention::SHRINK_AFTER {
+    for rejected in [false, true] {
+        let mut app = app_with_noop_render_sub_app();
+        app.add_plugins(ActorRenderPlugin);
+        app.finish();
+        let world = app.sub_app_mut(RenderApp).world_mut();
+        world.run_schedule(RenderStartup);
+        let mut populated = generic_frame();
+        let mut rig = frame(&(1..=200).map(|id| (id, 3)).collect::<Vec<_>>());
+        rig.geometry_vertices = populated.rig.geometry_vertices.clone();
+        populated.rig = rig;
+        populated.instance_pages = vec![1; populated.rig.instances.len()].into();
+        world.insert_resource(populated.clone());
         world.run_system_once(prepare_actor_resources).unwrap();
+        let (instances, manifest, peak) = {
+            let gpu = world.resource::<ActorGpu>();
+            assert_eq!(gpu.instance_count as usize, populated.rig.instances.len());
+            let mut receipts = gpu.receipt_scratch.lock().unwrap();
+            receipts.extend_from_slice(&gpu.spans);
+            receipts.record_usage();
+            (
+                Arc::downgrade(&gpu.instances),
+                Arc::downgrade(&gpu.manifest),
+                gpu.bones.scratch.assignments.capacity(),
+            )
+        };
+        let mut idle = populated.clone();
+        idle.rig.frame_generation += 1;
+        if rejected {
+            idle.rig.geometry_revision += 1;
+            idle.rig.geometry_spans = Arc::from([]);
+        } else {
+            idle.rig.instances = Arc::from([]);
+            idle.rig.manifest = Arc::from([]);
+            idle.rig.previous_bones = Arc::from([]);
+            idle.rig.current_bones = Arc::from([]);
+            idle.instance_pages = Arc::from([]);
+        }
+        world.insert_resource(idle);
+        // Each entry accounts for the completed prior frame, including its last populated use.
+        let retired_at = CapacityRetention::SHRINK_AFTER + 1;
+        for frame in 1..=retired_at {
+            world.run_system_once(prepare_actor_resources).unwrap();
+            let gpu = world.resource::<ActorGpu>();
+            assert_eq!(gpu.instance_count, 0);
+            assert_eq!(
+                gpu.bones.scratch.assignments.capacity(),
+                if frame == retired_at { 0 } else { peak }
+            );
+        }
         let gpu = world.resource::<ActorGpu>();
-        assert_eq!(gpu.instance_count, 0);
-        assert_eq!(
-            gpu.bones.scratch.assignments.capacity(),
-            if frame == CapacityRetention::SHRINK_AFTER {
-                0
-            } else {
-                peak
-            }
-        );
+        assert_eq!(gpu.receipt_scratch.lock().unwrap().capacity(), 0);
+        assert_eq!(gpu.bones.scratch.keys.capacity(), 0);
+        assert!(instances.upgrade().is_none());
+        assert!(manifest.upgrade().is_none());
+        populated.rig.frame_generation += 2;
+        world.insert_resource(populated);
+        world.run_system_once(prepare_actor_resources).unwrap();
+        assert_eq!(world.resource::<ActorGpu>().instance_count, 200);
     }
-    let gpu = world.resource::<ActorGpu>();
-    assert_eq!(gpu.receipt_scratch.lock().unwrap().capacity(), 0);
-    assert_eq!(gpu.bones.scratch.keys.capacity(), 0);
-    assert!(instances.upgrade().is_none());
-    assert!(manifest.upgrade().is_none());
-    populated.rig.frame_generation += 2;
-    world.insert_resource(populated);
-    world.run_system_once(prepare_actor_resources).unwrap();
-    assert_eq!(world.resource::<ActorGpu>().instance_count, 200);
 }

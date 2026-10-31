@@ -40,6 +40,25 @@ fn scratch_preserves_changing_output_and_releases_an_empty_peak() {
 }
 
 #[test]
+fn multiple_commands_keep_the_frames_peak_until_one_retention_update() {
+    let mut scratch = FrameScratch::<u32>::default();
+    for _ in 0..CapacityRetention::SHRINK_AFTER * 2 {
+        scratch.clear();
+        scratch.extend(0..8);
+        scratch.record_usage();
+        let capacity = scratch.capacity();
+        for _ in 0..CapacityRetention::SHRINK_AFTER {
+            scratch.clear();
+            scratch.push(1);
+            scratch.record_usage();
+        }
+        scratch.clear();
+        scratch.finish_frame();
+        assert_eq!(scratch.capacity(), capacity);
+    }
+}
+
+#[test]
 fn cloned_publication_pools_do_not_keep_producer_storage_alive() {
     let mut pool = FrameBuffers::<u32>::default();
     let held = pool.publish_with(&[1, 2, 3], |_| {});

@@ -100,6 +100,7 @@ pub(super) struct BoneResidency {
     current: Box<[Matrix]>,
     geometry: Option<u64>,
     scratch: Scratch,
+    prepared: bool,
 }
 
 /// Exact GPU instance/receipt projection and the endpoint ranges this preparation changed.
@@ -125,9 +126,11 @@ impl BoneFrame {
 }
 
 impl BoneResidency {
-    /// Advances scratch retirement for an empty rendered frame, even without a new publication.
-    pub fn idle_frame(&mut self) {
-        self.scratch.discard_frame();
+    /// Retires scratch after a rendered frame that did not reach preparation, including failures.
+    pub fn begin_frame(&mut self) {
+        if !std::mem::take(&mut self.prepared) {
+            self.scratch.discard_frame();
+        }
     }
 
     /// Forgets all uploaded ownership while keeping only bounded allocation capacity.
@@ -143,6 +146,7 @@ impl BoneResidency {
         frame: &ActorRigRenderFrame,
         edit: impl FnOnce(&mut [ActorGpuInstance]),
     ) -> Option<BoneFrame> {
+        self.prepared = true;
         if !validated_keys(frame, &mut self.scratch.keys) {
             self.clear();
             self.scratch.discard_frame();

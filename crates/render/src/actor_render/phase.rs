@@ -332,7 +332,7 @@ impl<P: PhaseItem, const SORTED: bool> RenderCommand<P> for DrawActors<SORTED> {
         }
         if let Some((batch, mut spans)) = receipts {
             tracker.record_batch(&batch, view.0.to_bits(), &spans);
-            spans.finish_frame();
+            spans.record_usage();
         }
         witness.into_inner().observe_draw(ActorDrawWitness {
             executed: executed_instances != 0,

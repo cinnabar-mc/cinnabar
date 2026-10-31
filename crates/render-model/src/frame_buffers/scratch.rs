@@ -43,6 +43,7 @@ impl CapacityRetention {
 pub struct FrameScratch<T> {
     values: Vec<T>,
     retention: CapacityRetention,
+    peak: usize,
 }
 
 impl<T> Default for FrameScratch<T> {
@@ -51,16 +52,22 @@ impl<T> Default for FrameScratch<T> {
         Self {
             values: Vec::new(),
             retention: CapacityRetention::default(),
+            peak: 0,
         }
     }
 }
 
 impl<T> FrameScratch<T> {
+    /// Records live usage before another command clears and reuses this frame's vector.
+    pub fn record_usage(&mut self) {
+        self.peak = self.peak.max(self.values.len());
+    }
+
     /// Accounts for this frame's completed output and releases sustained excess capacity.
+    /// Repeated commands call `record_usage`; the frame owner calls this once for their peak.
     pub fn finish_frame(&mut self) {
-        let target = self
-            .retention
-            .target(self.values.capacity(), self.values.len(), 0);
+        let used = std::mem::take(&mut self.peak).max(self.values.len());
+        let target = self.retention.target(self.values.capacity(), used, 0);
         if target < self.values.capacity() {
             self.values.shrink_to(target);
         }
