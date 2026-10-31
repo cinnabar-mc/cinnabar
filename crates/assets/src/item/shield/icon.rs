@@ -21,7 +21,7 @@ pub fn bake(geometry: &EntityGeometry, texture: &EquipmentTexture) -> Option<Ico
         || bone.parent.is_some()
         || bone.never_render == Some(true)
         || !bone.texture_meshes.is_empty()
-        || bone.poly_mesh.is_some()
+        || bone.has_polygons()
         || bone
             .rotation
             .is_some_and(|r| r.iter().any(|v| v.get() != 0.0))

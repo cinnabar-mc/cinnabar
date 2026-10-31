@@ -106,7 +106,7 @@ pub(super) fn model(source: &Arc<SkinGeometry>) -> Option<Model> {
 fn build(source: &SkinGeometry) -> Option<Model> {
     // Only classic skins with unrotated cuboid limbs can be split without
     // changing authored bind rotations, polygon meshes or arbitrary proportions.
-    if source.bones.iter().any(|bone| bone.poly_mesh.is_some()) {
+    if source.bones.iter().any(|bone| bone.has_polygons()) {
         return None;
     }
     let legs: Vec<_> = ["leftleg", "rightleg"]

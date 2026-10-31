@@ -35,7 +35,7 @@ fn visit_quads(geometry: &EntityGeometry, mut visit: impl FnMut(ModelQuad)) -> O
         || bone.parent.is_some()
         || bone.never_render == Some(true)
         || !bone.texture_meshes.is_empty()
-        || bone.poly_mesh.is_some()
+        || bone.has_polygons()
         || bone
             .rotation
             .is_some_and(|rotation| rotation.iter().any(|value| value.get() != 0.0))

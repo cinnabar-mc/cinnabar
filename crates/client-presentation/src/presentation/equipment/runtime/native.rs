@@ -237,7 +237,7 @@ pub(super) fn recognize(
 fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
     bones
         .iter()
-        .all(|bone| bone.cubes.is_empty() && bone.poly_mesh.is_none())
+        .all(|bone| bone.cubes.is_empty() && !bone.has_polygons())
         && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
 }
 
@@ -250,7 +250,7 @@ fn full_texture_plane(
 
     if bones.iter().any(|bone| {
         !bone.texture_meshes.is_empty()
-            || bone.poly_mesh.is_some()
+            || bone.has_polygons()
             || bone.inflate.is_some_and(|inflate| inflate != Scalar::ZERO)
             || bone.mirror == Some(true)
             || bone.never_render == Some(true)

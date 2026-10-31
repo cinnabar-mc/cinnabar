@@ -5,9 +5,9 @@
 //! range indices are undefined there, so they lose only their polygon here.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use super::{EntityGeometryScalar, invalid, validate_scalars};
+use super::{EntityGeometryBone, EntityGeometryScalar, invalid, validate_scalars};
 use crate::AssetError;
 
 /// One polygon corner's position, normal and UV indices.
@@ -25,9 +25,20 @@ pub struct EntityGeometryPolyMesh {
     pub quads: Box<[[EntityGeometryPolyCorner; 4]]>,
 }
 
+impl EntityGeometryBone {
+    /// Whether this bone's mesh has any polygon to draw.
+    #[must_use]
+    pub fn has_polygons(&self) -> bool {
+        self.poly_mesh
+            .as_deref()
+            .is_some_and(EntityGeometryPolyMesh::has_polygons)
+    }
+}
+
 impl EntityGeometryPolyMesh {
     /// Reads a bone's optional `poly_mesh`, logging how many malformed values were skipped.
-    /// Returns `None` when the mesh has no polygons to draw.
+    /// A mesh without polygons is kept, because its `normalized_uvs` still applies to the mesh it
+    /// inherits. Use [`Self::has_polygons`] to ask whether it draws.
     #[must_use]
     pub fn parse_bone(value: Option<&Value>, bone: &str) -> Option<Box<Self>> {
         let (mesh, skipped) = Self::parse(value?);
@@ -58,8 +69,13 @@ impl EntityGeometryPolyMesh {
             Some(Value::Array(polygons)) => mesh.parse_explicit(polygons, &mut skipped),
             Some(_) => skipped += 1,
         }
-        let drawable = !mesh.triangles.is_empty() || !mesh.quads.is_empty();
-        (drawable.then_some(mesh), skipped)
+        (Some(mesh), skipped)
+    }
+
+    /// Whether this mesh has any polygon to draw.
+    #[must_use]
+    pub fn has_polygons(&self) -> bool {
+        !self.triangles.is_empty() || !self.quads.is_empty()
     }
 
     /// Reads a list that consumes one position, normal and UV per corner.
@@ -148,7 +164,7 @@ impl EntityGeometryPolyMesh {
 
     /// Adds a derived geometry's mesh for the same bone. Inherited attributes keep their indices
     /// and the child's indices shift past them; the child's `normalized_uvs` applies to all.
-    pub(super) fn append(&mut self, child: &Self) {
+    pub fn append(&mut self, child: &Self) {
         let offset = [self.positions.len(), self.normals.len(), self.uvs.len()]
             .map(|length| u32::try_from(length).unwrap_or(u32::MAX));
         let shift = |corner: EntityGeometryPolyCorner| {
@@ -166,6 +182,21 @@ impl EntityGeometryPolyMesh {
             &mut self.quads,
             child.quads.iter().map(|polygon| polygon.map(shift)),
         );
+    }
+
+    /// Writes this mesh as an authored explicit `poly_mesh` that [`Self::parse_bone`] reads back
+    /// unchanged.
+    #[must_use]
+    pub fn to_authored(&self) -> Value {
+        let triangles = self.triangles.iter().map(|polygon| json!(polygon));
+        let quads = self.quads.iter().map(|polygon| json!(polygon));
+        json!({
+            "normalized_uvs": self.normalized_uvs,
+            "positions": self.positions.iter().map(|at| at.map(EntityGeometryScalar::get)).collect::<Vec<_>>(),
+            "normals": self.normals.iter().map(|at| at.map(EntityGeometryScalar::get)).collect::<Vec<_>>(),
+            "uvs": self.uvs.iter().map(|at| at.map(EntityGeometryScalar::get)).collect::<Vec<_>>(),
+            "polys": triangles.chain(quads).collect::<Vec<_>>(),
+        })
     }
 }
 
@@ -210,8 +241,6 @@ fn polygon_index(value: Option<&Value>) -> Option<u32> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::*;
 
     fn mesh(polys: Value) -> (Option<EntityGeometryPolyMesh>, u32) {
@@ -233,7 +262,9 @@ mod tests {
         // Vanilla only tests for `tri_list`; every other name reads as quads.
         assert_eq!(mesh(json!("not_a_mode")).0.unwrap().quads.len(), 1);
         // Four corners are not a whole number of triangles.
-        assert_eq!(mesh(json!("tri_list")), (None, 1));
+        let (parsed, skipped) = mesh(json!("tri_list"));
+        assert!(!parsed.unwrap().has_polygons());
+        assert_eq!(skipped, 1);
     }
 
     #[test]
@@ -242,7 +273,7 @@ mod tests {
             "positions": [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
             "normals": [[0, 0, 1]], "uvs": [[0, 0], [1, 0], [0, 1]], "polys": "tri_list"
         }));
-        assert_eq!(parsed, None);
+        assert!(!parsed.unwrap().has_polygons());
         assert_eq!(skipped, 1);
     }
 
@@ -283,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_attributes_read_as_zero_and_unusable_meshes_draw_nothing() {
+    fn malformed_attributes_read_as_zero_and_meshes_without_polygons_draw_nothing() {
         let (parsed, skipped) = EntityGeometryPolyMesh::parse(&json!({
             "positions": [[1], "x", [1e30, 0, 0]], "normals": [[0, "y", 1]], "uvs": [[0.5]],
             "polys": [[[0, 0, 0], [1, 0, 0], [2, 0, 0]]],
@@ -295,8 +326,36 @@ mod tests {
         assert_eq!(parsed.positions[2], [EntityGeometryScalar::ZERO; 3]);
         assert!(!parsed.normalized_uvs);
         assert_eq!(EntityGeometryPolyMesh::parse(&json!(3)), (None, 1));
-        assert_eq!(EntityGeometryPolyMesh::parse(&json!({})), (None, 0));
-        assert_eq!(mesh(json!(7)), (None, 1));
+        let (empty, skipped) = EntityGeometryPolyMesh::parse(&json!({}));
+        assert!(!empty.unwrap().has_polygons());
+        assert_eq!(skipped, 0);
+        let (unusable, skipped) = mesh(json!(7));
+        assert!(!unusable.unwrap().has_polygons());
+        assert_eq!(skipped, 1);
+    }
+
+    #[test]
+    fn a_child_without_polygons_still_sets_how_inherited_uvs_read() {
+        let mut base = mesh(json!("quad_list")).0.unwrap();
+        assert!(!base.normalized_uvs);
+        let child = EntityGeometryPolyMesh::parse(&json!({"normalized_uvs": true, "polys": []}))
+            .0
+            .unwrap();
+        base.append(&child);
+        assert!(base.normalized_uvs);
+        assert_eq!(base.quads.len(), 1);
+    }
+
+    #[test]
+    fn authored_form_reads_back_unchanged() {
+        let (authored, _) = mesh(json!([
+            [[0, 0, 2], [1, 1, 0], [2, 2, 1]],
+            [[0, 1, 2], [1, 2, 3], [2, 3, 0], [3, 0, 1]],
+        ]));
+        let authored = authored.unwrap();
+        let bone = Some(authored.to_authored());
+        let read = EntityGeometryPolyMesh::parse_bone(bone.as_ref(), "root").unwrap();
+        assert_eq!(*read, authored);
     }
 
     #[test]

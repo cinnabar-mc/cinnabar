@@ -111,7 +111,7 @@ pub fn attachable_raster_frame(
     if meshes.next().is_some()
         || bones
             .iter()
-            .any(|bone| !bone.cubes.is_empty() || bone.poly_mesh.is_some())
+            .any(|bone| !bone.cubes.is_empty() || bone.has_polygons())
     {
         return None;
     }

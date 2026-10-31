@@ -60,9 +60,7 @@ fn has_body_route(
     let drawable = |geometry: usize| {
         std::iter::successors(Some(geometry), |&index| parents[index]).any(|index| {
             entities.geometries()[index].bones.iter().any(|bone| {
-                !bone.cubes.is_empty()
-                    || !bone.texture_meshes.is_empty()
-                    || bone.poly_mesh.is_some()
+                !bone.cubes.is_empty() || !bone.texture_meshes.is_empty() || bone.has_polygons()
             })
         })
     };

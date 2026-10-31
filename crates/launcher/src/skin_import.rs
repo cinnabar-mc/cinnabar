@@ -300,7 +300,7 @@ pub fn parse_skin_geometry(
     if model
         .bones
         .iter()
-        .all(|bone| bone.cubes.is_empty() && bone.poly_mesh.is_none())
+        .all(|bone| bone.cubes.is_empty() && !bone.has_polygons())
     {
         return Err(SkinImportError::Geometry);
     }
