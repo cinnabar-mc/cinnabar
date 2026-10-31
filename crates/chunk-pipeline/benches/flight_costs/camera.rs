@@ -12,12 +12,15 @@ pub(super) fn camera_benches(c: &mut Criterion) {
     for radius in [10, 16] {
         let flight = Flight::new(&assets, radius);
         for (name, path) in [("straight", straight()), ("circle", circle())] {
+            // The synchronous search measures the full traversal cost a worker absorbs.
+            let mut rebuild = CaveVisibilityRebuild::synchronous();
             let mut scratch = CaveVisibilityScratch::default();
             let mut visible = CaveVisibleSet::default();
             let mut replacement = CaveVisibleSet::default();
             cross(
                 &flight,
                 path[CROSSINGS - 1],
+                &mut rebuild,
                 &mut scratch,
                 &mut visible,
                 &mut replacement,
@@ -29,6 +32,7 @@ pub(super) fn camera_benches(c: &mut Criterion) {
                 cross(
                     &flight,
                     camera,
+                    &mut rebuild,
                     &mut scratch,
                     &mut visible,
                     &mut replacement,
@@ -47,6 +51,7 @@ pub(super) fn camera_benches(c: &mut Criterion) {
                         cross(
                             &flight,
                             camera,
+                            &mut rebuild,
                             &mut scratch,
                             &mut visible,
                             &mut replacement,
@@ -64,13 +69,15 @@ pub(super) fn camera_benches(c: &mut Criterion) {
 fn cross(
     flight: &Flight,
     camera: SubChunkKey,
+    rebuild: &mut CaveVisibilityRebuild,
     scratch: &mut CaveVisibilityScratch,
     visible: &mut CaveVisibleSet,
     replacement: &mut CaveVisibleSet,
 ) {
     if flight
         .stream
-        .update_cave_visible_sub_chunks(camera, scratch, visible, replacement)
+        .update_cave_visible_sub_chunks(camera, rebuild, scratch, visible, replacement)
+        == CaveVisibilityUpdate::Rebuilt
     {
         std::mem::swap(visible, replacement);
     }

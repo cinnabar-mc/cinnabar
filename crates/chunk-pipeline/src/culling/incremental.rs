@@ -9,7 +9,6 @@ pub(super) const SUPERSET_UPDATE_LIMIT: u32 = 16;
 /// and lost connections can only shrink what is reachable, so `visible` stays a superset of the
 /// exact result until a rebuild at most [`SUPERSET_UPDATE_LIMIT`] updates later, or at the next
 /// camera section change, whichever comes first.
-#[cfg(test)]
 pub(crate) fn update_visible(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,
@@ -20,12 +19,22 @@ pub(crate) fn update_visible(
     if update_incrementally(camera, grid, scratch, visible) == RetainedUpdate::Updated {
         return false;
     }
+    rebuild_inline(camera, grid, scratch, replacement);
+    true
+}
+
+/// Fills `replacement` after a failed incremental attempt, whose work stays in the counters.
+pub(super) fn rebuild_inline(
+    camera: SubChunkKey,
+    grid: &ConnectivityGrid,
+    scratch: &mut CaveVisibilityScratch,
+    replacement: &mut CaveVisibleSet,
+) {
     let attempted = scratch.work;
     fill_visible(camera, grid, scratch, replacement);
     scratch.work.explored_exits += attempted.explored_exits;
     scratch.work.proof_exits = attempted.proof_exits;
     scratch.work.additions = attempted.additions;
-    true
 }
 
 /// Whether a retained traversal still proves its visibility after applying current changes.

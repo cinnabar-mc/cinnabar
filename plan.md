@@ -292,7 +292,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Full cave searches run on immutable connectivity snapshots off the frame thread.
+  Full cave searches run on immutable connectivity snapshots off the frame thread, or
+  inline where no worker thread can start.
   Invalidated or failed proofs restore hidden sections; retained proofs process openings
   inline while a full search is pending.
   `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into

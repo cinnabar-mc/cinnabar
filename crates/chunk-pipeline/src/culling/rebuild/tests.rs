@@ -270,3 +270,51 @@ fn the_real_worker_returns_the_same_visibility_as_synchronous_traversal() {
     assert_eq!(rebuild.stats().started, 1);
     assert_eq!(rebuild.stats().completed, 1);
 }
+
+#[test]
+fn a_proof_invalidated_by_a_camera_move_stays_invalid_when_the_camera_returns() {
+    // The departing update already propagated the opening, so reusing that proof would never
+    // publish the sections it newly reached.
+    let mut graph = grid([
+        (key(0), FaceConnectivity::all()),
+        (key(1), FaceConnectivity::none()),
+        (key(2), FaceConnectivity::all()),
+        (key(3), FaceConnectivity::all()),
+        (key(20), FaceConnectivity::all()),
+    ]);
+    let mut test = Controlled::new();
+    test.step(key(0), &graph);
+    test.finish();
+    assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Rebuilt);
+    assert!(!test.allows(key(3)));
+    graph.insert(key(1), FaceConnectivity::all());
+    assert_eq!(
+        test.step(key(20), &graph),
+        CaveVisibilityUpdate::Unavailable
+    );
+    test.step(key(0), &graph);
+    assert!(
+        test.allows(key(3)),
+        "the returning camera must not hide what the opening reached"
+    );
+    test.finish();
+    test.step(key(0), &graph);
+    test.finish();
+    assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Rebuilt);
+    test.assert_exact(key(0), &graph);
+}
+
+#[test]
+fn without_a_worker_thread_full_searches_complete_on_the_caller() {
+    let graph = grid([
+        (key(0), FaceConnectivity::all()),
+        (key(20), FaceConnectivity::all()),
+    ]);
+    let mut test = Controlled::new();
+    test.rebuild = CaveVisibilityRebuild::synchronous();
+    assert_eq!(test.step(key(0), &graph), CaveVisibilityUpdate::Rebuilt);
+    test.assert_exact(key(0), &graph);
+    assert_eq!(test.step(key(20), &graph), CaveVisibilityUpdate::Rebuilt);
+    test.assert_exact(key(20), &graph);
+    assert_eq!(test.rebuild.stats().started, 0);
+}

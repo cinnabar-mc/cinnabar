@@ -8,7 +8,7 @@ use std::sync::{
 use super::{
     CaveVisibilityScratch, CaveVisibilityWork, CaveVisibleSet, ConnectivityGrid, SubChunkKey,
     fill_visible,
-    incremental::{RetainedUpdate, update_incrementally},
+    incremental::{RetainedUpdate, rebuild_inline, update_incrementally, update_visible},
 };
 
 #[cfg(test)]
@@ -38,16 +38,26 @@ pub struct CaveRebuildStats {
 }
 
 /// At most one full search, with no waiting or full traversal on the caller's thread.
-/// Incremental graph changes remain inline. A failed worker leaves culling disabled.
+/// Incremental graph changes remain inline. A failed worker leaves culling disabled; where no
+/// worker thread can start, full searches run on the caller instead.
 #[derive(Default)]
 pub struct CaveVisibilityRebuild {
     worker: Option<Worker>,
     pending: bool,
+    synchronous: bool,
     spare: (CaveVisibilityScratch, CaveVisibleSet),
     stats: CaveRebuildStats,
 }
 
 impl CaveVisibilityRebuild {
+    /// Runs every full search on the caller, as on targets without threads.
+    pub fn synchronous() -> Self {
+        Self {
+            synchronous: true,
+            ..Self::default()
+        }
+    }
+
     /// Returns scheduling counters without touching the worker's queues.
     pub fn stats(&self) -> CaveRebuildStats {
         self.stats
@@ -65,6 +75,13 @@ impl CaveVisibilityRebuild {
         replacement: &mut CaveVisibleSet,
     ) -> CaveVisibilityUpdate {
         scratch.work = CaveVisibilityWork::default();
+        if self.synchronous {
+            return if update_visible(camera, grid, scratch, visible, replacement) {
+                CaveVisibilityUpdate::Rebuilt
+            } else {
+                CaveVisibilityUpdate::Incremental
+            };
+        }
         if self.pending {
             let result = self
                 .worker
@@ -108,6 +125,9 @@ impl CaveVisibilityRebuild {
             return CaveVisibilityUpdate::Incremental;
         }
         let publication = if retained == RetainedUpdate::Invalid {
+            // The failed proof may already have propagated changes it never published, so only
+            // a completed search may hide sections again. Grid identities start at 1.
+            scratch.checkpoint = (0, 0, 0);
             CaveVisibilityUpdate::Unavailable
         } else {
             CaveVisibilityUpdate::Incremental
@@ -118,8 +138,9 @@ impl CaveVisibilityRebuild {
         if self.worker.is_none() {
             self.worker = Worker::spawn();
             if self.worker.is_none() {
-                self.fail();
-                return CaveVisibilityUpdate::Unavailable;
+                self.synchronous = true;
+                rebuild_inline(camera, grid, scratch, replacement);
+                return CaveVisibilityUpdate::Rebuilt;
             }
         }
         let (mut job_scratch, job_visible) = std::mem::take(&mut self.spare);
