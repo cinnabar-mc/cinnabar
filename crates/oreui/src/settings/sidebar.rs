@@ -192,7 +192,7 @@ pub(super) fn draw(
     let groups = tabs.iter().filter(|tab| tab.group.is_some()).count() as f32;
     let content = heights.iter().sum::<f32>() + canvas.r(1.6 + groups * (GROUP_HEIGHT + EDGE));
     let max = (content - (viewport[3] - viewport[1])).max(0.0);
-    let key = "oreui_settings_sidebar";
+    let key = crate::SETTINGS_SIDEBAR_SCROLL_KEY;
     if let Some(offset) = canvas.offsets.get_mut(key) {
         *offset = offset.min(max);
     }

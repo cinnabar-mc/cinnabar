@@ -176,9 +176,10 @@ pub use equipment::{
     EquipmentReference, EquipmentTexture, EquipmentTransform, ItemUseDuration,
     MAX_EQUIPMENT_BINDINGS, MAX_EQUIPMENT_CARRIER_BYTES, MAX_EQUIPMENT_IDENTIFIER_BYTES,
     MAX_EQUIPMENT_PIXEL_BYTES, MAX_EQUIPMENT_TEXTURE_SIDE, MAX_EQUIPMENT_TEXTURES,
-    RuntimeEquipmentCatalog, color_mask_texel, encode_equipment_catalog,
-    encode_equipment_catalog_full, encode_equipment_catalog_with_attack_timings,
-    encode_equipment_catalog_with_textures, encode_equipment_catalog_with_use_profiles,
+    MAX_PACK_EQUIPMENT_PIXEL_BYTES, RuntimeEquipmentCatalog, color_mask_texel,
+    encode_equipment_catalog, encode_equipment_catalog_full,
+    encode_equipment_catalog_with_attack_timings, encode_equipment_catalog_with_textures,
+    encode_equipment_catalog_with_use_profiles,
 };
 pub use font::{
     CompiledFontCatalog, FONT_CARRIER_MAGIC, FONT_CARRIER_SCHEMA, FONT_FACE_BUNDLE_MAGIC,
