@@ -4,7 +4,7 @@
 //! as box unwraps, and both are chosen by the rehydration level.
 
 use super::context::{
-    ModelStorage, RuleInputs, diagnostic_visual, push_model_template, set_model_visual,
+    ModelStorage, RuleInputs, diagnostic_visual, push_grouped_model_template, set_model_visual,
 };
 use super::dispatcher::CompileRuleResult;
 use super::geometry::cuboid_quads;
@@ -282,8 +282,13 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
+        // Native draws all 42 faces, which needs a second part beyond the per-template quad limit.
         let quads = ghast_quads(materials, tentacle, steps);
-        let template = push_model_template(quads, 0, storage.templates, storage.quads)?;
+        let groups = quads
+            .chunks(BlockFace::ALL.len())
+            .map(<[ModelQuad]>::to_vec);
+        let template = push_grouped_model_template(groups, storage)?
+            .expect("a ghast always has a body");
         templates.insert(key, template);
         template
     };
