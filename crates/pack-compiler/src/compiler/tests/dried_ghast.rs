@@ -154,6 +154,15 @@ fn transparent_tentacle_art_stays_on_the_tentacles() {
             record.canonical_state
         );
         seen += 1;
+        let held = assets::gui_item::block_item_quads(
+            visual.kind(),
+            body,
+            visual.model_template(),
+            runtime.model_templates(),
+            runtime.model_quads(),
+        )
+        .unwrap();
+        assert_eq!(held.len(), 42, "the held model reads every part");
     }
     assert!(seen > 0, "the registry must contain dried ghasts");
 }
