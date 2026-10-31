@@ -2,6 +2,39 @@
 
 use super::*;
 
+#[test]
+fn reused_scratch_preserves_mixed_liquid_streams_after_dense_sections() {
+    let mut scratch = meshing::MeshScratch::default();
+    for (seed, density) in [(1, 70), (2, 8), (3, 30)] {
+        let chunks = mixed_neighbourhood_chunks(seed, density);
+        let mut neighbourhood = MeshNeighbourhood::new(&chunks[13]);
+        for offset in MeshNeighbourhood::adjacent_offsets() {
+            let [x, y, z] = offset.map(|axis| (axis + 1) as usize);
+            assert!(neighbourhood.insert(offset, &chunks[(x * 3 + y) * 3 + z]));
+        }
+        let options = meshing::MeshOptions::default();
+        let fresh = meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+            &BlockClassifier::new(AIR),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            &neighbourhood,
+            &meshing::FullBrightLightSampler,
+            options,
+        );
+        let reused = meshing::mesh_sub_chunk_in_neighbourhood_with_scratch(
+            &BlockClassifier::new(AIR),
+            runtime_assets(),
+            NetworkIdMode::Sequential,
+            &neighbourhood,
+            &meshing::FullBrightLightSampler,
+            options,
+            &mut scratch,
+        );
+        assert!(!reused.liquid_quads().is_empty());
+        assert_eq!(reused, fresh);
+    }
+}
+
 /// Deterministic dense 3x3x3 fixture shared by the mesh-output golden digests.
 fn mixed_neighbourhood_chunks(seed: u64, density: u64) -> Vec<SubChunk> {
     let mut state = seed | 1;

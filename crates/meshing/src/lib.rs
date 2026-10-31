@@ -23,7 +23,9 @@ pub use overlays::{
 mod palette_bits;
 mod publication;
 mod render_settings;
+mod scratch;
 pub use render_settings::MeshRenderSettings;
+pub use scratch::MeshScratch;
 mod types;
 
 const SIDE: usize = world::SUB_CHUNK_SIDE;
@@ -35,7 +37,7 @@ pub use biome::{
 pub use chunk::build::{
     MeshOptions, mesh_sub_chunk, mesh_sub_chunk_in_neighbourhood,
     mesh_sub_chunk_in_neighbourhood_with_lighting, mesh_sub_chunk_in_neighbourhood_with_options,
-    mesh_sub_chunk_with_lighting,
+    mesh_sub_chunk_in_neighbourhood_with_scratch, mesh_sub_chunk_with_lighting,
 };
 pub use classifier::BlockClassifier;
 pub use cloud::{
