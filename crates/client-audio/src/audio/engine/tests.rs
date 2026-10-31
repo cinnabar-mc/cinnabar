@@ -32,10 +32,16 @@ fn definition(name: &str, category: &str) -> AudioDefinition {
 }
 
 pub fn engine(names: &[(&str, &str)]) -> AudioEngine {
-    let defs: Vec<_> = names
-        .iter()
-        .map(|(name, category)| definition(name, category))
-        .collect();
+    engine_with_definitions(
+        names
+            .iter()
+            .map(|(name, category)| definition(name, category))
+            .collect(),
+    )
+}
+
+/// An engine with decoded PCM ready for each definition's only alternative.
+fn engine_with_definitions(defs: Vec<AudioDefinition>) -> AudioEngine {
     let catalog = RuntimeAudioCatalog::decode(
         &assets::encode_audio_catalog([0; 32], [0; 32], &defs).expect("catalog"),
     )
@@ -45,9 +51,9 @@ pub fn engine(names: &[(&str, &str)]) -> AudioEngine {
     let index = SoundBankIndex::decode_prefix(&bytes[..prefix]).expect("index");
     let mut bank =
         SoundBank::from_parts(index, SoundEventTables::default(), Some(Arc::new(catalog)));
-    for (name, _) in names {
+    for def in &defs {
         bank.insert_test_pcm(
-            &format!("sounds/{name}"),
+            &format!("sounds/{}", def.identifier),
             Arc::new(Pcm {
                 channels: 1,
                 rate: 48_000,
@@ -204,15 +210,47 @@ const LISTENER: Listener = Listener {
 };
 
 #[test]
-fn positional_sounds_attenuate_and_drop_beyond_max_distance() {
+fn unspecified_distances_roll_off_inversely_and_start_only_within_sixteen_blocks() {
     let mut engine = engine(&[("dig.stone", "block")]);
     let settings = AudioSettings::default();
     engine.enqueue(SoundRequest::new("dig.stone").at([8.0, 0.0, 0.0]));
-    engine.enqueue(SoundRequest::new("dig.stone").at([40.0, 0.0, 0.0]));
+    engine.enqueue(SoundRequest::new("dig.stone").at([16.0, 0.0, 0.0]));
     let started = engine.pump(Some(LISTENER), 0.05, &settings);
     assert_eq!(started.len(), 1);
     assert_eq!(engine.stats.out_of_range, 1);
-    assert!((engine.voices[0].gain - 0.5).abs() < 1e-3);
+    assert!((engine.voices[0].gain - 0.125).abs() < 1e-3);
+}
+
+// A launch sound stays audible while a boosted glide carries the listener away from it.
+#[test]
+fn a_started_voice_keeps_its_tail_as_the_listener_leaves_the_start_radius() {
+    let mut engine = engine(&[("firework.launch", "neutral")]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("firework.launch").at([0.5, 0.0, 0.0]));
+    let started = engine.pump(Some(LISTENER), 0.05, &settings);
+    assert_eq!(started.len(), 1);
+    assert_eq!(engine.voices[0].gain, 1.0);
+    let far = Listener {
+        position: [-39.5, 0.0, 0.0],
+        ..LISTENER
+    };
+    engine.pump(Some(far), 0.05, &settings);
+    assert!((engine.voices[0].gain - 0.025).abs() < 1e-3);
+}
+
+#[test]
+fn definition_distances_select_the_native_rolloff() {
+    let mut linear = definition("linear", "block");
+    linear.max_distance = Some(32.0);
+    let mut inverse = definition("inverse", "block");
+    inverse.min_distance = Some(5.0);
+    let mut engine = engine_with_definitions(vec![linear, inverse]);
+    let settings = AudioSettings::default();
+    engine.enqueue(SoundRequest::new("linear").at([8.0, 0.0, 0.0]));
+    engine.enqueue(SoundRequest::new("inverse").at([10.0, 0.0, 0.0]));
+    assert_eq!(engine.pump(Some(LISTENER), 0.05, &settings).len(), 2);
+    assert!((engine.voices[0].gain - 0.75).abs() < 1e-3);
+    assert!((engine.voices[1].gain - 0.5).abs() < 1e-3);
 }
 
 // Thunder's volume 1000 widened its range but also became a 1000x output gain.

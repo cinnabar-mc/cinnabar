@@ -1192,6 +1192,9 @@ The sound-definition catalog matches the current sample-pack pin; compiler cover
 checks a UI sound and guards the manifest associated with the sound-definition digest.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+World sounds use the native distance curves: inverse from one block by default, linear
+with only a maximum, inverse from the definition's minimum otherwise, and start within
+16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.

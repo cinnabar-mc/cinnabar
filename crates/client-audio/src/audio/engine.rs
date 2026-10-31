@@ -10,7 +10,7 @@ use super::{
     bank::{PcmLookup, SoundBank},
     echo::{EchoLedger, EchoOrigin, EchoSubject},
     settings::AudioSettings,
-    voice::{VoiceShared, VoiceSource, attenuation, pan_for},
+    voice::{Rolloff, VoiceShared, VoiceSource, pan_for},
 };
 
 /// Concurrent voice ceiling; needs native measurement.
@@ -19,8 +19,8 @@ const MAX_QUEUED: usize = 256;
 /// Starts waiting on a decode, across frames.
 const MAX_PENDING: usize = 64;
 const MAX_SAME_SOUND: usize = 6;
-/// Audible radius of a positional sound without an explicit `max_distance`.
-const DEFAULT_MAX_DISTANCE: f32 = 16.0;
+/// Radius within which a world sound at unit volume may start; louder requests scale it.
+const START_RADIUS: f32 = 16.0;
 /// Seconds a managed loop takes to fade in or out; needs native measurement.
 const LOOP_FADE_SECONDS: f32 = 1.5;
 /// A one-shot still decoding after this long is dropped rather than played late.
@@ -117,8 +117,7 @@ struct Voice {
     target_level: f32,
     fade_per_second: f32,
     position: Option<[f32; 3]>,
-    min: f32,
-    max: f32,
+    rolloff: Rolloff,
     key: Option<&'static str>,
     jukebox: Option<[i32; 3]>,
     priority: u8,
@@ -479,10 +478,7 @@ impl AudioEngine {
                     ];
                     let distance =
                         (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt();
-                    (
-                        attenuation(distance, voice.min, voice.max),
-                        pan_for(delta, listener.right),
-                    )
+                    (voice.rolloff.gain(distance), pan_for(delta, listener.right))
                 }
                 (Some(_), None) => (0.0, 0.0),
                 (None, _) => (1.0, 0.0),
@@ -550,7 +546,7 @@ impl AudioEngine {
             .unwrap_or(alternatives[0]);
         let category = AudioCategory::from_definition(definition.category.as_deref());
         let request_volume = request.volume.sample(roll[1], roll[2]);
-        // Vanilla widens the audible range by the raw volume but clamps the playback gain to unity.
+        // Vanilla widens the start radius by the raw volume but clamps the playback gain to unity.
         let request_gain = if request_volume.is_finite() {
             request_volume.clamp(0.0, 1.0)
         } else {
@@ -563,8 +559,7 @@ impl AudioEngine {
         .clamp(0.05, 8.0);
         let flat = matches!(category, AudioCategory::Music | AudioCategory::Ui);
         let positional = request.position.is_some() && chosen.is_3d != Some(false) && !flat;
-        let min = definition.min_distance.unwrap_or(0.0).max(0.0);
-        let max = definition.max_distance.unwrap_or(DEFAULT_MAX_DISTANCE) * request_volume.max(1.0);
+        let rolloff = Rolloff::from_definition(definition.min_distance, definition.max_distance);
         let stream = chosen.stream == Some(true);
         let path = chosen.name.clone();
         let identifier = definition.identifier.clone();
@@ -579,8 +574,11 @@ impl AudioEngine {
                 .map(|axis| (position[axis] - listener.position[axis]).powi(2))
                 .sum::<f32>()
                 .sqrt();
-            distance_gain = attenuation(delta, min, max);
-            if distance_gain <= 0.0 {
+            distance_gain = rolloff.gain(delta);
+            // Loops and records keep playing out of range; only a fresh world sound is gated.
+            let gated = managed.is_none() && request.jukebox.is_none();
+            let beyond_start = gated && delta >= START_RADIUS * request_volume.max(1.0);
+            if distance_gain <= 0.0 || beyond_start {
                 self.stats.out_of_range += 1;
                 return None;
             }
@@ -674,8 +672,7 @@ impl AudioEngine {
                 0.0
             },
             position,
-            min,
-            max,
+            rolloff,
             key,
             jukebox: request.jukebox,
             priority: new_priority,
