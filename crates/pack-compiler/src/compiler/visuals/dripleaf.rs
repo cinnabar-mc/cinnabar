@@ -213,12 +213,7 @@ fn skirts(facing: Facing, tilt: &Tilt, front: u32, side: u32) -> [ModelQuad; 3] 
             in_facing(facing, 16.0 - tilt.front_inset, tilt.front_bottom, 16.0),
             in_facing(facing, 16.0 - tilt.front_inset, tilt.front_bottom, 0.0),
         ],
-        [
-            [FULL_UV, 0],
-            [0, 0],
-            [0, SKIRT_V],
-            [FULL_UV, SKIRT_V],
-        ],
+        [[FULL_UV, 0], [0, 0], [0, SKIRT_V], [FULL_UV, SKIRT_V]],
         front,
     );
     let side_quad = |lateral: f32| {
