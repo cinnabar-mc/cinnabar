@@ -109,6 +109,39 @@ pub const VIEW_BOBBING_CHOICES: &[SettingChoice] = &[
 pub const NATIVE_SKYBOX_OFFSET_OPTION: SettingDefinition =
     SettingId::NativeSkyboxOffset.definition();
 
+/// Derives each radio choice from the exhaustive mode contract.
+const fn far_terrain_choice(mode: render_api::far_terrain::FarTerrainMode) -> SettingChoice {
+    use render_api::far_terrain::FarTerrainMode;
+    match mode {
+        FarTerrainMode::Auto => SettingChoice {
+            name: "far_terrain_radio_auto",
+            label: "Auto",
+        },
+        FarTerrainMode::On => SettingChoice {
+            name: "far_terrain_radio_on",
+            label: "On",
+        },
+        FarTerrainMode::Off => SettingChoice {
+            name: "far_terrain_radio_off",
+            label: "Off",
+        },
+    }
+}
+
+/// Mode captions and bindings in their persisted index order.
+pub const FAR_TERRAIN_CHOICES: &[SettingChoice] = &{
+    let modes = render_api::far_terrain::FarTerrainMode::ALL;
+    let mut choices =
+        [far_terrain_choice(modes[0]); render_api::far_terrain::FarTerrainMode::ALL.len()];
+    let mut index = 0;
+    while index < choices.len() {
+        assert!(modes[index].index() as usize == index);
+        choices[index] = far_terrain_choice(modes[index]);
+        index += 1;
+    }
+    choices
+};
+
 pub const MOTION_BLUR_CHOICES: &[SettingChoice] = &[
     SettingChoice {
         name: "motion_blur_radio_off",
@@ -251,6 +284,21 @@ const fn slider(
     option(id, label, SettingKind::Slider, min, max, default)
 }
 
+/// Defines a slider whose valid values are evenly spaced from its minimum.
+const fn stepped_slider(
+    id: SettingId,
+    label: &'static str,
+    min: i32,
+    max: i32,
+    default: i32,
+    step: i32,
+) -> SettingDefinition {
+    SettingDefinition {
+        step,
+        ..slider(id, label, min, max, default)
+    }
+}
+
 /// Defines a dropdown in its displayed radio-choice order.
 const fn dropdown(
     id: SettingId,
@@ -385,8 +433,12 @@ settings! {
         [(SettingPanel::AccessibilityGameplay, 4)], [SettingsGroup::Accessibility], None, None;
     RenderDistance => "render_distance", slider("options.renderDistance", ui::MIN_RENDER_DISTANCE_CHUNKS as i32, render_api::MAX_VIEW_RADIUS_CHUNKS, ui::MIN_RENDER_DISTANCE_CHUNKS as i32),
         [(SettingPanel::VideoGraphics, 10)], [SettingsGroup::Video], None, None;
-    ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
+    FarTerrain => "far_terrain_mode", dropdown("Far Terrain (LOD)", FAR_TERRAIN_CHOICES, render_api::far_terrain::FarTerrainMode::DEFAULT.index()),
         [(SettingPanel::VideoGraphics, 11)], [SettingsGroup::Video], None, None;
+    FullDetailDistance => "far_terrain_full_detail_distance", stepped_slider("Full-Detail Distance", render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::MAX_FULL_DETAIL_CHUNKS as i32, render_api::far_terrain::FULL_DETAIL_AUTO as i32, render_api::far_terrain::FULL_DETAIL_STEP_CHUNKS as i32),
+        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+    ChunkOcclusionCulling => "chunk_occlusion_culling", toggle("Chunk Occlusion Culling", render_api::DEFAULT_CHUNK_OCCLUSION_CULLING),
+        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
     MaxFramerate => "max_framerate", slider("options.framerateLimit", MIN_FIXED_FRAME_RATE, FRAME_RATE_UNLIMITED, FRAME_RATE_UNLIMITED),
         [(SettingPanel::VideoGraphics, 1)], [SettingsGroup::Video], None, None;
     Msaa => "msaa", slider("options.msaa", ui::ANTI_ALIASING_SAMPLE_COUNTS[0] as i32, ui::ANTI_ALIASING_SAMPLE_COUNTS[ui::ANTI_ALIASING_SAMPLE_COUNTS.len() - 1] as i32, ui::DEFAULT_ANTI_ALIASING_SAMPLES as i32),
@@ -544,9 +596,9 @@ settings! {
     GuiScale => "gui_scale", host("options.guiScale.optionName"),
         [(SettingPanel::AccessibilityUi, 2), (SettingPanel::VideoAccessibility, 0)], [SettingsGroup::Video, SettingsGroup::Accessibility], None, None;
     RenderResolution => "render_resolution", slider("Render Resolution", ui::MIN_RENDER_SCALE_PERCENT as i32, ui::MAX_RENDER_SCALE_PERCENT as i32, ui::DEFAULT_RENDER_SCALE_PERCENT as i32),
-        [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
-        [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+        [(SettingPanel::VideoGraphics, 15)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

@@ -315,7 +315,7 @@ fn video_controls_admit_pointer_and_keyboard_focus() {
     }
 }
 
-/// Both responsive selector forms accept pointer and keyboard/controller focus.
+/// Responsive motion and terrain selectors accept pointer and keyboard/controller focus.
 #[test]
 fn motion_selectors_and_choices_admit_pointer_and_navigation_focus() {
     use launcher::menu::{MenuAction, settings_options::SettingId};
@@ -325,7 +325,11 @@ fn motion_selectors_and_choices_admit_pointer_and_navigation_focus() {
         );
         return;
     };
-    for id in [SettingId::Animations, SettingId::ViewBobbing] {
+    for id in [
+        SettingId::Animations,
+        SettingId::ViewBobbing,
+        SettingId::FarTerrain,
+    ] {
         let option = id.definition();
         let index = id.index() as u16;
         let mut view = launcher::menu::MenuView::new(true, "Player".to_owned());

@@ -469,6 +469,54 @@ fn motion_blur_dropdown_binds_saved_presets_and_edits_the_registered_option() {
     }
 }
 
+/// The in-game bindings expose the saved mode and chunk-unit radius and route every radio edit.
+#[test]
+fn far_terrain_controls_bind_modes_and_full_detail_chunk_labels() {
+    use launcher::menu::settings_options::SettingKind;
+    let mut view = view(MenuScreen::Settings);
+    let far = SettingId::FarTerrain.definition();
+    let full = SettingId::FullDetailDistance.definition();
+    let SettingKind::Dropdown(choices) = far.kind else {
+        unreachable!("far terrain modes");
+    };
+    for (at, choice) in choices.iter().enumerate() {
+        Arc::make_mut(&mut view.settings_options).set(far.id.index(), at as i32);
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &str::to_owned);
+        let mut expected = actual.clone();
+        expected.set_global(
+            format!("#{}_dropdown_toggle_label", far.name),
+            Scalar::Text(choice.label.into()),
+        );
+        assert_eq!(actual, expected);
+        let mut radio = region(HitKind::Toggle, None);
+        radio.control_name = Some(choice.name.into());
+        assert_eq!(
+            super::super::settings_controls::action(&view, &radio),
+            Some(MenuAction::SettingsOption(far.id.index() as u16, at as i32))
+        );
+    }
+    for radius in (full.min..=full.max).step_by(full.step as usize) {
+        Arc::make_mut(&mut view.settings_options).set(full.id.index(), radius);
+        let mut actual = DataSource::default();
+        super::super::settings_controls::bind(&view, &mut actual, &|key| {
+            if key == "options.renderDistanceFormat" {
+                "%s chunks".into()
+            } else {
+                key.into()
+            }
+        });
+        let mut expected = actual.clone();
+        let shown = if radius == full.min {
+            "Auto".into()
+        } else {
+            format!("{radius} chunks")
+        };
+        expected.set_global(format!("#{}_text_value", full.name), Scalar::Text(shown));
+        assert_eq!(actual, expected);
+    }
+}
+
 #[test]
 fn spatial_antialiasing_choices_bind_shared_labels_and_edit_the_saved_setting() {
     use launcher::menu::settings_options::{SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION};

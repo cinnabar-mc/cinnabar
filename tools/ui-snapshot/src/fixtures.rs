@@ -942,6 +942,7 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(shader_pack::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
+        .chain(settings_screens::FAR_TERRAIN_STATES)
         .chain(settings_screens::WORLD_STATES)
         .chain(settings_screens::PAGE_STATES)
         .chain(server_forms::STATES)

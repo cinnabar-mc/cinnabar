@@ -30,6 +30,10 @@ impl Content<'_, '_> {
         .unwrap_or_default();
         let description = if id == SettingId::ChunkOcclusionCulling {
             "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
+        } else if id == SettingId::FarTerrain {
+            "Draw simplified terrain received from this world. Off by default. Auto enables it above this device's full-detail distance.".to_owned()
+        } else if id == SettingId::FullDetailDistance {
+            "Chunks around you drawn with every block while Far Terrain is enabled. Auto chooses for this device.".to_owned()
         } else if id == SettingId::RenderScaleSharpen {
             "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
         } else if id == SettingId::RenderResolution {

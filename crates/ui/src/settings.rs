@@ -264,8 +264,7 @@ impl Default for VideoSettings {
             show_custom_item_models: DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
             show_other_player_cosmetics: DEFAULT_SHOW_OTHER_PLAYER_COSMETICS,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
-            // Far terrain has no setting while it is disabled.
-            far_terrain: render_api::far_terrain::FarTerrainMode::Off,
+            far_terrain: render_api::far_terrain::FarTerrainMode::DEFAULT,
             full_detail_distance_chunks: render_api::far_terrain::FULL_DETAIL_AUTO,
         }
     }
