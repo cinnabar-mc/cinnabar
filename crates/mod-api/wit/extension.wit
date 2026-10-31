@@ -1123,10 +1123,8 @@ world packet-mod {
     export stop: func();
 }
 
-/// Explicit opt-in sound filtering in addition to ordinary action filtering.
-/// Older components and the existing worlds remain supported without this export.
-world audio-filtered-player-mod {
-    include filtered-player-mod;
+/// Composable sound-filter callback; older worlds remain supported without this export.
+world sound-filter-callback {
     use sound-filter.{sound-event};
     /// One batch per presented audio frame, at most 256 new playback requests.
     /// Return one boolean per event: true plays, false cancels. All authorized active
@@ -1136,4 +1134,17 @@ world audio-filtered-player-mod {
     /// Approved starts waiting for decoding are not offered again. Playing voices are not
     /// retroactively stopped; managed loops are offered again when they next need a start.
     export filter-sounds: func(events: list<sound-event>) -> list<bool>;
+}
+
+/// A personal component with sound cancellation and ordinary frame and UI callbacks.
+/// Exporting this world does not claim action-filter ownership.
+world sound-filtered-player-mod {
+    include player-mod;
+    include sound-filter-callback;
+}
+
+/// Explicit opt-in sound cancellation together with the existing action-filter callback.
+world audio-filtered-player-mod {
+    include filtered-player-mod;
+    include sound-filter-callback;
 }

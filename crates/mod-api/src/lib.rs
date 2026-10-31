@@ -230,6 +230,13 @@ pub mod filtered_player_mod;
 )]
 pub mod audio_filtered_player_mod;
 
+/// Sound-only opt-in bindings that never claim action-filter ownership.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Canonical ABI flattens screen records"
+)]
+pub mod sound_filtered_player_mod;
+
 /// The `packet-mod` world: a trusted mod that relays every session packet.
 #[allow(
     clippy::too_many_arguments,
