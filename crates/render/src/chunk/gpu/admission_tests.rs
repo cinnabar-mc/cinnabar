@@ -290,7 +290,8 @@ fn spent_preparation_time_defers_the_burst_without_reordering_it() {
             .unwrap()
             .into_render_entity()
             .unwrap();
-        instance.publication_permit = Some(render_scene::PublicationPermitSlot::new(permit));
+        instance.publication_permit =
+            Some(render_scene::chunk::api::PublicationPermitSlot::new(permit));
         app.world_mut().spawn(instance).id()
     };
     // Spawned out of order: the urgent edit goes first, then nearest first.
