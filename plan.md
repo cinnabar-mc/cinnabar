@@ -409,6 +409,9 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+Rockets carrying an owner in actor data read as attached to an entity, so the rocket
+controller hides them; the native query body was not readable, so that mapping is inferred
+from its description and the rocket tick.
 A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
