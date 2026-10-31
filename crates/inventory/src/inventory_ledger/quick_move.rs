@@ -397,7 +397,12 @@ impl PlayerInventoryLedger {
     }
 
     /// The window cells a negotiated stack shift-clicks into.
-    fn window_destinations(&self, kind: WindowKind, network_id: i32, metadata: u32) -> Vec<Cell> {
+    pub(super) fn window_destinations(
+        &self,
+        kind: WindowKind,
+        network_id: i32,
+        metadata: u32,
+    ) -> Vec<Cell> {
         let input = self.quick_move_input_route(kind, network_id, metadata);
         let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
             range

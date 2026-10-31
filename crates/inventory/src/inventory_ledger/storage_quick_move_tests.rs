@@ -57,6 +57,254 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
 }
 
 #[test]
+fn double_click_gather_fills_chest_without_consuming_cursor() {
+    let mut ledger = known_ledger(&[(1, stack(6, 11, 20)), (2, stack(6, 12, 64))]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    let mut storage = vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT];
+    storage[0] = stack(6, 100, 60);
+    let mut incompatible = stack(6, 101, 64);
+    incompatible.metadata = 1;
+    storage[1] = incompatible.clone();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: storage.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(6, 50, 20),
+        storage_item: None,
+    }));
+
+    ledger
+        .begin_gather_to_storage(InventoryTarget::Player(0))
+        .unwrap();
+
+    assert_eq!(ledger.cursor_stack().unwrap().count, 20);
+    assert_eq!(ledger.displayed_stack(1), None);
+    assert_eq!(ledger.displayed_stack(2), None);
+    assert_eq!(ledger.storage_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.storage_stack(1), Some(&incompatible));
+    assert_eq!(ledger.storage_stack(2).unwrap().count, 16);
+    assert_eq!(ledger.storage_stack(3).unwrap().count, 64);
+    assert_eq!(ledger.storage_stack(4), None);
+}
+
+#[test]
+fn double_click_gather_returns_to_player_without_consuming_cursor() {
+    let mut incompatible = stack(6, 101, 64);
+    incompatible.metadata = 1;
+    let mut ledger = known_ledger(&[(0, stack(6, 11, 60)), (1, incompatible.clone())]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    let mut storage = vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT];
+    storage[0] = stack(6, 100, 20);
+    storage[1] = stack(6, 102, 64);
+    storage[2] = incompatible.clone();
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: storage.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+
+    ledger
+        .begin_gather_to_player(InventoryTarget::Storage(0))
+        .unwrap();
+
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
+    assert_eq!(ledger.storage_stack(0), None);
+    assert_eq!(ledger.storage_stack(1), None);
+    assert_eq!(ledger.storage_stack(2), Some(&incompatible));
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(1), Some(&incompatible));
+    assert_eq!(ledger.displayed_stack(2).unwrap().count, 16);
+    assert_eq!(ledger.displayed_stack(3).unwrap().count, 64);
+}
+
+#[test]
+fn double_click_return_stacks_after_initial_shift_move() {
+    let mut ledger = known_ledger(&[(0, stack(6, 11, 60))]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    let mut storage = vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT];
+    storage[0] = stack(6, 100, 20);
+    storage[1] = stack(6, 102, 64);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: storage.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+
+    ledger
+        .begin_quick_move(InventoryTarget::Storage(0))
+        .unwrap();
+    ledger
+        .begin_gather_to_player_with_focus(InventoryTarget::Storage(0), Some(stack(6, 100, 20)))
+        .unwrap();
+
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
+    assert_eq!(ledger.storage_stack(0), None);
+    assert_eq!(ledger.storage_stack(1), None);
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(2).unwrap().count, 16);
+}
+
+#[test]
+fn double_click_return_fills_an_empty_slot_before_using_another() {
+    let mut ledger = known_ledger(&[]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    let mut storage = vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT];
+    storage[0] = stack(6, 100, 20);
+    storage[1] = stack(6, 102, 64);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: storage.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+
+    ledger
+        .begin_quick_move(InventoryTarget::Storage(0))
+        .unwrap();
+    ledger
+        .begin_gather_to_player_with_focus(InventoryTarget::Storage(0), Some(stack(6, 100, 20)))
+        .unwrap();
+
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 64);
+    assert_eq!(ledger.displayed_stack(1).unwrap().count, 20);
+    assert_eq!(ledger.displayed_stack(2), None);
+}
+
+#[test]
+fn double_click_gather_requires_a_cursor_item() {
+    let mut ledger = known_ledger(&[(0, stack(6, 11, 20))]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT].into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+
+    assert_eq!(
+        ledger.begin_gather_to_storage(InventoryTarget::Player(0)),
+        Err(InventoryGestureError::EmptyGesture)
+    );
+    assert_eq!(
+        ledger.begin_gather_to_player(InventoryTarget::Storage(0)),
+        Err(InventoryGestureError::EmptyGesture)
+    );
+    assert!(ledger.newest_request().is_none());
+}
+
+#[test]
+fn double_click_gather_uses_the_clicked_item_as_focus() {
+    let mut ledger = known_ledger(&[(0, stack(6, 11, 20)), (1, stack(6, 12, 64))]);
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(7),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: vec![NetworkItemStack::default(); SMALL_STORAGE_SLOT_COUNT].into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+
+    ledger
+        .begin_gather_to_storage_with_focus(InventoryTarget::Player(0), Some(stack(6, 11, 20)))
+        .unwrap();
+
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
+    assert_eq!(ledger.storage_stack(0).unwrap().network_id, 6);
+    assert_eq!(ledger.storage_stack(0).unwrap().count, 20);
+    assert_eq!(ledger.storage_stack(1).unwrap().network_id, 6);
+    assert_eq!(ledger.storage_stack(1).unwrap().count, 64);
+}
+
+#[test]
 fn chest_return_fills_first_available_hotbar_cell() {
     let mut ledger = chest(
         &[

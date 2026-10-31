@@ -575,6 +575,30 @@ fn gather_fills_the_cursor_partial_stacks_first() {
     assert_eq!(ledger.displayed_stack(6).unwrap().count, 30);
 }
 
+/// Gather leaves stacks with different item data in their original cells.
+#[test]
+fn gather_only_collects_compatible_item_stacks() {
+    let mut incompatible = stack(12, 40);
+    incompatible.metadata = 1;
+    let mut ledger = personal_ledger(&[(5, stack(11, 20)), (6, incompatible.clone())]);
+    set_cursor(&mut ledger, stack(50, 10));
+
+    ledger.begin_gather().unwrap();
+
+    let request = ledger.newest_request().unwrap();
+    let takes: Vec<(u8, u8)> = request
+        .actions
+        .iter()
+        .filter_map(|action| match action {
+            StackRequestAction::Take { amount, source, .. } => Some((source.slot, *amount)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(takes, vec![(5, 20)]);
+    assert_eq!(ledger.cursor_stack().unwrap().count, 30);
+    assert_eq!(ledger.displayed_stack(6), Some(&incompatible));
+}
+
 fn bundle_stack(stack_network_id: i32, bundle_id: i32) -> NetworkItemStack {
     let mut nbt = vec![10, 0, 0, 3, 9, 0];
     nbt.extend(b"bundle_id");

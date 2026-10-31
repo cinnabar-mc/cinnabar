@@ -2,6 +2,7 @@
 //! double-click gather. Pure so the click timing is testable.
 
 use inventory::inventory_ledger::{DragDistribution, MAX_DISTRIBUTION_CELLS};
+use protocol::NetworkItemStack;
 use ui_screens::container_actions::InventoryCellHit;
 
 /// Two primary presses this close on one cell gather the held item.
@@ -25,11 +26,17 @@ pub enum PointerAction {
     },
     /// Clears incremental split accounting after the matching button is released.
     EndDistribute,
-    Gather,
+    /// Collects every compatible stack; Shift routes an open chest's stacks into storage.
+    Gather {
+        hit: InventoryCellHit,
+        shift: bool,
+        /// The stack that was under the pointer before the first click.
+        focus: Option<NetworkItemStack>,
+    },
 }
 
 /// One frame of button edges plus the cell under the pointer.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PointerFrame {
     pub primary_pressed: bool,
     pub primary_released: bool,
@@ -39,6 +46,8 @@ pub struct PointerFrame {
     /// Whether the cursor holds an item.
     pub holding: bool,
     pub hit: Option<InventoryCellHit>,
+    /// The stack under `hit` before this frame's click is applied.
+    pub hit_stack: Option<NetworkItemStack>,
     pub now_millis: u64,
 }
 
@@ -51,7 +60,7 @@ struct Drag {
 #[derive(Debug, Clone, Default)]
 pub struct InventoryPointer {
     drag: Option<Drag>,
-    last_primary: Option<(InventoryCellHit, u64)>,
+    last_primary: Option<(InventoryCellHit, u64, bool, Option<NetworkItemStack>)>,
     pub(crate) distribution: Option<DragDistribution>,
 }
 
@@ -105,11 +114,14 @@ impl InventoryPointer {
             }
         }
         if frame.primary_pressed {
-            self.press_primary(frame, &mut actions);
+            self.press_primary(&frame, &mut actions);
         }
         // When both edges arrive together the primary operation wins.
         if frame.secondary_pressed && !frame.primary_pressed {
             self.drag = None;
+            // A secondary click is an intervening gesture, so the next primary
+            // press must not be mistaken for the second half of a double-click.
+            self.last_primary = None;
             let Some(hit) = frame.hit else {
                 return actions;
             };
@@ -130,21 +142,39 @@ impl InventoryPointer {
         actions
     }
 
-    fn press_primary(&mut self, frame: PointerFrame, actions: &mut Vec<PointerAction>) {
+    fn press_primary(&mut self, frame: &PointerFrame, actions: &mut Vec<PointerAction>) {
         self.drag = None;
         let Some(hit) = frame.hit else {
+            // Clicking outside the inventory also breaks a double-click pair.
+            self.last_primary = None;
             return;
         };
-        let double = self.last_primary.is_some_and(|(cell, at)| {
-            cell == hit && frame.now_millis.saturating_sub(at) <= DOUBLE_CLICK_MILLIS
-        });
-        self.last_primary = Some((hit, frame.now_millis));
-        if frame.shift {
+        let double = self
+            .last_primary
+            .as_ref()
+            .is_some_and(|(cell, at, was_shift, _)| {
+                *cell == hit
+                    && *was_shift == frame.shift
+                    && frame.now_millis.saturating_sub(*at) <= DOUBLE_CLICK_MILLIS
+            });
+        let focus = self
+            .last_primary
+            .as_ref()
+            .and_then(|(_, _, _, stack)| stack.clone())
+            .or_else(|| frame.hit_stack.clone());
+        self.last_primary = Some((hit, frame.now_millis, frame.shift, frame.hit_stack.clone()));
+        if double && frame.holding && draggable(hit) {
             self.last_primary = None;
+            actions.push(PointerAction::Gather {
+                hit,
+                shift: frame.shift,
+                focus,
+            });
+        } else if frame.shift {
+            // Keep this press as a possible second Shift-click. If the cursor
+            // is already holding an item, a matching second press becomes the
+            // chest transfer gesture above.
             actions.push(PointerAction::QuickMove(hit));
-        } else if double && frame.holding && draggable(hit) {
-            self.last_primary = None;
-            actions.push(PointerAction::Gather);
         } else {
             // Vanilla places on the press; visiting a second cell turns it into a live split.
             if frame.holding && draggable(hit) {
@@ -175,6 +205,7 @@ mod tests {
             shift: false,
             holding: true,
             hit,
+            hit_stack: None,
             now_millis: now,
         }
     }
@@ -356,12 +387,99 @@ mod tests {
             primary_pressed: true,
             ..frame(Some(A), 100)
         };
-        assert_eq!(pointer.step(second), vec![PointerAction::Gather]);
+        assert_eq!(
+            pointer.step(second),
+            vec![PointerAction::Gather {
+                hit: A,
+                shift: false,
+                focus: None,
+            }]
+        );
         let late = PointerFrame {
             primary_pressed: true,
             ..frame(Some(A), 900)
         };
         assert_eq!(pointer.step(late), vec![PointerAction::Click(A)]);
+    }
+
+    #[test]
+    fn shift_double_click_gathers_while_holding_an_item() {
+        let mut pointer = InventoryPointer::default();
+        let focus = NetworkItemStack {
+            network_id: 6,
+            count: 20,
+            ..NetworkItemStack::default()
+        };
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                shift: true,
+                hit_stack: Some(focus.clone()),
+                ..frame(Some(A), 0)
+            }),
+            vec![PointerAction::QuickMove(A)]
+        );
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                shift: true,
+                ..frame(Some(A), 100)
+            }),
+            vec![PointerAction::Gather {
+                hit: A,
+                shift: true,
+                focus: Some(focus),
+            }]
+        );
+    }
+
+    #[test]
+    fn an_intervening_secondary_press_breaks_gather() {
+        let mut pointer = InventoryPointer::default();
+        pointer.step(PointerFrame {
+            primary_pressed: true,
+            holding: false,
+            ..frame(Some(A), 0)
+        });
+        assert_eq!(
+            pointer.step(PointerFrame {
+                secondary_pressed: true,
+                ..frame(Some(A), 50)
+            }),
+            vec![PointerAction::SecondaryClick(A)]
+        );
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                ..frame(Some(A), 100)
+            }),
+            vec![PointerAction::Click(A)]
+        );
+    }
+
+    #[test]
+    fn clicking_outside_the_inventory_breaks_gather() {
+        let mut pointer = InventoryPointer::default();
+        pointer.step(PointerFrame {
+            primary_pressed: true,
+            holding: false,
+            ..frame(Some(A), 0)
+        });
+        assert!(
+            pointer
+                .step(PointerFrame {
+                    primary_pressed: true,
+                    ..frame(None, 50)
+                })
+                .is_empty()
+        );
+        assert_eq!(
+            pointer.step(PointerFrame {
+                primary_pressed: true,
+                ..frame(Some(A), 100)
+            }),
+            vec![PointerAction::Click(A)]
+        );
     }
 
     #[test]
