@@ -29,6 +29,8 @@ pub(super) struct ModObservation<'w, 's> {
     native_camera: Local<'s, native_camera::NativeCamera>,
     bindings: Local<'s, bindings::Bindings>,
     input_settings: Option<Res<'w, client_state::RuntimeSettings>>,
+    #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+    pointer_isolation: Option<ResMut<'w, crate::developer_control::PointerIsolation>>,
 }
 
 #[allow(
@@ -71,6 +73,8 @@ pub(super) fn drive_mod(
         mut native_camera,
         mut bindings,
         input_settings,
+        #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+        mut pointer_isolation,
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
@@ -455,6 +459,10 @@ pub(super) fn drive_mod(
         && let Ok((mut window, _)) = windows.single_mut()
         && window.focused
         && container.is_some()
+        && !extension
+            .hosts
+            .host(extension.hosts.panel_owner())
+            .panel_open()
         && container_pointer_available(
             &player_runtime,
             &ui,
@@ -467,6 +475,14 @@ pub(super) fn drive_mod(
             (x * window.width()).min((window.width() - 1.0).max(0.0)),
             (y * window.height()).min((window.height() - 1.0).max(0.0)),
         );
+        #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
+        crate::developer_control::position_pointer(
+            &mut window,
+            pointer_isolation.as_deref_mut(),
+            driven.is_some(),
+            point,
+        );
+        #[cfg(not(all(feature = "developer-control", not(target_arch = "wasm32"))))]
         window.set_cursor_position(Some(point));
     }
     let merged = multi::collect_frame_outputs(&mut extension.hosts);

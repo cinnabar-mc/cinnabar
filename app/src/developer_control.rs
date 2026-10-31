@@ -6,6 +6,7 @@ mod camera;
 mod cape;
 mod capture;
 mod cursor_isolation;
+pub(crate) use cursor_isolation::{Isolation as PointerIsolation, position_pointer};
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;

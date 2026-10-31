@@ -486,3 +486,40 @@ fn virtual_pointer_outside_the_viewport_survives_a_later_resize() {
     );
     assert_eq!(app.world().resource::<NativeFacing>().cursor_updates, 0);
 }
+
+/// A host-requested move survives virtual frame boundaries without moving the physical cursor.
+#[test]
+fn requested_pointer_position_persists_for_driven_input() {
+    fn request_once(
+        mut once: Local<bool>,
+        mut window: Single<&mut Window, With<PrimaryWindow>>,
+        mut isolation: ResMut<super::Isolation>,
+    ) {
+        if !*once {
+            super::position_pointer(
+                &mut window,
+                Some(&mut isolation),
+                true,
+                Vec2::new(120.0, 90.0),
+            );
+            *once = true;
+        }
+    }
+    fn observe(window: Single<&Window, With<PrimaryWindow>>, mut sample: ResMut<UiSample>) {
+        sample.0.push(window.cursor_position());
+    }
+    let (mut app, entity) = harness();
+    app.insert_resource(DrivenInput).init_resource::<UiSample>();
+    app.add_systems(Update, request_once);
+    app.add_systems(PostUpdate, observe);
+    app.update();
+    app.update();
+    assert_eq!(
+        app.world().resource::<UiSample>().0,
+        vec![Some(Vec2::new(120.0, 90.0)); 2]
+    );
+    assert_eq!(
+        app.world().get::<Window>(entity).unwrap().cursor_position(),
+        Some(Vec2::new(31.0, 47.0))
+    );
+}
