@@ -74,7 +74,8 @@ use visuals::{
         is_chiseled_bookshelf_record,
     },
     cactus::{
-        cactus_inventory_is_exact, cactus_material_descriptors, is_cactus_name, is_cactus_record,
+        cactus_inventory_is_exact, cactus_material_descriptors, cactus_quads, is_cactus_name,
+        is_cactus_record,
     },
     cake::{
         cake_inventory_is_exact, cake_material_descriptors, cake_source_alpha_is_exact,

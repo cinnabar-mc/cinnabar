@@ -34,6 +34,7 @@ pub(in crate::compiler) struct ExactRuleContext<'a> {
     pub(in crate::compiler) visual: &'a mut BlockVisual,
     pub(in crate::compiler) cuboid_template_by_key: &'a mut BTreeMap<CuboidTemplateKey, u32>,
     pub(in crate::compiler) chiseled_bookshelf_template_by_key: &'a mut BTreeMap<[u32; 5], u32>,
+    pub(in crate::compiler) cactus_template: &'a mut Option<u32>,
     pub(in crate::compiler) model_templates: &'a mut Vec<ModelTemplate>,
     pub(in crate::compiler) model_quads: &'a mut Vec<ModelQuad>,
 }
@@ -49,6 +50,7 @@ pub(in crate::compiler) fn compile_exact_families(
         visual,
         cuboid_template_by_key,
         chiseled_bookshelf_template_by_key,
+        cactus_template,
         model_templates,
         model_quads,
     } = context;
@@ -148,15 +150,19 @@ pub(in crate::compiler) fn compile_exact_families(
         });
         if let Some([Some(side), Some(bottom), Some(top)]) = materials {
             let faces = [side, side, bottom, top, side, side];
-            let template = intern_cuboid_template(
-                faces,
-                [16, 0, 16],
-                [240, 256, 240],
-                0,
-                cuboid_template_by_key,
-                model_templates,
-                model_quads,
-            )?;
+            // Every age reads the same three materials, so all states share one template.
+            let template = if let Some(template) = **cactus_template {
+                template
+            } else {
+                let template = push_model_template(
+                    cactus_quads(faces).to_vec(),
+                    0,
+                    model_templates,
+                    model_quads,
+                )?;
+                **cactus_template = Some(template);
+                template
+            };
             visual.flags.remove(
                 BlockFlags::AIR
                     | BlockFlags::CUBE_GEOMETRY
