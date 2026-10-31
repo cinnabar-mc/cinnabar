@@ -8,8 +8,11 @@ use std::sync::{
 use bevy::prelude::*;
 use bevy::render::renderer::RenderDevice;
 
-use super::model::{DECISION_CANDIDATE, DECISION_HIDDEN};
+use super::model::{DECISION_CANDIDATE, DECISION_HIDDEN, STREAM_COUNT};
 use super::visibility_admission::{PROBE_INTERVAL, VisibilityAdmission};
+use super::work_admission::{
+    CALIBRATION_ENV, Calibration, SubmittedWork, WorkContext, rejected_work,
+};
 
 const IDLE: u8 = 0;
 const RECORDING: u8 = 1;
@@ -43,6 +46,15 @@ impl Admission {
                 .is_none_or(|policy| policy.select_work(self.frame))
     }
 
+    /// Measured results from older view selections cannot admit the current view's work.
+    fn observe_profitability(&mut self, view: Entity, frame: u64, profitable: bool) {
+        if self.view == Some(view) && frame >= self.first_frame {
+            self.policy
+                .get_or_insert_default()
+                .observe_profitability(frame, profitable);
+        }
+    }
+
     /// Feedback from a previous selection cannot change the current view's admission.
     fn observe(&mut self, view: Entity, frame: u64, candidates: usize, hidden: usize) {
         if self.view != Some(view) || frame < self.first_frame || candidates == 0 {
@@ -61,6 +73,7 @@ struct Sample {
     view: Entity,
     frame: u64,
     slots: u32,
+    work: Option<(WorkContext, Vec<[u64; STREAM_COUNT]>)>,
 }
 
 /// The previous prepared cull and the storage whose visibility history it updates.
@@ -79,9 +92,31 @@ pub(super) struct GpuCullFeedback {
     next_sample: u64,
     prepared: Option<PreparedHistory>,
     encoded_frame: AtomicU64,
+    calibration: Option<Calibration>,
+    context: Option<WorkContext>,
 }
 
 impl GpuCullFeedback {
+    /// Loads an opt-in measured calibration; absent or invalid files retain the default policy.
+    pub(super) fn from_env() -> Self {
+        let calibration = env_compat::var_os(CALIBRATION_ENV)
+            .and_then(|path| {
+                std::fs::read(path)
+                    .ok()
+                    .and_then(|bytes| serde_json::from_slice::<Calibration>(&bytes).ok())
+            })
+            .filter(Calibration::valid);
+        Self {
+            calibration,
+            ..Default::default()
+        }
+    }
+
+    /// Uncalibrated frames do not construct work snapshots or inspect adapter metadata.
+    pub(super) fn calibrated(&self) -> bool {
+        self.calibration.is_some()
+    }
+
     /// Consumes completed samples for future submission choices without waiting.
     pub(super) fn select(&mut self, view: Option<Entity>) -> bool {
         if self.admission.view != view {
@@ -98,8 +133,33 @@ impl GpuCullFeedback {
                     {
                         let (candidates, hidden) = rejection_counts(bytemuck::cast_slice(&data));
                         bevy::log::debug!(candidates, hidden, "terrain occlusion feedback");
-                        self.admission
-                            .observe(sample.view, sample.frame, candidates, hidden);
+                        if let Some(calibration) = &self.calibration {
+                            if let Some((context, weights)) = &sample.work
+                                && self.context.as_ref() == Some(context)
+                                && self.admission.view == Some(sample.view)
+                                && sample.frame >= self.admission.first_frame
+                            {
+                                let (candidate_indices, hidden_indices) =
+                                    rejected_work(bytemuck::cast_slice(&data), weights);
+                                let profitable = calibration
+                                    .profitable(context, hidden_indices)
+                                    .unwrap_or(false);
+                                bevy::log::debug!(
+                                    ?candidate_indices,
+                                    ?hidden_indices,
+                                    profitable,
+                                    "terrain weighted occlusion feedback"
+                                );
+                                self.admission.observe_profitability(
+                                    sample.view,
+                                    sample.frame,
+                                    profitable,
+                                );
+                            }
+                        } else {
+                            self.admission
+                                .observe(sample.view, sample.frame, candidates, hidden);
+                        }
                     }
                     sample.buffer.unmap();
                     sample.state.store(IDLE, Ordering::Release);
@@ -123,8 +183,17 @@ impl GpuCullFeedback {
         view: Entity,
         slots: u32,
         decisions: &wgpu::Buffer,
+        work: Option<SubmittedWork<'_>>,
     ) {
         let frame = self.admission.frame;
+        if self.calibration.is_some()
+            && self.context.as_ref() != work.as_ref().map(|work| &work.context)
+        {
+            self.context = work.as_ref().map(|work| work.context.clone());
+            self.admission.policy = None;
+            self.admission.first_frame = frame;
+            self.next_sample = 0;
+        }
         let warm = self.prepared.as_ref().is_some_and(|previous| {
             previous.view == view
                 && previous.frame + 1 == frame
@@ -177,9 +246,13 @@ impl GpuCullFeedback {
                 view,
                 frame: 0,
                 slots: 0,
+                work: None,
             });
         }
         let sample = self.sample.as_mut().expect("sample storage was ensured");
+        sample.work = work
+            .filter(|_| self.calibration.is_some())
+            .map(|work| (work.context.clone(), work.snapshot()));
         sample.view = view;
         sample.frame = self.admission.frame;
         sample.slots = slots;

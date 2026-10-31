@@ -40,7 +40,7 @@ fn cold_gpu_frames_do_not_record_rejection_feedback() {
     let view = world.spawn_empty().id();
     let mut feedback = GpuCullFeedback::default();
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 2, &source(&device, 2));
+    feedback.prepare(&device, view, 2, &source(&device, 2), None);
     assert!(
         feedback.sample.is_none(),
         "a first GPU frame has no terrain depth history"
@@ -57,14 +57,14 @@ fn isolated_probes_warm_history_before_recording_their_second_frame() {
         .observe(view, feedback.admission.frame, 128, 2);
     feedback.admission.frame += PROBE_INTERVAL;
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     assert!(feedback.sample.is_none());
     encoded(&feedback, &device, &decisions);
     assert!(
         feedback.select(Some(view)),
         "a probe needs a consecutive GPU follow-up"
     );
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     assert_eq!(
         feedback
             .sample
@@ -81,19 +81,19 @@ fn replaced_storage_and_changed_views_cannot_sample_old_history() {
     let (device, _queue, view, mut feedback) = fixture();
     let initial = source(&device, 2);
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 2, &initial);
+    feedback.prepare(&device, view, 2, &initial, None);
     encoded(&feedback, &device, &initial);
 
     let grown = source(&device, 64);
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 64, &grown);
+    feedback.prepare(&device, view, 64, &grown, None);
     assert!(
         feedback.sample.is_none(),
         "new GPU storage starts with empty history"
     );
     encoded(&feedback, &device, &grown);
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 64, &grown);
+    feedback.prepare(&device, view, 64, &grown, None);
     assert_eq!(
         feedback
             .sample
@@ -110,7 +110,7 @@ fn replaced_storage_and_changed_views_cannot_sample_old_history() {
     let other = world.spawn_empty().id();
     assert_ne!(other, view);
     assert!(feedback.select(Some(other)));
-    feedback.prepare(&device, other, 64, &grown);
+    feedback.prepare(&device, other, 64, &grown, None);
     assert_eq!(
         feedback
             .sample
@@ -127,10 +127,10 @@ fn a_reserved_sample_without_a_late_pass_retries_without_advancing_the_cadence()
     let (device, _queue, view, mut feedback) = fixture();
     let decisions = source(&device, 2);
     feedback.select(Some(view));
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     encoded(&feedback, &device, &decisions);
     feedback.select(Some(view));
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     assert_eq!(
         feedback
             .sample
@@ -152,7 +152,7 @@ fn a_reserved_sample_without_a_late_pass_retries_without_advancing_the_cadence()
         IDLE
     );
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     assert_eq!(
         feedback
             .sample
@@ -165,7 +165,7 @@ fn a_reserved_sample_without_a_late_pass_retries_without_advancing_the_cadence()
     );
     encoded(&feedback, &device, &decisions);
     assert!(feedback.select(Some(view)));
-    feedback.prepare(&device, view, 2, &decisions);
+    feedback.prepare(&device, view, 2, &decisions, None);
     assert_eq!(
         feedback
             .sample
@@ -183,17 +183,17 @@ fn pending_and_mapped_samples_keep_their_buffers_until_released() {
         let (device, _queue, view, mut feedback) = fixture();
         let initial = source(&device, 2);
         feedback.select(Some(view));
-        feedback.prepare(&device, view, 2, &initial);
+        feedback.prepare(&device, view, 2, &initial, None);
         encoded(&feedback, &device, &initial);
         feedback.select(Some(view));
-        feedback.prepare(&device, view, 2, &initial);
+        feedback.prepare(&device, view, 2, &initial, None);
         let sample = feedback.sample.as_ref().unwrap();
         let buffer = sample.buffer.clone();
         sample.state.store(state, Ordering::Release);
         let grown = source(&device, 64);
         for _ in 0..2 {
             feedback.admission.frame += 1;
-            feedback.prepare(&device, view, 64, &grown);
+            feedback.prepare(&device, view, 64, &grown, None);
             encoded(&feedback, &device, &grown);
         }
         let sample = feedback.sample.as_ref().unwrap();
@@ -201,7 +201,7 @@ fn pending_and_mapped_samples_keep_their_buffers_until_released() {
         assert_eq!(sample.slots, 2);
         sample.state.store(IDLE, Ordering::Release);
         feedback.admission.frame += 1;
-        feedback.prepare(&device, view, 64, &grown);
+        feedback.prepare(&device, view, 64, &grown, None);
         let replacement = feedback.sample.as_ref().unwrap();
         assert_ne!(replacement.buffer, buffer);
         assert_eq!(replacement.slots, 64);
@@ -374,4 +374,29 @@ fn adaptive_gpu_probes_keep_cpu_batches_without_rebuilding_or_sorting() {
         paths.cpu > cpu_frames,
         "the view must return to CPU-planned draws"
     );
+}
+
+/// Weighted feedback changes admission alone and never survives a view selection change.
+#[test]
+fn measured_profitability_discards_stale_views_and_keeps_periodic_complete_fallbacks() {
+    let mut world = World::new();
+    let a = world.spawn_empty().id();
+    let b = world.spawn_empty().id();
+    let mut admission = Admission::default();
+    assert!(admission.select(Some(a)));
+    admission.observe_profitability(a, 1, false);
+    assert!(admission.select(Some(a)));
+    assert!(!admission.select(Some(a)));
+    admission.observe_profitability(b, 3, true);
+    assert!(!admission.select(Some(a)));
+    admission.frame += PROBE_INTERVAL;
+    assert!(admission.select(Some(a)));
+    admission.observe_profitability(a, admission.frame, true);
+    assert!(admission.select(Some(a)));
+    assert!(admission.select(Some(b)));
+    admission.observe_profitability(a, admission.frame, false);
+    assert!(admission.select(Some(b)));
+    assert!(admission.select(Some(a)));
+    admission.observe_profitability(a, 1, false);
+    assert!(admission.select(Some(a)));
 }
