@@ -361,6 +361,9 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
   completion and refill work before intake, without renewing intake's allocation.
   Intake keeps bounded progress even after its allocation expires.
+  Decode, light and mesh result reads defer when a producer holds their bounded
+  mailbox, preserving FIFO acceptance and capacity without waiting for publication.
+  Saturated-producer frame and service-reclaim hardware qualification remains open.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
   Matched-output hardware preparation and streaming qualification remain open.

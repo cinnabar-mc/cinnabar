@@ -199,6 +199,7 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
+| Completion collection | Decode, light and mesh mailboxes defer contended reads while retaining FIFO order, capacity and permit lifetimes. Authored regressions cover paused publication, later collection, backpressure, shutdown and service notification handling; CI execution and saturated-producer hardware qualification remain pending. |
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented. Light dependency notifications coalesce and compete across camera queue generations until geometry can check readiness; broader publication acceptance remains open. See the publication and sub-chunk request batching continuation in `plan.md`. |
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership, deferred-mesh promotion and stalled cached-terrain recovery are implemented. Ordinary polls keep intake first; interrupted worker service resumes with bounded completion and refill work. Foreground offload requires service polling that advanced commits. Broader publication acceptance remains open. See `plan.md`. |
