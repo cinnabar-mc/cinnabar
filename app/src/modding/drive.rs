@@ -218,7 +218,14 @@ pub(super) fn drive_mod(
         .and_then(|(window, _)| window.cursor_position())
         .map(|point| point.to_array());
     let container = observed_container_screen(&player_runtime, &ui);
-    let pointer_available = focused && !menu_open && !presentation.mod_ui().mod_panel_open();
+    let pointer_focused = focused && focus.as_ref().is_none_or(|focus| focus.available());
+    let pointer_available = container_pointer_available(
+        &player_runtime,
+        &ui,
+        &presentation,
+        menu_open,
+        pointer_focused,
+    );
     for host in extension.hosts.iter_mut() {
         host.observe_container_screen(container, pointer_available);
     }
@@ -448,7 +455,13 @@ pub(super) fn drive_mod(
         && let Ok((mut window, _)) = windows.single_mut()
         && window.focused
         && container.is_some()
-        && pointer_available
+        && container_pointer_available(
+            &player_runtime,
+            &ui,
+            &presentation,
+            menu_open,
+            pointer_focused,
+        )
     {
         let point = Vec2::new(
             (x * window.width()).min((window.width() - 1.0).max(0.0)),
@@ -643,9 +656,30 @@ fn observed_container_screen(
         .flatten()
 }
 
+/// Restricts pointer writes to the top container scene and authoritative desktop focus.
+fn container_pointer_available(
+    player: &player_state::PlayerState,
+    ui: &client_ui::ui_runtime::UiRuntime,
+    presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,
+    menu_open: bool,
+    focused: bool,
+) -> bool {
+    use client_ui::ui_runtime::scene_stack::{Scene, SceneHost};
+    focused
+        && !menu_open
+        && ui.inventory_open()
+        && !presentation.mod_ui().mod_panel_open()
+        && !presentation.mod_ui().experience_modal_open()
+        && !presentation.mod_ui().mod_view_shown()
+        && ui
+            .scenes(player, SceneHost::of(None, ui))
+            .top()
+            .is_some_and(|scene| scene.key == Scene::Container)
+}
+
 #[cfg(test)]
 mod pointer_observation_tests {
-    use super::observed_container_screen;
+    use super::{container_pointer_available, observed_container_screen};
     /// A default personal layout is not evidence that its inventory is open.
     #[test]
     fn container_observation_follows_inventory_lifetime() {
@@ -659,5 +693,121 @@ mod pointer_observation_tests {
         );
         ui.toggle_inventory(&mut player, None);
         assert_eq!(observed_container_screen(&player, &ui), None);
+    }
+    /// Suspended focus and modal owners cannot receive a container-scoped pointer move.
+    #[test]
+    fn container_pointer_respects_focus_and_modals() {
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        ui.toggle_inventory(&mut player, None);
+        let mut presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+            ui_engine::test_support::fixture_font(),
+        )
+        .unwrap();
+        assert!(container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+        let mut focus = semantic_input::cursor_focus::CursorFocus::default();
+        focus.occlusion_changed(true);
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            focus.available()
+        ));
+        focus.occlusion_changed(false);
+        focus.begin_frame(true);
+        focus.focus_changed(false);
+        focus.focus_changed(true);
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            focus.available()
+        ));
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            true,
+            true
+        ));
+        let mut modal = server_experience::screen::Modal::default();
+        modal.open(Some("ui/fixture.json".into()));
+        let files = std::sync::Arc::new(server_experience::screen::Files::default());
+        presentation.set_experience_modal(Some(mod_ui::experience_modal::ExperienceModal {
+            bundle: "fixture",
+            files: &files,
+            modal: &modal,
+        }));
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+    }
+    /// A server form admitted over a non-menu container owns the pointer instead.
+    #[test]
+    fn container_pointer_excludes_overlaid_server_forms() {
+        use client_ui::ui_runtime::scene_stack::ScreenSettingsTable;
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        let mut catalog = json_ui::Catalog::default();
+        catalog.overlay_text("ui/container.json", r#"{"namespace":"crafting","inventory_screen":{"type":"screen","is_showing_menu":false}}"#);
+        ui.observe_presentation(
+            None,
+            std::sync::Arc::new(ScreenSettingsTable::resolve(
+                &catalog,
+                &json_ui::Context::default(),
+                ["crafting.inventory_screen"],
+            )),
+        );
+        ui.toggle_inventory(&mut player, None);
+        let presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+            ui_engine::test_support::fixture_font(),
+        )
+        .unwrap();
+        assert!(container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
+        ui.apply(
+            &mut player,
+            client_ui::ui_runtime::SequencedUiEvent {
+                session_id: 1,
+                fifo_sequence: 1,
+                local_millis: 1,
+                server_tick: None,
+                event: protocol::UiEvent::Form(protocol::FormRequestEvent {
+                    form_id: 3,
+                    kind: protocol::FormKind::Menu,
+                    title: None,
+                    json: "{}".into(),
+                    model: protocol::ServerFormModel::Unsupported(
+                        protocol::UnsupportedForm::Family,
+                    ),
+                }),
+            },
+        )
+        .unwrap();
+        assert!(ui.server_forms().active().is_some());
+        assert!(!container_pointer_available(
+            &player,
+            &ui,
+            &presentation,
+            false,
+            true
+        ));
     }
 }
