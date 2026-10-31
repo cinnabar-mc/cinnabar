@@ -238,7 +238,7 @@ pub use model::{
     SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET, SEASONAL_LEAF_MATERIAL_COUNT,
     SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT,
     TexturePage, TextureRef, VisualKind, VisualSupport, bubble_column_quad_count,
-    model_template_parts,
+    model_template_parts, scaffolding_is_supported,
 };
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{

@@ -128,6 +128,14 @@ pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
 /// rest of the model in the following parts.
 pub const MODEL_TEMPLATE_FLAG_SCAFFOLDING: u32 = 1 << 29;
 
+/// Reports whether scaffolding above a block with these facts stands on it, which starts its
+/// template chain after the foot ring. Terrain and block overlays share this answer.
+#[must_use]
+pub const fn scaffolding_is_supported(below: crate::BlockFlags, below_template_flags: u32) -> bool {
+    below.contains(crate::BlockFlags::FIRE_TOP_SUPPORT)
+        || below_template_flags & MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0
+}
+
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
     matches!(

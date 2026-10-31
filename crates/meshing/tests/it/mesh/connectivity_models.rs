@@ -289,6 +289,33 @@ fn scaffolding_draws_its_foot_ring_only_with_nothing_to_stand_on() {
 }
 
 #[test]
+fn scaffolding_highlights_and_cracks_resolve_the_template_its_terrain_draws() {
+    let fixture = compiled_connected_fixture();
+    let template_above = |below: Option<u32>| {
+        fixture.assets.model_template_at(
+            NetworkIdMode::Sequential,
+            fixture.scaffolding,
+            [0, 8, 0],
+            |position| {
+                assert_eq!(position, [0, 7, 0]);
+                below
+            },
+        )
+    };
+    let base = fixture
+        .assets
+        .resolve(NetworkIdMode::Sequential, fixture.scaffolding)
+        .model_template()
+        .expect("scaffolding compiles to a model");
+    for below in [None, Some(fixture.air)] {
+        assert_eq!(template_above(below), Some(base));
+    }
+    for below in [fixture.cube, fixture.scaffolding] {
+        assert_eq!(template_above(Some(below)), Some(base + 1));
+    }
+}
+
+#[test]
 fn panes_select_all_sixteen_palette_native_connection_masks() {
     let fixture = compiled_connected_fixture();
     let base = fixture

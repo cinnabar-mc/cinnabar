@@ -125,10 +125,10 @@ pub(crate) fn select_model_templates<'a>(
                 Face::NegativeY,
             );
             // A supported block starts after the foot ring at the head of the chain.
-            let supported = below.flags.contains(BlockFlags::FIRE_TOP_SUPPORT)
-                || model_template_flags(context.visuals, below)
-                    & assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING
-                    != 0;
+            let supported = assets::scaffolding_is_supported(
+                below.flags,
+                model_template_flags(context.visuals, below),
+            );
             entry.model_template + u32::from(supported)
         }
         ModelTemplateSelection::Door => {

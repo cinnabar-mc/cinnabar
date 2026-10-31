@@ -1,6 +1,9 @@
 //! Door pose selectors retained independently of each half's artwork.
 
-use crate::{MODEL_TEMPLATE_FLAG_DOOR, NetworkIdMode, RuntimeAssets};
+use crate::{
+    MODEL_TEMPLATE_FLAG_DOOR, MODEL_TEMPLATE_FLAG_SCAFFOLDING, NetworkIdMode, RuntimeAssets,
+    scaffolding_is_supported,
+};
 
 /// Every facing/open/hinge pose for both texture halves in one class-owned group.
 pub const TEMPLATE_COUNT: u32 = 32;
@@ -99,7 +102,8 @@ pub fn resolve_template(
 
 impl RuntimeAssets {
     /// Resolves a block's model template against its current vertical neighbor.
-    /// Missing or different-class door partners have no model; other models need no lookup.
+    /// Missing or different-class door partners have no model, and scaffolding skips its foot
+    /// ring on support; other models need no lookup.
     pub fn model_template_at(
         &self,
         mode: NetworkIdMode,
@@ -108,7 +112,23 @@ impl RuntimeAssets {
         runtime_id_at: impl FnOnce([i32; 3]) -> Option<u32>,
     ) -> Option<u32> {
         let visual = self.resolve(mode, runtime_id);
-        resolve_template(self, visual.model_template()?, visual.variant(), |upper| {
+        let template = visual.model_template()?;
+        let flags = self.model_templates().get(template as usize)?.flags;
+        if flags & MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0 {
+            let below = block[1]
+                .checked_sub(1)
+                .and_then(|y| runtime_id_at([block[0], y, block[2]]))
+                .map(|id| self.resolve(mode, id));
+            let supported = below.is_some_and(|below| {
+                let below_flags = below
+                    .model_template()
+                    .and_then(|index| self.model_templates().get(index as usize))
+                    .map_or(0, |template| template.flags);
+                scaffolding_is_supported(below.flags(), below_flags)
+            });
+            return Some(template + u32::from(supported));
+        }
+        resolve_template(self, template, visual.variant(), |upper| {
             let y = block[1].checked_add(if upper { -1 } else { 1 })?;
             let other = self.resolve(mode, runtime_id_at([block[0], y, block[2]])?);
             if other.kind() != crate::VisualKind::Model {
