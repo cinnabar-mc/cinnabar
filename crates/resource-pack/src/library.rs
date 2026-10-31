@@ -126,6 +126,7 @@ pub struct GlobalPackLibrary {
     catalog: Catalog,
     active: Vec<ActivePack>,
     memory_tier: u32,
+    missing: Vec<String>,
 }
 
 impl GlobalPackLibrary {
@@ -137,11 +138,12 @@ impl GlobalPackLibrary {
     pub fn open(root: impl Into<PathBuf>, engine_version: [u32; 3]) -> Result<Self, LibraryError> {
         let root = root.into();
         let path = root.join(CATALOG_FILE);
-        let catalog: Catalog = if path.exists() {
+        let mut catalog: Catalog = if path.exists() {
             serde_json::from_slice(&read_bounded(&path, MAX_CATALOG_BYTES)?)?
         } else {
             Catalog::default()
         };
+        let missing = storage::forget_missing(&root, &mut catalog);
         if catalog.active.len() > MAX_PACKS {
             return Err(AdmissionError::TooManyPacks.into());
         }
@@ -152,7 +154,13 @@ impl GlobalPackLibrary {
             catalog,
             active,
             memory_tier: 0,
+            missing,
         })
+    }
+
+    /// Names the packs this open removed because their archives no longer exist.
+    pub fn missing_packs(&self) -> &[String] {
+        &self.missing
     }
 
     /// Sets vanilla's memory tier for newly activated packs; manual selections remain intact.
@@ -406,7 +414,16 @@ impl GlobalPackLibrary {
             let bytes = if let Some((_, bytes)) = prepared {
                 bytes.clone()
             } else {
-                read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES)?
+                match read_bounded(&self.root.join(metadata.filename()), MAX_ARCHIVE_BYTES) {
+                    Ok(bytes) => bytes,
+                    // Bedrock ignores a configured pack it cannot find; the others still apply.
+                    Err(LibraryError::Io(error))
+                        if error.kind() == std::io::ErrorKind::NotFound =>
+                    {
+                        continue;
+                    }
+                    Err(error) => return Err(error),
+                }
             };
             let (pack, _) = crate::parser::validate_archive_parts_cached(
                 active.id,
