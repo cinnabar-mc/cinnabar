@@ -258,7 +258,7 @@ impl SettingsOptions {
 
     /// Restores one action's default control while preserving other remaps.
     pub fn reset_key(&mut self, index: usize) -> bool {
-        let Some((name, action, _)) = self.binding(index) else {
+        let Some((name, action, fallback)) = self.binding(index) else {
             return false;
         };
         let mut active_defaults = self.active_late_defaults();
@@ -269,17 +269,46 @@ impl SettingsOptions {
             *control = Self::default().key_control(index);
         }
         let previous = self.keys.remove(name);
+        let displaced = if name == BindingId::MenuCancel.name() {
+            self.unassign_saved_keyboard_control(fallback)
+        } else {
+            Vec::new()
+        };
         let inserted_defaults = self.preserve_late_defaults(active_defaults);
         if self.controls().is_err() {
             for name in inserted_defaults.into_iter().flatten() {
                 self.keys.remove(name);
             }
+            self.keys.extend(displaced);
             if let Some(previous) = previous {
                 self.keys.insert(name.to_owned(), previous);
             }
             return false;
         }
         true
+    }
+
+    /// Unassigns the saved rows holding `control`, as vanilla's row reset does for its restored
+    /// key, and returns their previous entries.
+    fn unassign_saved_keyboard_control(
+        &mut self,
+        control: Option<PhysicalControl>,
+    ) -> Vec<(String, u16)> {
+        let displaced: Vec<_> = self
+            .keys
+            .iter()
+            .filter(|(name, code)| {
+                !name.starts_with("gamepad:")
+                    && !name.starts_with(super::command_macros::MACRO_KEY_PREFIX)
+                    && control.is_some()
+                    && decode_control(**code) == control
+            })
+            .map(|(name, code)| (name.clone(), *code))
+            .collect();
+        for (name, _) in &displaced {
+            self.keys.insert(name.clone(), UNBOUND_CONTROL);
+        }
+        displaced
     }
 
     /// Rebuilds and validates the gameplay bindings before handing them to the router.
@@ -544,6 +573,37 @@ mod tests {
         );
         assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
         assert_eq!(settings.named_key_control(BindingId::Hotbar4), Some(back));
+    }
+
+    /// Resetting Menu Cancel restores its button over the action holding it, across a reload.
+    #[test]
+    fn resetting_menu_cancel_takes_its_default_back_from_another_action() {
+        let mut settings = SettingsOptions::default();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        let cancel = BindingId::MenuCancel.row(false).unwrap();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        assert!(settings.remap(hotbar, back));
+        assert!(settings.reset_key(cancel));
+        assert_eq!(
+            settings.named_key_control(BindingId::MenuCancel),
+            Some(back)
+        );
+        assert_eq!(settings.key_control(hotbar), None);
+        let loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+        assert_eq!(loaded.named_key_control(BindingId::MenuCancel), Some(back));
+        assert_eq!(loaded.key_control(hotbar), None);
+        assert!(loaded.stored_bindings_valid());
+    }
+
+    /// Resetting another action leaves a Menu Cancel the player already gave up unassigned.
+    #[test]
+    fn resetting_an_action_keeps_menu_cancel_unassigned() {
+        let mut settings = SettingsOptions::default();
+        let hotbar = BindingId::Hotbar4.row(false).unwrap();
+        let back = settings.named_key_control(BindingId::MenuCancel).unwrap();
+        assert!(settings.remap(hotbar, back));
+        assert!(settings.reset_key(hotbar));
+        assert_eq!(settings.named_key_control(BindingId::MenuCancel), None);
     }
 
     #[test]

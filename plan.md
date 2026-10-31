@@ -843,9 +843,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
   Escape and platform Back keys, and its keyboard binding yields to focused text boxes;
   binding capture still accepts the button. Remapping another action onto its control unassigns
-  Menu Cancel, and its untouched default yields to a saved action on that button. Vanilla
-  unassigns duplicates from every row in the layout, while Cinnabar's other rows can still share
-  a control. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
+  Menu Cancel, and its untouched default yields to a saved action on that button. Resetting the
+  Menu Cancel row restores its default and unassigns the saved rows holding it. Vanilla unassigns
+  duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
+  rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
   cross-platform device acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
