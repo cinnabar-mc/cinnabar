@@ -29,6 +29,7 @@ mod flag_frame;
 mod input_requests;
 mod lifecycle;
 mod motion_ticks;
+mod movement_lerp;
 mod posture;
 pub(in crate::movement) use posture::ClimberFlags;
 mod timeline;
@@ -286,6 +287,8 @@ pub struct LocalPhysicsController {
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     actor_position_pending: Option<actor_move::ActorPositionUpdate>,
+    /// A Normal-mode `MovePlayer` ease the next completed tick steps.
+    movement_lerp: Option<movement_lerp::MovementLerp>,
     deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
@@ -344,6 +347,7 @@ impl Default for LocalPhysicsController {
             motion_anchor: None,
             server_motions: VecDeque::new(),
             actor_position_pending: None,
+            movement_lerp: None,
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,

@@ -494,6 +494,9 @@ remain incomplete.
 Animation-only flags must remain separate from gameplay and correction authority.
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
+A Normal-mode local `MovePlayer` with resident target terrain eases over three ticks, including correction replay.
+Incomplete: travel ordering, rotation easing, the grounded interpolation adjustment, correction-path handling
+for unloaded or mounted targets, exact-version confirmation and live acceptance.
 Server sneak updates preserve local hold/toggle intent, and the next completed input
 corrects a conflicting stance through start/stop actions retained across tickless frames
 and replay. An agreeing server stance adds no action and leaves earlier queued actions intact.

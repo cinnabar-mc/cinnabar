@@ -25,11 +25,7 @@ pub(crate) fn apply_committed_control(
                 position = ?movement.position,
                 "applying committed local MovePlayer"
             );
-            let preserve_rotation = camera_settings.preserves_teleport_rotation()
-                && movement.mode == protocol::MovePlayerMode::Teleport;
-            if !preserve_rotation && movement.yaw.is_finite() && movement.pitch.is_finite() {
-                view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
-            }
+            apply_move_player_rotation(&movement, view, camera_settings);
             resolved
         }
         CommittedControlEvent::PlayerMovementCorrection {
@@ -84,6 +80,31 @@ pub(crate) fn apply_committed_control(
     view.reanchor_camera();
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
+}
+
+/// Applies only the aim of a committed local MovePlayer whose position physics eases,
+/// keeping the eye and camera history continuous.
+pub(crate) fn apply_committed_aim(
+    control: CommittedControlEvent,
+    view: &mut LocalViewPose,
+    camera_settings: &CameraSettingsAuthority,
+) {
+    if let CommittedControlEvent::MovePlayer { movement, .. } = control {
+        apply_move_player_rotation(&movement, view, camera_settings);
+    }
+}
+
+/// MovePlayer owns the view rotation unless a teleport keeps the player's aim.
+fn apply_move_player_rotation(
+    movement: &protocol::MovePlayerEvent,
+    view: &mut LocalViewPose,
+    camera_settings: &CameraSettingsAuthority,
+) {
+    let preserve_rotation = camera_settings.preserves_teleport_rotation()
+        && movement.mode == protocol::MovePlayerMode::Teleport;
+    if !preserve_rotation && movement.yaw.is_finite() && movement.pitch.is_finite() {
+        view.set_rotation(bedrock_camera_rotation(movement.yaw, movement.pitch));
+    }
 }
 
 pub(super) fn log_respawn(respawn: protocol::RespawnEvent) {

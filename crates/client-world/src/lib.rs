@@ -20,15 +20,16 @@ pub use action::{
     RemoteActionFallback, RemoteActionSnapshot, RemoteActionStats,
 };
 pub use actor_store::{
-    ActorCollisionBounds, ActorDamageState, ActorFluidProbe, ActorHitBoxes, ActorPickup, ActorPose,
-    ActorShadowCaster, ActorSnapshot, ActorStatus, ActorStatusNotice, BlockEntityCandidate,
-    BlockEntityKind, BlockEntityView, CrystalBeamView, DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH,
-    DimensionWrite, DragonDeathView, DroppedItemView, ExplicitDimensions, FIRE_FADE_TICKS,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, LightningBoltView, LocalItemUse, LocalPlayerFeed,
-    LocalVehicleFeed, LoyaltyRopeView, MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES,
-    MovementFlagUpdate, PICKUP_DURATION_TICKS, PlayerProfile, PoseYOrigin, PropertyDefault,
-    ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView, SLEEPING_PLAYER_NETWORK_OFFSET,
-    SeatViewLock, VehicleRevision, dropped_item_copy_count, seat_world_offset, tnt_presentation,
+    ACTOR_INTERPOLATION_TICKS, ActorCollisionBounds, ActorDamageState, ActorFluidProbe,
+    ActorHitBoxes, ActorPickup, ActorPose, ActorShadowCaster, ActorSnapshot, ActorStatus,
+    ActorStatusNotice, BlockEntityCandidate, BlockEntityKind, BlockEntityView, CrystalBeamView,
+    DEATH_DURATION_TICKS, DEFAULT_PLAYER_HEALTH, DimensionWrite, DragonDeathView, DroppedItemView,
+    ExplicitDimensions, FIRE_FADE_TICKS, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA,
+    LightningBoltView, LocalItemUse, LocalPlayerFeed, LocalVehicleFeed, LoyaltyRopeView,
+    MAX_DROPPED_ITEM_COPIES, MAX_STATUS_NOTICES, MovementFlagUpdate, PICKUP_DURATION_TICKS,
+    PlayerProfile, PoseYOrigin, PropertyDefault, ROCKET_LAUNCH_EVENT, RideSeat, RopeKind, RopeView,
+    SLEEPING_PLAYER_NETWORK_OFFSET, SeatViewLock, VehicleRevision, dropped_item_copy_count,
+    seat_world_offset, tnt_presentation,
 };
 pub use actor_store::{HandStack, UseEquipment, equipment_enchantments};
 pub use block_entity_visuals::{
