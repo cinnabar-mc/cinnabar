@@ -56,6 +56,8 @@ pub(super) struct ModPanel {
     vector_drag: Option<vector::Drag>,
     scroll_drag: Option<(String, f64)>,
     view: ViewState,
+    /// Offsets carried across a route change, which the next layout prunes to its scroll views.
+    carried_scroll: bool,
     data: Arc<DataSource>,
     pointer: Option<[f32; 2]>,
     held: bool,
@@ -166,6 +168,13 @@ impl ModUi {
             if !same_shape {
                 let transitions = (current.owner == owner && current.open)
                     .then(|| std::mem::take(&mut current.motion.transitions));
+                // A closed panel's exit ends here, so only an open panel carries its offsets.
+                current.carried_scroll = current.owner == owner && current.open;
+                let scroll = if current.carried_scroll {
+                    std::mem::take(&mut current.view.scroll)
+                } else {
+                    Default::default()
+                };
                 current.text_events.clear();
                 current.field_events.clear();
                 current.owner = owner;
@@ -178,7 +187,10 @@ impl ModUi {
                 current.scroll_drag = None;
                 current.items.clear();
                 current.projected.clear();
-                current.view = ViewState::default();
+                current.view = ViewState {
+                    scroll,
+                    ..ViewState::default()
+                };
                 current.motion = motion::PanelMotion::default();
                 if let Some(transitions) = transitions {
                     current.motion.transitions = transitions;
@@ -213,6 +225,7 @@ impl ModUi {
                 vector_drag: None,
                 scroll_drag: None,
                 view: ViewState::default(),
+                carried_scroll: false,
                 data: Arc::new({
                     let mut data = control_data(panel);
                     surface::viewport(&mut data, [0.0; 2]);
@@ -572,11 +585,11 @@ impl ModUi {
                         Arc::make_mut(&mut frame.hits),
                     );
                 }
-                for (key, metrics) in &frame.report.scrolls {
-                    if let Some(offset) = panel.view.scroll.get_mut(key) {
-                        *offset = metrics.offset;
-                    }
-                }
+                scrolling::reconcile_scroll(
+                    &mut panel.view,
+                    &frame.report,
+                    std::mem::take(&mut panel.carried_scroll),
+                );
                 panel.frame = Some(frame);
             }
             result => {
@@ -708,6 +721,7 @@ impl ModPanel {
         }
         self.frame = None;
         self.view = ViewState::default();
+        self.carried_scroll = false;
         self.motion = motion::PanelMotion::default();
         self.collection_reveals = reveal::CollectionReveals::default();
         if reset_feedback {

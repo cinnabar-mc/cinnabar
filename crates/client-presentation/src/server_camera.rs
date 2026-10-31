@@ -100,6 +100,15 @@ impl ServerCameraInstructions {
         self.resets
     }
 
+    /// The session owning the retained instructions, if any admission has bound one.
+    #[must_use]
+    pub const fn session_generation(&self) -> Option<u64> {
+        match self.identity {
+            Some((session, _)) => Some(session),
+            None => None,
+        }
+    }
+
     /// Drops every retained instruction without touching lifetime counters.
     pub fn clear(&mut self) {
         self.entries.clear();

@@ -3,10 +3,12 @@ package authflow
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/sandertv/gophertunnel/minecraft/auth"
@@ -30,22 +32,79 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	}
 	response, err := f.Authorize(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("%w: start", errDeviceAuthorization)
+		return nil, &deviceFailure{reason: "device_start:" + failureReason(err)}
 	}
 	if err := validatePrompt(response); err != nil {
-		return nil, fmt.Errorf("%w: invalid prompt", errDeviceAuthorization)
+		return nil, &deviceFailure{reason: "device_prompt"}
 	}
 	if err := publish(response); err != nil {
-		return nil, fmt.Errorf("%w: publish prompt", errDeviceAuthorization)
+		return nil, &deviceFailure{reason: "device_publish"}
 	}
 	token, err := f.Token(tolerantPollContext(ctx), response)
 	if err != nil {
 		if deviceCodeExpired(ctx, response, err) {
-			return nil, fmt.Errorf("%w: %w", errDeviceAuthorization, errDeviceCodeExpired)
+			return nil, fmt.Errorf("%w: %w", &deviceFailure{reason: "device_expired"}, errDeviceCodeExpired)
 		}
-		return nil, fmt.Errorf("%w: complete", errDeviceAuthorization)
+		return nil, &deviceFailure{reason: "device_complete:" + failureReason(err)}
 	}
 	return token, nil
+}
+
+// deviceFailure is a failed device flow reduced to a credential-free reason for the log.
+type deviceFailure struct {
+	reason string
+}
+
+func (e *deviceFailure) Error() string { return errDeviceAuthorization.Error() + ": " + e.reason }
+
+func (e *deviceFailure) Is(target error) bool { return target == errDeviceAuthorization }
+
+// standardErrorCodes are the OAuth token errors of RFC 6749 section 5.2, RFC 8628 section 3.5 and
+// OpenID Connect that may be logged; any other provider-controlled value is reduced to a marker.
+var standardErrorCodes = map[string]struct{}{
+	"access_denied": {}, "account_selection_required": {}, "authorization_pending": {},
+	"consent_required": {}, "expired_token": {}, "interaction_required": {}, "invalid_client": {},
+	"invalid_grant": {}, "invalid_request": {}, "invalid_scope": {}, "login_required": {},
+	"server_error": {}, "slow_down": {}, "temporarily_unavailable": {}, "unauthorized_client": {},
+	"unsupported_grant_type": {},
+}
+
+// failureReason classifies a device-flow request failure without keeping any provider text:
+// only the HTTP status, a standard OAuth error code and the kind of connection failure survive.
+func failureReason(err error) string {
+	var provider *oauth2.RetrieveError
+	var certificate *tls.CertificateVerificationError
+	var timeout interface{ Timeout() bool }
+	var request *url.Error
+	switch {
+	case errors.As(err, &provider):
+		return providerReason(provider)
+	case errors.Is(err, context.Canceled):
+		return "cancelled"
+	case errors.As(err, &certificate):
+		return "tls"
+	case errors.Is(err, context.DeadlineExceeded), errors.As(err, &timeout) && timeout.Timeout():
+		return "timeout"
+	case errors.As(err, &request):
+		return "transport"
+	default:
+		return "invalid_response"
+	}
+}
+
+// providerReason names a provider's answer by its status and, when standard, its OAuth error code.
+func providerReason(provider *oauth2.RetrieveError) string {
+	reason := "http_unknown"
+	if provider.Response != nil {
+		reason = fmt.Sprintf("http_%d", provider.Response.StatusCode)
+	}
+	if provider.ErrorCode == "" {
+		return reason
+	}
+	if _, standard := standardErrorCodes[provider.ErrorCode]; standard {
+		return reason + ":" + provider.ErrorCode
+	}
+	return reason + ":unrecognized_code"
 }
 
 // deviceCodeExpired distinguishes device expiry from unrelated caller timeouts without retaining provider details.

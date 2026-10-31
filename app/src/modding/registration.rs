@@ -30,6 +30,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 pub(super) const REGISTRATION_FILE: &str = "local-mod.json";
@@ -229,6 +230,7 @@ impl Candidate {
 }
 
 enum Message {
+    DrawingChanged,
     Acknowledge {
         generation: u64,
         request_id: String,
@@ -300,6 +302,14 @@ impl Watcher {
     }
     /// Starts bounded list observation and a separate admission/retirement worker.
     pub(super) fn start(directory: PathBuf) -> Result<Self, String> {
+        Self::start_with_poll_interval(directory, RELOAD_INTERVAL)
+    }
+
+    /// Keeps file observation periodic while authority changes and load results wake directly.
+    fn start_with_poll_interval(
+        directory: PathBuf,
+        poll_interval: Duration,
+    ) -> Result<Self, String> {
         let (send_updates, updates) = bounded(1);
         let (messages, receive_messages) = bounded(8);
         let (retired, receive_retired) = bounded(mod_api::MAX_LOADED_MODS * 2);
@@ -327,6 +337,7 @@ impl Watcher {
                     selection,
                     current,
                     fences,
+                    poll_interval,
                 );
                 life.store(false, Ordering::Release);
             })
@@ -363,21 +374,29 @@ impl Watcher {
     pub(super) fn remember_settings(&self, runtime: Option<&ModRuntime>) {
         self.remember_companions(runtime);
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
-        drawing.clear();
+        let mut next_drawing = BTreeMap::new();
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
-        let Some(runtime) = runtime else { return };
-        for (index, metadata) in runtime.metadata.iter().enumerate() {
-            let Some(registered) = &metadata.registration else {
-                continue;
-            };
-            let host = runtime.hosts.host(index);
-            if let Some(context) = super::admission::DrawingContext::capture(host) {
-                drawing.insert(registered.entry.component.clone(), context);
+        if let Some(runtime) = runtime {
+            for (index, metadata) in runtime.metadata.iter().enumerate() {
+                let Some(registered) = &metadata.registration else {
+                    continue;
+                };
+                let host = runtime.hosts.host(index);
+                if let Some(context) = super::admission::DrawingContext::capture(host) {
+                    next_drawing.insert(registered.entry.component.clone(), context);
+                }
+                if let Some(snapshot) = SettingsSnapshot::capture(host) {
+                    current.insert(registered.entry.component.clone(), snapshot);
+                }
             }
-            if let Some(snapshot) = SettingsSnapshot::capture(host) {
-                current.insert(registered.entry.component.clone(), snapshot);
-            }
+        }
+        let changed = *drawing != next_drawing;
+        *drawing = next_drawing;
+        drop(current);
+        drop(drawing);
+        if changed {
+            self.send(Message::DrawingChanged);
         }
     }
     /// Publishes a single instance's trap without revoking any other mod.

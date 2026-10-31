@@ -1,22 +1,12 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
-/// Largest terrain query extent along each axis, in blocks.
-pub const MAX_TERRAIN_EXTENT: u8 = 16;
-/// Maximum cells in one terrain query.
-pub const MAX_TERRAIN_CELLS: usize = (MAX_TERRAIN_EXTENT as usize).pow(3);
-/// Maximum distinct terrain queries serviced for one mod per frame.
-pub const MAX_TERRAIN_QUERIES: usize = 4;
-/// Maximum terrain distance from the current player, along each axis.
-pub const MAX_TERRAIN_DISTANCE: i64 = 128;
-/// Cells re-sampled per frame across all mods; further changed queries wait a frame.
-pub const MAX_TERRAIN_FRAME_CELLS: usize = 2 * MAX_TERRAIN_CELLS;
-/// Distinct block-local boxes in one terrain region.
-pub const MAX_TERRAIN_BOXES: usize = 4096;
-/// Identifier, canonical-state and tag bytes in one terrain region.
-pub const MAX_TERRAIN_METADATA_BYTES: usize = 256 * 1024;
-/// Guest-memory bytes of one lowered terrain region.
-pub const MAX_TERRAIN_RESPONSE_BYTES: usize = 512 * 1024;
+mod terrain_limits;
+pub use terrain_limits::{
+    MAX_TERRAIN_BOXES, MAX_TERRAIN_CELLS, MAX_TERRAIN_DISTANCE, MAX_TERRAIN_EXTENT,
+    MAX_TERRAIN_FRAME_CELLS, MAX_TERRAIN_METADATA_BYTES, MAX_TERRAIN_QUERIES,
+    MAX_TERRAIN_RESPONSE_BYTES,
+};
 
 mod guest;
 mod input;
@@ -35,6 +25,13 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 }
 
 pub use guest::PlayerMod;
+
+/// Maximum new sound requests offered in one sound-filter callback.
+pub const MAX_SOUND_FILTER_EVENTS: usize = 256;
+/// Guest fuel shared by all sound observers in one audio frame.
+pub const TOTAL_SOUND_FILTER_FUEL: u64 = TOTAL_MOD_FRAME_FUEL;
+/// Maximum bytes in one sound-filter definition name.
+pub const MAX_SOUND_NAME_BYTES: usize = 128;
 
 /// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
 pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
@@ -92,6 +89,11 @@ pub const ICON_SECTION: &str = "cinnabar:extension/icon@1";
 pub const UPDATE_REPOSITORY_SECTION: &str = "cinnabar:extension/update-repository@1";
 /// Optional stable GitHub latest-release WASM URL enabling automatic mod installation.
 pub const UPDATE_URL_SECTION: &str = "cinnabar:extension/update-url@1";
+/// Supported mod API revisions, oldest to newest. Append a revision when adding
+/// capabilities; remove an older revision only when it is no longer supported.
+pub const COMPATIBILITY_REVISIONS_JSON: &str = include_str!("../compatibility-revisions.json");
+/// Optional JSON source, package and full mod revision for host-compatible update selection.
+pub const REVISION_UPDATE_SECTION: &str = "cinnabar:extension/revision-update@1";
 /// Bounded icon source and decoded side length; an icon outside them shows the placeholder.
 pub const MAX_ICON_BYTES: usize = 256 * 1024;
 pub const MAX_ICON_SIDE: u32 = 256;
@@ -135,31 +137,14 @@ pub const MAX_INCOMING_CUES: usize = 64;
 /// Structural bound on local mods running at once; frame fuel and memory budgets limit their cost.
 pub const MAX_LOADED_MODS: usize = 256;
 
-/// Render capability budgets, per instance or per committed callback.
-pub const MAX_RENDER_PASSES: usize = 8;
-/// Render and retained drawing imports allowed in one callback, including denied calls.
-pub const MAX_RENDER_CALLS: usize = 32;
-/// Shader validations allowed in one frame callback; `init` may compile every pass.
-pub const MAX_PASS_COMPILES_PER_FRAME: u32 = 1;
-pub const MAX_PASS_NAME_BYTES: usize = 32;
-pub const MAX_PASS_PARAMS: usize = 16;
-pub const MAX_SHADER_BYTES: usize = 16 * 1024;
-/// Worst-case texture reads and IR expressions one fragment may execute, helpers included.
-pub const MAX_SHADER_TEXTURE_SAMPLES: u32 = 32;
-pub const MAX_SHADER_EXPRESSIONS: u32 = 4096;
-/// Bounds expression nesting, which is otherwise one level per operator in a statement.
-pub const MAX_STATEMENT_TOKENS: usize = 512;
-/// Largest value any shader type may hold, which bounds per-pixel private memory.
-pub const MAX_SHADER_TYPE_BYTES: u32 = 1024;
-pub const MAX_RENDER_DECALS: usize = 64;
-pub const MAX_RENDER_RIBBONS: usize = 32;
-pub const MAX_RIBBON_POINTS: usize = 64;
-pub const MAX_RENDER_BEAMS: usize = 16;
-pub const MAX_RENDER_BILLBOARDS: usize = 512;
-/// Largest decal radius, ribbon or beam width, or billboard side, in blocks.
-pub const MAX_PRIMITIVE_EXTENT_BLOCKS: f32 = 64.0;
-/// Primitives farther than this from the origin of either axis are rejected.
-pub const MAX_PRIMITIVE_COORDINATE: f32 = 30_000_000.0;
+mod render_limits;
+pub use render_limits::{
+    MAX_PASS_COMPILES_PER_FRAME, MAX_PASS_NAME_BYTES, MAX_PASS_PARAMS, MAX_PRIMITIVE_COORDINATE,
+    MAX_PRIMITIVE_EXTENT_BLOCKS, MAX_RENDER_BEAMS, MAX_RENDER_BILLBOARDS, MAX_RENDER_CALLS,
+    MAX_RENDER_DECALS, MAX_RENDER_PASSES, MAX_RENDER_RIBBONS, MAX_RIBBON_POINTS, MAX_SHADER_BYTES,
+    MAX_SHADER_EXPRESSIONS, MAX_SHADER_TEXTURE_SAMPLES, MAX_SHADER_TYPE_BYTES,
+    MAX_STATEMENT_TOKENS,
+};
 
 /// Most full-block highlights one native render scene draws.
 pub const MAX_BLOCK_HIGHLIGHTS: usize = 1024;
@@ -188,30 +173,16 @@ pub mod bindings {
 
 /// The `player-mod` world: `extension` plus screens beside the container screens, the
 /// session's items and recipes, declared keys and event callbacks.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "wit-bindgen flattens screen-layout records into canonical ABI parameters"
-)]
-pub mod player_mod {
-    wit_bindgen::generate!({
-        path: [
-            "../experience-sdk/wit/client/deps/server-experience",
-            "../experience-sdk/wit/session",
-            "wit",
-        ],
-        world: "cinnabar:extension/player-mod@0.1.0",
-        generate_all,
-        pub_export_macro: true,
-        export_macro_name: "export_player_mod",
-    });
-}
+pub mod player_mod;
 
 /// Explicit opt-in player-mod bindings; ordinary SDK exports do not claim input filtering.
-#[allow(
-    clippy::too_many_arguments,
-    reason = "Canonical ABI flattens screen records"
-)]
 pub mod filtered_player_mod;
+
+/// Opt-in cancellable sound observations, retaining the existing input-filter contract.
+pub mod audio_filtered_player_mod;
+
+/// Sound-only opt-in bindings that never claim action-filter ownership.
+pub mod sound_filtered_player_mod;
 
 /// The `packet-mod` world: a trusted mod that relays every session packet.
 #[allow(

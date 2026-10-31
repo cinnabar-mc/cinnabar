@@ -1,12 +1,16 @@
 //! Local panel routes prepared before frame publication, with bounded retained route caches.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use json_ui::{Catalog, Context, ResolvedControl};
 use ui::mod_panel::{Panel, PanelBundle, Surface};
 use ui_engine::cached_screen::CachedScreen;
 
 use super::{SCREEN, template};
+
+#[cfg(test)]
+#[path = "prepared_cache_tests.rs"]
+mod cache_tests;
 
 /// The loaded component that owns a prepared panel catalog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -92,7 +96,7 @@ pub(crate) struct PreparedOwner {
 impl PreparedOwner {
     /// Derives every cache slot from the owner's immutable route list.
     fn new(prepared: Arc<PreparedPanelUi>) -> Self {
-        let screens = prepared.routes.iter().map(|_| None).collect();
+        let screens = prepared.catalog.routes.iter().map(|_| None).collect();
         Self { prepared, screens }
     }
 
@@ -110,7 +114,46 @@ impl PreparedOwner {
 
 /// Immutable catalogs and resolved roots prepared on the local component loading worker.
 pub struct PreparedPanelUi {
+    catalog: Arc<PreparedCatalog>,
+}
+
+/// Resolved route data shared across fresh publishers without sharing rendered owner state.
+struct PreparedCatalog {
+    bundle: Arc<PanelBundle>,
     routes: Vec<Arc<PreparedRoute>>,
+}
+
+/// Keeps prepared immutable catalogs reusable only while a presenter still owns them.
+fn catalogs() -> &'static Mutex<Vec<Weak<PreparedCatalog>>> {
+    static CATALOGS: OnceLock<Mutex<Vec<Weak<PreparedCatalog>>>> = OnceLock::new();
+    CATALOGS.get_or_init(Mutex::default)
+}
+
+/// Compares every admitted field; adding a bundle field requires updating this identity.
+fn same_bundle(a: &PanelBundle, b: &PanelBundle) -> bool {
+    let PanelBundle {
+        panel: a_panel,
+        surfaces: a_surfaces,
+        control_schemas: a_schemas,
+    } = a;
+    let PanelBundle {
+        panel: b_panel,
+        surfaces: b_surfaces,
+        control_schemas: b_schemas,
+    } = b;
+    a_panel == b_panel && a_surfaces == b_surfaces && a_schemas == b_schemas
+}
+
+/// Reclaims unloaded entries and finds an identical previously validated catalog.
+fn cached(
+    catalogs: &mut Vec<Weak<PreparedCatalog>>,
+    bundle: &PanelBundle,
+) -> Option<Arc<PreparedCatalog>> {
+    catalogs.retain(|catalog| catalog.strong_count() != 0);
+    catalogs
+        .iter()
+        .filter_map(Weak::upgrade)
+        .find(|catalog| same_bundle(&catalog.bundle, bundle))
 }
 
 /// A validated static screen route, reusable across scalar-only updates.
@@ -125,6 +168,12 @@ pub struct PreparedRoute {
 impl PreparedPanelUi {
     /// Checks and prepares every bounded route once, outside the renderer's frame path.
     pub fn prepare(bundle: Arc<PanelBundle>) -> Result<Arc<Self>, String> {
+        if let Some(prepared) = cached(
+            &mut catalogs().lock().expect("prepared panel catalogs"),
+            &bundle,
+        ) {
+            return Ok(Arc::new(Self { catalog: prepared }));
+        }
         bundle.validate()?;
         let mut panels: Vec<Panel> = bundle
             .surfaces
@@ -153,12 +202,19 @@ impl PreparedPanelUi {
                 tree,
             }));
         }
-        Ok(Arc::new(Self { routes }))
+        let mut catalogs = catalogs().lock().expect("prepared panel catalogs");
+        if let Some(prepared) = cached(&mut catalogs, &bundle) {
+            return Ok(Arc::new(Self { catalog: prepared }));
+        }
+        let prepared = Arc::new(PreparedCatalog { bundle, routes });
+        catalogs.push(Arc::downgrade(&prepared));
+        Ok(Arc::new(Self { catalog: prepared }))
     }
 
     /// Matches only the exact validated source and its original control action schema.
     pub fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
-        self.routes
+        self.catalog
+            .routes
             .iter()
             .find(|route| {
                 template::same_template(&route.panel, panel)

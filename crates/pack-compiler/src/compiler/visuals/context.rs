@@ -171,6 +171,36 @@ pub(in crate::compiler) fn push_model_template(
     Ok(template)
 }
 
+/// Pushes `groups` as one compound template and returns its first part. Whole groups are packed
+/// into parts of at most [`assets::MAX_MODEL_TEMPLATE_QUADS`] quads, so detail quads that take
+/// their light from the cuboid before them stay in that cuboid's part.
+pub(in crate::compiler) fn push_grouped_model_template(
+    groups: impl IntoIterator<Item = Vec<ModelQuad>>,
+    storage: &mut ModelStorage<'_>,
+) -> Result<Option<u32>, AssetError> {
+    let mut parts: Vec<Vec<ModelQuad>> = Vec::new();
+    for group in groups {
+        match parts.last_mut() {
+            Some(part) if part.len() + group.len() <= assets::MAX_MODEL_TEMPLATE_QUADS => {
+                part.extend(group);
+            }
+            _ => parts.push(group),
+        }
+    }
+    let count = parts.len();
+    let mut first = None;
+    for (index, part) in parts.into_iter().enumerate() {
+        let flags = if index + 1 < count {
+            MODEL_TEMPLATE_FLAG_COMPOUND_NEXT
+        } else {
+            0
+        };
+        let template = push_model_template(part, flags, storage.templates, storage.quads)?;
+        first.get_or_insert(template);
+    }
+    Ok(first)
+}
+
 /// Interns a placed cuboid while retaining its independently selected inventory shape.
 pub(in crate::compiler) fn intern_cuboid_template(
     materials: [u32; 6],

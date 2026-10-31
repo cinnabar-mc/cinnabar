@@ -365,11 +365,14 @@ fn compile_pack_sources(
             }
             continue;
         }
-        if visuals::candle_cake::is_record(record) {
-            if let Some(descriptors) = visuals::candle_cake::descriptors(&pack, record) {
-                for (descriptor, key) in descriptors {
-                    descriptor_keys.insert(descriptor, key);
-                }
+        if visuals::candle_cake::is_record(record) || visuals::candle::is_record(record) {
+            let descriptors = if visuals::candle::is_record(record) {
+                visuals::candle::descriptors(&pack, record)
+            } else {
+                visuals::candle_cake::descriptors(&pack, record)
+            };
+            for (descriptor, key) in descriptors.into_iter().flatten() {
+                descriptor_keys.insert(descriptor, key);
             }
             continue;
         }

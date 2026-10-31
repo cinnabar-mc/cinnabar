@@ -5,6 +5,9 @@ use std::fs;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
 
+#[path = "event_tests.rs"]
+mod event_tests;
+
 /// Captures a fresh snapshot for fixtures that do not retain an observation worker.
 fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
     source::Observer::default().source_snapshot(entry, std::time::Instant::now())

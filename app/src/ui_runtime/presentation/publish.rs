@@ -328,6 +328,18 @@ pub(crate) fn prepare_ui_runtime(
         });
     if hud_doll || runtime.emotes().is_open() {
         presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
+        presentation.set_hud_glide(
+            client_world
+                .stream
+                .as_ref()
+                .and_then(|stream| stream.authority().local_player_ui().actor())
+                .and_then(|actor| {
+                    client_presentation::presentation::actors::glide_rotation(
+                        actor,
+                        actor_partial.0,
+                    )
+                }),
+        );
         presentation.capture_hud_player_with_emote(
             client_world
                 .stream

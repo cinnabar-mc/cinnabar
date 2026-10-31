@@ -131,6 +131,10 @@ patch `{"show_gameplay_hud":true}` changes it, so one panel can show the HUD on
 only some of its routes. The flag lasts until another patch changes it or
 `set-content` replaces the panel.
 
+A route change keeps each scroll view offset shared by layout key, clamped to the
+new content; absent keys are discarded. Closing or removing the panel resets its
+scroll positions.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the
@@ -271,6 +275,31 @@ external files can receive notifications. Companion settings and grants survive.
 The Mods tab's Update action works when automatic installation is disabled.
 Settings → Updates controls mod checks and automatic installation separately.
 Mods without either declaration make no update requests.
+
+For host-compatible automatic updates, declare only
+`cinnabar:extension/revision-update@1`, a top-level JSON object with `source` (the
+same exact GitHub asset URL), `package` (a stable package identifier), `revision`
+(the full lowercase mod source commit), and `api_revision` (the stable API revision
+of the host source used to build and test it). Do not also declare a legacy update URL:
+older hosts ignore the new section and cannot enforce its compatibility contract.
+On supporting hosts, this declaration disables legacy latest-release fallback even
+when malformed or duplicated.
+
+The updater queries the Cinnabar API with the native build's full stamped commit,
+supported API revisions and installed mod identity. Unstamped builds and unsupported
+API revisions receive no update. The API selects the newest mod requiring any
+supported API revision.
+The mod's native build pin is an example tested build, not an eligibility restriction.
+`crates/mod-api/compatibility-revisions.json` lists supported API revisions, oldest
+to newest. Unrelated native commits keep this list. Adding capabilities appends the
+full source commit identifying the new API revision and keeps older supported entries.
+A breaking change removes revisions that can no longer run. Mods built against an
+older supported revision remain eligible on newer native builds without changing
+their build pin. A mod using a newly added capability requires the newer API revision,
+so older hosts cannot receive it. The
+client verifies returned host, package, source, asset, size, digest and replacement
+identity before using the existing bounded installer. API failures never fall back
+to GitHub latest. Existing update preferences and manual installation still apply.
 
 ## Trusted packet mods
 
