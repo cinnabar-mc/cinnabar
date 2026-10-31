@@ -88,7 +88,7 @@ fn superseded_pages_are_released_before_replacement_allocation() {
     let (device, queue) = device();
     let mut old = publication(1, 1);
     let removed = publication(2, 1).pages[0].clone();
-    let weak = Arc::downgrade(&removed.rgba8);
+    let weak = Arc::downgrade(&removed.rgba8.parts()[0]);
     old.pages = Arc::from([old.pages[0].clone(), removed]);
     let mut gpu = GpuArtwork::default();
     assert!(gpu.prepare(&old, &device, &queue));

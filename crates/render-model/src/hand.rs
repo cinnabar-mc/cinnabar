@@ -1,6 +1,6 @@
 //! CPU inputs shared by first-person presentation and the hand pass.
 use glam::{Mat4, Vec3};
-use std::{mem::size_of, sync::Arc};
+use std::mem::size_of;
 /// Instance texture-selector bits shared with the hand shader.
 pub const HAND_ITEM_LAYER_FLAG: u32 = 0x8000_0000;
 
@@ -77,5 +77,5 @@ pub struct HandItemAtlas {
     pub width: u16,
     pub height: u16,
     pub layers: u32,
-    pub rgba8: Arc<[u8]>,
+    pub rgba8: crate::PagePixels,
 }
