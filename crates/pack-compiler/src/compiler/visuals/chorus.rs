@@ -9,7 +9,7 @@ use assets::facts::pack::PackBlock as B;
 use {super::super::*, assets::BlockFace};
 
 /// The age at which a flower can no longer grow and shows its withered art.
-const WITHERED_AGE: u64 = 5;
+const WITHERED_AGE: u32 = 5;
 
 fn is_flower(record: &RegistryRecord) -> bool {
     record.name.as_ref() == B::ChorusFlower.identifier()
@@ -20,8 +20,11 @@ pub(in crate::compiler) fn flower_variant(record: &RegistryRecord) -> Option<usi
     if !is_flower(record) {
         return None;
     }
-    let state: serde_json::Value = serde_json::from_str(&record.canonical_state).ok()?;
-    Some(usize::from(state["age"]["value"].as_u64()? == WITHERED_AGE))
+    let age = canonical_state_u32(
+        &record.canonical_state,
+        assets::facts::BlockProperty::Age.name(),
+    )?;
+    Some(usize::from(age == WITHERED_AGE))
 }
 
 /// Three full-length bars along each axis, each with one cross section.
