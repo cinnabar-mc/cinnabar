@@ -149,21 +149,24 @@ impl EquipmentRuntime {
             hand
         };
         let placement = push::held_sprite_placement(item, block);
-        let display = if placement == HeldItemPlacement::Retail {
-            super::super::display::first_person_display_for_profile(shape, hand, profile)
+        let bone = if placement == HeldItemPlacement::Retail {
+            let mut bone = view_bone(super::super::display::first_person_display_for_profile(
+                shape, hand, profile,
+            ))?;
+            bone.translation_scale[3] *= input.main_hand_scale();
+            bone
         } else {
             let table = render_model::equipment::offset_sprite_display(
                 placement,
                 HeldItemHandSide::Main,
                 HeldItemPerspective::FirstPerson,
                 dimensions(self)?,
+                input.main_hand_scale(),
             )?;
-            super::super::display::first_person_offset_display(table, hand)
+            view_bone(super::super::display::first_person_offset_display(
+                table, hand,
+            ))?
         };
-        let mut bone = view_bone(display)?;
-        if render_model::equipment::offset_follows_actor_scale(placement) {
-            bone.translation_scale[3] *= input.main_hand_scale();
-        }
         let poses = self
             .poses
             .share(body, FIRST_PERSON_ITEM_LAYER, [&[bone], &[bone]]);
@@ -242,7 +245,7 @@ impl EquipmentRuntime {
 }
 
 /// The first-person off-hand bone of a flat sprite: its render offsets table with no lead of its
-/// own, or the retail off-hand pose.
+/// own and no held item scale, or the retail off-hand pose.
 fn offhand_sprite_bone(
     item: &WornItem,
     equipped: bool,
@@ -257,5 +260,6 @@ fn offhand_sprite_bone(
         HeldItemHandSide::Off,
         HeldItemPerspective::FirstPerson,
         dimensions,
+        1.0,
     )?)
 }

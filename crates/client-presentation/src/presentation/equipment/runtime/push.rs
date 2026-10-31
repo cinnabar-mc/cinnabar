@@ -297,8 +297,8 @@ impl EquipmentRuntime {
     }
 
     /// Third-person placement of a flat sprite on its item bone: its render offsets, or the retail
-    /// grip. `scale` is the actor's held item scale, which a declared table ignores. `dimensions`
-    /// is the texel size of the sprite being drawn.
+    /// grip. `scale` is the actor's held item scale. `dimensions` is the texel size of the sprite
+    /// being drawn.
     pub(super) fn held_sprite_display(
         &self,
         item: &WornItem,
@@ -317,13 +317,15 @@ impl EquipmentRuntime {
             .then(|| dimensions(self))
             .flatten()
             .and_then(|dimensions| {
-                render_model::equipment::offset_held_display(placement, upright, side, dimensions)
+                render_model::equipment::offset_held_display(
+                    placement, upright, side, dimensions, scale,
+                )
             });
-        let mut display = offset.unwrap_or_else(|| held_sprite_display_for_hand(upright, off_hand));
-        if render_model::equipment::offset_follows_actor_scale(placement) {
-            display.scale *= scale;
-        }
-        display
+        offset.unwrap_or_else(|| {
+            let mut retail = held_sprite_display_for_hand(upright, off_hand);
+            retail.scale *= scale;
+            retail
+        })
     }
 
     /// Texel size of the sprite `held_icon_mesh` draws for this item.

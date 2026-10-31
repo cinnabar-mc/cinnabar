@@ -37,18 +37,24 @@ fn sprite_height([width, height]: [u16; 2]) -> Option<f32> {
 /// position, then Z, Y and X turns in degrees, then per-axis scale, with the native sprite frame
 /// inside that. Default tables carry an icon size factor, so every icon spans the same length. A
 /// declared table scales native texels directly, so a larger icon draws larger. Rotation and scale
-/// stay separate because a table may scale an axis to zero. `None` for retail placement or an
-/// empty sprite.
+/// stay separate because a table may scale an axis to zero.
+///
+/// `actor_scale` is the owner's held item scale, or 1 for a hand that does not follow it. It joins
+/// the icon size factor inside the table, so the sprite grows from the table's position. A declared
+/// table ignores it. `None` for retail placement or an empty sprite.
 pub fn offset_sprite_display(
     placement: HeldItemPlacement,
     hand: HeldItemHandSide,
     perspective: HeldItemPerspective,
     dimensions: [u16; 2],
+    actor_scale: f32,
 ) -> Option<ItemDisplay> {
     let height = sprite_height(dimensions)?;
     let (offsets, texels): (&ItemRenderOffsets, f32) = match &placement {
         HeldItemPlacement::Retail => return None,
-        HeldItemPlacement::DefaultOffsets => (&DEFAULT_ITEM_RENDER_OFFSETS, TEXELS_PER_BLOCK),
+        HeldItemPlacement::DefaultOffsets => {
+            (&DEFAULT_ITEM_RENDER_OFFSETS, TEXELS_PER_BLOCK * actor_scale)
+        }
         HeldItemPlacement::DeclaredOffsets(offsets) => {
             (offsets, f32::from(dimensions[0].max(dimensions[1])))
         }
@@ -86,28 +92,26 @@ pub fn offset_first_person_lead(swing: f32, equip: f32) -> Mat4 {
 }
 
 /// Third-person placement of an offset sprite on its hand's item bone: the retail bone frame and
-/// grip, with the table in place of the retail icon transform. `None` for retail placement.
+/// grip, with the table in place of the retail icon transform. `actor_scale` is as in
+/// [`offset_sprite_display`]. `None` for retail placement.
 pub fn offset_held_display(
     placement: HeldItemPlacement,
     hand_equipped: bool,
     hand: HeldItemHandSide,
     dimensions: [u16; 2],
+    actor_scale: f32,
 ) -> Option<ItemDisplay> {
     let table = offset_sprite_display(
         placement,
         hand,
         HeldItemPerspective::ThirdPerson,
         dimensions,
+        actor_scale,
     )?;
     Some(table.under(third_person_sprite_frame(
         hand_equipped,
         hand == HeldItemHandSide::Off,
     )))
-}
-
-/// Whether a placement follows the actor's held item scale, which a declared table ignores.
-pub fn offset_follows_actor_scale(placement: HeldItemPlacement) -> bool {
-    !matches!(placement, HeldItemPlacement::DeclaredOffsets(_))
 }
 
 #[cfg(test)]
@@ -146,7 +150,7 @@ mod tests {
         perspective: HeldItemPerspective,
         dimensions: [u16; 2],
     ) -> Option<Mat4> {
-        offset_sprite_display(placement, hand, perspective, dimensions).map(display_matrix)
+        offset_sprite_display(placement, hand, perspective, dimensions, 1.0).map(display_matrix)
     }
 
     fn declared_scale(scale: [f32; 3]) -> ItemRenderOffsets {
@@ -221,6 +225,7 @@ mod tests {
                 hand_equipped,
                 side,
                 SQUARE_16,
+                1.0,
             )
             .unwrap();
             for corner in CORNERS {
@@ -461,14 +466,84 @@ mod tests {
         );
     }
 
+    /// Regression: the held item scale acts inside the table, so the sprite grows from the table's
+    /// position and its native frame correction grows with it.
     #[test]
-    fn only_a_declared_table_ignores_the_actor_scale() {
-        assert!(offset_follows_actor_scale(HeldItemPlacement::Retail));
-        assert!(offset_follows_actor_scale(
-            HeldItemPlacement::DefaultOffsets
-        ));
-        assert!(!offset_follows_actor_scale(
-            HeldItemPlacement::DeclaredOffsets(DEFAULT_ITEM_RENDER_OFFSETS)
-        ));
+    fn the_held_item_scale_grows_the_sprite_from_the_table_position() {
+        let table = DEFAULT_ITEM_RENDER_OFFSETS.main_hand.first_person;
+        let scaled = display_matrix(
+            offset_sprite_display(
+                HeldItemPlacement::DefaultOffsets,
+                HeldItemHandSide::Main,
+                HeldItemPerspective::FirstPerson,
+                SQUARE_16,
+                2.0,
+            )
+            .unwrap(),
+        );
+        assert_near(
+            scaled.transform_point3(CORNERS[2]),
+            Vec3::from_array(table.position),
+            1e-5,
+        );
+        let unscaled = offset_sprite_matrix(
+            HeldItemPlacement::DefaultOffsets,
+            HeldItemHandSide::Main,
+            HeldItemPerspective::FirstPerson,
+            SQUARE_16,
+        )
+        .unwrap();
+        for corner in CORNERS {
+            let origin = Vec3::from_array(table.position);
+            assert_near(
+                scaled.transform_point3(corner) - origin,
+                (unscaled.transform_point3(corner) - origin) * 2.0,
+                1e-5,
+            );
+        }
+    }
+
+    /// The same pivot holds on the third-person bone, inside its grip frame.
+    #[test]
+    fn the_held_item_scale_keeps_the_third_person_table_position() {
+        let held = |scale| {
+            display_matrix(
+                offset_held_display(
+                    HeldItemPlacement::DefaultOffsets,
+                    true,
+                    HeldItemHandSide::Main,
+                    SQUARE_16,
+                    scale,
+                )
+                .unwrap(),
+            )
+        };
+        assert_near(
+            held(2.0).transform_point3(CORNERS[2]),
+            held(1.0).transform_point3(CORNERS[2]),
+            1e-5,
+        );
+        let span = |matrix: Mat4| {
+            matrix
+                .transform_point3(CORNERS[0])
+                .distance(matrix.transform_point3(CORNERS[2]))
+        };
+        assert!((span(held(2.0)) - span(held(1.0)) * 2.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn a_declared_table_ignores_the_held_item_scale() {
+        let placement = HeldItemPlacement::DeclaredOffsets(declared_scale([0.05, 0.05, 0.05]));
+        let display = |scale| {
+            offset_sprite_display(
+                placement,
+                HeldItemHandSide::Main,
+                HeldItemPerspective::FirstPerson,
+                SQUARE_16,
+                scale,
+            )
+            .unwrap()
+        };
+        assert_eq!(display(1.0), display(2.0));
     }
 }
