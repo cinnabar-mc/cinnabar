@@ -330,7 +330,14 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                                         0b11_0000
                                     }
                                 } else {
-                                    quad_visibility_mask(template.quad_count)
+                                    vine_quad_mask(
+                                        palette_context,
+                                        &facts,
+                                        &neighbour_facts,
+                                        [x, y, z],
+                                        template.flags,
+                                    )
+                                    .unwrap_or_else(|| quad_visibility_mask(template.quad_count))
                                 };
                             for (quad_index, quad) in template_quads.iter().enumerate() {
                                 // A u32 mask addresses at most 32 quads; stop rather
@@ -552,7 +559,7 @@ use super::{
     liquids::mesh_liquids,
     models::{
         PaletteResolutionContext, adjacent_palette_entry, is_kelp_entry, model_quad_cull_face,
-        model_template_flags, select_model_templates, snow_side_is_covered,
+        model_template_flags, select_model_templates, snow_side_is_covered, vine_quad_mask,
     },
     opaque::{
         CubeMeshOutput, CubeQuadStreams, DiagnosticGeometryAccumulator, VisibilityMasks,

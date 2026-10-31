@@ -10,6 +10,12 @@ pub(super) fn descriptor_for(
     if visuals::command_block::is_record(record) {
         return visuals::command_block::descriptor(pack, record, face);
     }
+    if visuals::speleothem::is_record(record) {
+        return visuals::speleothem::descriptor(pack, record);
+    }
+    if visuals::sunflower::is_head_face(record, face) {
+        return visuals::sunflower::head_descriptor(pack, record, face);
+    }
     if visuals::stem::is_record(record) {
         return visuals::stem::descriptor(pack, record, face);
     }

@@ -146,7 +146,12 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
+    speleothem_templates: BTreeMap<u32, u32>,
+    vine_stem_templates: BTreeMap<([u32; 2], u32), u32>,
+    diode_torches: super::diode::TorchMaterials,
+    diode_templates: BTreeMap<super::diode::TemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
+    cactus_template: Option<u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
@@ -478,6 +483,24 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::speleothem::compile_rule(
+            record,
+            inputs,
+            &mut self.speleothem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::vine_stem::compile_rule(
+            record,
+            inputs,
+            &mut self.vine_stem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::shelf::compile_rule(
             record,
             inputs,
@@ -550,6 +573,7 @@ impl VisualCompiler {
                 visual: &mut exact_visual,
                 cuboid_template_by_key: &mut self.cuboid_templates,
                 chiseled_bookshelf_template_by_key: &mut self.chiseled_bookshelf_templates,
+                cactus_template: &mut self.cactus_template,
                 model_templates: &mut self.model_templates,
                 model_quads: &mut self.model_quads,
             },
@@ -719,6 +743,16 @@ impl VisualCompiler {
                 quads: &mut self.model_quads,
             },
         ));
+        ordered_rule!(super::diode::compile_rule(
+            record,
+            inputs,
+            self.diode_torches,
+            &mut self.diode_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
         ordered_rule!(super::named_blocks::compile_rule(
             record,
             inputs,
@@ -811,6 +845,7 @@ pub(in crate::compiler) fn compile_visuals(
         fallback,
     };
     compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
+    compiler.diode_torches = super::diode::TorchMaterials::find(records, &inputs);
     let mut ordered_records = records.iter().collect::<Vec<_>>();
     let mut potted_templates = BTreeMap::new();
     ordered_records.sort_unstable_by_key(|record| record.sequential_id);
