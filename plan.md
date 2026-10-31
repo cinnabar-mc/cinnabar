@@ -1304,8 +1304,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
-  CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
-  is from one report.
+  CPU-culled indirect draws. The version bound is from one report. The same drivers compile with
+  FXC: that adapter lost the device building an indirect-validation pipeline with DXC and fell back
+  to the software adapter. A player reported a stable launch with `WGPU_DX12_COMPILER=fxc`, and
+  their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
+  on. No log confirms the compiler of that run, automatic FXC selection has not run on that
+  hardware, and its terrain stays far over the frame budget.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
