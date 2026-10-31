@@ -48,6 +48,10 @@ impl ModelTextureSelector {
             Some(S::Stem) => Self::Stem,
             Some(S::CropStages) => Self::CropStages,
             Some(S::Torchflower) => Self::Torchflower,
+            Some(S::DriedGhast) => Self::Index {
+                property: assets::facts::BlockProperty::RehydrationLevel.name(),
+                count: 4,
+            },
             None => match Self::mushroom_block(key) {
                 Some(block) => Self::Mushroom { block },
                 None => return Self::Single,
