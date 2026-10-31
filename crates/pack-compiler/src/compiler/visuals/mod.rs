@@ -66,6 +66,7 @@ pub(in crate::compiler) mod respawn_anchor;
 pub(in crate::compiler) mod sea_pickle;
 pub(in crate::compiler) mod selector_alias;
 pub(in crate::compiler) mod shelf;
+pub(in crate::compiler) mod speleothem;
 pub(in crate::compiler) mod signs;
 pub(in crate::compiler) mod slabs;
 pub(in crate::compiler) mod snowy_grass;

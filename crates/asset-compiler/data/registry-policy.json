@@ -7164,6 +7164,8 @@
       "Farmland": "minecraft:farmland",
       "ResinClump": "minecraft:resin_clump",
       "Dirt": "minecraft:dirt",
+      "PointedDripstone": "minecraft:pointed_dripstone",
+      "SulfurSpike": "minecraft:sulfur_spike",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
