@@ -189,11 +189,11 @@ fn mesh_sub_chunk_core<
         scratch.palette = facts.scratch;
         return ChunkMesh {
             cube_streams: Box::default(),
-            model_refs: Box::new([]),
-            model_lighting: Box::new([]),
+            model_refs: Arc::from([]),
+            model_lighting: Arc::from([]),
             model_draw_refs: Box::default(),
-            liquid_quads: Box::new([]),
-            liquid_lighting: Box::new([]),
+            liquid_quads: Arc::from([]),
+            liquid_lighting: Arc::from([]),
             connectivity,
         };
     }
@@ -570,23 +570,23 @@ fn mesh_sub_chunk_core<
     scratch.palette = facts.scratch;
     ChunkMesh {
         cube_streams: Box::new(CubeStreams {
-            cube_quads: quads.into_boxed_slice(),
-            cube_lighting: cube_lighting.into_boxed_slice(),
+            cube_quads: quads.into(),
+            cube_lighting: cube_lighting.into(),
             layout,
             diagnostic_geometry: diagnostic_geometry.finish(),
         }),
-        model_refs: model_refs.into_boxed_slice(),
-        model_lighting: model_lighting.into_boxed_slice(),
+        model_refs: model_refs.into(),
+        model_lighting: model_lighting.into(),
         model_draw_refs: Box::new(ModelDrawRefs {
-            opaque: model_draw_refs.into_boxed_slice(),
-            transparent: transparent_model_draw_refs.into_boxed_slice(),
+            opaque: model_draw_refs.into(),
+            transparent: transparent_model_draw_refs.into(),
         }),
-        liquid_quads: liquid_quads.into_boxed_slice(),
-        liquid_lighting: liquid_lighting.into_boxed_slice(),
+        liquid_quads: liquid_quads.into(),
+        liquid_lighting: liquid_lighting.into(),
         connectivity,
     }
 }
-use std::cell::OnceCell;
+use std::{cell::OnceCell, sync::Arc};
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,

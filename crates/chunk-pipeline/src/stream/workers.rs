@@ -1,3 +1,4 @@
+mod mailbox;
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(not(target_arch = "wasm32"))]
@@ -17,6 +18,7 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use crossbeam_channel::Sender;
+pub(in crate::stream) use mailbox::{Mailbox, MailboxSender, result_mailbox};
 
 #[cfg(not(feature = "tracy"))]
 type QueueGuard<'a> = MutexGuard<'a, Queues>;
@@ -378,12 +380,30 @@ impl Drop for WorldPool {
     }
 }
 
-/// Restores normal job priority before reserving a result-channel slot.
-/// This prevents the receiving frame from spinning on a preempted, lowered sender.
-pub(super) fn send_result<T>(tx: &Sender<T>, result: T) {
+/// Where a worker publishes a result; a receiver that has gone away discards it.
+pub(super) trait ResultSink<T> {
+    /// Publishes a result or drops it if its receiver has gone away.
+    fn publish(&self, result: T);
+}
+
+impl<T> ResultSink<T> for Sender<T> {
+    fn publish(&self, result: T) {
+        let _ = self.send(result);
+    }
+}
+
+impl<T> ResultSink<T> for MailboxSender<T> {
+    fn publish(&self, result: T) {
+        let _ = self.send(result);
+    }
+}
+
+/// Restores normal job priority before publishing, so a lowered sender is not left preempted
+/// while it holds the queue that other producers and receivers use.
+pub(super) fn send_result<T>(tx: &impl ResultSink<T>, result: T) {
     #[cfg(not(target_arch = "wasm32"))]
     restore_lowered_job();
-    let _ = tx.send(result);
+    tx.publish(result);
 }
 
 /// Updates the browser observation before a frame submits jobs.

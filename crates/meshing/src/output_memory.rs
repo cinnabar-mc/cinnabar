@@ -99,12 +99,13 @@ impl MeshOutputBounds {
     }
 }
 
-/// Counts owned packed streams and biome words, including empty mesh allocations.
+/// Counts packed streams and biome words, including shared allocation counters.
 #[must_use]
 pub fn mesh_output_byte_len(mesh: &ChunkMesh, biome: &PackedBiomeRecord) -> u64 {
     bytes::<ChunkMesh>(1)
         + bytes::<CubeStreams>(1)
         + bytes::<ModelDrawRefs>(1)
+        + shared_stream_counters()
         + bytes::<PackedQuad>(mesh.cube_quads().len() as u64)
         + bytes::<PackedQuadLighting>(mesh.cube_lighting().len() as u64)
         + bytes::<PackedModelRef>(mesh.model_refs().len() as u64)
@@ -134,6 +135,7 @@ fn plain_bound() -> u64 {
     bytes::<ChunkMesh>(1)
         + bytes::<CubeStreams>(1)
         + bytes::<ModelDrawRefs>(1)
+        + shared_stream_counters()
         + bytes::<DiagnosticGeometryCount>(MAX_DIAGNOSTIC_IDENTITIES_PER_MESH as u64)
         + bytes::<u32>(MAX_PACKED_BIOME_RECORD_WORDS as u64)
         + BLOCKS_PER_SUB_CHUNK as u64
@@ -143,7 +145,13 @@ fn plain_bound() -> u64 {
                 + 2 * bytes::<PackedQuadLighting>(1))
 }
 
-/// Converts an owned stream length to bytes without depending on wire layout literals.
+/// Reserves strong and weak counters for every shared slice in the publication tuple.
+const fn shared_stream_counters() -> u64 {
+    // Each slice handle and its two reference counters both occupy two pointer-sized words.
+    bytes::<crate::ChunkMeshStreams>(1)
+}
+
+/// Converts a stream length to bytes without depending on wire layout literals.
 const fn bytes<T>(count: u64) -> u64 {
     count * std::mem::size_of::<T>() as u64
 }
