@@ -4,8 +4,8 @@ use assets::{
     NetworkIdMode, RuntimeAssets,
 };
 
-#[test]
-fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_arrays() {
+/// Compiles every dried ghast state from a pack whose tentacle art uses `tentacle_alpha`.
+fn compile_ghasts(tentacle_alpha: u8) -> (RuntimeAssets, Vec<assets::RegistryRecord>) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -65,11 +65,16 @@ fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_array
         .flat_map(|name| (1..=4).map(move |level| format!("ghast_{name}_{level}")))
         .enumerate()
     {
+        let alpha = if name.contains("tentacles") {
+            tentacle_alpha
+        } else {
+            255
+        };
         write_png(
             directory.path().join(format!("textures/blocks/{name}.png")),
             TILE_SIZE,
             TILE_SIZE,
-            &[index as u8 * 8, 90, 40, 255].repeat((TILE_SIZE * TILE_SIZE) as usize),
+            &[index as u8 * 6, 90, 40, alpha].repeat((TILE_SIZE * TILE_SIZE) as usize),
         );
     }
     let span = records
@@ -86,7 +91,12 @@ fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_array
     )
     .unwrap();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    (runtime, records)
+}
 
+#[test]
+fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_arrays() {
+    let (runtime, records) = compile_ghasts(255);
     let ghasts = records
         .iter()
         .filter(|record| record.name.as_ref() == "minecraft:dried_ghast")
@@ -114,4 +124,36 @@ fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_array
         art.insert(visual.face(BlockFace::Up).material_id());
     }
     assert_eq!(art.len(), 4, "each rehydration level selects its own art");
+}
+
+#[test]
+fn transparent_tentacle_art_stays_on_the_tentacles() {
+    let (runtime, records) = compile_ghasts(0);
+    let mut seen = 0;
+    for record in records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:dried_ghast")
+    {
+        let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
+        let parts = assets::model_template_parts(
+            runtime.model_templates(),
+            visual.model_template().unwrap(),
+        )
+        .unwrap();
+        let body = BlockFace::ALL.map(|face| visual.face(face).material_id());
+        let tentacle = parts
+            .iter()
+            .flat_map(|part| {
+                let start = part.quad_start as usize;
+                &runtime.model_quads()[start..start + part.quad_count as usize]
+            })
+            .any(|quad| !body.contains(&quad.material));
+        assert!(
+            tentacle,
+            "{} replaced its tentacle art with body art",
+            record.canonical_state
+        );
+        seen += 1;
+    }
+    assert!(seen > 0, "the registry must contain dried ghasts");
 }

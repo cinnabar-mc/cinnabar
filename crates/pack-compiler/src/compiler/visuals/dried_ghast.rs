@@ -266,7 +266,7 @@ pub(in crate::compiler) fn tentacle_descriptor(
             texture_key: key.clone(),
             state_variant,
             flipbook_selector: Some((state_variant, state_variant)),
-            flags: 0,
+            flags: MATERIAL_FLAG_ALPHA_CUTOUT,
         },
         key,
     ))
