@@ -1,5 +1,7 @@
 //! Iris's alpha test, applied to a translated fragment stage: the fragment is discarded unless
-//! `outColor0.a <function> reference` holds, as Iris appends to every geometry program.
+//! `gl_FragData[0].a <function> reference` holds. Iris appends it only to compatibility-profile
+//! programs that write `gl_FragData[0]` or `gl_FragColor`; a location 0 output the pack declares
+//! itself can hold anything in its alpha and is never tested.
 //!
 //! The test is injected into the naga module before each return of the fragment entry point,
 //! so one translation serves every draw that uses the program with a different test.
@@ -8,7 +10,7 @@ use naga::{
     BinaryOperator, Block, Expression, Handle, Literal, Module, ScalarKind, ShaderStage, Span,
     Statement, TypeInner, UnaryOperator, VectorSize,
 };
-use shaderpack::{AlphaTest, CompareFunction};
+use shaderpack::{ALPHA_TESTED_OUTPUT, AlphaTest, CompareFunction};
 
 /// Iris's default alpha test of cutout geometry: `alpha > 0.1`.
 pub(crate) const ONE_TENTH_ALPHA: AlphaTest = AlphaTest {
@@ -26,15 +28,6 @@ fn operator(function: CompareFunction) -> Option<BinaryOperator> {
         CompareFunction::GreaterEqual => BinaryOperator::GreaterEqual,
         CompareFunction::Never | CompareFunction::Always => return None,
     })
-}
-
-/// How the entry point's result reaches location 0.
-#[derive(Clone, Copy)]
-enum Output {
-    /// The result itself is the vec4 at location 0.
-    Whole,
-    /// Member `index` of the result struct is.
-    Member(u32),
 }
 
 fn is_vec4_float(module: &Module, ty: Handle<naga::Type>) -> bool {
@@ -55,8 +48,8 @@ fn location_zero(binding: Option<&naga::Binding>) -> bool {
 }
 
 /// Applies `test` to the fragment entry point of `module`. Returns `false`, leaving the module
-/// unchanged, when the module has no fragment entry point writing a `vec4` at location 0 (the
-/// test then has nothing to read, as in GL without `gl_FragData[0]`). `Always` changes nothing.
+/// unchanged, when the entry point does not write [`ALPHA_TESTED_OUTPUT`] (Iris's transformer
+/// appends no test then). `Always` changes nothing.
 pub(crate) fn inject_alpha_test(module: &mut Module, test: AlphaTest) -> bool {
     if test.function == CompareFunction::Always {
         return true;
@@ -71,21 +64,17 @@ pub(crate) fn inject_alpha_test(module: &mut Module, test: AlphaTest) -> bool {
     let Some(result) = module.entry_points[entry].function.result.as_ref() else {
         return false;
     };
-    let output = match &module.types[result.ty].inner {
-        TypeInner::Struct { members, .. } => {
-            let Some(index) = members
-                .iter()
-                .position(|m| location_zero(m.binding.as_ref()) && is_vec4_float(module, m.ty))
-            else {
-                return false;
-            };
-            Output::Member(index as u32)
-        }
-        _ if location_zero(result.binding.as_ref()) && is_vec4_float(module, result.ty) => {
-            Output::Whole
-        }
-        _ => return false,
+    let TypeInner::Struct { members, .. } = &module.types[result.ty].inner else {
+        return false;
     };
+    let Some(output) = members.iter().position(|m| {
+        m.name.as_deref() == Some(ALPHA_TESTED_OUTPUT)
+            && location_zero(m.binding.as_ref())
+            && is_vec4_float(module, m.ty)
+    }) else {
+        return false;
+    };
+    let output = output as u32;
     let function = &mut module.entry_points[entry].function;
     let body = std::mem::take(&mut function.body);
     function.body = guard_returns(body, &mut function.expressions, output, test);
@@ -96,7 +85,7 @@ pub(crate) fn inject_alpha_test(module: &mut Module, test: AlphaTest) -> bool {
 fn guard_returns(
     block: Block,
     expressions: &mut naga::Arena<Expression>,
-    output: Output,
+    output: u32,
     test: AlphaTest,
 ) -> Block {
     let mut out = Block::new();
@@ -150,7 +139,7 @@ fn push_test(
     out: &mut Block,
     expressions: &mut naga::Arena<Expression>,
     value: Handle<Expression>,
-    output: Output,
+    output: u32,
     test: AlphaTest,
 ) {
     let Some(op) = operator(test.function) else {
@@ -164,13 +153,13 @@ fn push_test(
         Span::UNDEFINED,
     );
     let start = expressions.len();
-    let colour = match output {
-        Output::Whole => value,
-        Output::Member(index) => expressions.append(
-            Expression::AccessIndex { base: value, index },
-            Span::UNDEFINED,
-        ),
-    };
+    let colour = expressions.append(
+        Expression::AccessIndex {
+            base: value,
+            index: output,
+        },
+        Span::UNDEFINED,
+    );
     let alpha = expressions.append(
         Expression::AccessIndex {
             base: colour,
@@ -211,23 +200,38 @@ fn push_test(
 mod tests {
     use super::*;
 
-    const FRAGMENT: &str = "#version 450
-layout(location = 0) out vec4 colour;
+    /// A fixture fragment stage whose location 0 output is `output`.
+    fn fragment(output: &str) -> Module {
+        let source = format!(
+            "#version 450
+layout(location = 0) out vec4 {output};
 layout(location = 1) out vec4 data;
 layout(location = 0) in vec4 tint;
-void main() {
-    colour = tint;
+void main() {{
+    {output} = tint;
     data = vec4(1.0);
-}
-";
-
-    fn module() -> Module {
+}}
+"
+        );
         naga::front::glsl::Frontend::default()
             .parse(
                 &naga::front::glsl::Options::from(ShaderStage::Fragment),
-                FRAGMENT,
+                &source,
             )
             .expect("fixture fragment parses")
+    }
+
+    fn module() -> Module {
+        fragment(ALPHA_TESTED_OUTPUT)
+    }
+
+    /// Photon stores packed light levels in the alpha of its own location 0 output, which is
+    /// near zero without sky light: testing it hid every actor in the End and the Nether.
+    #[test]
+    fn an_output_the_pack_declares_itself_is_not_tested() {
+        let mut module = fragment("gbuffer_data_0");
+        assert!(!inject_alpha_test(&mut module, ONE_TENTH_ALPHA));
+        assert_eq!(kills(&module.entry_points[0].function.body), 0);
     }
 
     fn validate(module: &Module) {
