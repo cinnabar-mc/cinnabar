@@ -555,5 +555,7 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
     TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
         [(SettingPanel::Touch, 0)], [], None, None;
+    NametagBackgroundOpacity => "nametag_background_opacity", slider("options.nametagBackgroundOpacity", 0, 100, 25),
+        [(SettingPanel::VideoCustomization, 15)], [SettingsGroup::Video], None, None;
 
 }
