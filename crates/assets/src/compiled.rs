@@ -178,7 +178,7 @@ pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
         && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0)
+            || flags & (MATERIAL_FLAG_NATIVE_LEAF_COLOUR | crate::stem::MATERIAL_FLAG) != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)

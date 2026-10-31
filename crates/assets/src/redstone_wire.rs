@@ -32,7 +32,7 @@ pub fn colour(signal: u32) -> Option<[u8; 3]> {
     let red = if signal == 0 { 0.3 } else { 0.6 * power + 0.4 };
     let green = 0.7 * power * power - 0.5;
     let blue = 0.6 * power * power - 0.7;
-    // Saturating float casts match the native clamp to the byte range.
+    // Truncating, saturating float casts match the native conversion to the byte range.
     Some([red, green, blue].map(|channel: f32| (channel * 255.0) as u8))
 }
 
@@ -52,7 +52,7 @@ mod tests {
     #[test]
     fn power_colour_runs_from_dim_to_bright_red() {
         assert_eq!(colour(0), Some([76, 0, 0]));
-        assert_eq!(colour(15), Some([255, 51, 0]));
+        assert_eq!(colour(15), Some([255, 50, 0]));
         assert_eq!(colour(16), None);
         assert_eq!(material_flags(16), None);
         let reds = (0..=MAX_SIGNAL).map(|signal| colour(signal).unwrap()[0]);
