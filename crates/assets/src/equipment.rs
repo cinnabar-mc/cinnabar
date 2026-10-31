@@ -263,6 +263,8 @@ pub struct RuntimeEquipmentCatalog {
 
 #[path = "equipment/decode.rs"]
 mod decode;
+mod session;
+pub(crate) use session::SessionEquipmentEncoding;
 
 impl RuntimeEquipmentCatalog {
     /// Builds a catalog in memory from a server pack's attachables, bound to `identity` (a
@@ -519,20 +521,29 @@ pub fn encode_equipment_catalog_with_use_profiles(
     bytes.extend_from_slice(&EQUIPMENT_CARRIER_VERSION.to_le_bytes());
     bytes.extend_from_slice(&(payload_bytes.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&payload_bytes);
-    bytes.extend_from_slice(&(textures.len() as u32).to_le_bytes());
-    for texture in textures {
-        bytes.extend_from_slice(&(texture.identifier.len() as u16).to_le_bytes());
-        bytes.extend_from_slice(texture.identifier.as_bytes());
-        bytes.extend_from_slice(&texture.width.to_le_bytes());
-        bytes.extend_from_slice(&texture.height.to_le_bytes());
-        bytes.extend_from_slice(&texture.rgba8);
-    }
+    write_textures(&mut bytes, textures).expect("writing to memory cannot fail");
     let hash = Sha256::digest(&bytes);
     bytes.extend_from_slice(&hash);
     if bytes.len() > MAX_EQUIPMENT_CARRIER_BYTES {
         return Err(invalid("equipment carrier exceeds bound"));
     }
     Ok(bytes)
+}
+
+/// Writes the texture records [`decode::read_textures`] reads back.
+fn write_textures(
+    out: &mut dyn std::io::Write,
+    textures: &[EquipmentTexture],
+) -> std::io::Result<()> {
+    out.write_all(&(textures.len() as u32).to_le_bytes())?;
+    for texture in textures {
+        out.write_all(&(texture.identifier.len() as u16).to_le_bytes())?;
+        out.write_all(texture.identifier.as_bytes())?;
+        out.write_all(&texture.width.to_le_bytes())?;
+        out.write_all(&texture.height.to_le_bytes())?;
+        out.write_all(&texture.rgba8)?;
+    }
+    Ok(())
 }
 
 /// Validates a startup carrier's bindings, including its count bound.

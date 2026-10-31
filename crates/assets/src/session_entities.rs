@@ -59,14 +59,7 @@ impl SessionEntityPack {
         let equipment = self
             .equipment
             .as_deref()
-            .map(|catalog| {
-                crate::encode_equipment_catalog_with_textures(
-                    catalog.source_manifest_sha256(),
-                    catalog.entity_blob_sha256(),
-                    catalog.bindings(),
-                    catalog.textures(),
-                )
-            })
+            .map(RuntimeEquipmentCatalog::session_encoding)
             .transpose()?;
         Ok(SessionEntityEncoding {
             pack: self,
@@ -75,7 +68,8 @@ impl SessionEntityPack {
         })
     }
 
-    /// Decodes each section; the entity and equipment sections pass their carriers' checks.
+    /// Decodes each section; the entity section passes its carrier's checks and the equipment
+    /// section a compiled catalog's, without the startup carrier's bounds.
     pub fn decode(bytes: &[u8]) -> Result<Self, AssetError> {
         Self::decode_from(&mut &bytes[..], bytes.len() as u64)
     }
@@ -101,13 +95,11 @@ impl SessionEntityPack {
         let equipment = match encoded.next()? {
             None => None,
             Some(length) => {
-                let bytes = encoded.read(length)?;
                 let pixels = SharedActorPixels::new(&textures);
-                Some(Arc::new(
-                    RuntimeEquipmentCatalog::decode_with_shared_pixels(&bytes, |bytes| {
-                        pixels.share(bytes)
-                    })?,
-                ))
+                Some(Arc::new(RuntimeEquipmentCatalog::decode_session(
+                    &mut (&mut encoded.reader).take(length),
+                    |bytes| pixels.share(bytes),
+                )?))
             }
         };
         if encoded.next()?.is_some() {
@@ -124,11 +116,11 @@ impl SessionEntityPack {
     }
 }
 
-/// A pack's encoded sections, with only the small equipment section staged in memory.
+/// A pack's encoded sections, with only the small equipment metadata staged in memory.
 pub struct SessionEntityEncoding<'a> {
     pack: &'a SessionEntityPack,
     entity_blob: &'a [u8],
-    equipment: Option<Vec<u8>>,
+    equipment: Option<crate::equipment::SessionEquipmentEncoding<'a>>,
 }
 
 impl SessionEntityEncoding<'_> {
@@ -138,7 +130,9 @@ impl SessionEntityEncoding<'_> {
         [
             Some(self.entity_blob.len() as u64),
             Some(artwork_len(&self.pack.textures, &self.pack.bindings)),
-            self.equipment.as_ref().map(|bytes| bytes.len() as u64),
+            self.equipment
+                .as_ref()
+                .map(crate::equipment::SessionEquipmentEncoding::encoded_len),
         ]
         .into_iter()
         .flatten()
@@ -153,8 +147,8 @@ impl SessionEntityEncoding<'_> {
         out.write_all(&artwork_len(&self.pack.textures, &self.pack.bindings).to_le_bytes())?;
         write_artwork(out, &self.pack.textures, &self.pack.bindings)?;
         if let Some(equipment) = &self.equipment {
-            out.write_all(&(equipment.len() as u64).to_le_bytes())?;
-            out.write_all(equipment)?;
+            out.write_all(&equipment.encoded_len().to_le_bytes())?;
+            equipment.write_to(out)?;
         }
         Ok(())
     }
