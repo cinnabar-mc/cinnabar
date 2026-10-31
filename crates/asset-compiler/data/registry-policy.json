@@ -585,7 +585,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "d9dccba6808174a462af3be8b9c9a2a625675fe946891431667cc61368f4546d",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",

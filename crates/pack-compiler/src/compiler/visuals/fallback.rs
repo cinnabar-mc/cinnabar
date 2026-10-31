@@ -463,7 +463,7 @@ mod tests {
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 3_550])
+            .zip([2_031, 3_614])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -534,8 +534,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 3_550);
-        assert_eq!(names.len(), 334);
+        assert_eq!(matched.len(), 3_614);
+        assert_eq!(names.len(), 335);
         assert!(
             matched
                 .iter()

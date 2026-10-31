@@ -217,7 +217,8 @@
         {"name": "LEAF_MODEL", "bit": 3, "go_name": "flagLeafModel", "source": true, "doc": null},
         {"name": "SEASONAL_REPLACEABLE", "bit": 4, "go_name": null, "source": false, "doc": "Replaceable-block admission used by the seasonal scan; independent of geometry and collision."},
         {"name": "FIRE_FLAMMABLE", "bit": 5, "go_name": null, "source": false, "doc": "Effective catch chance is nonzero."},
-        {"name": "FIRE_TOP_SUPPORT", "bit": 6, "go_name": null, "source": false, "doc": "The support component accepts full support on the top face."}
+        {"name": "FIRE_TOP_SUPPORT", "bit": 6, "go_name": null, "source": false, "doc": "The support component accepts full support on the top face."},
+        {"name": "CHORUS_ROOT", "bit": 7, "go_name": null, "source": false, "doc": "A chorus plant above roots into this block."}
       ],
       "doc": "Geometry, occlusion and seasonal shelter facts."
     },
