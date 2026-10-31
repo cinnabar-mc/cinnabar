@@ -220,7 +220,7 @@ performance gate closes here.
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Controlled cache deadlines cover idle input, cancellation, full-column payload retention, shared-hash retries, ordering and resets. Reclaim regressions cover downstream progress, full intake windows, bounded worker continuation and foreground handoff credit. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
-| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Live join, streaming and hardware budgets remain open. |
+| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Workers finalize shared geometry streams; publication and extraction preserve their payload allocations, with pointer-identity and upload-byte regressions authored for CI. Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE

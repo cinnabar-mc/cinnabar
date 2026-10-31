@@ -296,6 +296,13 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Invalidated or failed proofs restore hidden sections; retained proofs process openings
   inline while a full search is pending.
   Matched-output frame-time and movement qualification remain incomplete.
+  `CINNABAR_TERRAIN_RASTER_OCCLUSION=1` opts compatible Vulkan devices into
+  current-frame raster tests of projected section bounds instead of building Hi-Z. An early solid depth
+  subset leaves colour writes off; the late pass retains each CPU stream's colour
+  order. Other devices retain their existing paths. Near-plane crossings and large
+  boxes remain visible, and unavailable tests draw the complete ordered terrain.
+  Matched-output frame-time and movement qualification remain incomplete;
+  raster occlusion stays off by default pending hardware acceptance.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
@@ -380,6 +387,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Saturated-producer frame and service-reclaim hardware qualification remains open.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
+  Meshing workers finalize shared geometry streams; main-world publication and render
+  extraction retain those allocations through upload and retirement.
   Matched-output hardware preparation and streaming qualification remain open.
   Far terrain remains disabled in Video settings. Coarsening retains overlapping
   fallback tiles until their replacement covers every known column, and its near
@@ -1907,6 +1916,11 @@ including hands, labels and the base UI raster. Enhanced water, shadows and shaf
 disable sampling while their required targets are unavailable. Injected failures cover
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
+Empty terrain arenas return to their starting capacity after retained allocations and
+submitted readers retire. Failed terrain growth retries once with unmapped host-visible
+storage when the device enables that feature, with allocation and release counters.
+Discrete-GPU memory placement, pressure recovery and frame-pacing qualification remain
+incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
