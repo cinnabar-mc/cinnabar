@@ -217,6 +217,11 @@ pub(super) fn drive_mod(
         .ok()
         .and_then(|(window, _)| window.cursor_position())
         .map(|point| point.to_array());
+    let container = observed_container_screen(&player_runtime, &ui);
+    let pointer_available = focused && !menu_open && !presentation.mod_ui().mod_panel_open();
+    for host in extension.hosts.iter_mut() {
+        host.observe_container_screen(container, pointer_available);
+    }
     screens::drive(
         &mut extension,
         &player_runtime,
@@ -227,14 +232,6 @@ pub(super) fn drive_mod(
         focused && !menu_open,
         &mut screen_input,
     );
-    let container = client_ui::ui_runtime::presentation::forms::container_screen_reference(
-        &player_runtime,
-        &ui,
-    );
-    let pointer_available = focused && !menu_open && !presentation.mod_ui().mod_panel_open();
-    for host in extension.hosts.iter_mut() {
-        host.observe_container_screen(container, pointer_available);
-    }
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
     controls.keys_admitted = bindings::admitted_keys(
@@ -634,4 +631,33 @@ fn exchange_native_frame(
         now,
     );
     output
+}
+
+/// Observes a rendered container only while it is actually open, without requiring input focus.
+fn observed_container_screen(
+    player: &player_state::PlayerState,
+    ui: &client_ui::ui_runtime::UiRuntime,
+) -> Option<&'static str> {
+    ui.inventory_open()
+        .then(|| client_ui::ui_runtime::presentation::forms::container_screen_reference(player, ui))
+        .flatten()
+}
+
+#[cfg(test)]
+mod pointer_observation_tests {
+    use super::observed_container_screen;
+    /// A default personal layout is not evidence that its inventory is open.
+    #[test]
+    fn container_observation_follows_inventory_lifetime() {
+        let mut player = player_state::PlayerState::new(1);
+        let mut ui = client_ui::test_support::inventory_session(&mut player);
+        assert_eq!(observed_container_screen(&player, &ui), None);
+        ui.toggle_inventory(&mut player, None);
+        assert_eq!(
+            observed_container_screen(&player, &ui),
+            Some("crafting.inventory_screen")
+        );
+        ui.toggle_inventory(&mut player, None);
+        assert_eq!(observed_container_screen(&player, &ui), None);
+    }
 }
