@@ -2,8 +2,8 @@
 
 use std::{collections::BTreeMap, sync::OnceLock};
 
-use crate::candle::CandleFlames;
-use crate::facts::{BlockRenderKind, VanillaBlock, block_render_fact};
+use crate::facts::candle::CandleFlames;
+use crate::facts::{BlockProperty, BlockRenderKind, VanillaBlock, block_render_fact};
 use crate::{NetworkIdMode, RegistryRecord};
 
 /// Portal orientation, including a state whose axis is absent or unrecognized.
@@ -67,10 +67,10 @@ impl BlockPresentationState {
             Some(raw.get("value").unwrap_or(raw))
         };
         if let Some(kind) = candle_kind(identifier) {
-            let lit = value("lit").and_then(|value| value.as_u64()) == Some(1);
+            let lit = value(BlockProperty::Lit.name()).and_then(|value| value.as_u64()) == Some(1);
             let candle_flames = match kind {
                 BlockRenderKind::CandleCake if lit => CandleFlames::Cake,
-                BlockRenderKind::Candle if lit => value("candles")
+                BlockRenderKind::Candle if lit => value(BlockProperty::Candles.name())
                     .and_then(|value| value.as_u64())
                     .filter(|count| *count <= 3)
                     .map_or(CandleFlames::None, |count| {

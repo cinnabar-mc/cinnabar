@@ -90,7 +90,7 @@ pub(in crate::compiler) fn compile_rule(
     } else {
         // Each candle stays in one part: its wick takes its light from the candle cuboid.
         let template = push_grouped_model_template(
-            assets::candle::placed_candles(count)
+            assets::facts::candle::placed_candles(count)
                 .iter()
                 .map(|&(height, [x, z])| {
                     candle_quads(material, [position(x), position(z)], 0, height)
