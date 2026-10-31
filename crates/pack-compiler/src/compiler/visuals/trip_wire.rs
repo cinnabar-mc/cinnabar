@@ -26,11 +26,9 @@ const ATTACHED: u8 = 1 << 4;
 
 /// The state bits a wire's geometry reads.
 fn shape(record: &RegistryRecord) -> u8 {
-    let flag = |property: BlockProperty, bit: u8| {
-        match record.property(property) {
-            Some(StateValue::Bool(true) | StateValue::Int(1)) => bit,
-            _ => 0,
-        }
+    let flag = |property: BlockProperty, bit: u8| match record.property(property) {
+        Some(StateValue::Bool(true) | StateValue::Int(1)) => bit,
+        _ => 0,
     };
     flag(BlockProperty::MinecraftConnectionNorth, NORTH)
         | flag(BlockProperty::MinecraftConnectionEast, EAST)
