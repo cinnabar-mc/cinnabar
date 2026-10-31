@@ -547,6 +547,8 @@ settings! {
         [(SettingPanel::VideoGraphics, 12)], [SettingsGroup::Video], None, None;
     RenderScaleSharpen => "render_scale_sharpen", toggle("FSR Sharpness", ui::DEFAULT_RENDER_SCALE_SHARPEN),
         [(SettingPanel::VideoGraphics, 13)], [SettingsGroup::Video], None, None;
+    FrameGeneration => "frame_generation", toggle("Frame Generation", render_api::frame_generation::DEFAULT_FRAME_GENERATION),
+        [(SettingPanel::VideoGraphics, 14)], [SettingsGroup::Video], None, None;
     GraphicsApi => "graphics_api", dropdown("Graphics API", super::graphics_api::CHOICES, 0),
         [(SettingPanel::VideoBackend, 0)], [SettingsGroup::Video], None, None;
     VerboseLogging => "verbose_logging", toggle("Verbose logging", false),

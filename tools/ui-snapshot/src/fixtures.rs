@@ -779,6 +779,18 @@ const STATES: &[State] = &[
         },
     },
     State {
+        name: "settings-frame-generation-off",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_frame_generation(false),
+    },
+    State {
+        name: "settings-frame-generation-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_frame_generation(true),
+    },
+    State {
         name: "settings-video-culling-on",
         size: SIZE,
         gui_scale: GUI_SCALE,

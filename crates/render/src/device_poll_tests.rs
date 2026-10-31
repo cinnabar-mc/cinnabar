@@ -92,3 +92,31 @@ fn frames_without_a_swap_chain_stay_within_the_in_flight_bound() {
         );
     }
 }
+
+/// Waiting for a candidate and then tracking a final surface copy retains every completion.
+#[test]
+#[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+fn frame_generation_wait_tracks_each_completed_candidate_and_post_poll_copy() {
+    let Some((device, queue)) = native_device() else {
+        return;
+    };
+    let mut frames = FramesInFlight::default();
+    let completed = Arc::new(AtomicUsize::new(0));
+    for pair in 1..=8 {
+        queue.submit([]);
+        let receipt = Arc::clone(&completed);
+        queue.on_submitted_work_done(move || {
+            receipt.fetch_add(1, Ordering::AcqRel);
+        });
+        frames
+            .finish_with_wait(
+                device.wgpu_device(),
+                &queue,
+                Some(std::time::Duration::from_secs(1)),
+            )
+            .unwrap();
+        assert_eq!(completed.load(Ordering::Acquire), pair);
+        queue.submit([]);
+        frames.track_tail(&queue);
+    }
+}

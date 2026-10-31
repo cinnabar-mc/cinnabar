@@ -15,6 +15,7 @@ use std::sync::{
     Mutex,
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
+use std::{collections::HashMap, thread::JoinHandle};
 
 /// An output-sized scene pair used only by screen-space UI on a reduced world view.
 #[derive(Component)]
@@ -44,6 +45,25 @@ impl NativeUiTarget {
         blit: &BlitPipeline,
         cache: &PipelineCache,
     ) -> Option<Self> {
+        Self::allocate(
+            device,
+            extent,
+            formats,
+            pipelines,
+            &cache.get_bind_group_layout(&blit.layout),
+            &blit.sampler,
+        )
+    }
+
+    /// Allocates independent textures on a worker using already-queued pipeline variants.
+    fn allocate(
+        device: &RenderDevice,
+        extent: [u32; 2],
+        formats: [TextureFormat; 2],
+        pipelines: (UpscalePipelines, CachedRenderPipelineId),
+        layout: &BindGroupLayout,
+        sampler: &Sampler,
+    ) -> Option<Self> {
         let [scene_format, output_format] = formats;
         let bytes = u64::from(extent[0])
             * u64::from(extent[1])
@@ -61,7 +81,10 @@ impl NativeUiTarget {
                     sample_count: 1,
                     dimension: TextureDimension::D2,
                     format: scene_format,
-                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::TEXTURE_BINDING,
+                    usage: TextureUsages::RENDER_ATTACHMENT
+                        | TextureUsages::TEXTURE_BINDING
+                        | TextureUsages::COPY_SRC
+                        | TextureUsages::COPY_DST,
                     view_formats: &[],
                 })
             })
@@ -70,9 +93,9 @@ impl NativeUiTarget {
         let views = textures
             .each_ref()
             .map(|texture| texture.create_view(&default()));
-        let present_bindings = views
-            .each_ref()
-            .map(|view| blit.create_bind_group(device, view, cache));
+        let present_bindings = views.each_ref().map(|view| {
+            device.create_bind_group(None, layout, &BindGroupEntries::sequential((view, sampler)))
+        });
         Some(Self {
             device: device.wgpu_device().clone(),
             textures,
@@ -122,6 +145,12 @@ impl NativeUiTarget {
         self.ready.load(Ordering::Relaxed)
     }
 
+    /// A temporal consumer may use only this frame's complete, matching native scene pair.
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    pub(crate) fn compatible(&self, device: &RenderDevice, target: &ViewTarget) -> bool {
+        self.is_available() && self.matches(device, target, self.extent())
+    }
+
     /// Whether the completed native UI scene has been encoded into the real output this frame.
     pub(crate) fn was_presented(&self) -> bool {
         self.presented.load(Ordering::Relaxed)
@@ -169,7 +198,14 @@ impl NativeUiTarget {
         let sharpness = world
             .get_resource::<crate::render_scale::RenderScaleSharpen>()
             .and_then(|filter| filter.0);
-        let Some(pass) = self.seed_pipelines.ready_pass(cache, sharpness.is_some()) else {
+        let native_size = crate::render_bounds::extent(target.main_texture_view()) == self.extent();
+        let Some(pass) = (if native_size {
+            cache
+                .get_render_pipeline(self.seed_pipelines.bilinear)
+                .map(|_| UpscalePass::Bilinear)
+        } else {
+            self.seed_pipelines.ready_pass(cache, sharpness.is_some())
+        }) else {
             return false;
         };
         let sharpen = pass == UpscalePass::Easu && sharpness.is_some();
@@ -306,6 +342,15 @@ impl NativeUiTarget {
             destination_texture: &self.textures[destination],
         }
     }
+
+    /// Starts a second UI composition from an externally encoded complete native world.
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    pub(crate) fn replace_scene(&self) -> &TextureView {
+        self.current.store(0, Ordering::Relaxed);
+        self.ready.store(true, Ordering::Relaxed);
+        self.presented.store(false, Ordering::Relaxed);
+        &self.views[0]
+    }
 }
 
 /// Encodes a full-coverage blit without sampling the output attachment itself.
@@ -345,9 +390,32 @@ fn encode_blit(
 /// Includes device, extent and both formats so changed allocation requests retry immediately.
 type NativeUiRequest = (wgpu::Device, [u32; 2], TextureFormat, TextureFormat);
 
-/// Allocates only for an admitted scaled view whose real output still matches its marker.
+/// One finite allocation per view; resize requests wait for the old worker to finish.
+#[derive(Default)]
+pub(crate) struct NativeUiJobs {
+    pending: HashMap<Entity, (NativeUiRequest, JoinHandle<Option<NativeUiTarget>>)>,
+    failed: HashMap<Entity, NativeUiRequest>,
+}
+
+/// Native storage preparation must precede consumers that select its complete attachments.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct NativeUiPrepared;
+
+type NativeUiViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        Entity,
+        &'static ViewTarget,
+        Option<&'static crate::render_scale::RenderScaleOutput>,
+        Option<&'static NativeUiTarget>,
+        Option<&'static render_scene::frame_generation::FrameGenerationCamera>,
+    ),
+>;
+
+/// Allocates only for an admitted view whose real output still matches its request.
 #[allow(clippy::too_many_arguments)] // View admission and the two pipeline owners share one allocation boundary.
-pub(crate) fn prepare_native_ui_targets(
+pub(super) fn prepare_native_ui_targets(
     mut commands: Commands,
     device: Res<RenderDevice>,
     cache: Res<PipelineCache>,
@@ -356,24 +424,37 @@ pub(crate) fn prepare_native_ui_targets(
     mut upscale: Option<ResMut<UpscalePipeline>>,
     mut failed: Local<FailedRequests<NativeUiRequest>>,
     sharpen: Option<Res<crate::render_scale::RenderScaleSharpen>>,
-    views: Query<(
-        Entity,
-        &ViewTarget,
-        Option<&crate::render_scale::RenderScaleOutput>,
-        Option<&NativeUiTarget>,
-    )>,
+    mut jobs: Local<NativeUiJobs>,
+    views: NativeUiViews,
     removed: Query<Entity, (With<NativeUiTarget>, Without<ViewTarget>)>,
 ) {
     failed.retain(|entity| {
         views
             .get(entity)
-            .is_ok_and(|(_, _, scaled, _)| scaled.is_some())
+            .is_ok_and(|(_, _, scaled, _, generation)| scaled.is_some() || generation.is_some())
     });
     for entity in &removed {
         commands.entity(entity).remove::<NativeUiTarget>();
     }
-    for (entity, target, scaled, previous) in &views {
-        let extent = scaled.map(|output| output.0.to_array());
+    jobs.pending.retain(|entity, (_, job)| {
+        views
+            .get(*entity)
+            .is_ok_and(|(_, _, _, _, generation)| generation.is_some())
+            || !job.is_finished()
+    });
+    jobs.failed.retain(|entity, _| {
+        views
+            .get(*entity)
+            .is_ok_and(|(_, _, _, _, generation)| generation.is_some())
+    });
+    for (entity, target, scaled, previous, generation) in &views {
+        let extent = scaled.map(|output| output.0.to_array()).or_else(|| {
+            generation.and_then(|_| {
+                target
+                    .out_texture()
+                    .map(|view| crate::render_bounds::extent(view))
+            })
+        });
         let admitted = extent.filter(|extent| {
             !extent.contains(&0)
                 && extent
@@ -434,6 +515,47 @@ pub(crate) fn prepare_native_ui_targets(
             scene_format,
             output_format,
         );
+        if generation.is_some() {
+            if jobs
+                .pending
+                .get(&entity)
+                .is_some_and(|(_, job)| job.is_finished())
+            {
+                let (key, job) = jobs
+                    .pending
+                    .remove(&entity)
+                    .expect("finished native UI preparation");
+                if key == request {
+                    let Ok(Some(native)) = job.join() else {
+                        jobs.failed.insert(entity, request);
+                        continue;
+                    };
+                    native.begin_frame(
+                        &cache,
+                        sharpen.as_ref().is_some_and(|filter| filter.0.is_some()),
+                    );
+                    commands.entity(entity).insert(native);
+                    continue;
+                }
+            }
+            if !jobs.pending.contains_key(&entity) && jobs.failed.get(&entity) != Some(&request) {
+                let device = device.clone();
+                let layout = cache.get_bind_group_layout(&blit.layout);
+                let sampler = blit.sampler.clone();
+                let task = std::thread::spawn(move || {
+                    NativeUiTarget::allocate(
+                        &device,
+                        extent,
+                        [scene_format, output_format],
+                        (seeds, present),
+                        &layout,
+                        &sampler,
+                    )
+                });
+                jobs.pending.insert(entity, (request, task));
+            }
+            continue;
+        }
         if let Some(native) = failed.attempt(entity, request, || {
             NativeUiTarget::new(
                 &device,

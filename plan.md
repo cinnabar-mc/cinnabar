@@ -120,13 +120,16 @@ If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
-An optional `render/frame-generation` build feature provides SDR world-image
-optical flow, camera/depth interpolation and disocclusion filling. It has no
-production caller or Video control and adds no generated presentations. Pipeline
-and storage preparation runs before use; invalid inputs and explicit cuts reset
-history. World depth and native colour may have different resolutions. Runtime
-composition, scheduling/bypass policy, latency, hardware cost and platform visual
-acceptance remain incomplete; see the [backend contract](crates/render/src/frame_generation/README.md).
+Frame Generation is an opt-in Video setting, off by default. The native SDR
+presenter combines optical flow and camera/depth interpolation with separate
+current hand/name layers and native screen UI on both real and generated images.
+Workers prepare resources while ordinary rendering continues. Pure scheduling
+policy covers midpoint deadlines, low base rates, synchronized display capacity,
+captures and discontinuities; incomplete or late candidates retain real output.
+Shader packs, Enhanced rendering, HDR, motion blur and unsupported overlays bypass.
+Deterministic and software Vulkan fixtures do not close hardware GPU cost,
+input-to-photon latency, displayed pacing on Vulkan/DX12/Metal or in-world artifact
+acceptance. See the [runtime contract and hardware recipe](crates/render/src/frame_generation/README.md).
 
 ### Terrain, materials and biome acceptance
 

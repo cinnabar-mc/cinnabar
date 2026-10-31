@@ -5,6 +5,7 @@
 
 mod actor_lighting;
 pub mod far_terrain;
+pub mod frame_generation;
 mod frame_rate_limit;
 mod held_item;
 mod legacy_combat;

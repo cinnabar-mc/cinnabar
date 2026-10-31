@@ -73,6 +73,7 @@ type GammaView = (
     &'static SceneTarget,
     Option<&'static bevy::anti_alias::smaa::Smaa>,
     Option<&'static render_scene::shaderpack::ShaderPackRendering>,
+    Has<render_scene::frame_generation::FrameGenerationActive>,
 );
 
 type GammaTransparentQuery = GammaView;
@@ -87,9 +88,10 @@ pub(crate) fn gamma_transparent<const NAMETAGS_ONLY: bool, const AFTER_PACK: boo
     if !crate::shaderpack::native_pass_enabled(world, view_entity, AFTER_PACK) {
         return Ok(());
     }
-    let (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa, pack) =
+    let (camera, view, target, depth, resolution, msaa, enhanced, scene, smaa, pack, generation) =
         query.into_inner();
-    let overlay = crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some());
+    let overlay =
+        crate::nametag_render::overlay::enabled(enhanced.is_some(), pack.is_some()) || generation;
     let render_context = &mut render_context;
     let blur = crate::motion_blur::applies(world, view_entity);
     if NAMETAGS_ONLY && (!blur || overlay) {

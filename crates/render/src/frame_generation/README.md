@@ -1,54 +1,97 @@
-# Frame interpolation GPU backend
+# Frame generation
 
-The `render/frame-generation` build feature exposes a GPU backend without enabling
-frame generation in the client. It has no production caller, Video control or
-surface presenter yet. This is an adapted Horizon/FidelityFX implementation; both
-MIT notices are retained in `THIRD_PARTY_NOTICES.md`.
+Frame Generation is an optional Video setting, off by default. It inserts one
+interpolated SDR world image between real images. Buffering and extra GPU work add
+input and presentation latency. Hardware cost, visible pacing and added latency
+still need the qualification below; software Vulkan fixtures cannot establish them.
+The GPU algorithm retains the Horizon/FidelityFX MIT notices in
+`THIRD_PARTY_NOTICES.md`.
 
-`FrameGenerator::prepare` compiles pipelines and allocates storage during loading
-or on a worker. A resize or Render Resolution change needs a new prepared context.
-Until that context is ready, present real frames. `generate` submits one pair's
-optical flow, camera/depth reconstruction, disocclusion, interpolation and hole
-filling in queue order. Its output never feeds simulation, picks or interaction.
-The previous input is retained after each successful submission. Invalid inputs
-invalidate history. Explicit resets return the current image and must never
-schedule an extra presentation. Samples that cannot see the previous camera use
-current colour and contribute no camera motion to reconstructed fields.
+## Runtime contract
 
-## Input and composition contract
+The native client enables `render/frame-generation`. Preparation runs on finite
+workers. Ordinary real rendering continues while pipelines and storage are
+pending. Failed configurations stay bypassed until the configuration changes or
+the setting is disabled and enabled again. Resizes, device changes, MSAA and Render
+Resolution changes prepare new storage before use.
 
-Colour is a complete native-sized, single-sampled `Rgba8Unorm` image containing
-sRGB-encoded world RGB. Do not pass an sRGB texture view: the kernels decode colour
-where needed. Depth is finite reversed `Depth32Float`, single-sampled and sized to
-the world render. The reprojection maps current unjittered clip coordinates to the
-previous real camera. The output is native-sized `Rgba16Float` containing the same
-encoded RGB, not linear RGB; its alpha is interpolation metadata, not UI coverage.
+Only a complete, opaque primary-window SDR view can add presentations. Other
+cameras, partial/shared outputs, HDR, Enhanced rendering, shader packs, motion
+blur, projected UI and screen effects bypass generation. Screenshots and developer
+recordings use ordinary real frames. The browser has no extra surface presenter.
 
-Screen UI must be composited separately onto every presented image. The backend
-cannot separate UI that was already drawn into its colour input. These are the
-requirements for the future runtime consumer:
+The render thread retains the real surface image, generates a world midpoint,
+replays current UI, and presents the midpoint followed by the owned real image.
+This extra schedule contains UI encoding only: it never runs application updates,
+input sampling, extraction, picks, interaction or simulation. Backend surface
+presentation uses wgpu on Vulkan, DX12 and Metal.
 
-| Content or setting | Required handling before enabling runtime generation |
+Admission requires at least the real-frame rate in
+`render_api::frame_generation::FRAME_GENERATION_MIN_FPS`. Synchronized output also
+needs a known refresh rate with capacity for two presentations per real frame.
+Cuts, player/server camera reanchors, teleports, dimension transitions and bypassed
+intervals invalidate history. A late or incomplete candidate presents the real
+frame and resets pacing. GPU scene-change detection can additionally replace an
+interpolation with current world colour.
+
+The pacer uses a monotonic edge clock and absolute waits. After warming up the
+buffered timeline, the generated submission is scheduled halfway between the
+preceding and following real submissions. Submission deadlines do not prove
+scanout times: the driver, vsync, compositor and display can change when photons
+appear. Those require hardware measurement.
+
+| Content | Composition and limits |
 | --- | --- |
-| Menus, HUD, chat and screen overlays | Composite native pixels after interpolation on both real and generated images. Bypass if native composition is unavailable. |
-| First-person hand and sharp nametags | Exclude from the input and composite separately; bypass until their independent colour/depth coverage is available. |
-| Particles and translucency | Included in world colour; optical flow can track their image motion, but opaque depth cannot resolve their independent depth. Qualify artifacts before enabling them. |
-| Shader packs and Enhanced rendering | Bypass until their colour encoding, depth and composition boundary meet this contract. |
-| Motion blur | Bypass until ordering and image-history quality are qualified. |
-| Render Resolution | Depth may differ from native colour size, including 10%; optical-flow fields use their own grid and stride. Upscale colour before this backend. Reprepare after either size changes. |
-| MSAA and temporal AA | Resolve depth to one sample before generation. Supply actual projection jitter; otherwise bypass. |
-| HDR | Bypass; this backend accepts SDR only. |
+| Menus, HUD and chat | Replay the current native-resolution UI publication after world interpolation, including alpha and inversion ordering. Incomplete composition bypasses the extra presentation. |
+| First-person hand | Retain current colour and its own depth/coverage separately. Composite it after names on both images; never include it in world history. |
+| Nametags | Draw current names against original world depth, preserve encoded per-sample blending, and composite before the hand. They keep the world's spatial resolution and are never temporally warped. |
+| Particles and translucency | Remain in world colour. Optical flow tracks image motion; opaque depth cannot describe their independent depth. In-world artifact qualification remains open. |
+| Shader packs, Enhanced rendering, HDR and motion blur | Bypass. |
+| Screen effects and projected UI | Bypass while present. |
+| Render Resolution | Upscale clean world colour to native size before interpolation. Resolve depth at world resolution, including 10%. Native screen UI stays independent. |
+| MSAA and SMAA | Resolve reverse-Z world depth and hand coverage separately. Preserve per-sample name blending. SMAA processes world colour before native composition. |
 
-## Remaining runtime work
+`FrameGenerator::prepare` owns pipelines and persistent storage. `generate`
+submits optical flow, camera/depth reconstruction, interpolation and hole filling
+in queue order. Its input is complete native-sized `Rgba8Unorm` encoded SDR RGB,
+without hand, names or screen UI. Depth is reversed `Depth32Float` at world size;
+finite and infinite-far projections are supported. Output is `Rgba16Float` encoded
+SDR RGB. Its alpha is metadata, never UI coverage. Invalid input or explicit resets
+return no usable midpoint. Generated pixels never feed gameplay.
 
-The opt-in Video control stays unexposed and off. A separate presenter must pace
-one candidate halfway between real images without changing input or tick timing,
-handle vsync and unsynchronized output on Vulkan, DX12 and Metal, and bypass low
-base rates, missed deadlines, cuts, teleports and dimension changes. Call
-`invalidate` for every bypassed interval so history never bridges a gap. CPU reset
-metadata does not report GPU scene-change detection; the kernels can additionally
-return the real image when their luminance histograms detect a cut.
+## Hardware qualification recipe
 
-GPU fixtures establish motion and reset behavior only. They do not establish UI
-composition, latency, displayed-frame pacing or in-world visual acceptance. The
-Video description must include measured added latency before runtime rollout.
+Use one hardware GPU and a display at 120 Hz or above. Record OS, GPU, driver,
+backend, display refresh, compositor/VRR state, resolution and build SHA. Disable
+HDR and VRR for the initial comparison. Use a release build and the same offline
+world, camera route and settings for each run. Keep Render Resolution at 100%,
+motion blur off, no shader pack and a real-frame cap of 60 FPS. Confirm that the
+base rate stays above the admission threshold. Repeat at 1920x1080 and 2560x1440,
+with Frame Generation off/on and vsync off/on. Use Vulkan and DX12 on Windows and
+Metal on macOS; a successful run on one backend does not qualify the others.
+
+1. Warm each configuration for 120 real frames. Use RenderDoc/Vulkan GPU timing,
+   PIX/DX12 timing or Xcode/Metal GPU profiling to capture at least 600 real
+   frames. Verify that extra surface presentations actually occur and that no
+   candidate was bypassed. Measure GPU timestamps, excluding CPU waits. Report
+   interpolation compute alone and total added GPU work, including world copies,
+   foreground/UI replay and the real-image surface blit. Divide the extra work
+   by the number of generated presentations; report median, p95 and p99 per
+   generated frame. Keep the same count of real frames in the off/on comparison.
+2. Measure input-to-photon externally; screenshots and developer recording bypass
+   generation. Film a mouse-button electrical LED and the first changed hand
+   animation pixels together at 1000 FPS or use equivalent input/photodiode
+   instrumentation. Collect at least 100 randomly phased clicks in each off/on
+   configuration, with the same viewport region and input device. Report median,
+   p95, measurement resolution and the on-minus-off latency distribution. Also
+   inspect real/generated scanout intervals; CPU presentation logs alone are
+   insufficient.
+3. Repeat a slow pan, translation, abrupt turn, teleport/dimension transition,
+   setting toggle, resize, MSAA switch, Render Resolution switch and screenshot.
+   Check HUD/chat/crosshair edges, the hand, names, particles and translucent
+   surfaces. Confirm no old-world image crosses a cut, no UI warps and no first-use
+   compile blocks rendering. Record every bypass and attributable hitch.
+
+Synthetic headless tests establish composition and scheduling contracts only.
+Hardware GPU cost, actual halfway scanout, latency and in-world artifact acceptance
+remain open until these runs pass.
