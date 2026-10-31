@@ -14,6 +14,9 @@ pub const PRODUCT_NAME: &str = product_name!();
 /// The community Discord invite the client links to for help.
 pub const DISCORD_INVITE_URL: &str = "https://discord.gg/MeEz7BEHcM";
 
+/// The client flag that joins a server at `HOST:PORT` directly, used by launchers that start it.
+pub const JOIN_ADDRESS_FLAG: &str = "--address";
+
 /// The packaged client version from the workspace manifest.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 

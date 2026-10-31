@@ -1,0 +1,35 @@
+[package]
+name = "launcher-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[package.metadata.cinnabar]
+platform-specific = ["windows"]
+reads = ["assets/fonts/CinnanglesSans.ttf"]
+
+[[bin]]
+name = "cinnabar-launcher"
+path = "src/main.rs"
+test = false
+
+[dependencies]
+anyhow.workspace = true
+bootstrap-ui = { path = "../bootstrap-ui" }
+first-run = { path = "../first-run" }
+gilrs = "0.11.2"
+image.workspace = true
+launcher = { path = "../launcher" }
+launcher-host = { path = "../launcher-host" }
+render-model = { path = "../render-model" }
+ui = { path = "../ui" }
+update-manifest = { path = "../update-manifest" }
+winit = { version = "0.30", default-features = false, features = ["rwh_06", "wayland", "x11"] }
+
+[dev-dependencies]
+launcher-host = { path = "../launcher-host", features = ["test-support"] }
+tempfile = "3"
+
+[lints]
+workspace = true

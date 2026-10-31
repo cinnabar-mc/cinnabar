@@ -1257,6 +1257,11 @@ Launching a retained Linux manual download can offer installation into the exist
 script-managed AppDir, after revalidating its signed manifest and image. End-to-end
 desktop acceptance of this recovery path remains incomplete.
 
+A proof-of-concept standalone launcher (`cinnabar-launcher`) shows the signed-in account, saved
+servers, version, update channel, resource state and data folder, and starts the client installed
+beside it or joins a saved server through it. Packaging it, signing in, update checks and installs
+from the launcher, and desktop acceptance remain incomplete.
+
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 

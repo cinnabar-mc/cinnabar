@@ -89,7 +89,7 @@ fn after_window(
 
 /// Whether required assets need setup. Local worlds are optional, so an unprepared server
 /// never blocks remote play. An unreadable kit is reported during setup.
-fn needs_preparation(layout: &InstallLayout) -> bool {
+pub fn needs_preparation(layout: &InstallLayout) -> bool {
     headless::assets_needed(layout)
 }
 

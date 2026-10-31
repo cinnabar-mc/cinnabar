@@ -1,7 +1,7 @@
 //! Install and development path resolution tests.
 
 use super::{
-    InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path,
+    CLIENT_STEM, InstallEnvironment, InstallLayout, LayoutError, Platform, cargo_artifact_path,
     vanilla_pack_relative,
 };
 use std::path::{Path, PathBuf};
@@ -44,6 +44,36 @@ fn physics_filename_follows_the_carrier_registry_for_every_layout() {
             }
         );
     }
+}
+
+/// A launcher beside the client finds it in every packaged and development layout.
+#[test]
+fn layouts_resolved_from_the_client_name_its_executable() {
+    for (platform, executable) in [
+        (Platform::Windows, "C:/Cinnabar/cinnabar.exe"),
+        (Platform::Linux, "/opt/cinnabar/bin/cinnabar"),
+        (
+            Platform::MacOs,
+            "/Applications/Cinnabar.app/Contents/MacOS/cinnabar",
+        ),
+        (Platform::Linux, "/work/cinnabar/target/debug/cinnabar"),
+    ] {
+        let mut env = environment(executable, "/home/dev");
+        env.local_app_data = Some(PathBuf::from("C:/Users/dev/AppData/Local"));
+        let layout = InstallLayout::resolve(platform, &env).unwrap();
+        assert_eq!(layout.client_executable(), Path::new(executable));
+    }
+}
+
+#[test]
+fn client_name_matches_the_app_binary() {
+    let manifest = include_str!("../../../../app/Cargo.toml");
+    let bin = manifest.split("[[bin]]").nth(1).unwrap();
+    assert!(
+        bin.lines()
+            .any(|line| line.trim() == format!("name = \"{CLIENT_STEM}\"")),
+        "{bin}"
+    );
 }
 
 /// A test binary in a build dir outside the checkout still resolves the checkout.
