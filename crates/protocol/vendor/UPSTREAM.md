@@ -2,9 +2,11 @@
 
 `bedrock-protocol-1-26-60/` is protocolgen's generated Rust contract crate for Bedrock 1.26.60
 (protocol 2225), copied byte for byte with no local patches. Only `protocol` depends on it.
+Its Cargo package is `bedrock-protocol-contract-1-26-60`; a dependency alias preserves the
+existing Rust imports.
 
 - Generator: https://github.com/cinnabar-mc/protocolgen
-- Generator commit: `2265acd53847733ab10127646e76d575999c18d5` (`generated/1.26.60/rust-contract`)
+- Generator commit: `48cd9baad30cb7d78d1ca53a78b471b003cc9744` (`generated/1.26.60/rust-contract`)
 
 The expected protocol, codec contract and manifest fingerprint are pinned once, in
 `assets/bedrock-target.json`; a protocol test fails until a re-vendored crate matches them. The client reports the target game version to match gophertunnel.

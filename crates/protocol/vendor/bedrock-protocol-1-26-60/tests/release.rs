@@ -1,6 +1,6 @@
-use bedrock_protocol_1_26_60::packets::ClientboundUpdateSoundData;
-use bedrock_protocol_1_26_60::types::{SerializedSkinImage, SoundDataEvent};
-use bedrock_protocol_1_26_60::wire::{Decode, Encode};
+use bedrock_protocol_contract_1_26_60::packets::ClientboundUpdateSoundData;
+use bedrock_protocol_contract_1_26_60::types::{SerializedSkinImage, SoundDataEvent};
+use bedrock_protocol_contract_1_26_60::wire::{Decode, Encode};
 
 /// Ordinary RGBA images are byte buffers, independent of the collection element limit.
 #[test]
@@ -37,7 +37,7 @@ fn sound_update_uses_one_selector() {
 /// Generic level events carry a rootless compound body, retaining its end tag.
 #[test]
 fn generic_event_compound_body() {
-    use bedrock_protocol_1_26_60::packets::LevelEventGeneric;
+    use bedrock_protocol_contract_1_26_60::packets::LevelEventGeneric;
     for bytes in [&[2, 0][..], &[2, 3, 1, b'x', 2, 0]] {
         let decoded = LevelEventGeneric::decode_exact(bytes).unwrap();
         assert_eq!(decoded.ctd.0.as_ref(), &bytes[1..]);
@@ -49,7 +49,7 @@ fn generic_event_compound_body() {
 /// A structure response always has a presence marker, even when no NBT follows.
 #[test]
 fn structure_response_presence() {
-    use bedrock_protocol_1_26_60::packets::StructureTemplateDataResponse;
+    use bedrock_protocol_contract_1_26_60::packets::StructureTemplateDataResponse;
     for bytes in [&[1, b'a', 0, 1][..], &[1, b'a', 1, 10, 0, 0, 1]] {
         let decoded = StructureTemplateDataResponse::decode_exact(bytes).unwrap();
         assert_eq!(decoded.structure_nbt.is_some(), bytes[2] == 1);
@@ -60,8 +60,8 @@ fn structure_response_presence() {
 /// Start is selector zero with a fixed frame rate and file prefix; stop is selector one.
 #[test]
 fn video_capture_action_values() {
-    use bedrock_protocol_1_26_60::packets::PlayerVideoCapture;
-    use bedrock_protocol_1_26_60::types::PlayerVideoCaptureData;
+    use bedrock_protocol_contract_1_26_60::packets::PlayerVideoCapture;
+    use bedrock_protocol_contract_1_26_60::types::PlayerVideoCaptureData;
     for bytes in [&[0, 30, 0, 0, 0, 1, b'a'][..], &[1]] {
         let decoded = PlayerVideoCapture::decode_exact(bytes).unwrap();
         assert_eq!(
@@ -78,7 +78,7 @@ fn video_capture_action_values() {
 /// Spline easing is an optional string after the key-frame floats.
 #[test]
 fn spline_easing_is_optional() {
-    use bedrock_protocol_1_26_60::types::{
+    use bedrock_protocol_contract_1_26_60::types::{
         CameraSplineProgressKeyFrame, CameraSplineRotationKeyFrame,
     };
     for (floats, easing) in [
@@ -116,7 +116,7 @@ fn spline_easing_is_optional() {
 /// Each optional height map has sixteen length-prefixed rows of sixteen heights.
 #[test]
 fn height_map_rows() {
-    use bedrock_protocol_1_26_60::types::HeightmapData;
+    use bedrock_protocol_contract_1_26_60::types::HeightmapData;
     let mut bytes = vec![1, 1];
     for _ in 0..16 {
         bytes.push(16);

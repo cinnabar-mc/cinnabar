@@ -470,7 +470,7 @@ impl<'a> Reader<'a> {
         limit: usize,
     ) -> DecodeResult<usize> {
         let remaining = self.remaining();
-        let needed = declared.saturating_mul(min_element_size.max(1) as u64);
+        let needed = declared.saturating_mul(min_element_size as u64);
         if needed > remaining as u64 {
             return Err(DecodeError::LengthNotRepresentable {
                 field,
@@ -1176,6 +1176,19 @@ pub fn decode_collection_u32le<T: Decode>(
     decode_elements(reader, count)
 }
 
+/// Reads a fixed-width collection count under schema and reader bounds.
+pub fn decode_collection_u32le_limits<T: Decode>(
+    reader: &mut Reader<'_>,
+    field: FieldId,
+    min_element_size: usize,
+    minimum: u64,
+    maximum: u64,
+) -> DecodeResult<Vec<T>> {
+    let declared = u64::from(u32::from_le_bytes(reader.read_bytes::<4>()?));
+    let count = reader.checked_count_limits(field, declared, min_element_size, minimum, maximum)?;
+    decode_elements(reader, count)
+}
+
 /// Writes a `VarUInt`-prefixed map as ordered key/value pairs.
 pub fn encode_map<K: Encode, V: Encode>(
     writer: &mut Writer<'_>,
@@ -1315,6 +1328,50 @@ impl Decode for bytes::Bytes {
     fn decode(reader: &mut Reader<'_>) -> DecodeResult<Self> {
         reader.read_shared_bytes(FieldId::NONE)
     }
+}
+
+/// Writes a fixed-width length and a schema-bounded string.
+pub fn encode_string_u32le(
+    writer: &mut Writer<'_>,
+    value: &Str,
+    minimum: u64,
+    maximum: u64,
+) -> EncodeResult<()> {
+    encode_bytes_u32le(writer, value.as_bytes(), minimum, maximum)
+}
+
+/// Reads a fixed-width string length under byte and schema bounds.
+pub fn decode_string_u32le(
+    reader: &mut Reader<'_>,
+    field: FieldId,
+    minimum: u64,
+    maximum: u64,
+) -> DecodeResult<Str> {
+    Ok(Str(decode_bytes_u32le(reader, field, minimum, maximum)?))
+}
+
+/// Writes a fixed-width length and a schema-bounded byte buffer.
+pub fn encode_bytes_u32le(
+    writer: &mut Writer<'_>,
+    value: &[u8],
+    minimum: u64,
+    maximum: u64,
+) -> EncodeResult<()> {
+    check_length(value.len(), minimum, maximum)?;
+    writer.write_len_u32le(value.len())?;
+    writer.write_all(value)
+}
+
+/// Reads a fixed-width buffer length under byte and schema bounds.
+pub fn decode_bytes_u32le(
+    reader: &mut Reader<'_>,
+    field: FieldId,
+    minimum: u64,
+    maximum: u64,
+) -> DecodeResult<bytes::Bytes> {
+    let declared = u64::from(u32::from_le_bytes(reader.read_bytes::<4>()?));
+    let count = reader.checked_byte_bounds(field, declared, minimum, maximum)?;
+    reader.take_shared(count)
 }
 /// Client-owned ceiling on recursive schema edges along a decoded value's path.
 /// This bounds decoder stack use and the resulting owned tree's clone/drop depth;
@@ -2011,6 +2068,48 @@ mod runtime_tests {
         })
         .expect("frame encodes");
         out
+    }
+
+    /// Empty values consume no payload bytes but still obey the element limit.
+    /// Fixed-width counts enforce the same schema bounds as varints.
+    #[test]
+    fn fixed_width_collections_reject_excess_items() {
+        let input = [2, 0, 0, 0, 5, 0, 6, 0];
+        assert!(
+            decode_collection_u32le_limits::<U16LE>(&mut Reader::new(&input), FieldId(0), 2, 0, 1)
+                .is_err()
+        );
+        let valid = [1, 0, 0, 0, 5, 0];
+        assert_eq!(
+            decode_collection_u32le_limits::<U16LE>(&mut Reader::new(&valid), FieldId(0), 2, 0, 1)
+                .unwrap(),
+            vec![U16LE(5)]
+        );
+    }
+
+    #[test]
+    fn zero_byte_collections_obey_element_limits() {
+        assert_eq!(Reader::new(&[]).checked_count(FieldId(0), 3, 0), Ok(3));
+        let limits = Limits::unbounded().with_field(FieldId(0), 2);
+        assert!(matches!(
+            Reader::new(&[])
+                .with_limits(&limits)
+                .checked_count(FieldId(0), 3, 0),
+            Err(DecodeError::LengthLimitExceeded { .. })
+        ));
+    }
+
+    /// Fixed-width strings and buffers preserve their declared prefix bytes.
+    #[test]
+    fn fixed_width_buffers_round_trip() {
+        let mut out = Vec::new();
+        encode_string_u32le(&mut Writer::new(&mut out), &Str::from("hi"), 0, 2).unwrap();
+        assert_eq!(out, [2, 0, 0, 0, b'h', b'i']);
+        assert_eq!(
+            decode_string_u32le(&mut Reader::new(&out), FieldId(0), 0, 2).unwrap(),
+            "hi"
+        );
+        assert!(decode_bytes_u32le(&mut Reader::new(&out), FieldId(0), 0, 1).is_err());
     }
 
     #[test]

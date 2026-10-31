@@ -715,7 +715,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bedrock-protocol-1-26-60"
+name = "bedrock-protocol-contract-1-26-60"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -7341,7 +7341,7 @@ version = "0.1.31"
 dependencies = [
  "anyhow",
  "base64",
- "bedrock-protocol-1-26-60",
+ "bedrock-protocol-contract-1-26-60",
  "block-transform",
  "bridge",
  "bytes",
