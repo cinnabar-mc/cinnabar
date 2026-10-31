@@ -118,13 +118,27 @@ fn software_fused_dot_survives_the_process_boundary() {
     }
 }
 
+/// The packaged runtime name for the worker, from the release runtime table.
+fn packaged_name() -> String {
+    update_manifest::runtime::executable("SHADERPACK_WORKER", std::env::consts::OS)
+}
+
+/// Packaging stages and the client spawns this binary, not the asset compiler.
 #[test]
-fn compiler_runs_from_the_packaged_prep_kit_path() {
+fn runtime_table_names_this_binary() {
+    let built = Path::new(env!("CARGO_BIN_EXE_shaderpack-worker"));
+    assert_eq!(
+        built.file_name(),
+        Some(std::ffi::OsStr::new(&packaged_name()))
+    );
+}
+
+#[test]
+fn compiler_runs_from_the_packaged_install_path() {
     let (_root, request) =
         fixture("#version 330\nout vec4 color; void main() { color=vec4(1.0); }");
     let install = tempfile::tempdir().unwrap();
-    let kit = install.path().join("Cinnabar — test/resources/prep-kit");
-    let executable = assets::carriers::kit_compiler(&kit);
+    let executable = install.path().join("Cinnabar — test").join(packaged_name());
     std::fs::create_dir_all(executable.parent().unwrap()).unwrap();
     std::fs::copy(env!("CARGO_BIN_EXE_shaderpack-worker"), &executable).unwrap();
     let mut worker = Running::start(Some(&executable), &request).unwrap();
