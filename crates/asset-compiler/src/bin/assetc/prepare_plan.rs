@@ -151,7 +151,8 @@ pub(super) struct Scope<'a> {
 pub(super) struct Stamp {
     schema: u32,
     pub carriers: BTreeMap<String, Entry>,
-    /// Input digests keyed by path, reused while a file's size and mtime are unchanged.
+    /// Input digests keyed by kit- or checkout-relative path, reused while a file's size and
+    /// mtime are unchanged.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub inputs: BTreeMap<String, FileDigest>,
 }
@@ -215,7 +216,9 @@ pub(super) fn plan(
 ) -> Result<Plan, Box<dyn Error>> {
     let selected = select(scope)?;
     let mut fingerprints = HashMap::new();
+    let (Sources::Checkout(root) | Sources::Kit(root)) = &context.sources;
     let digests = Digests {
+        root,
         previous: &stamp.inputs,
         current: RefCell::default(),
     };
@@ -325,13 +328,19 @@ fn fingerprint(
 
 /// File digests that skip rehashing a file whose size and mtime match the stamp.
 struct Digests<'a> {
+    /// Keys are relative to it, so a kit that moves after a run keeps its digests.
+    root: &'a Path,
     previous: &'a BTreeMap<String, FileDigest>,
     current: RefCell<BTreeMap<String, FileDigest>>,
 }
 
 impl Digests<'_> {
     fn sha256(&self, path: &Path) -> Result<String, Box<dyn Error>> {
-        let key = path.to_string_lossy().into_owned();
+        let key = path
+            .strip_prefix(self.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .into_owned();
         if let Some(known) = self.current.borrow().get(&key) {
             return Ok(known.sha256.clone());
         }

@@ -241,6 +241,9 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         .route()
         .overrides_fallback
         || super::heavy_core::is_record(record)
+        || super::speleothem::is_record(record)
+        || super::chorus::is_flower(record)
+        || super::spore_blossom::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail
@@ -402,10 +405,7 @@ mod tests {
         let mut interned = BTreeMap::new();
         let mut seen = 0;
         for record in records.iter().filter(|record| {
-            record
-                .traits
-                .contains(assets::registry::BlockTraits::CHORUS_CONNECT)
-                || block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
+            block_render_fact(&record.name).kind == assets::facts::BlockRenderKind::Azalea
         }) {
             let (min, max, _) = inputs.fallback.entry(record).unwrap();
             let CompileRuleResult::Compiled(visual) = compile_rule(
@@ -454,10 +454,7 @@ mod tests {
             assert_eq!(templates[ordinary as usize].flags, 0);
             seen += 1;
         }
-        assert!(
-            seen >= 4,
-            "both chorus and azalea block types are registered"
-        );
+        assert!(seen >= 2, "both azalea block types are registered");
     }
 
     #[test]

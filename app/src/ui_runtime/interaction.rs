@@ -192,8 +192,8 @@ fn route_press(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
-    // Menu Cancel outranks a hotbar slot on the same button: vanilla's screen mapping binds no
-    // hotbar action.
+    // Menu Cancel outranks a hotbar slot if a saved layout binds both to one button; remapping
+    // either in Controls leaves the button on one of them.
     let cancel = menu_cancel_button(menu, button);
     if cancel && inventory::handle_menu_cancel(player_runtime, runtime, presentation.as_deref()) {
         return (PressRoute::Binding, true);

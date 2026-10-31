@@ -1,6 +1,7 @@
 //! Texture-only packs replace startup artwork without introducing attachable bindings.
 
 use assets::{EquipmentTexture, RuntimeEquipmentCatalog};
+use pack_entity_compiler::EquipmentRasterDrops;
 use resource_pack::LayeredPackView;
 
 /// Retains startup-path raster sources for compilation without allocating decoded pixels.
@@ -29,11 +30,13 @@ pub(super) fn collect(
     sources
 }
 
-/// Reuses compiler rasters and decodes only missing startup paths within the remaining budgets.
+/// Reuses compiler rasters and decodes only missing startup paths within the remaining budget,
+/// adding each raster it refuses to `drops`.
 pub(super) fn merge(
     view: &LayeredPackView,
     textures: &mut Vec<EquipmentTexture>,
     sources: Vec<(Box<str>, image::ImageFormat)>,
+    drops: &mut EquipmentRasterDrops,
 ) {
     let mut retained: usize = textures.iter().map(|texture| texture.rgba8.len()).sum();
     for (path, format) in sources {
@@ -43,19 +46,23 @@ pub(super) fn merge(
         if textures
             .iter()
             .any(|texture| texture.identifier.as_ref() == identifier)
-            || textures.len() == assets::MAX_EQUIPMENT_TEXTURES
+            || drops.contains(identifier)
         {
             continue;
         }
         let Some(bytes) = view.read_capped(&path, resource_pack::MAX_FILE_BYTES) else {
             continue;
         };
-        let Some((width, height, rgba8)) = pack_entity_compiler::decode_equipment_raster(
+        let (width, height, rgba8) = match pack_entity_compiler::decode_equipment_raster(
             &bytes,
             format,
-            assets::MAX_EQUIPMENT_PIXEL_BYTES - retained,
-        ) else {
-            continue;
+            assets::MAX_PACK_EQUIPMENT_PIXEL_BYTES.saturating_sub(retained),
+        ) {
+            Ok(raster) => raster,
+            Err(refusal) => {
+                drops.record(identifier, refusal);
+                continue;
+            }
         };
         retained += rgba8.len();
         textures.push(EquipmentTexture {

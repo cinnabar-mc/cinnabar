@@ -25,6 +25,7 @@ mod display;
 mod equipment;
 mod facts;
 mod render_offsets;
+mod seed;
 mod shield;
 mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
@@ -55,6 +56,7 @@ pub use nbt_edit::{
 pub use registry::{
     ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, vanilla_item_registry,
 };
+pub use seed::ItemSeed;
 pub use shield::item_shield_pattern;
 pub use shooter::ItemShooter;
 pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};

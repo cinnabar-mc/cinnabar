@@ -50,7 +50,7 @@ pub(super) fn sampler_name(name: &str) -> &str {
 
 /// Uses the shared stage rewrites for a scalar or vector interface identifier.
 pub(crate) fn interface_identifier(name: &str, version: u32) -> Result<String, TransformError> {
-    let normalized = rewrite(&crate::token::lex(name), StageKind::Geometry, version)?;
+    let normalized = rewrite(&crate::token::lex(name), StageKind::Geometry, version, true)?;
     match normalized.toks.as_slice() {
         [token] if token.ident().is_some() => Ok(token.ident().unwrap().to_owned()),
         _ => Err(TransformError::new(
@@ -67,8 +67,24 @@ pub(super) struct Legacy {
     pub builtins: BTreeSet<String>,
     /// `gl_FragData[n]` / `gl_FragColor` indices written.
     pub frag_data: BTreeSet<u32>,
+    /// The stage is in Iris's compatibility path, which alpha tests `gl_FragData[0]`.
+    pub compatibility: bool,
     /// `gl_TexCoord[n]` indices used.
     pub tex_coords: BTreeSet<u32>,
+}
+
+/// The fragment output Iris's alpha test reads: `gl_FragData[0]` or `gl_FragColor` of a
+/// compatibility-profile stage. Outputs a stage declares itself and every core-profile output
+/// are never tested, so packs can store other data in their alpha.
+pub const ALPHA_TESTED_OUTPUT: &str = "iris_FragData0";
+
+/// The translated name of `gl_FragData[index]`.
+pub(super) fn frag_data_output(index: u32, compatibility: bool) -> String {
+    if compatibility {
+        format!("iris_FragData{index}")
+    } else {
+        format!("iris_CoreFragData{index}")
+    }
 }
 
 /// The modern name of a legacy texture lookup function.
@@ -263,6 +279,7 @@ pub(super) fn rewrite(
     src: &[Tok],
     stage: StageKind,
     version: u32,
+    compatibility: bool,
 ) -> Result<Legacy, TransformError> {
     let legacy = version < 130;
     let mut sized = size_unsized_arrays(src);
@@ -280,6 +297,7 @@ pub(super) fn rewrite(
         toks: Vec::with_capacity(src.len()),
         builtins: BTreeSet::new(),
         frag_data: BTreeSet::new(),
+        compatibility,
         tex_coords: BTreeSet::new(),
     };
     let toks = &mut out.toks;
@@ -410,7 +428,7 @@ pub(super) fn rewrite(
             out.builtins.insert(name.to_string());
             if name == "gl_FragData" {
                 out.frag_data.insert(idx);
-                toks.push(id(&format!("iris_FragData{idx}")).at(line));
+                toks.push(id(&frag_data_output(idx, compatibility)).at(line));
             } else {
                 out.tex_coords.insert(idx);
                 toks.push(id(&format!("iris_TexCoord{idx}")).at(line));
@@ -421,7 +439,7 @@ pub(super) fn rewrite(
         if name == "gl_FragColor" {
             out.builtins.insert(name.to_string());
             out.frag_data.insert(0);
-            toks.push(id("iris_FragData0").at(line));
+            toks.push(id(&frag_data_output(0, compatibility)).at(line));
             i += 1;
             continue;
         }

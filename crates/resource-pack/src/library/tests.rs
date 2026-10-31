@@ -46,6 +46,76 @@ fn numeric_array_versions_survive_import_and_restart() {
     }
 }
 
+/// Imports and activates one pack whose only resource is `marker.txt` holding `id`.
+fn install_active(library: &mut GlobalPackLibrary, fixture: &Fixture, id: u128) {
+    let bytes = zip(&[
+        ("manifest.json", manifest(id, "resources", "").as_bytes()),
+        ("marker.txt", id.to_string().as_bytes()),
+    ]);
+    let report = library
+        .import(&fixture.write("pack.mcpack", &bytes))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1, "{:?}", report.rejected);
+    library.activate(Uuid::from_u128(id)).unwrap();
+}
+
+/// The installed archive of pack `id`, for a test to delete behind the library's back.
+fn archive_of(library: &GlobalPackLibrary, id: u128) -> PathBuf {
+    let pack = library
+        .available()
+        .iter()
+        .find(|pack| pack.id == Uuid::from_u128(id))
+        .unwrap();
+    library.root.join(pack.filename())
+}
+
+#[test]
+fn a_pack_whose_archive_is_gone_is_dropped_at_startup_and_the_rest_still_apply() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    install_active(&mut library, &fixture, 1);
+    install_active(&mut library, &fixture, 2);
+    library.apply().unwrap();
+    fs::remove_file(archive_of(&library, 1)).unwrap();
+
+    let mut restarted = fixture.library();
+    assert_eq!(restarted.missing_packs(), ["Fixture"]);
+    assert_eq!(
+        restarted
+            .active()
+            .iter()
+            .map(|active| active.id)
+            .collect::<Vec<_>>(),
+        [Uuid::from_u128(2)]
+    );
+    assert!(
+        restarted
+            .available()
+            .iter()
+            .all(|pack| pack.id != Uuid::from_u128(1))
+    );
+    let view = LayeredPackView::new(restarted.apply().unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"2");
+
+    let again = fixture.library();
+    assert!(
+        again.missing_packs().is_empty(),
+        "the player is told once, because the catalog forgets the pack"
+    );
+    assert_eq!(again.active().len(), 1);
+}
+
+#[test]
+fn an_archive_lost_during_a_session_does_not_block_applying_the_others() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    install_active(&mut library, &fixture, 1);
+    install_active(&mut library, &fixture, 2);
+    fs::remove_file(archive_of(&library, 2)).unwrap();
+    let view = LayeredPackView::new(library.preview().unwrap());
+    assert_eq!(view.read("marker.txt").unwrap().as_ref(), b"1");
+}
+
 #[test]
 fn authored_version_strings_still_reject_more_than_five_digits() {
     let fixture = Fixture::new();
@@ -508,7 +578,11 @@ fn failed_apply_leaves_persisted_selection_and_composition_gives_higher_layer_pr
     library
         .select_subpack(Uuid::from_u128(1), "missing")
         .unwrap_err();
-    fs::remove_file(library.root.join(library.available()[0].filename())).unwrap();
+    fs::write(
+        library.root.join(library.available()[0].filename()),
+        b"not an archive",
+    )
+    .unwrap();
     assert!(library.apply().is_err());
     assert_eq!(fixture.library().active(), library.active());
     let empty = ValidatedPackStack {

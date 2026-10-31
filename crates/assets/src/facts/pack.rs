@@ -50,6 +50,8 @@ domain!(PackTexture {
     StrawBed
 });
 domain!(PackBlock {
+    RedstoneTorch,
+    UnlitRedstoneTorch,
     Beacon,
     Obsidian,
     Glass,
@@ -57,10 +59,17 @@ domain!(PackBlock {
     Beehive,
     ChiseledBookshelf,
     Cactus,
+    Sunflower,
     Cake,
     Farmland,
     ResinClump,
     Dirt,
+    SporeBlossom,
+    ChorusFlower,
+    PointedDripstone,
+    SulfurSpike,
+    WeepingVines,
+    TwistingVines,
     CobblestoneWall,
     Air,
     Stone,

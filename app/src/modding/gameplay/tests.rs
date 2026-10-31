@@ -16,6 +16,27 @@ mod input_locks;
 mod native_frames;
 mod world_time;
 
+/// Launcher-owned endpoints stay readable until the connected network handle retires.
+#[test]
+fn core_observations_use_the_live_network_endpoint_without_directory_ownership() {
+    use crate::runtime::network::resource_packs::PackApplication;
+    use bevy::ecs::system::RunSystemOnce;
+    use client_runtime::network::NetworkHandle;
+    use std::path::{Path, PathBuf};
+
+    let mut world = World::new();
+    world.insert_resource(crate::session::SessionController::default());
+    let endpoint = PathBuf::from("launcher-owned-endpoint");
+    let (inner, _queues) = client_session::NetworkHandle::<PackApplication>::stub();
+    world.insert_resource(NetworkHandle::connected(inner, endpoint.clone()));
+    let read = |context: GameplayContext| context.core_socket_directory().map(Path::to_path_buf);
+    assert_eq!(world.run_system_once(read).unwrap(), Some(endpoint));
+    world
+        .resource_mut::<NetworkHandle<PackApplication>>()
+        .retire();
+    assert_eq!(world.run_system_once(read).unwrap(), None);
+}
+
 #[test]
 fn production_camera_and_extension_schedule_is_acyclic_without_carriers() {
     let path = std::env::temp_dir().join(format!(

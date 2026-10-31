@@ -1,10 +1,10 @@
 // Code generated from canonical protocol manifest v2. DO NOT EDIT.
 
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode};
 
 mod recursive_value_216 {
     use super::*;
-    use bedrock_protocol_1_26_60::types::DynamicValue as Value;
+    use bedrock_protocol_contract_1_26_60::types::DynamicValue as Value;
     const LEAF: i64 = 0;
     const LIST: i64 = 5;
     const MAP: i64 = 6;

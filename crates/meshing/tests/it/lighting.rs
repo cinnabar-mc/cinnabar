@@ -194,6 +194,50 @@ fn torch_planes_take_own_cell_light_without_neighbor_ao() {
     }
 }
 
+/// A faced plate in the same template still samples neighbours, as diode torches rely on.
+#[test]
+fn faceless_quads_take_own_cell_light_beside_a_faced_quad() {
+    let mut plate_top = model_quad(2);
+    plate_top.positions = [[0, 32, 256], [256, 32, 256], [256, 32, 0], [0, 32, 0]];
+    let mut torch_side = model_quad(0);
+    torch_side.positions = [
+        [144, 32, 112],
+        [144, 32, 144],
+        [144, 160, 144],
+        [144, 160, 112],
+    ];
+    let assets = runtime_assets_with_model_geometry(
+        vec![ModelTemplate {
+            quad_start: 0,
+            quad_count: 2,
+            flags: 0,
+        }],
+        vec![plate_top, torch_side],
+    );
+    let block = [8, 8, 8];
+    let center = layered_uniform(&[AIR]);
+    let sampler = |coordinate| {
+        if coordinate == block {
+            MeshLightSample::try_new(3, 1).unwrap()
+        } else {
+            MeshLightSample::FULL_BRIGHT
+        }
+    };
+    let lighting = bake_template_lighting_with_sampler(
+        &BlockClassifier::new(AIR),
+        &assets,
+        NetworkIdMode::Sequential,
+        &MeshNeighbourhood::new(&center),
+        &sampler,
+        block,
+        0,
+        0,
+    )
+    .unwrap();
+    assert_eq!(lighting[1].samples(), [3 | (1 << 4); 4]);
+    assert_ne!(lighting[0].samples(), [3 | (1 << 4); 4]);
+}
+
 /// Native tessellation emits detail quads such as bamboo leaves right after a cuboid's east
 /// face without a new vertex light, so they repeat that face's final (top, +Z) vertex, AO
 /// included, and carry the east face for its shade.

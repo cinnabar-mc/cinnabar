@@ -11,6 +11,8 @@ pub struct ActorPackCompilation {
     pub textures: Vec<ActorTexture>,
     pub bindings: Vec<ActorArtworkBinding>,
     pub skipped: EntityPackSkips,
+    /// Attachable rasters left out of `equipment_textures`.
+    pub equipment_raster_drops: crate::entity::EquipmentRasterDrops,
     /// Rigs left without artwork, with the reason each was rejected.
     pub fallbacks: Vec<ActorFallback>,
     /// Attachable bindings of the pack's held and worn items, and their decoded rasters.
@@ -89,17 +91,18 @@ fn compile_stages(
     };
     let build = build_artwork(&pack.assets, &runtime, &read, true)?;
     check()?;
-    let equipment_textures = crate::entity::compile_equipment_textures_for_assets_with_priorities(
-        &pack.assets,
-        &pack.equipment_bindings,
-        equipment_priorities,
-        &mut |source| {
-            pack.payloads
-                .get(source.path.as_ref())
-                .map(|bytes| bytes.to_vec())
-                .ok_or_else(|| invalid("pack equipment raster is absent"))
-        },
-    )?;
+    let (equipment_textures, equipment_raster_drops) =
+        crate::entity::compile_equipment_textures_for_assets_with_priorities(
+            &pack.assets,
+            &pack.equipment_bindings,
+            equipment_priorities,
+            &mut |source| {
+                pack.payloads
+                    .get(source.path.as_ref())
+                    .map(|bytes| bytes.to_vec())
+                    .ok_or_else(|| invalid("pack equipment raster is absent"))
+            },
+        )?;
     let mut identity = Sha256::new();
     for source in pack.assets.sources.iter() {
         identity.update(source.path.as_bytes());
@@ -108,6 +111,7 @@ fn compile_stages(
     Ok(Some(ActorPackCompilation {
         equipment_bindings: pack.equipment_bindings.to_vec(),
         equipment_textures,
+        equipment_raster_drops,
         identity: identity.finalize().into(),
         entities: pack.assets,
         textures: build.textures,
@@ -146,6 +150,46 @@ mod tests {
         .expect("entity compiles");
         assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
         assert_eq!(compiled.textures[0].height, 1024);
+    }
+
+    // An empty face map disables every face, while a cube with no `uv` keeps box UV at the origin.
+    #[test]
+    fn a_cube_with_an_empty_face_map_has_no_faces() {
+        let entity = br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"test:hitbox","materials":{"default":"entity_alphatest"},"textures":{"default":"textures/entity/hitbox"},"geometry":{"default":"geometry.hitbox"},"render_controllers":["controller.render.hitbox"]}}}"#;
+        let geometry = br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.hitbox","texture_width":8,"texture_height":8},"bones":[{"name":"root","pivot":[0,0,0],"cubes":[{"origin":[0,0,0],"size":[8,8,8],"uv":{}},{"origin":[0,0,0],"size":[8,8,8]}]}]}]}"#;
+        let controller = br#"{"format_version":"1.8.0","render_controllers":{"controller.render.hitbox":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(8, 8, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let compiled = compile_actor_pack(vec![
+            ("entity/hitbox.json".into(), entity.to_vec()),
+            ("models/entity/hitbox.geo.json".into(), geometry.to_vec()),
+            ("render_controllers/hitbox.json".into(), controller.to_vec()),
+            ("textures/entity/hitbox.png".into(), png),
+        ])
+        .unwrap()
+        .expect("entity compiles");
+        assert_eq!(compiled.bindings.len(), 1, "{:?}", compiled.fallbacks);
+        let cubes = &compiled.entities.geometries[0].bones[0].cubes;
+        let assets::EntityGeometryUv::Faces(faces) = &cubes[0].uv else {
+            panic!(
+                "an empty face map must stay per-face, got {:?}",
+                cubes[0].uv
+            );
+        };
+        assert_eq!(
+            [
+                &faces.north,
+                &faces.south,
+                &faces.east,
+                &faces.west,
+                &faces.up,
+                &faces.down
+            ],
+            [&None; 6]
+        );
+        assert!(matches!(cubes[1].uv, assets::EntityGeometryUv::Box(_)));
     }
 
     // A cancelled compile stops at its next stage instead of decoding artwork; uncancelled, the
@@ -219,5 +263,58 @@ mod tests {
         .unwrap()
         .expect("attachables compile");
         assert_eq!(compiled.equipment_bindings.len(), 1);
+    }
+
+    // A pack with more armour than the startup carrier holds keeps every binding and its own art:
+    // those counts bound only that carrier, and armour art alone can pass them.
+    #[test]
+    fn every_armour_attachable_keeps_its_binding_and_texture_past_the_startup_carrier_counts() {
+        let count = assets::MAX_EQUIPMENT_BINDINGS + 1;
+        let mut png = Vec::new();
+        image::RgbaImage::from_pixel(1, 1, image::Rgba([1, 2, 3, 255]))
+            .write_to(&mut Cursor::new(&mut png), ImageFormat::Png)
+            .unwrap();
+        let mut files: Vec<(Box<str>, Vec<u8>)> = vec![(
+            "models/entity/helmet.geo.json".into(),
+            br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.player.armor.helmet","texture_width":1,"texture_height":1},"bones":[]}]}"#.to_vec(),
+        )];
+        for index in 0..count {
+            let attachable = serde_json::json!({
+                "format_version": "1.10.0",
+                "minecraft:attachable": {"description": {
+                    "identifier": format!("test:set_{index:04}_helmet"),
+                    "materials": {"default": "armor"},
+                    "textures": {"default": format!("textures/models/set_{index:04}")},
+                    "geometry": {"default": "geometry.player.armor.helmet"},
+                    "render_controllers": ["controller.render.armor"],
+                }},
+            });
+            files.push((
+                format!("attachables/set_{index:04}.json").into(),
+                attachable.to_string().into_bytes(),
+            ));
+            files.push((
+                format!("textures/models/set_{index:04}.png").into(),
+                png.clone(),
+            ));
+        }
+        let compiled = compile_actor_pack(files)
+            .unwrap()
+            .expect("attachables compile");
+        assert_eq!(compiled.equipment_bindings.len(), count);
+        for binding in &compiled.equipment_bindings {
+            assert!(
+                compiled
+                    .equipment_textures
+                    .iter()
+                    .any(|texture| texture.identifier == binding.texture.identifier),
+                "{} lost its texture",
+                binding.identifier
+            );
+        }
+        assert_eq!(
+            compiled.equipment_raster_drops,
+            crate::entity::EquipmentRasterDrops::default()
+        );
     }
 }

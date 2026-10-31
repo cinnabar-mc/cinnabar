@@ -4,6 +4,14 @@
 
 These are Cinnabar sandbox and API limits. Counts apply per mod unless stated otherwise. Bytes count UTF-8 or encoded data, not characters. Fuel measures guest execution; host imports have separate allowances. Handle errors and spread work across callbacks.
 
+## Sound events
+
+| Constant | Value | Scope |
+| --- | ---: | --- |
+| `mod_api::TOTAL_SOUND_FILTER_FUEL` | 400000 | Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped. |
+| `mod_api::MAX_SOUND_FILTER_EVENTS` | 256 | New playback observations offered per audio frame; excess requests play normally. |
+| `mod_api::MAX_SOUND_NAME_BYTES` | 128 | Bytes in one offered sound-definition name. |
+
 ## Execution and packages
 
 | Constant | Value | Scope |

@@ -112,6 +112,14 @@ fn run(
     };
     library.set_device_memory(launcher_host::memory::physical_bytes());
     super::icons::refresh(&library, &mut snapshot, &icon_root);
+    // Outlives the startup apply, whose acknowledgement would otherwise clear it unseen.
+    let mut missing_notice = (!library.missing_packs().is_empty()).then(|| {
+        format!(
+            "These packs' files are missing, so they were removed: {}. Import them again to use them.",
+            library.missing_packs().join(", ")
+        )
+    });
+    snapshot.message = missing_notice.clone().unwrap_or_default();
     match library.preview() {
         Ok(stack) => {
             let _ = outgoing.send(Event::Apply(
@@ -201,7 +209,7 @@ fn run(
                     &mut import_commit_pending,
                     &outgoing,
                 );
-                snapshot.message.clear();
+                snapshot.message = missing_notice.take().unwrap_or_default();
                 result
             }
             Command::Import(path) => {

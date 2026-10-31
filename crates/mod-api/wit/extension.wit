@@ -455,6 +455,13 @@ interface input {
         /// Wheel notches this frame while this mod's panel owns input; positive scrolls up.
         wheel: f32,
     }
+    /// Current open container screen identity, requiring controls permission.
+    /// None outside containers. Observation does not grant pointer ownership.
+    read-container-screen: func() -> result<option<string>, string>;
+    /// Requests one pointer move in normalized window coordinates (0..1 on each axis).
+    /// Requires controls permission and a focused container. Staged until callback success;
+    /// consumed once, discarded if the screen changed. Does not press buttons or capture input.
+    position-pointer: func(x: f32, y: f32) -> result<_, string>;
     /// Selects which fields to copy without changing the underlying frame or its event ordering.
     record selection {
         /// None selects all keys; some(empty) selects none; names select exact matches.
@@ -509,6 +516,22 @@ interface input {
     read-field-events: func() -> result<list<field-event>, string>;
     /// Physical key names reserved before the ordinary gameplay router samples them.
     reserve-keys: func(keys: list<string>) -> result<_, string>;
+}
+
+/// Observations of requested sound playback before it starts.
+/// Grants: `audio` to run filter-sounds; this interface only defines callback types.
+interface sound-filter {
+    /// World coordinates in blocks; absent for non-positional playback.
+    record position { x: f32, y: f32, z: f32 }
+    /// One new playback request after event routing to an exact sound definition.
+    record sound-event {
+        /// Exact definition name, at most 128 UTF-8 bytes.
+        name: string,
+        /// Requested world location; none is non-positional playback.
+        position: option<position>,
+        /// Whether this request starts a repeating voice.
+        looping: bool,
+    }
 }
 
 /// Local presentation only; no world mutation or outbound packets.
@@ -1105,4 +1128,31 @@ world packet-mod {
     export tick: func() -> result<outbound, string>;
     /// Ends the session.
     export stop: func();
+}
+
+/// Composable sound-filter callback; older worlds remain supported without this export.
+world sound-filter-callback {
+    use sound-filter.{sound-event};
+    /// One batch per presented audio frame, at most 256 new playback requests.
+    /// Return one boolean per event: true plays, false cancels. Admitted active
+    /// filters see the same events; any cancellation wins. No host imports are permitted.
+    /// Full callback fuel within a shared audio-frame allowance, in load order. Observers
+    /// without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
+    /// a failing component is quarantined. Oversized names and excess requests pass through.
+    /// Approved starts waiting for decoding are not offered again. Playing voices are not
+    /// retroactively stopped; managed loops are offered again when they next need a start.
+    export filter-sounds: func(events: list<sound-event>) -> list<bool>;
+}
+
+/// A personal component with sound cancellation and ordinary frame and UI callbacks.
+/// Exporting this world does not claim action-filter ownership.
+world sound-filtered-player-mod {
+    include player-mod;
+    include sound-filter-callback;
+}
+
+/// Explicit opt-in sound cancellation together with the existing action-filter callback.
+world audio-filtered-player-mod {
+    include filtered-player-mod;
+    include sound-filter-callback;
 }

@@ -121,13 +121,14 @@ impl BlockFacts {
             records: records
                 .iter()
                 .map(|r| {
+                    let render = super::block_render_fact(&r.name);
                     let mut fact = BlockFact {
                         readable: true,
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,
-                        render: super::block_render_fact(&r.name),
-                        ambient: super::presentation_generated::ambient_block(&r.name),
+                        render,
+                        ambient: super::presentation::ambient_callback(&r.name, render.kind),
                         leaf_particle: (r.model_family == ModelFamily::Leaves)
                             .then(|| super::presentation::leaf_particle(&r.name))
                             .flatten(),

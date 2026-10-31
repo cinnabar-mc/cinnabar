@@ -167,14 +167,25 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
-- [ ] Close paired-door presentation and interaction acceptance, including lower/upper
-  state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
+- [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
+  native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
+  leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
   directional replacement-pack artwork and native-server toggle/picking input.
   Hand-use prediction resolves either clicked half against its matching partner
   and changes the lower half's open state; matched server and artwork acceptance
   remains incomplete.
+- [ ] Close redstone component visuals. Redstone torches, repeater delay and output torches and
+  comparator rear and front torches draw at their native positions from each block state.
+  Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
+  neighbour check, and redstone wire, which draws neither its power tint nor its connections.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
+  and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
+  inactive and cooldown phases, and calibrated sensors keep their provisional shape without
+  tendrils, crystal or facing-mapped faces.
+- [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
+  plants stay diagnostic until their reserved registry entry has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
@@ -193,8 +204,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   with stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close cake presentation at representative bite states, with stable exact
   model-stream witnesses and zero contamination counters.
-- [ ] Close candle-cake flame-particle and native-world presentation acceptance;
+- [ ] Close candle and candle-cake native-world presentation acceptance, including smoke and
+  flame placement against a native view; the ambient sampler emits their particles, but
   isolated composite geometry and texture fixtures do not establish the full result.
+- [ ] Voice the lit candle's ambient crackle. The callback consumes the shared roll, but no
+  ambient block callback routes a sound to the audio engine yet.
 - [ ] Close farmland presentation at representative moisture states, with matched
   native views, stable exact model-stream witnesses and zero contamination counters.
 - [ ] Close crop comparison, sub-unit sprite geometry, atlas-edge UV calibration and
@@ -202,7 +216,7 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Verify nether-wart geometry and selector acceptance independently of other crops.
 - [ ] Select terrain-array entries for the remaining block classes. Pumpkins, cave vines,
   pale hanging moss and mangrove propagules follow their native class; the families in the
-  input crate's open-array check (candles, copper bulbs, cocoa, eggs, nether wart and others)
+  input crate's open-array check (copper bulbs, cocoa, eggs, nether wart and others)
   still draw entry zero until each class's variant source is verified.
 - [ ] Close all fixed slab/stair gallery poses with exact GPU witnesses, matched native
   views and a clean mutation-to-visible/performance run. Isolate backend/presentation
@@ -257,9 +271,8 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 - [ ] Detail quads that native tessellation draws after a cuboid without a new vertex colour
   or light keep the last drawn face's shade and final vertex light. Bamboo leaves, lantern
   handles, candle-cake wicks, sea pickle caps and tips, brewing-stand panels and the
-  stonecutter saw do this. Standalone candles are not compiled yet; their wicks need the same
-  marking when they are. Inset cuboid faces, such as bamboo stems, still pick the nearest AO
-  corner instead of interpolating across the face with the stalk's random offset, so the
+  stonecutter saw and candle wicks do this. Inset cuboid faces, such as bamboo stems and candle sides, still pick the
+  nearest AO corner instead of interpolating across the face with the stalk's random offset, so the
   inherited light can differ from native.
 
 ### Lighting, atmosphere and publication
@@ -407,6 +420,11 @@ acceptance of server resets and corrections remains outstanding.
 Elytra gliding retains the sprint state and its movement-speed modifier through
 completed ticks and correction replay. Rendered acceptance of sprinting and
 Speed-boosted glide camera motion remains outstanding.
+The HUD paper doll keeps the world's gliding tilt. It still draws an elytra as chest armor
+boxes, not the attachable's wings; that remains a confirmed gap.
+Rockets carrying an owner in actor data read as attached to an entity, so the rocket
+controller hides them; the native query body was not readable, so that mapping is inferred
+from its description and the rocket tick.
 A fresh jump press ends a glide after its first ten ticks unless the player has
 Instabuild; an Instabuild glider holding jump instead climbs by vanilla's glide
 input push, on live ticks and correction replay. Whether that push reads the glide
@@ -524,8 +542,10 @@ for actors with the push-towards-closest-space flag, which is not modelled.
 
 Camera aim-policy reports are sent only for cameras configured by server presets,
 distinguish both third-person views and retry changes that have not entered the outbound
-queue. Which camera wins when an inherited first-person preset competes with the base
-camera is unverified. Complete camera activation acceptance remains open.
+queue. Camera and spline registries are scoped to the current session, including the first
+frame after a reconnect, while dimension changes retain them. Which camera wins when an
+inherited first-person preset competes with the base camera is unverified. Complete camera
+activation acceptance remains open.
 
 See [gameplay/session ownership](docs/architecture/gameplay-session.md),
 [effective movement speed](docs/reference/effective-movement-speed.md) and
@@ -566,8 +586,20 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Script-based helmet inference is provisional and recognizes
-specific head/hand branch names. General slot inference and complete texture-budget
-and rendered qualification remain incomplete.
+specific head/hand branch names. General slot inference and rendered qualification remain
+incomplete. A pack's attachables have no binding or texture count limit, and all their art
+is decoded and placed at join. Native queues each texture when it is first requested, and
+no native count limit has been found, so this is not yet matched: decoded art past
+Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred loading
+remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
+so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
+
+Confirmed gap: native keeps and draws every render controller whose condition passes,
+while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
+controller ahead of the body draws only the cosmetic, with no limb animation, and
+other passing layers such as hats and capes never appear. Closing this needs per-layer
+condition and geometry evaluation, posing and drawing, and attachable parent-bone
+lookup across the passing list.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -856,10 +888,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Menu Cancel (`key.menuCancel`) is a remappable keyboard and mouse control that defaults to
   the mouse Back button, as in vanilla. It cancels menus, containers, the bed screen, chat
   popups, forms, player mod views, signs, credits, mob effects and emotes beside the fixed
-  Escape and platform Back keys, outranks a hotbar slot on the same button, and its keyboard
-  binding yields to focused text boxes; binding capture still accepts the button. Vanilla's
-  handling of a keyboard Menu Cancel inside text boxes is unverified, and cross-platform device
-  acceptance remains incomplete.
+  Escape and platform Back keys, and its keyboard binding yields to focused text boxes;
+  binding capture still accepts the button. Remapping another action onto its control unassigns
+  Menu Cancel, and its untouched default yields to a saved action on that button. Resetting the
+  Menu Cancel row restores its default and unassigns the saved rows holding it. Vanilla unassigns
+  duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
+  rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
+  cross-platform device acceptance remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -973,6 +1008,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  Items with a registry `minecraft:seed` rule predict planting on a declared block's
+  declared face into air: the swing, place sound, consumed item and the crop's default
+  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
+  block-name aliases such as `grass` remain incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -1066,7 +1105,11 @@ The bounded burst/neutrality recovery policy remains provisional. Per-frame admi
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
 Same-frame hand actions still announce their selection first; matching their complete
-native packet order remains incomplete.
+native packet order remains incomplete. A hotbar press behind pending work applies
+locally when its frame ends, because the native digit handler has no such gate. A press
+during an accepted item release still expires, which is a confirmed gap. A queued attack
+press takes the newer slot; native's order for that case and its mouse-wheel path are
+unverified.
 
 ### Held block placement
 
@@ -1195,6 +1238,9 @@ The sound-definition catalog matches the current sample-pack pin; compiler cover
 checks a UI sound and guards the manifest associated with the sound-definition digest.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
+World sounds use the native distance curves: inverse from one block by default, linear
+with only a maximum, inverse from the definition's minimum otherwise, and start within
+16 blocks scaled by loud volumes. Whether jukebox records pass that start gate is unverified.
 Startup sound prewarming prioritizes routed attack and player-hurt samples, including
 their finite alternatives within the prewarm byte budget. Comparative combat sound
 latency, server-pack prewarming and physical output latency remain incomplete.
@@ -1216,6 +1262,10 @@ Packaging builds reject `--freecam` and `--auto-fly` and omit their movement sys
 First-run setup retains extracted resource versions, bound to their pinned archive hashes,
 so compiler updates reuse source packs while rebuilding stale carriers. Packaged upgrade and
 rollback acceptance of this reuse remains incomplete.
+On macOS and extracted Linux AppDirs, a staged update's carriers build in the background at
+the lowest priority with bounded parallelism, and its first launch promotes them without
+setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
+captures of a game running beside the background build remain incomplete.
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
 Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
@@ -1277,8 +1327,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unchanged; physical-device validation of these compiler fixes remains open.
   Intel DX12 drivers older than the `24.x` branch also use direct terrain draws: HD Graphics 520
   with driver `23.20.16.4905` faulted in counted GPU-cull draws and drew no opaque terrain with
-  CPU-culled indirect draws. The fallback is unconfirmed on that hardware, and the version bound
-  is from one report.
+  CPU-culled indirect draws. The version bound is from one report. The same drivers compile with
+  FXC: that adapter lost the device building an indirect-validation pipeline with DXC and fell back
+  to the software adapter. A player reported a stable launch with `WGPU_DX12_COMPILER=fxc`, and
+  their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
+  on. No log confirms the compiler of that run, automatic FXC selection has not run on that
+  hardware, and its terrain stays far over the frame budget.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
@@ -1776,9 +1830,9 @@ coverage from displayed-frame pacing and OS input/focus evidence.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its
-artwork pixels. Prepared actor artwork pages still copy multi-layer pack entity textures
-that the session entity pack also keeps, so those pixels stay resident twice during a
-session; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
+artwork pixels. Prepared actor artwork pages reference each pack entity and equipment
+texture's allocation as a page layer instead of copying it, so session artwork pixels stay
+resident once; the join peak on a 16 GB host remains unmeasured. Hits restore dependency
 records; archive, session, startup artwork and device inputs invalidate affected entries.
 Leaving for the menu retains only the newest server archives within a 128 MiB cap, with
 their admission metadata and file hashes. Decoded and compiled session outputs are freed

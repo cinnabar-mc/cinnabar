@@ -192,6 +192,53 @@ impl Source for VoiceSource {
     }
 }
 
+/// Distance curve a sound definition selects, as the native mixer applies it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Rolloff {
+    /// Full volume within `min`, then `min / distance`, which stops falling at `max`.
+    Inverse { min: f32, max: f32 },
+    /// Full volume at the source, silent at `max`.
+    Linear { max: f32 },
+}
+
+impl Rolloff {
+    const DEFAULT_MIN: f32 = 1.0;
+    const DEFAULT_MAX: f32 = 10_000.0;
+
+    /// Reads a definition's optional distances; absent, zero and negative pairs get the default.
+    pub(super) fn from_definition(min: Option<f32>, max: Option<f32>) -> Self {
+        let (min, max) = (min.unwrap_or(0.0), max.unwrap_or(0.0));
+        if min > 0.0 {
+            let max = if max > 0.0 { max } else { Self::DEFAULT_MAX };
+            Self::Inverse { min, max }
+        } else if min == 0.0 && max > 0.0 {
+            Self::Linear { max }
+        } else {
+            Self::Inverse {
+                min: Self::DEFAULT_MIN,
+                max: Self::DEFAULT_MAX,
+            }
+        }
+    }
+
+    /// Gain at `distance` blocks from the listener.
+    pub(super) fn gain(self, distance: f32) -> f32 {
+        if !distance.is_finite() {
+            return 0.0;
+        }
+        match self {
+            Self::Inverse { min, max } => {
+                if distance <= min {
+                    1.0
+                } else {
+                    min / distance.min(max.max(min))
+                }
+            }
+            Self::Linear { max } => ((max - distance) / max).clamp(0.0, 1.0),
+        }
+    }
+}
+
 /// Linear falloff from full volume at `min` to silence at `max` blocks.
 pub(super) fn attenuation(distance: f32, min: f32, max: f32) -> f32 {
     if !distance.is_finite() {
@@ -246,6 +293,29 @@ mod tests {
         assert_eq!(attenuation(40.0, 0.0, 16.0), 0.0);
         assert_eq!(attenuation(90.0, 100.0, 200.0), 1.0);
         assert_eq!(attenuation(f32::NAN, 0.0, 16.0), 0.0);
+    }
+
+    #[test]
+    fn rolloff_follows_the_definitions_distances() {
+        let default = Rolloff::from_definition(None, None);
+        assert_eq!(default.gain(0.5), 1.0);
+        assert!((default.gain(8.0) - 0.125).abs() < 1e-6);
+        assert_eq!(default, Rolloff::from_definition(Some(-1.0), Some(16.0)));
+        assert_eq!(default, Rolloff::from_definition(Some(f32::NAN), None));
+
+        let linear = Rolloff::from_definition(None, Some(16.0));
+        assert_eq!(linear.gain(0.0), 1.0);
+        assert!((linear.gain(8.0) - 0.5).abs() < 1e-6);
+        assert_eq!(linear.gain(40.0), 0.0);
+
+        let inverse = Rolloff::from_definition(Some(5.0), Some(20.0));
+        assert_eq!(inverse.gain(5.0), 1.0);
+        assert!((inverse.gain(10.0) - 0.5).abs() < 1e-6);
+        assert!(
+            (inverse.gain(40.0) - 0.25).abs() < 1e-6,
+            "stops falling at max"
+        );
+        assert_eq!(inverse.gain(f32::NAN), 0.0);
     }
 
     #[test]
