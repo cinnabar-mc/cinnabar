@@ -241,17 +241,25 @@ fn wait_for_backlog_completion(stream: &mut WorldStream) {
     {
         return;
     }
-    let light = stream.lighting.rx.clone();
-    let mesh = stream.mesh_rx.clone();
-    crossbeam_channel::select! {
-        recv(light) -> completion => {
-            stream.accept_light_completion(completion.expect("light worker completion"));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        if let Ok(completion) = stream.lighting.rx.try_recv() {
+            stream.accept_light_completion(completion);
+            return;
         }
-        recv(mesh) -> completion => {
-            stream.accept_mesh_completion(completion.expect("mesh worker completion"));
+        if let Ok(completion) = stream.mesh_rx.try_recv() {
+            stream.accept_mesh_completion(completion);
+            return;
         }
-        default(Duration::from_secs(5)) => {
-            panic!("backlog workers made no progress: {:?}", stream.stats());
+        // Every publication rings its doorbell after the receives above could have missed it.
+        let light = stream.lighting.rx.doorbell();
+        let mesh = stream.mesh_rx.doorbell();
+        crossbeam_channel::select! {
+            recv(light) -> _ => {}
+            recv(mesh) -> _ => {}
+            default(deadline.saturating_duration_since(Instant::now())) => {
+                panic!("backlog workers made no progress: {:?}", stream.stats());
+            }
         }
     }
 }

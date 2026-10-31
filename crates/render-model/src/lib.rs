@@ -12,7 +12,7 @@ mod font_atlas;
 pub mod font_shading;
 mod frame_buffers;
 mod frame_latency;
-pub use frame_buffers::FrameBuffers;
+pub use frame_buffers::{CapacityRetention, FrameBuffers, FrameScratch};
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{

@@ -7,6 +7,11 @@ use std::{
 };
 use web_time::Instant;
 
+mod samples;
+mod thread_cpu;
+use samples::StageSampleAccumulator;
+use thread_cpu::{ThreadCpuProfiler, ThreadCpuStart};
+
 use bevy::prelude::{Res, ResMut, Resource};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -426,6 +431,11 @@ pub struct RuntimeStageSample {
     pub count: u64,
     pub total: Duration,
     pub maximum: Duration,
+    /// Number of spans with comparable calling-thread CPU counters.
+    pub thread_cpu_count: u64,
+    /// CPU time for those spans, including nested work.
+    pub thread_cpu_total: Duration,
+    pub thread_cpu_maximum: Duration,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -446,44 +456,11 @@ pub(super) fn initialized_mutex<T>(value: T) -> Mutex<T> {
 }
 
 #[derive(Debug)]
-struct StageSampleAccumulator {
-    sample: Mutex<RuntimeStageSample>,
-}
-
-impl Default for StageSampleAccumulator {
-    /// Prepares the sample and its lock before any timed stage runs.
-    fn default() -> Self {
-        Self {
-            sample: initialized_mutex(RuntimeStageSample::default()),
-        }
-    }
-}
-
-impl StageSampleAccumulator {
-    fn record(&self, elapsed: Duration) {
-        let mut sample = self
-            .sample
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        sample.count = sample.count.saturating_add(1);
-        sample.total = sample.total.saturating_add(elapsed);
-        sample.maximum = sample.maximum.max(elapsed);
-    }
-
-    fn take(&self) -> RuntimeStageSample {
-        let mut sample = self
-            .sample
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        std::mem::take(&mut *sample)
-    }
-}
-
-#[derive(Debug)]
 struct RuntimeStageProfileState {
     enabled: bool,
     frame_id: AtomicU64,
     diagnostic_sink: OnceLock<DiagnosticSink>,
+    thread_cpu: OnceLock<ThreadCpuProfiler>,
     slow: Option<crate::runtime_profile_slow::SlowFrameRecorder>,
     trace: Option<crate::runtime_profile_trace::FrameTrace>,
     started: Instant,
@@ -534,6 +511,7 @@ impl RuntimeStageProfiler {
                 enabled,
                 frame_id: AtomicU64::new(0),
                 diagnostic_sink: OnceLock::new(),
+                thread_cpu: OnceLock::new(),
                 slow: slow.then(crate::runtime_profile_slow::SlowFrameRecorder::default),
                 trace: (slow || enabled && path.is_some()).then(|| {
                     crate::runtime_profile_trace::FrameTrace::new(path.filter(|_| enabled), started)
@@ -553,6 +531,21 @@ impl RuntimeStageProfiler {
     pub fn with_diagnostic_sink(self, sink: DiagnosticSink) -> Self {
         let _ = self.state.diagnostic_sink.set(sink);
         self
+    }
+
+    /// Installs an edge-owned CPU clock for opt-in aggregate profiling only.
+    pub fn with_thread_cpu_clock(self, clock: fn() -> Option<Duration>) -> Self {
+        if self.state.enabled {
+            let _ = self.state.thread_cpu.set(ThreadCpuProfiler::new(clock));
+        }
+        self
+    }
+
+    /// Copies aggregate samples since the last stage-profile drain without consuming them.
+    pub fn stage_samples(&self) -> Option<[RuntimeStageSample; RuntimeStage::ALL.len()]> {
+        self.state
+            .enabled
+            .then(|| std::array::from_fn(|index| self.state.stages[index].snapshot()))
     }
 
     /// Current input identity, or the identity retained by an extracted render-world copy.
@@ -588,6 +581,11 @@ impl RuntimeStageProfiler {
             stage,
             frame_id: self.frame_id(),
             started: self.active().then(Instant::now),
+            cpu_started: self
+                .state
+                .thread_cpu
+                .get()
+                .and_then(ThreadCpuProfiler::start),
             #[cfg(any(test, feature = "alloc-stats"))]
             allocations: self
                 .active()
@@ -598,6 +596,11 @@ impl RuntimeStageProfiler {
     /// Reports the preceding slow frame and starts a new attribution window.
     pub fn begin_frame(&self, focused: bool, occluded: bool) {
         crate::runtime_profile_uploads::finish_frame();
+        let thread_cpu = self
+            .state
+            .thread_cpu
+            .get()
+            .map(ThreadCpuProfiler::finish_frame);
         #[cfg(any(test, feature = "alloc-stats"))]
         let allocations = self.state.allocations.finish_frame();
         #[cfg(any(test, feature = "alloc-stats"))]
@@ -615,6 +618,7 @@ impl RuntimeStageProfiler {
             {
                 self.report(diagnostic::SlowFrameDiagnostic {
                     timing: report,
+                    thread_cpu,
                     #[cfg(any(test, feature = "alloc-stats"))]
                     allocations,
                     uploads: crate::runtime_profile_uploads::snapshot(),
@@ -652,7 +656,7 @@ impl RuntimeStageProfiler {
         }
         for (stage, elapsed) in frame.iter() {
             if self.state.enabled {
-                self.state.stages[stage as usize].record(elapsed);
+                self.state.stages[stage as usize].record(elapsed, None);
             }
             if let Some(event) = self
                 .state
@@ -694,14 +698,14 @@ impl RuntimeStageProfiler {
     /// Records a span measured outside a system, such as across the render handoff.
     pub fn record(&self, stage: RuntimeStage, started: Instant, elapsed: Duration) {
         if self.active() {
-            record_elapsed(&self.state, self.frame_id(), stage, started, elapsed);
+            record_elapsed(&self.state, self.frame_id(), stage, started, elapsed, None);
         }
     }
 
     /// Records accumulated worker time as a counter received on the calling thread.
     pub fn record_background_sample(&self, stage: RuntimeStage, elapsed: Duration) {
         if self.state.enabled {
-            self.state.stages[stage as usize].record(elapsed);
+            self.state.stages[stage as usize].record(elapsed, None);
         }
         if let Some(slow) = &self.state.slow {
             slow.record(stage, elapsed);
@@ -788,6 +792,8 @@ pub struct RuntimeStageSpans {
     open: [Option<(Instant, u64)>; RuntimeStage::ALL.len()],
     /// Each stage's most recently closed span.
     last: [Duration; RuntimeStage::ALL.len()],
+    cpu_open: [Option<ThreadCpuStart>; RuntimeStage::ALL.len()],
+    cpu_last: [Option<(std::thread::ThreadId, Duration)>; RuntimeStage::ALL.len()],
     #[cfg(any(test, feature = "alloc-stats"))]
     allocations: [Option<test_alloc::Allocations>; RuntimeStage::ALL.len()],
 }
@@ -805,6 +811,8 @@ impl Default for RuntimeStageSpans {
         Self {
             open: [None; RuntimeStage::ALL.len()],
             last: [Duration::ZERO; RuntimeStage::ALL.len()],
+            cpu_open: [None; RuntimeStage::ALL.len()],
+            cpu_last: [None; RuntimeStage::ALL.len()],
             #[cfg(any(test, feature = "alloc-stats"))]
             allocations: [None; RuntimeStage::ALL.len()],
         }
@@ -821,6 +829,10 @@ pub fn begin_stage_span<const S: usize>(
             Instant::now(),
             profiler.as_ref().map_or(0, |profiler| profiler.frame_id()),
         ));
+        spans.cpu_open[S] = profiler
+            .as_ref()
+            .and_then(|profiler| profiler.state.thread_cpu.get())
+            .and_then(ThreadCpuProfiler::start);
         #[cfg(any(test, feature = "alloc-stats"))]
         {
             spans.allocations[S] = Some(test_alloc::global_allocations());
@@ -841,6 +853,10 @@ pub fn end_stage_span<const S: usize>(
     };
     let elapsed = started.elapsed();
     spans.last[S] = elapsed;
+    let cpu = spans.cpu_open[S]
+        .take()
+        .and_then(|start| profiler.as_ref()?.state.thread_cpu.get()?.elapsed(start));
+    spans.cpu_last[S] = cpu.map(|cpu| (std::thread::current().id(), cpu));
     if let Some(profiler) = profiler
         && profiler.active()
     {
@@ -857,6 +873,7 @@ pub fn end_stage_span<const S: usize>(
             RuntimeStage::ALL[S],
             started,
             elapsed,
+            cpu,
         );
     }
 }
@@ -877,6 +894,10 @@ pub fn end_render_frame_span(
     let wait = std::mem::take(&mut spans.last[SURFACE]);
     let elapsed = render_frame_elapsed(started, Instant::now(), wait);
     spans.last[FRAME] = elapsed;
+    let cpu = spans.cpu_open[FRAME].take().and_then(|start| {
+        let total = profiler.as_ref()?.state.thread_cpu.get()?.elapsed(start)?;
+        thread_cpu::excluding_wait(total, wait, spans.cpu_last[SURFACE].take())
+    });
     if let Some(profiler) = profiler
         && profiler.active()
     {
@@ -893,6 +914,7 @@ pub fn end_render_frame_span(
             RuntimeStage::RenderFrame,
             started,
             elapsed,
+            cpu,
         );
     }
 }
@@ -903,6 +925,7 @@ pub struct RuntimeStageTimer<'a> {
     stage: RuntimeStage,
     frame_id: u64,
     started: Option<Instant>,
+    cpu_started: Option<ThreadCpuStart>,
     #[cfg(any(test, feature = "alloc-stats"))]
     allocations: Option<crate::runtime_profile_alloc::ThreadSnapshot>,
 }
@@ -914,7 +937,11 @@ impl Drop for RuntimeStageTimer<'_> {
             if let Some(before) = self.allocations {
                 state.allocations.record_since(self.stage, before);
             }
-            record_elapsed(state, self.frame_id, self.stage, started, started.elapsed());
+            let elapsed = started.elapsed();
+            let cpu = self
+                .cpu_started
+                .and_then(|start| state.thread_cpu.get()?.elapsed(start));
+            record_elapsed(state, self.frame_id, self.stage, started, elapsed, cpu);
         }
     }
 }
@@ -932,15 +959,21 @@ fn record_elapsed(
     stage: RuntimeStage,
     started: Instant,
     elapsed: Duration,
+    thread_cpu: Option<Duration>,
 ) {
     if state.enabled {
-        state.stages[stage as usize].record(elapsed);
+        state.stages[stage as usize].record(elapsed, thread_cpu);
+    }
+    if let Some(cpu) = thread_cpu
+        && let Some(recorder) = state.thread_cpu.get()
+    {
+        recorder.record(stage, elapsed, cpu);
     }
     if let Some(slow) = &state.slow {
         slow.record(stage, elapsed);
     }
     if let Some(trace) = &state.trace {
-        trace.record(frame_id, stage, started, elapsed);
+        trace.record_with_cpu(frame_id, stage, started, elapsed, thread_cpu);
     }
 }
 
@@ -955,3 +988,6 @@ mod diagnostic;
 
 #[cfg(test)]
 mod allocation_tests;
+
+#[cfg(test)]
+mod thread_cpu_tests;

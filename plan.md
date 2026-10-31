@@ -120,6 +120,14 @@ If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
 Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
+An optional `render/frame-generation` build feature provides SDR world-image
+optical flow, camera/depth interpolation and disocclusion filling. It has no
+production caller or Video control and adds no generated presentations. Pipeline
+and storage preparation runs before use; invalid inputs and explicit cuts reset
+history. World depth and native colour may have different resolutions. Runtime
+composition, scheduling/bypass policy, latency, hardware cost and platform visual
+acceptance remain incomplete; see the [backend contract](crates/render/src/frame_generation/README.md).
+
 ### Terrain, materials and biome acceptance
 
 - [ ] Close the opaque texture slice with matched native views, full-view remesh
@@ -361,9 +369,16 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   Ordinary polls keep intake first. An interrupted worker pass resumes with bounded
   completion and refill work before intake, without renewing intake's allocation.
   Intake keeps bounded progress even after its allocation expires.
+  Decode, light and mesh result reads defer when a producer holds their bounded
+  mailbox, preserving FIFO acceptance and capacity without waiting for publication.
+  Saturated-producer frame and service-reclaim hardware qualification remains open.
   Biome-only inline updates preserve current light while
   remeshing tint; block changes and new residency still invalidate light.
   Matched-output hardware preparation and streaming qualification remain open.
+  Far terrain remains disabled in Video settings. Coarsening retains overlapping
+  fallback tiles until their replacement covers every known column, and its near
+  mask follows changes to the outer view distance. Restoration, smooth transitions,
+  owner-approved captures and on/off hardware profiling at 32+ chunks remain incomplete.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
   fallback; its timeout is not established native behavior.
@@ -764,7 +779,10 @@ revealing it fits the fabric to the current body and armor without replaying hid
 Equipped motion is sampled only for a submitted world attachment or a visible HUD preview.
 Attachment selection, texture lookup and HUD vertex storage are reused on steady frames.
 Animated attachment poses recycle storage after readers release their frame, preserving
-retained poses. Self-collision, world collision, allocation-free fabric and preview particles,
+retained poses. World particle output, actor preparation scratch and released immutable
+publications reuse storage, with sustained low use releasing oversized allocations.
+Unchanged particle lists skip instance uploads; changed material offsets or replacement
+buffers restore the live ranges. Self-collision, world collision, allocation-free fabric and preview particles,
 GPU animation playback and hardware performance qualification remain open.
 Ground-following pets have per-wearer movement, collision-shape grounding, one-block
 hops with checked flight paths and landings, heading-aware animated body clearance,
@@ -1827,6 +1845,10 @@ Use the current [live-testing guide](docs/agents/live-testing.md) as the single 
 reference hardware, frame/hitch, streaming, join and capture budgets. Capture the
 rendered result on the relevant platform and scale; distinguish hidden-window pixel
 coverage from displayed-frame pacing and OS input/focus evidence.
+Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-frame
+spans, trace exports and developer-control state on supported desktop and Android
+platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
+accuracy and sampling overhead still need hardware acceptance.
 
 The scripted resident-render benchmark copies a frozen fixture and isolated user template,
 flies real-time camera paths and exports exact interval statistics with native stage spans.
