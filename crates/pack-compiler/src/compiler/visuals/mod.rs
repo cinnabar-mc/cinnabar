@@ -1,5 +1,6 @@
 pub(in crate::compiler) mod anvil;
 pub(in crate::compiler) mod authored;
+pub(in crate::compiler) mod azalea;
 pub(in crate::compiler) mod bamboo;
 pub(in crate::compiler) mod barrel;
 pub(in crate::compiler) mod beacon;

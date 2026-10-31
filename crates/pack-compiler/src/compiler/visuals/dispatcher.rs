@@ -147,6 +147,7 @@ struct VisualCompiler {
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
+    azalea_templates: BTreeMap<[u32; 3], u32>,
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
@@ -473,6 +474,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.honey_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::azalea::compile_rule(
+            record,
+            inputs,
+            &mut self.azalea_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
