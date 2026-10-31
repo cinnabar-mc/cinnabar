@@ -49,9 +49,8 @@ pub(super) async fn fetch(
     let mut url = url::Url::parse(bridge::contract::CINNABAR_API_BASE_URL)?;
     url.path_segments_mut()
         .map_err(|_| anyhow::anyhow!("invalid API base"))?
-        .extend(["v1", "mods", &identity.package, "update"]);
+        .extend(["v1", "mod", "update"]);
     url.query_pairs_mut().extend_pairs([
-        ("host_repository", HOST_REPOSITORY),
         ("host_revision", host),
         (
             "current_version",
