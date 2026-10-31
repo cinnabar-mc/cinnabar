@@ -17,6 +17,7 @@ struct Attempt {
     finished: AtomicBool,
     milestones: AtomicU64,
     presentation_pending: AtomicBool,
+    completed: Mutex<Option<(&'static str, Instant)>>,
 }
 
 /// A captured attempt, safe to move to a network or compilation worker.
@@ -31,6 +32,13 @@ pub struct Stage {
 }
 
 impl JoinProfile {
+    /// Returns the terminal observation and its monotonic timestamp, including failed attempts.
+    pub fn completion(&self) -> Option<(&'static str, Instant)> {
+        self.0
+            .as_ref()
+            .and_then(|attempt| *attempt.completed.lock().expect("join completion lock"))
+    }
+
     /// Starts at the accepted connection request, replacing any previous attempt.
     pub fn begin() -> Self {
         let profile = Self(Some(Arc::new(Attempt {
@@ -39,6 +47,7 @@ impl JoinProfile {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         let previous = std::mem::replace(
             &mut *CURRENT.lock().unwrap_or_else(|error| error.into_inner()),
@@ -146,6 +155,8 @@ impl JoinProfile {
         {
             tracing::debug!(target: "join_profile", join_profile_id = attempt.id, stage,
                 elapsed_ms = attempt.started.elapsed().as_secs_f64() * 1000.0, "join finished");
+            *attempt.completed.lock().expect("join completion lock") =
+                Some((stage, Instant::now()));
         }
     }
 }
@@ -188,6 +199,7 @@ mod tests {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         let new = JoinProfile(Some(Arc::new(Attempt {
             id: 2,
@@ -195,10 +207,16 @@ mod tests {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         let worker = old.clone();
+        assert!(worker.completion().is_none());
         old.finish("cancelled");
+        let first_completion = worker.completion();
+        assert_eq!(first_completion.map(|(stage, _)| stage), Some("cancelled"));
         worker.finish("late_completion");
+        assert_eq!(worker.completion(), first_completion);
+        assert!(new.completion().is_none());
         assert_eq!(worker.id(), None);
         assert_eq!(new.id(), Some(2));
     }
@@ -211,6 +229,7 @@ mod tests {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         let second = JoinProfile(Some(Arc::new(Attempt {
             id: 12,
@@ -218,6 +237,7 @@ mod tests {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         first.run(|| {
             assert_eq!(JoinProfile::current().id(), Some(11));
@@ -235,6 +255,7 @@ mod tests {
             finished: AtomicBool::new(false),
             milestones: AtomicU64::new(0),
             presentation_pending: AtomicBool::new(false),
+            completed: Mutex::new(None),
         })));
         profile
             .in_scope(async {

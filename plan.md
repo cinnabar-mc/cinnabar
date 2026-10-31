@@ -118,7 +118,11 @@ Menus, HUD and inventory previews retain native output pixels; the hand, world-s
 nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
 If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
-Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+Lost surfaces are recreated on the existing device after retained outputs are released.
+Repeated acquisition validation failures escalate from configuration to recreation.
+Zero-size and oversized windows suspend window rendering and resume at a valid size.
+Displayed recovery on Vulkan, DX12 and Wayland, oversized native-window resize,
+displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
 An optional `render/frame-generation` build feature provides SDR world-image
 optical flow, camera/depth interpolation and disocclusion filling. It has no
@@ -1877,6 +1881,12 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+
+The scripted resident-render benchmark copies a frozen fixture and isolated user template,
+flies real-time camera paths and exports exact interval statistics with native stage spans.
+It rejects lost frame evidence and incompatible report conditions. Visible-cohort readiness,
+authoritative streaming routes, GPU source-frame coverage, repeated-run confidence intervals,
+shipping-artifact equivalence and hardware release qualification remain incomplete.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its

@@ -1,4 +1,5 @@
 //! Runtime metrics, process logging and shared diagnostic marker contracts.
+pub mod benchmark;
 pub mod bounded_file;
 pub mod console;
 #[cfg(not(target_arch = "wasm32"))]
