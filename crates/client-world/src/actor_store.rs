@@ -480,6 +480,12 @@ impl ActorSnapshot {
         self.flag(ActorFlag::Enchanted.wire_value())
     }
 
+    /// Whether the actor's sheared flag is set, as shearing a snow golem does.
+    #[must_use]
+    pub fn is_sheared(&self) -> bool {
+        self.flag(ActorFlag::Sheared.wire_value())
+    }
+
     /// Reads a rendering flag, including the local rig's visual primary word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         if bit < u64::BITS

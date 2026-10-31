@@ -39,3 +39,27 @@ fn an_unsolved_carrier_does_not_darken_its_block() {
     assert_eq!(carried_light(Some((0, 0))), (0, 0));
     assert_eq!(carried_light(None), (15, 15));
 }
+
+#[test]
+fn snow_golems_wear_a_pumpkin_until_sheared() {
+    let golem = entity(assets::facts::entity::SNOW_GOLEM_IDENTIFIER);
+    assert!(wears_pumpkin(&golem, false));
+    assert!(!wears_pumpkin(&golem, true));
+    assert!(!wears_pumpkin(
+        &entity(assets::facts::entity::ENDERMAN_IDENTIFIER),
+        false
+    ));
+    // The golem renderer ignores the synced carried block, which only endermen draw.
+    assert_eq!(carried_block_runtime_id(&golem, &carrying(42)), None);
+}
+
+#[test]
+fn a_snow_golem_pumpkin_is_a_pinned_carved_pumpkin_state() {
+    let state = snow_golem_pumpkin().expect("pinned carved pumpkin");
+    let (name, canonical) = assets::pinned_block_identity(state).expect("pinned identity");
+    assert_eq!(
+        name,
+        assets::facts::pack::PackBlock::CarvedPumpkin.identifier()
+    );
+    assert!(canonical.contains(BlockProperty::MinecraftCardinalDirection.name()));
+}
