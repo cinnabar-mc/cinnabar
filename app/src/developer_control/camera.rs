@@ -132,19 +132,21 @@ fn drive_camera(
         return;
     };
     let now = if scripted.realtime {
-        let Some(real) = real else {
+        if let Some(profiler) = profiler {
+            if scripted.started.is_none() {
+                profiler.trace_marker("benchmark_path_start")
+            } else {
+                profiler.elapsed()
+            }
+            .as_secs_f64()
+        } else if let Some(real) = real {
+            real.elapsed_secs_f64()
+        } else {
             return;
-        };
-        real.elapsed_secs_f64()
+        }
     } else {
         f64::from(time.elapsed_secs())
     };
-    if scripted.started.is_none()
-        && scripted.realtime
-        && let Some(profiler) = profiler
-    {
-        profiler.trace_marker("benchmark_path_start");
-    }
     let started = *scripted.started.get_or_insert(now);
     let previous = scripted.elapsed;
     scripted.elapsed = (now - started) as f32;

@@ -83,6 +83,8 @@ Choose positions inside the fixture's resident content. Each route holds its fir
 pose for settling, then flies linearly at the specified blocks per real second.
 This camera-only workload leaves the player and stream anchor in place. Resident
 column counts do not prove complete visible terrain or streaming performance.
+The resident wait uses a square inscribed in the server's circular delivery radius;
+it does not wait for undelivered square corners at the full requested radius.
 
 The runner currently supports Linux and macOS host probes. `report.json` contains
 exact average, 1% and 0.1% low FPS, frame-time percentiles and a fixed-edge histogram.

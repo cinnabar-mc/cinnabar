@@ -60,6 +60,7 @@ pub(super) fn write(
         "scene": hashes["scene"], "server": hashes["server"], "cache": hashes["cache"],
         "routes": routes, "conditions": conditions,
         "phase_cameras": effective.iter().map(|state| state["camera"].clone()).collect::<Vec<_>>(),
+        "resident_wait": {"shape": "inscribed_square", "radius_columns": super::plan::resident_square_radius(plan.render_distance)},
         "build_profile": initial["build_profile"], "game_version": initial["game_version"], "protocol_version": initial["protocol_version"],
         "semantics": "resident-camera-real-frame-start-v1-stage-trace",
         "instrumentation": "developer-control-and-full-stage-trace", "server_placement": "same_machine",

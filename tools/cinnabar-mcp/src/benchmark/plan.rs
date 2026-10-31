@@ -4,6 +4,11 @@ use developer_control::camera::{CameraPath, Easing, Keyframe};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Largest square whose corner columns fit within the server's circular delivery radius.
+pub(super) fn resident_square_radius(radius: u32) -> u32 {
+    (f64::from(radius) / std::f64::consts::SQRT_2).floor() as u32
+}
+
 /// Immutable inputs for one diagnostic process run; paths resolve against the plan file.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

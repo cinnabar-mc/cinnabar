@@ -114,6 +114,16 @@ fn routes_have_constant_speed_after_settling_and_reject_bad_inputs() {
 }
 
 #[test]
+fn readiness_square_fits_the_server_delivery_circle() {
+    for radius in 1..=64_u32 {
+        let square = plan::resident_square_radius(radius);
+        assert!(2 * square * square <= radius * radius);
+        assert!(2 * (square + 1) * (square + 1) > radius * radius);
+    }
+    assert_eq!(plan::resident_square_radius(12), 8);
+}
+
+#[test]
 fn memory_includes_descendants_without_charging_unrelated_processes() {
     assert_eq!(
         observe::family_rss("10 1 100\n11 10 200\n12 11 300\n13 1 999\n", 10).unwrap(),

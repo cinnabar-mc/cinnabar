@@ -117,16 +117,18 @@ pub struct FrameTrace {
 }
 
 impl FrameTrace {
-    /// Records a workload boundary without adding another clock or profiler.
-    pub fn marker(&self, name: &'static str, frame_id: u64) {
+    /// Records a workload boundary and returns its offset, shared by route sampling and export.
+    pub fn marker(&self, name: &'static str, frame_id: u64) -> Duration {
+        let started = self.epoch.elapsed();
         self.push(TraceEvent {
             name,
-            started: self.epoch.elapsed(),
+            started,
             elapsed: Duration::ZERO,
             thread: std::thread::current().id(),
             frame_id: Some(frame_id),
             args: TraceArgs::None,
         });
+        started
     }
 
     /// Preallocates recent history, using the larger recording budget for explicit exports.

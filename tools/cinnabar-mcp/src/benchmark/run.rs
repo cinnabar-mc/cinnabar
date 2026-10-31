@@ -1,6 +1,6 @@
 //! Owned-process orchestration through existing developer-control routes.
 
-use super::{Plan, files, observe, report, trace};
+use super::{Plan, files, observe, plan::resident_square_radius, report, trace};
 use crate::processes::{Client, Launch, LocalServer};
 use developer_control::{client::Controller, protocol::Command};
 use serde_json::{Value, json};
@@ -171,7 +171,7 @@ fn run_plan(plan_file: &Path, output: &Path) -> Result<(), String> {
         controller.call(
             &Command::WaitFor {
                 condition: developer_control::protocol::Condition::ChunksLoaded {
-                    radius: plan.render_distance,
+                    radius: resident_square_radius(plan.render_distance),
                 },
                 timeout_ms: Some(TIMEOUT.as_millis() as u64),
             },
