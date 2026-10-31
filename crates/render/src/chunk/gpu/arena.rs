@@ -112,7 +112,7 @@ pub(in crate::chunk) struct ChunkGpuArena {
     pub(in crate::chunk) biome_buffer: Buffer,
     pub(in crate::chunk) index_buffer: Buffer,
     pub(in crate::chunk) model_index_buffer: Buffer,
-    /// Vertex buffer 0 of CPU-planned terrain draws; see [`identity_vertex_offsets`].
+    /// Identity vertex offsets for CPU-planned terrain draws.
     pub(in crate::chunk) vertex_offset_buffer: Buffer,
     pub(in crate::chunk) indirect_buffer: Buffer,
     pub(in crate::chunk) transparent_indirect_buffer: Buffer,
@@ -162,91 +162,6 @@ pub(in crate::chunk) fn init_chunk_gpu_arena(
 }
 
 impl ChunkGpuArena {
-    pub(in crate::chunk) fn new(render_device: &RenderDevice) -> Self {
-        let device_limits = render_device.limits();
-        let limits = arena_limits_from_device_limits(
-            device_limits.max_buffer_size,
-            device_limits.max_storage_buffer_binding_size,
-        );
-        let arena = Self {
-            quad_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk quads",
-                INITIAL_ARENA_CAPACITIES.quads as u64 * PACKED_QUAD_BYTES,
-            ),
-            geometry_stream_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk geometry streams",
-                INITIAL_ARENA_CAPACITIES.geometry_stream_words as u64 * GEOMETRY_STREAM_WORD_BYTES,
-            ),
-            origin_buffer: create_storage_buffer(
-                render_device,
-                "packed chunk origins",
-                INITIAL_ARENA_CAPACITIES.origins as u64 * CHUNK_ORIGIN_BYTES,
-            ),
-            biome_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("packed chunk biome records"),
-                contents: bytemuck::cast_slice(&FALLBACK_BIOME_RECORD),
-                usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC | BufferUsages::COPY_DST,
-            }),
-            index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("shared chunk quad indices"),
-                contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
-                usage: BufferUsages::INDEX,
-            }),
-            model_index_buffer: render_device.create_buffer_with_data(&BufferInitDescriptor {
-                label: Some("shared model template quad indices"),
-                contents: bytemuck::cast_slice(&STATIC_QUAD_INDICES),
-                usage: BufferUsages::INDEX,
-            }),
-            vertex_offset_buffer: identity_vertex_offsets(render_device, 1),
-            indirect_buffer: create_indirect_buffer(render_device, INITIAL_INDIRECT_CAPACITY),
-            transparent_indirect_buffer: create_indirect_buffer(
-                render_device,
-                INITIAL_INDIRECT_CAPACITY,
-            ),
-            transparent_ref_buffer: transparent_ref_buffer(
-                render_device,
-                INITIAL_TRANSPARENT_SLOT_REFS,
-            ),
-            transparent_slot_refs: INITIAL_TRANSPARENT_SLOT_REFS,
-            bind_group: None,
-            transparent_bind_group: None,
-            bind_group_buffers: None,
-            quad_capacity: INITIAL_ARENA_CAPACITIES.quads,
-            geometry_stream_capacity: INITIAL_ARENA_CAPACITIES.geometry_stream_words,
-            origin_capacity: INITIAL_ARENA_CAPACITIES.origins,
-            biome_capacity: INITIAL_ARENA_CAPACITIES.biome_words,
-            indirect_capacity: INITIAL_INDIRECT_CAPACITY,
-            uploaded_indirect_bytes: Vec::new(),
-            quad_len: 0,
-            geometry_stream_len: 0,
-            origin_len: 0,
-            biome_len: FALLBACK_BIOME_WORDS,
-            limits,
-            free_quads: FreeRanges::default(),
-            free_geometry_stream_words: FreeRanges::default(),
-            free_origins: Vec::new(),
-            free_biomes: FreeRanges::default(),
-            shared_biome_ranges: SharedBiomeRanges::default(),
-            allocations: HashMap::new(),
-            transparent_liquids: TransparentLiquidResidents::default(),
-            // A new arena may replace one whose allocations the orders still witness.
-            transparent_model_changes: TransparentModelResidentChanges::all_changed(),
-            retired_allocations: Vec::new(),
-            pending_removals: BTreeSet::new(),
-            retirement_budget: TransparentRetirementBudget::with_limits(
-                MAX_TRANSPARENT_RETIRED_ALLOCATIONS,
-                MAX_TRANSPARENT_RETIRED_BYTES,
-            ),
-            migration: None,
-            memory: Default::default(),
-            idle_completion: None,
-        };
-        super::telemetry::log_initial_arena_capacity(&arena, render_device);
-        arena
-    }
-
     /// Records for the model draw orders that `entity`'s resident allocation becomes `next`;
     /// call before changing `allocations`.
     pub(in crate::chunk) fn record_transparent_model_change(
@@ -258,24 +173,6 @@ impl ChunkGpuArena {
         self.transparent_model_changes
             .record(entity, previous, next);
     }
-}
-
-/// Vertex buffer 0 for CPU-planned terrain draws over `origin_capacity` origin slots: entry `i`
-/// is `(i, 0)`, so fetching at a draw's base vertex yields its vertex index while the builtin
-/// instance index keeps its first instance. GPU-culled draws bind the cull's draw offsets instead.
-pub(in crate::chunk) fn identity_vertex_offsets(
-    render_device: &RenderDevice,
-    origin_capacity: usize,
-) -> Buffer {
-    let corners = crate::chunk::gpu_cull::model::OFFSET_CORNERS;
-    let entries = (0..origin_capacity as u32 * corners)
-        .flat_map(|vertex| [vertex, 0])
-        .collect::<Vec<u32>>();
-    render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("terrain identity vertex offsets"),
-        contents: bytemuck::cast_slice(&entries),
-        usage: BufferUsages::VERTEX,
-    })
 }
 
 /// Describes unmapped terrain storage for queue uploads and migration copies.

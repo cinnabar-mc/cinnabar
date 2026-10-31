@@ -38,11 +38,14 @@ pub(in crate::chunk) fn release_idle_arena(
     if !completed.load(Ordering::Acquire) {
         return true;
     }
+    let Some(replacement) = ChunkGpuArena::try_new(device) else {
+        return true;
+    };
     let mut memory = arena.memory;
     memory.idle_releases = memory.idle_releases.saturating_add(1);
     // Replace bindings, auxiliary buffers and free lists together. Atlas ownership and
     // retirement epochs live outside the arena and keep their existing publication order.
-    *arena = ChunkGpuArena::new(device);
+    *arena = replacement;
     arena.memory = memory;
     super::telemetry::log_arena_capacity(arena, "idle storage released");
     true

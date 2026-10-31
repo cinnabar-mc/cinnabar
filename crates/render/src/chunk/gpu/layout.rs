@@ -330,33 +330,34 @@ pub(in crate::chunk) fn begin_arena_migration(
     )
     .entered();
     let bytes = growth.new_capacity as u64 * stream.item_bytes();
-    let buffer = super::arena::try_create_storage_buffer(render_device, stream.label(), bytes)
-        .or_else(|| {
-            if !render_device
-                .features()
-                .contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS)
-            {
-                return None;
-            }
-            arena.memory.host_visible_attempts =
-                arena.memory.host_visible_attempts.saturating_add(1);
-            let mut descriptor = super::arena::storage_buffer_descriptor(stream.label(), bytes);
-            descriptor.usage |= BufferUsages::MAP_WRITE;
-            // MAP_WRITE requests host-visible memory. The buffer stays unmapped, so queue
-            // uploads, staged copies and draws keep their existing ordering.
-            let buffer = crate::gpu_allocation::buffer(render_device, &descriptor)?;
-            arena
-                .memory
-                .record_host_visible_allocation(stream.label(), bytes);
-            Some(buffer)
-        });
-    let Some(buffer) = buffer else {
+    let Some((buffer, host_visible)) = super::allocation::terrain_buffer(
+        render_device,
+        super::arena::storage_buffer_descriptor(stream.label(), bytes),
+        &mut arena.memory,
+    ) else {
         return false;
     };
     if stream == ArenaStream::Origins {
+        let Some((offsets, host_visible)) = super::allocation::try_identity_vertex_offsets(
+            render_device,
+            growth.new_capacity,
+            &mut arena.memory,
+        ) else {
+            return false;
+        };
+        if host_visible {
+            arena.memory.record_host_visible_allocation(
+                super::allocation::IDENTITY_VERTEX_OFFSETS_LABEL,
+                offsets.size(),
+            );
+        }
         // Slots up to the new capacity may be drawn before the copy lands.
-        arena.vertex_offset_buffer =
-            super::arena::identity_vertex_offsets(render_device, growth.new_capacity);
+        arena.vertex_offset_buffer = offsets;
+    }
+    if host_visible {
+        arena
+            .memory
+            .record_host_visible_allocation(stream.label(), bytes);
     }
     arena.migration = Some(ArenaMigration {
         stream,

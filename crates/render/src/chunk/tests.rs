@@ -132,7 +132,8 @@ fn committed_transparent_state(
     state
 }
 
-fn retirement_test_allocation() -> ArenaAllocation {
+/// Supplies one resident with cube, liquid, lighting, biome and origin addresses for retirement tests.
+pub(in crate::chunk) fn retirement_test_allocation() -> ArenaAllocation {
     ArenaAllocation {
         generation: 7,
         tint_identity: ChunkBiomeTintIdentity::new(2, 2),

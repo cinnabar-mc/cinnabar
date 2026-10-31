@@ -1,3 +1,4 @@
+mod allocation;
 #[cfg(test)]
 mod alpha_edge_tests;
 pub(in crate::chunk) mod arena;

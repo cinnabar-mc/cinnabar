@@ -264,6 +264,139 @@ fn idle_storage_retires_an_unfinished_migration() {
     assert_eq!(arena.memory.idle_releases, 1);
 }
 
+/// Failed partial replacements keep the completed fence and old storage until retry succeeds.
+#[test]
+fn idle_replacement_out_of_memory_preserves_the_arena_and_retries() {
+    use std::{cell::Cell, rc::Rc};
+    let (device, queue, mut arena) = memory_arena(wgpu::Features::empty());
+    grow_quads(&mut arena, &device, &queue);
+    let old = arena.quad_buffer.id();
+    assert!(release_idle_arena(&mut arena, &device, &queue, false));
+    let completion = arena.idle_completion.as_ref().unwrap().clone();
+    completion.store(true, Ordering::Release);
+    for label in [
+        "shared chunk quad indices",
+        "initial terrain reference storage",
+    ] {
+        let failures_seen = Rc::new(Cell::new(0));
+        let failures = crate::gpu_allocation::inject({
+            let failures_seen = failures_seen.clone();
+            move |candidate, _| {
+                if candidate == label {
+                    failures_seen.set(failures_seen.get() + 1);
+                    true
+                } else {
+                    false
+                }
+            }
+        });
+        assert!(release_idle_arena(&mut arena, &device, &queue, false));
+        drop(failures);
+        assert_eq!(failures_seen.get(), 1);
+        assert_eq!(arena.quad_buffer.id(), old);
+        assert_eq!(arena.memory.idle_releases, 0);
+        assert!(Arc::ptr_eq(
+            arena.idle_completion.as_ref().unwrap(),
+            &completion
+        ));
+    }
+    assert!(release_idle_arena(&mut arena, &device, &queue, false));
+    assert_ne!(arena.quad_buffer.id(), old);
+    assert_eq!(arena.memory.idle_releases, 1);
+}
+
+/// Origin storage and vertex offsets commit together, including their fallback telemetry.
+#[test]
+fn origin_growth_defers_if_offsets_fail_and_recovers_both_buffers_together() {
+    let (device, queue, mut arena) = memory_arena(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS);
+    let old_origin = arena.origin_buffer.id();
+    let old_offsets = arena.vertex_offset_buffer.id();
+    let growth = ArenaGrowthPlan {
+        new_capacity: 64,
+        gpu_copy_bytes: CHUNK_ORIGIN_BYTES,
+    };
+    let failures = crate::gpu_allocation::inject({
+        let mut origins = 0;
+        move |label, _| match label {
+            "packed chunk origins" => {
+                origins += 1;
+                origins == 1
+            }
+            "terrain identity vertex offsets" => true,
+            _ => false,
+        }
+    });
+    assert!(!begin_arena_migration(
+        &mut arena,
+        &device,
+        ArenaStream::Origins,
+        growth
+    ));
+    drop(failures);
+    assert_eq!(arena.origin_buffer.id(), old_origin);
+    assert_eq!(arena.vertex_offset_buffer.id(), old_offsets);
+    assert_eq!(arena.origin_capacity, 1);
+    assert!(arena.migration.is_none());
+    assert_eq!(arena.memory.host_visible_attempts, 2);
+    assert_eq!(arena.memory.host_visible_allocations, 0);
+
+    let source = [0x61; CHUNK_ORIGIN_BYTES as usize];
+    queue.write_buffer(&arena.origin_buffer, 0, &source);
+    let failures = crate::gpu_allocation::inject({
+        let (mut origins, mut offsets) = (0, 0);
+        move |label, _| match label {
+            "packed chunk origins" => {
+                origins += 1;
+                origins == 1
+            }
+            "terrain identity vertex offsets" => {
+                offsets += 1;
+                offsets == 1
+            }
+            _ => false,
+        }
+    });
+    assert!(begin_arena_migration(
+        &mut arena,
+        &device,
+        ArenaStream::Origins,
+        growth
+    ));
+    drop(failures);
+    assert_eq!(arena.memory.host_visible_attempts, 4);
+    assert_eq!(arena.memory.host_visible_allocations, 2);
+    assert!(
+        arena
+            .vertex_offset_buffer
+            .usage()
+            .contains(BufferUsages::MAP_WRITE)
+    );
+    assert_eq!(
+        arena.origin_buffer.id(),
+        old_origin,
+        "origin swap waits for its copy"
+    );
+    advance_arena_migration(
+        &mut arena,
+        TerrainUploads {
+            device: &device,
+            queue: &queue,
+            staging: None,
+        },
+        u64::MAX,
+    );
+    assert!(
+        arena
+            .origin_buffer
+            .usage()
+            .contains(BufferUsages::MAP_WRITE)
+    );
+    assert_eq!(
+        &read_buffer(&device, &queue, &arena.origin_buffer)[..source.len()],
+        &source
+    );
+}
+
 /// One failed local allocation retries with an unmapped host-visible buffer and keeps data.
 #[test]
 fn terrain_growth_falls_back_once_and_reports_the_allocation() {
