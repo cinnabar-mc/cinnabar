@@ -277,6 +277,23 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
+  An experimental vanilla point light follows the local player body at one block above
+  the feet, independent of camera perspective. Vanilla fragments convert source falloff
+  into fractional block-light levels and sample the existing lightmap, preserving sky
+  light and texture shading without chunk rebuilds. Video settings expose a default-off
+  toggle; the Performance preset enables it. Strength and range are not public settings. Each held
+  or dropped item receives a profile derived from its resolved Bedrock block emission:
+  normalized emission controls strength and maps to a provisional 2–8 block radius.
+  Up to eight sources (the local player plus the nearest seven remote-player or dropped-item
+  sources within the configured render distance) are uploaded and fade to zero at its edge.
+  Third-person actor models and dropped item models receive the dynamic lightmap
+  contribution at their world positions; the first-person hand keeps vanilla lighting.
+  The lightmap-based shader path is a prototype; rendered
+  texture contrast and source blending still need visual acceptance. The strength/radius
+  curve is an incomplete approximation pending a version-matched behavior reference;
+  source color is fixed, there is no occlusion or
+  shadowing, shader-pack and Enhanced renderers are not integrated, and visual/performance
+  acceptance remains incomplete.
 - [ ] Classify and remove moving bands/static under camera motion using coherent
   resident, frustum, submitted and GPU-completed identities. Change culling only when
   evidence proves a missing draw.
