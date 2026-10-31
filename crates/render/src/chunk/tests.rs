@@ -182,6 +182,8 @@ mod gpu_arena;
 mod gpu_biome_ranges;
 #[path = "gpu/growth_tests.rs"]
 mod gpu_growth;
+#[path = "gpu/memory_tests.rs"]
+mod gpu_memory;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
 #[path = "gpu/publication_tests.rs"]

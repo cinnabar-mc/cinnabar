@@ -7,6 +7,7 @@ pub(in crate::chunk) mod bind_groups;
 mod capacity;
 pub(in crate::chunk) mod compact;
 pub(in crate::chunk) mod graphics_metadata;
+pub(in crate::chunk) mod idle;
 pub(in crate::chunk) mod layout;
 pub(in crate::chunk) mod resource_geometry;
 pub(in crate::chunk) mod resource_sorts;

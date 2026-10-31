@@ -1873,6 +1873,11 @@ including hands, labels and the base UI raster. Enhanced water, shadows and shaf
 disable sampling while their required targets are unavailable. Injected failures cover
 recovery; real memory-pressure acceptance and recovery of Bevy-owned view targets
 remain incomplete.
+Empty terrain arenas return to their starting capacity after retained allocations and
+submitted readers retire. Failed terrain growth retries once with unmapped host-visible
+storage when the device enables that feature, with allocation and release counters.
+Discrete-GPU memory placement, pressure recovery and frame-pacing qualification remain
+incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
 frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world

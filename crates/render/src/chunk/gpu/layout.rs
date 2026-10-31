@@ -311,9 +311,9 @@ pub(in crate::chunk) fn first_arena_growth(
     Ok(first)
 }
 
-/// Starts growing `stream` into a new buffer of `growth.new_capacity` items. Returns false,
-/// leaving the arena as it was, when the device is out of memory for the new buffer; uploads
-/// that need the room then wait for a later frame.
+/// Starts growing `stream` into a new buffer of `growth.new_capacity` items, retrying with
+/// host-visible storage if supported. Returns false if neither allocation succeeds,
+/// leaving the active storage unchanged so uploads can wait for a later frame.
 #[must_use]
 pub(in crate::chunk) fn begin_arena_migration(
     arena: &mut ChunkGpuArena,
@@ -329,11 +329,28 @@ pub(in crate::chunk) fn begin_arena_migration(
         bytes = growth.new_capacity as u64 * stream.item_bytes(),
     )
     .entered();
-    let Some(buffer) = super::arena::try_create_storage_buffer(
-        render_device,
-        stream.label(),
-        growth.new_capacity as u64 * stream.item_bytes(),
-    ) else {
+    let bytes = growth.new_capacity as u64 * stream.item_bytes();
+    let buffer = super::arena::try_create_storage_buffer(render_device, stream.label(), bytes)
+        .or_else(|| {
+            if !render_device
+                .features()
+                .contains(wgpu::Features::MAPPABLE_PRIMARY_BUFFERS)
+            {
+                return None;
+            }
+            arena.memory.host_visible_attempts =
+                arena.memory.host_visible_attempts.saturating_add(1);
+            let mut descriptor = super::arena::storage_buffer_descriptor(stream.label(), bytes);
+            descriptor.usage |= BufferUsages::MAP_WRITE;
+            // MAP_WRITE requests host-visible memory. The buffer stays unmapped, so queue
+            // uploads, staged copies and draws keep their existing ordering.
+            let buffer = crate::gpu_allocation::buffer(render_device, &descriptor)?;
+            arena
+                .memory
+                .record_host_visible_allocation(stream.label(), bytes);
+            Some(buffer)
+        });
+    let Some(buffer) = buffer else {
         return false;
     };
     if stream == ArenaStream::Origins {

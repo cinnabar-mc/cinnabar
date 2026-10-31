@@ -147,6 +147,12 @@ pub(in crate::chunk) fn prepare_gpu_chunks(
         &acknowledgements,
         terrain_generations.as_deref_mut(),
     );
+    super::idle::release_idle_arena(
+        &mut arena,
+        &upload_queue.device,
+        &upload_queue.queue,
+        !selected.is_empty(),
+    );
 
     // A selected CPU atlas can outlive a session reset. Keep old draw tables coherent,
     // while the physical-removal and completion-fence work above continues to drain.
