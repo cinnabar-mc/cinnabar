@@ -7212,12 +7212,6 @@
       "Observer": "minecraft:observer"
     },
     "selectors": {
-      "dried_ghast_back": "DriedGhast",
-      "dried_ghast_bottom": "DriedGhast",
-      "dried_ghast_front": "DriedGhast",
-      "dried_ghast_left": "DriedGhast",
-      "dried_ghast_right": "DriedGhast",
-      "dried_ghast_top": "DriedGhast",
       "door_lower": "Door",
       "door_upper": "Door",
       "red_flower": "Flower",
