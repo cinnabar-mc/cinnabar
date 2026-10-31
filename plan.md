@@ -284,7 +284,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Matched-output frame-time and movement qualification remain incomplete.
+  A developer-supplied cost calibration can select indirect cull passes by captured
+  submitted indices per stream, matched to backend, viewport and sample count.
+  Without a valid calibration the existing count policy remains active.
+  Matched-output frame-time and movement qualification remain incomplete; no
+  hardware cost calibration or default change is qualified.
 
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
