@@ -123,9 +123,11 @@ Displayed-frame pacing and complete resize/platform acceptance remain incomplete
 Frame Generation is an opt-in Video setting, off by default. The native SDR
 presenter combines optical flow and camera/depth interpolation with separate
 current hand/name layers and native screen UI on both real and generated images.
-Workers prepare resources while ordinary rendering continues. Pure scheduling
-policy covers midpoint deadlines, low base rates, synchronized display capacity,
-captures and discontinuities; incomplete or late candidates retain real output.
+Workers prepare resources while ordinary rendering continues. The real interval is
+the frame-rate limit or two display refreshes, never a measured delta. Pure
+scheduling policy covers midpoint deadlines, unpaced and low base rates, captures,
+discontinuities and missed-deadline backoff; incomplete or late candidates retain
+real output.
 Shader packs, Enhanced rendering, HDR, motion blur and unsupported overlays bypass.
 Deterministic and software Vulkan fixtures do not close hardware GPU cost,
 input-to-photon latency, displayed pacing on Vulkan/DX12/Metal or in-world artifact

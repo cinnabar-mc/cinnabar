@@ -4,6 +4,8 @@ mod nodes;
 mod prepare;
 mod present;
 #[cfg(test)]
+mod scene_tests;
+#[cfg(test)]
 mod tests;
 
 use super::{COLOR_FORMAT, FrameGenerationInput, FrameGenerationSize, FrameGenerator};
@@ -147,7 +149,6 @@ pub(crate) fn begin_ui(
     let ready = &state.0;
     let replay = world.resource::<Replay>().0 == Some(entity);
     if !replay {
-        ready.depth.draw(context, world, None);
         if let Some((_, resolved)) = &ready.hand.resolved {
             let mut attachment = ready.hand.attachment();
             attachment.resolve_target = Some(resolved);

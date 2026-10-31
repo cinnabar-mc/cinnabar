@@ -35,7 +35,6 @@ pub(super) fn install(world: &mut World) {
 
 /// Clears both current-frame layers even when neither hand nor labels has a draw.
 fn clear(
-    world: &World,
     query: bevy::render::renderer::ViewQuery<&ViewState, With<FrameGenerationActive>>,
     mut context: RenderContext,
 ) {
@@ -52,7 +51,6 @@ fn clear(
             color_attachments: &attachments,
             ..Default::default()
         });
-    let _ = world;
 }
 
 type Labels = (
@@ -63,7 +61,7 @@ type Labels = (
     Option<&'static MainPassResolutionOverride>,
 );
 
-/// Uses actual current world depth and the unchanged label draw function, before the hand.
+/// Resolves world depth before depth-tested glyphs write into it, then draws current names.
 fn labels(
     world: &World,
     query: bevy::render::renderer::ViewQuery<Labels, With<FrameGenerationActive>>,
@@ -71,6 +69,7 @@ fn labels(
 ) -> Result {
     let entity = query.entity();
     let (state, camera, view, depth, resolution) = query.into_inner();
+    state.0.depth.draw(&mut context, world, None);
     crate::nametag_render::overlay::encode_labels(
         world,
         entity,

@@ -10,10 +10,11 @@ a fresh passing run or full gate acceptance.
 
 The native opt-in Video setting is off by default. Runtime preparation, clean-world
 interpolation, independent current hand/name layers, native UI replay and surface
-presentation are implemented. Pure tests cover midpoint deadlines and bypasses;
-synthetic GPU fixtures cover native composition order, current foreground, MSAA,
-reduced world depth and infinite-far projection. Settings fixtures cover save,
-reload and reset. These establish implementation contracts, not scanout evidence.
+presentation are implemented. Pure tests cover the paced interval, midpoint
+deadlines, bypasses and missed-deadline backoff; synthetic GPU fixtures cover native
+composition order, current foreground, MSAA, reduced world depth and infinite-far
+projection. A production-scene fixture keeps names out of interpolated colour and
+depth with and without SMAA and MSAA. Settings fixtures cover save, reload and reset. These establish implementation contracts, not scanout evidence.
 Hardware GPU cost, added input-to-photon latency, actual midpoint presentation
 with vsync on/off on Vulkan/DX12/Metal and in-world particle/translucency artifact
 acceptance remain open. Follow the hardware recipe in the runtime README.

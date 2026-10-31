@@ -26,19 +26,23 @@ This extra schedule contains UI encoding only: it never runs application updates
 input sampling, extraction, picks, interaction or simulation. Backend surface
 presentation uses wgpu on Vulkan, DX12 and Metal.
 
-Admission requires at least the real-frame rate in
-`render_api::frame_generation::FRAME_GENERATION_MIN_FPS`. Synchronized output also
-needs a known refresh rate with capacity for two presentations per real frame.
+The presenter paces real frames at `real_interval_ns`: the frame-rate limit, but
+never less than two display refreshes. Measured frame times are never the target,
+because the presenter's own waits lengthen them. Without a limit or a known refresh
+rate the extra image would only halve the real rate, so generation is bypassed.
+Admission also requires at least `FRAME_GENERATION_MIN_FPS` real frames per second.
 Cuts, player/server camera reanchors, teleports, dimension transitions and bypassed
-intervals invalidate history. A late or incomplete candidate presents the real
-frame and resets pacing. GPU scene-change detection can additionally replace an
-interpolation with current world colour.
+intervals invalidate history. An incomplete candidate presents the real frame. A
+late one does too, and the next `MISSED_DEADLINE_BACKOFF_FRAMES` real frames stay
+ordinary so an overloaded device returns to pipelined rendering. GPU scene-change
+detection can additionally replace an interpolation with current world colour.
 
-The pacer uses a monotonic edge clock and absolute waits. After warming up the
-buffered timeline, the generated submission is scheduled halfway between the
-preceding and following real submissions. Submission deadlines do not prove
-scanout times: the driver, vsync, compositor and display can change when photons
-appear. Those require hardware measurement.
+One render thread renders, waits and presents both images, so the real image is
+held until the next real deadline. That adds less than one real interval of input
+latency. The generated image is presented halfway between the previous and current
+real presentations; a slightly late wake delays the real image to keep it halfway.
+Submission deadlines do not prove scanout times: the driver, vsync, compositor and
+display can change when photons appear. Those require hardware measurement.
 
 | Content | Composition and limits |
 | --- | --- |
@@ -73,7 +77,9 @@ Metal on macOS; a successful run on one backend does not qualify the others.
 1. Warm each configuration for 120 real frames. Use RenderDoc/Vulkan GPU timing,
    PIX/DX12 timing or Xcode/Metal GPU profiling to capture at least 600 real
    frames. Verify that extra surface presentations actually occur and that no
-   candidate was bypassed. Measure GPU timestamps, excluding CPU waits. Report
+   candidate was bypassed: count presents with PresentMon (Windows) or the Metal
+   Performance HUD (macOS), expecting twice the real rate, and run with
+   `RUST_LOG=render::frame_generation=trace` to log each pair and bypass reason. Measure GPU timestamps, excluding CPU waits. Report
    interpolation compute alone and total added GPU work, including world copies,
    foreground/UI replay and the real-image surface blit. Divide the extra work
    by the number of generated presentations; report median, p95 and p99 per

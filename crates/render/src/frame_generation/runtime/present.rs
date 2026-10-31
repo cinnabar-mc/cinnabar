@@ -24,9 +24,20 @@ struct Held {
     surface: SurfaceTexture,
     ready: Arc<gpu::Ready>,
     camera: FrameGenerationCamera,
+    interval_ns: u64,
     done: Arc<AtomicBool>,
-    generated: bool,
-    complete: bool,
+    outcome: Outcome,
+}
+
+/// What `generate` produced for the held real frame.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Outcome {
+    /// No usable candidate: present the real frame now and drop the pacing anchor.
+    Ordinary,
+    /// History restarted: present the real frame now and anchor the next pair on it.
+    Seed,
+    /// The surface holds the generated image and the owned copy holds the real one.
+    Pair,
 }
 
 /// Monotonic presentation state never crosses into the simulation world.
@@ -93,11 +104,17 @@ pub(super) fn hold(
         capture: camera.capture,
         continuous,
         interval_ns: camera.interval_ns,
-        synchronized_refresh_ns: camera.synchronized_refresh_ns,
     };
-    if let Some(reason) = admission.bypass() {
-        presenter.pacer.reset();
-        bevy::log::trace!(?reason, "frame generation bypass");
+    let interval_ns = match (admission.bypass(), camera.interval_ns) {
+        (None, Some(interval)) => interval,
+        (reason, _) => {
+            presenter.pacer.reset();
+            bevy::log::trace!(?reason, "frame generation bypass");
+            return;
+        }
+    };
+    if !presenter.pacer.admit() {
+        bevy::log::trace!("frame generation backing off after a missed deadline");
         return;
     }
     if let Some(surface) = output.swap_chain_texture.take() {
@@ -107,9 +124,9 @@ pub(super) fn hold(
             surface,
             ready: Arc::clone(&state.0),
             camera: *camera,
+            interval_ns,
             done: Arc::new(AtomicBool::new(false)),
-            generated: false,
-            complete: true,
+            outcome: Outcome::Ordinary,
         });
     }
 }
@@ -121,6 +138,7 @@ pub(super) fn generate(world: &mut World) {
         .remove_resource::<Presenter>()
         .expect("frame generation presenter");
     let Some(held) = presenter.held.as_mut() else {
+        // A bypassed interval must never bridge the next pair.
         let mut query = world.query::<&ViewState>();
         for state in query.iter(world) {
             let mut temporal = state.0.temporal.lock().expect("frame generation history");
@@ -140,6 +158,7 @@ pub(super) fn generate(world: &mut World) {
             .lock()
             .expect("frame generation history");
         if !complete || !temporal.world_captured || !temporal.real_captured {
+            temporal.generator.invalidate();
             None
         } else {
             let projection = temporal
@@ -165,10 +184,14 @@ pub(super) fn generate(world: &mut World) {
             result
         }
     };
-    if let Some((image, reset)) = generated {
-        if !reset
-            && let Some(native) = world.get::<crate::ui_render::target::NativeUiTarget>(held.view)
-        {
+    held.outcome = match generated {
+        None => Outcome::Ordinary,
+        Some((_, true)) => Outcome::Seed,
+        Some((image, false)) => 'replay: {
+            let Some(native) = world.get::<crate::ui_render::target::NativeUiTarget>(held.view)
+            else {
+                break 'replay Outcome::Ordinary;
+            };
             let destination = native.replace_scene();
             let mut encoder = device.create_command_encoder(&Default::default());
             held.ready.blit(
@@ -183,20 +206,19 @@ pub(super) fn generate(world: &mut World) {
             world.insert_resource(bevy::render::renderer::CurrentView(held.view));
             world.run_schedule(GeneratedUi);
             world.resource_mut::<Replay>().0 = None;
-            held.generated = true;
-            held.complete = composition_ready(world, held.view);
+            if composition_ready(world, held.view) {
+                Outcome::Pair
+            } else {
+                // The surface may hold a partial replay; present restores the real image.
+                Outcome::Ordinary
+            }
         }
-        if !held.complete {
-            presenter.pacer.reset();
-            world.insert_resource(presenter);
-            return;
-        }
+    };
+    if held.outcome == Outcome::Pair {
         let done = Arc::clone(&held.done);
         queue.on_submitted_work_done(move || done.store(true, Ordering::Release));
         world.resource_mut::<crate::device_poll::FrameWait>().0 =
-            Some(Duration::from_nanos(held.camera.interval_ns));
-    } else {
-        presenter.pacer.reset();
+            Some(Duration::from_nanos(held.interval_ns));
     }
     world.insert_resource(presenter);
 }
@@ -245,96 +267,94 @@ pub(super) fn present(world: &mut World) {
     let queue = world.resource::<RenderQueue>().clone();
     let epoch = presenter.epoch;
     let now = || u64::try_from(epoch.elapsed().as_nanos()).unwrap_or(u64::MAX);
-    let plan = if held.done.load(Ordering::Acquire) {
-        presenter.pacer.plan(now(), held.camera.interval_ns)
-    } else {
-        presenter.pacer.reset();
-        FrameGenerationPlan::Bypass(
-            render_api::frame_generation::FrameGenerationBypass::MissedDeadline,
-        )
-    };
+    let deadline = |at_ns: u64| epoch + Duration::from_nanos(at_ns);
     let target = world
         .get::<ExtractedWindow>(held.window)
         .and_then(|window| window.swap_chain_texture_view.clone());
-    if let Some(target) = &target {
-        match plan {
-            FrameGenerationPlan::Pair {
-                generated_ns,
-                real_ns: _,
-            } if held.generated => {
-                crate::input_pacing::wait::sleep_until(
-                    presenter.epoch + Duration::from_nanos(generated_ns),
-                );
-                held.surface.present(&queue);
-                let actual_generated = now();
-                // Account for a delayed wake or present before choosing the real deadline.
-                let real_deadline = match presenter
-                    .pacer
-                    .plan(actual_generated, held.camera.interval_ns)
-                {
-                    FrameGenerationPlan::Pair { real_ns, .. } => Some(real_ns),
-                    _ => None,
-                };
-                let real = world
-                    .get::<SurfaceData>(held.window)
-                    .map(|surface| surface.surface().get_current_texture());
-                match real {
-                    Some(
-                        wgpu::CurrentSurfaceTexture::Success(real)
-                        | wgpu::CurrentSurfaceTexture::Suboptimal(real),
-                    ) => {
-                        let view = real.texture.create_view(&wgpu::TextureViewDescriptor {
-                            format: Some(held.ready.key.output),
-                            ..Default::default()
-                        });
-                        restore(&held.ready, &device, &queue, &view);
-                        if let Some(real_ns) = real_deadline {
-                            crate::input_pacing::wait::sleep_until(
-                                presenter.epoch + Duration::from_nanos(real_ns),
-                            );
-                        }
-                        queue.present(real);
-                        if real_deadline.is_some() {
-                            presenter.pacer.presented_real(now());
-                        }
-                        bevy::log::trace!(
-                            actual_generated,
-                            ?real_deadline,
-                            "frame generation pair presented"
-                        );
+    let plan = match held.outcome {
+        Outcome::Ordinary => None,
+        Outcome::Seed => Some(FrameGenerationPlan::Warmup),
+        Outcome::Pair if !held.done.load(Ordering::Acquire) => {
+            presenter.pacer.missed();
+            None
+        }
+        Outcome::Pair => Some(presenter.pacer.plan(now(), held.interval_ns)),
+    };
+    match (plan, &target) {
+        (Some(FrameGenerationPlan::Pair { generated_ns, .. }), Some(_)) => {
+            crate::input_pacing::wait::sleep_until(deadline(generated_ns));
+            held.surface.present(&queue);
+            // A late wake or slow present moves the real deadline so the midpoint holds.
+            let real_deadline = presenter.pacer.real_deadline(now());
+            let real = world
+                .get::<SurfaceData>(held.window)
+                .map(|surface| surface.surface().get_current_texture());
+            match real {
+                Some(
+                    wgpu::CurrentSurfaceTexture::Success(real)
+                    | wgpu::CurrentSurfaceTexture::Suboptimal(real),
+                ) => {
+                    let view = real.texture.create_view(&wgpu::TextureViewDescriptor {
+                        format: Some(held.ready.key.output),
+                        ..Default::default()
+                    });
+                    restore(&held.ready, &device, &queue, &view);
+                    if let Some(real_ns) = real_deadline {
+                        crate::input_pacing::wait::sleep_until(deadline(real_ns));
                     }
-                    _ => presenter.pacer.reset(),
+                    queue.present(real);
+                    presenter.pacer.presented_real(now());
+                    bevy::log::trace!(generated_ns, ?real_deadline, "frame generation pair");
                 }
-            }
-            FrameGenerationPlan::Warmup { real_ns } => {
-                if held.generated {
-                    restore(&held.ready, &device, &queue, target);
-                }
-                crate::input_pacing::wait::sleep_until(
-                    presenter.epoch + Duration::from_nanos(real_ns),
-                );
-                held.surface.present(&queue);
-                presenter.pacer.presented_real(now());
-            }
-            _ => {
-                if held.generated {
-                    restore(&held.ready, &device, &queue, target);
-                }
-                held.surface.present(&queue);
-                presenter.pacer.reset();
-                held.ready
-                    .temporal
-                    .lock()
-                    .expect("frame generation history")
-                    .generator
-                    .invalidate();
+                // The real image is lost with the surface; the next frame starts over.
+                _ => invalidate(&held.ready, &mut presenter),
             }
         }
-    } else {
-        presenter.pacer.reset();
+        (Some(FrameGenerationPlan::Warmup), Some(target)) => {
+            if held.outcome == Outcome::Pair {
+                restore(&held.ready, &device, &queue, target);
+            }
+            held.surface.present(&queue);
+            presenter.pacer.presented_real(now());
+        }
+        (plan, Some(target)) => {
+            bevy::log::trace!(outcome = ?held.outcome, ?plan, "frame generation real only");
+            restore_captured(&held.ready, &device, &queue, target);
+            held.surface.present(&queue);
+            invalidate(&held.ready, &mut presenter);
+        }
+        (_, None) => invalidate(&held.ready, &mut presenter),
     }
     world
         .resource_mut::<crate::device_poll::FramesInFlight>()
         .track_tail(&queue);
     world.insert_resource(presenter);
+}
+
+/// A partial UI replay may have overwritten the surface; the captured real image replaces it.
+fn restore_captured(
+    ready: &gpu::Ready,
+    device: &RenderDevice,
+    queue: &RenderQueue,
+    target: &wgpu::TextureView,
+) {
+    let captured = ready
+        .temporal
+        .lock()
+        .expect("frame generation history")
+        .real_captured;
+    if captured {
+        restore(ready, device, queue, target);
+    }
+}
+
+/// Drops the pacing anchor and image history so no later pair bridges this frame.
+fn invalidate(ready: &gpu::Ready, presenter: &mut Presenter) {
+    presenter.pacer.reset();
+    ready
+        .temporal
+        .lock()
+        .expect("frame generation history")
+        .generator
+        .invalidate();
 }

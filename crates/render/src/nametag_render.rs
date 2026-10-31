@@ -437,7 +437,6 @@ type NametagQueueView = (
     &'static Msaa,
     Option<&'static render_scene::EnhancedRendering>,
     Option<&'static render_scene::shaderpack::ShaderPackRendering>,
-    bevy::prelude::Has<render_scene::frame_generation::FrameGenerationActive>,
 );
 
 fn queue_nametags(
@@ -454,10 +453,10 @@ fn queue_nametags(
     let functions = draw_functions.read();
     // Preserve complete back-to-front labels and their individual passes after world alpha.
     // At this magnitude one float ULP is 64; 128 avoids losing the batch ordering.
-    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack, generation) in
-        &views
-    {
-        let overlay = overlay::enabled(enhanced.is_some(), pack.is_some()) || generation;
+    // Frame generation's label layer reuses the ordinary encoded-blend key: it admits only
+    // SDR views without Enhanced rendering or packs.
+    for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack) in &views {
+        let overlay = overlay::enabled(enhanced.is_some(), pack.is_some());
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };
@@ -578,9 +577,8 @@ impl crate::pipeline_warmup::PrewarmPipelines for NametagPipeline {
             crate::chunk::transparent::gamma_pass::admitted(view.hdr, view.msaa, view.enhanced),
         );
         let overlay_mode = (view.msaa, false, true);
-        let warm_overlay = (overlay::enabled(view.enhanced, view.shader_pack)
-            || cfg!(feature = "frame-generation"))
-            && ordinary != overlay_mode;
+        let warm_overlay =
+            overlay::enabled(view.enhanced, view.shader_pack) && ordinary != overlay_mode;
         for (msaa, hdr, gamma_blend) in
             std::iter::once(ordinary).chain(warm_overlay.then_some(overlay_mode))
         {

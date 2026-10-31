@@ -53,6 +53,13 @@ mod shader_safety;
     unused_imports,
     reason = "schedule labels are consumed by other render owners"
 )]
+#[cfg_attr(
+    feature = "frame-generation",
+    allow(
+        dead_code,
+        reason = "native-target hooks serve the library's frame generation"
+    )
+)]
 pub mod ui_render;
 #[path = "../src/upload_staging.rs"]
 #[allow(dead_code, reason = "the UI fixture installs only the frame pool")]

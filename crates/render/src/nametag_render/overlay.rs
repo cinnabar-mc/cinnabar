@@ -28,6 +28,11 @@ pub(crate) fn enabled(enhanced: bool, pack: bool) -> bool {
     (render_model::enhanced_rendering_enabled() && enhanced) || (pack)
 }
 
+/// Names stay out of world colour when this overlay or frame generation composes them.
+pub(crate) fn outside_world(enhanced: bool, pack: bool, generation: bool) -> bool {
+    enabled(enhanced, pack) || generation
+}
+
 /// Installs the label overlay before the HUD, after world post-processing and hands.
 pub(super) fn install_graph(world: &mut World) {
     if world.contains_resource::<Installed>() {

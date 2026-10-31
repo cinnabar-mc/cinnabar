@@ -28,11 +28,9 @@ pub(super) fn publish(
     view: Res<LocalViewPose>,
     server: Res<ServerCameraView>,
     settings: Res<CameraSettingsAuthority>,
-    time: Res<Time<Real>>,
     pacing: Res<render::FramePacing>,
     mut history: Local<History>,
     display: Res<crate::present_mode::DisplayRefresh>,
-    windows: Query<&Window, With<bevy::window::PrimaryWindow>>,
     mut cameras: Query<
         (
             Entity,
@@ -59,38 +57,31 @@ pub(super) fn publish(
         history.key = Some(key);
     }
     for (entity, mut camera, projection, previous) in &mut cameras {
-        let Projection::Perspective(projection) = projection else {
-            commands.entity(entity).remove::<FrameGenerationCamera>();
+        let perspective = match projection {
+            Projection::Perspective(projection) if enabled => Some(projection),
+            _ => None,
+        };
+        let Some(projection) = perspective else {
+            if previous.is_some() {
+                commands.entity(entity).remove::<FrameGenerationCamera>();
+            }
             continue;
         };
-        if !enabled {
-            commands.entity(entity).remove::<FrameGenerationCamera>();
-            continue;
+        let usages = TextureUsages::from(camera.depth_texture_usages);
+        if !usages.contains(TextureUsages::TEXTURE_BINDING) {
+            camera.depth_texture_usages = (usages | TextureUsages::TEXTURE_BINDING).into();
         }
-        camera.depth_texture_usages = (TextureUsages::from(camera.depth_texture_usages)
-            | TextureUsages::TEXTURE_BINDING)
-            .into();
         let desired = FrameGenerationCamera {
             reset_epoch: history.epoch,
-            interval_ns: u64::try_from(time.delta().as_nanos())
-                .unwrap_or(u64::MAX)
-                .max(pacing.rate.map_or(0, |rate| rate.period_nanos())),
+            // Targets, never measured deltas: the presenter's own waits lengthen those.
+            interval_ns: render_api::frame_generation::real_interval_ns(
+                pacing.rate.map(|rate| rate.period_nanos()),
+                display.0.refresh.map(|rate| rate.period_nanos()),
+            ),
             capture,
             near: projection.near,
             far: f32::INFINITY,
             fov_y: projection.fov,
-            synchronized_refresh_ns: windows
-                .single()
-                .ok()
-                .filter(|window| {
-                    matches!(
-                        window.present_mode,
-                        bevy::window::PresentMode::Fifo
-                            | bevy::window::PresentMode::FifoRelaxed
-                            | bevy::window::PresentMode::AutoVsync
-                    )
-                })
-                .map(|_| display.0.refresh.map_or(0, |rate| rate.period_nanos())),
         };
         if previous != Some(&desired) {
             commands.entity(entity).insert(desired);
