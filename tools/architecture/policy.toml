@@ -1444,6 +1444,11 @@ baselines = [
 ]
 
 [[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/render_offsets.rs"
+literal = "rotation"
+reason = "Field of the minecraft:render_offsets item component, independent of block state identifiers."
+
+[[identifier_literal_exceptions]]
 path = "tools/devtool/src/startup.rs"
 literal = "mesa"
 reason = "Directory for the Mesa driver's isolated shader cache, independent of biome identifiers."

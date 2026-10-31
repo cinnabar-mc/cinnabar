@@ -86,6 +86,7 @@ pub(in crate::compiler) mod surfaces;
 pub(in crate::compiler) mod torches;
 pub(in crate::compiler) mod translucent_cubes;
 pub(in crate::compiler) mod trapdoor;
+pub(in crate::compiler) mod trip_wire;
 pub(in crate::compiler) mod tripwire_hook;
 pub(in crate::compiler) mod vault;
 pub(in crate::compiler) mod vine;

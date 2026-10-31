@@ -6,6 +6,15 @@ a current implementation audit; check the owning code and later entries before
 calling work unstarted. Test files listed below establish existing coverage, not
 a fresh passing run or full gate acceptance.
 
+## Frame interpolation backend
+
+The optional `render/frame-generation` build feature contains optical flow and
+camera/depth interpolation for native-sized SDR world colour. It remains absent
+from production rendering and Video settings. Synthetic GPU fixtures cover block
+motion, camera motion, cut detection, explicit history resets, invalid inputs and
+depth at 10% resolution. No composition, presented-frame pacing, measured latency,
+hardware performance or in-world visual gate closes from these backend fixtures.
+
 ## Browser host composition
 
 The browser host uses verified memory carriers, the shared game frame and HUD, injected
@@ -182,7 +191,12 @@ Far-summary extraction now has global copied-work admission, a background lane a
 explicit shared colour-preparation dependency. Retired inboxes retain and advance deferred
 sources. Shutdown advances all retiring inboxes before waiting, and cancelled live delivery
 releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
-performance qualification remain incomplete. No phase or performance gate closes here.
+performance qualification remain incomplete. Coarsening keeps overlapping fallback tiles
+until their replacement covers all known columns; near masks also track the outer view
+distance. Regressions cover partial solid/empty coarsening and horizon changes. The Far
+Terrain control remains unavailable; owner-approved rendered comparisons, smooth transitions
+and matched on/off hardware profiles at 32+ chunks are still required. No phase or
+performance gate closes here.
 
 ## P2.5-NATIVE-BIOME
 
@@ -199,13 +213,14 @@ performance qualification remain incomplete. No phase or performance gate closes
 
 | Field | Evidence |
 |---|---|
+| Completion collection | Decode, light and mesh mailboxes defer contended reads while retaining FIFO order, capacity and permit lifetimes. Authored regressions cover paused publication, later collection, backpressure, shutdown and service notification handling; CI execution and saturated-producer hardware qualification remain pending. |
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership and deferred-mesh promotion are implemented. Light dependency notifications coalesce and compete across camera queue generations until geometry can check readiness; broader publication acceptance remains open. See the publication and sub-chunk request batching continuation in `plan.md`. |
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Full publication qualification is pending. |
 | Owning plan/task | Bounded sub-chunk request origin, FIFO grouping, transport membership, deferred-mesh promotion and stalled cached-terrain recovery are implemented. Ordinary polls keep intake first; interrupted worker service resumes with bounded completion and refill work. Foreground offload requires service polling that advanced commits. Broader publication acceptance remains open. See `plan.md`. |
 | Deterministic tests | Protocol, stream, transport and app regressions are authored. Deferred-mesh regressions cover settled dependencies, stale light, priority and bounded work. Controlled cache deadlines cover idle input, cancellation, full-column payload retention, shared-hash retries, ordering and resets. Reclaim regressions cover downstream progress, full intake windows, bounded worker continuation and foreground handoff credit. Full publication qualification is pending. |
 | Review commit | Independent review is pending. |
 | Live/native witness | Full camera writer phase, global request discovery, native retry policy and later client versions remain open. |
-| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Live join, streaming and hardware budgets remain open. |
+| Performance/resource witness | Exact whole-output light and valid provenance equality reuses boundary evidence only while prior identities match. Changed outputs retain their existing scans. Workers finalize shared geometry streams; publication and extraction preserve their payload allocations, with pointer-identity and upload-byte regressions authored for CI. Live join, streaming and hardware budgets remain open. |
 | Final status | Open |
 
 ## P2.7-ATMOSPHERE

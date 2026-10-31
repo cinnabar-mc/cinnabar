@@ -76,6 +76,7 @@ domain!(PackBlock {
     HeavyCore,
     Crafter,
     DriedGhast,
+    TripWire,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,

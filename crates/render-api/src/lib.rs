@@ -6,6 +6,7 @@
 mod actor_lighting;
 pub mod far_terrain;
 mod frame_rate_limit;
+mod held_item;
 mod legacy_combat;
 mod pose_generation;
 pub mod primitive_shapes;
@@ -13,6 +14,10 @@ mod publication;
 mod shield;
 pub use shield::{BannerPattern, SHIELD_PATTERN_LAYERS, ShieldPattern};
 mod vsync;
+pub use held_item::{
+    DEFAULT_ITEM_RENDER_OFFSETS, HeldItemHand, HeldItemHandSide, HeldItemPerspective,
+    HeldItemPlacement, HeldItemTransform, ItemRenderOffsets,
+};
 pub use pose_generation::PoseGeneration;
 mod skin;
 pub mod sprite_mask;

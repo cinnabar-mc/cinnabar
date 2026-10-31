@@ -22,7 +22,8 @@ fn raw_hd_cape_fits_the_atlas_and_preserves_every_texel() {
         ..Default::default()
     };
     let mut cache = DecodeCache::default();
-    cache.decode(&cache.missing(&set), &set);
+    let missing = cache.missing(&set);
+    cache.decode(&missing);
     let packed = pack(&set, &cache, 1, true);
     let icon = packed.refs.get(&key).expect("raw cape is packed");
     let page = &packed.pages[icon.page as usize];
