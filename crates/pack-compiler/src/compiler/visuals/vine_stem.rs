@@ -23,7 +23,7 @@ fn vine_flag(record: &RegistryRecord) -> Option<u32> {
 pub(in crate::compiler) fn compile_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
-    templates: &mut BTreeMap<[u32; 2], u32>,
+    templates: &mut BTreeMap<([u32; 2], u32), u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
     let Some(flag) = vine_flag(record) else {
@@ -35,7 +35,7 @@ pub(in crate::compiler) fn compile_rule(
         inputs.material(record, BlockFace::Down),
         model_variant(inputs.pack, record, BlockFace::Down),
     ) {
-        let key = [stem, tip];
+        let key = ([stem, tip], flag);
         let template = if let Some(&template) = templates.get(&key) {
             template
         } else {

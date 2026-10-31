@@ -5,7 +5,8 @@ use assets::{MODEL_TEMPLATE_FLAG_WEEPING_VINE, ModelTemplate, VisualKind};
 const STEM_RED: u8 = 40;
 const TIP_RED: u8 = 200;
 
-fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
+/// Compiles both vines, either on their own art or both on the weeping vine's art.
+fn fixture(shared_art: bool) -> (assets::CompiledAssets, Vec<RegistryRecord>) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let target: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
@@ -53,11 +54,12 @@ fn fixture() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
                 serde_json::json!({"textures": path}),
             );
         }
-        let base = format!("{vine}_base");
+        let art = if shared_art { "weeping_vines" } else { vine };
+        let base = format!("{art}_base");
         blocks.insert(
             vine.to_owned(),
             serde_json::json!({"textures": {
-                "down": format!("{vine}_bottom"),
+                "down": format!("{art}_bottom"),
                 "east": base,
                 "north": base,
                 "south": base,
@@ -103,8 +105,19 @@ fn quad_reds(compiled: &assets::CompiledAssets, template: ModelTemplate) -> Vec<
 
 #[test]
 fn vines_compile_stem_planes_before_tip_planes_at_plant_width() {
-    let (compiled, records) = fixture();
-    assets::encode_blob(&compiled).expect("vine templates pass blob validation");
+    let (compiled, records) = fixture(false);
+    assert_vine_templates(&compiled, &records);
+}
+
+/// A shared template would make one vine read the other's neighbour for its continuation.
+#[test]
+fn vines_on_shared_art_keep_their_own_growth_direction() {
+    let (compiled, records) = fixture(true);
+    assert_vine_templates(&compiled, &records);
+}
+
+fn assert_vine_templates(compiled: &assets::CompiledAssets, records: &[RegistryRecord]) {
+    assets::encode_blob(compiled).expect("vine templates pass blob validation");
     let mut seen = [0; 2];
     for record in records
         .iter()
@@ -123,7 +136,7 @@ fn vines_compile_stem_planes_before_tip_planes_at_plant_width() {
             }
         );
         assert_eq!(
-            quad_reds(&compiled, template),
+            quad_reds(compiled, template),
             [STEM_RED, STEM_RED, TIP_RED, TIP_RED]
         );
         let start = template.quad_start as usize;

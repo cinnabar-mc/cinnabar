@@ -146,7 +146,7 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
-    vine_stem_templates: BTreeMap<[u32; 2], u32>,
+    vine_stem_templates: BTreeMap<([u32; 2], u32), u32>,
     diode_torches: super::diode::TorchMaterials,
     diode_templates: BTreeMap<super::diode::TemplateKey, u32>,
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
