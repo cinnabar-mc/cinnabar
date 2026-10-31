@@ -743,3 +743,165 @@ fn same_hand_token_reallocates_only_private_depth_when_internal_resolution_chang
         );
     }
 }
+
+/// Semi-transparent skin texels replace the world opaquely, so a separately composed hand layer
+/// must never show the world through them.
+#[test]
+#[allow(clippy::print_stderr, reason = "names the missing native GPU fixture")]
+fn semi_transparent_skin_texels_keep_opaque_hand_coverage() {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let Ok(adapter) = bevy::tasks::block_on(instance.request_adapter(&default())) else {
+        eprintln!("skipping hand coverage: missing native GPU adapter fixture");
+        return;
+    };
+    let (device, queue) =
+        bevy::tasks::block_on(adapter.request_device(&default())).expect("hand coverage device");
+    let image = |format, usage| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 4,
+                height: 4,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage,
+            view_formats: &[],
+        })
+    };
+    let skin = image(
+        wgpu::TextureFormat::Rgba8Unorm,
+        wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    );
+    queue.write_texture(
+        skin.as_image_copy(),
+        &[200, 100, 50, 128].repeat(16),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: None,
+        },
+        skin.size(),
+    );
+    let layer = image(
+        render_scene::SCENE_COLOR_FORMAT,
+        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+    );
+    let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: None,
+        source: wgpu::ShaderSource::Wgsl(include_str!("../viewmodel.wgsl").into()),
+    });
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: None,
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &module,
+            entry_point: Some("hand_vertex"),
+            compilation_options: default(),
+            buffers: &[Some(wgpu::VertexBufferLayout {
+                array_stride: 20,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
+            })],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &module,
+            entry_point: Some("hand_fragment"),
+            compilation_options: default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: render_scene::SCENE_COLOR_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        primitive: default(),
+        depth_stencil: None,
+        multisample: default(),
+        multiview_mask: None,
+        cache: None,
+    });
+    use wgpu::util::DeviceExt;
+    let vertices: [f32; 15] = [
+        -1.0, -1.0, 0.5, 0.5, 0.5, 3.0, -1.0, 0.5, 0.5, 0.5, -1.0, 3.0, 0.5, 0.5, 0.5,
+    ];
+    let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&vertices),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+    let projection = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&bevy::math::Mat4::IDENTITY.to_cols_array()),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: projection.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&skin.create_view(&default())),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(&device.create_sampler(&default())),
+            },
+        ],
+    });
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: None,
+        size: 256 * 4,
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&default());
+    {
+        let view = layer.create_view(&default());
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..default()
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &binding, &[]);
+        pass.set_vertex_buffer(0, vertices.slice(..));
+        pass.draw(0..3, 0..1);
+    }
+    encoder.copy_texture_to_buffer(
+        layer.as_image_copy(),
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(256),
+                rows_per_image: None,
+            },
+        },
+        layer.size(),
+    );
+    queue.submit([encoder.finish()]);
+    readback
+        .slice(..)
+        .map_async(wgpu::MapMode::Read, |result| result.unwrap());
+    device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+    let pixels = readback.slice(..).get_mapped_range().unwrap().to_vec();
+    for row in pixels.chunks(256) {
+        for pixel in row[..16].chunks(4) {
+            assert_eq!(pixel[3], 255, "hand coverage {pixel:?}");
+        }
+    }
+}

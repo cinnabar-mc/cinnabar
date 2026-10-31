@@ -36,11 +36,15 @@ intervals invalidate history. An incomplete candidate presents the real frame. A
 late one does too, and the next `MISSED_DEADLINE_BACKOFF_FRAMES` real frames stay
 ordinary so an overloaded device returns to pipelined rendering. GPU scene-change
 detection can additionally replace an interpolation with current world colour.
+Admission is decided before rendering, so a bypassed frame renders exactly as with
+the setting off: no world copy, separate hand and name layers, composition or
+native UI seed.
 
 One render thread renders, waits and presents both images, so the real image is
 held until the next real deadline. That adds less than one real interval of input
 latency. The generated image is presented halfway between the previous and current
-real presentations; a slightly late wake delays the real image to keep it halfway.
+real presentations. A late wake or blocking present delays the real image to keep
+it halfway, but never past one interval plus an eighth after the previous one.
 Submission deadlines do not prove scanout times: the driver, vsync, compositor and
 display can change when photons appear. Those require hardware measurement.
 
@@ -54,6 +58,17 @@ display can change when photons appear. Those require hardware measurement.
 | Screen effects and projected UI | Bypass while present. |
 | Render Resolution | Upscale clean world colour to native size before interpolation. Resolve depth at world resolution, including 10%. Native screen UI stays independent. |
 | MSAA and SMAA | Resolve reverse-Z world depth and hand coverage separately. Preserve per-sample name blending. SMAA processes world colour before native composition. |
+
+While the setting is on, the hand and names are composed after world
+post-processing, so a few effects that ordinarily reach them do not:
+
+- Mod post-processing passes and actor masks apply to the world only.
+- SMAA smooths world edges only; the hand keeps its MSAA coverage.
+- Below 100% Render Resolution, the hand is upscaled bilinearly and names are
+  nearest-sampled, instead of FSR with optional RCAS.
+
+Running each effect again over the separate layers would cost a full-screen pass
+per effect on both images, so these differences are accepted instead.
 
 `FrameGenerator::prepare` owns pipelines and persistent storage. `generate`
 submits optical flow, camera/depth reconstruction, interpolation and hole filling

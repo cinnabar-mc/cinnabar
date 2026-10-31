@@ -58,7 +58,32 @@ impl Default for Presenter {
     }
 }
 
-/// Holds only a primary window that can benefit; captures and unsupported views present normally.
+impl Presenter {
+    /// Whether this real frame can present or seed a pair: a capture, unpaced or slow output,
+    /// a camera discontinuity or a missed-deadline backoff keeps it ordinary.
+    pub(super) fn admit(&mut self, camera: &FrameGenerationCamera, continuous: bool) -> bool {
+        let admission = FrameGenerationAdmission {
+            enabled: true,
+            prepared: true,
+            compatible: true,
+            capture: camera.capture,
+            continuous,
+            interval_ns: camera.interval_ns,
+        };
+        if let Some(reason) = admission.bypass() {
+            self.pacer.reset();
+            bevy::log::trace!(?reason, "frame generation bypass");
+            return false;
+        }
+        if !self.pacer.admit() {
+            bevy::log::trace!("frame generation backing off after a missed deadline");
+            return false;
+        }
+        true
+    }
+}
+
+/// Holds only an admitted primary window whose surface matches the prepared output.
 pub(super) fn hold(
     mut presenter: ResMut<Presenter>,
     views: Query<
@@ -74,8 +99,14 @@ pub(super) fn hold(
         ),
         With<PrimaryWindow>,
     >,
+    probe: Option<Res<crate::startup_presentation::PresentationProbe>>,
 ) {
     presenter.held = None;
+    // Startup and mode-change confirmation observe an ordinary present of this frame.
+    if probe.is_some_and(|probe| probe.surface.is_some()) {
+        presenter.pacer.reset();
+        return;
+    }
     let Ok((view, state, camera, extracted)) = views.single() else {
         presenter.pacer.reset();
         return;
@@ -91,32 +122,10 @@ pub(super) fn hold(
         presenter.pacer.reset();
         return;
     }
-    let continuous = !state
-        .0
-        .temporal
-        .lock()
-        .expect("frame generation history")
-        .reset;
-    let admission = FrameGenerationAdmission {
-        enabled: true,
-        prepared: true,
-        compatible: true,
-        capture: camera.capture,
-        continuous,
-        interval_ns: camera.interval_ns,
-    };
-    let interval_ns = match (admission.bypass(), camera.interval_ns) {
-        (None, Some(interval)) => interval,
-        (reason, _) => {
-            presenter.pacer.reset();
-            bevy::log::trace!(?reason, "frame generation bypass");
-            return;
-        }
-    };
-    if !presenter.pacer.admit() {
-        bevy::log::trace!("frame generation backing off after a missed deadline");
+    let Some(interval_ns) = camera.interval_ns else {
+        presenter.pacer.reset();
         return;
-    }
+    };
     if let Some(surface) = output.swap_chain_texture.take() {
         presenter.held = Some(Held {
             window,
@@ -203,9 +212,16 @@ pub(super) fn generate(world: &mut World) {
             );
             queue.submit([encoder.finish()]);
             world.resource_mut::<Replay>().0 = Some(held.view);
+            let previous = world.remove_resource::<bevy::render::renderer::CurrentView>();
             world.insert_resource(bevy::render::renderer::CurrentView(held.view));
             world.run_schedule(GeneratedUi);
             world.resource_mut::<Replay>().0 = None;
+            match previous {
+                Some(previous) => world.insert_resource(previous),
+                None => {
+                    world.remove_resource::<bevy::render::renderer::CurrentView>();
+                }
+            }
             if composition_ready(world, held.view) {
                 Outcome::Pair
             } else {
@@ -284,8 +300,8 @@ pub(super) fn present(world: &mut World) {
         (Some(FrameGenerationPlan::Pair { generated_ns, .. }), Some(_)) => {
             crate::input_pacing::wait::sleep_until(deadline(generated_ns));
             held.surface.present(&queue);
-            // A late wake or slow present moves the real deadline so the midpoint holds.
-            let real_deadline = presenter.pacer.real_deadline(now());
+            // A late wake moves the real deadline to keep the midpoint, within the late allowance.
+            let real_deadline = presenter.pacer.real_deadline(now(), held.interval_ns);
             let real = world
                 .get::<SurfaceData>(held.window)
                 .map(|surface| surface.surface().get_current_texture());
@@ -324,6 +340,12 @@ pub(super) fn present(world: &mut World) {
             invalidate(&held.ready, &mut presenter);
         }
         (_, None) => invalidate(&held.ready, &mut presenter),
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(mut adaptive) = world
+        .get_resource_mut::<crate::present_mode::frame_latency::adaptive::AdaptiveFrameLatency>(
+    ) {
+        adaptive.exclude_paced_frame();
     }
     world
         .resource_mut::<crate::device_poll::FramesInFlight>()

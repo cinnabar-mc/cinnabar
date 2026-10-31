@@ -159,6 +159,18 @@ impl NativeUiTarget {
             && self.seed_pass(cache, sharpen, target).is_some()
     }
 
+    /// Keeps this frame's screen UI on the ordinary output; the next preparation restores it.
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    pub(crate) fn suspend(&self) {
+        self.available.store(false, Ordering::Relaxed);
+    }
+
+    /// Undoes [`Self::suspend`] for fixtures that activate a view outside preparation.
+    #[cfg(all(test, feature = "frame-generation", not(target_arch = "wasm32")))]
+    pub(crate) fn resume(&self) {
+        self.available.store(true, Ordering::Relaxed);
+    }
+
     /// Whether the completed native UI scene has been encoded into the real output this frame.
     pub(crate) fn was_presented(&self) -> bool {
         self.presented.load(Ordering::Relaxed)

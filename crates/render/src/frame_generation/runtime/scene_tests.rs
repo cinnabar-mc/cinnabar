@@ -19,11 +19,16 @@ const WORLD_DEPTH: f32 = 0.5;
 struct LateReadiness(bool);
 
 /// Publishes the marker after preparation, as a worker finishing after phase queueing would.
+/// Image targets are never admitted, so this also keeps their native UI target in use.
 fn publish_late_readiness(
     mut commands: Commands,
     ready: Res<LateReadiness>,
     views: Query<Entity, With<ViewState>>,
+    natives: Query<&crate::ui_render::target::NativeUiTarget>,
 ) {
+    for native in &natives {
+        native.resume();
+    }
     for entity in &views {
         if ready.0 {
             commands.entity(entity).insert(FrameGenerationActive);
@@ -203,4 +208,163 @@ fn scene_case(smaa: bool, msaa: Msaa) -> bool {
         .0 = true;
     frame(&mut app);
     true
+}
+
+/// Builds the production scene with UI and frame generation, sized for the backend.
+fn plain_scene(render: bevy::render::RenderPlugin) -> (App, Entity, Handle<Image>) {
+    let (mut app, camera, image) =
+        crate::render_test_support::scene_raster::app_with_effects(render, |app| {
+            app.add_plugins((crate::ui_render::UiRenderPlugin, FrameGenerationPlugin));
+        });
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let device = world.resource::<RenderDevice>().clone();
+    world.insert_resource(FixturePipelines {
+        checker: fixture_pipeline(&device, 1, "checker"),
+        sloped_checker: fixture_pipeline(&device, 1, "sloped_checker"),
+        silhouette: fixture_pipeline(&device, 1, "silhouette"),
+        scene: 0,
+    });
+    app.world_mut()
+        .resource_mut::<Assets<Image>>()
+        .get_mut(&image)
+        .unwrap()
+        .resize(Extent3d {
+            width: SIZE[0],
+            height: SIZE[1],
+            depth_or_array_layers: 1,
+        });
+    (app, camera, image)
+}
+
+/// A paced 60 FPS request, as the client publishes it with the setting on.
+fn request() -> FrameGenerationCamera {
+    FrameGenerationCamera {
+        reset_epoch: 0,
+        interval_ns: Some(16_666_666),
+        capture: false,
+        near: 0.1,
+        far: f32::INFINITY,
+        fov_y: 1.0,
+    }
+}
+
+#[test]
+fn setting_off_frames_present_once_and_toggles_release_interpolation_state() {
+    let Some(render) = renderer() else {
+        return;
+    };
+    let (mut app, camera, image) = plain_scene(render);
+    frame(&mut app);
+    let entity = app.world().get::<RenderEntity>(camera).unwrap().id();
+    let polls = |app: &App| {
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::device_poll::DevicePolls>()
+            .0
+    };
+    let first = polls(&app);
+    for frames in 1..=4 {
+        frame(&mut app);
+        let world = app.sub_app(RenderApp).world();
+        assert_eq!(polls(&app), first + frames, "one device poll per frame");
+        assert!(
+            world
+                .resource::<crate::device_poll::FrameWait>()
+                .0
+                .is_none()
+        );
+        assert!(world.resource::<Replay>().0.is_none());
+        let view = world.entity(entity);
+        assert!(
+            !view.contains::<FrameGenerationCamera>()
+                && !view.contains::<FrameGenerationActive>()
+                && !view.contains::<ViewState>()
+                && !view.contains::<crate::ui_render::target::NativeUiTarget>(),
+            "the setting off allocates nothing and holds no surface"
+        );
+    }
+
+    app.world_mut().entity_mut(camera).insert(request());
+    test_time::eventually("native UI target prepared", || {
+        frame(&mut app);
+        app.sub_app(RenderApp)
+            .world()
+            .get::<crate::ui_render::target::NativeUiTarget>(entity)
+            .is_some()
+    });
+    let ready = {
+        let world = app.sub_app(RenderApp).world();
+        let device = world.resource::<RenderDevice>().clone();
+        let depth = world.get::<ViewDepthStencilTexture>(entity).unwrap();
+        let source = crate::scene_sampling::view_depth(depth).clone();
+        let output = world
+            .get::<ViewTarget>(entity)
+            .unwrap()
+            .out_texture_view_format()
+            .unwrap();
+        let key = gpu::Key {
+            device: device.wgpu_device().clone(),
+            size: FrameGenerationSize {
+                display: SIZE,
+                render: SIZE,
+            },
+            samples: 1,
+            output,
+            depth: source.id(),
+        };
+        Arc::new(gpu::Ready::new(device, key, source).expect("prepared frame generation"))
+    };
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .entity_mut(entity)
+        .insert(ViewState(Arc::clone(&ready)));
+
+    // An image target is never admitted, so its native target only serves interpolation.
+    frame(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    assert!(!world.entity(entity).contains::<FrameGenerationActive>());
+    assert!(
+        !crate::ui_render::target::UiTarget::new(
+            world.get::<ViewTarget>(entity).unwrap(),
+            world.get::<crate::ui_render::target::NativeUiTarget>(entity),
+        )
+        .is_native(),
+        "a bypassed frame draws screen UI directly"
+    );
+
+    // A live screenshot reaches the render camera as a capture, which admission rejects.
+    app.world_mut()
+        .spawn(bevy::render::view::screenshot::Screenshot::image(image));
+    frame(&mut app);
+    let captured = *app
+        .sub_app(RenderApp)
+        .world()
+        .get::<FrameGenerationCamera>(entity)
+        .unwrap();
+    assert!(captured.capture);
+    let mut presenter = present::Presenter::default();
+    assert!(
+        !presenter.admit(&captured, true),
+        "screenshots present real frames"
+    );
+    assert!(presenter.admit(&request(), true));
+
+    app.world_mut()
+        .entity_mut(camera)
+        .remove::<FrameGenerationCamera>();
+    frame(&mut app);
+    frame(&mut app);
+    let view = app.sub_app(RenderApp).world().entity(entity);
+    assert!(
+        !view.contains::<FrameGenerationCamera>()
+            && !view.contains::<FrameGenerationActive>()
+            && !view.contains::<ViewState>()
+            && !view.contains::<crate::ui_render::target::NativeUiTarget>(),
+        "turning the setting off releases every interpolation resource"
+    );
+    assert_eq!(
+        Arc::strong_count(&ready),
+        1,
+        "no prepared state outlives the toggle"
+    );
 }

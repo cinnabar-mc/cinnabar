@@ -240,8 +240,9 @@ impl Ready {
         if failed.is_some() { None } else { result }
     }
 
-    /// Resets per-frame observations without retaining a stale UI or world snapshot.
-    pub fn begin_frame(&self, current: crate::motion_blur::history::CameraHistory) {
+    /// Resets per-frame observations without retaining a stale UI or world snapshot; returns
+    /// whether the camera continues the retained history.
+    pub fn begin_frame(&self, current: crate::motion_blur::history::CameraHistory) -> bool {
         let mut state = self.temporal.lock().expect("frame generation history");
         state.world_captured = false;
         state.real_captured = false;
@@ -250,6 +251,7 @@ impl Ready {
         if state.reset {
             state.generator.invalidate();
         }
+        !state.reset
     }
 
     /// Encodes a prepared full-coverage pipeline into the destination without sampling it.

@@ -153,15 +153,23 @@ impl FrameGenerationPacer {
         let generated_ns = ready_ns.max(midpoint);
         FrameGenerationPlan::Pair {
             generated_ns,
-            real_ns: self.real_deadline(generated_ns).unwrap_or(generated_ns),
+            real_ns: self
+                .real_deadline(generated_ns, interval_ns)
+                .unwrap_or(generated_ns),
         }
     }
 
-    /// Keeps the generated image midway after its actual presentation time is known.
+    /// Keeps the generated image midway after its actual presentation time is known, but never
+    /// holds the real image past one interval plus the late allowance after the previous one.
     #[must_use]
-    pub fn real_deadline(&self, generated_ns: u64) -> Option<u64> {
-        self.real_ns
-            .map(|previous| generated_ns.saturating_add(generated_ns.saturating_sub(previous)))
+    pub fn real_deadline(&self, generated_ns: u64, interval_ns: u64) -> Option<u64> {
+        self.real_ns.map(|previous| {
+            let midway = generated_ns.saturating_add(generated_ns.saturating_sub(previous));
+            let latest = previous
+                .saturating_add(interval_ns)
+                .saturating_add(interval_ns / LATE_DIVISOR);
+            midway.min(latest)
+        })
     }
 }
 
@@ -249,11 +257,11 @@ mod tests {
             pacer.plan(110, 16),
             FrameGenerationPlan::Pair {
                 generated_ns: 110,
-                real_ns: 120
+                real_ns: 118
             },
-            "a slightly late candidate stays midway by delaying its real frame"
+            "a slightly late candidate delays its real frame, at most by the late allowance"
         );
-        assert_eq!(pacer.real_deadline(111), Some(122));
+        assert_eq!(pacer.real_deadline(109, 16), Some(118));
         assert_eq!(
             pacer.plan(111, 16),
             FrameGenerationPlan::Bypass(FrameGenerationBypass::MissedDeadline)
@@ -284,6 +292,23 @@ mod tests {
         assert!(
             real <= 1_000 * (interval + 20_000),
             "real interval grew: {real}"
+        );
+    }
+
+    #[test]
+    fn a_stalled_generated_present_never_holds_the_real_image_for_the_stall_again() {
+        let interval = 16_666_667;
+        let mut pacer = FrameGenerationPacer::default();
+        pacer.presented_real(0);
+        // The generated present returned 30 ms late; mirroring it would hold the real to 76 ms.
+        let late = interval / 2 + 30_000_000;
+        assert_eq!(
+            pacer.real_deadline(late, interval),
+            Some(interval + interval / 8)
+        );
+        assert_eq!(
+            pacer.real_deadline(interval / 2, interval),
+            Some(interval - 1)
         );
     }
 

@@ -54,6 +54,7 @@ impl Plugin for FrameGenerationPlugin {
                         .after(bevy::core_pipeline::core_3d::prepare_core_3d_depth_textures),
                     nodes::install.in_set(RenderSystems::Prepare),
                     present::hold
+                        .after(crate::startup_presentation::SurfaceCaptured)
                         .before(bevy::render::renderer::render_system)
                         .in_set(RenderSystems::Render),
                     present::generate
@@ -110,11 +111,12 @@ fn extract(
                     commands.entity(entity).insert(desired);
                 }
             }
-            None => {
+            None if current.contains(entity) => {
                 commands
                     .entity(entity)
                     .remove::<(FrameGenerationCamera, FrameGenerationActive)>();
             }
+            None => {}
         }
     }
 }
