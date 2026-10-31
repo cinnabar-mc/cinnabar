@@ -78,12 +78,16 @@ mod speleothem;
 mod stonecutter;
 #[path = "tests/straw_beds.rs"]
 mod straw_beds;
+#[path = "tests/sunflower.rs"]
+mod sunflower;
 #[path = "tests/torch.rs"]
 mod torch;
 #[path = "tests/trapdoor.rs"]
 mod trapdoor;
 #[path = "tests/tripwire_hook.rs"]
 mod tripwire_hook;
+#[path = "tests/vine_stem.rs"]
+mod vine_stem;
 
 fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) {
     let path = path.as_ref();
