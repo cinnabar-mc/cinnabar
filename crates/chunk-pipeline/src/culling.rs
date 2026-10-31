@@ -1,6 +1,7 @@
 mod camera;
 mod grid;
 mod incremental;
+mod rebuild;
 mod visible_set;
 
 use std::collections::HashSet;
@@ -11,7 +12,9 @@ use meshing::Face;
 use world::SubChunkKey;
 
 pub(crate) use grid::ConnectivityGrid;
+#[cfg(test)]
 pub(crate) use incremental::update_visible;
+pub use rebuild::{CaveRebuildStats, CaveVisibilityRebuild, CaveVisibilityUpdate};
 pub use visible_set::CaveVisibleSet;
 
 use grid::Slot;
