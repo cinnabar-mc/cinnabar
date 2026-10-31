@@ -5,7 +5,7 @@ use crate::interaction_authority::observe_block;
 use client_interaction::mining::hand_interaction_selection;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use gameplay::{
-    interaction_authority::within_pick_range,
+    interaction_authority::block_pick_in_range,
     melee::{RefusedDestroy, RefusedDestroyReason},
     mining::{creative_reach, protocol_input_mode, survival_reach},
     survival_mining::{
@@ -23,11 +23,15 @@ pub(crate) enum DestroyObservation {
     Refused(RefusedDestroy),
 }
 
-/// Reads the destroy facts used for this frame's block press.
+/// Reads the destroy facts used for this frame's block press. `pick` pairs the camera ray with
+/// the ticked position the pick is trimmed from, falling back to the ray origin without one.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
-    origin: &client_presentation::local_player::InteractionOriginSnapshot,
+    pick: (
+        &client_presentation::local_player::InteractionOriginSnapshot,
+        Option<[f32; 3]>,
+    ),
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -42,7 +46,7 @@ pub(crate) fn observe_destroy_target(
     let selection = hand_interaction_selection(player_runtime)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
-        origin,
+        pick.0,
         ui,
         &context.client_world,
         &context.collisions,
@@ -59,7 +63,11 @@ pub(crate) fn observe_destroy_target(
             position_authority_generation,
         ),
     )?;
-    if !within_pick_range(&observed) {
+    if !block_pick_in_range(
+        observed.target.position,
+        pick.1.unwrap_or(observed.ray.origin),
+        observed.reach,
+    ) {
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;

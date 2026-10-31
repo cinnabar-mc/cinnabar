@@ -26,33 +26,18 @@ impl FrozenBlockObservation {
     }
 }
 
-/// Server-side pick checks measure to the block's minimum corner with this slack
-/// over the game-mode pick range. Needs independent measurement.
-const SERVER_PICK_SLACK: f64 = 0.5;
-
-/// Vanilla limits a pick by the eye-to-block-centre distance, not the ray length.
-///
-/// Only touch reach (6.7 survival, 12 creative) equals the server's range, so only
-/// touch picks can exceed its corner check; those are dropped too.
-pub fn within_pick_range(observed: &FrozenBlockObservation) -> bool {
-    within_pick_range_of(observed, observed.ray.origin)
+/// Whether a pick's `point` lies within `reach` of `position`, the camera actor's ticked
+/// position without camera offsets. Vanilla compares squared distances in single precision.
+pub fn pick_point_in_range(point: [f32; 3], position: [f32; 3], reach: f64) -> bool {
+    let [x, y, z] = std::array::from_fn(|axis| position[axis] - point[axis]);
+    let reach = reach as f32;
+    reach * reach >= z * z + y * y + x * x
 }
 
-/// The pick range check measured from `eye` rather than the ray's origin.
-pub fn within_pick_range_of(observed: &FrozenBlockObservation, eye: [f32; 3]) -> bool {
-    let distance_squared = |offset: f64| {
-        observed
-            .target
-            .position
-            .into_iter()
-            .zip(eye)
-            .map(|(block, eye)| (f64::from(block) + offset - f64::from(eye)).powi(2))
-            .sum::<f64>()
-    };
-    let corner_limit = observed.reach + SERVER_PICK_SLACK;
-    distance_squared(0.5) <= observed.reach * observed.reach
-        && (observed.input_mode != PlayerInputMode::Touch
-            || distance_squared(0.0) <= corner_limit * corner_limit)
+/// Whether a picked block stays targeted. Vanilla measures to the block's centre, not to
+/// the ray's intercept, so a hit inside the clipped ray can still be dropped.
+pub fn block_pick_in_range(block: [i32; 3], position: [f32; 3], reach: f64) -> bool {
+    pick_point_in_range(block.map(|axis| axis as f32 + 0.5), position, reach)
 }
 
 #[cfg(test)]
@@ -90,6 +75,37 @@ impl FrozenBlockObservation {
                 runtime_id: 9,
                 identity,
             },
+        }
+    }
+}
+
+#[cfg(test)]
+mod pick_range_tests {
+    use super::*;
+
+    #[test]
+    fn block_trim_rounds_offsets_before_comparing_the_boundary() {
+        let position = [0.5_f32.next_down(), 0.5, 0.5];
+        assert!(block_pick_in_range([5, 0, 0], position, 5.0));
+        assert!(!block_pick_in_range([5, 0, 0], [0.49, 0.5, 0.5], 5.0));
+    }
+
+    #[test]
+    fn touch_reach_has_no_tighter_corner_limit() {
+        // Centre 6.61 blocks away, minimum corner 7.46: only the centre is compared.
+        let reach = crate::mining::survival_reach(PlayerInputMode::Touch);
+        assert!(block_pick_in_range([-5, 62, -3], [0.5, 65.62, 0.5], reach));
+    }
+
+    #[test]
+    fn diagonal_and_upward_hits_inside_the_ray_are_dropped_by_their_centre() {
+        let reach = crate::mining::survival_reach(PlayerInputMode::Mouse);
+        for (block, position, hit) in [
+            ([8, 2, 4], [4.1, 2.5, 8.9], [8.0, 2.5, 5.0]),
+            ([8, 7, 8], [4.9, 2.5, 8.9], [8.14, 7.0, 8.54]),
+        ] {
+            assert!(crate::melee::block_pick_distance(position, hit) < reach);
+            assert!(!block_pick_in_range(block, position, reach));
         }
     }
 }

@@ -269,6 +269,13 @@ pub(super) fn resolve_crosshair(
 #[derive(Clone)]
 pub(crate) struct CapturedInputs(Arc<Frame>);
 
+impl CapturedInputs {
+    /// Keeps block mining on the same camera ray and ticked position as attack classification.
+    pub(crate) fn block_pick(&self) -> (&InteractionOriginSnapshot, Option<[f32; 3]>) {
+        (&self.0.origin, self.0.pick_position)
+    }
+}
+
 /// Captures the early dispatch boundary from the normal published-frame history.
 pub(super) fn capture_ordered_inputs(
     frames: &FrameInputs,
@@ -421,6 +428,20 @@ fn resolve_frame(
     }
     if !assisted_actor && let Some(position) = frame.pick_position {
         crosshair = gameplay::melee::trim_actor_pick(crosshair, position, actor_reach);
+    }
+    if crosshair == Crosshair::Block
+        && observed
+            .as_ref()
+            .and_then(|observed| observed.value.as_ref())
+            .is_some_and(|block| {
+                !gameplay::interaction_authority::block_pick_in_range(
+                    block.target.position,
+                    frame.pick_position.unwrap_or(origin),
+                    reach.block,
+                )
+            })
+    {
+        crosshair = Crosshair::Miss;
     }
     let hover = match crosshair {
         Crosshair::Actor(hit) => Some(gameplay::entity_hover::HoveredActor {
