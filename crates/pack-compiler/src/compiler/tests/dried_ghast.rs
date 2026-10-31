@@ -54,7 +54,7 @@ fn every_dried_ghast_state_compiles_all_its_faces_from_the_rehydration_art_array
     );
     write(
         directory.path().join("textures/terrain_texture.json"),
-        &serde_json::json!({ "texture_data": terrain }).to_string(),
+        serde_json::json!({ "texture_data": terrain }).to_string(),
     );
     write(
         directory.path().join("textures/flipbook_textures.json"),
