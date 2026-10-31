@@ -236,7 +236,7 @@ fn cosmetic_rig(render_controllers: serde_json::Value) -> (Box<str>, u16) {
     let controller = rig.render_controller.unwrap();
     (
         compiled.symbols[controller as usize].identifier.clone(),
-        u16::from(rig.geometry_count),
+        rig.geometry_count,
     )
 }
 
