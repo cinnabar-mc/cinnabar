@@ -76,6 +76,7 @@ domain!(PackBlock {
     HeavyCore,
     Crafter,
     DriedGhast,
+    TurtleEgg,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,
@@ -93,7 +94,8 @@ domain!(TextureSelector {
     Wheat,
     Stem,
     CropStages,
-    Torchflower
+    Torchflower,
+    TurtleEgg
 });
 
 /// How a built-in block's world faces pick its authored face slots.
