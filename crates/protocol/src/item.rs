@@ -32,7 +32,7 @@ pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_sl
 mod icons;
 mod map;
 pub use facts::{ItemStackFacts, ItemStackFactsCache};
-pub use map::item_map_id;
+pub use map::{item_map_id, map_id_from_decimal};
 mod nbt_edit;
 mod nbt_equal;
 mod registry;
