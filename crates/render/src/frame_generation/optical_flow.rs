@@ -43,6 +43,8 @@
 pub const BLOCK_SIZE: u32 = 8;
 /// `OpticalFlowMaxPyramidLevels`: the search's levels.
 const LEVELS: usize = 7;
+/// The coarsest packed-luma search reads four adjacent horizontal pixels and one row.
+pub(super) const MIN_DISPLAY: [u32; 2] = [4 << (LEVELS - 1), 1 << (LEVELS - 1)];
 /// `HistogramBins * HistogramsPerDim²`: the scene change histograms.
 const HISTOGRAM_WIDTH: u64 = 256 * 9;
 

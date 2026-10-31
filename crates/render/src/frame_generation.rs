@@ -11,6 +11,9 @@ use glam::Mat4;
 use interpolation::{Inputs, Interpolation};
 use optical_flow::OpticalFlow;
 
+/// Encoded SDR colour shared by input admission and preallocated real-frame history.
+const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
+
 /// Immutable dimensions for one prepared interpolation context.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameGenerationSize {
@@ -23,9 +26,14 @@ pub struct FrameGenerationSize {
 impl FrameGenerationSize {
     /// Rejects sizes that the fixed optical-flow pyramid or device cannot represent.
     fn validate(self, limits: &wgpu::Limits) -> Result<(), FrameGenerationError> {
-        if self.display[0] < 256 || self.display[1] < 64 {
+        if self
+            .display
+            .into_iter()
+            .zip(optical_flow::MIN_DISPLAY)
+            .any(|(size, minimum)| size < minimum)
+        {
             return Err(FrameGenerationError::Invalid(
-                "optical flow needs at least 256 by 64 output pixels",
+                "image is too small for the optical-flow pyramid",
             ));
         }
         for size in [self.display, self.render] {
@@ -81,7 +89,7 @@ impl FrameGenerationInput<'_> {
             (
                 self.color,
                 size.display,
-                wgpu::TextureFormat::Rgba8Unorm,
+                COLOR_FORMAT,
                 wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_SRC,
             ),
             (
