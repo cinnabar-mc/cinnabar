@@ -333,6 +333,7 @@ pub(super) struct DispatchBatch<'a> {
 impl DispatchBatch<'_> {
     /// Adds an independent task without waking or locking the pool yet; an `urgent` one, for a
     /// block the local player just changed, runs ahead of every lane's backlog.
+    #[cfg(test)]
     pub(super) fn spawn(&mut self, urgent: bool, job: impl FnOnce() + Send + 'static) {
         self.spawn_with_scratch(urgent, move |_| job());
     }
