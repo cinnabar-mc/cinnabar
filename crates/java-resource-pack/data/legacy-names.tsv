@@ -2,6 +2,7 @@
 # Unlisted paths keep their name. Derived like flattened-names.tsv from the 1.12.2 client textures,
 # and checked against the 1.7.10 and 1.8.9 client textures; items/bed is the only bed before 1.12,
 # which is red.
+# items/boat is the oak boat of packs made before 1.9.
 blocks/destroy_stage_0	environment/destroy_stage_0
 blocks/destroy_stage_1	environment/destroy_stage_1
 blocks/destroy_stage_2	environment/destroy_stage_2
@@ -21,6 +22,7 @@ items/barrier	blocks/barrier
 items/bed	items/bed_red
 items/beetroot_seeds	items/seeds_beetroot
 items/birch_boat	items/boat_birch
+items/boat	items/boat_oak
 items/dark_oak_boat	items/boat_darkoak
 items/dragon_breath	items/dragons_breath
 items/fish_cod_cooked	items/fish_cooked

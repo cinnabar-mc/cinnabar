@@ -355,36 +355,50 @@ fn square_selection(selection: &RgbaImage, budget: &Budget) -> Option<RgbaImage>
 /// The 1.20.2+ sprite that Bedrock still reads from the legacy `gui/icons.png` atlas.
 pub(crate) const CROSSHAIR: &str = "crosshair";
 
-/// Replaces the crosshair region of a legacy `gui/icons.png` with a 1.20.2+ crosshair sprite at
-/// the atlas's scale, keeping the rest of the atlas. Returns `None` when the sizes differ.
+/// The atlas scale at which a 1.20.2+ crosshair sprite of any resolution is closest to its
+/// 15-pixel vanilla size.
+fn crosshair_scale(crosshair: &RgbaImage) -> u32 {
+    let side = crosshair.width().max(crosshair.height());
+    ((side + 7) / 15).max(1)
+}
+
+/// Resamples a 1.20.2+ crosshair sprite, nearest neighbour, to the crosshair region of an atlas
+/// at `scale`: Java draws the sprite into its 15x15 GUI area whatever the sprite's resolution.
+fn crosshair_at(crosshair: &RgbaImage, scale: u32, budget: &Budget) -> Option<RgbaImage> {
+    let side = LEGACY_ICON_RECTS[0].1.w * scale;
+    if crosshair.dimensions() == (side, side) {
+        return duplicate(crosshair, budget);
+    }
+    budget.reserve(side, side).then(|| {
+        image::imageops::resize(crosshair, side, side, image::imageops::FilterType::Nearest)
+    })
+}
+
+/// Replaces the crosshair region of a legacy `gui/icons.png` with a 1.20.2+ crosshair sprite
+/// resampled to the atlas's scale, keeping the rest of the atlas.
 pub(crate) fn with_crosshair(
     icons: &RgbaImage,
     crosshair: &RgbaImage,
     budget: &Budget,
 ) -> Option<RgbaImage> {
-    let side = LEGACY_ICON_RECTS[0].1.w * atlas_scale(icons);
-    if crosshair.dimensions() != (side, side) {
-        return None;
-    }
+    let crosshair = crosshair_at(crosshair, atlas_scale(icons), budget)?;
     let mut atlas = duplicate(icons, budget)?;
-    paste(&mut atlas, crosshair, 0, 0);
+    paste(&mut atlas, &crosshair, 0, 0);
     Some(atlas)
 }
 
 /// Rebuilds a legacy-layout `gui/icons.png` from 1.20.2+ sprites so the crosshair, which Bedrock
-/// still reads from that atlas, is translated. The crosshair must be a square multiple of its
-/// 15-pixel vanilla size; regions without a matching sprite stay empty.
+/// still reads from that atlas, is translated. The atlas takes the crosshair's scale; other regions
+/// keep sprites of exactly that scale and stay empty otherwise.
 pub(crate) fn icons_from_sprites(
     sprites: &BTreeMap<String, RgbaImage>,
     budget: &Budget,
 ) -> Option<RgbaImage> {
-    let (width, height) = sprites.get(CROSSHAIR)?.dimensions();
-    if width != height || width == 0 || !width.is_multiple_of(15) {
-        return None;
-    }
-    let scale = width / 15;
+    let crosshair = sprites.get(CROSSHAIR)?;
+    let scale = crosshair_scale(crosshair);
     let mut atlas = canvas(256 * scale, 256 * scale, budget)?;
-    for (name, region) in LEGACY_ICON_RECTS {
+    paste(&mut atlas, &crosshair_at(crosshair, scale, budget)?, 0, 0);
+    for (name, region) in LEGACY_ICON_RECTS.into_iter().skip(1) {
         let Some(sprite) = sprites.get(name) else {
             continue;
         };

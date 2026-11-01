@@ -693,6 +693,49 @@ fn experience_bar_companions_follow_only_surviving_bars() {
 }
 
 #[test]
+fn crosshairs_of_any_resolution_reach_the_icons_atlas() {
+    let sprites = "assets/minecraft/textures/gui/sprites/hud/";
+    for (side, atlas) in [(16, 256), (32, 512), (15, 256)] {
+        let files = pack(vec![(
+            &format!("{sprites}crosshair.png"),
+            solid(side, side, BLUE),
+        )]);
+        let translation = run(&files, "Pack").unwrap();
+        let out = output(&translation);
+        assert_eq!(
+            pixel(&out, "textures/gui/icons.png", 0, 0),
+            ((atlas, atlas), BLUE)
+        );
+        assert_eq!(
+            pixel(&out, "textures/gui/icons.png", atlas / 256 * 15, 0).1,
+            [0; 4]
+        );
+    }
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/gui/icons.png",
+            marked_atlas(256, &[(icon("crosshair"), WHITE)]),
+        ),
+        (&format!("{sprites}crosshair.png"), solid(16, 16, BLUE)),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    assert_eq!(
+        pixel(&output(&translation), "textures/gui/icons.png", 14, 14).1,
+        BLUE
+    );
+}
+
+#[test]
+fn pre_1_9_boats_are_the_oak_boat() {
+    let files = pack(vec![(
+        "assets/minecraft/textures/items/boat.png",
+        solid(16, 16, BLUE),
+    )]);
+    let translation = run(&files, "Legacy").unwrap();
+    assert!(output(&translation).contains_key("textures/items/boat_oak.png"));
+}
+
+#[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(
         "assets/minecraft/textures/block/stone.png",
