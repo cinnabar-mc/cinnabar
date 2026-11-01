@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 
 const MODERN_VERSIONS: [&str; 5] = ["1.12.0", "1.16.0", "1.21.0", "1.21.120", "1.26.10"];
 const LEGACY_VERSIONS: [&str; 2] = ["1.8.0", "1.10.0"];
-const BONE_FIELDS: [&str; 13] = [
+const BONE_FIELDS: [&str; 14] = [
     "name",
     "parent",
     "pivot",
@@ -17,6 +17,7 @@ const BONE_FIELDS: [&str; 13] = [
     "locators",
     "binding",
     "texture_meshes",
+    "poly_mesh",
     "neverRender",
     "reset",
     "bind_pose_rotation",

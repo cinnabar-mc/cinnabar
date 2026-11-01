@@ -38,6 +38,16 @@ impl ModHost {
         Ok(())
     }
 
+    /// Last committed opening request, comparable across admitted runtimes.
+    pub fn panel_open_order(&self) -> u64 {
+        self.instance.panel_open_order()
+    }
+
+    /// Consumes an explicit committed guest request to open this owner's panel.
+    pub fn take_panel_open_request(&mut self) -> bool {
+        self.instance.take_panel_open_request()
+    }
+
     /// Reports whether the retained panel is open.
     pub fn panel_open(&self) -> bool {
         self.instance.panel_open()
@@ -46,6 +56,11 @@ impl ModHost {
     /// Changes the retained panel's open state without entering the guest.
     pub fn set_panel_open(&mut self, open: bool) {
         self.instance.set_panel_open(open);
+    }
+
+    /// Supplies whether a native editor on this mod's open panel owns the next frame's keys.
+    pub fn set_native_editing(&mut self, editing: bool) {
+        self.instance.set_native_editing(editing);
     }
 
     /// Returns the physical keys reserved by the last successful callback.
@@ -69,6 +84,12 @@ pub(super) struct ControlState {
     pub panel: Option<Panel>,
     pub bundle: Option<Arc<PanelBundle>>,
     pub open: bool,
+    pub open_requested: bool,
+    pub open_order: u64,
+    /// A native field or editor on this mod's open panel owns this frame's key input.
+    pub native_editing: bool,
+    /// The supplied editor state, applied when the next frame's controls are staged.
+    pub native_editing_next: bool,
     /// Where the host last laid out this mod's panel; none while another mod's panel or no
     /// panel is up.
     pub layout: Option<ui::mod_hud::PanelLayout>,
@@ -110,6 +131,10 @@ impl ControlState {
             panel: _,
             bundle: _,
             open: _,
+            open_requested: _,
+            open_order: _,
+            native_editing: _,
+            native_editing_next: _,
             layout: _,
             keys: _,
             interaction: _,
@@ -145,6 +170,10 @@ impl ControlState {
             panel: None,
             bundle: None,
             open: false,
+            open_requested: false,
+            open_order: 0,
+            native_editing: false,
+            native_editing_next: false,
             layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
@@ -184,6 +213,10 @@ impl ControlState {
         }
         if let Some(open) = self.pending_open.take() {
             self.open = open && self.panel.is_some();
+            if self.open {
+                self.open_requested = true;
+                self.open_order = crate::panel_order::next_panel_open_order();
+            }
         }
         if let Some(keys) = self.pending_keys.take() {
             self.keys = keys;
@@ -457,9 +490,6 @@ impl cinnabar::extension::panel::Host for State {
             Ok(panel) => panel,
             Err(error) => return Ok(Err(format!("invalid mod panel: {error}"))),
         };
-        if !key_valid(&panel.toggle_key) {
-            return Ok(Err("invalid panel toggle key".into()));
-        }
         if let Err(error) = super::hud::surface::actor_authority(self, &panel.surface) {
             return Ok(Err(error));
         }

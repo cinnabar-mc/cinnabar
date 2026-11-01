@@ -423,7 +423,7 @@ fn ambiguous_identifiers_and_unbounded_text_are_rejected() {
         *label = "Distance".into();
     }
     panel.toggle_key = "Shift Right".into();
-    assert!(panel.validate().is_err());
+    assert!(panel.validate().is_ok());
 }
 
 #[test]

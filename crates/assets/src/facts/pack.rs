@@ -51,6 +51,7 @@ domain!(PackTexture {
 });
 domain!(PackBlock {
     RedstoneTorch,
+    RedstoneWire,
     UnlitRedstoneTorch,
     Beacon,
     Obsidian,
@@ -64,6 +65,8 @@ domain!(PackBlock {
     Farmland,
     ResinClump,
     Dirt,
+    ChorusPlant,
+    EndStone,
     SporeBlossom,
     ChorusFlower,
     PointedDripstone,

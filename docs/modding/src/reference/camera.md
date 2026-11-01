@@ -72,17 +72,6 @@ callbacks restore the native view.
 
 Types: [`view-tilt`](camera.md#type-view-tilt).
 
-<a id="set-preserve-teleport-rotation"></a>
-
-### `set-preserve-teleport-rotation`
-
-```wit
-set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
-```
-
-Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
-Omission, no gameplay frame, or a failed callback restores server rotation.
-
 <a id="set-view-scale"></a>
 
 ### `set-view-scale`

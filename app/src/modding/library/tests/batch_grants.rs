@@ -59,7 +59,7 @@ fn grant_all_enables_capabilities_and_only_declared_command_names() {
                         (capability.enabled)(grants),
                         match capability.name {
                             "commands" => declared,
-                            "packets" => false,
+                            _ if !capability.applies_to(false) => false,
                             _ => true,
                         },
                         "{}",

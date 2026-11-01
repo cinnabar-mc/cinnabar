@@ -51,6 +51,7 @@ pub(super) fn geometry_fixture() -> CompiledEntityAssets {
             reset: None,
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             cubes: vec![EntityGeometryCube {
                 origin: [scalar(0.5), scalar(-1.0), scalar(1.0)],
                 size: [scalar(0.0), scalar(5.0), scalar(8.0)],

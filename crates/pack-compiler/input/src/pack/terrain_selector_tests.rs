@@ -26,7 +26,8 @@ fn fixture() -> tempfile::TempDir {
         "test:array": {"textures": ["textures/first", "textures/second"]},
         "test:single": {"textures": ["textures/first"]},
         "wheat": {"textures": (0..8).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()},
-        "test:eggs": {"textures": ["textures/stage_0", "textures/stage_1", "textures/stage_2"]}
+        "test:eggs": {"textures": ["textures/stage_0", "textures/stage_1", "textures/stage_2"]},
+        "test:ghast": {"textures": (0..4).map(|i| format!("textures/stage_{i}")).collect::<Vec<_>>()}
     }});
     std::fs::write(
         root.path().join("terrain.json"),
@@ -186,6 +187,44 @@ fn turtle_egg_art_follows_the_cracked_state_under_any_key() {
         );
     }
     assert_eq!(selected.len(), 3, "each crack stage keeps its own art");
+}
+
+#[test]
+fn dried_ghast_art_follows_rehydration_under_any_key() {
+    let root = fixture();
+    let terrain = read_terrain(&root.path().join("terrain.json")).unwrap();
+    let records = assets::read_registry_for_protocol(
+        include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let ghasts = records
+        .iter()
+        .filter(|record| {
+            record.name.as_ref() == assets::facts::pack::PackBlock::DriedGhast.identifier()
+        })
+        .collect::<Vec<_>>();
+    assert!(!ghasts.is_empty(), "the registry must contain dried ghasts");
+    let mut selected = std::collections::BTreeSet::new();
+    for record in ghasts {
+        let (path, variant) = terrain.get_for_model_record("test:ghast", record).unwrap();
+        assert_eq!(path, format!("textures/stage_{variant}"));
+        selected.insert(variant);
+        assert_eq!(
+            terrain.get_for_model_record("test:single", record),
+            Some(("textures/first", 0)),
+            "a one-entry key stays usable at every rehydration level"
+        );
+        assert!(
+            terrain.get_for_model_record("test:array", record).is_some(),
+            "levels past a short array still resolve"
+        );
+    }
+    assert_eq!(
+        selected.len(),
+        4,
+        "each rehydration level keeps its own art"
+    );
 }
 
 #[test]
@@ -365,12 +404,6 @@ const UNSELECTED_VANILLA_ARRAYS: &[&str] = &[
     "daylight_detector_top",
     "decorated_pot",
     "dirt",
-    "dried_ghast_back",
-    "dried_ghast_bottom",
-    "dried_ghast_front",
-    "dried_ghast_left",
-    "dried_ghast_right",
-    "dried_ghast_top",
     "exposed_copper_bulb",
     "farmland",
     "firefly_bush",

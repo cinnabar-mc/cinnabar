@@ -208,7 +208,8 @@ fn block_template(
     if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
         return None;
     }
-    template_model(assets, block.model_template()?, block.variant() & 3)
+    let template = assets::item_model_template(assets.model_templates(), block.model_template()?);
+    template_model(assets, template, block.variant() & 3)
 }
 
 /// Retains the authored quads and pixels for a selected world or pot-content template.
