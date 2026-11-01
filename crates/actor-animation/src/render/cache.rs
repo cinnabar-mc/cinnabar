@@ -42,7 +42,7 @@ impl RenderCache {
                 budget,
             );
         }
-        let hurt = hurt_overlay_active(evaluator);
+        let hurt = evaluator.actor.shows_damage();
         if index == self.layers.len() {
             self.layers.push(Layer {
                 inputs: Inputs::new(
