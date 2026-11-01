@@ -1083,6 +1083,14 @@
       "status": "verified"
     },
     {
+      "id": "shape-straw-bed",
+      "fact": "shape:STRAW_BED",
+      "members": [
+        "minecraft:straw_bed"
+      ],
+      "status": "verified"
+    },
+    {
       "id": "render-authored-model",
       "fact": "render:AuthoredModel",
       "status": "verified",

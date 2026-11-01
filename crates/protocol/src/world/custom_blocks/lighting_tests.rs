@@ -49,3 +49,23 @@ fn explicit_absorption_overrides_geometry_defaults() {
         }
     }
 }
+
+#[test]
+fn legacy_top_rotation_requires_a_set_byte_on_the_geometry_component() {
+    for (flag, expected) in [
+        (None, false),
+        (Some(Nbt::Byte(0)), false),
+        (Some(Nbt::Byte(1)), true),
+        (Some(Nbt::Int(1)), false),
+    ] {
+        let mut fields = vec![("identifier".into(), Nbt::String("geometry.path".into()))];
+        if let Some(flag) = flag {
+            fields.push(("needsLegacyTopRotation".into(), flag));
+        }
+        let components = Nbt::Compound(vec![("minecraft:geometry".into(), Nbt::Compound(fields))]);
+        assert_eq!(
+            visual_components(Some(&components)).geometry_needs_legacy_top_rotation,
+            expected
+        );
+    }
+}

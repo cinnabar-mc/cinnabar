@@ -20,7 +20,7 @@
     "block_registry": "412f29c2a15745c228c8ddefa4672e30c426222d23530b94cc0070b1f83dcc11",
     "fallback_inventory": "b0eb5906f628af95b12c0d6fd638a0df423378d802c1c56260828e8f89c19920",
     "light_registry": "8c2c01775c6fec197a82ae45dc86941e68e20c879933b0041d618b8a1925be32",
-    "physics_registry": "530491dca0180ebf07a041586dcae0118ec6d52d4c9d8a0dd2302ef100a7a48f"
+    "physics_registry": "549e3618d094506fbce71cdce42f54471fb203430fcc78779f5cb198b0e2ab66"
   },
   "protocolgen_commit": "48cd9baad30cb7d78d1ca53a78b471b003cc9744",
   "schema": "cinnabar.bedrock-target.v1",
