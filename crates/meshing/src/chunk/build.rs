@@ -584,8 +584,8 @@ use std::{cell::OnceCell, sync::Arc};
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, SubChunk};
 
