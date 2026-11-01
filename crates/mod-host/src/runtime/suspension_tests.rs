@@ -208,7 +208,6 @@ fn real_fuel_exhaustion_is_identical_across_schedules_and_three_overruns_quarant
                 assert!(instance.recover_frame_fuel().unwrap());
                 assert_ne!(instance.frame_owner(), previous);
                 budget.time.reset();
-                budget.time.reset();
                 budget.time.configure(&[previous]);
                 assert!(budget.time.slice(previous).is_some());
                 next_frame(&mut instance, &budget);
@@ -364,10 +363,10 @@ fn unload_drops_the_owned_continuation_without_recording_a_fault() {
     let probe = DropProbe(drops.clone());
     let call = host.instance.continuation.as_mut().unwrap();
     let future = call.future.get_mut().unwrap();
-    let previous = std::mem::replace(future, Box::pin(std::future::pending()));
+    let previous_future = std::mem::replace(future, Box::pin(std::future::pending()));
     *future = Box::pin(async move {
         let _probe = probe;
-        previous.await
+        previous_future.await
     });
     assert_eq!(host.instance.consecutive_frame_overruns, 0);
     drop(host);
@@ -376,6 +375,56 @@ fn unload_drops_the_owned_continuation_without_recording_a_fault() {
     budget.time.configure(&[previous]);
     assert!(budget.time.slice(previous).is_some());
     drop(directory);
+}
+
+#[test]
+fn cancelling_or_replacing_a_suspended_world_entry_releases_unspent_fuel() {
+    for transition in 0..3 {
+        let (directory, mut host, budget) = scheduled_host(
+            &resumable_source(),
+            ModGrants {
+                controls: true,
+                ..Default::default()
+            },
+        );
+        host.observe_presentation(
+            Some(crate::WorldObservation {
+                session: 1,
+                world: "reservation-fixture".into(),
+                dimension: 0,
+                position: (0., 64., 0.),
+                alive: true,
+                runtime_id: 1,
+            }),
+            None,
+            None,
+            Vec::new(),
+        )
+        .unwrap();
+        host.frame(true).unwrap();
+        assert!(host.instance.continuation.is_some());
+        assert_eq!(budget.remaining(), 0);
+        match transition {
+            0 => drop(host),
+            1 => {
+                std::fs::write(
+                    directory.path().join("suspended.wat"),
+                    crate::tests::fixture("", "Replacement"),
+                )
+                .unwrap();
+                assert!(host.reload_if_changed().unwrap());
+                assert!(host.instance.continuation.is_none());
+            }
+            _ => {
+                host.instance.clear_drawing_world();
+                assert!(host.instance.continuation.is_none());
+                assert_eq!(host.instance.consecutive_frame_overruns, 0);
+            }
+        }
+        assert!(budget.remaining() > 0);
+        budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        assert_eq!(budget.remaining(), mod_api::TOTAL_MOD_FRAME_FUEL);
+    }
 }
 
 #[test]
@@ -405,7 +454,9 @@ fn clock_and_import_counters_are_invocation_scoped() {
 fn time_admission_defers_without_starting_or_resetting_the_guest() {
     let source = crate::tests::fixture("unreachable", "Hello");
     let (mut instance, _ticker, budget) = scheduled(&source, 0);
-    budget.time.charge(0, Duration::from_millis(1));
+    budget
+        .time
+        .charge(instance.frame_owner(), Duration::from_millis(1));
     assert_eq!(
         instance.run_frame_slice().unwrap(),
         CallbackOutcome::Deferred

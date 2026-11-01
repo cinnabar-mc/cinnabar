@@ -3,6 +3,9 @@
 use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
 use std::sync::{Arc, Mutex};
 
+mod reservation;
+pub(crate) use reservation::FrameReservation;
+
 /// Expensive event and loading lanes each admit one complete callback per frame.
 const LARGE_CALLBACKS_PER_FRAME: usize = 1;
 const _: () = assert!(crate::FRAME_FUEL < crate::WORLD_ENTRY_FRAME_FUEL);
@@ -12,6 +15,7 @@ const _: () = assert!(CALLBACK_FUEL < LOAD_FUEL);
 #[derive(Default)]
 struct Allowance {
     frame: u64,
+    generation: u64,
     debt: u64,
     events: usize,
     loads: usize,
@@ -65,6 +69,7 @@ impl CallbackBudget {
         let mut remaining = self.allowance.lock().expect("mod callback budget");
         *remaining = Allowance {
             frame: fuel.saturating_sub(remaining.debt),
+            generation: remaining.generation.wrapping_add(1),
             debt: remaining.debt.saturating_sub(fuel),
             events: LARGE_CALLBACKS_PER_FRAME,
             loads: LARGE_CALLBACKS_PER_FRAME,

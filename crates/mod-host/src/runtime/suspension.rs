@@ -10,10 +10,28 @@ use std::{
 
 type FrameFuture = Pin<Box<dyn Future<Output = (Store<State>, Result<()>, u64)> + Send>>;
 
+/// Reads exact fuel after the borrowed call is dropped, including cancellation while pending.
+struct InvocationStore {
+    store: Option<Store<State>>,
+    reservation: crate::callback_budget::FrameReservation,
+    allowance: u64,
+}
+
+impl Drop for InvocationStore {
+    /// Settles only the consumed fuel when an unfinished invocation loses its owner.
+    fn drop(&mut self) {
+        if let Some(store) = &self.store {
+            let used = self.allowance - store.get_fuel().unwrap_or(0).min(self.allowance);
+            self.reservation.settle(used);
+        }
+    }
+}
+
 /// Owns all partially executed guest state, including the post-return continuation.
 pub(super) struct Continuation {
     // Only exclusive access polls the future; the mutex preserves resource thread safety.
     future: std::sync::Mutex<FrameFuture>,
+    reservation: crate::callback_budget::FrameReservation,
     origin_frame: u64,
     last_polled: Option<u64>,
     ui_generation: u64,
@@ -119,32 +137,36 @@ impl Instance {
             return Ok(CallbackOutcome::Deferred);
         }
         let entry = self.continuation.is_none() && self.world_entry.available(self.store.data());
-        let reservation = if entry {
-            budget
-                .reserve_world_entry_frame()
-                .or_else(|| budget.reserve(FRAME_FUEL))
+        let admission = if let Some(call) = &self.continuation {
+            if !call.reservation.resume() {
+                self.last_fuel = 0;
+                return Ok(CallbackOutcome::Suspended);
+            }
+            None
         } else {
-            budget.reserve(FRAME_FUEL)
-        };
-        let Some(allowance) = reservation else {
-            self.last_fuel = 0;
-            return Ok(if self.continuation.is_some() {
-                CallbackOutcome::Suspended
-            } else {
-                CallbackOutcome::Deferred
-            });
+            let Some(admission) = budget.reserve_resumable_frame(entry) else {
+                self.last_fuel = 0;
+                return Ok(CallbackOutcome::Deferred);
+            };
+            Some(admission)
         };
         let started = slice.time.now();
-        if self.continuation.is_none() {
+        if let Some((allowance, reservation)) = admission {
             if entry && allowance == crate::WORLD_ENTRY_FRAME_FUEL {
                 self.world_entry.consume();
             }
             // Only immutable snapshots and private owner transactions enter the guest store.
             // The facade contains no guest instance and is never entered while suspended.
             let committed = Store::new(self.pre.engine(), self.store.data().clone());
-            let mut store = std::mem::replace(&mut self.store, committed);
+            let store = std::mem::replace(&mut self.store, committed);
+            let mut invocation = InvocationStore {
+                store: Some(store),
+                reservation: reservation.clone(),
+                allowance,
+            };
+            let store = invocation.store.as_mut().expect("invocation store");
             store.data_mut().begin_callback();
-            crate::execution::arm_resumable(&mut store, allowance)?;
+            crate::execution::arm_resumable(store, allowance)?;
             let exports = self.exports.clone();
             let state = store.data();
             let refused_before = state.exclusive.refused;
@@ -157,10 +179,14 @@ impl Instance {
             let state_world = state.player_state.world.as_ref().map(|world| world.session);
             self.continuation = Some(Continuation {
                 future: std::sync::Mutex::new(Box::pin(async move {
-                    let result = exports.frame_async(&mut store).await;
+                    let store = invocation.store.as_mut().expect("invocation store");
+                    let result = exports.frame_async(&mut *store).await;
                     let used = allowance - store.get_fuel().unwrap_or(0).min(allowance);
+                    invocation.reservation.settle(used);
+                    let store = invocation.store.take().expect("completed invocation store");
                     (store, result, used)
                 })),
+                reservation,
                 origin_frame: slice.frame,
                 last_polled: None,
                 ui_generation: self.ui_generation,
@@ -199,9 +225,6 @@ impl Instance {
                 let native = std::mem::replace(&mut self.store, store).into_data();
                 let transaction = std::mem::replace(self.store.data_mut(), native);
                 self.last_fuel = used;
-                // A live reservation covers resumed work conservatively until its exact
-                // cumulative fuel is available after post-return; it never refills guest fuel.
-                budget.refund(allowance.saturating_sub(used));
                 if let Err(error) = result {
                     slice
                         .time
