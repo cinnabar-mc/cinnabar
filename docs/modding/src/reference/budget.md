@@ -24,3 +24,5 @@ remaining-fuel: func() -> u64;
 Fuel left in the running callback, about the WebAssembly instructions it may still
 execute before it traps. Mods use it to spread large work over later callbacks.
 Fuel carries across suspension and is never refilled. Time yields are not overruns.
+Frame and world-entry allowances are FRAME_FUEL and WORLD_ENTRY_FRAME_FUEL in mod-host;
+the shared pool is TOTAL_MOD_FRAME_FUEL in mod-api. See the generated limits reference.

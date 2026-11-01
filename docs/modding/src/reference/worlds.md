@@ -130,7 +130,8 @@ filter-actions: func(frame: action-frame) -> action-verdict;
 
 Optional and explicitly exported by filtering modules; requires controls authority.
 The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
 frame with a retained hold. No callback is needed for an idle physical hold.
 Suppressing a release retains its hold. Suppressing its following press joins that
 hold; accepting that press completes the outstanding release before a fresh press.
@@ -333,7 +334,8 @@ filter-actions: func(frame: action-frame) -> action-verdict;
 
 Optional and explicitly exported by filtering modules; requires controls authority.
 The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
 frame with a retained hold. No callback is needed for an idle physical hold.
 Suppressing a release retains its hold. Suppressing its following press joins that
 hold; accepting that press completes the outstanding release before a fresh press.

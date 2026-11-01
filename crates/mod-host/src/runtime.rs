@@ -543,7 +543,7 @@ impl Instance {
         if fuel <= FRAME_FUEL
             && let Some(budget) = &self.callback_budget
         {
-            budget.refund(fuel.saturating_sub(self.last_fuel));
+            budget.refund(allowance.saturating_sub(self.last_fuel));
         }
         if let Err(error) = called {
             self.charge_callback_time(timing);

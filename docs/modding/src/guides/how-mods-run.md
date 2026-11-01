@@ -35,14 +35,13 @@ Action filters, sound handlers and teleport handlers need immediate synchronous 
 
 Guest execution is metered in fuel, roughly WebAssembly instructions. Each callback kind has its own allowance:
 
-| Callback | Fuel |
-| --- | --- |
-| `frame` | 200,000 (`FRAME_FUEL` in `mod-host`) |
-| Other event callbacks | 10,000,000 (`CALLBACK_FUEL`) |
-| `data-changed`, and `init` of a component that exports it | 100,000,000 (`LOAD_FUEL`) |
-| Any other `init` | Shares the frame allowance |
+The [generated limits reference](../reference/limits.md#execution-and-packages) gives the current values of `FRAME_FUEL`, `WORLD_ENTRY_FRAME_FUEL`, `CALLBACK_FUEL`, `LOAD_FUEL` and the shared `TOTAL_MOD_FRAME_FUEL` pool. Ordinary `frame` callbacks get `FRAME_FUEL`. Events get `CALLBACK_FUEL`, except `data-changed`, which gets `LOAD_FUEL`. An `init` that exports `data-changed` gets `LOAD_FUEL`; any other `init` shares the frame allowance.
 
-All loaded mods share a per-frame pool of 400,000 fuel (`mod_api::TOTAL_MOD_FRAME_FUEL`) for their frame callbacks. When the pool cannot pay a callback's full allowance, the callback is deferred to a later frame rather than run with a smaller limit and trapped partway. Deferral preserves terrain subscriptions, touch taps and text input batches until an invocation starts. Suspended invocations retain their original full fuel limit without refilling it. Each serviced frame conservatively reserves an ordinary callback share from the pool; unused fuel is refunded only when the completed invocation reports its cumulative consumption.
+Frame callbacks reserve their full allowance and refund unused fuel. When the pool cannot pay a full ordinary allowance, the callback waits for a later frame. Each update rotates which runnable mod executes first so later mods eventually run, without withholding fuel from other callbacks. Input reservations are sampled in load order before execution, and output authority and collection follow load order. Deferred frame callbacks keep terrain subscriptions, touch taps and text input batches for the callback that eventually runs. Suspended invocations keep their original fuel without refilling it. Each serviced frame conservatively reserves an ordinary share; unused fuel is refunded after the completed invocation reports cumulative consumption.
+
+Camera and environment writes are staged independently, then the earliest active mod supplying output wins after all callbacks finish. A successful write can therefore lose precedence to another mod's output. This also lets a later mod take over in the same update when an earlier mod releases its output or is quarantined. When several mods request opening a panel in one update, the last requesting mod in load order wins; separate requests from other runtimes retain their global ordering.
+
+One callback per observed world session may receive `WORLD_ENTRY_FRAME_FUEL`, with at most one such admission per update. Its full allowance may exceed the shared frame pool: actual use is charged to that pool, and excess use reduces capacity in later frames. No callback runs with a partial fuel limit. See the limits reference for the session lifecycle rules.
 
 Per-callback caps sit under the fuel budget too. Imports count calls — for example a callback may make at most 8 presentation calls, 128 `facts` reads, or 32 render and retained-drawing calls — and one call over the cap traps the callback. The per-interface guides and reference pages give each cap.
 
@@ -58,7 +57,7 @@ if budget::remaining_fuel() > 3_000 {
 }
 ```
 
-It needs no grant, because it reads no game state. Record `remaining_fuel()` at the start of the callback, keep a target below the 200,000 frame trap line, and before each piece of optional work check that what is left still covers the work that must follow it. Work you skip stays queued in your own state for the next callback. Measuring remaining fuel beats guessing a fixed step count, because earlier work in the callback leaves less fuel for the next piece.
+It needs no grant, because it reads no game state. Record `remaining_fuel()` at the start of the callback, keep a target below the callback's reported allowance, and before each piece of optional work check that what is left still covers the work that must follow it. Work you skip stays queued in your own state for the next callback. Measuring remaining fuel beats guessing a fixed step count, because earlier work in the callback leaves less fuel for the next piece.
 
 Guest memory is capped at 16 MiB for personal mods.
 

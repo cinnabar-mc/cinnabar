@@ -1,14 +1,18 @@
 //! Deterministic frame, event and session-loading allowances shared across local instances.
 
-use server_experience::runtime::LOAD_FUEL;
+use server_experience::runtime::{CALLBACK_FUEL, LOAD_FUEL};
 use std::sync::{Arc, Mutex};
 
 /// Expensive event and loading lanes each admit one complete callback per frame.
 const LARGE_CALLBACKS_PER_FRAME: usize = 1;
+const _: () = assert!(crate::FRAME_FUEL < crate::WORLD_ENTRY_FRAME_FUEL);
+const _: () = assert!(crate::WORLD_ENTRY_FRAME_FUEL < CALLBACK_FUEL);
+const _: () = assert!(CALLBACK_FUEL < LOAD_FUEL);
 
 #[derive(Default)]
 struct Allowance {
     frame: u64,
+    debt: u64,
     events: usize,
     loads: usize,
     world_entries: usize,
@@ -42,8 +46,10 @@ impl CallbackBudget {
     /// Starts a new frame before any guest input or lifecycle callback.
     pub fn reset(&self, fuel: u64) {
         self.time.reset();
-        *self.allowance.lock().expect("mod callback budget") = Allowance {
-            frame: fuel,
+        let mut remaining = self.allowance.lock().expect("mod callback budget");
+        *remaining = Allowance {
+            frame: fuel.saturating_sub(remaining.debt),
+            debt: remaining.debt.saturating_sub(fuel),
             events: LARGE_CALLBACKS_PER_FRAME,
             loads: LARGE_CALLBACKS_PER_FRAME,
             world_entries: LARGE_CALLBACKS_PER_FRAME,
@@ -56,13 +62,16 @@ impl CallbackBudget {
 
     /// Reserves a full callback allowance, or defers it without reducing its guest fuel limit.
     pub(crate) fn reserve(&self, fuel: u64) -> Option<u64> {
+        if fuel == crate::WORLD_ENTRY_FRAME_FUEL {
+            return self.reserve_world_entry_frame();
+        }
         let mut remaining = self.allowance.lock().expect("mod callback budget");
         if fuel == LOAD_FUEL {
             if remaining.loads == 0 {
                 return None;
             }
             remaining.loads -= 1;
-        } else if fuel > crate::FRAME_FUEL {
+        } else if fuel == CALLBACK_FUEL {
             if remaining.events == 0 {
                 return None;
             }
@@ -75,20 +84,25 @@ impl CallbackBudget {
         }
         Some(fuel)
     }
-    /// Admits one world-entry callback per frame, charging its base to the ordinary pool.
-    /// Unused extra fuel is discarded rather than refunded to that pool.
+    /// Reserves one full world-entry allowance, borrowing against later frames as needed.
+    /// Admission still needs a full ordinary allowance; refunds settle unused borrowing first.
     pub(crate) fn reserve_world_entry_frame(&self) -> Option<u64> {
         let mut remaining = self.allowance.lock().expect("mod callback budget");
         if remaining.world_entries == 0 || remaining.frame < crate::FRAME_FUEL {
             return None;
         }
-        remaining.frame -= crate::FRAME_FUEL;
+        remaining.debt += crate::WORLD_ENTRY_FRAME_FUEL.saturating_sub(remaining.frame);
+        remaining.frame = remaining
+            .frame
+            .saturating_sub(crate::WORLD_ENTRY_FRAME_FUEL);
         remaining.world_entries -= 1;
         Some(crate::WORLD_ENTRY_FRAME_FUEL)
     }
-    /// Returns regular-frame fuel which a completed callback did not use.
+    /// Returns unused reservation fuel, paying world-entry debt before restoring capacity.
     pub(crate) fn refund(&self, fuel: u64) {
-        self.allowance.lock().expect("mod callback budget").frame += fuel;
+        let mut remaining = self.allowance.lock().expect("mod callback budget");
+        remaining.frame += fuel.saturating_sub(remaining.debt);
+        remaining.debt = remaining.debt.saturating_sub(fuel);
     }
     /// Whether the loading lane can admit another hot replacement this frame.
     pub(crate) fn can_load(&self) -> bool {
@@ -126,7 +140,7 @@ mod tests {
             Some(crate::WORLD_ENTRY_FRAME_FUEL)
         );
         assert_eq!(budget.remaining(), 0);
-        budget.refund(crate::FRAME_FUEL);
+        budget.refund(crate::WORLD_ENTRY_FRAME_FUEL);
         assert_eq!(budget.reserve_world_entry_frame(), None);
         assert_eq!(budget.reserve(LOAD_FUEL), Some(LOAD_FUEL));
         assert_eq!(
@@ -140,7 +154,46 @@ mod tests {
         );
         assert_eq!(
             budget.remaining(),
-            mod_api::TOTAL_MOD_FRAME_FUEL - crate::FRAME_FUEL
+            mod_api::TOTAL_MOD_FRAME_FUEL.saturating_sub(crate::WORLD_ENTRY_FRAME_FUEL)
+        );
+    }
+
+    #[test]
+    fn world_entry_reservations_refund_actual_use_and_carry_excess_across_frames() {
+        for spent in [
+            crate::FRAME_FUEL / 2,
+            crate::FRAME_FUEL * 3,
+            crate::WORLD_ENTRY_FRAME_FUEL,
+        ] {
+            let pool = mod_api::TOTAL_MOD_FRAME_FUEL;
+            let budget = CallbackBudget::new(pool);
+            assert_eq!(
+                budget.reserve(crate::WORLD_ENTRY_FRAME_FUEL),
+                Some(crate::WORLD_ENTRY_FRAME_FUEL)
+            );
+            budget.refund(crate::WORLD_ENTRY_FRAME_FUEL - spent);
+            assert_eq!(budget.remaining(), pool.saturating_sub(spent));
+            assert_eq!(budget.reserve(CALLBACK_FUEL), Some(CALLBACK_FUEL));
+            assert_eq!(budget.reserve(CALLBACK_FUEL), None);
+            assert_eq!(budget.reserve(LOAD_FUEL), Some(LOAD_FUEL));
+            budget.reset(pool);
+            assert_eq!(budget.remaining(), pool - spent.saturating_sub(pool));
+            budget.reset(pool);
+            assert_eq!(budget.remaining(), pool);
+        }
+    }
+
+    #[test]
+    fn inexpensive_callbacks_reuse_refunded_fuel_without_extra_reservations() {
+        let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
+        let spent = crate::FRAME_FUEL / 8;
+        for _ in 0..3 {
+            assert_eq!(budget.reserve(crate::FRAME_FUEL), Some(crate::FRAME_FUEL));
+            budget.refund(crate::FRAME_FUEL - spent);
+        }
+        assert_eq!(
+            budget.remaining(),
+            mod_api::TOTAL_MOD_FRAME_FUEL - spent * 3
         );
     }
 }

@@ -4,7 +4,7 @@ use super::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Full per-invocation fuel, independent of the deferrable presentation budget.
-const FILTER_FUEL: u64 = FRAME_FUEL;
+const FILTER_FUEL: u64 = mod_api::ACTION_FILTER_FUEL;
 static NEXT_IDENTITY: AtomicU64 = AtomicU64::new(1);
 
 /// Identifies a live instance across reorderings, replacements and reloads.
