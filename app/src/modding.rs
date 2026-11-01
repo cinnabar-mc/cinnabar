@@ -472,7 +472,7 @@ fn configure_systems(app: &mut App, watching: bool) {
         drive_mod
             .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
-            // The frame's physical hotbar selection is visible to read-selected-slot.
+            // An unordered hotbar selection is visible to this frame's read-selected-slot.
             .after(client_interaction::hotbar::queue_hotbar_selection)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),

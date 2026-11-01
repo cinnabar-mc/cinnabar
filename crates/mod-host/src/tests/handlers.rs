@@ -190,3 +190,19 @@ fn teleport_handler_quarantines_traps_and_invalid_rotations() {
         assert!(!host.is_active());
     }
 }
+
+#[test]
+fn teleport_handler_may_pass_through_an_out_of_range_server_rotation() {
+    let (_dir, mut host) = teleport_handler("", ["local.get 5", "local.get 6"], true);
+    let server = TeleportRotation {
+        yaw: 45.,
+        pitch: 270.,
+    };
+    let incoming = TeleportContext {
+        server,
+        rotation: server,
+        ..teleport()
+    };
+    assert_eq!(host.handle_teleport(incoming).unwrap(), incoming);
+    assert!(host.is_active());
+}

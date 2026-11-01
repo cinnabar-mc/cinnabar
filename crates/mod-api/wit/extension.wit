@@ -335,8 +335,10 @@ interface player-state {
     /// The selected hotbar slot, 0 through 8, from the current session and dimension.
     record selected-slot { session: u64, dimension: s32, slot: u8 }
     /// Requires the player-state grant. None outside the current connected session or while the
-    /// selection is unknown. A physical hotbar selection, by key, wheel or controller, is visible
-    /// to the frame callback of the frame that admits it; server selections appear once applied.
+    /// selection is unknown. A local hotbar selection is visible no later than the next frame
+    /// callback: unordered selections in the frame that admits them, and selections admitted
+    /// through ordered desktop input, which apply after that frame's callback, in the next.
+    /// Server selections appear once applied.
     /// Copies no inventory cells. Its per-callback call allowance, MAX_SELECTED_SLOT_READS, is
     /// separate from read-snapshot's, so it cannot exhaust the snapshot reads.
     read-selected-slot: func() -> result<option<selected-slot>, string>;
@@ -548,7 +550,7 @@ interface sound-handling {
 /// Local-player MovePlayer rotations before they apply, for `handle-teleport`.
 /// Grants: `camera` to run handle-teleport; this interface only defines handler types.
 interface teleport-handling {
-    /// Bedrock degrees: yaw turns clockwise from south; positive pitch looks down, -90 to 90.
+    /// Bedrock degrees: yaw turns clockwise from south; positive pitch looks down.
     record rotation { yaw: f32, pitch: f32 }
     /// How the server moved the local player, as MovePlayer reports it.
     enum teleport-mode { normal, reset, teleport, rotation, other }
@@ -1180,7 +1182,8 @@ world sound-handler {
 world teleport-handler {
     use teleport-handling.{teleport-context};
     /// One call per committed local-player MovePlayer with a finite rotation, before it applies.
-    /// A non-finite rotation or a pitch outside -90..90 is invalid.
+    /// The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+    /// incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
     export handle-teleport: func(ctx: teleport-context) -> teleport-context;
 }
 

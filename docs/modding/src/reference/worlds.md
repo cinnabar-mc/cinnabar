@@ -479,7 +479,8 @@ handle-teleport: func(ctx: teleport-context) -> teleport-context;
 ```
 
 One call per committed local-player MovePlayer with a finite rotation, before it applies.
-A non-finite rotation or a pitch outside -90..90 is invalid.
+The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
 
 Types: [`teleport-context`](teleport-handling.md#type-teleport-context).
 
@@ -922,6 +923,7 @@ handle-teleport: func(ctx: teleport-context) -> teleport-context;
 ```
 
 One call per committed local-player MovePlayer with a finite rotation, before it applies.
-A non-finite rotation or a pitch outside -90..90 is invalid.
+The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
 
 Types: [`teleport-context`](teleport-handling.md#type-teleport-context).

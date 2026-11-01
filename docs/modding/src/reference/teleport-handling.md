@@ -14,7 +14,7 @@ Local-player MovePlayer rotations before they apply, for `handle-teleport`.
 
 ### `rotation`
 
-Bedrock degrees: yaw turns clockwise from south; positive pitch looks down, -90 to 90.
+Bedrock degrees: yaw turns clockwise from south; positive pitch looks down.
 
 ```wit
 record rotation {

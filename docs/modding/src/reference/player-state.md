@@ -780,8 +780,10 @@ read-selected-slot: func() -> result<option<selected-slot>, string>;
 ```
 
 Requires the player-state grant. None outside the current connected session or while the
-selection is unknown. A physical hotbar selection, by key, wheel or controller, is visible
-to the frame callback of the frame that admits it; server selections appear once applied.
+selection is unknown. A local hotbar selection is visible no later than the next frame
+callback: unordered selections in the frame that admits them, and selections admitted
+through ordered desktop input, which apply after that frame's callback, in the next.
+Server selections appear once applied.
 Copies no inventory cells. Its per-callback call allowance, MAX_SELECTED_SLOT_READS, is
 separate from read-snapshot's, so it cannot exhaust the snapshot reads.
 

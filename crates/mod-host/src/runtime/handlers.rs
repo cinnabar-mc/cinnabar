@@ -37,14 +37,17 @@ impl Instance {
         })
     }
 
-    /// Returns the incoming move with only a validated `rotation` taken from the handler.
+    /// Returns the incoming move with only `rotation` taken from the handler; a replacement
+    /// must be finite with pitch within 90 degrees, while the incoming rotation always passes.
     pub(crate) fn handle_teleport(&mut self, ctx: TeleportContext) -> Result<TeleportContext> {
         anyhow::ensure!(
             self.has_teleport_handler(),
             "teleport handler authority denied"
         );
         let returned = self.run_handler(|exports, store| exports.handle_teleport(store, ctx))?;
-        if !valid_rotation(&returned.rotation) {
+        // The server's rotation may lie outside the replacement bounds; passing it through
+        // unchanged is never the component's fault.
+        if returned.rotation != ctx.rotation && !valid_rotation(&returned.rotation) {
             self.quarantine();
             anyhow::bail!("teleport rotation is not finite or its pitch exceeds 90 degrees");
         }
