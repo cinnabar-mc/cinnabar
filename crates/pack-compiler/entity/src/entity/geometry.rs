@@ -244,6 +244,7 @@ fn parse_geometry_bones_with_inheritance(
                 "locators",
                 "binding",
                 "texture_meshes",
+                "poly_mesh",
                 "neverRender",
                 "reset",
                 "bind_pose_rotation",
@@ -298,6 +299,7 @@ fn parse_geometry_bones_with_inheritance(
             never_render,
             reset,
             binding,
+            poly_mesh: assets::EntityGeometryPolyMesh::parse_bone(bone.get("poly_mesh"), name),
             texture_meshes,
             cubes,
         });

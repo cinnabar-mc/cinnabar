@@ -188,6 +188,8 @@ struct BoneProbe {
     binding: Option<de::IgnoredAny>,
     #[serde(default)]
     texture_meshes: SequenceCount,
+    #[serde(default)]
+    poly_mesh: Option<de::IgnoredAny>,
     cubes: SequenceCount,
     #[serde(default)]
     locators: SequenceCount,
@@ -230,6 +232,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                         reset: _,
                         binding: _,
                         texture_meshes: bone_meshes,
+                        poly_mesh: _,
                         cubes: bone_cubes,
                         locators: bone_locators,
                     } = bone;

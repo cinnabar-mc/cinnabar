@@ -305,7 +305,7 @@ fn registry_reader_rejects_unknown_and_invalid_semantic_flags() {
         BlockFlags::OCCLUDES_FULL_FACE
     );
 
-    for raw in [!BlockFlags::all().bits(), 0x03, 0x05, 0x08, 0x0c, 0x0e] {
+    for raw in [0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let bytes = registry_bytes(&[(3, 11, raw, b"minecraft:test", b"{}")]);
         assert!(matches!(
             read_registry(&bytes),

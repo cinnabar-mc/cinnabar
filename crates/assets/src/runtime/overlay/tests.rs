@@ -163,6 +163,7 @@ fn material_overrides_repoint_base_materials() {
 fn replacing_a_sheet_moves_only_its_models_to_their_whole_sheet_templates() {
     let mut base = RuntimeAssets::diagnostic();
     base.materials = vec![Material::unvaried(); 4].into();
+    base.light_properties = vec![LightProperties::OPAQUE_DARK; 3].into();
     let diagnostic = base.visuals[0];
     base.visuals = [0, 1, 2]
         .map(|material| BlockVisual {

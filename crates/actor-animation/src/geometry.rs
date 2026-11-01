@@ -331,6 +331,7 @@ fn bone_metadata(bone: &EntityGeometryBone) -> EntityGeometryBone {
         reset: bone.reset,
         binding: bone.binding.clone(),
         texture_meshes: Box::default(),
+        poly_mesh: None,
         cubes: Box::default(),
     }
 }

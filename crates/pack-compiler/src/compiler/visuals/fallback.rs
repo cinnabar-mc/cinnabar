@@ -243,6 +243,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || super::heavy_core::is_record(record)
         || super::speleothem::is_record(record)
         || super::chorus::is_flower(record)
+        || super::chorus::is_plant(record)
         || super::spore_blossom::is_record(record)
         || super::redstone_wire::is_record(record)
         || super::dried_ghast::is_record(record)
@@ -404,7 +405,7 @@ mod tests {
             material_by_descriptor: &descriptors,
             vanilla_fallback_material: 1,
             fallback: inventory(protocol).unwrap(),
-            sheet_tiles: &BTreeMap::new(),
+            sheet_tiles: &Default::default(),
         };
         let mut templates = Vec::new();
         let mut quads = Vec::new();
@@ -469,7 +470,7 @@ mod tests {
         for (table_bytes, entries) in EMBEDDED_TABLES
             .iter()
             .map(|table| table.bytes)
-            .zip([2_031, 3_550])
+            .zip([2_031, 3_614])
         {
             let table = FallbackInventory::parse(table_bytes).expect("parse embedded inventory");
             assert_eq!(table.entry_count, entries);
@@ -540,8 +541,8 @@ mod tests {
             .map(|record| record.name.as_ref())
             .collect::<std::collections::BTreeSet<_>>();
 
-        assert_eq!(matched.len(), 3_550);
-        assert_eq!(names.len(), 334);
+        assert_eq!(matched.len(), 3_614);
+        assert_eq!(names.len(), 335);
         assert!(
             matched
                 .iter()
@@ -792,7 +793,7 @@ mod tests {
                 material_by_descriptor: &BTreeMap::new(),
                 vanilla_fallback_material: DIAGNOSTIC_MATERIAL,
                 fallback,
-                sheet_tiles: &BTreeMap::new(),
+                sheet_tiles: &Default::default(),
             };
             compile_rule(
                 &record,

@@ -20,6 +20,7 @@ fn bone() -> EntityGeometryBone {
         reset: None,
         binding: None,
         texture_meshes: Box::new([]),
+        poly_mesh: None,
         cubes: Box::new([]),
     }
 }

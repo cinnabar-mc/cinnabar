@@ -4,16 +4,25 @@
 //! Region-mapped models also get the sheet's quadrants as separate layers, each normalized like
 //! any other tile. The whole-sheet material stays the sheet's identity for texture keys, particles
 //! and pack replacements, so nothing else that reads the sheet changes.
+//!
+//! The layers are optional. Models are compiled as a pair of whole-sheet templates, and only the
+//! required texture copies come before installation, so a full carrier keeps every model and pack
+//! it could already hold and simply draws these sheets from their downsampled layer.
 
 use super::lily_pad_textures::append_layer;
-use assets::{MAX_CARRIER_TEXTURE_PAGES, TILE_SIZE, TextureMip};
+use assets::{
+    MAX_CARRIER_TEXTURE_PAGES, MODEL_TEMPLATE_FLAG_SHEET_TILES, MODEL_TEMPLATE_FLAG_SHELF,
+    TILE_SIZE, TextureMip,
+};
 use pack_compile_input::image::build_texture_mip_chain;
+use std::collections::BTreeSet;
 use {super::*, assets::BlockFace};
 
 const QUADRANTS: usize = 4;
+/// Half a tile or sheet in model UV units.
+const HALF_UV: u16 = 2048;
 
-/// A sheet's quadrant materials, in row order, per whole-sheet material.
-pub(super) type SheetTiles = BTreeMap<u32, [u32; QUADRANTS]>;
+type Chains = [Box<[TextureMip]>; QUADRANTS];
 
 pub(super) struct Inputs<'a> {
     pub root: &'a Path,
@@ -23,15 +32,85 @@ pub(super) struct Inputs<'a> {
     pub descriptors: &'a BTreeMap<Descriptor, u32>,
 }
 
-/// Appends quadrant layers for each static shelf sheet shared by all six faces.
-///
-/// A sheet that one tile already holds, an animated or weighted material, per-face art, and a
-/// sheet beyond the carrier's budget keep sampling their whole-sheet material.
-pub(super) fn install(
-    inputs: Inputs<'_>,
-    materials: &mut Vec<Material>,
-    pages: &mut Vec<TexturePage>,
-) -> Result<SheetTiles, AssetError> {
+/// Sheets eligible for quadrant layers, by whole-sheet material, and their cropped art.
+#[derive(Default)]
+pub(in crate::compiler) struct SheetPlan {
+    paths: BTreeMap<u32, Box<str>>,
+    chains: BTreeMap<Box<str>, Chains>,
+}
+
+impl SheetPlan {
+    /// Whether templates drawing this material should be compiled as a pair.
+    pub(in crate::compiler) fn contains(&self, material: u32) -> bool {
+        self.paths.contains_key(&material)
+    }
+
+    /// Appends each sheet's layers while the carrier has room, then moves the first template of
+    /// each drawn pair onto them. A sheet without room leaves both templates on the whole sheet.
+    pub(super) fn install(
+        self,
+        materials: &mut Vec<Material>,
+        pages: &mut Vec<TexturePage>,
+        visuals: &[BlockVisual],
+        templates: &mut [ModelTemplate],
+        quads: &mut [ModelQuad],
+    ) -> Result<(), AssetError> {
+        let mut layers_by_path = BTreeMap::<&str, [TextureRef; QUADRANTS]>::new();
+        let mut tiles = BTreeMap::new();
+        for (&sheet, path) in &self.paths {
+            let Some(chains) = self.chains.get(path) else {
+                continue;
+            };
+            let known = layers_by_path.get(path.as_ref()).copied();
+            if materials.len() + QUADRANTS > MAX_MATERIALS || (known.is_none() && !has_room(pages))
+            {
+                continue;
+            }
+            let layers = if let Some(layers) = known {
+                layers
+            } else {
+                let mut layers = [TextureRef::DIAGNOSTIC; QUADRANTS];
+                for (layer, chain) in layers.iter_mut().zip(chains) {
+                    *layer = append_layer(pages, chain.clone())?;
+                }
+                layers_by_path.insert(path, layers);
+                layers
+            };
+            let first = materials.len() as u32;
+            let flags = materials[sheet as usize].flags;
+            materials.extend(layers.map(|texture| Material {
+                texture,
+                flags,
+                ..Material::unvaried()
+            }));
+            tiles.insert(sheet, std::array::from_fn(|index| first + index as u32));
+        }
+        let drawn = visuals
+            .iter()
+            .filter(|visual| visual.kind == VisualKind::Model)
+            .map(|visual| visual.model_template)
+            .collect::<BTreeSet<_>>();
+        for template in drawn {
+            let Some(part) = templates.get_mut(template as usize) else {
+                continue;
+            };
+            if part.flags != MODEL_TEMPLATE_FLAG_SHELF {
+                continue;
+            }
+            let range = part.quad_start as usize..(part.quad_start + part.quad_count) as usize;
+            let Some(tiled) = tile_quads(&quads[range.clone()], &tiles) else {
+                continue;
+            };
+            quads[range].copy_from_slice(&tiled);
+            part.flags |= MODEL_TEMPLATE_FLAG_SHEET_TILES;
+        }
+        Ok(())
+    }
+}
+
+/// Finds and crops each static shelf sheet that all six faces share and one tile cannot hold.
+/// Animated or weighted materials, per-face art and other images stay on the whole sheet.
+pub(super) fn plan(inputs: Inputs<'_>, materials: &[Material]) -> Result<SheetPlan, AssetError> {
     let Inputs {
         root,
         pack,
@@ -39,8 +118,7 @@ pub(super) fn install(
         fallback,
         descriptors,
     } = inputs;
-    let mut layers_by_path = BTreeMap::<Box<str>, [TextureRef; QUADRANTS]>::new();
-    let mut tiles = SheetTiles::new();
+    let mut plan = SheetPlan::default();
     for record in records
         .iter()
         .filter(|record| visuals::shelf::is_record(record))
@@ -58,36 +136,21 @@ pub(super) fn install(
             continue;
         };
         let material = materials[sheet as usize];
-        if tiles.contains_key(&sheet)
+        if plan.contains(sheet)
             || material.animation != NO_ANIMATION
             || material.variation_count != 0
-            || materials.len() + QUADRANTS > MAX_MATERIALS
         {
             continue;
         }
-        let layers = if let Some(&layers) = layers_by_path.get(&descriptor.path) {
-            layers
-        } else {
-            let Some(chains) = quadrant_chains(root, &descriptor)?.filter(|_| has_room(pages))
-            else {
+        if !plan.chains.contains_key(&descriptor.path) {
+            let Some(chains) = quadrant_chains(root, &descriptor)? else {
                 continue;
             };
-            let mut layers = [TextureRef::DIAGNOSTIC; QUADRANTS];
-            for (layer, chain) in layers.iter_mut().zip(chains) {
-                *layer = append_layer(pages, chain)?;
-            }
-            layers_by_path.insert(descriptor.path.clone(), layers);
-            layers
-        };
-        let first = materials.len() as u32;
-        materials.extend(layers.map(|texture| Material {
-            texture,
-            flags: material.flags,
-            ..Material::unvaried()
-        }));
-        tiles.insert(sheet, std::array::from_fn(|index| first + index as u32));
+            plan.chains.insert(descriptor.path.clone(), chains);
+        }
+        plan.paths.insert(sheet, descriptor.path);
     }
-    Ok(tiles)
+    Ok(plan)
 }
 
 /// Whether the carrier's pages can take one more sheet's quadrants.
@@ -100,10 +163,7 @@ fn has_room(pages: &[TexturePage]) -> bool {
 }
 
 /// Crops and normalizes a square sheet larger than one tile; `None` for any other image.
-fn quadrant_chains(
-    root: &Path,
-    descriptor: &Descriptor,
-) -> Result<Option<[Box<[TextureMip]>; QUADRANTS]>, AssetError> {
+fn quadrant_chains(root: &Path, descriptor: &Descriptor) -> Result<Option<Chains>, AssetError> {
     let path = static_texture_path(root, &descriptor.path, &descriptor.texture_key)?;
     let decoded = decode_texture(&path, &descriptor.texture_key)?;
     if decoded.width != decoded.height
@@ -127,3 +187,37 @@ fn quadrant_chains(
     }
     Ok(chains.try_into().ok())
 }
+
+/// Moves each whole-sheet quad onto the quadrant layer holding its region at full resolution.
+/// Native shelf regions never cross a quadrant; a quad that does, or a sheet without layers,
+/// returns `None`.
+fn tile_quads(
+    sheet: &[ModelQuad],
+    tiles: &BTreeMap<u32, [u32; QUADRANTS]>,
+) -> Option<Vec<ModelQuad>> {
+    sheet
+        .iter()
+        .map(|quad| {
+            let tiles = tiles.get(&quad.material)?;
+            let quadrant = [0, 1].map(|axis| {
+                let values = quad.uvs.map(|uv| uv[axis]);
+                u16::from(values.iter().min().is_some_and(|&low| low >= HALF_UV))
+            });
+            let mut tiled = *quad;
+            for uv in &mut tiled.uvs {
+                for axis in 0..2 {
+                    uv[axis] = uv[axis]
+                        .checked_sub(quadrant[axis] * HALF_UV)
+                        .filter(|&local| local <= HALF_UV)?
+                        * 2;
+                }
+            }
+            tiled.material = tiles[usize::from(quadrant[0] + 2 * quadrant[1])];
+            Some(tiled)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "sheet_tiles_tests.rs"]
+mod tests;

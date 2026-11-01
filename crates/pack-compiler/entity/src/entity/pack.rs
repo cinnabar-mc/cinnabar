@@ -612,6 +612,30 @@ mod tests {
     }
 
     #[test]
+    fn server_entity_poly_mesh_survives_compilation_and_the_carrier() {
+        let compiled = compile_synthetic_geometry(json!([{"name":"root","poly_mesh":{
+            "normalized_uvs":true,
+            "positions":[[-8,0,0],[8,0,0],[8,16,0],[-8,16,0]],
+            "normals":[[0,0,-1]],
+            "uvs":[[0,0],[1,0],[1,1],[0,1]],
+            "polys":[[[0,0,0],[1,0,1],[2,0,2],[3,0,3]],[[0,0,0],[99,0,1],[2,0,2]]]
+        }}]));
+        assert_eq!(compiled.skipped.unparsable, 0);
+        let mesh = compiled.assets.geometries[0].bones[0]
+            .poly_mesh
+            .as_deref()
+            .unwrap();
+        assert_eq!(mesh.quads.len(), 1);
+        assert!(mesh.triangles.is_empty());
+        let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+        let runtime = assets::RuntimeEntityAssets::decode(&bytes).unwrap();
+        assert_eq!(
+            runtime.geometries()[0].bones[0].poly_mesh.as_deref(),
+            Some(mesh)
+        );
+    }
+
+    #[test]
     fn family_filter_matches_directory_and_extension() {
         assert!(in_families("entity/a.json"));
         assert!(in_families("textures/entity/a/b.png"));

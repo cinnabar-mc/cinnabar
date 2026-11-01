@@ -558,9 +558,7 @@ fn compile_pack_sources(
         material_keys::build(&pack, &material_by_descriptor, &materials, &animations);
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
-    let mut materials = materials.into_vec();
-    let mut texture_pages = texture_pages.into_vec();
-    let sheet_tiles = sheet_tiles::install(
+    let sheet_tiles = sheet_tiles::plan(
         sheet_tiles::Inputs {
             root,
             pack: &pack,
@@ -568,10 +566,9 @@ fn compile_pack_sources(
             fallback,
             descriptors: &material_by_descriptor,
         },
-        &mut materials,
-        &mut texture_pages,
+        &materials,
     )?;
-    let (visuals, hashed, model_templates, mut model_quads) = compile_visuals(
+    let (visuals, hashed, mut model_templates, mut model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
@@ -589,6 +586,7 @@ fn compile_pack_sources(
             bee_housing: admit_bee_housing,
         },
     )?;
+    let mut materials = materials.into_vec();
     let mut visuals = visuals.into_vec();
     material_facts::install(records, &mut visuals, registry_protocol)?;
     destroy_facts::install(records, &mut visuals, registry_protocol)?;
@@ -607,7 +605,7 @@ fn compile_pack_sources(
         &mut materials,
         &mut visuals,
         &mut model_quads,
-        texture_pages,
+        texture_pages.into_vec(),
     )?;
     let seasonal_copies =
         seasonal_leaves::install(records, &pack.blocks, &mut visuals, &mut materials)?;
@@ -616,6 +614,16 @@ fn compile_pack_sources(
         animations,
         frames: animation_frames,
     } = leaf_mips::install(&mut materials, texture_pages, animations, animation_frames)?;
+    // The required copies above are done, so these optional layers only take what they left.
+    let mut texture_pages = texture_pages.into_vec();
+    sheet_tiles.install(
+        &mut materials,
+        &mut texture_pages,
+        &visuals,
+        &mut model_templates,
+        &mut model_quads,
+    )?;
+    let texture_pages = texture_pages.into_boxed_slice();
     // World leaf selectors retain their original terrain keys even though their
     // native mip chains are separate from carried/shared texture pixels.
     let material_keys = material_keys::extend(

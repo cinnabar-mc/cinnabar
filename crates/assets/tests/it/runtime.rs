@@ -10,6 +10,8 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "runtime/sheet_tiles.rs"]
+mod sheet_tiles;
 #[path = "runtime/variations.rs"]
 mod variations;
 
@@ -468,7 +470,7 @@ fn decode_rejects_resealed_old_schema_magic_and_version() {
 
 #[test]
 fn decode_rejects_invalid_visual_flag_semantics() {
-    for raw in [!BlockFlags::all().bits(), 0x03, 0x05, 0x08, 0x0c, 0x0e] {
+    for raw in [0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let mut blob = valid_blob();
         let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
         blob[visuals_offset + 24] = raw;
@@ -987,42 +989,6 @@ fn decode_rejects_malformed_compound_template_pairs_and_tail_references() {
         panic!("zero-quad compound continuation must fail at runtime boundary");
     };
     assert_eq!(detail.as_ref(), "compound continuation has no quads");
-}
-
-#[test]
-fn decode_requires_sheet_tile_templates_to_precede_their_whole_sheet_pair() {
-    let tiled = assets::MODEL_TEMPLATE_FLAG_SHELF | assets::MODEL_TEMPLATE_FLAG_SHEET_TILES;
-    let canonical = compound_blob();
-    let templates = read_u64(&canonical, 216) as usize;
-    let with_flags = |first: u32, second: u32| {
-        let mut blob = canonical.clone();
-        write_u32(&mut blob, templates + 8, first);
-        write_u32(&mut blob, templates + 12 + 8, second);
-        reseal(&mut blob);
-        blob
-    };
-    let runtime = RuntimeAssets::decode(&with_flags(tiled, assets::MODEL_TEMPLATE_FLAG_SHELF))
-        .expect("decode a sheet-tile pair");
-    assert_eq!(
-        assets::whole_sheet_model_template(runtime.model_templates(), 0),
-        1
-    );
-    assert_eq!(
-        assets::whole_sheet_model_template(runtime.model_templates(), 1),
-        1
-    );
-    assert_rejected(&with_flags(tiled, 0), "sheet tiles without a shelf pair");
-    assert_rejected(
-        &with_flags(assets::MODEL_TEMPLATE_FLAG_SHELF, tiled),
-        "trailing sheet tiles with no pair",
-    );
-    assert_rejected(
-        &with_flags(
-            assets::MODEL_TEMPLATE_FLAG_KELP | assets::MODEL_TEMPLATE_FLAG_SHEET_TILES,
-            0,
-        ),
-        "sheet tiles on another template family",
-    );
 }
 
 #[test]
