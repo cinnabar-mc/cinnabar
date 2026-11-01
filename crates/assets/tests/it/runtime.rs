@@ -468,7 +468,7 @@ fn decode_rejects_resealed_old_schema_magic_and_version() {
 
 #[test]
 fn decode_rejects_invalid_visual_flag_semantics() {
-    for raw in [!BlockFlags::all().bits(), 0x03, 0x05, 0x08, 0x0c, 0x0e] {
+    for raw in [0x03, 0x05, 0x08, 0x0c, 0x0e] {
         let mut blob = valid_blob();
         let visuals_offset = read_u64(&blob, VISUALS_OFFSET_OFFSET) as usize;
         blob[visuals_offset + 24] = raw;

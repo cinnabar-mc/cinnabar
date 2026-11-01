@@ -125,7 +125,6 @@ fn active_registry_rejects_duplicate_sequential_ids() {
 fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
     // Fixture offsets are independent of the generated decoder.
     for (offset, value) in [
-        (44, 0x80),
         (45, 0xff),
         (46, 0xff),
         (49, 0xff),

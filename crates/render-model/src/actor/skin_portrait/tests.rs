@@ -103,29 +103,57 @@ fn animated_face_uses_first_frame_and_named_geometry() {
 
 #[test]
 fn polygon_front_respects_bottom_left_uv_origin() {
-    for normalized in [false, true] {
-        let mut skin = skin(CLASSIC_SKIN_SIDE as u32, false);
-        let divisor = if normalized {
-            CLASSIC_SKIN_SIDE as f32
-        } else {
-            1.0
-        };
-        let uvs = [[8.0, 56.0], [16.0, 56.0], [16.0, 48.0], [8.0, 48.0]]
-            .map(|uv| uv.map(|v| v / divisor));
-        model(
-            &mut skin,
-            serde_json::json!([{"name":"head","poly_mesh":{
-                "normalized_uvs":normalized,
-                "positions":[[-4,32,-4],[4,32,-4],[4,24,-4],[-4,24,-4]],
-                "normals":[[0,0,-1]], "uvs":uvs,
-                "polys":[[[0,0,0],[1,0,1],[2,0,2],[3,0,3]]]
-            }}]),
-        );
-        let portrait = extract(&skin).unwrap();
-        assert_eq!(&portrait.pixels()[..4], &[8, 8, 40, 255]);
-        assert_eq!(
-            &portrait.pixels()[portrait.pixels().len() - 4..],
-            &[15, 15, 40, 255]
-        );
-    }
+    let mut skin = skin(CLASSIC_SKIN_SIDE as u32, false);
+    let uvs = [[8.0, 56.0], [16.0, 56.0], [16.0, 48.0], [8.0, 48.0]]
+        .map(|uv| uv.map(|v| v / CLASSIC_SKIN_SIDE as f32));
+    model(
+        &mut skin,
+        serde_json::json!([{"name":"head","poly_mesh":{
+            "normalized_uvs":true,
+            "positions":[[-4,32,-4],[4,32,-4],[4,24,-4],[-4,24,-4]],
+            "normals":[[0,0,-1]], "uvs":uvs,
+            "polys":[[[0,0,0],[1,0,1],[2,0,2],[3,0,3]]]
+        }}]),
+    );
+    let portrait = extract(&skin).unwrap();
+    assert_eq!(&portrait.pixels()[..4], &[8, 8, 40, 255]);
+    assert_eq!(
+        &portrait.pixels()[portrait.pixels().len() - 4..],
+        &[15, 15, 40, 255]
+    );
+}
+
+/// Pixel UVs saturate as the mesh draws them, so they no longer select a face region.
+#[test]
+fn unnormalized_polygon_front_does_not_read_as_a_texel_region() {
+    let mut skin = skin(CLASSIC_SKIN_SIDE as u32, false);
+    model(
+        &mut skin,
+        serde_json::json!([{"name":"head","poly_mesh":{
+            "normalized_uvs":false,
+            "positions":[[-4,32,-4],[4,32,-4],[4,24,-4],[-4,24,-4]],
+            "normals":[[0,0,-1]], "uvs":[[8, 56], [16, 56], [16, 48], [8, 48]],
+            "polys":[[[0,0,0],[1,0,1],[2,0,2],[3,0,3]]]
+        }}]),
+    );
+    assert!(extract(&skin).is_none());
+}
+
+/// A rectangular face authored as two triangles reads the same as one quad.
+#[test]
+fn polygon_face_split_into_triangles_is_extracted() {
+    let mut skin = skin(CLASSIC_SKIN_SIDE as u32, false);
+    let uvs = [[8.0, 56.0], [16.0, 56.0], [16.0, 48.0], [8.0, 48.0]]
+        .map(|uv| uv.map(|v| v / CLASSIC_SKIN_SIDE as f32));
+    model(
+        &mut skin,
+        serde_json::json!([{"name":"head","poly_mesh":{
+            "normalized_uvs":true,
+            "positions":[[-4,32,-4],[4,32,-4],[4,24,-4],[-4,24,-4]],
+            "normals":[[0,0,-1]], "uvs":uvs,
+            "polys":[[[0,0,0],[1,0,1],[2,0,2]],[[0,0,0],[2,0,2],[3,0,3]]]
+        }}]),
+    );
+    let portrait = extract(&skin).unwrap();
+    assert_eq!(&portrait.pixels()[..4], &[8, 8, 40, 255]);
 }

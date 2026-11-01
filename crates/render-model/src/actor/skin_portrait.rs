@@ -191,38 +191,40 @@ fn model_face(model: &SkinGeometry, name: &str) -> Option<Face> {
             area: width * height,
         });
     }
-    if let Some(mesh) = &model.poly_meshes[index] {
-        // The skin parser triangulates each quad into six corners.
-        for vertices in mesh.vertices.as_chunks::<6>().0 {
-            if vertices.iter().any(|v| v.normal != [0.0, 0.0, -1.0]) {
+    if let Some(mesh) = &model.bones[index].poly_mesh {
+        let quads = mesh.quads.iter().map(|&[a, b, c, d]| [a, b, c, a, c, d]);
+        let triangle_pairs = mesh
+            .triangles
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[[a, b, c], [d, e, f]]| [a, b, c, d, e, f]);
+        let uvs = super::poly_mesh::resolved_uvs(mesh, (model.texture_width, model.texture_height));
+        for polygon in quads.chain(triangle_pairs) {
+            let corners = polygon.map(|[position, normal, uv]| {
+                (
+                    mesh.positions[position as usize].map(|value| value.get()),
+                    mesh.normals[normal as usize].map(|value| value.get()),
+                    uvs[uv as usize],
+                )
+            });
+            if corners.iter().any(|corner| corner.1 != [0.0, 0.0, -1.0]) {
                 continue;
             }
-            let min_x = vertices
-                .iter()
-                .map(|v| v.position[0])
-                .fold(f32::INFINITY, f32::min);
-            let max_x = vertices
-                .iter()
-                .map(|v| v.position[0])
-                .fold(f32::NEG_INFINITY, f32::max);
-            let min_y = vertices
-                .iter()
-                .map(|v| v.position[1])
-                .fold(f32::INFINITY, f32::min);
-            let max_y = vertices
-                .iter()
-                .map(|v| v.position[1])
-                .fold(f32::NEG_INFINITY, f32::max);
+            let axis = |axis: usize| corners.iter().map(move |corner| corner.0[axis]);
+            let min_x = axis(0).fold(f32::INFINITY, f32::min);
+            let max_x = axis(0).fold(f32::NEG_INFINITY, f32::max);
+            let min_y = axis(1).fold(f32::INFINITY, f32::min);
+            let max_y = axis(1).fold(f32::NEG_INFINITY, f32::max);
             let uv = |x, y| {
-                let v = vertices
+                let corner = corners
                     .iter()
-                    .find(|v| v.position == [x, y, vertices[0].position[2]])?;
-                let [mut u, mut v] = v.uv;
-                if mesh.normalized_uvs {
-                    u *= model.texture_width as f32;
-                    v *= model.texture_height as f32;
-                }
-                Some([u, model.texture_height as f32 - v])
+                    .find(|corner| corner.0 == [x, y, corners[0].0[2]])?;
+                let [u, v] = corner.2;
+                Some([
+                    u * model.texture_width as f32,
+                    v * model.texture_height as f32,
+                ])
             };
             if let (Some(origin), Some(right), Some(bottom), Some(far)) = (
                 uv(min_x, max_y),

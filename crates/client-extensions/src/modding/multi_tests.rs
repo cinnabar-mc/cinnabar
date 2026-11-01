@@ -103,6 +103,7 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -459,6 +460,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
         merged = run_frame(
             &mut runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -555,6 +557,7 @@ fn grants_stay_per_mod() {
     let merged = run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -630,6 +633,7 @@ fn inactive_hosts_do_not_capture_world_state() {
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -679,6 +683,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             pressed: false,
             controls: &controls,
             previous_cues: &[],
@@ -963,6 +968,7 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -1041,6 +1047,7 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
     run_frame_callbacks(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -1072,3 +1079,13 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
 /// Event-handler composition across components.
 #[path = "multi_handler_tests.rs"]
 mod handlers;
+
+/// A native editor sampled for one panel owner never reaches a mod that took the panel
+/// before delivery, nor a closed panel.
+#[test]
+fn native_editing_reaches_only_the_sampled_open_owner() {
+    assert!(editing_for(0, Some(0), true));
+    assert!(!editing_for(1, Some(0), true));
+    assert!(!editing_for(0, Some(0), false));
+    assert!(!editing_for(0, None, true));
+}

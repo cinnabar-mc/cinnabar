@@ -78,6 +78,8 @@ pub const MODEL_TEMPLATE_FLAG_STAIR: u32 = 1 << 1;
 pub const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT: u32 = 1 << 2;
 /// Template belongs to a contiguous sixteen-mask thin-pane topology group.
 pub const MODEL_TEMPLATE_FLAG_PANE: u32 = 1 << 3;
+/// Quad counts a pane template can have: an unconnected post, up to a four-way two-faced pane.
+pub(crate) const PANE_TEMPLATE_QUADS: std::ops::RangeInclusive<u32> = 6..=22;
 /// Template belongs to a wood-fence post plus sixteen-mask arm group.
 pub const MODEL_TEMPLATE_FLAG_FENCE_WOOD: u32 = 1 << 4;
 /// Template belongs to a nether-fence post plus sixteen-mask arm group.
@@ -118,12 +120,25 @@ pub const MODEL_TEMPLATE_FLAG_HEAVY_CORE: u32 = 1 << 21;
 pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 /// Azalea templates select a separate stem and canopy for inventory previews.
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
+/// First of a chorus plant's template bank, indexed by `chorus::template_offset`.
+pub const MODEL_TEMPLATE_FLAG_CHORUS_PLANT: u32 = 1 << 28;
 /// Pointed dripstone and sulfur spike crosses slide around their column by a narrower offset.
 pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
 /// Downward-growing vine: two stem planes then two tip planes, chosen by the cell below.
 pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
 /// Upward-growing vine: two stem planes then two tip planes, chosen by the cell above.
 pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
+/// Head of a scaffolding chain: a foot ring only drawn with no support below, then the
+/// rest of the model in the following parts.
+pub const MODEL_TEMPLATE_FLAG_SCAFFOLDING: u32 = 1 << 29;
+
+/// Reports whether scaffolding above a block with these facts stands on it, which starts its
+/// template chain after the foot ring. Terrain and block overlays share this answer.
+#[must_use]
+pub const fn scaffolding_is_supported(below: crate::BlockFlags, below_template_flags: u32) -> bool {
+    below.contains(crate::BlockFlags::FIRE_TOP_SUPPORT)
+        || below_template_flags & MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0
+}
 /// A piston's three-quarter world body; the next template is the full cube its item draws.
 pub const MODEL_TEMPLATE_FLAG_PISTON_BODY: u32 = 1 << 27;
 
@@ -214,12 +229,14 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_HEAVY_CORE
             | MODEL_TEMPLATE_FLAG_SHELF
             | MODEL_TEMPLATE_FLAG_AZALEA
+            | MODEL_TEMPLATE_FLAG_CHORUS_PLANT
             | MODEL_TEMPLATE_FLAG_SPELEOTHEM
             | MODEL_TEMPLATE_FLAG_WEEPING_VINE
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
             | MODEL_TEMPLATE_FLAG_PISTON_BODY
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+        || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_SCAFFOLDING
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,

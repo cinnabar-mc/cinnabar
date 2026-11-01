@@ -80,7 +80,7 @@ stonecutter selection, cursor dragging, block passengers and registered audio pa
 are decoded, counted and skipped until their client features are implemented.
 The target catalog includes fire and wire connection states with empty collision;
 collision, selection and connection-rendering acceptance for those states remains incomplete.
-Chorus plants, disc presses, ice crystals and icicles remain reserved because their
+Disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
 remains incomplete. The official matching-protocol preview resource pack supplies
 property domains and HUD inputs, including the combined hotbar-slot renderer.
@@ -193,12 +193,15 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   neighbour check.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close chorus visuals. Plants grow arms toward chorus neighbours and end stone below, with
+  position-selected stubs elsewhere, and flowers draw their three bars. Collision reaches the edges the
+  state's connections name. Drawing selects from the neighbours, as the 26.30 reference does; a
+  1.26.61 server keeps the connection states set the same way, and whether the 1.26.60 client reads
+  them instead is unverified.
 - [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
   and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
   inactive and cooldown phases, and calibrated sensors keep their provisional shape without
   tendrils, crystal or facing-mapped faces.
-- [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
-  plants stay diagnostic until their reserved registry entry has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
@@ -246,11 +249,18 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
   regressions, registry regeneration and Linux rendered comparison pass; matched native
   visual and replacement-pack qualification remain incomplete.
+- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm and
+  other panes two planes with end caps only at four arms. Cap culling against stacked panes
+  and the two-sidedness of single-plane arms have no native comparison yet.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
   attachment and signal states.
 - [ ] Close shelf native-gallery, pack-pixel fidelity and live replacement-pack acceptance.
+- [ ] Close scaffolding foot-ring support: the world model selects its foot ring from
+  the fire top-support fallback or scaffolding below, which approximates the native block
+  property across non-cube blocks. Top and bottom culling against neighbouring scaffolding
+  has no native comparison yet.
 - [ ] Close the static-sign gallery and native visual acceptance.
 - [ ] Establish exact standing/hanging sign board, post and support geometry, UVs and
   GPU/native evidence. Provisional dimensions are not final geometry parity.
@@ -653,6 +663,11 @@ lookup across the passing list.
   Transactional Molang snapshots reuse cleared arrays and copy assigned slots while keeping
   independent random streams, string ownership and write tracking. Full rendered and hardware
   qualification of animation publication remains open.
+  Entity, attachable and skin `poly_mesh` share native parsing, inheritance, UV resolution and
+  tessellation order. The rig's vertex capacity skips a mesh that would pass it, and no native
+  limit was found in parse or compile, so that capacity remains unverified parity work. The quad
+  split diagonal and any native tessellator limit are unverified; so is the native behaviour on
+  1.26.60 and later, read only on 26.30 and 1.26.50.26.
   Geometry with matching resolved inheritance chains and identical animation or controller
   definitions across pack files resolve as one. Differing duplicates (the turtle's two `move`
   controllers) still reject the rig: native file load order is unverified.
@@ -1766,7 +1781,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   DX12 and software adapters use integer-backed fused dot accumulation to preserve the
   reference hash rounding; other hardware backends retain native fused instructions. Those
   helpers loop over components and select instead of branching, so DXC compiles a large pack
-  in seconds rather than minutes. Hardware DX12 pack acceptance remains incomplete.
+  in seconds rather than minutes. Windows CI's D3D12 adapter returned NaN for a dot step with an
+  infinite operand where binary32 gives infinity, which WGSL permits; other non-finite samples on
+  D3D12 are unchecked. Hardware DX12 pack acceptance remains incomplete.
   Geometry draw pipelines build on worker threads (half the hardware threads), and the loading
   toast counts built pipelines. Retired loads cancel between GPU batches and between pipelines;
   a superseded load is left to stop on its own, so the next selection starts at once. Atlas

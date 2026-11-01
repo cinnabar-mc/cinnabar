@@ -985,3 +985,18 @@ fn weather_policy_admission_rejects_denied_writes() {
     );
     assert!(allowed.environment.pending_weather.is_none());
 }
+
+/// Native editor ownership is reported only with controls authority and only as supplied.
+#[test]
+fn native_editing_is_granted_and_reports_the_supplied_frame_state() {
+    let mut granted = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(false));
+    granted.controls.native_editing = true;
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(true));
+    let mut denied = state(ModGrants::default());
+    denied.controls.native_editing = true;
+    assert!(denied.read_native_editing().unwrap().is_err());
+}

@@ -478,7 +478,6 @@
     }
   },
   "unresolved_retail": [
-    "minecraft:chorus_plant",
     "minecraft:disc_press",
     "minecraft:ice_crystal",
     "minecraft:icicle"
@@ -586,7 +585,7 @@
     }
   ],
   "movement_census": {
-    "identifiers_sha256": "d9dccba6808174a462af3be8b9c9a2a625675fe946891431667cc61368f4546d",
+    "identifiers_sha256": "bb2494c4bb0fe40dc1e95ded7afddf5450dfafd10c2ad83ed4530ac6ab5c1308",
     "unmodeled": [
       "minecraft:acacia_door",
       "minecraft:acacia_fence_gate",
@@ -7206,6 +7205,8 @@
       "ResinClump": "minecraft:resin_clump",
       "Sunflower": "minecraft:sunflower",
       "Dirt": "minecraft:dirt",
+      "ChorusPlant": "minecraft:chorus_plant",
+      "EndStone": "minecraft:end_stone",
       "SporeBlossom": "minecraft:spore_blossom",
       "ChorusFlower": "minecraft:chorus_flower",
       "PointedDripstone": "minecraft:pointed_dripstone",

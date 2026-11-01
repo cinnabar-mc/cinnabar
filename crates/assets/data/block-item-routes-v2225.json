@@ -5,7 +5,7 @@
   "dragonfly_module": "github.com/df-mc/dragonfly",
   "dragonfly_version": "v0.11.5",
   "dragonfly_module_sum": "h1:amqepXVBRBi/e5j1K2H8GjNFgpMs6FP1RQgNH0Myfn0=",
-  "breg_sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266",
+  "breg_sha256": "412f29c2a15745c228c8ddefa4672e30c426222d23530b94cc0070b1f83dcc11",
   "routes": [
     {
       "identifier": "minecraft:acacia_button",

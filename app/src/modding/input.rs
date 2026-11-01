@@ -601,6 +601,9 @@ pub(super) fn prepare_mod_input(
         absorbed,
         crate::camera::mouse_input_active(&window, &cursor, focus.as_deref(), driven.is_some()),
     );
+    // The editor state in which this frame's keys were routed, before Escape or a commit
+    // could end the edit.
+    extension.native_editing = (editing && focused && !absorbed).then_some(owner);
     extension.controls = mod_host::ControlFrame {
         seconds: time
             .as_ref()

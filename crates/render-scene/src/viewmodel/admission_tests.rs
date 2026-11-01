@@ -356,6 +356,7 @@ fn profile() -> assets::EntityGeometry {
             name: name.into(),
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             parent: parent.map(Into::into),
             pivot: Some(vec(pivot)),
             rotation: None,
