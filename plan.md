@@ -1062,6 +1062,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and lifecycle behavior without leaking UI-owned input into movement.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  Finite notification toasts emit their [interface sound](docs/reference/toast-audio.md)
+  once when their queued presentation begins. Native sound timing and matched live
+  achievement notification acceptance remain incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
