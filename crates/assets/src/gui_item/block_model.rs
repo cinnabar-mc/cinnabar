@@ -199,6 +199,7 @@ pub fn block_item_quads(
             }
         }
         (VisualKind::Model, Some(template)) => {
+            let template = crate::model::item_model_template(templates, template);
             let first = templates
                 .get(template as usize)
                 .ok_or(GuiBlockReject::Geometry)?;

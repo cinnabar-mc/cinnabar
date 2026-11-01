@@ -3707,7 +3707,9 @@
         "minecraft:barrier",
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
-        "minecraft:moving_block"
+        "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
       ],
       "prefix": "light_block_"
     },
@@ -6309,6 +6311,20 @@
     },
     {
       "entry": {
+        "nbt_id": "PistonArm",
+        "route": "model",
+        "renderer": "piston_arm",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
         "nbt_id": "Bell",
         "route": "model",
         "renderer": "bell",
@@ -7175,6 +7191,7 @@
     ],
     "blocks": {
       "RedstoneTorch": "minecraft:redstone_torch",
+      "RedstoneWire": "minecraft:redstone_wire",
       "UnlitRedstoneTorch": "minecraft:unlit_redstone_torch",
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
@@ -7202,6 +7219,8 @@
       "HeavyCore": "minecraft:heavy_core",
       "Crafter": "minecraft:crafter",
       "DriedGhast": "minecraft:dried_ghast",
+      "TurtleEgg": "minecraft:turtle_egg",
+      "TripWire": "minecraft:trip_wire",
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",

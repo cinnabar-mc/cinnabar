@@ -388,3 +388,61 @@ pub(in crate::chunk) fn spawn_camera(app: &mut App, transform: Transform, order:
         ))
         .id()
 }
+
+/// Streaming during raster probes must leave complete current CPU commands for fallback.
+#[test]
+fn raster_batch_refresh_survives_cpu_fallback_after_streaming() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::SHADER_EARLY_DEPTH_TEST,
+        ),
+        Msaa::Off,
+        camera_transform(),
+    );
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = false;
+    insert_meshes(&mut app, &KEYS[..1]);
+    test_time::eventually("initial retained CPU terrain batch", || {
+        frame(&mut app);
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<ChunkIndirectBatches>()
+            .0
+            .values()
+            .any(|batch| batch.visible_entities.len() == 1)
+    });
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<GpuCull>()
+        .enable_raster();
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = true;
+    insert_meshes(&mut app, &KEYS[1..]);
+    test_time::eventually("streamed raster candidates", || {
+        frame(&mut app);
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<GpuCull>()
+            .raster_orders[0]
+            .len()
+            == KEYS.len()
+    });
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = false;
+    frame(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    let cached: usize = world
+        .resource::<ChunkIndirectBatches>()
+        .0
+        .values()
+        .map(|batch| batch.visible_entities.len())
+        .sum();
+    assert_eq!(
+        cached,
+        KEYS.len(),
+        "CPU fallback must include terrain streamed during raster frames"
+    );
+}

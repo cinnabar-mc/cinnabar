@@ -109,7 +109,7 @@ const CRAFTER_FLIPS: [[u8; 6]; 12] = [
 ];
 
 /// Piston body flips for each `facing_direction`; its slots follow the head direction.
-const PISTON_FLIPS: [[u8; 6]; 6] = [
+pub const PISTON_FLIPS: [[u8; 6]; 6] = [
     [0, 0, 3, 3, 3, 3],
     [0; 6],
     [3, 3, 0, 0, 1, 1],
@@ -205,6 +205,11 @@ pub fn texture_variant(record: &RegistryRecord) -> Option<usize> {
                 + 4 * usize::from(flag(BlockProperty::Ominous)?)
         }
     })
+}
+
+/// A piston body's `facing_direction`, which indexes the native piston directions.
+pub fn piston_facing(record: &RegistryRecord) -> Option<u8> {
+    u8::try_from(facing(record)?).ok()
 }
 
 /// The native facing index of `facing_direction`, or of the observer's named

@@ -309,10 +309,12 @@ fn compile() -> (assets::CompiledAssets, Vec<RegistryRecord>) {
 /// The model quad a state draws for one world face.
 fn quad(runtime: &RuntimeAssets, record: &RegistryRecord, face: BlockFace) -> assets::ModelQuad {
     let visual = runtime.resolve(NetworkIdMode::Sequential, record.sequential_id);
-    let template = runtime.model_templates()[visual
+    let template = visual
         .model_template()
-        .unwrap_or_else(|| panic!("{} {} draws a model", record.name, record.canonical_state))
-        as usize];
+        .unwrap_or_else(|| panic!("{} {} draws a model", record.name, record.canonical_state));
+    // A piston's item cube carries the same flips over the whole face, unlike its cropped body.
+    let template = assets::item_model_template(runtime.model_templates(), template);
+    let template = runtime.model_templates()[template as usize];
     let quad = runtime.model_quads()[template.quad_start as usize..]
         [..template.quad_count as usize][face as usize];
     assert_eq!(quad.material, visual.face(face).material_id());
@@ -432,7 +434,7 @@ fn slot_name(face: BlockFace) -> &'static str {
 fn mapped_face_blocks_turn_their_authored_faces_with_their_state() {
     let (compiled, records) = compile();
     let runtime = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
-    // An upward piston body draws every face unturned, the reference for each face's UVs.
+    // An upward piston draws every face unturned, the reference for each face's UVs.
     let reference = named(&records, "minecraft:piston")
         .find(|r| int(r, BlockProperty::FacingDirection) == 1)
         .unwrap();

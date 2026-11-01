@@ -126,6 +126,8 @@ pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
 pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
 /// Upward-growing vine: two stem planes then two tip planes, chosen by the cell above.
 pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
+/// A piston's three-quarter world body; the next template is the full cube its item draws.
+pub const MODEL_TEMPLATE_FLAG_PISTON_BODY: u32 = 1 << 27;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -179,6 +181,16 @@ pub(crate) fn unit_cube_quad_geometry_is_valid(
     POSITIONS.get(index) == Some(&positions) && FLAGS.get(index) == Some(&flags)
 }
 
+/// The template an item of `template`'s block draws: a piston item is a full cube although its
+/// world body stops short of the head.
+#[must_use]
+pub fn item_model_template(templates: &[ModelTemplate], template: u32) -> u32 {
+    let body = templates
+        .get(template as usize)
+        .is_some_and(|part| part.flags & MODEL_TEMPLATE_FLAG_PISTON_BODY != 0);
+    template + u32::from(body)
+}
+
 pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
     matches!(
         flags,
@@ -208,6 +220,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_SPELEOTHEM
             | MODEL_TEMPLATE_FLAG_WEEPING_VINE
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
+            | MODEL_TEMPLATE_FLAG_PISTON_BODY
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
 }

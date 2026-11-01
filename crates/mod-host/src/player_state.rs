@@ -19,6 +19,7 @@ pub(super) struct PlayerState {
     current_revision: Option<u64>,
     revision: u64,
     reads: u32,
+    selected_slot_reads: u32,
     split: split::SplitState,
     pub observations: crate::module_observations::ModuleObservations,
     pub world: Option<crate::WorldObservation>,
@@ -33,7 +34,13 @@ impl PlayerState {
         self.snapshot = None;
         self.current_revision = None;
         self.reads = 0;
+        self.selected_slot_reads = 0;
         self.split.begin_frame();
+    }
+
+    /// Renews allowances scoped to one callback rather than one frame.
+    pub fn begin_callback(&mut self) {
+        self.selected_slot_reads = 0;
     }
 
     /// Compares validated callback facts with the last snapshot imported by the guest.
@@ -450,6 +457,30 @@ impl cinnabar::extension::player_state::Host for State {
             .effects
             .clone()
             .filter(|_| self.player_state.snapshot.is_some())))
+    }
+
+    /// Charges its own allowance, so polling the selection cannot exhaust snapshot reads.
+    fn read_selected_slot(
+        &mut self,
+    ) -> Result<Result<Option<cinnabar::extension::player_state::SelectedSlot>, String>> {
+        self.player_state.selected_slot_reads += 1;
+        if self.player_state.selected_slot_reads > mod_api::MAX_SELECTED_SLOT_READS {
+            bail!("selected-slot read budget exhausted");
+        }
+        if !self.grants.player_state {
+            return Ok(Err("player-state capability denied".into()));
+        }
+        Ok(Ok(self.player_state.snapshot.as_ref().and_then(
+            |snapshot| {
+                snapshot
+                    .selected_slot
+                    .map(|slot| cinnabar::extension::player_state::SelectedSlot {
+                        session: snapshot.session,
+                        dimension: snapshot.dimension,
+                        slot,
+                    })
+            },
+        )))
     }
 
     fn read_revision(&mut self) -> Result<Result<Option<u64>, String>> {

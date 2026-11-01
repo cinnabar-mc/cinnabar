@@ -603,3 +603,52 @@ fn movement_input_is_bounded_granted_and_frame_scoped() {
     state.world.commit();
     assert!(state.world.movement_input.is_none());
 }
+
+/// Crosshair mining is opt-in, transactional, and released with other frame interactions.
+#[test]
+fn block_mining_is_granted_and_expires_with_the_frame() {
+    let mut denied = state(ModGrants::default());
+    assert!(denied.set_block_mining(true).unwrap().is_err());
+    assert!(denied.set_block_mining(false).unwrap().is_err());
+    let mut state = state(ModGrants {
+        interaction: true,
+        ..Default::default()
+    });
+    state.snapshot = None;
+    assert!(state.set_block_mining(true).unwrap().is_err());
+    state.set_block_mining(false).unwrap().unwrap();
+    state.controls.begin_frame();
+    state.snapshot = Some(snapshot());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.controls.frame.panel_open = true;
+    assert!(state.set_block_mining(true).unwrap().is_err());
+    state.controls.frame.panel_open = false;
+    state.set_block_mining(true).unwrap().unwrap();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.commit();
+    assert!(state.controls.interaction.block_mining);
+    assert!(!state.controls.interaction.attack_pulse);
+    state.controls.begin_frame();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.controls.rollback();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.set_block_mining(false).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.begin_frame();
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.controls.commit();
+    state.controls.revoke();
+    assert!(!state.controls.interaction.block_mining);
+}

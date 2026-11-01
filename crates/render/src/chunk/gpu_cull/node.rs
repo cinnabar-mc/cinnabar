@@ -237,6 +237,7 @@ pub(crate) fn late_cull(
         SectionSpan::claim(world, "late cull draws"),
     ];
     let colour = scene_target.color_attachment(target, false);
+    let raster_depth = crate::scene_sampling::view_depth(depth).clone();
     let depth = depth.get_attachment(StoreOp::Store);
     let timestamps = crate::gpu_timing::render_pass_timestamps(
         world,
@@ -259,6 +260,18 @@ pub(crate) fn late_cull(
         );
     let device = world.resource::<RenderDevice>();
     let encoder = render_context.command_encoder();
+    if let Some(raster) = &cull.raster {
+        raster.encode(
+            encoder,
+            &raster_depth,
+            cull.slot_count(),
+            cull.raster_viewport,
+            (
+                compute_pass_timestamps(world, RuntimeStage::GpuCullRaster),
+                crate::gpu_timing::render_pass_timestamps(world, RuntimeStage::GpuCullRaster),
+            ),
+        );
+    }
     if let Some(prepared) = pyramid {
         within_span(spans[0].as_ref(), encoder, |encoder| {
             cull.kernels.encode_pyramid(

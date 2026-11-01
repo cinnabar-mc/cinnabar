@@ -8,10 +8,19 @@ pub struct Capability {
     pub label: &'static str,
     /// Whether this capability can change combat, movement or gameplay input.
     pub sensitive: bool,
+    /// Whether this permission belongs exclusively to packet runtimes.
+    pub packet_only: bool,
     pub enabled: fn(&ModGrants) -> bool,
     /// Whether every requested value for this capability is already granted.
     pub requested_allowed: fn(&ModGrants, &ModGrants) -> bool,
     pub set: fn(&mut ModGrants, bool, Option<&ModGrants>),
+}
+
+impl Capability {
+    /// Whether this permission applies to the selected runtime kind.
+    pub fn applies_to(&self, packet: bool) -> bool {
+        packet || !self.packet_only
+    }
 }
 
 trait GrantValue {
@@ -60,7 +69,9 @@ impl GrantValue for Vec<String> {
 }
 
 macro_rules! grants {
-    ($(#[doc = $doc:literal] #[permission($label:literal, $sensitive:literal)] pub $field:ident: $ty:ty,)* ) => {
+    (@packet) => { false };
+    (@packet $value:literal) => { $value };
+    ($(#[doc = $doc:literal] #[permission($label:literal, $sensitive:literal $(, $packet_only:literal)?)] pub $field:ident: $ty:ty,)* ) => {
         /// Explicit per-instance authority; optional capabilities are denied by default.
         #[derive(Clone, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
         #[serde(default, deny_unknown_fields)]
@@ -73,6 +84,7 @@ macro_rules! grants {
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
                 name: stringify!($field), description: $doc, label: $label, sensitive: $sensitive,
+                packet_only: grants!(@packet $($packet_only)?),
                 enabled: |grants| GrantValue::enabled(&grants.$field),
                 requested_allowed: |grants, requested| GrantValue::covers(&grants.$field, &requested.$field),
                 set: |grants, enabled, requested| GrantValue::set(&mut grants.$field, enabled, requested.map(|grants| &grants.$field)),
@@ -97,10 +109,10 @@ grants! {
     /// Allows current-frame remote player and camera pose reads with independent user consent.
     #[permission("Player poses", false)]
     pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
+    /// Allows bounded local camera rotation, rigs, view tilt and scale, and teleport handlers.
     #[permission("Camera rotation", true)]
     pub camera: bool,
-    /// Allows one immediate air use after each slot change and air use while attacking.
+    /// Allows item-use pulses that skip the client's use repeat delays.
     #[permission("Item use", true)]
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
@@ -172,18 +184,34 @@ grants! {
     /// Allows retained local fullbright lighting, without altering server light data.
     #[permission("Fullbright", false)]
     pub fullbright: bool,
-    /// Allows observing and cancelling local sound playback requests.
+    /// Allows sound handlers that observe and cancel local sound playback requests.
     #[permission("Sound filtering", false)]
     pub audio: bool,
     /// Lets a trusted packet mod see and change every session packet, and add resource packs.
-    #[permission("Session packets", true)]
+    #[permission("Session packets", true, true)]
     pub packets: bool,
     /// Links WASI clocks, randomness and captured output into a packet mod, never files or network.
-    #[permission("WASI runtime", false)]
+    #[permission("WASI runtime", false, true)]
     pub wasi: bool,
 }
 
 impl ModGrants {
+    /// Whether retained authority includes any capability restricted to packet runtimes.
+    pub fn has_packet_only(&self) -> bool {
+        Self::CAPABILITIES
+            .iter()
+            .any(|capability| capability.packet_only && (capability.enabled)(self))
+    }
+
+    /// Removes authority unavailable to the selected runtime, preserving unrelated capabilities.
+    pub fn retain_applicable(&mut self, packet: bool) {
+        for capability in Self::CAPABILITIES {
+            if !capability.applies_to(packet) {
+                (capability.set)(self, false, None);
+            }
+        }
+    }
+
     /// Whether current input-owned gameplay is needed to serve any granted capability.
     pub fn needs_gameplay(&self) -> bool {
         self.terrain

@@ -299,7 +299,12 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
     let directory = tempfile::tempdir().unwrap();
     for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
         let mut runtime = panel_hosts(directory.path());
-        runtime.select_panel(&[key.into()]);
+        let index = ["KeyA", "KeyB", "KeyC"]
+            .iter()
+            .position(|item| *item == key)
+            .unwrap();
+        runtime.host_mut(index).set_panel_open(true);
+        runtime.select_opened_panel(index);
         let removed = runtime.remove(0);
         assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
         assert_eq!(runtime.host_count(), 2);
@@ -313,7 +318,8 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
 fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = panel_hosts(directory.path());
-    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    assert!(runtime.select_opened_panel(2));
     runtime.host_mut(2).set_panel_open(true);
     runtime.swap(0, 2);
     assert_eq!(runtime.panel_owner(), 0);
@@ -1063,73 +1069,6 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
     );
 }
 
-/// Loads sound observers against the same component ABI fixture as the host.
-fn sound_observers(bodies: &[(&str, bool)]) -> ModHosts {
-    let directory = tempfile::tempdir().unwrap();
-    let mods = bodies
-        .iter()
-        .enumerate()
-        .map(|(index, (body, inverse))| {
-            let mut source = include_str!("../../../mod-host/src/tests/audio.wat")
-                .replace("$BODY", body)
-                .replace("$LENGTH", "local.get 1");
-            if *inverse {
-                source = source
-                    .replace(
-                        "i32.const 1024 i32.const 0 i32.store8",
-                        "i32.const 1024 i32.const 1 i32.store8",
-                    )
-                    .replace(
-                        "i32.const 1025 i32.const 1 i32.store8",
-                        "i32.const 1025 i32.const 0 i32.store8",
-                    );
-            }
-            let path = directory.path().join(format!("sound-{index}.wat"));
-            std::fs::write(&path, source).unwrap();
-            (
-                path,
-                ModGrants {
-                    audio: true,
-                    ..Default::default()
-                },
-            )
-        })
-        .collect();
-    load_set(mods)
-}
-
-/// Each observer can cancel independently, but cannot undo another's cancellation.
-#[test]
-fn sound_filter_cancellations_combine_across_components() {
-    let mut hosts = sound_observers(&[("", false), ("", true)]);
-    let events = vec![
-        mod_host::SoundEvent {
-            name: "fixture.sound".into(),
-            position: None,
-            looping: false
-        };
-        2
-    ];
-    assert_eq!(hosts.filter_sounds(&events), [false, false]);
-}
-
-/// Runaway callbacks consume the pool; skipped observers remain active and retry next frame.
-#[test]
-fn sound_filter_budget_bounds_fanout_without_trapping_skipped_components() {
-    let runaway_count = (mod_api::TOTAL_SOUND_FILTER_FUEL / mod_host::FRAME_FUEL) as usize;
-    let mut bodies = vec![("(loop $forever br $forever)", false); runaway_count];
-    bodies.push(("", false));
-    let mut hosts = sound_observers(&bodies);
-    let events = vec![
-        mod_host::SoundEvent {
-            name: "fixture.sound".into(),
-            position: None,
-            looping: false
-        };
-        2
-    ];
-    assert_eq!(hosts.filter_sounds(&events), [true, true]);
-    assert!((0..runaway_count).all(|index| !hosts.host(index).is_active()));
-    assert!(hosts.host(runaway_count).has_sound_filter());
-    assert_eq!(hosts.filter_sounds(&events), [false, true]);
-}
+/// Event-handler composition across components.
+#[path = "multi_handler_tests.rs"]
+mod handlers;

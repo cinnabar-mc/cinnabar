@@ -12,7 +12,7 @@ mod font_atlas;
 pub mod font_shading;
 mod frame_buffers;
 mod frame_latency;
-pub use frame_buffers::FrameBuffers;
+pub use frame_buffers::{CapacityRetention, FrameBuffers, FrameScratch};
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{
@@ -26,6 +26,9 @@ pub mod panorama;
 mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
+
+/// Largest in-plane cube seam step in world units per unit of clip w.
+pub const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
 mod ui;
 mod ui_model;
 mod ui_publication_pool;
@@ -193,6 +196,7 @@ pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::LoyaltyRopeModel;
+pub use block_entity::PistonArmModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
     AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,
