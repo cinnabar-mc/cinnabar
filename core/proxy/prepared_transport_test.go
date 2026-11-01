@@ -333,7 +333,7 @@ func TestAddressedServerProbesDuringAuthenticationAndDialsNetherNetWithIdentity(
 	}))
 	defer server.Close()
 	address := server.Listener.Addr().String()
-	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil), address)
+	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil, nil), address)
 	defer prepared.finish(false)
 	select {
 	case <-probed:
@@ -368,7 +368,7 @@ func TestAddressedServerWithoutSignalingPreDialsRakNet(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer server.Close()
-	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil), server.LocalAddr().String())
+	prepared := newPreparedTransport(t.Context(), remoteServerNetwork(slog.New(slog.DiscardHandler), nil, nil), server.LocalAddr().String())
 	defer prepared.finish(false)
 	buffer := make([]byte, 2048)
 	_ = server.SetReadDeadline(time.Now().Add(2 * time.Second))
