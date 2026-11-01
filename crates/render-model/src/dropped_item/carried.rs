@@ -1,7 +1,7 @@
 //! Blocks an actor's renderer draws with its body: the block an enderman carries and the pumpkin
 //! a snow golem wears.
 
-use glam::{Affine3A, EulerRot, Mat3A, Quat, Vec3, Vec3A};
+use glam::{Affine3A, Mat3A, Quat, Vec3, Vec3A};
 
 /// Model-origin height per unit of actor scale in the vanilla entity frame (24 pixels).
 const MODEL_ORIGIN_BLOCKS: f32 = 1.5;
@@ -50,6 +50,22 @@ const SNOW_GOLEM_PUMPKIN_PIVOT_BLOCKS: f32 = 1.3047;
 const SNOW_GOLEM_PUMPKIN_ABOVE_PIVOT_BLOCKS: f32 = 0.2930;
 const SNOW_GOLEM_PUMPKIN_SCALE: f32 = 0.625;
 
+/// Below this cosine of yaw, a head turned sideways has no separate roll to read.
+const GIMBAL_YAW_COSINE: f32 = 1e-3;
+
+/// A rotation's `Rz(roll) * Ry(yaw) * Rx(pitch)` angles in radians. Turned exactly sideways those
+/// axes line up, so the pitch carries the whole remaining rotation and the roll reads as zero.
+fn roll_yaw_pitch(rotation: Quat) -> (f32, f32, f32) {
+    let matrix = Mat3A::from_quat(rotation);
+    let (x, y, z) = (matrix.x_axis, matrix.y_axis, matrix.z_axis);
+    let yaw = (-x.z).atan2(x.x.hypot(x.y));
+    if x.x.hypot(x.y) < GIMBAL_YAW_COSINE {
+        (0.0, yaw, (yaw.signum() * y.x).atan2(y.y))
+    } else {
+        (x.y.atan2(x.x), yaw, y.z.atan2(z.z))
+    }
+}
+
 /// The yaw and pitch of a snow golem's head rotation in the rig frame, in radians. The native
 /// layer reads only these two angles of the head part, so a roll drops out. Every rotation has two
 /// readings a half-turn roll apart, and a pose cannot say which was authored, so this takes the
@@ -57,7 +73,7 @@ const SNOW_GOLEM_PUMPKIN_SCALE: f32 = 0.625;
 fn snow_golem_head_yaw_pitch(rotation: Quat) -> (f32, f32) {
     use std::f32::consts::{PI, TAU};
     let wrap = |angle: f32| (angle + PI).rem_euclid(TAU) - PI;
-    let (roll, yaw, pitch) = rotation.to_euler(EulerRot::ZYX);
+    let (roll, yaw, pitch) = roll_yaw_pitch(rotation);
     let (other_roll, other_yaw, other_pitch) = (wrap(roll + PI), wrap(PI - yaw), wrap(pitch + PI));
     if roll.abs() + yaw.abs() + pitch.abs()
         <= other_roll.abs() + other_yaw.abs() + other_pitch.abs()
@@ -259,6 +275,18 @@ mod tests {
         let moved = affine_from_rows(rows.expect("finite"));
         assert!(moved.matrix3.abs_diff_eq(plain.matrix3, 1e-5));
         assert!(moved.translation.abs_diff_eq(plain.translation, 1e-5));
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_keeps_a_pitched_head_turned_exactly_sideways() {
+        for (pitch, yaw) in [(20.0, 90.0), (20.0, -90.0), (-35.0, 90.0)] {
+            let up = pumpkin_with_head(authored(pitch, yaw)).matrix3.y_axis;
+            let expected = facing_south_axis(authored(pitch, yaw) * Vec3::Y);
+            assert!(
+                Vec3::from(up).normalize().distance(expected) < 1e-3,
+                "{pitch} {yaw}: {up} != {expected}"
+            );
+        }
     }
 
     #[test]
