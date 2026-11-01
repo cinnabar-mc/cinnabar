@@ -365,11 +365,16 @@ interface player-state {
 interface panel {
     /// One numeric control event routed to its owning mod by control ID.
     record event { id: string, value: f32 }
-    /// Changes this instance's panel input ownership on successful callback return.
-    /// Requires controls authority and a retained or pending panel when opening.
-    /// The latest opener owns the panel and closes other owners. Opening keys belong
-    /// to the mod: legacy toggle_key JSON is accepted and ignored by the host.
-    set-open: func(open: bool) -> result<_, string>;
+    /// Opens this instance's panel on successful callback return. Requires controls
+    /// authority and retained or pending panel content. Repeated opens keep it open.
+    /// The latest opener owns input and closes other owners. Opening keys belong to the mod.
+    open: func() -> result<_, string>;
+    /// Closes this instance's panel on successful callback return. Requires controls authority.
+    /// Repeated closes keep it closed; content remains available for a later open.
+    close: func() -> result<_, string>;
+    /// Flips this instance's requested visibility, including earlier requests in this callback.
+    /// Uses the same authority, content and successful-return rules as open and close.
+    toggle: func() -> result<_, string>;
     /// Bounded panel JSON; empty text removes the panel and releases its input. A
     /// `cinnabar_hud_control` node draws a named control of this mod's HUD surface, centred:
     /// its laid-out box fitted to the node, or at `scale` times its HUD size, or with `fit`,

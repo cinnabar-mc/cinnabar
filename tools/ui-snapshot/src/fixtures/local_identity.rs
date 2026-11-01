@@ -31,7 +31,7 @@ pub(super) fn fixture(available: bool) -> Fixture {
     ]}})
     .to_string();
     let panel = serde_json::from_value(json!({
-        "toggle_key":"F10", "controls":[],
+        "controls":[],
         "reference_size":[640,360], "surface":{"screen":"local_identity.screen","document":document}
     }))
     .expect("valid identity panel fixture");

@@ -17,7 +17,7 @@ fn state(grants: ModGrants) -> State {
 /// A minimal surface panel with the `controls` JSON array.
 fn panel_json(controls: &str) -> String {
     format!(
-        r#"{{"toggle_key":"ShiftRight","controls":{controls},"surface":{}}}"#,
+        r#"{{"controls":{controls},"surface":{}}}"#,
         crate::tests::panel_surface("local")
     )
 }
@@ -726,25 +726,6 @@ fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
     assert!(validate_frame(&frame).is_err());
 }
 
-#[test]
-fn opening_panel_is_granted_transactional_and_requires_content() {
-    use cinnabar::extension::panel::Host as _;
-    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
-    assert!(state.set_open(true).unwrap().is_err());
-    state.grants.controls = true;
-    assert!(state.set_open(true).unwrap().is_err());
-    state.set_content(panel()).unwrap().unwrap();
-    assert!(state.set_open(true).unwrap().is_ok());
-    assert!(!state.controls.open);
-    state.controls.commit();
-    assert!(state.controls.open);
-    state.set_open(false).unwrap().unwrap();
-    assert!(state.controls.open);
-    state.controls.revoke();
-    state.controls.commit();
-    assert!(!state.controls.open);
-}
-
 /// Live changes survive deferred callbacks, coalesce, and remain separate from legacy commits.
 #[test]
 fn native_field_input_coalesces_and_retains_modifiers() {
@@ -1000,3 +981,6 @@ fn native_editing_is_granted_and_reports_the_supplied_frame_state() {
     denied.controls.native_editing = true;
     assert!(denied.read_native_editing().unwrap().is_err());
 }
+
+#[path = "controls_tests/panel_visibility.rs"]
+mod panel_visibility;

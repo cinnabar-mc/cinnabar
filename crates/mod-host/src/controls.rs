@@ -452,8 +452,9 @@ pub(super) fn reserve(state: &mut State, keys: Vec<String>) -> Result<Result<(),
     Ok(Ok(()))
 }
 
-impl cinnabar::extension::panel::Host for State {
-    fn set_open(&mut self, open: bool) -> Result<Result<(), String>> {
+impl State {
+    /// Stages visibility after authority and retained-content validation.
+    fn request_panel_open(&mut self, open: bool) -> Result<Result<(), String>> {
         self.controls.budget(false)?;
         if !self.grants.controls {
             return Ok(Err("controls capability denied".into()));
@@ -468,6 +469,19 @@ impl cinnabar::extension::panel::Host for State {
         }
         self.controls.pending_open = Some(open);
         Ok(Ok(()))
+    }
+}
+
+impl cinnabar::extension::panel::Host for State {
+    fn open(&mut self) -> Result<Result<(), String>> {
+        self.request_panel_open(true)
+    }
+    fn close(&mut self) -> Result<Result<(), String>> {
+        self.request_panel_open(false)
+    }
+    fn toggle(&mut self) -> Result<Result<(), String>> {
+        let open = self.controls.pending_open.unwrap_or(self.controls.open);
+        self.request_panel_open(!open)
     }
     fn set_content(&mut self, json: String) -> Result<Result<(), String>> {
         self.controls.budget(false)?;

@@ -39,7 +39,7 @@ fn surface_only_panels_validate() {
             "binding_name_override":"#offset"}]}}
     ]}});
     let panel: Panel = serde_json::from_value(serde_json::json!({
-        "show_gameplay_hud":true,"toggle_key":"RightShift","motion":true,"capture_key":false,
+        "show_gameplay_hud":true,"motion":true,"capture_key":false,
         "reference_size":[495,304],
         "controls":[{"kind":"toggle","id":"aim","label":"Aim","value":false}],
         "surface":{"screen":"lunar.root","document":document.to_string(),

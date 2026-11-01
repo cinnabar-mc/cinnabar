@@ -283,7 +283,7 @@ fn panel_hosts(directory: &Path) -> ModHosts {
     );
     for (index, key) in ["KeyA", "KeyB", "KeyC"].into_iter().enumerate() {
         let bundle = serde_json::json!({
-            "panel": {"toggle_key":key, "controls":[], "surface":{"screen":format!("{key}.root"),
+            "panel": {"controls":[], "surface":{"screen":format!("{key}.root"),
                 "document":serde_json::json!({"namespace":key,"root":{"type":"panel"}}).to_string()}},
             "surfaces":{}
         });
@@ -307,10 +307,10 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
         runtime.host_mut(index).set_panel_open(true);
         runtime.select_opened_panel(index);
         let removed = runtime.remove(0);
-        assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
+        assert_eq!(removed.panel().unwrap().surface.screen, "KeyA.root");
         assert_eq!(runtime.host_count(), 2);
-        assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyB");
-        assert_eq!(runtime.host(1).panel().unwrap().toggle_key, "KeyC");
+        assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyB.root");
+        assert_eq!(runtime.host(1).panel().unwrap().surface.screen, "KeyC.root");
         assert_eq!(runtime.panel_owner(), selected);
     }
 }
@@ -332,7 +332,7 @@ fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     assert_eq!(runtime.panel_owner(), 1);
     runtime.remove(0);
     assert_eq!(runtime.panel_owner(), 0);
-    assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyC");
+    assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyC.root");
     assert!(runtime.host(0).panel_open());
 }
 
