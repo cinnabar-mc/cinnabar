@@ -59,6 +59,7 @@ impl UiPresentationRuntime {
             && !runtime.session.local_sleeping
             && !runtime.session.emotes.is_open()
             && !runtime.session.sign_editor.is_open()
+            && !runtime.session.command_block.is_open()
             && !runtime.session.forms.owns_input()
             && !runtime.session.credits.owns_input()
             && runtime.session.hud.toasts().is_empty()

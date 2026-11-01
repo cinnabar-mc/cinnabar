@@ -33,6 +33,7 @@ pub enum Scene {
     /// Client-owned cover while an in-session global resource-pack replacement publishes.
     ResourcePackLoading,
     SignEditor,
+    CommandBlock,
     ServerForm,
     /// A script form shown through data-driven UI.
     DataDriven,
@@ -53,6 +54,7 @@ impl Scene {
             | Self::MobEffects
             | Self::ResourcePackLoading
             | Self::SignEditor
+            | Self::CommandBlock
             | Self::ServerForm
             | Self::DataDriven
             | Self::ServerSettingsForm

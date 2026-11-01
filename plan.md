@@ -1112,6 +1112,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
   their JSON-UI collection. Actor portraits, matched acceptance for larger action
   lists and touch/console behavior remain incomplete.
+  A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
+  its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
+  minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste
+  button (Ctrl+V pastes), the profanity filter on shown text, the unicode-to-ASCII command
+  input map, moving focus to the box on maximize and the gamepad-only close-button layout
+  remain incomplete.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
   Data-driven UI (DDUI) data stores follow the server's replacements, path updates,

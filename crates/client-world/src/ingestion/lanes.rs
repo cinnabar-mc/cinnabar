@@ -307,6 +307,11 @@ fn classify_event(event: &WorldEvent, context: LaneContext) -> Footprint {
             consumers: C::UI,
             ..Footprint::terrain([column(event.dimension, event.position)], false)
         },
+        // Ordered after the column's block actor data, which the editor loads from.
+        WorldEvent::OpenCommandBlock(event) => Footprint {
+            consumers: C::UI,
+            ..Footprint::terrain([column(event.dimension, event.position)], false)
+        },
         WorldEvent::NetworkStackLatency(_) => Footprint {
             local_authority: true,
             // The reply acknowledges earlier actor positions and collision metadata too.

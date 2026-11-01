@@ -14,7 +14,7 @@ use ui::{ChatClipboard, UiPoint};
 
 use super::engine_focus;
 use super::engine_scroll;
-use super::values::{slider_fraction, slider_value_after_step, slider_value_at};
+use super::values::{FormEngineState, slider_fraction, slider_value_after_step, slider_value_at};
 use super::{FormValue, LocalFormAction};
 use crate::ui_runtime::{PlatformClipboard, UiRuntime};
 use ui_engine::frame::EngineFrame;
@@ -58,18 +58,49 @@ pub struct EngineInput<'a> {
     pub animator: Option<std::sync::MutexGuard<'a, json_ui::Animator>>,
 }
 
+/// One input frame's screen events, with what each pointer release answers for.
+#[derive(Debug, Default)]
+pub struct DispatchedInput {
+    pub events: Vec<ScreenEvent>,
+    /// The event range a release raised and the control its press went down on.
+    releases: Vec<(std::ops::Range<usize>, Option<String>)>,
+}
+
+impl DispatchedInput {
+    /// The control the pointer press behind the event at `index` went down on.
+    pub fn pressed_at(&self, index: usize) -> Option<&str> {
+        self.releases
+            .iter()
+            .find(|(range, _)| range.contains(&index))
+            .and_then(|(_, pressed)| pressed.as_deref())
+    }
+}
+
+/// Whether `button` activates its control: a pointer press answers on release over the control it
+/// went down on (`pressed`), any other input on its down edge.
+pub fn activates(button: &ButtonEvent, pressed: Option<&str>) -> bool {
+    if button.from == SELECT {
+        !button.down && pressed == Some(button.key.as_str())
+    } else {
+        button.down && button.interacted
+    }
+}
+
 /// Dispatches one captured frame through the retained form controller.
-pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInput<'_>) {
+pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, input: EngineInput<'_>) {
     let Some(entry) = runtime.server_forms().active() else {
         return;
     };
     let identity = entry.identity;
     let model = entry.model.clone();
+    let now = input.now;
     // Controls `destroy_at_end` removed take no input.
-    let survivors;
-    let frame = match input.animator.as_ref() {
-        Some(animator) if frame.hits.iter().any(|hit| animator.is_destroyed(&hit.key)) => {
-            survivors = EngineFrame {
+    let survivors = input.animator.as_ref().and_then(|animator| {
+        frame
+            .hits
+            .iter()
+            .any(|hit| animator.is_destroyed(&hit.key))
+            .then(|| EngineFrame {
                 hits: frame
                     .hits
                     .iter()
@@ -77,44 +108,63 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
                     .cloned()
                     .collect(),
                 ..frame.clone()
-            };
-            &survivors
+            })
+    });
+    let frame = survivors.as_ref().unwrap_or(frame);
+    let dispatched = dispatch(runtime.server_forms_mut().engine_mut(), frame, input);
+    let mut action = None;
+    for (at, event) in dispatched.events.iter().enumerate() {
+        if let Some(found) = controller(runtime, frame, &model, event, dispatched.pressed_at(at)) {
+            action = Some(found);
         }
-        _ => frame,
-    };
+    }
+    if let Some(action) = action {
+        let now_millis = if now.is_finite() && now.is_sign_positive() {
+            (now * 1_000.0).min(u64::MAX as f64) as u64
+        } else {
+            0
+        };
+        let _ = runtime.respond_to_server_form_at(identity, action, now_millis);
+    }
+}
+
+/// Routes one frame of raw input through the screen's dispatcher: pointer and scroll, then each
+/// press and release, then keys, as vanilla's input buttons reach a screen's components.
+pub fn dispatch(
+    engine: &mut FormEngineState,
+    frame: &EngineFrame,
+    mut input: EngineInput<'_>,
+) -> DispatchedInput {
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
     let control = input.keys.contains(&KeyboardKey::ControlLeft)
         || input.keys.contains(&KeyboardKey::ControlRight)
         || input.keys.contains(&KeyboardKey::SuperLeft)
         || input.keys.contains(&KeyboardKey::SuperRight);
     let mut events = Vec::new();
-    {
-        let engine = runtime.server_forms_mut().engine_mut();
-        let delta = (input.now - engine.clock).max(0.0);
-        engine.clock = input.now;
-        engine.dispatcher.tick(&frame.hits, &mut engine.view, delta);
-        let pointer = PointerInput {
-            point,
-            held: input.pointer.held,
-            mode: if input.touch {
-                InputMode::Touch
-            } else {
-                InputMode::Mouse
-            },
-            now: input.now,
-        };
-        events.extend(
-            engine
-                .dispatcher
-                .pointer(&frame.hits, &mut engine.view, pointer)
-                .events,
-        );
-        // Keyboard focus shows as hover while the pointer rests on nothing.
-        if engine.view.hovered.is_none() {
-            engine.view.hovered = engine.view.focused.clone();
-        }
+    let delta = (input.now - engine.clock).max(0.0);
+    engine.clock = input.now;
+    engine.dispatcher.tick(&frame.hits, &mut engine.view, delta);
+    let pointer = PointerInput {
+        point,
+        held: input.pointer.held,
+        mode: if input.touch {
+            InputMode::Touch
+        } else {
+            InputMode::Mouse
+        },
+        now: input.now,
+    };
+    events.extend(
+        engine
+            .dispatcher
+            .pointer(&frame.hits, &mut engine.view, pointer)
+            .events,
+    );
+    // Keyboard focus shows as hover while the pointer rests on nothing.
+    if engine.view.hovered.is_none() {
+        engine.view.hovered = engine.view.focused.clone();
     }
-    engine_scroll::step(runtime, frame);
+    engine_scroll::step(engine, frame);
     let edges = if input.pointer_edges.is_empty() {
         [
             input.pointer.pressed.then_some(true),
@@ -127,11 +177,8 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         std::mem::take(&mut input.pointer_edges)
     };
     if input.touch && point.is_none() && edges.contains(&false) {
-        runtime
-            .server_forms_mut()
-            .engine_mut()
-            .cancel_pointer_input();
-        return;
+        engine.cancel_pointer_input();
+        return DispatchedInput::default();
     }
     // Vanilla sends pointer deltas to active components; a scroll view
     // consumes them while capture is still down.
@@ -139,7 +186,7 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
     if let Some(point) = point
         && (input.pointer.held || edges.contains(&false))
     {
-        engine_scroll::drag(runtime, frame, point);
+        engine_scroll::drag(engine, frame, point);
     }
     // Each release answers only for the control its press went down on.
     let mut releases = Vec::new();
@@ -147,31 +194,21 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
         if down {
             if let Some(point) = point {
                 let region = hit_test(&frame.hits, point);
-                engine_scroll::press(runtime, frame, region, point);
+                engine_scroll::press(engine, frame, region, point);
                 events.extend(
-                    pointer_button(runtime, frame, true, Some(point), input.now, input.touch)
-                        .events,
+                    pointer_button(engine, frame, true, Some(point), input.now, input.touch).events,
                 );
             }
         } else {
-            runtime.server_forms_mut().engine_mut().drag = None;
+            engine.drag = None;
             // A touch pan past the tap slop presses nothing.
-            let tapped = engine_scroll::release(runtime);
+            let tapped = engine_scroll::release(engine);
             if input.touch && !tapped {
-                runtime
-                    .server_forms_mut()
-                    .engine_mut()
-                    .clear_pointer_activation();
+                engine.clear_pointer_activation();
                 continue;
             }
-            let pressed = runtime
-                .server_forms()
-                .engine()
-                .view
-                .pressed
-                .clone()
-                .filter(|_| tapped);
-            let up = pointer_button(runtime, frame, false, point, input.now, input.touch).events;
+            let pressed = engine.view.pressed.clone().filter(|_| tapped);
+            let up = pointer_button(engine, frame, false, point, input.now, input.touch).events;
             releases.push((events.len()..events.len() + up.len(), pressed));
             events.extend(up);
         }
@@ -179,17 +216,17 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
     if let Some(point) = point
         && !input.wheel.is_empty()
     {
-        engine_scroll::wheel(runtime, frame, point, &input.wheel);
+        engine_scroll::wheel(engine, frame, point, &input.wheel);
     }
     for (key, text, repeat) in input.typed {
-        let editing = editing(runtime, frame);
+        let editing = editing(engine, frame);
         // Held keys repeat text into an edit box, but never re-press a control.
         if repeat && !editing {
             continue;
         }
         let key = menu_cancel_as_escape(key, input.menu_cancel, editing);
         events.extend(keyboard(
-            runtime,
+            engine,
             frame,
             key,
             text.as_deref(),
@@ -200,24 +237,7 @@ pub fn drive(runtime: &mut UiRuntime, frame: &EngineFrame, mut input: EngineInpu
     if let Some(animator) = input.animator.as_mut() {
         animate(animator, &mut events);
     }
-    let mut action = None;
-    for (at, event) in events.iter().enumerate() {
-        let pressed = releases
-            .iter()
-            .find(|(range, _)| range.contains(&at))
-            .and_then(|(_, pressed)| pressed.as_deref());
-        if let Some(found) = controller(runtime, frame, &model, event, pressed) {
-            action = Some(found);
-        }
-    }
-    if let Some(action) = action {
-        let now_millis = if input.now.is_finite() && input.now.is_sign_positive() {
-            (input.now * 1_000.0).min(u64::MAX as f64) as u64
-        } else {
-            0
-        };
-        let _ = runtime.respond_to_server_form_at(identity, action, now_millis);
-    }
+    DispatchedInput { events, releases }
 }
 
 /// Fire each button event into the animator; its `end_event`s come back as
@@ -264,14 +284,13 @@ fn append_animation_ends(
 
 /// One input button edge through the dispatcher.
 fn button(
-    runtime: &mut UiRuntime,
+    engine: &mut FormEngineState,
     frame: &EngineFrame,
     id: &str,
     down: bool,
     point: Option<[f64; 2]>,
     now: f64,
 ) -> Dispatch {
-    let engine = runtime.server_forms_mut().engine_mut();
     let input = EngineButton {
         id,
         down,
@@ -286,14 +305,13 @@ fn button(
 
 /// Dispatches a pointer edge with its original device, so touch controls activate on release.
 fn pointer_button(
-    runtime: &mut UiRuntime,
+    engine: &mut FormEngineState,
     frame: &EngineFrame,
     down: bool,
     point: Option<[f64; 2]>,
     now: f64,
     touch: bool,
 ) -> Dispatch {
-    let engine = runtime.server_forms_mut().engine_mut();
     engine.dispatcher.button(
         &frame.hits,
         &mut engine.view,
@@ -326,10 +344,8 @@ fn menu_cancel_as_escape(
 }
 
 /// Whether the selected component is an edit box taking typed text.
-fn editing(runtime: &UiRuntime, frame: &EngineFrame) -> bool {
-    runtime
-        .server_forms()
-        .engine()
+fn editing(engine: &FormEngineState, frame: &EngineFrame) -> bool {
+    engine
         .view
         .components
         .selected()
@@ -339,17 +355,16 @@ fn editing(runtime: &UiRuntime, frame: &EngineFrame) -> bool {
 /// A key as the input buttons vanilla's keyboard mapping raises, or typed text
 /// for the selected edit box.
 fn keyboard(
-    runtime: &mut UiRuntime,
+    engine: &mut FormEngineState,
     frame: &EngineFrame,
     key: KeyboardKey,
     text: Option<&str>,
     control: bool,
     now: f64,
 ) -> Vec<ScreenEvent> {
-    let editing = editing(runtime, frame);
+    let editing = editing(engine, frame);
     let typed = editing.then(|| typed_text(key, text, control)).flatten();
     if let Some(typed) = typed {
-        let engine = runtime.server_forms_mut().engine_mut();
         return engine
             .dispatcher
             .text(&frame.hits, &mut engine.view, &typed, None)
@@ -363,15 +378,15 @@ fn keyboard(
         KeyboardKey::ArrowLeft => "button.menu_left",
         KeyboardKey::ArrowRight => "button.menu_right",
         KeyboardKey::Tab => {
-            engine_focus::tab(runtime, frame);
+            engine_focus::tab(engine, frame);
             return Vec::new();
         }
         _ => return Vec::new(),
     };
-    let down = button(runtime, frame, id, true, None, now);
+    let down = button(engine, frame, id, true, None, now);
     let consumed = down.consumed;
     let mut events = down.events;
-    events.extend(button(runtime, frame, id, false, None, now).events);
+    events.extend(button(engine, frame, id, false, None, now).events);
     // Content subtrees omit the screen's global cancel mapping.
     if !consumed && key == KeyboardKey::Escape
         && let Some(target) = &frame.cancel_target
@@ -390,7 +405,7 @@ fn keyboard(
     }
     // An unconsumed direction moves focus.
     if !consumed && let Some(direction) = engine_focus::direction_of(key) {
-        engine_focus::step(runtime, frame, direction);
+        engine_focus::step(engine, frame, direction);
     }
     events
 }
@@ -424,12 +439,7 @@ fn controller(
 ) -> Option<LocalFormAction> {
     match event {
         ScreenEvent::Button(button) => {
-            // A pointer press answers on release over the control it went down on.
-            let answers = if button.from == SELECT {
-                !button.down && pressed == Some(button.key.as_str())
-            } else {
-                button.down && button.interacted
-            };
+            let answers = activates(button, pressed);
             if button.id == "button.dropdown_exit" && button.down {
                 close_dropdown(runtime, frame, custom_parent(frame, &button.key));
             }

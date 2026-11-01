@@ -369,6 +369,7 @@ pub(crate) fn drive_chat_keyboard_input(
         return;
     }
     if runtime.sign_editor().is_open()
+        || runtime.command_block().is_open()
         || runtime.server_forms().owns_input()
         || runtime.data_driven_ui().owns_input()
         || runtime.emotes().is_open()

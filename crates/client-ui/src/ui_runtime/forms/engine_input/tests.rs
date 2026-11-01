@@ -127,7 +127,14 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap().clone();
     assert_eq!(frame.cancel_target.as_deref(), Some("button.menu_exit"));
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        0.0,
+    );
     assert!(events.iter().any(|event| matches!(event,
         ScreenEvent::Button(button) if mapped_action(&runtime.server_forms().active().unwrap().model, button) == Some(LocalFormAction::Dismiss)
             && button.down && button.interacted
@@ -259,7 +266,14 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     region.input.mappings.clear();
     region.input.any = Some(json_ui::MappingScope::Global);
     frame.hits = vec![region].into();
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        0.0,
+    );
     assert!(events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
     ));
@@ -270,7 +284,14 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     let region = &mut std::sync::Arc::make_mut(&mut frame.hits)[0];
     region.widget.consume = true;
     region.input.mappings = vec![mapping];
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 1.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        1.0,
+    );
     assert!(events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == "button.dropdown_exit" && button.down)));
     assert!(!events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
@@ -931,7 +952,7 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
                 },
             );
         }
-        assert!(editing(&runtime, &frame), "{key:?}");
+        assert!(editing(runtime.server_forms().engine(), &frame), "{key:?}");
         drive(
             &mut runtime,
             &frame,
@@ -948,7 +969,7 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
                 animator: None,
             },
         );
-        assert!(editing(&runtime, &frame), "{key:?}");
+        assert!(editing(runtime.server_forms().engine(), &frame), "{key:?}");
         let mut sent = Vec::new();
         let _ = super::super::flush_form_response(
             &mut runtime,

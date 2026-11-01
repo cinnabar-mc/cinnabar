@@ -548,6 +548,7 @@ impl WorldStream {
                 self.publisher.provisional_rebase = false;
             }
             WorldEvent::OpenSign(event) => self.consume_open_sign(event),
+            WorldEvent::OpenCommandBlock(event) => self.authority.consume_open_command_block(event),
             WorldEvent::MapData(event) => self.consume_map_data(&event),
             WorldEvent::BlockEvent(event) => {
                 let sequence = sequence.expect("sequenced block events commit through submit");
