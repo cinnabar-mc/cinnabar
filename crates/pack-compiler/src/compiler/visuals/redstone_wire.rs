@@ -221,9 +221,10 @@ fn wire_quads(cross: u32, line: u32, arms: Arms) -> Vec<ModelQuad> {
         .collect()
 }
 
-/// Whether the record is redstone wire.
+/// Whether the record is redstone wire whose state names its connections. Registries that carry
+/// only the signal keep their provisional shape.
 pub(in crate::compiler) fn is_record(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == B::RedstoneWire.identifier()
+    record.name.as_ref() == B::RedstoneWire.identifier() && arms(record).is_some()
 }
 
 /// Resolves a face's art with the state's power, in the cut-out material the wire draws with.
@@ -284,6 +285,31 @@ mod tests {
 
     const CROSS: u32 = 1;
     const LINE: u32 = 2;
+
+    /// A registry without connection states stays on the provisional route, not a diagnostic.
+    #[test]
+    fn only_states_with_connections_take_the_wire_rule() {
+        let wires = |bytes: &[u8], protocol| {
+            assets::read_registry_for_protocol(bytes, protocol)
+                .unwrap()
+                .into_vec()
+                .into_iter()
+                .filter(|record| record.name.as_ref() == B::RedstoneWire.identifier())
+                .collect::<Vec<_>>()
+        };
+        let legacy = wires(
+            include_bytes!("../../../../assets/data/block-registry-v1001.bin"),
+            1001,
+        );
+        assert_eq!(legacy.len(), 16);
+        assert!(!legacy.iter().any(is_record));
+        let current = wires(
+            include_bytes!("../../../../assets/data/block-registry-v2225.bin"),
+            2225,
+        );
+        assert!(!current.is_empty());
+        assert!(current.iter().all(is_record));
+    }
 
     fn wire(north: Arm, east: Arm, south: Arm, west: Arm) -> Vec<ModelQuad> {
         wire_quads(

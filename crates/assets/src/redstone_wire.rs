@@ -36,6 +36,12 @@ pub fn colour(signal: u32) -> Option<[u8; 3]> {
     Some([red, green, blue].map(|channel: f32| (channel * 255.0) as u8))
 }
 
+/// Whether `flags` describe a wire rather than a stem, which share the fixed colour flag.
+#[must_use]
+pub const fn is_wire_material(flags: u32) -> bool {
+    flags & crate::stem::MATERIAL_FLAG != 0 && encoded_signal(flags).is_some()
+}
+
 /// Resolves the encoded wire power of a material carrying the fixed colour flag.
 #[must_use]
 pub(crate) const fn encoded_signal(flags: u32) -> Option<u32> {
@@ -55,6 +61,9 @@ mod tests {
         assert_eq!(colour(15), Some([255, 50, 0]));
         assert_eq!(colour(16), None);
         assert_eq!(material_flags(16), None);
+        assert!(is_wire_material(material_flags(0).unwrap()));
+        assert!(!is_wire_material(crate::stem::material_flags(7).unwrap()));
+        assert!(!is_wire_material(SIGNAL_MASK));
         let reds = (0..=MAX_SIGNAL).map(|signal| colour(signal).unwrap()[0]);
         assert!(reds.clone().zip(reds.skip(1)).all(|(low, high)| low < high));
     }
