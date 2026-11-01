@@ -143,26 +143,45 @@ fn software_fused_dot_matches_binary32_mul_add() {
         .unwrap();
     rx.recv().unwrap().unwrap();
     let bytes = readback.slice(..).get_mapped_range().unwrap();
-    for (index, result) in bytemuck::cast_slice::<u8, [u32; 4]>(&bytes)
+    let results = bytemuck::cast_slice::<u8, [u32; 4]>(&bytes);
+    // WGSL lets an implementation assume no infinities or NaNs, and a D3D12 adapter returned NaN
+    // for an infinite operand even through this integer path.
+    let non_finite_free = gpu.adapter.get_info().backend == wgpu::Backend::Dx12;
+    let mismatches: Vec<String> = results
         .iter()
         .enumerate()
-    {
-        let [a, b, c, got] = result.map(f32::from_bits);
-        let expected = a.mul_add(b, c);
-        // WGSL lets an implementation flush subnormals, and some adapters do.
-        let flush = |value: f32| {
-            if value.is_subnormal() {
-                0f32.copysign(value)
-            } else {
-                value
+        .filter_map(|(index, result)| {
+            let [a, b, c, got] = result.map(f32::from_bits);
+            let expected = a.mul_add(b, c);
+            if non_finite_free
+                && !(a.is_finite() && b.is_finite() && c.is_finite() && expected.is_finite())
+            {
+                return None;
             }
-        };
-        let flushed = flush(flush(a).mul_add(flush(b), flush(c)));
-        assert!(
-            (expected.is_nan() && got.is_nan())
+            // WGSL lets an implementation flush subnormals, and some adapters do.
+            let flush = |value: f32| {
+                if value.is_subnormal() {
+                    0f32.copysign(value)
+                } else {
+                    value
+                }
+            };
+            let flushed = flush(flush(a).mul_add(flush(b), flush(c)));
+            let matches = (expected.is_nan() && got.is_nan())
                 || expected.to_bits() == got.to_bits()
-                || got == flushed,
-            "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
-        );
-    }
+                || got == flushed;
+            (!matches).then(|| {
+                format!(
+                    "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
+                )
+            })
+        })
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} samples differ, first 20:\n{}",
+        mismatches.len(),
+        results.len(),
+        mismatches[..mismatches.len().min(20)].join("\n")
+    );
 }
