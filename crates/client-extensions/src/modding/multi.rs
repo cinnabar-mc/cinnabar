@@ -21,7 +21,7 @@ pub struct ModHosts {
     panel_selection: usize,
     panel_open_order: u64,
     budget: mod_host::CallbackBudget,
-    /// Next runnable mod to receive a protected full frame reservation.
+    /// Next runnable mod to execute first against the shared frame pool.
     next_frame_priority: usize,
     label: Option<String>,
     label_inputs: Vec<String>,
@@ -617,7 +617,7 @@ pub struct FrameInput<'a> {
     pub gameplay_facts: mod_host::GameplayFacts,
 }
 
-/// Admits mods fairly, executes them in load order and merges what they commit.
+/// Rotates callback execution fairly and merges committed output in load order.
 /// A failing mod is reported and quarantined by its host; the others still run.
 pub fn run_frame(
     runtime: &mut ModHosts,
@@ -667,24 +667,39 @@ pub fn run_frame_callbacks(
     };
     let owner = runtime.panel_owner();
     let chat_owner = runtime.chat_action_owner();
-    let priority = (0..runtime.host_count())
+    let first = (0..runtime.host_count())
         .map(|offset| (runtime.next_frame_priority + offset) % runtime.host_count())
-        .find(|&index| runtime.host(index).is_active() && !runtime.host(index).is_recovering());
-    let mut reservation = priority.and_then(|_| runtime.budget.reserve_frame_priority());
-    if let Some(index) = priority
-        && reservation.is_some()
-    {
-        runtime.next_frame_priority = (index + 1) % runtime.host_count();
+        .find(|&index| runtime.host(index).is_active() && !runtime.host(index).is_recovering())
+        .unwrap_or(0);
+    if runtime.budget.remaining() >= mod_host::FRAME_FUEL {
+        runtime.next_frame_priority = (first + 1) % runtime.host_count();
     }
+    // Sample key claims in load order before any callback can replace its reservations.
     let mut claimed = Vec::new();
-    for index in 0..runtime.host_count() {
-        if priority == Some(index) {
-            drop(reservation.take());
-        }
-        let host = runtime.host(index);
-        if !host.is_active() {
+    let mut controls: Vec<_> = (0..runtime.host_count())
+        .map(|index| {
+            let host = runtime.host(index);
+            if !host.is_active() {
+                return None;
+            }
+            let chat_events = if chat_owner == Some(index) {
+                input.chat_events
+            } else {
+                &[]
+            };
+            let mut controls =
+                claim_controls(input.controls, &claimed, index == owner, chat_events);
+            controls.panel_open = input.controls.panel_open && index == owner && host.panel_open();
+            claimed.extend(host.reserved_keys().iter().cloned());
+            Some(controls)
+        })
+        .collect();
+    for offset in 0..runtime.host_count() {
+        let index = (first + offset) % runtime.host_count();
+        let Some(mut controls) = controls[index].take() else {
             continue;
-        }
+        };
+        let host = runtime.host(index);
         let grants = host.grants();
         let snapshot = snapshot
             .as_ref()
@@ -709,16 +724,7 @@ pub fn run_frame_callbacks(
             Vec::new()
         };
         let movement = if grants.movement { movement } else { None };
-        let chat_events = if chat_owner == Some(index) {
-            input.chat_events
-        } else {
-            &[]
-        };
-        let mut controls = claim_controls(input.controls, &claimed, index == owner, chat_events);
-        controls.panel_open =
-            input.controls.panel_open && index == owner && runtime.host(index).panel_open();
         controls.gameplay = snapshot.is_some() || movement.is_some();
-        claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
         runtime.authorize(index);
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
@@ -758,6 +764,9 @@ pub fn run_frame_callbacks(
         if let Some(error) = host.take_settings_error() {
             bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
         }
+    }
+    for index in 0..runtime.host_count() {
+        runtime.authorize(index);
     }
     let _ = runtime.reconcile_panel_requests();
 }

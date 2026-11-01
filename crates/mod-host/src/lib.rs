@@ -23,7 +23,7 @@ mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;
 mod callbacks;
-pub use callback_budget::{CallbackBudget, CallbackOutcome, FrameReservation};
+pub use callback_budget::{CallbackBudget, CallbackOutcome};
 pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,

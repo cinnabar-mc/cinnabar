@@ -1568,8 +1568,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   qualification remains incomplete. Host-observed world entry admits one larger frame
   callback per mod and session, with one extra slot shared across mods per update.
   Frame callbacks charge actual fuel to the shared pool, carrying world-entry excess into
-  later updates. A rotating protected reservation prevents starvation while callbacks and
-  output authority retain load order. Filters and event handlers have independent limits.
+  later updates. Rotating the first callback prevents starvation without withholding fuel;
+  input reservations and output authority retain load order. Filters and event handlers
+  have independent limits.
   Regression coverage includes accounting, fair admission, precedence, lifecycle, replacement
   and recovery; execution of the new fuel regressions, live frame-time and slow-device
   qualification remain incomplete. Unmeasured shared

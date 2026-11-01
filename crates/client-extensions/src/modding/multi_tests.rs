@@ -368,7 +368,7 @@ struct Probe {
     label: &'static str,
     ticks: u32,
     rig_x: f32,
-    command: &'static str,
+    command: String,
     second_frame_cues: usize,
     extra: &'static str,
 }
@@ -380,7 +380,7 @@ impl Probe {
             label,
             ticks,
             rig_x,
-            command: "/ability flash",
+            command: "/ability flash".into(),
             second_frame_cues: 2,
             extra: "",
         }
@@ -403,7 +403,7 @@ impl Probe {
             .replace("$LABEL_LENGTH", &self.label.len().to_string())
             .replace("$LABEL", self.label)
             .replace("$COMMAND_LENGTH", &self.command.len().to_string())
-            .replace("$COMMAND", self.command)
+            .replace("$COMMAND", &self.command)
             .replace("$TICKS", &self.ticks.to_string())
             .replace("$RIG_X", &self.rig_x.to_string())
             .replace("$SECOND_FRAME_CUES", &self.second_frame_cues.to_string())

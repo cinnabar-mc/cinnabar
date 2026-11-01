@@ -13,7 +13,6 @@ const _: () = assert!(CALLBACK_FUEL < LOAD_FUEL);
 struct Allowance {
     frame: u64,
     debt: u64,
-    priority_held: bool,
     events: usize,
     loads: usize,
     world_entries: usize,
@@ -30,23 +29,6 @@ pub enum CallbackOutcome {
 #[derive(Clone)]
 pub struct CallbackBudget(Arc<Mutex<Allowance>>);
 
-/// Holds one full ordinary frame allowance until its selected mod reaches load-order execution.
-#[must_use = "keep the reservation until the selected mod reaches execution"]
-pub struct FrameReservation {
-    budget: CallbackBudget,
-}
-
-impl Drop for FrameReservation {
-    fn drop(&mut self) {
-        self.budget
-            .0
-            .lock()
-            .expect("mod callback budget")
-            .priority_held = false;
-        self.budget.refund(crate::FRAME_FUEL);
-    }
-}
-
 impl CallbackBudget {
     /// Creates the shared regular-frame allowance and bounded event/loading lanes.
     pub fn new(fuel: u64) -> Self {
@@ -60,23 +42,10 @@ impl CallbackBudget {
         *remaining = Allowance {
             frame: fuel.saturating_sub(remaining.debt),
             debt: remaining.debt.saturating_sub(fuel),
-            priority_held: false,
             events: LARGE_CALLBACKS_PER_FRAME,
             loads: LARGE_CALLBACKS_PER_FRAME,
             world_entries: LARGE_CALLBACKS_PER_FRAME,
         };
-    }
-    /// Protects a rotating mod's full frame allowance while earlier mods execute first.
-    pub fn reserve_frame_priority(&self) -> Option<FrameReservation> {
-        let mut remaining = self.0.lock().expect("mod callback budget");
-        if remaining.priority_held || remaining.frame < crate::FRAME_FUEL {
-            return None;
-        }
-        remaining.frame -= crate::FRAME_FUEL;
-        remaining.priority_held = true;
-        Some(FrameReservation {
-            budget: self.clone(),
-        })
     }
     /// Reserves a full callback allowance, or defers it without reducing its guest fuel limit.
     pub(crate) fn reserve(&self, fuel: u64) -> Option<u64> {
@@ -106,10 +75,7 @@ impl CallbackBudget {
     /// Admission still needs a full ordinary allowance; refunds settle unused borrowing first.
     pub(crate) fn reserve_world_entry_frame(&self) -> Option<u64> {
         let mut remaining = self.0.lock().expect("mod callback budget");
-        if remaining.priority_held
-            || remaining.world_entries == 0
-            || remaining.frame < crate::FRAME_FUEL
-        {
+        if remaining.world_entries == 0 || remaining.frame < crate::FRAME_FUEL {
             return None;
         }
         remaining.debt += crate::WORLD_ENTRY_FRAME_FUEL.saturating_sub(remaining.frame);
@@ -205,13 +171,16 @@ mod tests {
     }
 
     #[test]
-    fn rotating_priority_keeps_a_full_reservation_safe_from_other_frame_work() {
+    fn inexpensive_callbacks_reuse_refunded_fuel_without_extra_reservations() {
         let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-        let priority = budget.reserve_frame_priority().unwrap();
-        assert_eq!(budget.reserve_world_entry_frame(), None);
-        assert_eq!(budget.reserve(crate::FRAME_FUEL), Some(crate::FRAME_FUEL));
-        assert_eq!(budget.reserve(crate::FRAME_FUEL), None);
-        drop(priority);
-        assert_eq!(budget.reserve(crate::FRAME_FUEL), Some(crate::FRAME_FUEL));
+        let spent = crate::FRAME_FUEL / 8;
+        for _ in 0..3 {
+            assert_eq!(budget.reserve(crate::FRAME_FUEL), Some(crate::FRAME_FUEL));
+            budget.refund(crate::FRAME_FUEL - spent);
+        }
+        assert_eq!(
+            budget.remaining(),
+            mod_api::TOTAL_MOD_FRAME_FUEL - spent * 3
+        );
     }
 }
