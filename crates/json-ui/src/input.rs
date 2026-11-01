@@ -392,7 +392,7 @@ pub(crate) fn region(
             .map(|index| index as usize),
         radio_index: control
             .properties
-            .get(crate::bind::RADIO_INDEX_KEY)
+            .get(crate::bind::radio::RADIO_INDEX_KEY)
             .and_then(Value::as_u64)
             .map(|index| index as usize),
         renderer: (kind == HitKind::Custom)
