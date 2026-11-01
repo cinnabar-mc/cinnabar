@@ -441,7 +441,7 @@ fn clock_and_import_counters_are_invocation_scoped() {
     );
     state.begin_callback();
     let clock = state.read_local_time().unwrap().unwrap();
-    let mut transaction = state.clone();
+    let mut transaction = state.frame_transaction();
     state.clock.as_mut().unwrap().unix_ms += 1;
     assert_eq!(transaction.read_local_time().unwrap().unwrap(), clock);
     for _ in 0..MAX_IMPORT_WRITES {
@@ -479,7 +479,7 @@ fn staged_settings_are_readable_only_inside_the_invocation() {
         "{}".into(),
         Declared::default(),
     );
-    let mut transaction = native.clone();
+    let mut transaction = native.frame_transaction();
     transaction.begin_callback();
     let saved = r#"{"choice":true}"#.to_owned();
     transaction.save(saved.clone()).unwrap().unwrap();
@@ -677,3 +677,6 @@ fn screen_text_edits_fence_stale_publication_even_behind_a_lifecycle_event() {
         |event| matches!(event, ModEvent::TextChanged { text, .. } if text == "new native value")
     ));
 }
+
+#[path = "suspension_tests/drawing.rs"]
+mod drawing;

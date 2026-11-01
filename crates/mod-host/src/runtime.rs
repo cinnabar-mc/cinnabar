@@ -89,7 +89,6 @@ pub(crate) struct Declared {
     pub(crate) keys: BTreeSet<String>,
 }
 
-#[derive(Clone)]
 pub(crate) struct State {
     exclusive: crate::exclusive::Exclusive,
     terrain: crate::terrain::TerrainState,

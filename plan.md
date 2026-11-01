@@ -1566,7 +1566,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
   resets the count. Other guest traps still quarantine immediately. Frame callbacks without
   synchronous decision exports retain async continuations across soft time slices, with
-  frozen observations and private output until post-return succeeds. Late frame actions
+  frozen observations and output deltas until post-return succeeds. Committed drawing owners
+  retain allocation and retirement state, and confirmed despawns reconcile in-flight actor
+  references independently of candidate culling. Late frame actions
   are dropped; authority changes and unload cancel without a fault. Decision-exporting
   instances keep synchronous frames. Scheduling accounts and the admission cursor follow
   stable guest identities across reordering. Removal and successful guest replacement retire
@@ -1577,7 +1579,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   serviced frame. Rotating the first callback prevents starvation without withholding fuel;
   input reservations and output authority retain load order. Filters and event handlers
   have independent limits. Regression coverage includes accounting, fair admission,
-  precedence, lifecycle, replacement, recovery and scheduling account lifetime. Execution of
+  precedence, lifecycle, replacement, recovery, scheduling account lifetime, renderer retirement,
+  in-flight actor culling and discarded-token allocation. Execution of
   the new regressions, live overrun recovery, suspension pacing and slow-device qualification
   remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.

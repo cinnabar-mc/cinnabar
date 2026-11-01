@@ -12,8 +12,11 @@ pub mod mesh;
 pub use entities::EntityKey;
 #[cfg(test)]
 mod tests;
+mod transaction;
 pub mod transfer;
 mod validation;
+use std::sync::Mutex;
+use transaction::{Changes, Observations, Owner};
 
 /// Linear vertex inputs for shared unlit drawing materials.
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -268,39 +271,38 @@ impl Resources {
 }
 
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.
-/// Clones fork transactions for that same incarnation; publish only one branch.
-#[derive(Clone)]
 pub struct Store {
-    owner: u64,
-    generation: u64,
-    next_slot: u64,
+    owner: Arc<Mutex<Owner>>,
     committed: Arc<Resources>,
-    staged: Option<Resources>,
+    staged: Option<Changes>,
     mutation_bytes: usize,
     block_mutation_bytes: usize,
-    retired: Vec<Arc<Geometry>>,
-    retired_materials: Vec<Arc<crate::material::Material>>,
     material_compiles: u32,
     entity_candidates: Vec<EntityKey>,
     instance_limit: usize,
+    observations: Option<Arc<Mutex<Observations>>>,
 }
 
 impl Default for Store {
     /// Assigns a process-unique owner even to a replacement guest.
     fn default() -> Self {
         Self {
-            owner: crate::identity::next_owner(),
-            generation: 1,
-            next_slot: 0,
+            owner: Arc::new(Mutex::new(Owner {
+                id: crate::identity::next_owner(),
+                generation: 1,
+                next_slot: 0,
+                retired: Vec::new(),
+                retired_materials: Vec::new(),
+                observing: Default::default(),
+            })),
             committed: Arc::default(),
             staged: None,
             mutation_bytes: 0,
             block_mutation_bytes: 0,
-            retired: Vec::new(),
-            retired_materials: Vec::new(),
             material_compiles: 0,
             entity_candidates: Vec::new(),
             instance_limit: mod_api::MAX_DRAW_INSTANCES,
+            observations: None,
         }
     }
 }
@@ -313,22 +315,21 @@ impl Store {
 
     /// Counts this callback's placements, excluding groups that expire on its next mutation.
     pub fn instance_count(&self) -> usize {
-        self.staged.as_ref().map_or_else(
-            || {
-                self.committed
-                    .instances
-                    .keys()
-                    .filter(|id| {
-                        !self
-                            .committed
-                            .groups
-                            .values()
-                            .any(|handles| handles.contains(id))
-                    })
-                    .count()
-            },
-            |staged| staged.instances.len(),
-        )
+        let resources = self.current();
+        if self.staged.is_some() {
+            resources.instances.len()
+        } else {
+            resources
+                .instances
+                .keys()
+                .filter(|id| {
+                    !resources
+                        .groups
+                        .values()
+                        .any(|handles| handles.contains(id))
+                })
+                .count()
+        }
     }
 
     /// Binds snapshots to the trusted connection before the guest initializes resources.
@@ -348,6 +349,7 @@ impl Store {
 
     /// Begins a callback; immediate groups expire only if this callback commits.
     pub fn begin(&mut self) {
+        self.reclaim();
         self.staged = None;
         self.mutation_bytes = 0;
         self.block_mutation_bytes = 0;
@@ -356,22 +358,13 @@ impl Store {
 
     /// Publishes all staged changes together and preserves identity on unchanged callbacks.
     pub fn commit(&mut self) {
-        let staged = match self.staged.take() {
-            Some(staged) => Some(staged),
-            None if self.committed.groups.is_empty() => None,
-            None => Some(self.base()),
-        };
-        if let Some(staged) = staged
-            && (staged.geometry_revision != self.committed.geometry_revision
-                || staged.material_revision != self.committed.material_revision
-                || staged.instance_revision != self.committed.instance_revision)
-        {
-            self.committed = Arc::new(staged);
+        if self.staged.is_none() && self.committed.groups.is_empty() {
+            self.reclaim();
+            return;
         }
-        self.retired_materials
-            .retain(|material| Arc::strong_count(material) > 1);
-        self.retired
-            .retain(|geometry| Arc::strong_count(geometry) > 1);
+        let resources = self.base();
+        self.staged = None;
+        self.install(resources);
     }
 
     /// Discards mutations without recycling any tokens returned by the failed callback.
@@ -383,14 +376,17 @@ impl Store {
 
     /// Invalidates all resource handles and clears output on trap, reload or session changes.
     pub fn revoke(&mut self) {
-        self.generation = self
+        let mut owner = self.owner.lock().expect("drawing owner");
+        owner.generation = owner
             .generation
             .checked_add(1)
             .expect("drawing generation exhausted");
+        owner.retired.clear();
+        owner.retired_materials.clear();
+        owner.observing = Default::default();
+        self.observations = None;
         self.committed = Arc::default();
         self.staged = None;
-        self.retired.clear();
-        self.retired_materials.clear();
         self.material_compiles = 0;
         self.entity_candidates.clear();
     }
@@ -399,17 +395,14 @@ impl Store {
     pub fn restart_guest(&mut self) {
         let Self {
             owner: _,
-            generation: _,
-            next_slot: _,
             committed,
             staged: _,
             mutation_bytes: _,
             block_mutation_bytes: _,
-            retired: _,
-            retired_materials: _,
             material_compiles: _,
             entity_candidates,
             instance_limit: _,
+            observations: _,
         } = self;
         let candidates = std::mem::take(entity_candidates);
         let connection = committed.connection;
@@ -475,15 +468,16 @@ impl Store {
     ) -> Result<(), DrawError> {
         self.check(handle)?;
         // An unchanged resubmission must not clone the resource maps every frame.
-        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let current = self.current();
         let expiring = self.staged.is_none()
             && current
                 .groups
                 .values()
                 .any(|handles| handles.contains(&handle));
         if !expiring && current.instances.get(&handle) == Some(&instance) {
-            return validation::instance(&instance, current, permissions);
+            return validation::instance(&instance, &current, permissions);
         }
+        drop(current);
         self.edit(std::mem::size_of::<Instance>(), |resources| {
             if !resources.instances.contains_key(&handle) {
                 return Err(error(ErrorCode::StaleHandle, "drawing"));
@@ -537,8 +531,6 @@ impl Store {
     /// Releases an instance or unused geometry; referenced geometry returns an explicit error.
     pub fn remove(&mut self, handle: Handle) -> Result<(), DrawError> {
         self.check(handle)?;
-        let mut retired = None;
-        let mut retired_material = None;
         self.edit(0, |resources| {
             if resources.entities.contains_key(&handle) {
                 if resources.instances.values().any(|instance| matches!(instance.anchor, Anchor::Entity(anchor) if anchor.entity == handle)) { return Err(error(ErrorCode::InUse, "entity")); }
@@ -578,37 +570,22 @@ impl Store {
             {
                 return Err(error(ErrorCode::InUse, "material"));
             }
-            retired_material = resources.materials.remove(&handle);
-            if retired_material.is_some() {
+            if resources.materials.remove(&handle).is_some() {
                 resources.material_revision += 1;
                 return Ok(());
             }
-            retired = resources.geometry.remove(&handle);
-            if retired.is_none() {
+            if resources.geometry.remove(&handle).is_none() {
                 return Err(error(ErrorCode::StaleHandle, "resource"));
             }
             resources.geometry_revision += 1;
             Ok(())
         })?;
-        if let Some(material) = retired_material
-            && !self
-                .retired_materials
-                .iter()
-                .any(|old| Arc::ptr_eq(old, &material))
-        {
-            self.retired_materials.push(material);
-        }
-        if let Some(geometry) = retired
-            && !self.retired.iter().any(|old| Arc::ptr_eq(old, &geometry))
-        {
-            self.retired.push(geometry);
-        }
         Ok(())
     }
 
     /// Derives callback state and drops last callback's immediate instances atomically.
     fn base(&self) -> Resources {
-        let mut resources = self.staged.as_ref().unwrap_or(&self.committed).clone();
+        let mut resources = self.current().into_owned();
         if self.staged.is_none() && !resources.groups.is_empty() {
             for handles in resources.groups.values() {
                 for handle in handles {
@@ -639,10 +616,9 @@ impl Store {
         if candidate.instances.len() > self.instance_limit {
             return Err(error(ErrorCode::BudgetExceeded, "instances"));
         }
-        validation::budget(&candidate, &self.retired)?;
-        self.material_budget(&candidate)?;
+        self.check_budget(&candidate)?;
         self.mutation_bytes = total;
-        self.staged = Some(candidate);
+        self.staged = Some(Changes::between(&self.committed, &candidate));
         Ok(())
     }
 
@@ -664,20 +640,22 @@ impl Store {
 
     /// Allocates a token even if subsequent admission fails, so rollback cannot recycle it.
     fn token(&mut self) -> Result<Handle, DrawError> {
-        self.next_slot = self
+        let mut owner = self.owner.lock().expect("drawing owner");
+        owner.next_slot = owner
             .next_slot
             .checked_add(1)
             .ok_or(error(ErrorCode::BudgetExceeded, "handle slots"))?;
         Ok(Handle {
-            owner: self.owner,
-            generation: self.generation,
-            slot: self.next_slot,
+            owner: owner.id,
+            generation: owner.generation,
+            slot: owner.next_slot,
         })
     }
 
     /// Rejects cross-owner and previous-incarnation tokens before reading resource tables.
     fn check(&self, handle: Handle) -> Result<(), DrawError> {
-        if handle.owner != self.owner || handle.generation != self.generation {
+        let owner = self.owner.lock().expect("drawing owner");
+        if handle.owner != owner.id || handle.generation != owner.generation {
             Err(error(ErrorCode::StaleHandle, "owner or generation"))
         } else {
             Ok(())

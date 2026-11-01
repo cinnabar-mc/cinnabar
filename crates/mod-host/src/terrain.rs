@@ -101,7 +101,7 @@ pub(crate) enum Sample {
     Failed(TerrainReadError),
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(crate) struct TerrainState {
     /// Queries the last executed callback read, with their latest samples. Deferred or skipped
     /// callbacks leave them untouched.
@@ -114,6 +114,18 @@ pub(crate) struct TerrainState {
     revision: u64,
 }
 impl TerrainState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            subscriptions: self.subscriptions.clone(),
+            pending_queries: Vec::new(),
+            searches: self.searches.clone(),
+            pending_searches: Vec::new(),
+            calls: 0,
+            revision: 0,
+        }
+    }
+
     /// Reconciles callback subscriptions with the latest host samples at publication.
     pub(crate) fn accept(&mut self, transaction: Self) {
         self.pending_queries = transaction.pending_queries;

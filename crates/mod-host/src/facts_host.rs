@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use std::sync::Arc;
 
 /// The installed food table, its foods once listed, and this callback's read count.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct FactsState {
     reads: u32,
     food: Option<Arc<assets::RuntimeEquipmentCatalog>>,
@@ -15,6 +15,15 @@ pub(super) struct FactsState {
 }
 
 impl FactsState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            reads: 0,
+            food: self.food.clone(),
+            foods: self.foods.clone(),
+        }
+    }
+
     /// Keeps lazy catalog results only when the native catalog is still the frozen one.
     pub(super) fn accept_reads(&mut self, transaction: Self) {
         if match (&self.food, &transaction.food) {

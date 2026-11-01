@@ -3,6 +3,67 @@
 use super::*;
 
 impl State {
+    /// Builds frozen import reads and empty output deltas, leaving committed owners in place.
+    /// The complete field list makes each new capability choose its transaction policy.
+    pub(super) fn frame_transaction(&self) -> Self {
+        Self {
+            exclusive: crate::exclusive::Exclusive {
+                camera: self.exclusive.camera,
+                camera_claimed: false,
+                environment: self.exclusive.environment,
+                refused: 0,
+            },
+            terrain: self.terrain.transaction(),
+            limits: self.limits.clone(),
+            pressed: self.pressed,
+            label: None,
+            hud: self.hud.transaction(),
+            presentation: self.presentation.transaction(),
+            facts: self.facts.transaction(),
+            pending: None,
+            writes: 0,
+            grants: self.grants.clone(),
+            environment: Default::default(),
+            motion: output_lifecycle::Movement {
+                snapshot: self.motion.snapshot.clone(),
+                ..Default::default()
+            },
+            snapshot: self.snapshot.clone(),
+            gameplay_reads: 0,
+            camera_writes: 0,
+            pending_camera: None,
+            camera_delta: None,
+            packet_delay_ms: 0,
+            pending_packet_delay: None,
+            packet_delay_writes: 0,
+            gameplay_facts: self.gameplay_facts,
+            controls: self.controls.transaction(),
+            world: self.world.transaction(),
+            camera_policy: Default::default(),
+            item_use_policy: Default::default(),
+            player_state: self.player_state.transaction(),
+            render: self.render.transaction(),
+            drawing_policy: self.drawing_policy,
+            presentation_epoch: self.presentation_epoch,
+            asset_files: self.asset_files.clone(),
+            declared: self.declared.clone(),
+            layout: self.layout.clone(),
+            session: Arc::clone(&self.session),
+            screens: self.screens.clone(),
+            pending_screens: None,
+            calls: 0,
+            output: 0,
+            inventory: Default::default(),
+            events: player_mod::EventContext {
+                modifiers: self.events.modifiers,
+                started: self.events.started,
+                elapsed: self.events.elapsed,
+            },
+            touch: self.touch.transaction(),
+            clock: self.clock,
+        }
+    }
+
     /// Starts counters and immutable clocks exactly once per invocation, including post-return.
     pub(super) fn begin_callback(&mut self) {
         let state = self;

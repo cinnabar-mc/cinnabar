@@ -15,7 +15,6 @@ fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     }
 }
 
-#[derive(Clone)]
 pub(crate) struct RenderState {
     pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
@@ -30,22 +29,60 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
-    /// Publishes a completed drawing transaction after reconciling native actor lifetimes.
-    pub(super) fn accept(&mut self, mut transaction: Self) {
-        transaction.commit();
-        // Candidate counts were validated on entry; reconciling cannot exceed their cap.
-        transaction
-            .retained
-            .reconcile_observations(&self.retained)
-            .expect("validated drawing observations");
-        transaction.masks.reconcile_observations(&self.masks);
-        let masks = transaction.masks.commit();
-        let masks_changed = transaction.committed.masks != masks;
-        transaction.committed.masks = masks;
-        if transaction.publish_retained() || masks_changed {
-            transaction.generation = mod_render::next_owner();
+    /// Freezes immutable read views and starts output deltas without forking resource owners.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            masks: self.masks.transaction(),
+            committed: RenderOutput {
+                passes: self.committed.passes.clone(),
+                ..Default::default()
+            },
+            retained: self.retained.transaction(),
+            generation: 0,
+            staged_passes: None,
+            staged_primitives: Primitives::default(),
+            calls: 0,
+            mask_calls: 0,
+            compiles_left: self.compiles_left,
+            draw_limit: self.draw_limit,
         }
-        *self = transaction;
+    }
+
+    /// Merges only successful output deltas; native lifetime updates remain authoritative.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        let Self {
+            masks,
+            committed,
+            retained,
+            generation: _,
+            staged_passes,
+            staged_primitives,
+            calls: _,
+            mask_calls: _,
+            compiles_left,
+            draw_limit: _,
+        } = transaction;
+        drop(committed);
+        self.retained.accept(retained);
+        self.masks.accept(masks);
+        self.compiles_left = self.compiles_left.min(compiles_left);
+        self.staged_passes = staged_passes;
+        self.staged_primitives = staged_primitives;
+        // The retained delta is already applied; committing it twice expires new frame groups.
+        let masks = self.masks.commit();
+        let mut changed = masks != self.committed.masks;
+        self.committed.masks = masks;
+        changed |= self.publish_retained();
+        if let Some(mut passes) = self.staged_passes.take() {
+            passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+            changed |= passes != self.committed.passes;
+            self.committed.passes = passes;
+        }
+        if changed {
+            self.generation = mod_render::next_owner();
+        }
+        self.commit_primitives();
+        self.retained.reclaim();
     }
 
     pub fn new() -> Self {

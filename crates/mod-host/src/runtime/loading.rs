@@ -44,7 +44,7 @@ impl Instance {
         state.render.masks.bind(effective);
     }
 
-    /// Reads the last committed actor references for native liveness reconciliation.
+    /// Reads committed and in-flight actor references for native liveness reconciliation.
     pub(crate) fn drawing_entity_keys(
         &self,
     ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {

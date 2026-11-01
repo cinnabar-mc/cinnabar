@@ -128,7 +128,7 @@ impl Instance {
 }
 
 /// Transactional one-shot output scoped to the currently observed container.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(crate) struct PointerState {
     screen: Option<String>,
     available: bool,
@@ -136,6 +136,16 @@ pub(crate) struct PointerState {
     committed: Option<[f32; 2]>,
 }
 impl PointerState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            screen: self.screen.clone(),
+            available: self.available,
+            pending: None,
+            committed: None,
+        }
+    }
+
     /// Transfers a request only while the native container and pointer owner still agree.
     pub(super) fn accept(&mut self, transaction: Self) {
         if self.available && self.screen == transaction.screen {

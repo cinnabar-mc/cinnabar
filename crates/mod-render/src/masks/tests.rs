@@ -272,23 +272,42 @@ fn reconciliation_preserves_empty_masks_and_their_handles_for_later_selection() 
     let (mut native, actor) = store(1);
     let mask = native.create(MaskDepth::Test).unwrap();
     native.commit();
-    let mut transaction = native.clone();
-    transaction.begin();
-    transaction.commit();
-    transaction.reconcile_observations(&native);
-    assert_eq!(transaction.commit()[0].handle, mask);
+    let transaction = native.transaction();
+    native.accept(transaction);
+    assert_eq!(native.commit()[0].handle, mask);
+    let mut transaction = native.transaction();
     let target = transaction.entity(actor.runtime_id).unwrap();
     transaction.select(mask, &[target]).unwrap();
-    transaction.commit();
     native.publish_targets(&[]);
-    transaction.reconcile_observations(&native);
-    let masks = transaction.commit();
+    native.accept(transaction);
+    let masks = native.commit();
     assert_eq!(masks.len(), 1);
     assert!(masks[0].entities.is_empty());
     assert_eq!(masks[0].handle, mask);
     native.publish_targets(&[(actor, 36)]);
-    transaction.reconcile_observations(&native);
+    let mut transaction = native.transaction();
     let target = transaction.entity(actor.runtime_id).unwrap();
     transaction.select(mask, &[target]).unwrap();
-    assert_eq!(transaction.commit()[0].entities, [actor]);
+    native.accept(transaction);
+    assert_eq!(native.commit()[0].entities, [actor]);
+}
+
+#[test]
+fn discarded_mask_transactions_never_recycle_mask_or_actor_tokens() {
+    let (mut native, actor) = store(1);
+    let mut transaction = native.transaction();
+    let discarded_actor = transaction.entity(actor.runtime_id).unwrap();
+    let discarded_mask = transaction.create(MaskDepth::Test).unwrap();
+    drop(transaction);
+    assert!(native.commit().is_empty());
+    let target = native.entity(actor.runtime_id).unwrap();
+    let mask = native.create(MaskDepth::Test).unwrap();
+    assert_ne!(target, discarded_actor);
+    assert_ne!(mask, discarded_mask);
+    assert_eq!(
+        native.bindings(&[discarded_mask]),
+        Err(MaskError::StaleHandle)
+    );
+    native.select(mask, &[target]).unwrap();
+    assert_eq!(native.commit()[0].entities, [actor]);
 }

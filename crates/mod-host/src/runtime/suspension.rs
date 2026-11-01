@@ -155,10 +155,10 @@ impl Instance {
             if entry && allowance == crate::WORLD_ENTRY_FRAME_FUEL {
                 self.world_entry.consume();
             }
-            // Only immutable snapshots and private owner transactions enter the guest store.
-            // The facade contains no guest instance and is never entered while suspended.
-            let committed = Store::new(self.pre.engine(), self.store.data().clone());
-            let store = std::mem::replace(&mut self.store, committed);
+            // Keep committed owners in native state; imports receive frozen reads and deltas.
+            let transaction = self.store.data().frame_transaction();
+            let native = std::mem::replace(self.store.data_mut(), transaction);
+            let store = std::mem::replace(&mut self.store, Store::new(self.pre.engine(), native));
             let mut invocation = InvocationStore {
                 store: Some(store),
                 reservation: reservation.clone(),

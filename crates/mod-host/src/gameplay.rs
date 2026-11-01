@@ -14,7 +14,7 @@ use mod_api::{
 };
 
 /// Mob input, the retained rig, and per-frame command and cue output.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct WorldState {
     /// Complete movement input committed for one successful callback.
     pub movement_input: Option<crate::GameplayMovementInput>,
@@ -40,6 +40,29 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            movement_input: None,
+            pending_movement_input: None,
+            movement_intents: None,
+            pending_movement_intents: None,
+            control_modes: None,
+            pending_control_modes: None,
+            mobs: self.mobs.clone(),
+            rig: None,
+            commands: Vec::new(),
+            cues: Vec::new(),
+            incoming: self.incoming.clone(),
+            polls: 0,
+            pending_rig: None,
+            pending_commands: Vec::new(),
+            pending_cues: Vec::new(),
+            window_sent: self.window_sent,
+            window_seconds: 0.,
+        }
+    }
+
     /// Keeps rate accounting host-owned and discards actions completed after their frame.
     pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
         if current_frame {

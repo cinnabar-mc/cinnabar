@@ -33,7 +33,7 @@ const _: () = assert!(
 );
 
 /// One mod's committed presentation, its callback's staged copy and its write allowance.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct PresentationState {
     committed: ModPresentation,
     pending: Option<ModPresentation>,
@@ -42,6 +42,16 @@ pub(super) struct PresentationState {
 }
 
 impl PresentationState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            committed: self.committed.clone(),
+            pending: None,
+            revision: 0,
+            writes: 0,
+        }
+    }
+
     /// Moves only the staged presentation into the current committed owner.
     pub(super) fn accept(&mut self, transaction: Self) {
         self.pending = transaction.pending;

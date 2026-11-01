@@ -320,7 +320,9 @@ The native mod host is always included; regular callback fuel and separate event
 lanes are bounded across the full frame. Deferred lifecycle state and bounded screen-scoped
 edit text remain queued until delivery, while frame-local outputs reset. Suspendible frame
 callbacks retain their store, fuel and private output across time slices; completed output
-publishes after post-return, and late frame actions expire. Decision-exporting instances
+publishes after post-return, and late frame actions expire. Invocation writes use deltas;
+drawing allocation and retirement retain one owner, and in-flight actor references use
+confirmed despawns rather than candidate absence. Decision-exporting instances
 remain synchronous. The new deterministic regressions have not been executed. Revocation is distinct
 from quarantine, so unrelated registration changes do not restart trapped guests.
 These extension changes close no vanilla parity gate. Their native execution and visual

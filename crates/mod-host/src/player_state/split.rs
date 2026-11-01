@@ -2,19 +2,46 @@
 
 use super::cinnabar::extension::player_state::{Effects, Equipment, Revisions};
 use crate::PlayerStateSnapshot;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct SplitState {
     pub equipment: Option<Equipment>,
     pub effects: Option<Effects>,
     current: Option<Revisions>,
     observed: bool,
-    sequence: u64,
+    sequence: Arc<AtomicU64>,
     equipment_revision: u64,
     effects_revision: u64,
 }
 
 impl SplitState {
+    /// Freezes value comparisons while retaining one allocator for all revision tokens.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            equipment: self.equipment.clone(),
+            effects: self.effects.clone(),
+            current: self.current,
+            observed: self.observed,
+            sequence: Arc::clone(&self.sequence),
+            equipment_revision: self.equipment_revision,
+            effects_revision: self.effects_revision,
+        }
+    }
+
+    /// Issues a unique content token even while native observations advance during suspension.
+    fn next_revision(&self) -> anyhow::Result<u64> {
+        self.sequence
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                value.checked_add(1)
+            })
+            .map(|previous| previous + 1)
+            .map_err(|_| anyhow::anyhow!("player-state revision exhausted"))
+    }
+
     /// Retains exact comparisons while requiring fresh current-session authority next callback.
     pub fn begin_frame(&mut self) {
         self.observed = false;
@@ -43,11 +70,7 @@ impl SplitState {
                 || e.armor != s.armor
                 || e.offhand != s.offhand
         }) {
-            self.sequence = self
-                .sequence
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("equipment revision exhausted"))?;
-            self.equipment_revision = self.sequence;
+            self.equipment_revision = self.next_revision()?;
             self.equipment = Some(Equipment {
                 session: s.session,
                 dimension: s.dimension,
@@ -60,11 +83,7 @@ impl SplitState {
         if self.effects.as_ref().is_none_or(|e| {
             e.session != s.session || e.dimension != s.dimension || e.effects != s.effects
         }) {
-            self.sequence = self
-                .sequence
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("effects revision exhausted"))?;
-            self.effects_revision = self.sequence;
+            self.effects_revision = self.next_revision()?;
             self.effects = Some(Effects {
                 session: s.session,
                 dimension: s.dimension,

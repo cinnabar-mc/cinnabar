@@ -74,7 +74,6 @@ impl ModHost {
     }
 }
 
-#[derive(Clone)]
 pub(super) struct ControlState {
     pub pointer: super::input_host::PointerState,
     pub frame: ControlFrame,
@@ -108,6 +107,37 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            pointer: self.pointer.transaction(),
+            frame: self.frame.clone(),
+            bindings: self.bindings.clone(),
+            text_events: self.text_events.clone(),
+            field_events: self.field_events.clone(),
+            text_events_in_frame: self.text_events_in_frame,
+            panel: self.panel.clone(),
+            bundle: self.bundle.clone(),
+            open: self.open,
+            open_requested: false,
+            open_order: 0,
+            native_editing: self.native_editing,
+            native_editing_next: false,
+            layout: self.layout,
+            keys: Vec::new(),
+            interaction: Default::default(),
+            dirty_settings: None,
+            settings: self.settings.clone(),
+            pending_panel: None,
+            pending_open: None,
+            pending_keys: None,
+            pending_settings: None,
+            pending_interaction: Default::default(),
+            reads: 0,
+            writes: 0,
+        }
+    }
+
     /// Applies guest writes without restoring consumed input or overwriting native UI ownership.
     pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, same_ui: bool) {
         if same_ui {
