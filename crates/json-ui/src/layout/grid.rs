@@ -17,6 +17,8 @@ pub const TEMPLATE_KEY: &str = "grid_template_node";
 pub const PLACEHOLDER_KEY: &str = "grid_placeholder_of";
 /// A host-opted cell whose descendants are guaranteed to stay within its rectangle.
 pub const CLIPPED_CELL_KEY: &str = "grid_clipped_cell";
+/// Maximum paint overflow around a virtual cell, in that grid's cell extents.
+pub const MARGIN_CELLS_KEY: &str = "grid_virtual_margin_cells";
 
 #[derive(Clone, Copy, PartialEq)]
 enum Direction {
@@ -162,6 +164,27 @@ fn template_size(control: &ResolvedControl, grid: [Option<f64>; 2], env: &Layout
     template(control).map_or([0.0; 2], |template| {
         size::resolve_size(template, grid, [0.0; 2], env)
     })
+}
+
+/// The viewport enlarged by a virtual grid's admitted cell overflow. An unspecified margin keeps
+/// the conservative whole-viewport allowance used for arbitrary opted-in templates.
+pub(super) fn virtual_clip(
+    control: &ResolvedControl,
+    grid: Rect,
+    env: &LayoutEnv,
+    clip: Rect,
+    margin_cells: Option<usize>,
+) -> Rect {
+    let margin = margin_cells.map_or([clip.w, clip.h], |cells| {
+        let cell = template_size(control, [Some(grid.w), Some(grid.h)], env);
+        [cell[0] * cells as f64, cell[1] * cells as f64]
+    });
+    Rect {
+        x: clip.x - margin[0],
+        y: clip.y - margin[1],
+        w: clip.w + margin[0] * 2.0,
+        h: clip.h + margin[1] * 2.0,
+    }
 }
 
 /// A templated grid's size on `axis` when it is `default` or `%c`-led:

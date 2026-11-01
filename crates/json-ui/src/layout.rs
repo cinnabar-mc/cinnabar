@@ -33,8 +33,8 @@ mod style;
 
 pub use grid::grid_template_columns;
 pub(crate) use grid::{
-    CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY,
-    TEMPLATE_KEY as GRID_TEMPLATE_KEY,
+    CLIPPED_CELL_KEY as GRID_CLIPPED_CELL_KEY, MARGIN_CELLS_KEY as GRID_MARGIN_CELLS_KEY,
+    PLACEHOLDER_KEY as GRID_PLACEHOLDER_KEY, TEMPLATE_KEY as GRID_TEMPLATE_KEY,
 };
 pub use measure::MeasureCache;
 pub(crate) use reuse::Output;
@@ -612,17 +612,34 @@ fn place_subtree<'a>(
     }
     ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
+    let virtual_grid = grid::is_grid(control)
+        .then(|| {
+            control.children.iter().find_map(|child| {
+                grid::placeholder_of(child).map(|grid| {
+                    (
+                        grid,
+                        child
+                            .properties
+                            .get(GRID_MARGIN_CELLS_KEY)
+                            .and_then(Value::as_u64)
+                            .and_then(|margin| usize::try_from(margin).ok()),
+                    )
+                })
+            })
+        })
+        .flatten();
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
         let indexed_clip = (ctx.cull
             && grid::is_grid(control)
-            && allows
-            && !style.unclipped_descendant
-            && control.children.iter().all(|child| {
-                let style = measure::style(child);
-                child.children.is_empty() || style.clips
-            })
+            && (allows || virtual_grid.is_some())
+            && (virtual_grid.is_some()
+                || (!style.unclipped_descendant
+                    && control.children.iter().all(|child| {
+                        let style = measure::style(child);
+                        child.children.is_empty() || style.clips
+                    })))
             && dropdown.is_none()
             && ctx.sliders.is_empty()
             && ctx
@@ -634,10 +651,13 @@ fn place_subtree<'a>(
                 .iter()
                 .any(|frame| frame.adjusts_children(control)))
         .then(|| {
-            bounds::local_clip(
+            let clip = bounds::local_clip(
                 inherit.space.transform,
                 inherit.space.clip.unwrap_or(child_clip),
-            )
+            )?;
+            Some(virtual_grid.map_or(clip, |(_, margin)| {
+                grid::virtual_clip(control, rect, ctx.env, clip, margin)
+            }))
         })
         .flatten();
         measure::placed_children(
@@ -655,6 +675,9 @@ fn place_subtree<'a>(
             .collect(),
         None => Vec::new(),
     };
+    if let Some(reuse) = ctx.reuse.as_mut() {
+        reuse.placements.considered(placed.len());
+    }
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
@@ -685,9 +708,7 @@ fn place_subtree<'a>(
         reuse.inspected += 1;
     }
     // A grid standing in placeholders reports which cells it shows, for its next bind to build.
-    let placeholders = grid::is_grid(control)
-        .then(|| control.children.iter().find_map(grid::placeholder_of))
-        .flatten();
+    let placeholders = virtual_grid.map(|(grid, _)| grid);
     // Its report of the cells in view is not part of a spliced output.
     if placeholders.is_some() {
         ctx.taint();
@@ -766,16 +787,13 @@ fn place_subtree<'a>(
             && child_shown
             && !disjoint(
                 bounds::subtree(child, child_rect, ctx.env, inherit.space.transform),
-                if child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)) {
-                    cull_clip
-                } else {
-                    Rect {
-                        x: cull_clip.x - cull_clip.w,
-                        y: cull_clip.y - cull_clip.h,
-                        w: cull_clip.w * 3.0,
-                        h: cull_clip.h * 3.0,
-                    }
-                },
+                grid::virtual_clip(
+                    control,
+                    rect,
+                    ctx.env,
+                    cull_clip,
+                    virtual_grid.and_then(|(_, margin)| margin),
+                ),
             )
             && let Some(index) =
                 collection_index(child).and_then(|index| usize::try_from(index).ok())
