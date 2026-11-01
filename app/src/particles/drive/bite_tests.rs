@@ -17,13 +17,15 @@ fn first_person_bites_follow_a_raised_camera() {
     );
 }
 
-#[test]
-fn feed_notices_scatter_only_admitted_food_and_do_not_duplicate_local_bites() {
-    use assets::item_use::ItemConsumption;
+/// Routes one `Feed` notice for `identifier` to the local player and then to remote actor 42,
+/// optionally overriding the item's consumption, and reports whether each drew crumbs.
+fn feed_draws_crumbs(
+    identifier: &str,
+    consumption: Option<assets::item_use::ItemConsumption>,
+) -> [bool; 2] {
     use assets::{IconEntry, IconSprite, encode_icon_catalog};
     use particles::EmptyWorld;
 
-    let identifier = "minecraft:bread";
     let network_id = protocol::vanilla_item_registry()
         .iter()
         .find(|entry| entry.identifier.as_ref() == identifier)
@@ -46,8 +48,8 @@ fn feed_notices_scatter_only_admitted_food_and_do_not_duplicate_local_bites() {
         .unwrap(),
     )
     .unwrap();
-    for consumption in [ItemConsumption::Eat, ItemConsumption::Drink] {
-        let mut stream = super::totem_tests::stream();
+    let mut stream = super::totem_tests::stream();
+    if let Some(consumption) = consumption {
         stream.set_item_use_overlays(Arc::new(std::collections::BTreeMap::from([(
             identifier.into(),
             assets::equipment::CompiledItemUseOverlay {
@@ -56,43 +58,62 @@ fn feed_notices_scatter_only_admitted_food_and_do_not_duplicate_local_bites() {
                 ..Default::default()
             },
         )])));
-        let registry = sim::CollisionRegistry::default();
-        let world = StreamParticleWorld::new(&stream, &registry, None);
-        let routing = Routing {
-            world: &world,
-            stream: &stream,
-            mode: NetworkIdMode::Sequential,
-            icons: Some(&icons),
-        };
-        for runtime_id in [stream.local_player_runtime_id(), 42] {
-            let mut system = ParticleSystem::default();
-            assert!(system.register_effect(
-                br#"{"particle_effect":{"description":{"identifier":"minecraft:breaking_item_icon",
-                "basic_render_parameters":{"material":"particles_alpha","texture":"atlas.items"}},
-                "components":{"minecraft:emitter_lifetime_once":{},
-                "minecraft:emitter_rate_instant":{"num_particles":"v.num_particles"},
-                "minecraft:particle_lifetime_expression":{"max_lifetime":1},
-                "minecraft:particle_appearance_billboard":{"size":[0.05,0.05]}}}}"#
-            ));
-            route_notice(
-                &mut system,
-                &routing,
-                &ActorStatusNotice {
-                    runtime_id,
-                    kind: ActorStatusKind::Feed,
-                    data: network_id << 16,
-                    position: [0.0; 3],
-                    height: None,
-                    eating_position: [0.0; 3],
-                },
-            );
-            system.tick(0.001, &EmptyWorld);
-            assert_eq!(
-                system.live_particles() > 0,
-                consumption == ItemConsumption::Eat
-                    && runtime_id != stream.local_player_runtime_id(),
-                "{consumption:?} for actor {runtime_id}"
-            );
-        }
+    }
+    let registry = sim::CollisionRegistry::default();
+    let world = StreamParticleWorld::new(&stream, &registry, None);
+    let routing = Routing {
+        world: &world,
+        stream: &stream,
+        mode: NetworkIdMode::Sequential,
+        icons: Some(&icons),
+    };
+    [stream.local_player_runtime_id(), 42].map(|runtime_id| {
+        let mut system = ParticleSystem::default();
+        assert!(system.register_effect(
+            br#"{"particle_effect":{"description":{"identifier":"minecraft:breaking_item_icon",
+            "basic_render_parameters":{"material":"particles_alpha","texture":"atlas.items"}},
+            "components":{"minecraft:emitter_lifetime_once":{},
+            "minecraft:emitter_rate_instant":{"num_particles":"v.num_particles"},
+            "minecraft:particle_lifetime_expression":{"max_lifetime":1},
+            "minecraft:particle_appearance_billboard":{"size":[0.05,0.05]}}}}"#
+        ));
+        route_notice(
+            &mut system,
+            &routing,
+            &ActorStatusNotice {
+                runtime_id,
+                kind: ActorStatusKind::Feed,
+                data: network_id << 16,
+                position: [0.0; 3],
+                height: None,
+                eating_position: [0.0; 3],
+            },
+        );
+        system.tick(0.001, &EmptyWorld);
+        system.live_particles() > 0
+    })
+}
+
+#[test]
+fn feed_notices_scatter_only_admitted_food_and_do_not_duplicate_local_bites() {
+    use assets::item_use::ItemConsumption;
+
+    // Local bites already scatter from predicted eating cues; drinks scatter nothing.
+    assert_eq!(
+        feed_draws_crumbs("minecraft:bread", Some(ItemConsumption::Eat)),
+        [false, true]
+    );
+    assert_eq!(
+        feed_draws_crumbs("minecraft:bread", Some(ItemConsumption::Drink)),
+        [false, false]
+    );
+}
+
+// Feeding an animal sends `Feed` with its food, which players cannot eat.
+#[test]
+fn feed_notices_scatter_animal_food_that_players_cannot_eat() {
+    for identifier in ["minecraft:wheat", "minecraft:wheat_seeds"] {
+        let [_, remote] = feed_draws_crumbs(identifier, None);
+        assert!(remote, "{identifier}");
     }
 }
