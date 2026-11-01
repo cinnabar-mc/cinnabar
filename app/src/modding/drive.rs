@@ -49,7 +49,7 @@ pub(super) fn drive_mod(
     mut presentation: ResMut<UiPresentationResource>,
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
-    interaction: Option<ResMut<interaction::ModInteraction>>,
+    mut interaction: Option<ResMut<interaction::ModInteraction>>,
     outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
@@ -78,6 +78,9 @@ pub(super) fn drive_mod(
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
+    if let Some(interaction) = interaction.as_deref_mut() {
+        interaction.block_mining = false;
+    }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
     }
