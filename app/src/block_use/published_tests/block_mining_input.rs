@@ -173,7 +173,7 @@ fn directed_mining_requires_physical_attack_and_preserves_the_presented_ray() {
         });
     }
     let origin = world.resource::<InteractionOriginSnapshot>().clone();
-    let view = world.resource::<LocalViewPose>().clone();
+    let view = *world.resource::<LocalViewPose>();
     world.insert_resource(ModInteraction {
         block_mining_target: Some([5.5, 2.5, 6.5]),
         ..Default::default()
