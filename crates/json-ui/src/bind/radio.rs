@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use super::native::{self, Native};
-use super::{Bag, DataSource, Scope};
+use super::{Bag, DataSource, Node, Scope};
 use crate::predicate::Scalar;
 use crate::tree::ResolvedControl;
 
@@ -36,6 +36,15 @@ pub(super) fn apply(
     let checked = selected == index as f64;
     own.insert("#toggle_state".to_owned(), Scalar::Bool(checked));
     native::apply("#toggle_state", &Value::Bool(checked), control, own, native);
+}
+
+/// Applies the selection again after a `view` binding wrote to `node`, as views run after the
+/// bindings [`apply`] follows and can supply the index or the state it replaces.
+pub(super) fn after_view(data: &DataSource, node: &mut Node) {
+    let control = node.src.get();
+    if control.properties.get("radio_toggle_group") == Some(&Value::Bool(true)) {
+        apply(data, control, &node.scope, &mut node.own, &mut node.native);
+    }
 }
 
 /// A radio toggle's place in its group, as `ToggleComponent::_setChecked` reads it: a non-negative

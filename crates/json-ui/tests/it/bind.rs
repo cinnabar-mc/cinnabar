@@ -992,3 +992,38 @@ fn a_selected_radio_replaces_its_bound_toggle_state() {
         &json!(true)
     );
 }
+
+/// A `view` binding writes after the toggle's other bindings, and the selection still wins.
+#[test]
+fn a_selected_radio_replaces_its_view_bound_toggle_state() {
+    let tab = |name: &str, index: u64, authored: bool| {
+        ctrl(
+            name,
+            Some("toggle"),
+            json!({
+                "radio_toggle_group": true, "toggle_name": "navigation_tab",
+                "toggle_group_forced_index": index,
+                "property_bag": { "#authored": authored },
+                "bindings": [ { "binding_type": "view", "source_property_name": "#authored",
+                    "target_property_name": "#toggle_state" } ]
+            }),
+        )
+    };
+    let screen = ctrl_children(
+        "tabs",
+        Some("stack_panel"),
+        json!({}),
+        vec![tab("first", 0, true), tab("second", 1, false)],
+    );
+    let mut data = DataSource::new();
+    data.select_radio("navigation_tab", 1);
+    let bound = bind(&screen, &data, &EmptyLibrary);
+    assert_eq!(
+        prop(bound.child("first").unwrap(), "#toggle_state"),
+        &json!(false)
+    );
+    assert_eq!(
+        prop(bound.child("second").unwrap(), "#toggle_state"),
+        &json!(true)
+    );
+}

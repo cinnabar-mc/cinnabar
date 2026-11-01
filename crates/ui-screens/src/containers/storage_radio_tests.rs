@@ -189,3 +189,21 @@ fn storage_tabs_without_a_forced_index_use_their_cell() {
     );
     assert_eq!(switches_tabs(&negative), 46);
 }
+
+/// A forced index a `view` binding supplies arrives after the toggle's other bindings, and still
+/// names its place when pressed and when compared.
+#[test]
+fn storage_tabs_with_a_view_bound_index_switch_when_pressed() {
+    let screen = indexed("", r#""$tab_index": 0,"#, r#", "$tab_index": 1"#)
+        .replace(
+            r##""#toggle_state": true}"##,
+            r##""#toggle_state": true, "#tab_index": "$tab_index"}"##,
+        )
+        .replace(
+            r##""bindings": [{"binding_type": "global""##,
+            r##""bindings": [{"binding_type": "view", "source_property_name": "#tab_index",
+              "target_property_name": "#toggle_group_forced_index"},
+              {"binding_type": "global""##,
+        );
+    assert_eq!(switches_tabs(&screen), 1);
+}
