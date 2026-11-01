@@ -30,6 +30,8 @@ pub(super) struct ActorRigState {
     pub(super) clip_clocks: clock::ClipClocks,
     pub(super) previous: Vec<BoneTransform>,
     pub(super) current: Vec<BoneTransform>,
+    /// Absent unless the actor's renderer reads its head's own angles.
+    pub(super) head_rotation: Option<HeadRotation>,
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     pub(super) ui_pose: Option<Vec<BoneTransform>>,
     pub(super) ui_animation: Option<hud::UiAnimationState>,
@@ -134,6 +136,8 @@ pub(super) struct ActorTickInput {
 
 pub(super) struct EvaluatedState {
     pub(super) pose: Vec<BoneTransform>,
+    /// The tracked head's own `[x, y]` rotation this tick.
+    pub(super) head_angles: Option<[f32; 2]>,
     pub(super) skin_layers: Vec<SkinRenderLayer>,
     /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,

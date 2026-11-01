@@ -41,6 +41,8 @@ pub mod consumables;
 mod properties;
 mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
+mod head_rotation;
+pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,

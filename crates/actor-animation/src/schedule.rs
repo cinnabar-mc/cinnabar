@@ -659,6 +659,9 @@ struct Ledger<'a> {
 
 fn hold_pose_history(state: &mut ActorRigState) {
     state.previous.clone_from(&state.current);
+    if let Some(head) = state.head_rotation.as_mut() {
+        head.previous = head.current;
+    }
     if let Some(frame) = state.render_frame.as_mut() {
         frame.hold_motion();
     }
@@ -769,6 +772,12 @@ impl Ledger<'_> {
             self.advance_history,
         );
         state.skin_layers = evaluated.skin_layers;
+        state.head_rotation = HeadRotation::carry(
+            state.head_rotation,
+            evaluated.head_angles,
+            restart,
+            self.advance_history,
+        );
         if let Some(mut render) = evaluated.render {
             render::carry_layer_poses(&state.render, &mut render, restart, self.advance_history);
             state.render = render;

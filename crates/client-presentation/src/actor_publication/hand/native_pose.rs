@@ -187,6 +187,7 @@ impl NativePoseCache {
                     render,
                     skin: Cow::Borrowed(&[]),
                     held_item_scale: self.held_item_scale,
+                    head_rotation: None,
                 })
         };
         let pose = sampled.and_then(|sampled| {

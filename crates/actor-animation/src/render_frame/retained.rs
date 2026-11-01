@@ -61,6 +61,7 @@ struct Output {
     render: Vec<RenderTextureLayer>,
     skin: Option<Vec<SkinRenderLayer>>,
     scale: Option<f32>,
+    head_rotation: Option<HeadRotation>,
 }
 
 #[derive(Debug)]
@@ -136,6 +137,7 @@ impl Sample {
                         Cow::Owned(skin.clone())
                     }),
                 held_item_scale: output.scale,
+                head_rotation: output.head_rotation,
             });
         }
         self.valid = false;
@@ -148,6 +150,7 @@ impl Sample {
         render: &[RenderTextureLayer],
         sampled_skin: Option<&[SkinRenderLayer]>,
         scale: Option<f32>,
+        head_rotation: Option<HeadRotation>,
     ) {
         if !self.inputs.pure() {
             return;
@@ -156,6 +159,7 @@ impl Sample {
             render: Vec::new(),
             skin: None,
             scale,
+            head_rotation,
         });
         output.render.clear();
         output.render.extend_from_slice(render);
@@ -168,6 +172,7 @@ impl Sample {
             None => output.skin = None,
         }
         output.scale = scale;
+        output.head_rotation = head_rotation;
         self.valid = true;
     }
 }

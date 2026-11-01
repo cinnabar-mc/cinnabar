@@ -116,6 +116,7 @@ pub(super) fn resolve_binding(
     let bones = plan.bones.to_vec();
     let bone_names = plan.names.to_vec();
     let current = plan.rest.to_vec();
+    let head_rotation = HeadRotation::rest(actor, &bones, &bone_names);
     let controllers = plan.controllers.to_vec();
     let mut motion = MotionState::spawn(actor.body_yaw(), actor.head_yaw());
     motion.horse = super::horse::AnimationState::new(random_seed);
@@ -157,6 +158,7 @@ pub(super) fn resolve_binding(
         rest_reset_generation: 0,
         rest_reset_pending: false,
         current,
+        head_rotation,
         reset_generation: 0,
         reset_pending: false,
         lifetime_epoch: completed_tick,
@@ -543,6 +545,7 @@ fn reselect_geometry_with_checkpoint(
     state.channel_bindings = Arc::clone(&plan.channels);
     state.attachment_bindings = Arc::clone(&plan.attachments);
     state.controllers = controllers;
+    state.head_rotation = HeadRotation::rest(actor, &state.bones, &state.bone_names);
     state.reset_to_skeleton(pose);
     checkpoint
 }
