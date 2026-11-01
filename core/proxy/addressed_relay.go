@@ -30,11 +30,13 @@ type xboxRelay struct {
 	pending *relayFetch
 }
 
-// relayFetch is one relay config request; credentials is nil when it failed.
+// relayFetch is one relay config request; credentials is nil when it failed. A failure is handed
+// to one connection, so a join waiting on its own prefetch does not request again.
 type relayFetch struct {
 	done        chan struct{}
 	credentials *nethernet.Credentials
 	expires     time.Time
+	consumed    bool // a connection took this failure; guarded by xboxRelay.mu
 }
 
 // newXboxRelay requests account's relay config over a short-lived Player Messaging connection.
@@ -47,21 +49,24 @@ func newXboxRelay(account service.TokenSource, logger *slog.Logger) *xboxRelay {
 			if err != nil {
 				return nil, err
 			}
-			defer func() { _ = conn.Close() }()
+			// The graceful close has its own timeouts; it must not hold back the answer.
+			defer func() { go func() { _ = conn.Close() }() }()
 			return conn.Credentials(ctx)
 		},
 	}
 }
 
-// start begins a request unless one is running or an unexpired config is held, and returns it.
-// The request outlives ctx's cancellation so a join that selected NetherNet early can prefetch.
+// start returns the running request, an unexpired config, or a failure no connection has taken,
+// and otherwise begins a request. The request outlives ctx's cancellation so a join that selected
+// NetherNet early can prefetch, and it completes by relayFetchTimeout even if the fetch does not.
 func (r *xboxRelay) start(ctx context.Context) *relayFetch {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if current := r.pending; current != nil {
 		select {
 		case <-current.done:
-			if current.credentials != nil && r.now().Before(current.expires) {
+			if current.credentials == nil && !current.consumed ||
+				current.credentials != nil && r.now().Before(current.expires) {
 				return current
 			}
 		default:
@@ -74,13 +79,27 @@ func (r *xboxRelay) start(ctx context.Context) *relayFetch {
 		defer close(fetch.done)
 		fetchContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), relayFetchTimeout)
 		defer cancel()
-		credentials, err := r.fetch(fetchContext)
-		if err != nil || credentials == nil {
-			r.logger.Warn("NetherNet relay config unavailable; gathering local candidates only", "error", redact.Error(err))
+		type answer struct {
+			credentials *nethernet.Credentials
+			err         error
+		}
+		answered := make(chan answer, 1)
+		go func() {
+			credentials, err := r.fetch(fetchContext)
+			answered <- answer{credentials: credentials, err: err}
+		}()
+		var result answer
+		select {
+		case result = <-answered:
+		case <-fetchContext.Done():
+			result.err = context.Cause(fetchContext)
+		}
+		if result.err != nil || result.credentials == nil {
+			r.logger.Warn("NetherNet relay config unavailable; gathering local candidates only", "error", redact.Error(result.err))
 			return
 		}
-		fetch.credentials = credentials
-		fetch.expires = r.now().Add(time.Duration(credentials.ExpirationInSeconds) * time.Second)
+		fetch.credentials = result.credentials
+		fetch.expires = r.now().Add(time.Duration(result.credentials.ExpirationInSeconds) * time.Second)
 	}()
 	return fetch
 }
@@ -95,6 +114,9 @@ func (r *xboxRelay) Credentials(ctx context.Context) (*nethernet.Credentials, er
 		return nil, ctx.Err()
 	}
 	if fetch.credentials == nil {
+		r.mu.Lock()
+		fetch.consumed = true
+		r.mu.Unlock()
 		return nil, nil
 	}
 	credentials := *fetch.credentials

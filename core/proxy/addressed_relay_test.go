@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/df-mc/go-nethernet"
@@ -84,6 +85,45 @@ func TestUnavailableRelayConfigGathersLocally(t *testing.T) {
 	if got := relay.requests.Load(); got != 2 {
 		t.Fatalf("relay config requested %d times, want 2", got)
 	}
+}
+
+// A join that prefetched a failed relay config gathers locally without requesting it again; the
+// next connection asks again.
+func TestFailedRelayPrefetchServesItsJoin(t *testing.T) {
+	relay := newTestRelay(func(context.Context) (*nethernet.Credentials, error) {
+		return nil, errors.New("signaling unavailable")
+	})
+	<-relay.start(t.Context()).done
+	for want := int32(1); want <= 2; want++ {
+		if credentials, err := relay.Credentials(t.Context()); err != nil || credentials != nil {
+			t.Fatalf("gathering config = %+v, %v; want local candidates only", credentials, err)
+		}
+		if got := relay.requests.Load(); got != want {
+			t.Fatalf("relay config requested %d times, want %d", got, want)
+		}
+	}
+}
+
+// A request that ignores its deadline still releases the join to local candidates at the bound.
+func TestStalledRelayRequestReleasesJoinAtItsBound(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		release := make(chan struct{})
+		relay := newTestRelay(func(context.Context) (*nethernet.Credentials, error) {
+			<-release
+			return relayConfig(), nil
+		})
+		started := time.Now()
+		credentials, err := relay.Credentials(t.Context())
+		waited := time.Since(started)
+		close(release)
+		if err != nil || credentials != nil {
+			t.Fatalf("gathering config = %+v, %v; want local candidates only", credentials, err)
+		}
+		if waited != relayFetchTimeout {
+			t.Fatalf("join waited %s, want %s", waited, relayFetchTimeout)
+		}
+		synctest.Wait()
+	})
 }
 
 // A relay config is reused until the signaling service's expiry, then requested again.
