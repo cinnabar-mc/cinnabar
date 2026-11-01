@@ -255,24 +255,24 @@ pub(super) fn prepare_mod_input(
         && focused
         && !absorbed
         && let Some(packets) = packets.as_mut()
+        && !reactor_surface_focused
+        && !presentation.mod_ui().mod_panel_open()
     {
-        if !reactor_surface_focused && !presentation.mod_ui().mod_panel_open() {
-            packets.panel.pending.keys = panel_keys
-                .iter()
-                .filter_map(PanelSample::key)
-                .filter(|(_, _, repeat, _)| !repeat)
-                .take(mod_api::MAX_CONTROL_KEYS)
-                .map(|(key, text, _, _)| mod_api::panel_input::Key {
-                    key: key.clone(),
-                    text: text
-                        .as_ref()
-                        .filter(|text| text.len() <= 256 && !text.chars().any(char::is_control))
-                        .cloned(),
-                })
-                .collect();
-            packets.panel.pending.held = physical.held_sample();
-            packets.panel.pending.focused = focused;
-        }
+        packets.panel.pending.keys = panel_keys
+            .iter()
+            .filter_map(PanelSample::key)
+            .filter(|(_, _, repeat, _)| !repeat)
+            .take(mod_api::MAX_CONTROL_KEYS)
+            .map(|(key, text, _, _)| mod_api::panel_input::Key {
+                key: key.clone(),
+                text: text
+                    .as_ref()
+                    .filter(|text| text.len() <= 256 && !text.chars().any(char::is_control))
+                    .cloned(),
+            })
+            .collect();
+        packets.panel.pending.held = physical.held_sample();
+        packets.panel.pending.focused = focused;
     }
     if !reactor_surface_focused {
         let (_, cancelled) = physical.focused_pointer_sample(

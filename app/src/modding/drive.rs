@@ -706,6 +706,31 @@ fn container_pointer_available(
             .is_some_and(|scene| scene.key == Scene::Container)
 }
 
+/// Publishes the selected frame owner's surface through the shared presentation path.
+pub(super) fn present_frame_panel(
+    extension: &mut ModRuntime,
+    presentation: &mut UiPresentationResource,
+) {
+    let owner = extension.hosts.panel_owner();
+    presentation.set_mod_menu_branding(extension.menu_branding());
+    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
+        warn!("Cinnabar extension panel font rejected: {error}");
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
+    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+        extension.panel_ui_owner(owner),
+        extension.hosts.host(owner).panel(),
+    ) {
+        warn!("Cinnabar extension panel rejected: {error}");
+        extension.hosts.host_mut(owner).set_panel_open(false);
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
+}
+
 #[cfg(test)]
 mod pointer_observation_tests {
     use super::{container_pointer_available, observed_container_screen, pointer_focus_available};
@@ -841,29 +866,4 @@ mod pointer_observation_tests {
             true
         ));
     }
-}
-
-/// Publishes the selected frame owner's surface through the shared presentation path.
-pub(super) fn present_frame_panel(
-    extension: &mut ModRuntime,
-    presentation: &mut UiPresentationResource,
-) {
-    let owner = extension.hosts.panel_owner();
-    presentation.set_mod_menu_branding(extension.menu_branding());
-    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
-        warn!("Cinnabar extension panel font rejected: {error}");
-    }
-    presentation
-        .mod_ui_mut()
-        .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
-    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-        extension.panel_ui_owner(owner),
-        extension.hosts.host(owner).panel(),
-    ) {
-        warn!("Cinnabar extension panel rejected: {error}");
-        extension.hosts.host_mut(owner).set_panel_open(false);
-    }
-    presentation
-        .mod_ui_mut()
-        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
 }
