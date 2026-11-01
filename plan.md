@@ -1072,12 +1072,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   remain incomplete.
   Actor-backed storage menus keep every cell up to an implementation bound of 1,024, not a
   verified native limit. Stack requests for cells above 255 send the low byte with the stack
-  network ID, normal transactions send the full cell, and a response's byte means the cell its
-  request predicted; a server's handling of those responses is unobserved. Stack hover text
-  appends plain lore lines, up to the existing 32-line cap; JSON text-object lore is shown raw.
+  network ID, normal transactions send the full cell, and each response entry means the next cell
+  its request predicted with that byte; a server's handling of those responses is unobserved. Stack
+  hover text appends plain lore lines, up to the existing 32-line cap; JSON text-object lore is
+  shown raw.
   Pack radio tabs over storage cells select locally by forced or named-collection index; a member
-  with neither stays a cell click, where native checks its own component. A press on a pack's
-  auto-place button still sends a take, whose equivalence to native's request and per-frame cost
+  with neither stays a cell click, where native checks its own component. The selection replays
+  only for groups drawn on the previous frame, so a group that reappears shows its default for one
+  frame. Native holds this state per component, and moving to that closes both gaps.
+  A press on a pack's auto-place button still sends a take, whose equivalence to native's request and per-frame cost
   at 1,024 cells remain unverified.
   Actor-use transactions precede held item use when component, held-item, offhand and
   equipment-enchantment facts rule out every possible offering of an unmodified retail

@@ -515,15 +515,23 @@ impl PlayerInventoryLedger {
                 self.note_unrouted_container();
                 continue;
             }
+            let mut answered = [0usize; 256];
             for correction in container.slots.iter() {
-                let Some(cell) = self.response_cell(request, &container.container, correction.slot)
+                let turn = &mut answered[usize::from(correction.hotbar_slot)];
+                let nth = *turn;
+                *turn += 1;
+                let Some(requested) =
+                    self.response_cell(request, &container.container, correction.hotbar_slot, nth)
                 else {
                     self.note_unrouted_container();
                     continue;
                 };
-                let Some(requested) =
-                    self.response_cell(request, &container.container, correction.hotbar_slot)
-                else {
+                let cell = if correction.slot == correction.hotbar_slot {
+                    Some(requested)
+                } else {
+                    self.response_cell(request, &container.container, correction.slot, 0)
+                };
+                let Some(cell) = cell else {
                     self.note_unrouted_container();
                     continue;
                 };
@@ -542,28 +550,30 @@ impl PlayerInventoryLedger {
         }
     }
 
-    /// The cell a response's one-byte `slot` means. A slot its request predicted is that cell, and
-    /// otherwise a storage slot means the predicted cell past the one-byte range that sent it.
+    /// The cell a response's one-byte `slot` means. Cells past the one-byte range share that byte
+    /// with lower ones, so the `nth` entry naming it answers the `nth` storage cell its request
+    /// predicted with that byte, as `ItemStackNetManagerClient::_processResponseSlot` consumes one
+    /// prediction per entry. A slot with no such cell means its own number.
     fn response_cell(
         &self,
         request: &PendingRequest,
         container: &ContainerIdentity,
         slot: u8,
+        nth: usize,
     ) -> Option<Cell> {
         let cell = self.retained_response_cell(container, u16::from(slot))?;
-        let predicted = |wanted: Cell| request.predicted.iter().any(|p| p.cell == wanted);
-        if !matches!(cell, Cell::Storage(_)) || predicted(cell) {
+        if !matches!(cell, Cell::Storage(_)) {
             return Some(cell);
         }
         Some(
             request
                 .predicted
                 .iter()
-                .find_map(|prediction| match prediction.cell {
-                    Cell::Storage(high) if high as u8 == slot => Some(prediction.cell),
-                    _ => None,
+                .filter(|prediction| {
+                    matches!(prediction.cell, Cell::Storage(high) if high as u8 == slot)
                 })
-                .unwrap_or(cell),
+                .nth(nth)
+                .map_or(cell, |prediction| prediction.cell),
         )
     }
 
