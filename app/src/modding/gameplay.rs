@@ -457,12 +457,14 @@ impl GameplayContext<'_> {
             mode,
             Some(selection.item.block_runtime_id()),
         );
+        let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
         let world = sim::PaletteWorld::new(
             stream.collision_store(),
             collisions.registry(stream.network_id_mode()),
             stream.current_dimension(),
             pick,
-        );
+        )
+        .with_cell_overlays(&overlay_ids);
         let input_mode =
             gameplay::mining::protocol_input_mode(self.input.as_ref()?.snapshot()?.input_mode);
         let reach = if player.facts.game_mode_capabilities()?.creative_reach {
