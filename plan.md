@@ -627,6 +627,10 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+Ocelot controllers receive the native movement-state variable from synced flags before
+authored pre-animation, including sitting and native flag precedence. Custom actors
+inherit their advertised ocelot base. Contributor gameplay captures confirm the sitting
+pose; moving-state visual qualification remains open.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.

@@ -66,6 +66,7 @@ engine_variables! {
     ShulkerFacingDirection => "variable.shulker.facingdirection",
     ShulkerPeekAmount => "variable.shulker.peekamount",
     StandAnim => "variable.stand_anim",
+    State => "variable.state",
     SwimAmount => "variable.swim_amount",
     TpMeleeSpearAttackArmRotationX => "variable.tp_melee_spear_attack_arm_rotation_x",
     TpMeleeSpearAttackAttachablePositionZ => "variable.tp_melee_spear_attack_attachable_position_z",

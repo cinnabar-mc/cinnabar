@@ -882,6 +882,7 @@ pub(super) fn apply_engine_variables(
             truth(super::horse::mouth_open(actor)),
         );
     }
+    super::ocelot::publish(engine, variables, actor);
     super::shulker::publish(engine, variables, actor, context, motion);
     for &(slot, offset, axis) in &engine.dragon_history {
         if let Some(frame) = actor.dragon_historical_frame(offset) {
