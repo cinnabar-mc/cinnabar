@@ -244,6 +244,13 @@ pub(super) fn apply_inventory_pointer(
     if primary_pressed {
         runtime.screen_state_mut().container_scroll_drag = None;
         runtime.screen_state_mut().container_close_armed = on_close;
+        // A mod's view hides the container, so its hidden controls stay silent too.
+        if let Some(sound) = gui
+            .filter(|_| !mod_owned)
+            .and_then(|gui| presentation.engine_container_press_sound(gui))
+        {
+            client_ui::sound_requests::ui_control_sound(sound);
+        }
     }
     if runtime.screen_state().container_close_armed {
         if primary_released {

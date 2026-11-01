@@ -93,8 +93,9 @@ use a generic label. Terrain and dimension cards use a neutral edge and shadow. 
 treatment. Unknown progress uses the OreUI
 cube loader; pack downloads show their actual completion fraction. Pause has no decorative green
 stripe above its logo.
-Interface click sounds are disabled at the owner's request. Other authored interface feedback and
-gameplay sounds keep their existing playback path.
+OreUI buttons, toggles and tabs play `random.click` at volume and pitch 1 when pressed, the sound
+the pack declares on its JSON-UI buttons and toggles; sliders and text fields stay silent, as those
+controls declare no sound in the pack. JSON-UI screens play what their controls declare.
 
 The owner-requested home layout places the shipped logo above the Play and interactive character
 panels. Servers and Settings are secondary; Realms remains a quiet text action. Compact utility buttons group account, friends, inbox and quit below the panels.

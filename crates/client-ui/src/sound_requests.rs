@@ -1,11 +1,18 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
-/// Click definition whose interface playback is disabled by the owner's preference.
+/// Sound the pack's ordinary JSON-UI buttons and toggles declare, at volume and pitch 1.
 pub const UI_CLICK: &str = "random.click";
 
-/// Interface requests filter clicks while preserving other authored feedback.
-pub fn interface_sound_enabled(name: &str) -> bool {
-    name != UI_CLICK
+/// The press sound of a client-owned OreUI control, which has no pack definition to declare one.
+pub fn native_press_sound() -> &'static json_ui::ControlSound {
+    static CLICK: std::sync::LazyLock<json_ui::ControlSound> =
+        std::sync::LazyLock::new(|| json_ui::ControlSound {
+            name: UI_CLICK.into(),
+            volume: 1.0,
+            pitch: 1.0,
+            min_seconds: 0.0,
+        });
+    &CLICK
 }
 
 /// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
@@ -17,9 +24,6 @@ const MAX_PENDING_UI_SOUNDS: usize = 16;
 /// Plays a pressed launcher control's sound, holding back a repeat inside its
 /// `min_seconds_between_plays`, as vanilla's sound component does.
 pub fn ui_control_sound(sound: &json_ui::ControlSound) {
-    if !interface_sound_enabled(&sound.name) {
-        return;
-    }
     static LAST_PLAYED: std::sync::Mutex<Vec<(String, web_time::Instant)>> =
         std::sync::Mutex::new(Vec::new());
     if sound.min_seconds > 0.0 {
@@ -43,9 +47,6 @@ pub fn ui_control_sound(sound: &json_ui::ControlSound) {
 
 /// Requests an interface sound a UI sound component names, at its volume and pitch.
 pub fn ui_sound(name: &str, volume: f32, pitch: f32) {
-    if !interface_sound_enabled(name) {
-        return;
-    }
     let mut pending = PENDING_UI_SOUNDS
         .lock()
         .unwrap_or_else(|poison| poison.into_inner());
@@ -68,23 +69,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn interface_clicks_are_silent_and_other_feedback_is_preserved() {
-        ui_sound(UI_CLICK, 1.0, 1.0);
-        ui_control_sound(&json_ui::ControlSound {
-            name: UI_CLICK.into(),
-            volume: 1.0,
-            pitch: 1.0,
-            min_seconds: 0.0,
-        });
+    fn interface_clicks_reach_the_audio_queue_with_their_authored_scalars() {
+        ui_sound(UI_CLICK, 0.75, 1.0);
+        ui_control_sound(native_press_sound());
         ui_sound("ui.reject", 0.5, 1.25);
         let sounds = take_sounds();
-        assert!(!sounds.iter().any(|(name, _, _)| name == UI_CLICK));
-        assert!(
-            sounds
-                .iter()
-                .any(|(name, volume, pitch)| name == "ui.reject"
-                    && *volume == 0.5
-                    && *pitch == 1.25)
-        );
+        for expected in [
+            (UI_CLICK, 0.75, 1.0),
+            (UI_CLICK, 1.0, 1.0),
+            ("ui.reject", 0.5, 1.25),
+        ] {
+            assert!(
+                sounds
+                    .iter()
+                    .any(|(name, volume, pitch)| (name.as_str(), *volume, *pitch) == expected),
+                "{expected:?} was dropped from {sounds:?}"
+            );
+        }
     }
 }

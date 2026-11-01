@@ -1320,6 +1320,8 @@ Native audio follows changes to the system default output on its owner thread, r
 active and queued sounds across output replacement and retrying unavailable devices.
 The sound-definition catalog matches the current sample-pack pin; compiler coverage
 checks a UI sound and guards the manifest associated with the sound-definition digest.
+JSON-UI controls play their declared press sounds and OreUI buttons play the same click; whether
+vanilla's own OreUI screens click is unverified, since their script bundle is not available here.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear

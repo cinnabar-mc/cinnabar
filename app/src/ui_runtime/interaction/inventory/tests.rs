@@ -610,6 +610,74 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
 }
 
+/// A pressed container control plays the sound its definition declares; one that declares
+/// none stays silent.
+#[test]
+fn pressing_a_container_control_plays_only_its_declared_sound() {
+    const SOUND: &str = "test.container_press";
+    let queued = || {
+        client_ui::sound_requests::take_sounds()
+            .into_iter()
+            .filter(|(name, ..)| name == SOUND)
+            .collect::<Vec<_>>()
+    };
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player, None);
+    let presentation = presentation_with_controls(
+        &player,
+        &runtime,
+        &[serde_json::json!({"declares_sound": {
+            "type": "button", "size": [10, 10], "offset": [50, 30],
+            "sound_name": SOUND, "sound_volume": 0.5, "sound_pitch": 1.25,
+            "button_mappings": [{"from_button_id": "button.menu_select",
+                "to_button_id": "button.test_press", "mapping_type": "pressed"}]
+        }})],
+    );
+    let declared = presentation
+        .engine_container_frame()
+        .expect("fixture container frame")
+        .hits
+        .iter()
+        .find(|hit| hit.sound.is_some())
+        .expect("fixture control declares a sound");
+    let at = window_point(
+        &presentation,
+        [
+            (declared.rect.x + declared.rect.w / 2.0) as f32,
+            (declared.rect.y + declared.rect.h / 2.0) as f32,
+        ],
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        true,
+        false,
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        false,
+        true,
+    );
+    assert_eq!(queued(), [(SOUND.to_owned(), 0.5, 1.25)]);
+
+    let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(close),
+        &presentation,
+        true,
+        false,
+    );
+    assert_eq!(queued(), []);
+}
+
 /// Plays one touch through the pointer emulation, delivering each edge at its own position.
 fn batched_tap(
     player: &mut client_state::PlayerRuntime,
