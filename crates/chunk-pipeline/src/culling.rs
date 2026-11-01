@@ -14,7 +14,7 @@ use world::SubChunkKey;
 pub(crate) use grid::ConnectivityGrid;
 #[cfg(test)]
 pub(crate) use incremental::update_visible;
-pub use rebuild::{CaveRebuildStats, CaveVisibilityRebuild, CaveVisibilityUpdate};
+pub use rebuild::{CaveRebuildStats, CaveVisibilityRebuild};
 pub use visible_set::CaveVisibleSet;
 
 use grid::Slot;
@@ -213,18 +213,6 @@ pub(crate) fn fill_visible(
     scratch: &mut CaveVisibilityScratch,
     visible: &mut CaveVisibleSet,
 ) {
-    fill_visible_within(camera, grid, scratch, visible, usize::MAX);
-}
-
-/// [`fill_visible`] that gives up, returning false and leaving no usable proof in `scratch`,
-/// once it has explored `budget` exits or would list more than `budget` sections.
-pub(crate) fn fill_visible_within(
-    camera: SubChunkKey,
-    grid: &ConnectivityGrid,
-    scratch: &mut CaveVisibilityScratch,
-    visible: &mut CaveVisibleSet,
-    budget: usize,
-) -> bool {
     for &node in &scratch.touched {
         if (node as usize) < scratch.visited.len() {
             scratch.visited[node as usize] = 0;
@@ -251,21 +239,14 @@ pub(crate) fn fill_visible_within(
     scratch.overflow_visited.clear();
     scratch.stack.clear();
     let Some((camera_node, camera_bits)) = scratch.node(grid, camera) else {
-        if grid.len() > budget {
-            scratch.checkpoint = ABANDONED;
-            return false;
-        }
         for key in grid.keys() {
             visible.insert(key);
         }
-        return true;
+        return;
     };
     let cells = grid.cell_count() as u32;
     scratch.reach(cells, camera_node, touched_faces(camera_bits));
-    if !propagate_within(grid, scratch, budget) {
-        scratch.checkpoint = ABANDONED;
-        return false;
-    }
+    propagate(grid, scratch);
     // Visibility is per entity: retain exactly one loaded neighbour shell around reached nodes,
     // except under Sodium's rule, which shows only what it reaches.
     let shell = !scratch.built_outward_only;
@@ -284,30 +265,14 @@ pub(crate) fn fill_visible_within(
             }
         }
     }
-    true
 }
-
-/// A checkpoint no grid has, since identities start at 1: no incremental update may extend it.
-const ABANDONED: (u64, u64, usize) = (0, 0, 0);
 
 /// Explores each newly reachable exit once; retained exits need no repeated traversal.
 fn propagate(grid: &ConnectivityGrid, scratch: &mut CaveVisibilityScratch) {
-    propagate_within(grid, scratch, usize::MAX);
-}
-
-/// [`propagate`] that stops, returning false, once it has explored `budget` exits in total.
-fn propagate_within(
-    grid: &ConnectivityGrid,
-    scratch: &mut CaveVisibilityScratch,
-    budget: usize,
-) -> bool {
     let cells = grid.cell_count() as u32;
     // Leaving through an exit enters the neighbour by the opposite face whatever the entry
     // was, so each (node, exit) needs exploring once; the reached set is order-independent.
     while let Some((node, exits)) = scratch.stack.pop() {
-        if scratch.work.explored_exits >= budget {
-            return false;
-        }
         let (key, _) = scratch.describe(grid, node);
         let mut exits = u64::from(exits);
         while exits != 0 {
@@ -325,7 +290,6 @@ fn propagate_within(
             scratch.reach(cells, next_node, leaves);
         }
     }
-    true
 }
 
 /// The camera node may leave through any face its own air touches: the matrix diagonal.

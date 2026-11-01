@@ -1,9 +1,9 @@
 use super::*;
 
 impl WorldStream {
-    /// Extends retained visibility or polls a full search without waiting for it.
-    /// Show all sections on `Unavailable`; swap `replacement` into `visible` on `Rebuilt`.
-    /// Keep the worker, scratch and both output buffers together between updates.
+    /// Extends retained visibility; on true, swap `replacement` into `visible`. A due rebuild of
+    /// a still-safe superset may finish on a later update. Keep the rebuild, scratch and both
+    /// output buffers together between updates.
     pub fn update_cave_visible_sub_chunks(
         &self,
         camera: SubChunkKey,
@@ -11,7 +11,7 @@ impl WorldStream {
         scratch: &mut crate::CaveVisibilityScratch,
         visible: &mut crate::CaveVisibleSet,
         replacement: &mut crate::CaveVisibleSet,
-    ) -> crate::CaveVisibilityUpdate {
+    ) -> bool {
         rebuild.update(camera, &self.connectivity, scratch, visible, replacement)
     }
 

@@ -296,12 +296,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
-  Full cave searches cheaper than copying the connectivity grid run inline within that
-  budget; larger ones run on immutable snapshots off the frame thread, or inline where no
-  worker thread can start. Invalidated or failed proofs restore hidden sections until a
-  search lands; retained proofs process openings inline while one is pending. A large
-  search that never catches up, as in shader-pack flight that crosses sections faster than
-  one search or a burst over the change journal's capacity, leaves sections shown.
+  An invalid cave proof is replaced by an inline full search in the same update. A due
+  rebuild of a still-safe superset runs on an immutable connectivity snapshot off the frame
+  thread while the superset stays drawn and openings apply inline, unless its retained
+  reach costs less than the snapshot copy or no worker thread can start.
   A developer-supplied cost calibration can select Hi-Z indirect cull passes by
   captured submitted indices per stream, matched to adapter, backend, viewport and
   sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,

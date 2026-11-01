@@ -32,14 +32,14 @@ pub(crate) fn update_visible(
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum RetainedUpdate {
     Updated,
-    /// Visibility remains a superset, but a full search is due to make it exact again.
+    /// Visibility remains a safe superset, but a full search is due to make it exact again.
     Rebuild,
-    /// No current hiding proof remains; show all sections until a full search catches up.
+    /// No current hiding proof remains, so a full search must replace it before publication.
     Invalid,
 }
 
-/// Applies cheap changes without a full search. A rebuild may be due while the updated
-/// visible set still safely hides sections; only `Invalid` requires restoring them all.
+/// Applies cheap changes without a full search, publishing them into `visible` unless the
+/// proof is `Invalid`, which leaves `visible` untouched.
 pub(super) fn update_incrementally(
     camera: SubChunkKey,
     grid: &ConnectivityGrid,

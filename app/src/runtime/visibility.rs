@@ -3,9 +3,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::{
     Add, Entity, Has, On, Query, Remove, Res, ResMut, Resource, Transform, Visibility, With,
 };
-use chunk_pipeline::{
-    CaveVisibilityRebuild, CaveVisibilityUpdate, CaveVisibilityWork, CaveVisibleSet, WorldStream,
-};
+use chunk_pipeline::{CaveVisibilityRebuild, CaveVisibilityWork, CaveVisibleSet, WorldStream};
 use render_scene::{
     ChunkRenderInstance, RuntimeStage, RuntimeStageProfiler, shaderpack::ShaderPackRendering,
 };
@@ -241,23 +239,16 @@ fn refresh_visible(
         return CaveVisibilityWork::default();
     }
 
-    let failed = cache.rebuild.stats().failed;
-    let update = stream.update_cave_visible_sub_chunks(
+    let rebuilt = stream.update_cave_visible_sub_chunks(
         camera_key,
         &mut cache.rebuild,
         &mut cache.scratch,
         &mut cache.visible,
         &mut cache.next_visible,
     );
-    if !failed && cache.rebuild.stats().failed {
-        bevy::log::warn!("cave visibility worker unavailable; keeping chunks visible");
-    }
     cache.camera = Some(camera_key);
     cache.graph_generation = Some(generation);
-    if update == CaveVisibilityUpdate::Rebuilt
-        && cache.initialized
-        && cache.visible == cache.next_visible
-    {
+    if rebuilt && cache.initialized && cache.visible == cache.next_visible {
         return cache.scratch.work();
     }
     let set = |entity, visible| {
@@ -273,13 +264,12 @@ fn refresh_visible(
             *visibility = desired;
         }
     };
-    let work = cache.scratch.work();
-    match update {
-        CaveVisibilityUpdate::Unavailable => cache.show_all(set),
-        CaveVisibilityUpdate::Rebuilt => cache.publish_next(set),
-        CaveVisibilityUpdate::Incremental => cache.publish_additions(set),
+    if rebuilt {
+        cache.publish_next(set);
+    } else {
+        cache.publish_additions(set);
     }
-    work
+    cache.scratch.work()
 }
 
 pub(crate) fn apply_added_chunk_visibility(

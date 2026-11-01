@@ -6,8 +6,8 @@ pub mod jobs;
 mod stream;
 
 pub use culling::{
-    CaveRebuildStats, CaveVisibilityRebuild, CaveVisibilityScratch, CaveVisibilityUpdate,
-    CaveVisibilityWork, CaveVisibleSet,
+    CaveRebuildStats, CaveVisibilityRebuild, CaveVisibilityScratch, CaveVisibilityWork,
+    CaveVisibleSet,
 };
 
 #[cfg(feature = "benchmark-support")]
