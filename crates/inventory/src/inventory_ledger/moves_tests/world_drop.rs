@@ -262,7 +262,10 @@ fn quick_moves_merge_legacy_remainders_as_sources_and_destinations() {
         else {
             panic!("a merge place");
         };
-        assert_eq!((from.slot, into.slot), (source, destination));
+        assert_eq!(
+            (from.slot, into.slot),
+            (u16::from(source), u16::from(destination))
+        );
         let legacy_id = if source == 2 {
             from.stack_network_id
         } else {

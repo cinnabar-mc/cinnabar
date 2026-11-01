@@ -956,3 +956,39 @@ fn grid_cap_from_a_view_on_another_control_creates_its_cells() {
         assert_eq!(cells, 4, "revealed {revealed}");
     }
 }
+
+/// Selecting a radio overrides the state a global `#toggle_state` binding left on the toggle's
+/// native properties, so its look follows the selection.
+#[test]
+fn a_selected_radio_replaces_its_bound_toggle_state() {
+    let tab = |name: &str, index: u64, default_state: bool| {
+        ctrl(
+            name,
+            Some("toggle"),
+            json!({
+                "radio_toggle_group": true, "toggle_name": "navigation_tab",
+                "toggle_group_forced_index": index, "toggle_default_state": default_state,
+                "bindings": [ { "binding_type": "global", "binding_name": "#toggle_state",
+                    "binding_name_override": "#toggle_state" } ]
+            }),
+        )
+    };
+    let screen = ctrl_children(
+        "tabs",
+        Some("stack_panel"),
+        json!({}),
+        vec![tab("first", 0, true), tab("second", 1, false)],
+    );
+    let mut data = DataSource::new();
+    data.set_strict(true);
+    data.select_radio("navigation_tab", 1);
+    let bound = bind(&screen, &data, &EmptyLibrary);
+    assert_eq!(
+        prop(bound.child("first").unwrap(), "#toggle_state"),
+        &json!(false)
+    );
+    assert_eq!(
+        prop(bound.child("second").unwrap(), "#toggle_state"),
+        &json!(true)
+    );
+}

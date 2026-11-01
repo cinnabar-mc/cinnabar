@@ -108,7 +108,7 @@ fn server_menu_default_descriptors_admit_content_updates_and_level_entity_reques
 }
 
 #[test]
-fn actor_menu_beyond_one_byte_keeps_every_cell_and_requests_the_low_byte() {
+fn actor_menu_beyond_one_byte_keeps_every_cell_and_requests_it() {
     const SHOP_CELLS: usize = 549;
     const HIGH_CELL: u16 = 508;
     let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
@@ -128,7 +128,7 @@ fn actor_menu_beyond_one_byte_keeps_every_cell_and_requests_the_low_byte() {
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
         panic!("taking a cell past the one-byte range");
     };
-    assert_eq!(u16::from(source.slot), HIGH_CELL % 256);
+    assert_eq!(source.slot, HIGH_CELL);
     assert_eq!(source.stack_network_id, 996);
 }
 

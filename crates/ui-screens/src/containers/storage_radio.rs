@@ -24,14 +24,11 @@ fn group_name(region: &HitRegion) -> Option<&str> {
         .flatten()
 }
 
-/// The selection a press on `region` makes: its group and place in the group, which a negative
-/// forced index reads from the enclosing collection as the toggle component does.
+/// The selection a press on `region` makes: its group and the place in the group binding compares.
 pub(super) fn hit(region: &HitRegion) -> Option<Widget> {
-    let name = group_name(region)?;
-    let index = region.group_index.or(region.collection_index)?;
     Some(Widget::StorageRadio {
-        group: group_key(name),
-        index: u16::try_from(index).ok()?,
+        group: group_key(group_name(region)?),
+        index: u16::try_from(region.radio_index?).ok()?,
     })
 }
 

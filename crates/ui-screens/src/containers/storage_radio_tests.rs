@@ -26,13 +26,13 @@ impl TextureSource for NoArt {
 }
 
 /// Two tabs in cells 45 and 46 of the window, each showing a page through its `#toggle_state`,
-/// shaped like a server pack's shop.
+/// shaped like a server pack's shop. `FIRST`, `SECOND` and `TAB` hold each way of indexing them.
 const SCREEN: &str = r##"{
   "namespace": "shop",
   "tab": {
     "type": "toggle", "size": [20, 20],
     "anchor_from": "top_left", "anchor_to": "top_left",
-    "radio_toggle_group": true, "toggle_name": "navigation_tab",
+    "radio_toggle_group": true, "toggle_name": "navigation_tab", TAB
     "property_bag": {"#toggle_state": true},
     "bindings": [{"binding_type": "global", "binding_name": "#toggle_state",
       "binding_name_override": "#toggle_state", "binding_condition": "visible"}],
@@ -55,9 +55,8 @@ const SCREEN: &str = r##"{
         "anchor_from": "top_left", "anchor_to": "top_left",
         "collection_name": "container_items",
         "controls": [
-          {"first@shop.tab": {"grid_position": [0, 5], "toggle_group_forced_index": 0,
-            "toggle_default_state": true}},
-          {"second@shop.tab": {"grid_position": [1, 5], "toggle_group_forced_index": 1}}
+          {"first@shop.tab": {"grid_position": [0, 5], FIRST "toggle_default_state": true}},
+          {"second@shop.tab": {"grid_position": [1, 5] SECOND}}
         ]
       }},
       {"first_page@shop.page": {"$tab": "first"}},
@@ -66,12 +65,16 @@ const SCREEN: &str = r##"{
   }
 }"##;
 
-fn frame(
-    selected: &BTreeMap<u64, u16>,
-    previous: Option<&[HitRegion]>,
-) -> (EngineFrame, [bool; 2]) {
+/// One tab screen: its layout, whether each page shows and whether each tab reads checked.
+struct Drawn {
+    frame: EngineFrame,
+    pages: [bool; 2],
+    checked: [bool; 2],
+}
+
+fn frame(screen: &str, selected: &BTreeMap<u64, u16>, previous: Option<&[HitRegion]>) -> Drawn {
     let mut catalog = Catalog::default();
-    catalog.overlay_text("ui/shop.json", SCREEN);
+    catalog.overlay_text("ui/shop.json", screen);
     let screen = json_ui::resolve(&catalog, "shop.screen", &Context::desktop())
         .control
         .expect("the screen resolves");
@@ -103,9 +106,17 @@ fn frame(
             .is_some_and(|child| child.control.properties.get("visible") != Some(&false.into()))
     };
     let pages = [visible("first_page"), visible("second_page")];
-    (
-        EngineFrame {
-            hits: json_ui::hit_regions(&laid).into(),
+    let hits = json_ui::hit_regions(&laid);
+    let checked = |name: &str| {
+        hits.iter()
+            .find(|hit| hit.key.contains(name))
+            .and_then(|hit| hit.checked)
+            .unwrap_or_else(|| panic!("tab {name} has a toggle region"))
+    };
+    let checked = [checked("first"), checked("second")];
+    Drawn {
+        frame: EngineFrame {
+            hits: hits.into(),
             report,
             cancel_target: None,
             origin: [0.0; 2],
@@ -115,23 +126,66 @@ fn frame(
             top: Vec::new(),
         },
         pages,
-    )
+        checked,
+    }
+}
+
+/// Opens `screen`, presses the second tab and returns the index the press selected.
+fn switches_tabs(screen: &str) -> u16 {
+    let opened = frame(screen, &BTreeMap::new(), None);
+    assert_eq!(opened.pages, [true, false], "the default tab's page shows");
+    assert_eq!(
+        opened.checked,
+        [true, false],
+        "the default tab reads checked"
+    );
+
+    let layout = ScreenLayout::Station(storage_kind(549, None));
+    let Some(InventoryCellHit::Widget(Widget::StorageRadio { group, index })) =
+        layout.hit(&opened.frame, [30.0, 110.0])
+    else {
+        panic!("a press on the second tab selects it rather than taking cell 46");
+    };
+
+    let selected = BTreeMap::from([(group, index)]);
+    let pressed = frame(screen, &selected, Some(&opened.frame.hits));
+    assert_eq!(pressed.pages, [false, true], "the pressed tab's page shows");
+    assert_eq!(
+        pressed.checked,
+        [false, true],
+        "the pressed tab reads checked"
+    );
+    index
+}
+
+/// `SCREEN` with its tabs indexed by `first` and `second`, with `tab` on each.
+fn indexed(tab: &str, first: &str, second: &str) -> String {
+    SCREEN
+        .replace("TAB", tab)
+        .replace("FIRST", first)
+        .replace("SECOND", second)
 }
 
 #[test]
 fn storage_tabs_start_on_their_default_and_switch_when_pressed() {
-    let (opened, pages) = frame(&BTreeMap::new(), None);
-    assert_eq!(pages, [true, false], "the default tab's page shows on open");
+    let screen = indexed(
+        "",
+        r#""toggle_group_forced_index": 0,"#,
+        r#", "toggle_group_forced_index": 1"#,
+    );
+    assert_eq!(switches_tabs(&screen), 1);
+}
 
-    let layout = ScreenLayout::Station(storage_kind(549, None));
-    let Some(InventoryCellHit::Widget(Widget::StorageRadio { group, index })) =
-        layout.hit(&opened, [30.0, 110.0])
-    else {
-        panic!("a press on the second tab selects it rather than taking cell 46");
-    };
-    assert_eq!(index, 1);
-
-    let selected = BTreeMap::from([(group, index)]);
-    let (_, pages) = frame(&selected, Some(&opened.hits));
-    assert_eq!(pages, [false, true], "the pressed tab's page replaces it");
+/// A negative or absent forced index reads the named collection, as `ToggleComponent::_setChecked`
+/// reports it.
+#[test]
+fn storage_tabs_without_a_forced_index_use_their_cell() {
+    let tab = r#""toggle_grid_collection_name": "container_items","#;
+    assert_eq!(switches_tabs(&indexed(tab, "", "")), 46);
+    let negative = indexed(
+        tab,
+        r#""toggle_group_forced_index": -1,"#,
+        r#", "toggle_group_forced_index": -1"#,
+    );
+    assert_eq!(switches_tabs(&negative), 46);
 }

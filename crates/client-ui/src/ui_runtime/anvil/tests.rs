@@ -826,7 +826,7 @@ fn filtered_names_follow_actual_anvil_name_edits() {
             let ledger = runtime.inventory_ledger(&player);
             StackRequestSlot {
                 container: protocol::ui_slot_request_container(slot).unwrap(),
-                slot,
+                slot: u16::from(slot),
                 stack_network_id: ledger
                     .target_stack(InventoryTarget::Craft(slot))
                     .unwrap()
@@ -905,7 +905,7 @@ fn filtered_names_follow_actual_anvil_name_edits() {
                     amount: 1,
                     source: StackRequestSlot {
                         container: Container::CreatedOutput,
-                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
                         stack_network_id: request_id,
                     },
                     destination: StackRequestSlot {

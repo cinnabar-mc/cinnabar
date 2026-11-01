@@ -278,8 +278,7 @@ impl WindowKind {
     }
 }
 
-/// The container name and window index request slot `cell` of an open window
-/// carries. `content_name` is the name the window's content arrived under, so a
+/// The container name and cell a request for `cell` of an open window names. `content_name` is the name the window's content arrived under, so a
 /// barrel or shulker box echoes its own name instead of the level-entity one.
 #[must_use]
 pub fn open_cell_request(
@@ -287,17 +286,13 @@ pub fn open_cell_request(
     cell: u16,
     dynamic_id: Option<u32>,
     content_name: Option<u8>,
-) -> Option<(StackRequestContainer, u8)> {
+) -> Option<(StackRequestContainer, u16)> {
     match kind.open_cells()? {
         OpenCells::Generic(_) => Some(match content_name {
-            Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => (
-                StackRequestContainer::OpenWindow { name, dynamic_id },
-                wire_slot(cell),
-            ),
-            _ => (
-                StackRequestContainer::LevelEntity { dynamic_id },
-                wire_slot(cell),
-            ),
+            Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => {
+                (StackRequestContainer::OpenWindow { name, dynamic_id }, cell)
+            }
+            _ => (StackRequestContainer::LevelEntity { dynamic_id }, cell),
         }),
         OpenCells::Named { segments, .. } => {
             let cell = u8::try_from(cell).ok()?;
@@ -310,15 +305,9 @@ pub fn open_cell_request(
                     dynamic_id: None,
                 }
             };
-            Some((container, cell))
+            Some((container, u16::from(cell)))
         }
     }
-}
-
-/// A stack request's one-byte slot. As native does, a higher cell keeps only its low byte; the
-/// request's stack network ID still identifies the item.
-const fn wire_slot(cell: u16) -> u8 {
-    cell as u8
 }
 
 fn segment_of_cell(segments: &[WindowSegment], cell: u8) -> Option<WindowSegment> {
@@ -536,11 +525,9 @@ mod tests {
     }
 
     #[test]
-    fn generic_cells_past_one_byte_send_their_low_byte() {
-        for (cell, wire) in [(255, 255), (256, 0), (300, 44), (508, 252)] {
-            let (_, slot) = open_cell_request(WindowKind::Storage, cell, None, None).unwrap();
-            assert_eq!(slot, wire, "cell {cell}");
-        }
+    fn generic_cells_past_one_byte_keep_their_cell() {
+        let (_, slot) = open_cell_request(WindowKind::Storage, 508, None, None).unwrap();
+        assert_eq!(slot, 508);
         assert!(open_cell_request(WindowKind::Furnace, 256, None, None).is_none());
     }
 
