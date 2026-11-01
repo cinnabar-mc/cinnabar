@@ -101,6 +101,8 @@ pub(super) struct Placements {
     generation: u64,
     /// The view state, culling and geometry identity the records were made under.
     view: Option<(ViewState, bool, crate::LayoutCacheKey)>,
+    /// Largest child-placement set inspected by the latest layout before culling.
+    widest_candidates: usize,
     /// Controls the last layout placed rather than spliced.
     placed: usize,
     /// Controls that follow a scroll view's state ([`super::scroll::pin`]), once found for
@@ -251,11 +253,22 @@ impl Placements {
         }
         self.generation += 1;
         self.placed = 0;
+        self.widest_candidates = 0;
     }
 
     /// Controls the last layout placed rather than spliced.
     pub(super) fn placed_count(&self) -> usize {
         self.placed
+    }
+
+    /// Includes children rejected before they become placed controls.
+    pub(super) fn widest_candidate_count(&self) -> usize {
+        self.widest_candidates
+    }
+
+    /// Records one parent's pre-culling child set for deterministic work regressions.
+    pub(super) fn considered(&mut self, count: usize) {
+        self.widest_candidates = self.widest_candidates.max(count);
     }
 
     /// Finds the controls under `root` that follow a scroll view's state, unless known for

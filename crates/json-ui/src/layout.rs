@@ -612,17 +612,30 @@ fn place_subtree<'a>(
     }
     ctx.ancestors.push((&control.name, rect, child_clip));
     // A culling layout leaves a hidden control's subtree unplaced: nothing in it draws.
+    let virtual_grid = grid::is_grid(control)
+        .then(|| {
+            control.children.iter().find_map(|child| {
+                grid::placeholder_of(child).map(|grid| {
+                    (
+                        grid,
+                        child.properties.get(GRID_CLIPPED_CELL_KEY) == Some(&Value::Bool(true)),
+                    )
+                })
+            })
+        })
+        .flatten();
     let placed = if ctx.cull && !own_visible && forced.is_none_or(|(_, mask)| mask == 0) {
         Vec::new()
     } else {
         let indexed_clip = (ctx.cull
             && grid::is_grid(control)
             && allows
-            && !style.unclipped_descendant
-            && control.children.iter().all(|child| {
-                let style = measure::style(child);
-                child.children.is_empty() || style.clips
-            })
+            && (virtual_grid.is_some()
+                || (!style.unclipped_descendant
+                    && control.children.iter().all(|child| {
+                        let style = measure::style(child);
+                        child.children.is_empty() || style.clips
+                    })))
             && dropdown.is_none()
             && ctx.sliders.is_empty()
             && ctx
@@ -634,10 +647,20 @@ fn place_subtree<'a>(
                 .iter()
                 .any(|frame| frame.adjusts_children(control)))
         .then(|| {
-            bounds::local_clip(
+            let clip = bounds::local_clip(
                 inherit.space.transform,
                 inherit.space.clip.unwrap_or(child_clip),
-            )
+            )?;
+            Some(if virtual_grid.is_some_and(|(_, clipped)| !clipped) {
+                Rect {
+                    x: clip.x - clip.w,
+                    y: clip.y - clip.h,
+                    w: clip.w * 3.0,
+                    h: clip.h * 3.0,
+                }
+            } else {
+                clip
+            })
         })
         .flatten();
         measure::placed_children(
@@ -655,6 +678,9 @@ fn place_subtree<'a>(
             .collect(),
         None => Vec::new(),
     };
+    if let Some(reuse) = ctx.reuse.as_mut() {
+        reuse.placements.considered(placed.len());
+    }
     let priority = stack::hidden_by_priority(control, rect, ctx.env);
     let packs = stack::orientation(control).is_some() || grid::is_grid(control);
     let mut children = Vec::with_capacity(placed.len());
@@ -685,9 +711,7 @@ fn place_subtree<'a>(
         reuse.inspected += 1;
     }
     // A grid standing in placeholders reports which cells it shows, for its next bind to build.
-    let placeholders = grid::is_grid(control)
-        .then(|| control.children.iter().find_map(grid::placeholder_of))
-        .flatten();
+    let placeholders = virtual_grid.map(|(grid, _)| grid);
     // Its report of the cells in view is not part of a spliced output.
     if placeholders.is_some() {
         ctx.taint();

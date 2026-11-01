@@ -253,6 +253,11 @@ impl MeasureCache {
         self.placements.placed_count()
     }
 
+    /// Largest sibling set the latest layout inspected, including children culled before placement.
+    pub fn widest_placement_candidates(&self) -> usize {
+        self.placements.widest_candidate_count()
+    }
+
     /// [`Self::update_tree`] from a binder patch against `tree`.
     pub(crate) fn apply_patch(&mut self, tree: &mut ResolvedControl, patch: crate::bind::Patch) {
         let mut dirty = Dirty::default();
