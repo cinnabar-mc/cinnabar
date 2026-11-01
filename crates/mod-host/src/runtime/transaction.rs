@@ -25,7 +25,7 @@ impl State {
             grants: self.grants.clone(),
             environment: Default::default(),
             motion: output_lifecycle::Movement {
-                snapshot: self.motion.snapshot.clone(),
+                snapshot: self.motion.snapshot,
                 ..Default::default()
             },
             snapshot: self.snapshot.clone(),
