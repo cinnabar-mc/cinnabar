@@ -224,7 +224,7 @@ fn prone_players_use_live_height_even_when_sneaking() {
             for scale in [0.5, 1.0, 2.0] {
                 actor.metadata.insert(38, ActorMetadataValue::Float(scale));
                 assert!(
-                    (tag_height(&actor) - (0.6 + HEAD_CLEARANCE) * scale).abs() < 1e-6,
+                    (tag_height(&actor) - (0.6 * scale + HEAD_CLEARANCE)).abs() < 1e-6,
                     "{flag:?}, sneaking={sneaking}, scale={scale}"
                 );
             }

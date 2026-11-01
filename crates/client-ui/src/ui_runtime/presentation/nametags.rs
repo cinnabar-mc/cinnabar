@@ -202,7 +202,8 @@ fn actor_flag(actor: &ActorSnapshot, bit: u32) -> bool {
 
 /// Follows the published box height, as vanilla anchors every actor's label to its box, except
 /// that crouched and sleeping players keep the standing height before their Java-style drop.
-/// Raw metadata height and clearance each receive the render scale once.
+/// Render scale resizes the box, which keeps its minimum extent; the clearance above it is fixed,
+/// so a zero-scale text carrier's label still clears its host position.
 fn tag_height(actor: &ActorSnapshot) -> f32 {
     let player = matches!(actor.kind, ActorKind::Player { .. });
     let prone = player
@@ -224,7 +225,8 @@ fn tag_height(actor: &ActorSnapshot) -> f32 {
         Some(ActorMetadataValue::Float(height)) if height.is_finite() && *height >= 0.0 => *height,
         _ => DEFAULT_HEIGHT,
     };
-    (height + HEAD_CLEARANCE) * actor.render_scale() - offset
+    (height * actor.render_scale()).max(client_world::MIN_COLLISION_DIMENSION) + HEAD_CLEARANCE
+        - offset
 }
 
 /// Adds the actor's current label height to the selected render feet.
