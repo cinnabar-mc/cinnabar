@@ -777,6 +777,7 @@ pub struct Merged {
     pub attack_pulse: bool,
     /// Any active mod requesting an ordinary crosshair mining hold.
     pub block_mining: bool,
+    pub block_mining_target: Option<mod_host::GameplayVector3>,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
     /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
@@ -817,6 +818,7 @@ impl Merged {
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
         self.block_mining |= interaction.block_mining;
+        self.block_mining_target = self.block_mining_target.or(interaction.block_mining_target);
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());

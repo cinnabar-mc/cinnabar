@@ -667,6 +667,13 @@ interface gameplay {
     /// callbacks release it. Does not press attack or select targets; normal block reach,
     /// obstruction, game mode, tool timing, item use and server checks still apply.
     set-block-mining: func(held: bool) -> result<_, string>;
+    /// Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+    read-block-target: func() -> result<option<vector3>, string>;
+    /// Redirects held physical block mining toward a world point for one successful frame.
+    /// Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+    /// view. Renew every frame; none or omission restores the crosshair. The first supplying
+    /// mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+    set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.

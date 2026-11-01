@@ -110,7 +110,7 @@ fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
 }
 
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
-fn fixture() -> (World, client_session::CapturedPackets) {
+pub(crate) fn fixture() -> (World, client_session::CapturedPackets) {
     fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
 }
 

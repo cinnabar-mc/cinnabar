@@ -82,6 +82,7 @@ pub(super) fn drive_mod(
     let (network, mut camera, cues, mut item_use) = outputs;
     if let Some(interaction) = interaction.as_deref_mut() {
         interaction.block_mining = false;
+        interaction.block_mining_target = None;
     }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
@@ -349,6 +350,7 @@ pub(super) fn drive_mod(
             chat_events: &chat_events,
             gameplay_facts: gameplay.facts(
                 captured && !absorbed,
+                &ui,
                 cameras.single().ok().map(|(camera, _)| camera),
                 world_observation
                     .as_ref()
@@ -509,6 +511,10 @@ pub(super) fn drive_mod(
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
     interaction.block_mining = enabled && merged.block_mining;
+    interaction.block_mining_target = merged
+        .block_mining_target
+        .filter(|_| enabled)
+        .map(|p| [p.x, p.y, p.z]);
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
