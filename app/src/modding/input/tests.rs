@@ -13,29 +13,29 @@ fn packet_pointer_interruptions_emit_one_cancel_and_require_a_fresh_press() {
             ..Default::default()
         };
         assert_eq!(
-            physical.packet_pointer_sample(true, true, false, true, true),
+            physical.focused_pointer_sample(true, true, false, true, true),
             (true, false)
         );
         assert_eq!(
-            physical.packet_pointer_sample(true, true, false, true, false),
+            physical.focused_pointer_sample(true, true, false, true, false),
             (true, false)
         );
         assert_eq!(
-            physical.packet_pointer_sample(open, focused, absorbed, cursor, false),
+            physical.focused_pointer_sample(open, focused, absorbed, cursor, false),
             (false, true)
         );
         assert_eq!(
-            physical.packet_pointer_sample(open, focused, absorbed, cursor, false),
+            physical.focused_pointer_sample(open, focused, absorbed, cursor, false),
             (false, false),
             "an interruption is an edge"
         );
         assert_eq!(
-            physical.packet_pointer_sample(true, true, false, true, false),
+            physical.focused_pointer_sample(true, true, false, true, false),
             (false, false),
             "holding across refocus or re-entry cannot resume capture"
         );
         assert_eq!(
-            physical.packet_pointer_sample(true, true, false, true, true),
+            physical.focused_pointer_sample(true, true, false, true, true),
             (true, false)
         );
     }
@@ -48,16 +48,16 @@ fn packet_pointer_release_is_a_commit_sample_instead_of_a_cancellation() {
         ..Default::default()
     };
     assert_eq!(
-        physical.packet_pointer_sample(true, true, false, true, true),
+        physical.focused_pointer_sample(true, true, false, true, true),
         (true, false)
     );
     physical.left_held = false;
     assert_eq!(
-        physical.packet_pointer_sample(true, true, false, true, false),
+        physical.focused_pointer_sample(true, true, false, true, false),
         (false, false)
     );
     assert_eq!(
-        physical.packet_pointer_sample(false, false, true, false, false),
+        physical.focused_pointer_sample(false, false, true, false, false),
         (false, false),
         "losing the window after release does not cancel a completed gesture"
     );
@@ -81,59 +81,12 @@ fn shift_snapshot_uses_the_focused_physical_key_owner() {
 }
 
 #[test]
-fn native_menu_reopen_consumes_its_toggle_but_focused_capture_keeps_it() {
-    let input = || {
-        vec![
-            PanelSample::Key(("ShiftRight".into(), None, false, Default::default())),
-            PanelSample::Key(("KeyR".into(), None, false, Default::default())),
-        ]
-    };
-    for owned in [false, true] {
-        let mut keys = input();
-        assert!(take_packet_toggle(
-            &mut keys,
-            "ShiftRight",
-            owned,
-            false,
-            true
-        ));
-        assert_eq!(keys.len(), 1);
-        assert_eq!(keys[0].key().unwrap().0, "KeyR");
-    }
-    let mut keys = input();
-    assert!(!take_packet_toggle(
-        &mut keys,
-        "ShiftRight",
-        true,
-        true,
-        true
-    ));
-    assert_eq!(keys.len(), 2);
-    assert!(!take_packet_toggle(
-        &mut keys,
-        "ShiftRight",
-        false,
-        true,
-        false
-    ));
-    assert_eq!(keys.len(), 2);
-    assert!(take_packet_toggle(
-        &mut keys,
-        "ShiftRight",
-        true,
-        true,
-        false
-    ));
-    assert_eq!(keys.len(), 1);
-}
-
-#[test]
 fn reserved_fast_tap_never_reaches_gameplay_edges() {
     let mut keys = ButtonInput::default();
     keys.press(KeyCode::KeyW);
     keys.release(KeyCode::KeyW);
     keys.press(KeyCode::KeyA);
-    consume_reserved(&mut keys, None, &["KeyW".into()], Some("ShiftRight"), None);
+    consume_reserved(&mut keys, None, &["KeyW".into()], None);
     assert!(!keys.just_pressed(KeyCode::KeyW));
     assert!(!keys.just_released(KeyCode::KeyW));
     assert!(keys.pressed(KeyCode::KeyA));
@@ -398,7 +351,7 @@ fn reserved_controls_stay_capturable_but_do_not_satisfy_native_pulse_gates() {
         "MouseLeft".into(),
         "MouseRight".into(),
     ];
-    consume_reserved(&mut keys, Some(&mut mouse), &reserved, None, None);
+    consume_reserved(&mut keys, Some(&mut mouse), &reserved, None);
     let mut app = App::new();
     app.insert_resource(keys)
         .insert_resource(mouse)

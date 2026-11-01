@@ -47,6 +47,7 @@ pub(super) fn bounds(template: &Template, block: [i32; 3]) -> Option<([f32; 3], 
         | Template::Conduit { .. }
         | Template::Chest(_)
         | Template::Shulker(_)
+        | Template::PistonArm { .. }
         | Template::Sign { .. }
         | Template::EnchantTable => true,
     };

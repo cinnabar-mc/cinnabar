@@ -34,6 +34,8 @@ impl Instance {
         self.store.data_mut().rollback_callback();
         self.store.data_mut().render.restart_guest();
         let open = self.panel_open();
+        let open_order = self.store.data().controls.open_order;
+        let open_requested = self.store.data().controls.open_requested;
         // This placeholder is never entered or published; both result paths restore real state.
         let placeholder = Store::new(
             self.pre.engine(),
@@ -53,6 +55,8 @@ impl Instance {
                 return Err(error.context("mod quarantined after frame fuel recovery failed"));
             }
         }
+        self.store.data_mut().controls.open_order = open_order;
+        self.store.data_mut().controls.open_requested = open_requested;
         self.set_panel_open(open);
         Ok(true)
     }
