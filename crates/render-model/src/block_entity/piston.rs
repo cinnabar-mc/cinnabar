@@ -57,7 +57,12 @@ impl PistonArmModel {
             4 => (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
             _ => (Vec3::Z, Vec3::X, Vec3::Y),
         };
-        Mat4::from_cols(x.extend(0.0), y.extend(0.0), z.extend(0.0), Vec3::ZERO.extend(1.0))
+        Mat4::from_cols(
+            x.extend(0.0),
+            y.extend(0.0),
+            z.extend(0.0),
+            Vec3::ZERO.extend(1.0),
+        )
     }
 }
 
