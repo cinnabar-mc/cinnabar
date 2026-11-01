@@ -5,7 +5,6 @@ fn panel() -> Panel {
     Panel {
         surface: surface("mod.control:0"),
         reference_size: None,
-        toggle_key: "ShiftRight".into(),
         controls: vec![Control::Slider {
             id: "distance".into(),
             label: "Distance".into(),
@@ -22,7 +21,7 @@ fn panel() -> Panel {
 }
 
 #[test]
-fn finite_slider_and_physical_key_are_accepted() {
+fn finite_slider_is_accepted() {
     assert!(panel().validate().is_ok());
 }
 
@@ -422,7 +421,6 @@ fn ambiguous_identifiers_and_unbounded_text_are_rejected() {
     if let Control::Slider { label, .. } = &mut panel.controls[0] {
         *label = "Distance".into();
     }
-    panel.toggle_key = "Shift Right".into();
     assert!(panel.validate().is_ok());
 }
 
@@ -944,3 +942,10 @@ fn route_patches_retain_motion_until_explicitly_changed() {
 
 #[path = "surface_tests.rs"]
 mod surface_tests;
+
+#[test]
+fn legacy_panel_shortcuts_are_rejected_instead_of_silently_ignored() {
+    let mut json = serde_json::to_value(panel()).unwrap();
+    json["toggle_key"] = "F10".into();
+    assert!(serde_json::from_value::<Panel>(json).is_err());
+}

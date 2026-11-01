@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 /// Publishes a saved shortcut and its physical reservation before guest key capture begins.
 fn capturing_shortcut_fixture() -> String {
-    let panel = r#"{"toggle_key":"ShiftRight","capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
+    let panel = r#"{"capture_key":true,"controls":[{"kind":"keybind","id":"shortcut","label":"Shortcut","key":"KeyR","capturing":true}]}"#;
     fixture_with_panel(panel)
         .replace(
             "(export \"demo-pressed\" (func (result bool)))",

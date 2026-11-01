@@ -97,6 +97,8 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | `gameplay::set_control_modes` | `movement` | Replaces toggle sprint/sneak and always-sprint while renewed every focused gameplay frame |
 | `gameplay::pulse_attack` | `interaction` | One attack-press edge, only while the physical attack control is held |
 | `gameplay::set_block_mining` | `interaction` | Holds ordinary mining on the crosshair block for this successful frame; renew while needed |
+| `gameplay::read_block_target` | `terrain` | Reads the center of the current crosshair block while gameplay owns input |
+| `gameplay::set_block_mining_target` | `interaction`, `terrain` | Directs physically held mining toward a point without moving the view; renew each frame |
 | `item_use::pulse_use` | `item_use` | One item-use press edge for the next gameplay tick, only while the physical use control is held; skips only the client's use repeat delays |
 | `gameplay::request_command` | `commands` | Sends a player command request after the frame returns; the command name must be granted. At most 4 per frame and 10 per second, each at most 128 bytes |
 | `gameplay::set_attack_reach` | `interaction` | Sets local actor pick and attack range from 0 through `MAX_ENTITY_REACH_BLOCKS`; a value needs a current gameplay frame, and none restores game-mode rules |
@@ -126,3 +128,8 @@ consumed once. Closing or changing the observed screen discards it; unloading,
 revocation and world departure clear it. Multiple requests in a callback use the
 last position; conflicts between mods use load order. No click or capture is
 introduced. Compositors may restrict programmatic pointer movement.
+Desktop requests wait for native mouse capture to release, then submit an explicit
+move even when the target matches the window's cached pointer position. The same
+container and granted mod must retain focused input throughout that wait.
+A hidden cursor with capture already released cancels the request, so switching
+back to a visible pointer cannot deliver an old move.

@@ -109,7 +109,7 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
-mod published_tests;
+pub(crate) mod published_tests;
 
 #[cfg(test)]
 mod startup_tests {

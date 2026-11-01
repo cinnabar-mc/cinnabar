@@ -48,6 +48,7 @@ mod packet_highlights;
 mod packet_panel;
 mod packet_render;
 pub(crate) mod packets;
+mod pointer;
 pub(crate) mod registration;
 mod teleport_handler;
 pub(crate) use teleport_handler::handle_move_player_rotation;
@@ -434,6 +435,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
+    pointer::configure(app);
     app.init_resource::<native_input::NativeInput>();
     app.init_resource::<ModControlModes>();
     app.init_resource::<ModMovementInputActive>();

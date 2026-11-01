@@ -80,18 +80,36 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 
 // remoteServerNetwork is the network for a server named by host:port rather than found on the
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
-// A nil trust joins any NetherNet server.
-func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust) addressedServerNetwork {
-	return addressedServerNetwork{minecraft.AddressNetwork{
+// A nil trust joins any NetherNet server. A nil relay, for signed-out joins, gathers local
+// NetherNet candidates only.
+func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *xboxRelay) addressedServerNetwork {
+	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	if relay != nil {
+		dialer.Credentials = relay.Credentials
+	}
+	return addressedServerNetwork{AddressNetwork: minecraft.AddressNetwork{
 		RakNet:      remoteRakNet(),
-		NetherNet:   minecraft.NetherNet{Dialer: nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}},
+		NetherNet:   minecraft.NetherNet{Dialer: dialer},
 		ServerTrust: trust,
-	}}
+	}, relay: relay}
 }
 
 // addressedServerNetwork presents a self-signed identity on signed-out NetherNet dials, which BDS
 // requires even with online-mode off; signed-in dials present the account's.
-type addressedServerNetwork struct{ minecraft.AddressNetwork }
+type addressedServerNetwork struct {
+	minecraft.AddressNetwork
+	relay *xboxRelay // the signed-in account's relay config; nil when signed out
+}
+
+// Select chooses the transport and, when it is NetherNet, starts fetching the relay config so the
+// request overlaps authentication.
+func (n addressedServerNetwork) Select(ctx context.Context, address string) (minecraft.Network, error) {
+	selected, err := n.AddressNetwork.Select(ctx, address)
+	if err == nil && n.relay != nil && !minecraft.IsRakNet(selected) {
+		n.relay.start(ctx)
+	}
+	return selected, err
+}
 
 // DialContext is the signed-out dial.
 func (n addressedServerNetwork) DialContext(ctx context.Context, address string) (net.Conn, error) {
@@ -118,6 +136,7 @@ func dialSignedOut(ctx context.Context, selected minecraft.Network, address stri
 type resolvedUpstreamTarget struct {
 	address         string
 	network         minecraft.Network
+	relay           *xboxRelay              // signed-in relay config for addressed NetherNet joins and transfers
 	clientData      func(*login.ClientData) // applies a joined session's login fields
 	friend          interface{ Close() error }
 	xbox            interface{ Close() error }
@@ -161,23 +180,32 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
 		}
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
+		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust, nil)}, nil
 	}
 
 	resolveContext, cancel := context.WithTimeout(ctx, 45*time.Second)
 	defer cancel()
+	// Every signed-in target keeps the relay config for addressed transfers, as vanilla's applies
+	// to the whole session.
+	relay := newXboxRelay(account, logger)
+	withRelay := func(target *resolvedUpstreamTarget, err error) (*resolvedUpstreamTarget, error) {
+		if target != nil {
+			target.relay = relay
+		}
+		return target, err
+	}
 	switch {
 	case strings.HasPrefix(strings.ToLower(address), friendTargetPrefix):
-		return resolveFriendTarget(resolveContext, address, account, logger)
+		return withRelay(resolveFriendTarget(resolveContext, address, account, logger))
 	case strings.HasPrefix(strings.ToLower(address), realmTargetPrefix),
 		strings.HasPrefix(strings.ToLower(address), realmCodePrefix):
-		return resolveRealmTarget(resolveContext, address, account, logger)
+		return withRelay(resolveRealmTarget(resolveContext, address, account, logger))
 	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
-		return resolveRawNetherNetTarget(resolveContext, address, account, logger)
+		return withRelay(resolveRawNetherNetTarget(resolveContext, address, account, logger))
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
 	default:
-		return &resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust)}, nil
+		return withRelay(&resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust, relay)}, nil)
 	}
 }
 

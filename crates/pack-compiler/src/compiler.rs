@@ -47,6 +47,7 @@ mod materials;
 use materials::compile_materials;
 mod pack_bindings;
 mod seasonal_leaves;
+mod sheet_regions;
 mod sheet_tiles;
 mod variations;
 mod visuals;

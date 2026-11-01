@@ -14,7 +14,7 @@ fn fixture() -> String {
 /// Builds the same controls component with optional guest-owned keyboard capture.
 fn fixture_with_capture(capture_key: bool) -> String {
     let panel = format!(
-        r#"{{"toggle_key":"ShiftRight","capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
+        r#"{{"capture_key":{capture_key},"controls":[{{"kind":"slider","id":"strength","label":"Strength","value":35,"min":0,"max":100,"step":1}}]}}"#
     );
     fixture_with_panel(&panel)
 }
@@ -332,7 +332,7 @@ fn native_text_clipboard_shortcuts_do_not_insert_command_letters() {
     use std::sync::{Arc, Mutex};
     for modifier in [KeyCode::SuperLeft, KeyCode::ControlLeft] {
         let component = fixture_with_panel(
-            r#"{"toggle_key":"ShiftRight","controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":0,"max_chars":24}]}"#,
+            r#"{"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":0,"max_chars":24}]}"#,
         );
         let (mut app, window) = personal_panel_app_with_fixture(&component);
         let clipboard = Arc::new(Mutex::new("#7F00FF00".to_owned()));
@@ -466,8 +466,7 @@ fn panel_pointer_reports_hud_gui_units_for_a_scaled_reference_panel() {
         {"fill":{"type":"custom","renderer":"cinnabar_rounded_rectangle","size":[200,100],
             "offset":[20,20],"radius":2,"color":[0.1,0.1,0.1,1]}}
     ]}});
-    let panel = serde_json::json!({"toggle_key":"ShiftRight",
-        "controls":[],"reference_size":[2400.0,1600.0],
+    let panel = serde_json::json!({"controls":[],"reference_size":[2400.0,1600.0],
         "surface":{"screen":"extension.screen","document":document.to_string()}});
     host.set_panel_bundle(&serde_json::json!({"panel":panel,"surfaces":{}}).to_string())
         .unwrap();
@@ -641,12 +640,12 @@ fn personal_panel_keyboard_capture_does_not_open_or_replay_world_ui() {
 /// Builds a real guest whose initialization publishes and explicitly opens its panel.
 fn fixture_opened_in_init() -> String {
     fixture()
-        .replace("(instance $panel ", "(instance $panel (export \"set-open\" (func (param \"open\" bool) (result (result (error string))))) ")
-        .replace("(alias export $panel \"set-content\" (func $set-panel))", "(alias export $panel \"set-content\" (func $set-panel)) (alias export $panel \"set-open\" (func $set-open))")
-        .replace("(core func $lower-panel", "(core func $lower-open (canon lower (func $set-open) (memory $memory) (realloc $realloc))) (core func $lower-panel")
-        .replace("(import \"host\" \"panel\"", "(import \"host\" \"open\" (func $open (param i32 i32))) (import \"host\" \"panel\"")
+        .replace("(instance $panel ", "(instance $panel (export \"open\" (func (result (result (error string))))) ")
+        .replace("(alias export $panel \"set-content\" (func $set-panel))", "(alias export $panel \"set-content\" (func $set-panel)) (alias export $panel \"open\" (func $open))")
+        .replace("(core func $lower-panel", "(core func $lower-open (canon lower (func $open) (memory $memory) (realloc $realloc))) (core func $lower-panel")
+        .replace("(import \"host\" \"panel\"", "(import \"host\" \"open\" (func $open (param i32))) (import \"host\" \"panel\"")
         .replace("(export \"panel\" (func $lower-panel))", "(export \"open\" (func $lower-open)) (export \"panel\" (func $lower-panel))")
-        .replace("call $panel", "call $panel i32.const 1 i32.const 512 call $open")
+        .replace("call $panel", "call $panel i32.const 512 call $open")
 }
 
 #[test]

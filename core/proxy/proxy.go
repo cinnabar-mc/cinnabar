@@ -213,7 +213,7 @@ func networkForAddress(target *resolvedUpstreamTarget, address string, trust min
 	if strings.EqualFold(address, target.address) {
 		return target.network
 	}
-	return remoteServerNetwork(slog.Default(), trust)
+	return remoteServerNetwork(slog.Default(), trust, target.relay)
 }
 
 func dialFollowingTransfers(

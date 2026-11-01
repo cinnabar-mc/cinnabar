@@ -159,7 +159,6 @@ pub(super) fn panel() -> Fixture {
     let panel = Panel {
         surface,
         reference_size: Some([640., 360.]),
-        toggle_key: "ShiftRight".into(),
         controls: vec![],
         widget_colors: None,
         capture_key: false,

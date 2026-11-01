@@ -167,7 +167,7 @@ fn prepared_panel_bundle_survives_reload_and_rejects_denied_hosts() {
         },
     )
     .unwrap();
-    let bundle = serde_json::json!({"panel":{"toggle_key":"ShiftRight","controls":[],
+    let bundle = serde_json::json!({"panel":{"controls":[],
         "surface":panel_surface("Local")},"surfaces":{}})
     .to_string();
     host.set_panel_bundle(&bundle).unwrap();

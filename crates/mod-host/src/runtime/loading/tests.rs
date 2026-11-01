@@ -350,7 +350,7 @@ fn loading_gap_invalidates_world_projections_but_keeps_local_hud_and_panel_conte
         state
             .set_content(
                 serde_json::json!({
-                    "surface": surface, "toggle_key": "ShiftRight", "controls": []
+                    "surface": surface, "controls": []
                 })
                 .to_string(),
             )?

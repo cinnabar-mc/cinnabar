@@ -117,6 +117,7 @@ fn class_visual_contracts_cover_passable_and_solid_families() {
             [0.975, 0.95, 0.975],
         ),
         (&["bed", "stonecutter_block"], [0.0; 3], [1.0, 0.5625, 1.0]),
+        (&["straw_bed"], [0.0; 3], [1.0, 0.25, 1.0]),
         (
             &["flower_pot"],
             [0.3125, 0.0, 0.3125],

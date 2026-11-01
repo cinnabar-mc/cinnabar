@@ -69,9 +69,6 @@ pub struct Panel {
     /// Logical authored-surface dimensions to fit within smaller viewports.
     #[serde(default)]
     pub reference_size: Option<[f32; 2]>,
-    /// Legacy metadata accepted and ignored; call panel.set-open to change visibility.
-    #[serde(default)]
-    pub toggle_key: String,
     /// Value-bearing input widgets the host routes surface actions to.
     #[serde(default)]
     pub controls: Vec<Control>,

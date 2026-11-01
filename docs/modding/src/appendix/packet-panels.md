@@ -8,7 +8,9 @@ bit, call a menu export, choose an opening key, or reopen retained content.
 | --- | --- | --- |
 | `cinnabar:extension/panel` | `set-content` | `(i32 pointer, i32 length) -> i32` |
 | `cinnabar:extension/panel` | `update-content` | `(i32 pointer, i32 length) -> i32` |
-| `cinnabar:extension/panel` | `set-open` | `(i32 open) -> i32` |
+| `cinnabar:extension/panel` | `open` | `() -> i32` |
+| `cinnabar:extension/panel` | `close` | `() -> i32` |
+| `cinnabar:extension/panel` | `toggle` | `() -> i32` |
 | `cinnabar:extension/input` | `read` | `(i32 pointer, i32 capacity) -> i32` |
 
 Content calls read UTF-8 JSON from exported linear `memory`. `set-content` uses the
@@ -17,7 +19,8 @@ same `Panel` schema and validation as frame mods; empty content removes it.
 Writes return zero on success. All calls return `-1` when controls are denied,
 `-2` for invalid request data, and panel operations return `-3` when content is
 required but absent. Rejected requests preserve retained state and let packet
-processing continue. `set-open` accepts only 0 or 1; opening requires content.
+processing continue. Opening requires content. Open and close are idempotent; toggle flips the current
+requested visibility, including earlier calls.
 Invalid memory ranges trap the current call and quarantine the reactor under the
 packet runtime's existing failure policy. Actor projections require observation capabilities and are not admitted
 by these surface-only calls. Panel bounds come from `ui::mod_panel`.
@@ -44,15 +47,15 @@ Input is available while focused, including keys while the panel is closed.
 Other focused screens absorb gameplay input. Press and control queues retain a
 bounded prefix until read; held state and pointer samples reflect the latest frame.
 The guest reads input from its ordinary packet callbacks or tick and explicitly
-calls `set-open` according to its own policy. It must declare the controls request
+calls `open`, `close` or `toggle` according to its own policy. It must declare the controls request
 in its grant metadata. No input subscription claims an opening key for the host.
 These raw core imports do not change the component `packet-mod` world.
 
 The latest explicit open request owns the panel and closes other owners. Escape
 closes an open panel unless `capture_key` is set; native text editing, clipboard
 shortcuts and IME remain standard UI navigation. The host handles no opening key.
-`toggle_key` remains accepted as ignored legacy metadata. Older mods relying on it
-load, but must call `panel.set-open` themselves to open their panel.
+The removed `toggle_key` field is rejected. Remove it from panel content and
+replace `set-open(bool)` imports with `open()` or `close()`.
 
 The removed `menu(i32,i32)->i32` export and capability bit 2 have no replacement
 menu loop. Native camera frames retain bit 1 and their existing contract.

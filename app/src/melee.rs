@@ -340,19 +340,44 @@ fn maintain_attacks(
                 &context.input,
                 Action::Attack,
             ));
-    let wants_target =
-        active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
+    let requested = context
+        .mod_interaction
+        .as_ref()
+        .and_then(|request| request.block_mining_target)
+        .filter(|_| {
+            crate::ordered_interactions::build_held(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Attack,
+            )
+        });
+    let directed = requested.is_some()
+        && target
+            .attack
+            .is_some_and(|pick| !matches!(pick.crosshair, gameplay::melee::Crosshair::Actor(_)))
+        && !selected_attack_timing(&player, &context.client_world)
+            .is_some_and(|item| item.piercing_weapon);
+    let wants_target = active
+        && (directed || !runtime.actor_in_front())
+        && (attack_held || runtime.press_pending());
     // A block press is refused at its start even where the game mode cannot mine.
     let block_press = focused
         && attack
             .as_ref()
             .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let mut mining_origin = (*context.origin).clone();
+    if let Some(point) = requested
+        && let Some(ray) = mining_origin.outbound_ray()
+    {
+        let direction = bevy::prelude::Vec3::from_array(point) - ray.origin();
+        mining_origin.assist_direction(direction);
+    }
     let observation = if wants_target || block_press {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &context.origin,
+                &mining_origin,
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
@@ -370,7 +395,9 @@ fn maintain_attacks(
             None
         }
         Some(crate::survival_mining::DestroyObservation::Target(target)) if wants_target => {
-            Some(target)
+            requested
+                .is_none_or(|point| target.position == point.map(|v| v.floor() as i32))
+                .then_some(target)
         }
         _ => None,
     };

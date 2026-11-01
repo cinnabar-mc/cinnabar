@@ -88,7 +88,7 @@ Native acceptance of that renderer, retail resource-pack and full-client accepta
 remain incomplete. Frostbite presentation, freezing potion facts and ice-ball targeting and use
 behavior remain unresolved until their native dispositions are verified. Aux-state
 item routing retains the legacy owner catalog and needs current-version acceptance.
-Brittle ice, chorus plants, ice balls, ice crystals and icicles retain missing-item
+Brittle ice, ice balls, ice crystals and icicles retain missing-item
 presentation until their current pack routes are verified.
 Invalid saved-token contents recover through device sign-in, preserving the cache
 until authentication succeeds. Filesystem failures retain credential-free operation
@@ -161,7 +161,9 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Mining particles accept packed and face-specific block events, preserving full hashed
   identities and the event's block material; matched in-world capture acceptance remains open.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
-  use pack geometry in all four directions; sleeping and picking remain unqualified.
+  use pack geometry and face corners in all four directions at full sheet resolution,
+  with a quarter-block collision and selection box; sleeping and in-game breaking
+  cracks remain unqualified.
   Beacon base/core/shell compilation remains provisional: the base's 0.1-pixel
   bottom offset rounds to the model grid; matched world and replacement-pack
   captures, carried-item presentation and finer coordinate precision remain open.
@@ -865,7 +867,9 @@ Video customization can hide other players' catalog cosmetics, companions and ef
 while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
-server collision-box changes. Other actors retain their published label height.
+server collision-box changes. Other actors retain their published label height. Actor
+scale resizes the box, with its minimum extent, and not the clearance above it. Labels
+keep Java's 0.5-block clearance; native uses 0.7.
 Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
 keep cosmetic labels complete. Ordinary on-screen anchors skip text measurement for
 visibility. Atlas text retains formatting and line slots, with guarded cell edges and
@@ -956,9 +960,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
-  Mods explicitly open their own panels; the latest opening owns input and closes other panels.
-  Legacy toggle metadata is accepted without host key handling. Packet reactors use
-  grant-gated panel and physical-input imports; hardware acceptance remains pending.
+  Mods use explicit open, close and toggle requests for their panels; the latest opening owns
+  input and closes other panels. Panel content rejects the removed shortcut metadata.
+  Packet reactors use grant-gated panel and physical-input imports; hardware acceptance
+  remains pending.
   Client-owned panel collections support bounded five-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
@@ -1236,6 +1241,13 @@ acceptance still covers authenticated
 server/Realm/friend-world joins, transfers, reconnect/disconnect, account switching,
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
+Signed-in addressed NetherNet joins, and transfers from any signed-in target, gather ICE
+candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
+does; signed-out joins gather local candidates only. A refused relay request, or one past the
+10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
+vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
+allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
+STUN but no relay candidates. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
@@ -1276,6 +1288,25 @@ Pack JSON whose value tree could need more than 1 GiB is refused before parsing,
 small archive cannot inflate into an allocation abort; that memory bound is an unverified limit.
 Pack JSON preserves raw control characters inside strings, including multiline manifest
 descriptions, through the shared parser used by local import and installed-pack admission.
+Global pack import also accepts Java Edition resource packs: an archive or folder with
+`pack.mcmeta` and no Bedrock manifest is translated by `java-resource-pack` into an ordinary
+Bedrock pack, which then passes the usual import validation. This is a Cinnabar feature without
+a vanilla counterpart. Translation covers block and item textures for pre-1.13 layouts (1.7
+and 1.8 included) and flattened layouts, worn armour including 1.21.2+ equipment, pre-coloured
+potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD atlases and
+1.20.2+ HUD sprites, and OptiFine overworld skies. Targets vanilla ships as TGA are written as TGA
+so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedrock's tint masks.
+Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
+their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
+pixels, an implementation bound rather than a vanilla limit. The
+Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
+Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
+target and the flipbook list against the pinned sample pack, but no pinned Java source checks the
+Java side. Incomplete: dye-masked TGA targets (leather armour and items, firework charges), whose alpha
+encoding has no Java equivalent, Java animation metadata, models, block states, fonts, sounds, languages,
+entity and GUI textures beyond armour and the HUD, and OptiFine features other than the
+overworld sky are ignored. Import from Java launcher folders and live rendering acceptance with
+real Java packs remain open.
 
 Cosmetics require live authenticated multi-account acceptance, catalog/motion envelope
 coverage, supported slot/ownership enforcement, player-preview acceptance and hardware
@@ -1798,8 +1829,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   reference hash rounding; other hardware backends retain native fused instructions. Those
   helpers loop over components and select instead of branching, so DXC compiles a large pack
   in seconds rather than minutes. Windows CI's D3D12 adapter returned NaN for a dot step with an
-  infinite operand where binary32 gives infinity, which WGSL permits; other non-finite samples on
-  D3D12 are unchecked. Hardware DX12 pack acceptance remains incomplete.
+  infinite operand where binary32 gives infinity, and flushed a subnormal addend while keeping a
+  subnormal product; WGSL permits both. Other non-finite samples on D3D12 are unchecked, and
+  subnormal operands are only checked up to flushing. Hardware DX12 pack acceptance remains
+  incomplete.
   Geometry draw pipelines build on worker threads (half the hardware threads), and the loading
   toast counts built pipelines. Retired loads cancel between GPU batches and between pipelines;
   a superseded load is left to stop on its own, so the next selection starts at once. Atlas

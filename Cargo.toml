@@ -56,6 +56,7 @@ members = [
     "examples/mods/screen-probe",
     "crates/protocol",
     "crates/protocol-ids",
+    "crates/java-resource-pack",
     "crates/resource-pack",
     "crates/server-experience",
     "crates/shaderpack",

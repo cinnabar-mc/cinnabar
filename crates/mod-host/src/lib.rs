@@ -103,6 +103,10 @@ pub struct GameplayFacts {
     pub relayed_position: Option<GameplayVector3>,
     /// A physical binding holds the use control.
     pub use_held: bool,
+    /// Current physical attack control, before mod outputs.
+    pub attack_held: bool,
+    /// Current crosshair block hit, before mod outputs.
+    pub block_target: Option<GameplayVector3>,
 }
 
 /// Successfully committed local interaction requests, consumed once per frame.
@@ -112,6 +116,8 @@ pub struct InteractionOutput {
     pub attack_pulse: bool,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.
     pub block_mining: bool,
+    /// A one-frame destination for physically held mining, independent of the view.
+    pub block_mining_target: Option<GameplayVector3>,
 }
 
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as
