@@ -35,13 +35,17 @@ pub(super) struct Changes {
 }
 
 /// Records changed entries only; unchanged immutable resources remain in the read snapshot.
-fn difference<K: Ord + Clone, V: Clone + PartialEq>(
+fn difference<K: Ord + Clone, V: Clone>(
     base: &BTreeMap<K, V>,
     next: &BTreeMap<K, V>,
+    same: impl Fn(&V, &V) -> bool,
 ) -> BTreeMap<K, Option<V>> {
     base.keys()
         .chain(next.keys())
-        .filter(|key| base.get(*key) != next.get(*key))
+        .filter(|key| match (base.get(*key), next.get(*key)) {
+            (Some(base), Some(next)) => !same(base, next),
+            (base, next) => base.is_some() != next.is_some(),
+        })
         .map(|key| (key.clone(), next.get(key).cloned()))
         .collect()
 }
@@ -77,12 +81,13 @@ impl Changes {
             instance_revision: _,
         } = next;
         Self {
-            geometry: difference(&base.geometry, geometry),
-            materials: difference(&base.materials, materials),
-            instances: difference(&base.instances, instances),
-            entities: difference(&base.entities, entities),
-            clips: difference(&base.clips, clips),
-            groups: difference(&base.groups, groups),
+            // Immutable resources compare by allocation, so placement edits never scan mesh data.
+            geometry: difference(&base.geometry, geometry, Arc::ptr_eq),
+            materials: difference(&base.materials, materials, Arc::ptr_eq),
+            instances: difference(&base.instances, instances, PartialEq::eq),
+            entities: difference(&base.entities, entities, PartialEq::eq),
+            clips: difference(&base.clips, clips, PartialEq::eq),
+            groups: difference(&base.groups, groups, PartialEq::eq),
         }
     }
 
@@ -280,4 +285,27 @@ fn reconcile_anchors(resources: &mut Resources) {
     resources.instances.retain(|_, instance| {
         !matches!(instance.anchor, Anchor::Entity(anchor) if !resources.entities.contains_key(&anchor.entity))
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Content equality that must never run while building a delta.
+    struct Untouchable;
+    impl PartialEq for Untouchable {
+        fn eq(&self, _: &Self) -> bool {
+            panic!("delta compared resource contents")
+        }
+    }
+
+    #[test]
+    fn shared_allocations_are_unchanged_without_comparing_contents() {
+        let shared = Arc::new(Untouchable);
+        let replaced = Arc::new(Untouchable);
+        let base = BTreeMap::from([(1, Arc::clone(&shared)), (2, Arc::clone(&shared))]);
+        let next = BTreeMap::from([(1, Arc::clone(&shared)), (2, replaced), (3, shared)]);
+        let changes = difference(&base, &next, Arc::ptr_eq);
+        assert_eq!(changes.keys().copied().collect::<Vec<_>>(), [2, 3]);
+    }
 }
