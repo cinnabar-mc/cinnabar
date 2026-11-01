@@ -47,6 +47,7 @@ mod materials;
 use materials::compile_materials;
 mod pack_bindings;
 mod seasonal_leaves;
+mod sheet_tiles;
 mod variations;
 mod visuals;
 
@@ -557,12 +558,23 @@ fn compile_pack_sources(
         material_keys::build(&pack, &material_by_descriptor, &materials, &animations);
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
-    let (visuals, hashed, model_templates, mut model_quads) = compile_visuals(
+    let sheet_tiles = sheet_tiles::plan(
+        sheet_tiles::Inputs {
+            root,
+            pack: &pack,
+            records,
+            fallback,
+            descriptors: &material_by_descriptor,
+        },
+        &materials,
+    )?;
+    let (visuals, hashed, mut model_templates, mut model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        &sheet_tiles,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -602,6 +614,16 @@ fn compile_pack_sources(
         animations,
         frames: animation_frames,
     } = leaf_mips::install(&mut materials, texture_pages, animations, animation_frames)?;
+    // The required copies above are done, so these optional layers only take what they left.
+    let mut texture_pages = texture_pages.into_vec();
+    sheet_tiles.install(
+        &mut materials,
+        &mut texture_pages,
+        &visuals,
+        &mut model_templates,
+        &mut model_quads,
+    )?;
+    let texture_pages = texture_pages.into_boxed_slice();
     // World leaf selectors retain their original terrain keys even though their
     // native mip chains are separate from carried/shared texture pixels.
     let material_keys = material_keys::extend(

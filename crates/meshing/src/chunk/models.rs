@@ -73,6 +73,7 @@ pub(crate) enum ModelTemplateSelection {
     BubbleColumn,
     Fire,
     Portal,
+    Scaffolding,
     ChorusPlant,
     Pane,
     Fence(u32),
@@ -91,6 +92,8 @@ pub(crate) fn model_template_selection(kind: VisualKind, flags: u32) -> ModelTem
         ModelTemplateSelection::Fire
     } else if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
         ModelTemplateSelection::Portal
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0 {
+        ModelTemplateSelection::Scaffolding
     } else if flags & assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT != 0 {
         ModelTemplateSelection::ChorusPlant
     } else if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
@@ -117,6 +120,21 @@ pub(crate) fn select_model_templates<'a>(
     let flags = model_template_flags(context.visuals, entry);
     let selected = match model_template_selection(entry.kind, flags) {
         ModelTemplateSelection::Fixed => entry.model_template,
+        ModelTemplateSelection::Scaffolding => {
+            let below = adjacent_palette_entry(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                Face::NegativeY,
+            );
+            // A supported block starts after the foot ring at the head of the chain.
+            let supported = assets::scaffolding_is_supported(
+                below.flags,
+                model_template_flags(context.visuals, below),
+            );
+            entry.model_template + u32::from(supported)
+        }
         ModelTemplateSelection::Door => {
             return door::select_template(context, facts, neighbour_facts, coordinate, entry)
                 .map_or(

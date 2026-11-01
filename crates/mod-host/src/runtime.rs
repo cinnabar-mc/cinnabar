@@ -349,6 +349,7 @@ impl Instance {
         state.exclusive.camera_claimed = state.camera_output();
         state.pressed = false;
         state.controls.frame = crate::empty_controls();
+        state.controls.native_editing = false;
     }
 
     /// Validates client facts for the next frame callback only.
@@ -369,6 +370,8 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.native_editing = false;
+        state.controls.native_editing_next = false;
         state.pressed = false;
     }
 
@@ -412,6 +415,7 @@ impl Instance {
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
+        state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);
         Ok(())
     }
 

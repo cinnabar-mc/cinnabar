@@ -305,6 +305,19 @@ Requires controls authority and shares the read-controls callback read budget.
 
 Types: [`controls`](input.md#type-controls), [`selection`](input.md#type-selection).
 
+<a id="read-native-editing"></a>
+
+### `read-native-editing`
+
+```wit
+read-native-editing: func() -> result<bool, string>;
+```
+
+Whether a native field or numeric editor on this mod's open panel owns key input in
+the current frame, including IME composition. The keys it consumes still appear in
+keys-pressed and keys-held; skip panel key handling of your own while this is true.
+False while the panel is closed or another mod owns input. Requires controls authority.
+
 <a id="read-text-events"></a>
 
 ### `read-text-events`

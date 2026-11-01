@@ -478,6 +478,15 @@ fn validate_fixed(
         if u32_at(record, 0) as usize != quad
             || u32_at(record, 4) as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || !model_template_flags_are_valid(u32_at(record, 8))
+            || !crate::model::sheet_tile_template_pair_is_valid(
+                u32_at(record, 8),
+                u32_at(record, 4),
+                sections[3]
+                    .as_chunks::<TEMPLATE_BYTES>()
+                    .0
+                    .get(index + 1)
+                    .map(|next| (u32_at(next, 8), u32_at(next, 4))),
+            )
             || (u32_at(record, 8) & MODEL_TEMPLATE_FLAG_KELP != 0 && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE && u32_at(record, 4) != 6)
             || (u32_at(record, 8) == MODEL_TEMPLATE_FLAG_SNOW_LAYER && u32_at(record, 4) != 6)
@@ -629,11 +638,12 @@ fn runtime_compound_tails(bytes: &[u8]) -> Result<Vec<bool>, AssetError> {
             continue;
         }
         let gate_axis = flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
-        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
-            || !matches!(
-                gate_axis,
-                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
-            )
+        if flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | crate::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+            && (flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+                || !matches!(
+                    gate_axis,
+                    0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+                ))
         {
             return Err(invalid("compound template head has incompatible flags"));
         }

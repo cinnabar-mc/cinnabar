@@ -210,8 +210,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   draw their inward-facing cutout interior. Piston bodies draw their three-quarter body with
   native per-face UV turns, and their head plate, rod and sleeve follow `PistonArm` actor
   progress or rest retracted without actor data. Blocks a piston pushes (`MovingBlock`
-  rendering) are incomplete, and other mapped-face blocks still use the shared UV flips, which
-  differ from the native east and down turns seen on pistons. Native-server captures remain.
+  rendering) are incomplete. The body's up and down faces keep their own UV table, not yet
+  reconciled with the shared flips for cropped spans. Native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -249,11 +249,22 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
   regressions, registry regeneration and Linux rendered comparison pass; matched native
   visual and replacement-pack qualification remain incomplete.
+- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm and
+  other panes two planes with end caps only at four arms. Cap culling against stacked panes
+  and the two-sidedness of single-plane arms have no native comparison yet.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
   attachment and signal states.
+- [ ] Close shelf native-gallery acceptance across poses and powered states, and read the
+  1.26.60 client's shelf tables. Bounds, front selection and face regions match the 26.30
+  native tables. Base art draws full 32-texel sheet regions from quadrant layers, and a global
+  pack's replacement art at another resolution draws in game across the whole sheet.
 - [ ] Close shelf native-gallery, pack-pixel fidelity and live replacement-pack acceptance.
+- [ ] Close scaffolding foot-ring support: the world model selects its foot ring from
+  the fire top-support fallback or scaffolding below, which approximates the native block
+  property across non-cube blocks. Top and bottom culling against neighbouring scaffolding
+  has no native comparison yet.
 - [ ] Close the static-sign gallery and native visual acceptance.
 - [ ] Establish exact standing/hanging sign board, post and support geometry, UVs and
   GPU/native evidence. Provisional dimensions are not final geometry parity.
@@ -1777,7 +1788,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   DX12 and software adapters use integer-backed fused dot accumulation to preserve the
   reference hash rounding; other hardware backends retain native fused instructions. Those
   helpers loop over components and select instead of branching, so DXC compiles a large pack
-  in seconds rather than minutes. Hardware DX12 pack acceptance remains incomplete.
+  in seconds rather than minutes. Windows CI's D3D12 adapter returned NaN for a dot step with an
+  infinite operand where binary32 gives infinity, which WGSL permits; other non-finite samples on
+  D3D12 are unchecked. Hardware DX12 pack acceptance remains incomplete.
   Geometry draw pipelines build on worker threads (half the hardware threads), and the loading
   toast counts built pipelines. Retired loads cancel between GPU batches and between pipelines;
   a superseded load is left to stop on its own, so the next selection starts at once. Atlas

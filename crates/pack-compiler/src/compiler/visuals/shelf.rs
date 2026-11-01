@@ -87,12 +87,25 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
+        let quads = shelf_quads(materials, direction, front);
+        let paired = materials
+            .iter()
+            .all(|&material| inputs.sheet_tiles.contains(material));
         let template = push_model_template(
-            shelf_quads(materials, direction, front),
+            quads.clone(),
             assets::MODEL_TEMPLATE_FLAG_SHELF,
             storage.templates,
             storage.quads,
         )?;
+        // Sheet-tile installation rewrites the first of a pair and keeps this copy for overlays.
+        if paired {
+            push_model_template(
+                quads,
+                assets::MODEL_TEMPLATE_FLAG_SHELF,
+                storage.templates,
+                storage.quads,
+            )?;
+        }
         templates.insert(key, template);
         template
     };

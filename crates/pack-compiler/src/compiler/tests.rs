@@ -80,6 +80,8 @@ mod sculk;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/shelf_tiles.rs"]
+mod shelf_tiles;
 #[path = "tests/speleothem.rs"]
 mod speleothem;
 #[path = "tests/spore_blossom.rs"]
@@ -336,6 +338,7 @@ fn canonical_air_at_an_arbitrary_identity_compiles_to_the_exact_invisible_route(
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a single-air synthetic registry");
@@ -361,6 +364,7 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a canonical-plus-decoy-air synthetic registry");
@@ -402,6 +406,7 @@ fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .unwrap();
@@ -433,6 +438,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile the pinned v2225 registry");

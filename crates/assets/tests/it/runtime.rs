@@ -10,6 +10,8 @@ use assets::{
 };
 use sha2::{Digest, Sha256};
 
+#[path = "runtime/sheet_tiles.rs"]
+mod sheet_tiles;
 #[path = "runtime/variations.rs"]
 mod variations;
 

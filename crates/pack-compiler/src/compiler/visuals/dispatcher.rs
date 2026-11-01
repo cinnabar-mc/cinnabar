@@ -4,7 +4,10 @@ use super::context::{
     PressurePlateTemplateKey, RuleInputs, SignTemplateKey, ThinTemplateKey, diagnostic_visual,
 };
 use super::fallback::FallbackInventory;
-use assets::facts::pack::PackBlock as B;
+use canonical_air::{CanonicalAirIdentity, is_canonical_air, resolve_canonical_air};
+
+#[path = "dispatcher/canonical_air.rs"]
+mod canonical_air;
 
 #[derive(Clone, Copy)]
 pub(in crate::compiler) struct ExactAdmissions {
@@ -24,69 +27,6 @@ pub(in crate::compiler) enum CompileRuleResult {
     Reject,
     Compiled(BlockVisual),
 }
-/// Wire identity of the one record that resolves as canonical air for a
-/// compiled registry. Derived from registry content at compile time instead
-/// of pinning one legacy protocol's sequential ID and network hash, so a
-/// protocol-2225 triple whose air sits at different identities compiles the
-/// same exact Invisible route.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::compiler) struct CanonicalAirIdentity {
-    pub(in crate::compiler) sequential_id: u32,
-    pub(in crate::compiler) network_hash: u32,
-}
-
-fn air_candidate(record: &RegistryRecord) -> bool {
-    record.name.as_ref() == B::Air.identifier()
-        && record.canonical_state.as_ref() == "{}"
-        && record.flags.contains(BlockFlags::AIR)
-        && record.contributor_role == ContributorRole::Air
-}
-
-/// Resolves the unique canonical-air identity from registry content.
-///
-/// Fails closed when no record satisfies the full predicate, when more than
-/// one does, or when any other record wearing the `minecraft:air` name fails
-/// the predicate (a decoy that would make the canonical identity ambiguous).
-/// Air-flagged records under other names stay non-fatal decoys and keep the
-/// established diagnostic-stripping route.
-pub(in crate::compiler) fn resolve_canonical_air(
-    records: &[RegistryRecord],
-) -> Result<CanonicalAirIdentity, AssetError> {
-    let mut canonical = None;
-    for record in records
-        .iter()
-        .filter(|record| record.name.as_ref() == B::Air.identifier())
-    {
-        if !air_candidate(record) {
-            return Err(AssetError::InvalidCompiledAssets {
-                detail: format!(
-                    "registry record {} names minecraft:air but fails the canonical-air state/flags/role contract",
-                    record.sequential_id
-                )
-                .into(),
-            });
-        }
-        if canonical.replace(record).is_some() {
-            return Err(AssetError::InvalidCompiledAssets {
-                detail: "registry declares more than one canonical minecraft:air record".into(),
-            });
-        }
-    }
-    let canonical = canonical.ok_or_else(|| AssetError::InvalidCompiledAssets {
-        detail: "registry declares no canonical minecraft:air record".into(),
-    })?;
-    Ok(CanonicalAirIdentity {
-        sequential_id: canonical.sequential_id,
-        network_hash: canonical.network_hash,
-    })
-}
-
-fn is_canonical_air(record: &RegistryRecord, canonical_air: CanonicalAirIdentity) -> bool {
-    record.sequential_id == canonical_air.sequential_id
-        && record.network_hash == canonical_air.network_hash
-        && air_candidate(record)
-}
-
 fn diagnostic_for_unmatched_record(
     record: &RegistryRecord,
     canonical_air: CanonicalAirIdentity,
@@ -136,7 +76,7 @@ struct VisualCompiler {
     button_templates: BTreeMap<ButtonTemplateKey, u32>,
     pale_moss_carpet_templates: BTreeMap<PaleMossCarpetTemplateKey, u32>,
     gate_templates: BTreeMap<GateTemplateKey, u32>,
-    pane_templates: BTreeMap<[u32; 2], u32>,
+    pane_templates: BTreeMap<([u32; 2], bool), u32>,
     fence_templates: BTreeMap<[u32; 3], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
@@ -159,6 +99,7 @@ struct VisualCompiler {
     turtle_egg_templates: BTreeMap<(u32, usize), u32>,
     dripleaf_templates: BTreeMap<([u32; 6], super::dripleaf::Shape), u32>,
     trip_wire_templates: BTreeMap<(u32, u8), u32>,
+    scaffolding_templates: BTreeMap<[u32; 3], u32>,
     azalea_templates: BTreeMap<[u32; 3], u32>,
     chorus_flower_templates: BTreeMap<[u32; 6], u32>,
     cactus_template: Option<u32>,
@@ -506,6 +447,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.sculk_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::scaffolding::compile_rule(
+            record,
+            inputs,
+            &mut self.scaffolding_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -926,6 +876,7 @@ pub(in crate::compiler) fn compile_visuals(
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
     vanilla_fallback_material: u32,
     fallback: &'static FallbackInventory<'static>,
+    sheet_tiles: &sheet_tiles::SheetPlan,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let canonical_air = resolve_canonical_air(records)?;
@@ -943,6 +894,7 @@ pub(in crate::compiler) fn compile_visuals(
         material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        sheet_tiles,
     };
     compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
     compiler.diode_torches = super::diode::TorchMaterials::find(records, &inputs);

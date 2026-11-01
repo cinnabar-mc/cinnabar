@@ -520,6 +520,14 @@ fn validate_compiled(compiled: &CompiledAssets) -> Result<(), AssetError> {
             ));
         }
         if !model_template_flags_are_valid(template.flags)
+            || !crate::model::sheet_tile_template_pair_is_valid(
+                template.flags,
+                template.quad_count,
+                compiled
+                    .model_templates
+                    .get(index + 1)
+                    .map(|next| (next.flags, next.quad_count)),
+            )
             || template.quad_start as usize != expected_quad
             || template.quad_count as usize > crate::MAX_MODEL_TEMPLATE_QUADS
             || (template.flags & MODEL_TEMPLATE_FLAG_KELP != 0 && template.quad_count != 6)
@@ -628,11 +636,13 @@ pub(crate) fn compiled_compound_tails(
         }
         let gate_axis =
             template.flags & (MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z);
-        if template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
-            || !matches!(
-                gate_axis,
-                0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
-            )
+        if template.flags
+            != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | crate::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+            && (template.flags != MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | gate_axis
+                || !matches!(
+                    gate_axis,
+                    0 | MODEL_TEMPLATE_FLAG_GATE_AXIS_X | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+                ))
         {
             return Err(invalid("compound template head has incompatible flags"));
         }
@@ -704,8 +714,9 @@ pub(crate) fn compiled_connected_bases(
             let Some(group) = templates.get(index..index + 16) else {
                 return Err(invalid("pane template group is truncated"));
             };
-            if group.iter().enumerate().any(|(mask, template)| {
-                template.flags != flag || template.quad_count != 6 + (mask as u32).count_ones() * 4
+            if group.iter().any(|template| {
+                template.flags != flag
+                    || !crate::model::PANE_TEMPLATE_QUADS.contains(&template.quad_count)
             }) {
                 return Err(invalid("pane template group is noncanonical"));
             }

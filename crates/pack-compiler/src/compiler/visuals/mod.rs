@@ -70,6 +70,7 @@ pub(in crate::compiler) mod rails;
 pub(in crate::compiler) mod redstone_wire;
 pub(in crate::compiler) mod resin_clump;
 pub(in crate::compiler) mod respawn_anchor;
+pub(in crate::compiler) mod scaffolding;
 pub(in crate::compiler) mod sculk;
 pub(in crate::compiler) mod sea_pickle;
 pub(in crate::compiler) mod selector_alias;

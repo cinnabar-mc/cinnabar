@@ -26,6 +26,42 @@ fn out_of_range_templates_have_no_shape() {
     assert!(crack_shape_from_template(&RuntimeAssets::diagnostic(), 999, 0, [0; 3]).is_none());
 }
 
+/// A crack spans a face by sheet fractions, so moving art to quadrant layers cannot change it.
+#[test]
+fn sheet_tile_templates_crack_with_their_whole_sheet_uvs() {
+    let (mut compiled, _) = crate::viewmodel::cube::tests::barrels_with_size(32);
+    let first = compiled.model_templates.len() as u32;
+    let start = compiled.model_quads.len() as u32;
+    let quad = |uv: u16| assets::ModelQuad {
+        positions: [[0, 0, 0], [0, 256, 0], [256, 256, 0], [256, 0, 0]],
+        uvs: [[uv; 2]; 4],
+        material: compiled.model_quads[0].material,
+        flags: 0,
+    };
+    let quads = [quad(2048), quad(1024)];
+    let mut templates = compiled.model_templates.to_vec();
+    templates.push(assets::ModelTemplate {
+        quad_start: start,
+        quad_count: 1,
+        flags: assets::MODEL_TEMPLATE_FLAG_SHELF | assets::MODEL_TEMPLATE_FLAG_SHEET_TILES,
+    });
+    templates.push(assets::ModelTemplate {
+        quad_start: start + 1,
+        quad_count: 1,
+        flags: assets::MODEL_TEMPLATE_FLAG_SHELF,
+    });
+    compiled.model_templates = templates.into();
+    let mut stored = compiled.model_quads.to_vec();
+    stored.extend(quads);
+    compiled.model_quads = stored.into();
+    let world = RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+    let Some(CrackShape::Quads(shape)) = crack_shape_from_template(&world, first, 0, [0; 3]) else {
+        panic!("sheet-tile templates have a crack shape");
+    };
+    assert_eq!(shape.len(), 1);
+    assert_eq!(shape[0].uvs, [[0.25; 2]; 4]);
+}
+
 #[test]
 fn every_partial_snow_top_crack_is_above_its_actual_surface() {
     for layer in 1..assets::TOP_SNOW_LAYER_COUNT {

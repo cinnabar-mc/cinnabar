@@ -75,6 +75,8 @@ pub(crate) struct ModRuntime {
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
     controls: mod_host::ControlFrame,
+    /// The panel owner whose native editor owned the sampled frame's keys.
+    native_editing: Option<usize>,
     /// Chat-action clicks since the last frame, for the chat-action owner's next callback.
     chat_events: Vec<mod_host::ControlEvent>,
     suspended: bool,
@@ -101,6 +103,7 @@ impl ModRuntime {
             render_sources: Vec::new(),
             render_merge: Default::default(),
             controls: mod_host::empty_controls(),
+            native_editing: None,
             chat_events: Vec::new(),
             suspended: false,
             screens: Default::default(),
