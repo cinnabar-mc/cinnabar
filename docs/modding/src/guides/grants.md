@@ -34,7 +34,7 @@ Grant names below are the `ModGrants` field names; the label is what the permiss
 | `entities` | Entities | Non-player actor rows and `gameplay.read-mobs` |
 | `hud` | HUD | HUD surfaces, nametag and annotation policy, hurt overlay, tooltip lines, chat actions |
 | `controls` | Controls | Key edges, reserved keys, text input, touch buttons, the panel, chat-action clicks |
-| `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport aim preservation |
+| `camera` | Camera rotation | Camera rotation, rigs, view tilt and scale, teleport handlers |
 | `interaction` | Attack reach | Bounded attack reach, held-attack press pulses and ordinary crosshair mining holds |
 | `item_use` | Item use | Item-use press pulses |
 | `movement` | Movement | Movement snapshots, jump pulses, movement intents and control modes |

@@ -109,10 +109,10 @@ grants! {
     /// Allows current-frame remote player and camera pose reads with independent user consent.
     #[permission("Player poses", false)]
     pub players: bool,
-    /// Allows bounded local camera rotation, rigs, and per-frame teleport aim preservation.
+    /// Allows bounded local camera rotation, rigs, view tilt and scale, and teleport handlers.
     #[permission("Camera rotation", true)]
     pub camera: bool,
-    /// Allows one immediate air use after each slot change and air use while attacking.
+    /// Allows item-use pulses that skip the client's use repeat delays.
     #[permission("Item use", true)]
     pub item_use: bool,
     /// Allows local key edges, reserved bindings and the retained settings panel.
@@ -184,7 +184,7 @@ grants! {
     /// Allows retained local fullbright lighting, without altering server light data.
     #[permission("Fullbright", false)]
     pub fullbright: bool,
-    /// Allows observing and cancelling local sound playback requests.
+    /// Allows sound handlers that observe and cancel local sound playback requests.
     #[permission("Sound filtering", false)]
     pub audio: bool,
     /// Lets a trusted packet mod see and change every session packet, and add resource packs.

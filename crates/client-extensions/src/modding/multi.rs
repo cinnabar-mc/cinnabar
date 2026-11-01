@@ -28,6 +28,8 @@ pub struct ModHosts {
     presentation: std::sync::Arc<ui::mod_presentation::Presentation>,
     /// Label metrics every host's `measure-text` reads.
     label_metrics: Option<std::sync::Arc<LabelWidths>>,
+    /// Teleport-handler fuel left in this frame.
+    teleport_fuel: u64,
 }
 
 /// Measures `measure-text` widths with the presenter's label metrics.
@@ -176,6 +178,7 @@ impl ModHosts {
             presentation_sources: Vec::new(),
             presentation: Default::default(),
             label_metrics: None,
+            teleport_fuel: mod_api::TOTAL_TELEPORT_HANDLER_FUEL,
         }
     }
 
@@ -183,6 +186,7 @@ impl ModHosts {
     /// exclusive camera and time output to the first active instance publishing that output.
     pub fn begin_frame(&mut self) {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        self.teleport_fuel = mod_api::TOTAL_TELEPORT_HANDLER_FUEL;
         for index in 0..self.host_count() {
             self.host_mut(index).begin_frame();
         }
@@ -362,35 +366,65 @@ impl ModHosts {
             .unwrap_or(0)
     }
 
-    /// Admitted sound filters see the same observations; any cancellation wins.
-    /// A failing filter is quarantined and contributes no cancellations to this batch.
-    pub fn filter_sounds(&mut self, events: &[mod_host::SoundEvent]) -> Vec<bool> {
-        let mut accepted = vec![true; events.len()];
-        let mut remaining = mod_api::TOTAL_SOUND_FILTER_FUEL;
-        for host in &mut self.hosts {
-            // Preserve the full callback allowance; later observers pass through this frame.
-            if remaining < mod_host::FRAME_FUEL {
-                break;
-            }
-            if !host.has_sound_filter() {
-                continue;
-            }
-            match host.filter_sounds(events.to_vec()) {
-                Ok(verdict) => {
-                    for (accepted, play) in accepted.iter_mut().zip(verdict) {
-                        *accepted &= play;
+    /// Offers each sound to every sound handler in load order, sound by sound, and returns
+    /// whether each still plays. Cancellation is sticky. A failing handler is quarantined and
+    /// leaves the sound as it received it; handlers are skipped once this audio frame's
+    /// shared allowance cannot cover a full call.
+    pub fn handle_sounds(&mut self, sounds: Vec<mod_host::SoundContext>) -> Vec<bool> {
+        let mut remaining = mod_api::TOTAL_SOUND_HANDLER_FUEL;
+        sounds
+            .into_iter()
+            .map(|mut sound| {
+                for host in &mut self.hosts {
+                    if remaining < mod_api::HANDLER_CALL_FUEL {
+                        break;
                     }
+                    if !host.has_sound_handler() {
+                        continue;
+                    }
+                    match host.handle_sound(sound.clone()) {
+                        Ok(handled) => sound = handled,
+                        Err(error) => bevy::log::warn!("Mod sound handler failed: {error:#}"),
+                    }
+                    remaining = remaining.saturating_sub(host.last_fuel_used());
                 }
-                Err(error) => bevy::log::warn!("Mod sound filter failed: {error:#}"),
-            }
-            remaining = remaining.saturating_sub(host.last_fuel_used());
-        }
-        accepted
+                !sound.cancelled
+            })
+            .collect()
     }
 
-    /// Avoids constructing observations when no active component opted in.
-    pub fn has_sound_filters(&self) -> bool {
-        self.hosts.iter().any(ModHost::has_sound_filter)
+    /// Avoids constructing sound contexts when no active component handles sounds.
+    pub fn has_sound_handlers(&self) -> bool {
+        self.hosts.iter().any(ModHost::has_sound_handler)
+    }
+
+    /// Offers one local-player move to every teleport handler in load order, each receiving
+    /// the previous handler's rotation, and returns the move to apply. A failing handler is
+    /// quarantined and leaves the move as it received it; handlers are skipped once this
+    /// frame's shared allowance cannot cover a full call.
+    pub fn handle_teleport(
+        &mut self,
+        mut ctx: mod_host::TeleportContext,
+    ) -> mod_host::TeleportContext {
+        for host in &mut self.hosts {
+            if self.teleport_fuel < mod_api::HANDLER_CALL_FUEL {
+                break;
+            }
+            if !host.has_teleport_handler() {
+                continue;
+            }
+            match host.handle_teleport(ctx) {
+                Ok(handled) => ctx = handled,
+                Err(error) => bevy::log::warn!("Mod teleport handler failed: {error:#}"),
+            }
+            self.teleport_fuel = self.teleport_fuel.saturating_sub(host.last_fuel_used());
+        }
+        ctx
+    }
+
+    /// Avoids constructing teleport contexts when no active component handles moves.
+    pub fn has_teleport_handlers(&self) -> bool {
+        self.hosts.iter().any(ModHost::has_teleport_handler)
     }
 
     /// Only the earliest active, granted, explicitly exporting component filters actions.
@@ -721,7 +755,6 @@ pub struct Merged {
     /// The earliest active, granted mod supplies the complete control vector.
     pub movement_input: Option<mod_host::GameplayMovementInput>,
     pub rig: Option<GameplayCameraRig>,
-    pub preserve_teleport_rotation: bool,
     pub view_scale: Option<[f32; 2]>,
     pub view_tilt: Option<mod_api::native_camera::ViewTilt>,
     pub delta: Option<CameraDelta>,
@@ -774,7 +807,6 @@ impl Merged {
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());
-        self.preserve_teleport_rotation |= host.preserves_teleport_rotation();
         self.view_scale = self.view_scale.or(host.camera_view_scale());
         self.view_tilt = self.view_tilt.or(host.camera_view_tilt());
         self.time_override = self.time_override.or(host.time_override());

@@ -1,5 +1,5 @@
 mod action_filter;
-mod audio;
+mod handlers;
 mod input_bindings;
 pub(super) mod input_host;
 pub(crate) mod legacy_input;
@@ -32,7 +32,7 @@ wasmtime::component::bindgen!({
         "../experience-sdk/wit/session",
         "../mod-api/wit",
     ],
-    world: "cinnabar:extension/audio-filtered-player-mod@0.1.0",
+    world: "cinnabar:extension/handled-player-mod@0.1.0",
     imports: { default: trappable },
     additional_derives: [PartialEq],
     with: { "cinnabar:extension/budget@0.1.0": crate::runtime::budget_host },
@@ -138,7 +138,6 @@ impl State {
     fn camera_output(&self) -> bool {
         self.world.rig.is_some()
             || self.camera_delta.is_some()
-            || self.camera_policy.committed
             || self.camera_policy.committed_view_scale.is_some()
             || self.camera_policy.committed_view_tilt.is_some()
     }
@@ -498,6 +497,7 @@ impl Instance {
         state.environment.begin_callback();
         state.gameplay_reads = 0;
         state.camera_writes = 0;
+        state.player_state.begin_callback();
         state.motion.begin_callback();
         state.packet_delay_writes = 0;
         state.controls.reset_budget();
@@ -624,10 +624,6 @@ impl Instance {
     /// Reads the committed use pulse before output collection, without consuming it.
     pub(super) fn use_pulse_requested(&self) -> bool {
         self.is_active() && self.store.data().item_use_policy.pulse
-    }
-
-    pub(super) fn preserves_teleport_rotation(&self) -> bool {
-        !self.store.data().exclusive.camera && self.store.data().camera_policy.committed
     }
 
     /// Only a successful, focused gameplay callback publishes a view multiplier.
@@ -910,7 +906,6 @@ fn commit(store: &mut Store<State>) {
     // Retained drawing is committed once, by `commit_event`, so frame groups survive.
     state.render.commit_primitives();
     state.world.commit();
-    state.camera_policy.committed = state.camera_policy.pending && state.snapshot.is_some();
     state.camera_policy.committed_view_scale = (state.snapshot.is_some()
         && state.controls.frame.focused
         && !state.controls.frame.panel_open)

@@ -332,6 +332,16 @@ interface player-state {
     /// Tokens advance on observed changes and never repeat within an instance, including reconnects.
     /// These three reads share read-snapshot's grant, bounds, and callback read allowance.
     read-revisions: func() -> result<option<revisions>, string>;
+    /// The selected hotbar slot, 0 through 8, from the current session and dimension.
+    record selected-slot { session: u64, dimension: s32, slot: u8 }
+    /// Requires the player-state grant. None outside the current connected session or while the
+    /// selection is unknown. A local hotbar selection is visible no later than the next frame
+    /// callback: unordered selections in the frame that admits them, and selections admitted
+    /// through ordered desktop input, which apply after that frame's callback, in the next.
+    /// Server selections appear once applied.
+    /// Copies no inventory cells. Its call allowance, MAX_SELECTED_SLOT_READS, renews for every
+    /// callback and is separate from read-snapshot's, so it cannot exhaust the snapshot reads.
+    read-selected-slot: func() -> result<option<selected-slot>, string>;
     /// Compact exact-identifier equipment query, without copying unrelated item strings.
     record equipment-matches {
         revisions: revisions,
@@ -521,19 +531,43 @@ interface input {
     reserve-keys: func(keys: list<string>) -> result<_, string>;
 }
 
-/// Observations of requested sound playback before it starts.
-/// Grants: `audio` to run filter-sounds; this interface only defines callback types.
-interface sound-filter {
+/// Requested sound playback before it starts, for `handle-sound`.
+/// Grants: `audio` to run handle-sound; this interface only defines handler types.
+interface sound-handling {
     /// World coordinates in blocks; absent for non-positional playback.
     record position { x: f32, y: f32, z: f32 }
-    /// One new playback request after event routing to an exact sound definition.
-    record sound-event {
+    /// One new playback request after event routing to an exact sound definition. Only
+    /// `cancelled` is changeable.
+    record sound-context {
         /// Exact definition name, at most 128 UTF-8 bytes.
         name: string,
         /// Requested world location; none is non-positional playback.
         position: option<position>,
         /// Whether this request starts a repeating voice.
         looping: bool,
+        /// Whether the request is discarded; false unless an earlier handler cancelled it.
+        cancelled: bool,
+    }
+}
+
+/// Local-player MovePlayer rotations before they apply, for `handle-teleport`.
+/// Grants: `camera` to run handle-teleport; this interface only defines handler types.
+interface teleport-handling {
+    /// Bedrock degrees: yaw turns clockwise from south; positive pitch looks down.
+    record rotation { yaw: f32, pitch: f32 }
+    /// How the server moved the local player, as MovePlayer reports it.
+    enum teleport-mode { normal, reset, teleport, rotation, other }
+    /// One committed MovePlayer for the local player. Only `rotation` is changeable; position,
+    /// physics and acknowledgments always follow the server.
+    record teleport-context {
+        mode: teleport-mode,
+        /// The rotation the server sent.
+        server: rotation,
+        /// The local view immediately before this move.
+        presented: rotation,
+        /// The rotation the view takes: the server's, or an earlier handler's replacement.
+        /// Set it to `presented` to keep the current view.
+        rotation: rotation,
     }
 }
 
@@ -816,9 +850,6 @@ interface camera {
     /// Current frame only, including while a menu owns input. None, omission, unload and failed
     /// callbacks restore the native view.
     set-view-tilt: func(tilt: option<view-tilt>) -> result<_, string>;
-    /// Renew every frame. Only actual teleports preserve yaw/pitch; position and acknowledgments remain unchanged.
-    /// Omission, no gameplay frame, or a failed callback restores server rotation.
-    set-preserve-teleport-rotation: func(enabled: bool) -> result<_, string>;
     /// Current-frame FOV and look multipliers, independently bounded to 0.1..1 and 0.05..1.
     /// Renew only during focused, input-owned gameplay; 1/1 restores the player's view.
     /// Omission, UI focus, unload, and failed callbacks restore both scales without changing saved settings or perspective.
@@ -1139,29 +1170,37 @@ world packet-mod {
     export stop: func();
 }
 
-/// Composable sound-filter callback; older worlds remain supported without this export.
-world sound-filter-callback {
-    use sound-filter.{sound-event};
-    /// One batch per presented audio frame, at most 256 new playback requests.
-    /// Return one boolean per event: true plays, false cancels. Admitted active
-    /// filters see the same events; any cancellation wins. No host imports are permitted.
-    /// Full callback fuel within a shared audio-frame allowance, in load order. Observers
-    /// without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
-    /// a failing component is quarantined. Oversized names and excess requests pass through.
-    /// Approved starts waiting for decoding are not offered again. Playing voices are not
-    /// retroactively stopped; managed loops are offered again when they next need a start.
-    export filter-sounds: func(events: list<sound-event>) -> list<bool>;
+/// The optional event handlers. Each receives a context of the event's facts and changeable
+/// values and returns it; the host applies only the changeable values. Handlers run in load
+/// order, each receiving the previous handler's changes. They cannot call host imports and
+/// each call has full callback fuel within a shared per-event allowance; handlers without a
+/// full allowance are skipped. Denial and absence pass the event through unchanged. Traps and
+/// invalid values quarantine the component and keep the context it received.
+/// A component exporting a handler world must implement every handler in it; include only
+/// the handlers a component uses.
+world sound-handler {
+    use sound-handling.{sound-context};
+    /// One call per new playback request, at most 256 per audio frame; excess and oversized
+    /// requests play unhandled. Approved starts waiting for decoding are not offered again.
+    /// Playing voices are not retroactively stopped; managed loops are offered again when they
+    /// next need a start.
+    export handle-sound: func(ctx: sound-context) -> sound-context;
 }
 
-/// A personal component with sound cancellation and ordinary frame and UI callbacks.
-/// Exporting this world does not claim action-filter ownership.
-world sound-filtered-player-mod {
-    include player-mod;
-    include sound-filter-callback;
+/// See `sound-handler` for the shared handler contract.
+world teleport-handler {
+    use teleport-handling.{teleport-context};
+    /// One call per committed local-player MovePlayer with a finite rotation, before it applies.
+    /// The server's rotation is reported as sent, even outside -90..90 pitch. Returning the
+    /// incoming `rotation` is always valid; a replacement must be finite with pitch in -90..90.
+    export handle-teleport: func(ctx: teleport-context) -> teleport-context;
 }
 
-/// Explicit opt-in sound cancellation together with the existing action-filter callback.
-world audio-filtered-player-mod {
+/// A personal component with the action filter, every event handler, and ordinary frame and
+/// UI callbacks. A component needing fewer composes its own world from `player-mod` or
+/// `filtered-player-mod` and the handler worlds it implements.
+world handled-player-mod {
     include filtered-player-mod;
-    include sound-filter-callback;
+    include sound-handler;
+    include teleport-handler;
 }
