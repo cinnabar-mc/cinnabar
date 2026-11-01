@@ -128,6 +128,15 @@ pub(super) fn prepare_mod_input(
         reserved.0.clear();
     }
     let mut extension = extension.filter(|runtime| !runtime.suspended);
+    if let Some(extension) = extension.as_deref_mut()
+        && let Some(order) = extension.hosts.reconcile_panel_requests()
+        && packets
+            .as_ref()
+            .and_then(|packets| packets.panel_open_order())
+            .is_none_or(|packet| order > packet)
+    {
+        super::drive::present_frame_panel(extension, &mut presentation);
+    }
     let viewport = windows
         .single()
         .ok()

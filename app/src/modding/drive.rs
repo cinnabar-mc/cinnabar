@@ -594,38 +594,24 @@ pub(super) fn drive_mod(
     presentation.set_mod_presentation(mod_presentation);
     let packet_owns_panel = packets.as_ref().is_some_and(|packets| {
         packets.panel.owned
-            && packets.panel_open_order().is_some_and(|order| {
-                (0..extension.hosts.host_count()).all(|index| {
-                    let host = extension.hosts.host(index);
-                    !host.panel_open() || host.panel_open_order() < order
-                })
-            })
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order > extension.hosts.latest_panel_open_order())
     });
     if packet_owns_panel {
         for index in 0..extension.hosts.host_count() {
             extension.hosts.host_mut(index).set_panel_open(false);
         }
-    }
-    if !packet_owns_panel {
-        let owner = extension.hosts.panel_owner();
-        presentation.set_mod_menu_branding(extension.menu_branding());
-        if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone())
+    } else {
+        if let Some(packets) = packets.as_ref()
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order < extension.hosts.latest_panel_open_order())
+            && let Some(handle) = packets.panel_handle()
         {
-            warn!("Cinnabar extension panel font rejected: {error}");
+            handle.close();
         }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
-        if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-            extension.panel_ui_owner(owner),
-            extension.hosts.host(owner).panel(),
-        ) {
-            warn!("Cinnabar extension panel rejected: {error}");
-            extension.hosts.host_mut(owner).set_panel_open(false);
-        }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_open(extension.hosts.host(owner).panel_open());
+        present_frame_panel(&mut extension, &mut presentation);
     }
     let hosts = &extension.hosts;
     presentation.set_mod_touch_buttons(
@@ -851,4 +837,29 @@ mod pointer_observation_tests {
             true
         ));
     }
+}
+
+/// Publishes the selected frame owner's surface through the shared presentation path.
+pub(super) fn present_frame_panel(
+    extension: &mut ModRuntime,
+    presentation: &mut UiPresentationResource,
+) {
+    let owner = extension.hosts.panel_owner();
+    presentation.set_mod_menu_branding(extension.menu_branding());
+    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
+        warn!("Cinnabar extension panel font rejected: {error}");
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
+    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+        extension.panel_ui_owner(owner),
+        extension.hosts.host(owner).panel(),
+    ) {
+        warn!("Cinnabar extension panel rejected: {error}");
+        extension.hosts.host_mut(owner).set_panel_open(false);
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
 }

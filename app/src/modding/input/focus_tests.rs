@@ -637,3 +637,53 @@ fn personal_panel_keyboard_capture_does_not_open_or_replay_world_ui() {
         assert!(app.world().resource::<UiRuntimeResource>().chat_focused());
     }
 }
+
+/// Builds a real guest whose initialization publishes and explicitly opens its panel.
+fn fixture_opened_in_init() -> String {
+    fixture()
+        .replace("(instance $panel ", "(instance $panel (export \"set-open\" (func (param \"open\" bool) (result (result (error string))))) ")
+        .replace("(alias export $panel \"set-content\" (func $set-panel))", "(alias export $panel \"set-content\" (func $set-panel)) (alias export $panel \"set-open\" (func $set-open))")
+        .replace("(core func $lower-panel", "(core func $lower-open (canon lower (func $set-open) (memory $memory) (realloc $realloc))) (core func $lower-panel")
+        .replace("(import \"host\" \"panel\"", "(import \"host\" \"open\" (func $open (param i32 i32))) (import \"host\" \"panel\"")
+        .replace("(export \"panel\" (func $lower-panel))", "(export \"open\" (func $lower-open)) (export \"panel\" (func $lower-panel))")
+        .replace("call $panel", "call $panel i32.const 1 i32.const 512 call $open")
+}
+
+#[test]
+fn latest_initial_panel_request_owns_the_first_input_frame() {
+    let source = fixture_opened_in_init();
+    let (mut app, _) = personal_panel_app_with_fixture(&source);
+    let directory = tempfile::tempdir().unwrap();
+    for index in 1..3 {
+        let host = mod_host::ModHost::load_snapshot_with_grants(
+            &directory.path().join(format!("initial-{index}.wat")),
+            source.as_bytes(),
+            mod_host::ModGrants {
+                controls: true,
+                hud: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        app.world_mut().resource_mut::<ModRuntime>().push_host(
+            host,
+            super::super::registration::HostMetadata::environment(index),
+        );
+    }
+    app.world_mut()
+        .resource_mut::<UiPresentationResource>()
+        .mod_ui_mut()
+        .set_mod_panel_open(false);
+    app.update();
+    let runtime = app.world().resource::<ModRuntime>();
+    assert_eq!(runtime.hosts.panel_owner(), 2);
+    assert!(!runtime.hosts.host(0).panel_open());
+    assert!(!runtime.hosts.host(1).panel_open());
+    assert!(runtime.hosts.host(2).panel_open());
+    assert!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .mod_ui()
+            .mod_panel_open()
+    );
+}

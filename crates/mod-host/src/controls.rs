@@ -200,6 +200,10 @@ impl ControlState {
         }
         if let Some(open) = self.pending_open.take() {
             self.open = open && self.panel.is_some();
+            if self.open {
+                self.open_requested = true;
+                self.open_order = crate::panel_order::next_panel_open_order();
+            }
         }
         if let Some(keys) = self.pending_keys.take() {
             self.keys = keys;

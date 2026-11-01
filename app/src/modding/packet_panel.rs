@@ -39,21 +39,21 @@ pub(super) fn poll(
     let mut input = std::mem::take(&mut packets.panel.pending);
     input.open = packets.panel.owned && presentation.mod_ui().mod_panel_open();
     input.viewport = viewport;
-    if packets.panel.owned && !input.open {
-        handle.close();
-        packets.panel.owned = false;
-    }
     let output = handle.exchange(input);
-    let newer_frame = extension.as_ref().is_some_and(|runtime| {
-        (0..runtime.hosts.host_count()).any(|index| {
-            let host = runtime.hosts.host(index);
-            host.panel_open() && host.panel_open_order() > output.open_order
-        })
-    });
+    let newer_frame = extension
+        .as_ref()
+        .is_some_and(|runtime| runtime.hosts.latest_panel_open_order() > output.open_order);
     if newer_frame {
         handle.close();
         packets.panel.owned = false;
         return;
+    }
+    if output.open
+        && let Some(runtime) = extension.as_mut()
+    {
+        for index in 0..runtime.hosts.host_count() {
+            runtime.hosts.host_mut(index).set_panel_open(false);
+        }
     }
     if output.revision != packets.panel.revision {
         packets.panel.revision = output.revision;
@@ -66,11 +66,6 @@ pub(super) fn poll(
                     let _ = presentation.mod_ui_mut().set_mod_panel(owner, None);
                     packets.panel.owned = false;
                     return;
-                }
-                if let Some(runtime) = extension.as_mut() {
-                    for index in 0..runtime.hosts.host_count() {
-                        runtime.hosts.host_mut(index).set_panel_open(false);
-                    }
                 }
                 presentation.mod_ui_mut().set_mod_panel_open(true);
                 packets.panel.owned = true;

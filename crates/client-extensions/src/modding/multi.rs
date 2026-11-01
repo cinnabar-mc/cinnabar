@@ -19,6 +19,7 @@ pub struct ModHosts {
     /// Always contains at least one host, in load order.
     hosts: Vec<ModHost>,
     panel_selection: usize,
+    panel_open_order: u64,
     budget: mod_host::CallbackBudget,
     label: Option<String>,
     label_inputs: Vec<String>,
@@ -167,6 +168,7 @@ impl ModHosts {
         Self {
             hosts: std::iter::once(host).chain(remaining).collect(),
             panel_selection: 0,
+            panel_open_order: 0,
             budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
             label: None,
             label_inputs: Vec::new(),
@@ -462,6 +464,38 @@ impl ModHosts {
         index.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
     }
 
+    /// Last applied committed opening request, including requests whose owner later closed.
+    pub fn latest_panel_open_order(&self) -> u64 {
+        self.panel_open_order
+    }
+
+    /// Applies committed requests by their order, independently of callback or admission order.
+    pub fn reconcile_panel_requests(&mut self) -> Option<u64> {
+        let mut latest = self.panel_open_order;
+        let mut selected = None;
+        for index in 0..self.host_count() {
+            let host = self.host_mut(index);
+            if host.take_panel_open_request() && host.panel_open_order() > latest {
+                latest = host.panel_open_order();
+                selected = Some(index);
+            }
+        }
+        let selected = selected?;
+        self.panel_open_order = latest;
+        self.select_panel_owner(selected);
+        Some(latest)
+    }
+
+    /// Changes presentation ownership while retaining only the selected owner's visibility.
+    fn select_panel_owner(&mut self, index: usize) {
+        self.panel_selection = index;
+        for other in 0..self.host_count() {
+            if other != index {
+                self.host_mut(other).set_panel_open(false);
+            }
+        }
+    }
+
     /// Selects a mod's explicitly opened panel and closes every other panel.
     pub fn select_opened_panel(&mut self, index: usize) -> bool {
         let previous = self.panel_owner();
@@ -472,12 +506,10 @@ impl ModHosts {
         if !(host.is_active() && host.panel().is_some() && host.panel_open()) {
             return false;
         }
-        self.panel_selection = index;
-        for other in 0..self.host_count() {
-            if other != index {
-                self.host_mut(other).set_panel_open(false);
-            }
-        }
+        self.panel_open_order = self
+            .panel_open_order
+            .max(self.host(index).panel_open_order());
+        self.select_panel_owner(index);
         index != previous
     }
 
@@ -577,6 +609,7 @@ pub fn run_frame_callbacks(
     ),
     mut failed: impl FnMut(usize, String),
 ) {
+    let _ = runtime.reconcile_panel_requests();
     let mut union = ModGrants::default();
     let mut active = false;
     for index in 0..runtime.host_count() {
@@ -631,7 +664,8 @@ pub fn run_frame_callbacks(
             &[]
         };
         let mut controls = claim_controls(input.controls, &claimed, index == owner, chat_events);
-        controls.panel_open = input.controls.panel_open && index == owner;
+        controls.panel_open =
+            input.controls.panel_open && index == owner && runtime.host(index).panel_open();
         controls.gameplay = snapshot.is_some() || movement.is_some();
         claimed.extend(runtime.host(index).reserved_keys().iter().cloned());
         runtime.authorize(index);
@@ -668,10 +702,8 @@ pub fn run_frame_callbacks(
         if let Some(error) = host.take_settings_error() {
             bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
         }
-        if host.take_panel_open_request() {
-            runtime.select_opened_panel(index);
-        }
     }
+    let _ = runtime.reconcile_panel_requests();
 }
 
 /// Collects only still-active guests, so a failed input callback cannot publish prior output.
