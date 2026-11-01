@@ -160,7 +160,7 @@ impl PlayerInventoryLedger {
                     .as_ref()
                     .ok_or(InventoryGestureError::InvalidRequest)?
                     .window_id,
-                slot,
+                slot as u8,
             ),
             Cell::CreatedOutput => return Err(InventoryGestureError::LegacyActionUnavailable),
         })

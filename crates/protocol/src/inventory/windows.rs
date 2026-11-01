@@ -86,8 +86,9 @@ const RESULT_PREVIEW_NAMES: [u8; 9] = [
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
 
-/// Storage cells addressable by the protocol's one-byte stack-request slot.
-pub const MAX_GENERIC_STORAGE_SLOTS: usize = u8::MAX as usize + 1;
+/// Retained storage cells. Native sizes an actor's chest from a synced int and no cap on it has
+/// been identified, so this bound is an implementation limit, not a verified parity limit.
+pub const MAX_GENERIC_STORAGE_SLOTS: usize = 1024;
 
 /// Derives every nonempty container length that the retained slot address can represent.
 const fn generic_storage_lengths() -> [usize; MAX_GENERIC_STORAGE_SLOTS] {
@@ -283,18 +284,23 @@ impl WindowKind {
 #[must_use]
 pub fn open_cell_request(
     kind: WindowKind,
-    cell: u8,
+    cell: u16,
     dynamic_id: Option<u32>,
     content_name: Option<u8>,
 ) -> Option<(StackRequestContainer, u8)> {
     match kind.open_cells()? {
         OpenCells::Generic(_) => Some(match content_name {
-            Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => {
-                (StackRequestContainer::OpenWindow { name, dynamic_id }, cell)
-            }
-            _ => (StackRequestContainer::LevelEntity { dynamic_id }, cell),
+            Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => (
+                StackRequestContainer::OpenWindow { name, dynamic_id },
+                wire_slot(cell),
+            ),
+            _ => (
+                StackRequestContainer::LevelEntity { dynamic_id },
+                wire_slot(cell),
+            ),
         }),
         OpenCells::Named { segments, .. } => {
+            let cell = u8::try_from(cell).ok()?;
             let segment = segment_of_cell(segments, cell)?;
             let container = if segment.name == super::address::CONTAINER_NAME_LEVEL_ENTITY {
                 StackRequestContainer::LevelEntity { dynamic_id }
@@ -307,6 +313,12 @@ pub fn open_cell_request(
             Some((container, cell))
         }
     }
+}
+
+/// A stack request's one-byte slot. As native does, a higher cell keeps only its low byte; the
+/// request's stack network ID still identifies the item.
+const fn wire_slot(cell: u16) -> u8 {
+    cell as u8
 }
 
 fn segment_of_cell(segments: &[WindowSegment], cell: u8) -> Option<WindowSegment> {
@@ -521,6 +533,15 @@ mod tests {
                 dynamic_id: Some(4)
             }
         );
+    }
+
+    #[test]
+    fn generic_cells_past_one_byte_send_their_low_byte() {
+        for (cell, wire) in [(255, 255), (256, 0), (300, 44), (508, 252)] {
+            let (_, slot) = open_cell_request(WindowKind::Storage, cell, None, None).unwrap();
+            assert_eq!(slot, wire, "cell {cell}");
+        }
+        assert!(open_cell_request(WindowKind::Furnace, 256, None, None).is_none());
     }
 
     #[test]

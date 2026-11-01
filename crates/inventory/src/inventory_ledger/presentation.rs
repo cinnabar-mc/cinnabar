@@ -29,7 +29,7 @@ impl InventoryPresentationSnapshot {
                 .ghosts
                 .iter()
                 .enumerate()
-                .all(|(slot, stack)| stack.as_ref() == ledger.furnace_ghost_stack(slot as u8))
+                .all(|(slot, stack)| stack.as_ref() == ledger.furnace_ghost_stack(slot as u16))
             && self
                 .crafting_ghosts
                 .iter()
@@ -47,7 +47,7 @@ impl PlayerInventoryLedger {
             storage: (self.storage_generation(), self.storage_identity()),
             grid: self.crafting_grid(),
             registry: self.item_registry.clone(),
-            ghosts: std::array::from_fn(|slot| self.furnace_ghost_stack(slot as u8).cloned()),
+            ghosts: std::array::from_fn(|slot| self.furnace_ghost_stack(slot as u16).cloned()),
             crafting_ghosts: crafting_ghosts(self).map(|stack| stack.cloned()).collect(),
         }
     }

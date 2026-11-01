@@ -134,7 +134,7 @@ pub fn screen_slots(screen: InventoryScreen) -> Vec<PlacedSlot> {
                         8.0 + (index % 9) as f32 * SLOT_SIZE,
                         18.0 + (index / 9) as f32 * SLOT_SIZE,
                     ],
-                    hit: InventoryCellHit::Storage(index as u8),
+                    hit: InventoryCellHit::Storage(index as u16),
                     output: false,
                 })
                 .collect();

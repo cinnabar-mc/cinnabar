@@ -240,14 +240,14 @@ fn named_station_request_addresses_return_to_their_original_cells() {
             for cell in 0..length {
                 let cell = u8::try_from(cell).unwrap();
                 let (container, slot) =
-                    protocol::open_cell_request(kind, cell, None, None).unwrap();
+                    protocol::open_cell_request(kind, u16::from(cell), None, None).unwrap();
                 assert_eq!(
                     ledger.request_cell(protocol::StackRequestSlot {
                         container,
                         slot,
                         stack_network_id: 0
                     }),
-                    Some(super::super::Cell::Storage(cell)),
+                    Some(super::super::Cell::Storage(u16::from(cell))),
                     "{kind:?}, slot{cell}"
                 );
                 checked += 1;

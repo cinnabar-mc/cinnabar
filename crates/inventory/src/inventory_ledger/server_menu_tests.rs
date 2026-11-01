@@ -81,7 +81,7 @@ fn server_menu_default_descriptors_admit_content_updates_and_level_entity_reques
         assert_eq!(ledger.storage_slot_count(), Some(MENU_CELLS));
         assert_eq!(
             ledger
-                .storage_stack((MENU_CELLS - 1) as u8)
+                .storage_stack((MENU_CELLS - 1) as u16)
                 .unwrap()
                 .stack_network_id,
             100
@@ -89,12 +89,12 @@ fn server_menu_default_descriptors_admit_content_updates_and_level_entity_reques
         ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 101));
         assert_eq!(
             ledger
-                .storage_stack((MENU_CELLS - 1) as u8)
+                .storage_stack((MENU_CELLS - 1) as u16)
                 .unwrap()
                 .stack_network_id,
             101
         );
-        ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+        ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
         let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
             panic!("taking the last server menu item");
         };
@@ -105,6 +105,31 @@ fn server_menu_default_descriptors_admit_content_updates_and_level_entity_reques
         assert_eq!(usize::from(source.slot), MENU_CELLS - 1);
         assert_eq!(source.stack_network_id, 101);
     }
+}
+
+#[test]
+fn actor_menu_beyond_one_byte_keeps_every_cell_and_requests_the_low_byte() {
+    const SHOP_CELLS: usize = 549;
+    const HIGH_CELL: u16 = 508;
+    let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
+    let mut slots = vec![NetworkItemStack::default(); SHOP_CELLS];
+    slots[usize::from(HIGH_CELL)] = stack(996);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: descriptor(None, None),
+        slots: Arc::from(slots),
+        storage_item: NetworkItemStack::default(),
+    }));
+    assert_eq!(ledger.storage_slot_count(), Some(SHOP_CELLS));
+    assert_eq!(
+        ledger.storage_stack(HIGH_CELL).unwrap().stack_network_id,
+        996
+    );
+    ledger.begin_storage_click(HIGH_CELL).unwrap();
+    let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
+        panic!("taking a cell past the one-byte range");
+    };
+    assert_eq!(u16::from(source.slot), HIGH_CELL % 256);
+    assert_eq!(source.stack_network_id, 996);
 }
 
 #[test]
@@ -129,7 +154,7 @@ fn server_menu_admits_its_window_ignoring_descriptor_names() {
         ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 102));
         assert_eq!(
             ledger
-                .storage_stack((MENU_CELLS - 1) as u8)
+                .storage_stack((MENU_CELLS - 1) as u16)
                 .map(|stack| stack.stack_network_id),
             matching.then_some(102),
             "{container:?}"
@@ -143,7 +168,7 @@ fn server_menu_ignores_ordinary_dynamic_descriptor_in_requests() {
     let container = descriptor(Some(CONTAINER_NAME_LEVEL_ENTITY), Some(91));
     ledger.apply(&content(container));
     ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 103));
-    ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
         panic!("taking the ordinary window item");
     };
@@ -176,7 +201,7 @@ fn server_menu_zero_default_descriptor_admits_its_window_contents() {
     ledger.apply(&content(container));
     assert_eq!(ledger.storage_slot_count(), Some(MENU_CELLS));
     ledger.apply(&slot(container, (MENU_CELLS - 1) as u16, 105));
-    ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
     let Some(StackRequestAction::Take { source, .. }) = ledger.newest_action() else {
         panic!("taking the server menu item");
     };
@@ -194,7 +219,7 @@ fn server_menu_accepts_another_click_after_an_unnamed_cursor_reset() {
         let menu = descriptor(Some(0), None);
         ledger.apply(&content(menu));
         for id in 110..113 {
-            let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+            let request = ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
             assert!(matches!(
                 ledger.newest_action(),
                 Some(StackRequestAction::Take { .. })
@@ -254,7 +279,7 @@ fn server_menu_accepts_another_click_after_an_unnamed_cursor_reset() {
 fn server_menu_zero_response_descriptor_does_not_lock_repeat_clicks() {
     let mut ledger = open(GENERIC_STORAGE_WINDOW_TYPE);
     ledger.apply(&content(descriptor(Some(0), None)));
-    let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+    let request = ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
     assert!(ledger.mark_transport_enqueued(10));
     ledger.apply(&InventoryEvent::Response(
         protocol::ItemStackResponseEvent {
@@ -285,7 +310,7 @@ fn server_menu_zero_response_descriptor_does_not_lock_repeat_clicks() {
     ));
     assert!(!ledger.resync_required());
     assert!(ledger.cursor_stack().is_none());
-    assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u8).is_ok());
+    assert!(ledger.begin_storage_click((MENU_CELLS - 1) as u16).is_ok());
 }
 
 #[test]
@@ -308,7 +333,7 @@ fn empty_success_ack_allows_repeated_purchases_and_reopening() {
             }));
             ledger.apply(&content(menu));
             for sync_first in [false, true, false] {
-                let request = ledger.begin_storage_click((MENU_CELLS - 1) as u8).unwrap();
+                let request = ledger.begin_storage_click((MENU_CELLS - 1) as u16).unwrap();
                 let Some(StackRequestAction::Take {
                     source,
                     destination,

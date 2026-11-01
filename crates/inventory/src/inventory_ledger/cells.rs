@@ -13,7 +13,7 @@ pub(super) const FIRST_CRAFT_SLOT: u8 = *protocol::CRAFTING_INPUT_SLOTS.start();
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub(super) enum Cell {
     Inventory(u8),
-    Storage(u8),
+    Storage(u16),
     Cursor,
     Armor(u8),
     Offhand,
@@ -240,7 +240,7 @@ impl Cells {
                 .iter()
                 .enumerate()
                 .map(|(slot, stack)| {
-                    Held::new(stack).map(|held| held.with_origin(Cell::Storage(slot as u8)))
+                    Held::new(stack).map(|held| held.with_origin(Cell::Storage(slot as u16)))
                 })
                 .collect(),
         );
@@ -302,7 +302,7 @@ impl Cells {
             .storage
             .iter()
             .enumerate()
-            .filter_map(|(slot, held)| Some((Cell::Storage(slot as u8), held.as_ref()?)));
+            .filter_map(|(slot, held)| Some((Cell::Storage(slot as u16), held.as_ref()?)));
         let armor = self
             .armor
             .iter()

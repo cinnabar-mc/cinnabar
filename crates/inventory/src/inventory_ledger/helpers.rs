@@ -147,7 +147,7 @@ impl PlayerInventoryLedger {
             StackRequestContainer::Offhand => Cell::Offhand,
             StackRequestContainer::CraftingInput => Cell::Craft(slot.slot),
             StackRequestContainer::CreatedOutput => Cell::CreatedOutput,
-            StackRequestContainer::LevelEntity { .. } => Cell::Storage(slot.slot),
+            StackRequestContainer::LevelEntity { .. } => Cell::Storage(u16::from(slot.slot)),
             StackRequestContainer::OpenWindow { name, dynamic_id } => {
                 return self.retained_response_cell(
                     &ContainerIdentity {
