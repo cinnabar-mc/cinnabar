@@ -774,7 +774,7 @@ fn gameplay_hud_policy_updates_without_replacing_panel_or_capture() {
 /// A packet menu output changing only the gameplay HUD flag stays on its prepared route and
 /// keeps a captured gesture.
 #[test]
-fn packet_menu_gameplay_hud_policy_updates_on_the_prepared_route() {
+fn session_panel_gameplay_hud_policy_updates_on_the_prepared_route() {
     let ([mut settings, _], prepared) = prepared_panels("Packet HUD");
     let owner = prepared::PanelUiOwner::PacketSession(1);
     let mut ui = ModUi::default();

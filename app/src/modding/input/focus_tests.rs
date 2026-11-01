@@ -522,64 +522,39 @@ fn panel_pointer_reports_hud_gui_units_for_a_scaled_reference_panel() {
     );
 }
 
-/// A modifier binding and the native fallback both open and close the selected panel without repeat toggles.
+/// Legacy authored and fallback keys are raw input, with no host visibility policy.
 #[test]
-fn personal_panel_opens_with_right_shift_or_f10_without_text_input() {
+fn personal_panel_keys_do_not_open_or_close_panels() {
     for (key_code, logical_key) in [(KeyCode::ShiftRight, Key::Shift), (KeyCode::F10, Key::F10)] {
-        let (mut app, window) = personal_panel_app(false);
-        app.world_mut()
-            .resource_mut::<ModRuntime>()
-            .hosts
-            .host_mut(0)
-            .set_panel_open(false);
-        app.world_mut()
-            .resource_mut::<UiPresentationResource>()
-            .mod_ui_mut()
-            .set_mod_panel_open(false);
-        let event = KeyboardInput {
-            key_code,
-            logical_key,
-            state: ButtonState::Pressed,
-            text: None,
-            repeat: false,
-            window,
-        };
-        app.world_mut().write_message(event.clone());
-        app.update();
-        assert!(
-            app.world()
-                .resource::<ModRuntime>()
+        for open in [false, true] {
+            let (mut app, window) = personal_panel_app(false);
+            app.world_mut()
+                .resource_mut::<ModRuntime>()
                 .hosts
-                .host(0)
-                .panel_open(),
-            "{key_code:?}"
-        );
-        app.world_mut().write_message(KeyboardInput {
-            repeat: true,
-            ..event.clone()
-        });
-        app.update();
-        assert!(
-            app.world()
-                .resource::<ModRuntime>()
-                .hosts
-                .host(0)
-                .panel_open()
-        );
-        app.world_mut().write_message(KeyboardInput {
-            state: ButtonState::Released,
-            ..event.clone()
-        });
-        app.update();
-        app.world_mut().write_message(event);
-        app.update();
-        assert!(
-            !app.world()
-                .resource::<ModRuntime>()
-                .hosts
-                .host(0)
-                .panel_open()
-        );
+                .host_mut(0)
+                .set_panel_open(open);
+            app.world_mut()
+                .resource_mut::<UiPresentationResource>()
+                .mod_ui_mut()
+                .set_mod_panel_open(open);
+            app.world_mut().write_message(KeyboardInput {
+                key_code,
+                logical_key: logical_key.clone(),
+                state: ButtonState::Pressed,
+                text: None,
+                repeat: false,
+                window,
+            });
+            app.update();
+            assert_eq!(
+                app.world()
+                    .resource::<ModRuntime>()
+                    .hosts
+                    .host(0)
+                    .panel_open(),
+                open
+            );
+        }
     }
 }
 

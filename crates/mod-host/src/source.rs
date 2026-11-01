@@ -2,6 +2,7 @@
 
 use crate::{MAX_COMPONENT_SOURCE_BYTES, ModGrants, ModHost, local_files, packet_mod};
 use anyhow::{Result, ensure};
+use sha2::{Digest, Sha256};
 use std::{path::Path, time::Instant};
 
 /// The binary forms accepted by the library; core reactors run on the packet host.
@@ -28,6 +29,53 @@ impl SourceKind {
             Self::Packet => packet_mod::MAX_PACKET_MOD_BYTES,
         }
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ComponentKind {
+    Frame,
+    Packet,
+    Invalid,
+}
+
+/// Retains bounded admission facts to avoid recompiling unchanged registrations.
+fn component_kind(bytes: &[u8]) -> ComponentKind {
+    use std::{
+        collections::BTreeMap,
+        sync::{Mutex, PoisonError},
+    };
+    static CACHE: Mutex<BTreeMap<[u8; 32], ComponentKind>> = Mutex::new(BTreeMap::new());
+    let identity: [u8; 32] = Sha256::digest(bytes).into();
+    if let Some(kind) = CACHE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&identity)
+    {
+        return *kind;
+    }
+    let kind = if validate_packet_source(bytes).is_ok() {
+        ComponentKind::Packet
+    } else if ModHost::validate_component(bytes).is_ok() {
+        ComponentKind::Frame
+    } else {
+        ComponentKind::Invalid
+    };
+    let mut cache = CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+    if cache.len() >= mod_api::MAX_LOADED_MODS {
+        cache.pop_first();
+    }
+    cache.insert(identity, kind);
+    kind
+}
+
+/// Detects packet runtimes independently of persisted permissions, including wrapped reactors.
+pub fn is_packet_source(bytes: &[u8]) -> bool {
+    SourceKind::of(bytes) == SourceKind::Packet || component_kind(bytes) == ComponentKind::Packet
+}
+
+/// Recognizes a valid frame component without executing its initialization or trusting grants.
+pub fn is_frame_source(bytes: &[u8]) -> bool {
+    SourceKind::of(bytes) == SourceKind::Component && component_kind(bytes) == ComponentKind::Frame
 }
 
 /// Reads one regular source, retaining the smaller component limit for ordinary mods.
@@ -84,6 +132,34 @@ pub(crate) fn check_size(bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn released_frame_fixture_loads_with_stale_packet_authority() {
+        let Some(path) = std::env::var_os("CINNABAR_FRAME_MOD_FIXTURE") else {
+            eprintln!(
+                "missing fixture: CINNABAR_FRAME_MOD_FIXTURE; skipping released frame admission"
+            );
+            return;
+        };
+        let path = Path::new(&path);
+        let bytes = read_source(path).unwrap();
+        let mut grants = crate::declarations_snapshot(&bytes)
+            .unwrap()
+            .requested
+            .unwrap()
+            .unwrap_or_default();
+        grants.packets = true;
+        grants.wasi = true;
+        let old_error = packet_mod::CompiledPacketMod::compile(&bytes, &grants)
+            .err()
+            .expect("old grant-based routing rejects this frame component");
+        assert!(format!("{old_error:#}").contains("link packet mod"));
+        assert!(!is_packet_source(&bytes));
+        grants.packets = false;
+        grants.wasi = false;
+        let host = ModHost::load_with_grants(path, grants).unwrap();
+        assert!(host.is_active());
+    }
 
     #[test]
     fn large_reactors_keep_their_own_limit_and_components_keep_the_smaller_limit() {

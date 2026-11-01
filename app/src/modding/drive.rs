@@ -311,9 +311,10 @@ pub(super) fn drive_mod(
     }
     let panel_owner = extension.hosts.panel_owner();
     let panel_was_recovering = panel_owner < extension.hosts.host_count()
-        && !packets
-            .as_ref()
-            .is_some_and(|packets| packets.menu_owns_panel())
+        && !packets.as_ref().is_some_and(|packets| {
+            packets.panel.owned
+                && !(0..extension.hosts.host_count()).any(|i| extension.hosts.host(i).panel_open())
+        })
         && extension.hosts.host(panel_owner).is_recovering();
     let recovering_screen = extension
         .hosts
@@ -385,8 +386,6 @@ pub(super) fn drive_mod(
         }
         warn!("Cinnabar extension callback failed: {error}");
     }
-    // A tapped mod that opened its panel shows it, as its toggle key would.
-    extension.hosts.select_panels_opened_by_taps();
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(
@@ -593,10 +592,21 @@ pub(super) fn drive_mod(
         style.presentation = std::sync::Arc::clone(&mod_presentation);
     }
     presentation.set_mod_presentation(mod_presentation);
-    if !packets
-        .as_ref()
-        .is_some_and(|packets| packets.menu_owns_panel())
-    {
+    let packet_owns_panel = packets.as_ref().is_some_and(|packets| {
+        packets.panel.owned
+            && packets.panel_open_order().is_some_and(|order| {
+                (0..extension.hosts.host_count()).all(|index| {
+                    let host = extension.hosts.host(index);
+                    !host.panel_open() || host.panel_open_order() < order
+                })
+            })
+    });
+    if packet_owns_panel {
+        for index in 0..extension.hosts.host_count() {
+            extension.hosts.host_mut(index).set_panel_open(false);
+        }
+    }
+    if !packet_owns_panel {
         let owner = extension.hosts.panel_owner();
         presentation.set_mod_menu_branding(extension.menu_branding());
         if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone())

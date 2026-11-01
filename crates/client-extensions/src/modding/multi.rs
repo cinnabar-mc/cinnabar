@@ -360,31 +360,6 @@ impl ModHosts {
             .unwrap_or(0)
     }
 
-    /// Selects the earliest active panel whose toggle key was pressed, closing the old panel.
-    pub fn select_panel(&mut self, pressed: &[String]) -> bool {
-        let current = self.host(self.panel_owner());
-        if current.panel_open() && current.panel().is_some_and(|panel| panel.capture_key) {
-            return false;
-        }
-        let selected = (0..self.host_count()).find(|&index| {
-            let host = self.host(index);
-            host.is_active()
-                && host
-                    .panel()
-                    .is_some_and(|panel| pressed.contains(&panel.toggle_key))
-        });
-        let Some(selected) = selected else {
-            return false;
-        };
-        let previous = self.panel_owner();
-        self.panel_selection = selected;
-        if selected != previous {
-            self.host_mut(previous).set_panel_open(false);
-            return true;
-        }
-        false
-    }
-
     /// Admitted sound filters see the same observations; any cancellation wins.
     /// A failing filter is quarantined and contributes no cancellations to this batch.
     pub fn filter_sounds(&mut self, events: &[mod_host::SoundEvent]) -> Vec<bool> {
@@ -487,32 +462,23 @@ impl ModHosts {
         index.is_some_and(|index| self.host_mut(index).queue_touch_press(id))
     }
 
-    /// Shows the panel of each mod whose last executed frame received taps and opened it.
-    pub fn select_panels_opened_by_taps(&mut self) {
-        for index in 0..self.host_count() {
-            if self.host(index).touch_presses_delivered() {
-                self.select_opened_panel(index);
-            }
-        }
-    }
-
-    /// Shows the panel a tapped mod opened, as its toggle key would, closing the selected
-    /// panel. A panel capturing keys keeps the selection.
+    /// Selects a mod's explicitly opened panel and closes every other panel.
     pub fn select_opened_panel(&mut self, index: usize) -> bool {
         let previous = self.panel_owner();
-        if index >= self.host_count() || index == previous {
+        if index >= self.host_count() {
             return false;
         }
         let host = self.host(index);
-        let current = self.host(previous);
-        if !(host.is_active() && host.panel().is_some() && host.panel_open())
-            || (current.panel_open() && current.panel().is_some_and(|panel| panel.capture_key))
-        {
+        if !(host.is_active() && host.panel().is_some() && host.panel_open()) {
             return false;
         }
         self.panel_selection = index;
-        self.host_mut(previous).set_panel_open(false);
-        true
+        for other in 0..self.host_count() {
+            if other != index {
+                self.host_mut(other).set_panel_open(false);
+            }
+        }
+        index != previous
     }
 
     /// Collects the distinct physical keys reserved by all loaded components.
@@ -701,6 +667,9 @@ pub fn run_frame_callbacks(
         }
         if let Some(error) = host.take_settings_error() {
             bevy::log::warn!("Cinnabar extension preferences could not be saved: {error}");
+        }
+        if host.take_panel_open_request() {
+            runtime.select_opened_panel(index);
         }
     }
 }
