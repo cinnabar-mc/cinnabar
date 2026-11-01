@@ -88,7 +88,12 @@ fn captured_persona_body_polygon_survives_geometry_building() {
     assert_eq!(mesh.vertices.len(), 6);
     assert_eq!(mesh.vertices[0].position, [0.25, 1.5, -0.125]);
     assert_eq!(mesh.vertices[0].normal, [0.0, 1.0, 0.0]);
-    assert_eq!(mesh.vertices[0].uv, [0.08203125, 0.01953125]);
+    // The first corner sits on low U and high V edges of its polygon, so both move inward.
+    let inward = 0.03125 / 256.0;
+    assert_eq!(
+        mesh.vertices[0].uv,
+        [0.08203125 + inward, 0.01953125 - inward]
+    );
     assert!(mesh.vertices.iter().all(|vertex| vertex.bone_index == 0));
 }
 
@@ -114,9 +119,9 @@ fn invalid_polygon_indices_do_not_discard_other_faces_or_shift_bones() {
     assert!(mesh.vertices.iter().all(|vertex| vertex.bone_index == 1));
 }
 
-/// Vanilla flips polygon V while parsing, then scales pixel UVs during tessellation.
+/// Vanilla flips polygon V while parsing, then multiplies pixel UVs by the texture size.
 #[test]
-fn polygon_pixel_uvs_are_flipped_before_texture_scaling() {
+fn polygon_pixel_uvs_are_flipped_then_multiplied_and_clamped() {
     let mut source: serde_json::Value =
         serde_json::from_str(include_str!("fixtures/skin_poly_mesh.json")).unwrap();
     let mesh = &mut source["minecraft:geometry"][0]["bones"][0]["poly_mesh"];
@@ -129,5 +134,5 @@ fn polygon_pixel_uvs_are_flipped_before_texture_scaling() {
     .unwrap()
     .unwrap();
     let built = skin_geometry(&model, EntityRigId(0)).unwrap();
-    assert_eq!(built.vertices[0].uv, [21.0 / 256.0, 5.0 / 256.0]);
+    assert_eq!(built.vertices[0].uv, [1.0, 1.0]);
 }

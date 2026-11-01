@@ -77,16 +77,16 @@ fn authority_changes_wake_admission_without_a_registration_edit() {
     };
     runtime.hosts.host_mut(0).bind_drawing_session(session);
     watcher.remember_settings(Some(&runtime));
+    // An admission already queued from before the change can arrive first without the session.
     let update = wait_update(&watcher, "authority change wakes admission", |update| {
-        !update.changes.is_empty()
+        host_of(update).is_some_and(|host| host.drawing_session() == Some(session))
     });
-    let host = update.changes[0]
-        .result
-        .as_ref()
-        .unwrap()
-        .frame_host()
-        .unwrap();
+    let host = host_of(&update).unwrap();
     assert!(host.is_active());
-    assert_eq!(host.drawing_session(), Some(session));
     assert!(!host.needs_drawing_restart());
+}
+
+/// The frame host of an update's first change, if it loaded.
+fn host_of(update: &Update) -> Option<&ModHost> {
+    update.changes.first()?.result.as_ref().ok()?.frame_host()
 }

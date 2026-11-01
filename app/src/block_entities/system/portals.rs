@@ -1,4 +1,5 @@
-//! Portal surfaces follow the primary block palette, including chunks without NBT.
+//! Portal surfaces and resting piston heads follow the primary block palette, including chunks
+//! without NBT.
 
 use bevy::prelude::Vec3;
 use render_model::{BlockEntityKind, BlockEntitySubmission};
@@ -69,6 +70,7 @@ pub(super) fn submit(
     submissions: &mut Vec<BlockEntitySubmission>,
     cells: &[PortalCell],
     eye: Vec3,
+    mut light: impl FnMut(&[i32; 3], &BlockEntityKind) -> render_model::BlockEntityLight,
 ) {
     for (block, kind) in cells {
         if submissions.len() >= super::MAX_SUBMISSIONS {
@@ -78,7 +80,7 @@ pub(super) fn submit(
         if center.distance_squared(eye) <= super::SCAN_RADIUS_BLOCKS * super::SCAN_RADIUS_BLOCKS {
             submissions.push(BlockEntitySubmission {
                 block: *block,
-                light: 1.0.into(),
+                light: light(block, kind),
                 kind: kind.clone(),
             });
         }

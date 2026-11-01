@@ -17,7 +17,8 @@ use assets::{
 };
 use bytes::Bytes;
 use chunk_pipeline::{
-    CaveVisibilityScratch, CaveVisibleSet, WorldMeshChange, WorldStream, benchmark_support,
+    CaveVisibilityRebuild, CaveVisibilityScratch, CaveVisibleSet, WorldMeshChange, WorldStream,
+    benchmark_support,
 };
 use client_world::ingestion::{
     LevelChunkEvent, LevelChunkMode, WorldBootstrap, vanilla_dimension_range,

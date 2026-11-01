@@ -430,7 +430,7 @@ var v2225Twins = map[string]v2225Twin{
 
 // v2225UnresolvedRetail are retail 1.26.60 blocks with no schema-identical
 // twin; they stay reserved until a reviewed fact source exists.
-var v2225UnresolvedRetail = []string{"minecraft:chorus_plant", "minecraft:disc_press", "minecraft:ice_crystal", "minecraft:icicle"}
+var v2225UnresolvedRetail = []string{"minecraft:disc_press", "minecraft:ice_crystal", "minecraft:icicle"}
 
 func v2225TwinFor(name string) (v2225Twin, bool) {
 	twin, ok := v2225Twins[name]

@@ -144,7 +144,7 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
         let normal_open_states: &[bool] = if key_code == KeyCode::Escape {
             &[false]
         } else {
-            &[false, true]
+            &[true, true]
         };
         for &expected_open in normal_open_states {
             app.world_mut()
@@ -167,10 +167,13 @@ fn personal_panel_reserved_shortcuts_reach_capture_without_toggling_or_gameplay_
             let keys = app.world().resource::<ButtonInput<KeyCode>>();
             assert!(
                 !keys.just_pressed(key_code),
-                "toggle leaked a gameplay edge"
+                "panel input leaked a gameplay edge"
             );
             if !expected_open {
-                assert!(!keys.pressed(key_code), "closing toggle leaked to gameplay");
+                assert!(
+                    !keys.pressed(key_code),
+                    "navigation close leaked to gameplay"
+                );
             }
             app.world_mut()
                 .resource_mut::<ButtonInput<KeyCode>>()

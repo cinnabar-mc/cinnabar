@@ -326,6 +326,7 @@ mod tests {
             name: name.into(),
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             parent: parent.map(Into::into),
             pivot: None,
             rotation: None,

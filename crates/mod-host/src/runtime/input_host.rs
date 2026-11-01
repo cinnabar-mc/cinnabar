@@ -63,9 +63,25 @@ impl cinnabar::extension::input::Host for State {
     fn reserve_keys(&mut self, keys: Vec<String>) -> Result<Result<(), String>> {
         controls::reserve(self, keys)
     }
+
+    /// Reports native editor ownership of this frame's keys under controls authority.
+    fn read_native_editing(&mut self) -> Result<Result<bool, String>> {
+        self.charge()?;
+        Ok(if self.grants.controls {
+            Ok(self.controls.native_editing)
+        } else {
+            Err("controls permission denied".into())
+        })
+    }
 }
 
 impl Instance {
+    /// Records whether a native editor on this instance's open panel owns the next frame's
+    /// keys; the value applies once that frame's controls are staged.
+    pub(crate) fn set_native_editing(&mut self, editing: bool) {
+        self.store.data_mut().controls.native_editing_next = editing;
+    }
+
     /// Retains native committed text while a callback is deferred, without granting guest writes.
     pub(crate) fn queue_text_events(
         &mut self,

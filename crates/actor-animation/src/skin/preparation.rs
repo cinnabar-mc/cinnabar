@@ -23,16 +23,17 @@ pub(crate) struct PreparedSkin {
 }
 
 impl PreparedSkin {
-    /// Counts retained immutable vertex allocations against the existing actor catalog ceiling.
+    /// Counts retained immutable vertex and polygon allocations against the existing actor
+    /// catalog ceiling. Polygons count even when their mesh is too large to tessellate.
     pub(crate) fn mesh_bytes(&self) -> usize {
         self.mesh
             .as_ref()
             .map_or(0, |mesh| std::mem::size_of_val(mesh.vertices.as_ref()))
+            + self.geometry.poly_mesh_bytes()
             + self
                 .layers
                 .iter()
-                .filter_map(|layer| layer.mesh.as_ref())
-                .map(|mesh| std::mem::size_of_val(mesh.vertices.as_ref()))
+                .map(skin_layers::SkinLayerSkeleton::retained_bytes)
                 .sum::<usize>()
     }
 }

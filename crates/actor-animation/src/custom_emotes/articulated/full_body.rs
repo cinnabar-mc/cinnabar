@@ -123,7 +123,6 @@ pub(super) fn extend(
     if bones.len() > assets::MAX_SKIN_GEOMETRY_BONES {
         return None;
     }
-    model.poly_meshes = vec![None; bones.len()].into();
     model.bones = bones.into();
     Some(())
 }
