@@ -249,8 +249,12 @@ fn java_edition_packs_import_as_translated_bedrock_packs() {
         png([255, 255, 0, 255]),
     )
     .unwrap();
-    let prepared = crate::prepare_import(&directory).unwrap();
-    assert_eq!(prepared.report.imported[0].name, "java-pack");
+    let report = library.import(&directory).unwrap();
+    assert_eq!(
+        report.imported[0].name, "java-pack",
+        "{:?}",
+        report.rejected
+    );
 }
 
 #[test]
