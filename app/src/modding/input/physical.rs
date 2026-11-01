@@ -22,7 +22,7 @@ impl PhysicalControls {
         self.left_held = false;
         self.held_keys.clear();
         self.held_seeded = false;
-        self.packet_pointer_active = false;
+        self.panel_pointer_active = false;
     }
 
     /// Adopts keys already down at attachment as held, without producing press edges.
@@ -122,8 +122,8 @@ impl PhysicalControls {
         restore
     }
 
-    /// Tracks accepted packet-panel gestures, separating interruption from a normal release.
-    pub(super) fn packet_pointer_sample(
+    /// Tracks accepted focused panel gestures, separating interruption from a normal release.
+    pub(super) fn focused_pointer_sample(
         &mut self,
         open: bool,
         focused: bool,
@@ -132,10 +132,10 @@ impl PhysicalControls {
         pressed: bool,
     ) -> (bool, bool) {
         let accepting = open && focused && !absorbed && cursor;
-        let cancelled = self.packet_pointer_active && !accepting;
-        self.packet_pointer_active =
-            accepting && self.left_held && (self.packet_pointer_active || pressed);
-        (self.packet_pointer_active, cancelled)
+        let cancelled = self.panel_pointer_active && !accepting;
+        self.panel_pointer_active =
+            accepting && self.left_held && (self.panel_pointer_active || pressed);
+        (self.panel_pointer_active, cancelled)
     }
 
     /// Reads Shift from the single physical key owner after UI-reserved keys were consumed.

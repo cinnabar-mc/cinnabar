@@ -52,6 +52,7 @@ mod pinned_content;
 pub mod potion;
 mod provenance;
 mod publication;
+pub mod redstone_wire;
 pub mod registry;
 mod runtime;
 pub mod seasonal_foliage;
@@ -140,7 +141,8 @@ pub use entity::{
     EntityControllerAnimationTarget, EntityControllerState, EntityControllerTransition,
     EntityDependency, EntityDependencyKind, EntityDependencyResolution, EntityGeometry,
     EntityGeometryBone, EntityGeometryBounds, EntityGeometryCube, EntityGeometryFaceUv,
-    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator, EntityGeometryScalar,
+    EntityGeometryFaceUvs, EntityGeometryInheritance, EntityGeometryLocator,
+    EntityGeometryPolyCorner, EntityGeometryPolyMesh, EntityGeometryScalar,
     EntityGeometryTextureMesh, EntityGeometryUv, EntityRenderCandidate, EntityRenderData,
     EntityRenderGeometry, EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
@@ -225,21 +227,20 @@ pub use model::{
     MODEL_POSITION_SCALE, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
     MODEL_QUAD_FLAG_INHERITED_SHADE, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_AZALEA,
     MODEL_TEMPLATE_FLAG_BAMBOO, MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN, MODEL_TEMPLATE_FLAG_CHORUS,
-    MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_DOOR, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
-    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_HEAVY_CORE, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_LILY_PAD, MODEL_TEMPLATE_FLAG_NETHER_PORTAL, MODEL_TEMPLATE_FLAG_PANE,
-    MODEL_TEMPLATE_FLAG_POTTED_PLANT, MODEL_TEMPLATE_FLAG_SCAFFOLDING, MODEL_TEMPLATE_FLAG_SHELF,
-    MODEL_TEMPLATE_FLAG_SHORT_GRASS, MODEL_TEMPLATE_FLAG_SNOW_LAYER,
-    MODEL_TEMPLATE_FLAG_SPELEOTHEM, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TORCH,
-    MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_TWISTING_VINE,
-    MODEL_TEMPLATE_FLAG_WALL, MODEL_TEMPLATE_FLAG_WEEPING_VINE, MODEL_UV_SCALE, ModelQuad,
-    ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION, NO_MODEL_TEMPLATE,
-    SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET, SEASONAL_LEAF_MATERIAL_COUNT,
-    SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT, TOP_SNOW_LAYER_COUNT,
-    TexturePage, TextureRef, VisualKind, VisualSupport, bubble_column_quad_count,
-    model_template_parts, scaffolding_is_supported,
-};
+    MODEL_TEMPLATE_FLAG_CHORUS_PLANT, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_DOOR,
+    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_FIRE,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z,
+    MODEL_TEMPLATE_FLAG_HEAVY_CORE, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_LILY_PAD,
+    MODEL_TEMPLATE_FLAG_NETHER_PORTAL, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_PISTON_BODY,
+    MODEL_TEMPLATE_FLAG_POTTED_PLANT, MODEL_TEMPLATE_FLAG_SHELF, MODEL_TEMPLATE_FLAG_SHORT_GRASS,
+    MODEL_TEMPLATE_FLAG_SNOW_LAYER, MODEL_TEMPLATE_FLAG_SPELEOTHEM, MODEL_TEMPLATE_FLAG_STAIR,
+    MODEL_TEMPLATE_FLAG_TORCH, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
+    MODEL_TEMPLATE_FLAG_TWISTING_VINE, MODEL_TEMPLATE_FLAG_WALL, MODEL_TEMPLATE_FLAG_WEEPING_VINE,
+    MODEL_UV_SCALE, ModelQuad, ModelTemplate, NETHER_PORTAL_IDENTIFIER, NO_ANIMATION,
+    NO_MODEL_TEMPLATE, SEASONAL_LEAF_DEEP_OFFSET, SEASONAL_LEAF_EXPOSED_OFFSET,
+    SEASONAL_LEAF_MATERIAL_COUNT, SNOWED_GRASS_SIDE_TEXTURE, TEXTURE_PAGE_MASK, TEXTURE_PAGE_SHIFT,
+    TOP_SNOW_LAYER_COUNT, TexturePage, TextureRef, VisualKind, VisualSupport,
+    bubble_column_quad_count, item_model_template, model_template_parts, MODEL_TEMPLATE_FLAG_SCAFFOLDING, scaffolding_is_supported};
 pub use ogg::{decode_ogg, decode_sound};
 pub use particle::{
     ACTOR_FLAME_TEXTURE, MAX_PARTICLE_CARRIER_BYTES, MAX_PARTICLE_EFFECT_BYTES,
@@ -272,8 +273,7 @@ pub use runtime::{
 };
 pub use skin_geometry::{
     MAX_SKIN_GEOMETRY_BONES, MAX_SKIN_GEOMETRY_VERTICES, SkinGeometry, SkinGeometryBounds,
-    SkinGeometryError, SkinPolyMesh, SkinPolyVertex, parse_skin_geometry,
-    parse_skin_geometry_layer, skin_geometry_name,
+    SkinGeometryError, parse_skin_geometry, parse_skin_geometry_layer, skin_geometry_name,
 };
 pub use skybox::{DEFAULT_NATIVE_SKYBOX_OFFSET, SKYBOX_FACE_COUNT};
 pub use skybox::{PackSkybox, SkyboxDimension, SkyboxFace};

@@ -31,6 +31,7 @@ fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeome
             never_render: None,
             reset: None,
             texture_meshes: Box::default(),
+            poly_mesh: None,
             cubes: vec![EntityGeometryCube {
                 origin: [Scalar::ZERO; 3],
                 size: size.map(|v| Scalar::new(v).unwrap()),

@@ -12,7 +12,6 @@ pub(super) const NATIVE_INIT: &str = "native-init";
 pub(super) const RENDER_FRAME: &str = "render-frame";
 pub(super) const CAMERA_FRAME: &str = "camera-frame";
 pub(super) const FRAME: &str = "frame";
-pub(super) const MENU: &str = "menu";
 
 struct Export {
     name: &'static str,
@@ -23,7 +22,7 @@ struct Export {
 }
 
 /// Every native export's ABI and authority live together; discovery never grants authority.
-const EXPORTS: [Export; 5] = [
+const EXPORTS: [Export; 4] = [
     Export {
         name: NATIVE_INIT,
         params: 1,
@@ -61,16 +60,6 @@ const EXPORTS: [Export; 5] = [
         required: || ModGrants {
             world_draw: true,
             render_through_walls: true,
-            ..Default::default()
-        },
-    },
-    Export {
-        name: MENU,
-        params: 2,
-        results: 1,
-        capability: mod_api::native_menu::CONTROLS,
-        required: || ModGrants {
-            controls: true,
             ..Default::default()
         },
     },
@@ -134,8 +123,8 @@ impl NativeExports {
             .zip(&self.signatures)
             .any(|(export, signature)| export.capability != 0 && signature.is_some());
         ensure!(
-            init == callback,
-            "native-init requires frame or menu exports"
+            !callback || init,
+            "camera and drawing exports require native-init"
         );
         for (export, signature) in EXPORTS.iter().zip(&self.signatures) {
             ensure!(
@@ -310,8 +299,7 @@ mod tests {
             &wasmtime::Engine::default(),
             r#"(module
                 (func (export "native-init") (param i32))
-                (func (export "frame") (param i32 i32) (result i32) i32.const 0)
-                (func (export "menu") (param i32 i32) (result i32) i32.const 0))"#,
+                (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
         )
         .unwrap();
         let exports = NativeExports::from_module(&module);
@@ -321,7 +309,6 @@ mod tests {
             ModGrants {
                 players: true,
                 camera: true,
-                controls: true,
                 ..Default::default()
             }
         );
@@ -346,10 +333,6 @@ mod tests {
                     mod_api::native_frame::CAMERA_PLAYERS
                 } else {
                     0
-                } | if controls {
-                    mod_api::native_menu::CONTROLS
-                } else {
-                    0
                 }
             );
             assert_eq!(
@@ -362,14 +345,13 @@ mod tests {
     #[test]
     fn compiled_exports_reject_incomplete_or_invalid_native_abis() {
         for source in [
-            r#"(module (func (export "native-init") (param i32)))"#,
-            r#"(module (func (export "menu") (param i32 i32) (result i32) i32.const 0))"#,
+            r#"(module (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
             r#"(module
                 (global (export "native-init") i32 (i32.const 0))
-                (func (export "menu") (param i32 i32) (result i32) i32.const 0))"#,
+                (func (export "frame") (param i32 i32) (result i32) i32.const 0))"#,
             r#"(module
                 (func (export "native-init") (param i32))
-                (func (export "menu") (param i32 i64) (result i32) i32.const 0))"#,
+                (func (export "frame") (param i32 i64) (result i32) i32.const 0))"#,
         ] {
             let module = Module::new(&wasmtime::Engine::default(), source).unwrap();
             let exports = NativeExports::from_module(&module);

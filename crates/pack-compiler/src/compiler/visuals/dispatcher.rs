@@ -109,6 +109,7 @@ struct VisualCompiler {
     model_quads: Vec<ModelQuad>,
     cross_templates: BTreeMap<super::cross::TemplateKey, u32>,
     stem_templates: BTreeMap<super::stem::TemplateKey, u32>,
+    redstone_wire_templates: BTreeMap<super::redstone_wire::TemplateKey, u32>,
     pitcher_crop_templates: BTreeMap<super::pitcher_crop::TemplateKey, u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
@@ -135,7 +136,7 @@ struct VisualCompiler {
     button_templates: BTreeMap<ButtonTemplateKey, u32>,
     pale_moss_carpet_templates: BTreeMap<PaleMossCarpetTemplateKey, u32>,
     gate_templates: BTreeMap<GateTemplateKey, u32>,
-    pane_templates: BTreeMap<[u32; 2], u32>,
+    pane_templates: BTreeMap<([u32; 2], bool), u32>,
     fence_templates: BTreeMap<[u32; 3], u32>,
     sign_templates: BTreeMap<SignTemplateKey, u32>,
     thin_templates: BTreeMap<ThinTemplateKey, u32>,
@@ -146,6 +147,7 @@ struct VisualCompiler {
     lantern_templates: BTreeMap<(u32, bool), u32>,
     lever_templates: BTreeMap<super::lever::TemplateKey, u32>,
     flower_pot_soil: Option<u32>,
+    chorus_plant_templates: BTreeMap<[u32; 6], u32>,
     speleothem_templates: BTreeMap<u32, u32>,
     vine_stem_templates: BTreeMap<([u32; 2], u32), u32>,
     diode_torches: super::diode::TorchMaterials,
@@ -170,7 +172,7 @@ struct VisualCompiler {
     barrel_templates: BTreeMap<([u32; 6], usize), u32>,
     facing_cube_templates: BTreeMap<([u32; 6], [u8; 6]), u32>,
     command_block_templates: BTreeMap<([u32; 6], usize), u32>,
-    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6], bool), u32>,
+    mapped_face_templates: BTreeMap<([u32; 6], [u8; 6], super::mapped_face::Shape), u32>,
     brewing_stand_templates: BTreeMap<([u32; 6], [bool; 3]), u32>,
     campfire_templates: BTreeMap<([u32; 6], bool, u8), u32>,
     bubble_column_templates: BTreeMap<[u32; 9], u32>,
@@ -487,6 +489,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.honey_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::chorus::compile_plant_rule(
+            record,
+            inputs,
+            &mut self.chorus_plant_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
@@ -888,6 +899,15 @@ impl VisualCompiler {
                 quads: &mut self.model_quads
             },
         ));
+        ordered_rule!(super::redstone_wire::compile_rule(
+            record,
+            inputs,
+            &mut self.redstone_wire_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
         ordered_rule!(super::pitcher_crop::compile_rule(
             record,
             inputs,
@@ -950,6 +970,7 @@ pub(in crate::compiler) fn compile_visuals(
                     }
                     super::snowy_grass::apply(record, &mut visual, &inputs);
                     super::fire_admission::apply(record, &mut visual);
+                    super::chorus::apply_root_flag(record, &mut visual);
                     super::potted_plants::apply(
                         record,
                         &mut visual,

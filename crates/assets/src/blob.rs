@@ -706,8 +706,9 @@ pub(crate) fn compiled_connected_bases(
             let Some(group) = templates.get(index..index + 16) else {
                 return Err(invalid("pane template group is truncated"));
             };
-            if group.iter().enumerate().any(|(mask, template)| {
-                template.flags != flag || template.quad_count != 6 + (mask as u32).count_ones() * 4
+            if group.iter().any(|template| {
+                template.flags != flag
+                    || !crate::model::PANE_TEMPLATE_QUADS.contains(&template.quad_count)
             }) {
                 return Err(invalid("pane template group is noncanonical"));
             }
