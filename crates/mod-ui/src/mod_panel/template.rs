@@ -12,8 +12,7 @@ pub(crate) fn same_shape(a: &Panel, b: &Panel) -> bool {
 /// Facts determining the host wrapper and the control kinds surface actions route to. Popup
 /// colours are read when a popup opens, so they never change a route.
 pub(super) fn same_template(a: &Panel, b: &Panel) -> bool {
-    a.toggle_key == b.toggle_key
-        && a.reference_size == b.reference_size
+    a.reference_size == b.reference_size
         && a.controls.len() == b.controls.len()
         && a.controls
             .iter()

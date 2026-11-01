@@ -1,8 +1,9 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 mod declarations;
+mod panel_order;
 mod source;
-pub use source::{SourceKind, read_source, validate_source};
+pub use source::{SourceKind, is_frame_source, is_packet_source, read_source, validate_source};
 mod drawing_policy;
 use drawing_policy::DrawingRestart;
 mod grants;
