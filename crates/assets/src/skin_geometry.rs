@@ -39,6 +39,16 @@ pub struct SkinGeometry {
 }
 
 impl SkinGeometry {
+    /// Bytes its bones' polygon meshes keep allocated.
+    #[must_use]
+    pub fn poly_mesh_bytes(&self) -> usize {
+        self.bones
+            .iter()
+            .filter_map(|bone| bone.poly_mesh.as_deref())
+            .map(crate::EntityGeometryPolyMesh::retained_bytes)
+            .sum()
+    }
+
     /// Resolves a classic model from the catalog when a skin sends only its resource patch.
     pub fn from_catalog(geometry: &crate::EntityGeometry) -> Option<Self> {
         if geometry.inherits.is_some() {

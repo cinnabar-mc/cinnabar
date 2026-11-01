@@ -36,6 +36,17 @@ impl EntityGeometryBone {
 }
 
 impl EntityGeometryPolyMesh {
+    /// Bytes this mesh keeps allocated. Polygons expand well beyond their source text, so owners
+    /// of untrusted geometry charge this against their budgets.
+    #[must_use]
+    pub fn retained_bytes(&self) -> usize {
+        size_of_val(&*self.positions)
+            + size_of_val(&*self.normals)
+            + size_of_val(&*self.uvs)
+            + size_of_val(&*self.triangles)
+            + size_of_val(&*self.quads)
+    }
+
     /// Reads a bone's optional `poly_mesh`, logging how many malformed values were skipped.
     /// A mesh without polygons is kept, because its `normalized_uvs` still applies to the mesh it
     /// inherits. Use [`Self::has_polygons`] to ask whether it draws.
