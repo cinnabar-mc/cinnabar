@@ -87,7 +87,7 @@ fn draw_sections(
                 empty(
                     content,
                     "No imported packs",
-                    "Import a .mcpack or .mcaddon to add your own textures.",
+                    "Import a .mcpack, .mcaddon or Java Edition pack to add your own textures.",
                 )
             })?;
             pack_cards(content, snapshot, motion, Group::Available)
