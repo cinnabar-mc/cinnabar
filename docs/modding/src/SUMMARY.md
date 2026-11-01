@@ -68,4 +68,4 @@
 - [Drawing materials](appendix/drawing-materials.md)
 - [Entity masks](appendix/entity-masks.md)
 - [Native packet frames](appendix/native-frame.md)
-- [Native packet menus](appendix/native-menu.md)
+- [Packet panel capabilities](appendix/packet-panels.md)

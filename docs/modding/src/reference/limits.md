@@ -78,8 +78,6 @@ The guest's `budget.remaining-fuel` reports its actual current allowance. Action
 | `mod_api::MAX_ICON_BYTES` | 262144 | Mods library icon bytes. |
 | `mod_api::MAX_ICON_SIDE` | 256 | Mods library icon side in pixels. |
 | `mod_api::native_frame::MAX_BYTES` | 65536 | Native frame input and camera output bytes. |
-| `mod_api::native_menu::MAX_INPUT_BYTES` | 65536 | Native menu input bytes. |
-| `mod_api::native_menu::MAX_OUTPUT_BYTES` | 524288 | Native menu output bytes. |
 | `mod_api::native_render::MAX_BYTES` | 262144 | Native drawing output bytes. |
 
 ## Block geometry and clipping

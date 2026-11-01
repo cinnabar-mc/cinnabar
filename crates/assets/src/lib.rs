@@ -52,6 +52,7 @@ mod pinned_content;
 pub mod potion;
 mod provenance;
 mod publication;
+pub mod redstone_wire;
 pub mod registry;
 mod runtime;
 pub mod seasonal_foliage;

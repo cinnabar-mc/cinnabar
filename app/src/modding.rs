@@ -45,7 +45,7 @@ mod library;
 mod native_camera;
 mod native_input;
 mod packet_highlights;
-mod packet_menu;
+mod packet_panel;
 mod packet_render;
 pub(crate) mod packets;
 pub(crate) mod registration;

@@ -12,8 +12,8 @@ pub(crate) mod native_capabilities;
 mod native_frame;
 mod native_observation;
 pub use native_observation::NativeFrame;
-pub mod native_menu;
 mod native_render;
+pub mod panel;
 mod wasi;
 
 pub use adapt::packet_mod_component;
@@ -91,13 +91,9 @@ trait Guest: Send {
     fn render_frame(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
         Ok(Ok(None))
     }
-    /// Whether startup negotiated the optional focused menu capability.
-    fn has_native_menu(&self) -> bool {
-        false
-    }
-    /// Exchanges bounded retained menu state through the session's serial worker.
-    fn menu(&mut self, _json: &[u8]) -> Result<Result<Option<Vec<u8>>, String>> {
-        Ok(Ok(None))
+    /// Shares grant-gated surface state without calling guest code on the frame thread.
+    fn panel(&self) -> Option<panel::PanelHandle> {
+        None
     }
     /// The largest linear memory the guest has requested.
     fn peak_memory(&self) -> usize;
@@ -171,7 +167,6 @@ impl CompiledPacketMod {
             guest,
             current_frame_wire: self.current_frame_wire,
             status: Status::Active,
-            menu_input_extensions: mod_api::native_menu::InputExtensions::default(),
             call_deadline: PACKET_MOD_CALL_DEADLINE,
             _ticker: Arc::clone(&self.ticker),
         })
@@ -190,12 +185,16 @@ pub struct PacketMod {
     guest: Box<dyn Guest>,
     current_frame_wire: bool,
     status: Status,
-    menu_input_extensions: mod_api::native_menu::InputExtensions,
     call_deadline: Duration,
     _ticker: Arc<execution::EpochTicker>,
 }
 
 impl PacketMod {
+    /// Returns the generic panel/input mailbox for this live instance.
+    pub fn panel(&self) -> Option<panel::PanelHandle> {
+        self.is_active().then(|| self.guest.panel()).flatten()
+    }
+
     /// Begins the session and returns the packs the mod adds; none once inactive.
     pub fn start(
         &mut self,
@@ -242,6 +241,9 @@ impl PacketMod {
     pub fn stop(&mut self) {
         let deadline = self.call_deadline;
         let _ = self.call("stop", deadline, |guest| guest.stop().map(Ok));
+        if let Some(panel) = self.guest.panel() {
+            panel.deactivate();
+        }
         if self.status == Status::Active {
             self.status = Status::Stopped;
         }
@@ -275,6 +277,9 @@ impl PacketMod {
             })
         });
         result.map(Some).map_err(|error| {
+            if let Some(panel) = self.guest.panel() {
+                panel.deactivate();
+            }
             self.status = Status::Quarantined;
             tracing::warn!(
                 call = name,

@@ -7176,6 +7176,7 @@
     ],
     "blocks": {
       "RedstoneTorch": "minecraft:redstone_torch",
+      "RedstoneWire": "minecraft:redstone_wire",
       "UnlitRedstoneTorch": "minecraft:unlit_redstone_torch",
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",

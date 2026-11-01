@@ -299,7 +299,12 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
     let directory = tempfile::tempdir().unwrap();
     for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
         let mut runtime = panel_hosts(directory.path());
-        runtime.select_panel(&[key.into()]);
+        let index = ["KeyA", "KeyB", "KeyC"]
+            .iter()
+            .position(|item| *item == key)
+            .unwrap();
+        runtime.host_mut(index).set_panel_open(true);
+        runtime.select_opened_panel(index);
         let removed = runtime.remove(0);
         assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
         assert_eq!(runtime.host_count(), 2);
@@ -313,7 +318,8 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
 fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = panel_hosts(directory.path());
-    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    assert!(runtime.select_opened_panel(2));
     runtime.host_mut(2).set_panel_open(true);
     runtime.swap(0, 2);
     assert_eq!(runtime.panel_owner(), 0);

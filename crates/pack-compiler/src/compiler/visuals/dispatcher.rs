@@ -109,6 +109,7 @@ struct VisualCompiler {
     model_quads: Vec<ModelQuad>,
     cross_templates: BTreeMap<super::cross::TemplateKey, u32>,
     stem_templates: BTreeMap<super::stem::TemplateKey, u32>,
+    redstone_wire_templates: BTreeMap<super::redstone_wire::TemplateKey, u32>,
     pitcher_crop_templates: BTreeMap<super::pitcher_crop::TemplateKey, u32>,
     kelp_templates: BTreeMap<[u32; 6], u32>,
     transparent_cube_templates: BTreeMap<[u32; 6], u32>,
@@ -873,6 +874,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.stem_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads
+            },
+        ));
+        ordered_rule!(super::redstone_wire::compile_rule(
+            record,
+            inputs,
+            &mut self.redstone_wire_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads

@@ -188,8 +188,9 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   remains incomplete.
 - [ ] Close redstone component visuals. Redstone torches, repeater delay and output torches and
   comparator rear and front torches draw at their native positions from each block state.
-  Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
-  neighbour check, and redstone wire, which draws neither its power tint nor its connections.
+  Redstone wire draws its flat line or cross art, wall climbs and 16-level power tint from the
+  block state. Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
+  neighbour check.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
 - [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
@@ -296,6 +297,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
+  An invalid cave proof is replaced by an inline full search in the same update. A due
+  rebuild of a still-safe superset runs on an immutable connectivity snapshot off the frame
+  thread while the superset stays drawn and openings apply inline, unless its retained
+  reach costs less than the snapshot copy or no worker thread can start.
   A developer-supplied cost calibration can select Hi-Z indirect cull passes by
   captured submitted indices per stream, matched to adapter, backend, viewport and
   sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
@@ -927,6 +932,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Mods explicitly open their own panels; the latest opening owns input and closes other panels.
+  Legacy toggle metadata is accepted without host key handling. Packet reactors use
+  grant-gated panel and physical-input imports; hardware acceptance remains pending.
   Client-owned panel collections support bounded five-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
@@ -1510,8 +1518,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   attack and use pulses reach it as repeats. Local weather overrides retain
   transactional host APIs. Granted actor reach requests set the local pick and attack
   distance within the API bound, preserving attack eligibility, obstruction checks and
-  ordinary block reach. These contracts have offline behavior coverage; populated-world
-  interaction and rendering acceptance remain incomplete.
+  ordinary block reach. Frame-scoped crosshair mining holds use that same interaction grant
+  and ordinary held-mining admission, with no host target-selection policy. These contracts
+  have offline behavior tests; populated-world interaction and rendering acceptance remain incomplete.
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.

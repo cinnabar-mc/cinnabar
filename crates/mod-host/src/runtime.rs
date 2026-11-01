@@ -788,6 +788,12 @@ impl Instance {
     pub(super) fn panel_bundle(&self) -> Option<Arc<ui::mod_panel::PanelBundle>> {
         self.store.data().controls.bundle.clone()
     }
+    pub(super) fn panel_open_order(&self) -> u64 {
+        self.store.data().controls.open_order
+    }
+    pub(super) fn take_panel_open_request(&mut self) -> bool {
+        std::mem::take(&mut self.store.data_mut().controls.open_requested)
+    }
     pub(super) fn panel_open(&self) -> bool {
         self.store.data().controls.open
     }
