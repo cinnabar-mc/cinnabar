@@ -875,3 +875,34 @@ fn custom_content_carried_tints_are_baked_without_changing_alpha() {
             .all(|pixel| *pixel == [40, 40, 0, 128])
     );
 }
+
+/// One whole-tile quad per listed material.
+fn quads_of(materials: impl IntoIterator<Item = u32>) -> Vec<assets::gui_item::GuiBlockQuad> {
+    materials
+        .into_iter()
+        .map(|material| assets::gui_item::GuiBlockQuad {
+            corners: [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]],
+            uvs: [[0., 0.], [1., 0.], [1., 1.], [0., 1.]],
+            material,
+            two_sided: false,
+        })
+        .collect()
+}
+
+#[test]
+fn a_seventh_material_keeps_a_retained_shape_on_the_first_tile() {
+    let quads = quads_of(1..=7);
+    assert!(
+        super::template_quads(&quads, false).is_none(),
+        "other models keep their sprite"
+    );
+
+    let (slots, vertices) = super::template_quads(&quads, true).unwrap();
+    assert_eq!(slots, [1, 2, 3, 4, 5, 6]);
+    assert_eq!(vertices.len(), 7 * 6, "every quad stays in the model");
+    let first_tile = &vertices[..6];
+    let extra = &vertices[6 * 6..];
+    for (a, b) in first_tile.iter().zip(extra) {
+        assert_eq!(a.uv, b.uv, "the extra material draws with the first tile");
+    }
+}

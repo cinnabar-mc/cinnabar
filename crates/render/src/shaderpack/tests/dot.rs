@@ -149,8 +149,19 @@ fn software_fused_dot_matches_binary32_mul_add() {
     {
         let [a, b, c, got] = result.map(f32::from_bits);
         let expected = a.mul_add(b, c);
+        // WGSL lets an implementation flush subnormals, and some adapters do.
+        let flush = |value: f32| {
+            if value.is_subnormal() {
+                0f32.copysign(value)
+            } else {
+                value
+            }
+        };
+        let flushed = flush(flush(a).mul_add(flush(b), flush(c)));
         assert!(
-            (expected.is_nan() && got.is_nan()) || expected.to_bits() == got.to_bits(),
+            (expected.is_nan() && got.is_nan())
+                || expected.to_bits() == got.to_bits()
+                || got == flushed,
             "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
         );
     }

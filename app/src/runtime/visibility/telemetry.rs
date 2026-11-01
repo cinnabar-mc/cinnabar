@@ -57,6 +57,13 @@ impl CaveFrameTrace {
 impl CaveVisibilityCache {
     /// Serializes the bounded trace only when a developer requests a state snapshot.
     pub(crate) fn telemetry_snapshot(&self) -> Value {
+        let chunk_pipeline::CaveRebuildStats {
+            started,
+            completed,
+            inline,
+            discarded,
+            failed,
+        } = self.rebuild.stats();
         let frames: Vec<_> = self
             .telemetry
             .frames
@@ -74,6 +81,8 @@ impl CaveVisibilityCache {
             })
             .collect();
         json!({
+            "jobs": {"started": started, "completed": completed, "inline": inline,
+                "discarded": discarded, "failed": failed},
             "capacity": FRAME_CAPACITY,
             "next_frame": self.telemetry.next_frame,
             "frames": frames,
