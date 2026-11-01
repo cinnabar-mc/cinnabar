@@ -1,6 +1,6 @@
 import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
 
-import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
+import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_ao_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
 import bevy_render::view::View;
@@ -418,7 +418,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     @if(!ENHANCED)
     out.native_light_levels = terrain_light_levels(light_sample);
     @if(!ENHANCED)
-    out.native_ao_face = material_leaf_shade(ao * dimming, material.flags);
+    out.native_ao_face = material_ao_shade(ao * dimming, material.flags);
     @if(!ENHANCED)
     out.uniform_tint_gamma = vec4(0.0);
     @if(!ENHANCED && !ENHANCED_SHADOW && !OPAQUE_OVERDRAW)

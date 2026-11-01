@@ -104,6 +104,6 @@ struct LeafMetadataCase { position_flags: vec4<u32>, shade: vec4<f32>, }
     let witness = cases[index];
     let flags = witness.position_flags.w;
     let rotation = material_uv_flags(flags, bitcast<vec3<i32>>(witness.position_flags.xyz)) & 3u;
-    return vec4(f32(rotation)/3.0, material_leaf_shade(witness.shade.x, flags), 0.0, 1.0);
+    return vec4(f32(rotation)/3.0, material_ao_shade(witness.shade.x, flags), 0.0, 1.0);
 }
 "#;

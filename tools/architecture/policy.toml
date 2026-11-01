@@ -199,7 +199,7 @@ forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap"
 [[crates]]
 name = "pack-compile-input"
 path = "crates/pack-compiler/input"
-allowed_dependencies = ["pack-json", "assets"]
+allowed_dependencies = ["pack-json", "assets", "protocol-ids"]
 forbidden_dependencies = ["pack-compiler", "pack-entity-compiler", "pack-font-compiler", "asset-compiler", "clap", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "asset-compiler", "clap", "protocol", "client-world", "chunk-pipeline", "render", "bevy", "bevy_*", "wgpu*"]
 
@@ -1699,7 +1699,7 @@ literal = "_sword"
 reason = "Java animation policy; registry-wide equivalence to compiled sword membership without maces is tested."
 
 [[identifier_literal_exceptions]]
-path = "app/src/runtime/network/block_overlay.rs"
+path = "app/src/runtime/network/block_overlay/materials.rs"
 literal = "water"
 reason = "Material tint_method schema value; this selects a tint channel, not a block identity."
 

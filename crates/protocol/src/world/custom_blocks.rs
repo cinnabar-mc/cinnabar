@@ -155,16 +155,62 @@ impl CustomVisualComponents {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct CustomMaterialInstance {
     /// `*`, a face name, or a named instance a geometry face refers to.
     pub name: Arc<str>,
+    /// Texture key; empty when the network tag is missing.
     pub texture: Arc<str>,
-    pub render_method: Option<Arc<str>>,
+    pub render_method: protocol_ids::BlockRenderMethod,
     /// `tint_method`: `default_foliage`, `birch_foliage`, `evergreen_foliage`, `dry_foliage`, `grass`, `water`, or `none`.
     pub tint_method: Option<Arc<str>>,
-    pub ambient_occlusion: Option<f32>,
-    pub face_dimming: Option<bool>,
+    /// AO exponent; a missing or non-float tag is 0, which disables AO.
+    pub ambient_occlusion: f32,
+    /// The five network flag bits, read as [`Self::face_dimming`] and its siblings.
+    pub packed_bools: u8,
+}
+
+impl CustomMaterialInstance {
+    /// Mask the client applies to the network `packed_bools` byte.
+    pub const PACKED_BOOLS_MASK: u8 = 0x1f;
+
+    /// An instance with the authored component defaults: opaque, untinted, AO exponent 1 and
+    /// face dimming. Network decoding instead uses the defaults for missing tags.
+    #[must_use]
+    pub fn with_authored_defaults(name: impl Into<Arc<str>>, texture: impl Into<Arc<str>>) -> Self {
+        Self {
+            name: name.into(),
+            texture: texture.into(),
+            render_method: protocol_ids::BlockRenderMethod::Opaque,
+            tint_method: None,
+            ambient_occlusion: 1.0,
+            packed_bools: 1,
+        }
+    }
+
+    /// Whether faces darken by direction (bit 0).
+    #[must_use]
+    pub const fn face_dimming(&self) -> bool {
+        self.packed_bools & 1 != 0
+    }
+
+    /// Whether UV rotation is randomized per block (bit 1, `isotropic`).
+    #[must_use]
+    pub const fn isotropic(&self) -> bool {
+        self.packed_bools & 2 != 0
+    }
+
+    /// Whether weighted texture variations may be selected (bit 2, set from the format version).
+    #[must_use]
+    pub const fn texture_variations(&self) -> bool {
+        self.packed_bools & 4 != 0
+    }
+
+    /// Whether tint is multiplied by texture alpha (bit 3, `alpha_masked_tint`).
+    #[must_use]
+    pub const fn alpha_masked_tint(&self) -> bool {
+        self.packed_bools & 8 != 0
+    }
 }
 
 /// Rotation in quarter turns about each axis, then scale and translation.
