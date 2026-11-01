@@ -77,6 +77,103 @@ fn gamepad_keys<'a>(
     keys
 }
 
+/// The primary button's edges this frame. Buttons are reset every owned frame, so a physical
+/// release never surfaces as `just_released`; raw messages carry the edges instead. `held` keeps
+/// the button's state across frames and `cursor` the messages already read.
+pub(crate) fn read_pointer_edges(
+    mouse: &ButtonInput<MouseButton>,
+    messages: Option<&Messages<MouseButtonInput>>,
+    cursor: &mut MessageCursor<MouseButtonInput>,
+    held: &mut bool,
+) -> (engine_input::PointerButtons, Vec<bool>) {
+    let mut pointer = engine_input::PointerButtons {
+        pressed: mouse.just_pressed(MouseButton::Left),
+        released: mouse.just_released(MouseButton::Left),
+        held: false,
+    };
+    let mut pointer_edges = Vec::new();
+    if let Some(messages) = messages {
+        for input in cursor.read(messages) {
+            if input.button == MouseButton::Left {
+                let down = input.state == ButtonState::Pressed;
+                pointer_edges.push(down);
+                if down {
+                    pointer.pressed = true;
+                } else {
+                    pointer.released = true;
+                }
+            }
+        }
+    }
+    if pointer_edges.is_empty() {
+        if pointer.pressed {
+            pointer_edges.push(true);
+        }
+        if pointer.released {
+            pointer_edges.push(false);
+        }
+        if pointer_edges.is_empty() {
+            *held |= mouse.pressed(MouseButton::Left);
+        }
+    }
+    for down in &pointer_edges {
+        *held = *down;
+    }
+    pointer.held = *held;
+    (pointer, pointer_edges)
+}
+
+/// One frame of raw input for an engine-drawn screen, without its held keys and animator. A
+/// gamepad presses through `pads`, with `stick` as in [`gamepad_keys`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn engine_frame_input<'a, 'p>(
+    window: &Window,
+    touch: bool,
+    (pointer, pointer_edges): (engine_input::PointerButtons, Vec<bool>),
+    wheel: impl Iterator<Item = &'a MouseWheel>,
+    key_presses: &[&KeyboardInput],
+    mouse: &ButtonInput<MouseButton>,
+    menu: Option<&MenuRuntime>,
+    (pads, stick): (impl Iterator<Item = &'p Gamepad>, &mut [bool; 4]),
+    now: f64,
+) -> engine_input::EngineInput<'static> {
+    engine_input::EngineInput {
+        touch,
+        pointer_edges,
+        cursor: window
+            .cursor_position()
+            .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
+        keys: &[],
+        press_shortcuts: Vec::new(),
+        pointer,
+        wheel: wheel
+            .map(|event| (event.y, scroll_unit(event.unit)))
+            .collect(),
+        menu_cancel: key_presses
+            .iter()
+            .find(|input| menu_cancel_key(menu, input.key_code))
+            .map(|input| keyboard_key(input.key_code)),
+        typed: key_presses
+            .iter()
+            .map(|input| {
+                (
+                    keyboard_key(input.key_code),
+                    input.text.as_ref().map(|text| text.to_string()),
+                    input.repeat,
+                )
+            })
+            .chain(
+                gamepad_keys(pads, stick)
+                    .into_iter()
+                    .map(|(key, text)| (key, text, false)),
+            )
+            .chain(menu_cancel_mouse(menu, mouse).map(|_| (KeyboardKey::Escape, None, false)))
+            .collect(),
+        now,
+        animator: None,
+    }
+}
+
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
     (player_runtime, window, mut focus, driven, pointer_source): (
@@ -143,42 +240,12 @@ pub(crate) fn drive_server_form_input(
         *owned_last_frame = false;
         return;
     }
-    // Buttons are reset every owned frame, so a physical release never surfaces
-    // as `just_released`; raw messages carry the edges instead.
-    let mut pointer = engine_input::PointerButtons {
-        pressed: mouse.just_pressed(MouseButton::Left),
-        released: mouse.just_released(MouseButton::Left),
-        held: false,
-    };
-    let mut pointer_edges = Vec::new();
-    if let Some(messages) = button_messages.as_deref() {
-        for input in button_cursor.read(messages) {
-            if input.button == MouseButton::Left {
-                let down = input.state == ButtonState::Pressed;
-                pointer_edges.push(down);
-                if down {
-                    pointer.pressed = true;
-                } else {
-                    pointer.released = true;
-                }
-            }
-        }
-    }
-    if pointer_edges.is_empty() {
-        if pointer.pressed {
-            pointer_edges.push(true);
-        }
-        if pointer.released {
-            pointer_edges.push(false);
-        }
-        if pointer_edges.is_empty() {
-            *held |= mouse.pressed(MouseButton::Left);
-        }
-    }
-    for down in &pointer_edges {
-        *held = *down;
-    }
-    pointer.held = *held;
+    let (pointer, pointer_edges) = read_pointer_edges(
+        &mouse,
+        button_messages.as_deref(),
+        &mut button_cursor,
+        &mut held,
+    );
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
@@ -251,42 +318,19 @@ pub(crate) fn drive_server_form_input(
             .filter(|input| input.state == ButtonState::Pressed)
             .collect();
         let input = engine_input::EngineInput {
-            touch: pointer_source.as_ref().is_some_and(|source| source.0),
-            pointer_edges,
-            cursor: window
-                .cursor_position()
-                .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
             keys: &held,
-            pointer,
-            wheel: wheel
-                .read()
-                .map(|event| (event.y, scroll_unit(event.unit)))
-                .collect(),
-            menu_cancel: key_presses
-                .iter()
-                .find(|input| menu_cancel_key(menu.as_deref(), input.key_code))
-                .map(|input| keyboard_key(input.key_code)),
-            typed: key_presses
-                .iter()
-                .map(|input| {
-                    (
-                        keyboard_key(input.key_code),
-                        input.text.as_ref().map(|text| text.to_string()),
-                        input.repeat,
-                    )
-                })
-                .chain(
-                    gamepad_keys(pads.iter(), &mut stick)
-                        .into_iter()
-                        .map(|(key, text)| (key, text, false)),
-                )
-                .chain(
-                    menu_cancel_mouse(menu.as_deref(), &mouse)
-                        .map(|_| (KeyboardKey::Escape, None, false)),
-                )
-                .collect(),
-            now: time.map_or(0.0, |time| time.elapsed_secs_f64()),
             animator: presentation.form_animator(),
+            ..engine_frame_input(
+                window,
+                pointer_source.as_ref().is_some_and(|source| source.0),
+                (pointer, pointer_edges),
+                wheel.read(),
+                &key_presses,
+                &mouse,
+                menu.as_deref(),
+                (pads.iter(), &mut stick),
+                time.map_or(0.0, |time| time.elapsed_secs_f64()),
+            )
         };
         engine_input::drive(&mut runtime, &frame, input);
     } else if input_available && let Some(entry) = runtime.server_forms().active() {

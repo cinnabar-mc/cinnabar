@@ -42,6 +42,7 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    press_shortcuts: Vec::new(),
                     touch: false,
                     cursor: Some(cursor),
                     keys: &[],
@@ -127,7 +128,15 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
     let identity = runtime.server_forms().active().unwrap().identity;
     let frame = presentation.form_engine_frame(identity).unwrap().clone();
     assert_eq!(frame.cancel_target.as_deref(), Some("button.menu_exit"));
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        0.0,
+        &mut PlatformClipboard,
+    );
     assert!(events.iter().any(|event| matches!(event,
         ScreenEvent::Button(button) if mapped_action(&runtime.server_forms().active().unwrap().model, button) == Some(LocalFormAction::Dismiss)
             && button.down && button.interacted
@@ -188,6 +197,7 @@ fn toggle_submit(touch: bool) {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch,
                 cursor: Some(cursor),
                 keys: &[],
@@ -259,7 +269,15 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     region.input.mappings.clear();
     region.input.any = Some(json_ui::MappingScope::Global);
     frame.hits = vec![region].into();
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 0.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        0.0,
+        &mut PlatformClipboard,
+    );
     assert!(events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
     ));
@@ -270,7 +288,15 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
     let region = &mut std::sync::Arc::make_mut(&mut frame.hits)[0];
     region.widget.consume = true;
     region.input.mappings = vec![mapping];
-    let events = keyboard(&mut runtime, &frame, KeyboardKey::Escape, None, false, 1.0);
+    let events = keyboard(
+        runtime.server_forms_mut().engine_mut(),
+        &frame,
+        KeyboardKey::Escape,
+        None,
+        false,
+        1.0,
+        &mut PlatformClipboard,
+    );
     assert!(events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == "button.dropdown_exit" && button.down)));
     assert!(!events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
@@ -351,6 +377,7 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
         &mut runtime,
         &frame,
         EngineInput {
+            press_shortcuts: Vec::new(),
             touch: false,
             cursor: Some(UiPoint::new(gui[0], gui[1]).unwrap()),
             keys: &[],
@@ -403,6 +430,7 @@ fn review_ui_release_applies_the_final_control_drag_position() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: Some(cursor),
                 keys: &[],
@@ -461,6 +489,7 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
         &mut runtime,
         &frame,
         EngineInput {
+            press_shortcuts: Vec::new(),
             touch: false,
             cursor: Some(
                 UiPoint::new(frame.origin[0], frame.origin[1] + 30.0 * frame.scale).unwrap(),
@@ -807,6 +836,7 @@ fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: true,
                 cursor: Some(UiPoint::new(point[0] as f32, point[1] as f32).unwrap()),
                 keys: &[],
@@ -931,11 +961,12 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
                 },
             );
         }
-        assert!(editing(&runtime, &frame), "{key:?}");
+        assert!(editing(runtime.server_forms().engine(), &frame), "{key:?}");
         drive(
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: None,
                 keys: &[],
@@ -948,7 +979,7 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
                 animator: None,
             },
         );
-        assert!(editing(&runtime, &frame), "{key:?}");
+        assert!(editing(runtime.server_forms().engine(), &frame), "{key:?}");
         let mut sent = Vec::new();
         let _ = super::super::flush_form_response(
             &mut runtime,
@@ -985,6 +1016,7 @@ fn menu_cancel_key_dismisses_a_form_without_an_edit_box() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: None,
                 keys: &[],

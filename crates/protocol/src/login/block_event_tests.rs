@@ -3,11 +3,13 @@
 use crate::raw_packet::decode_packet_raw;
 use bytes::Buf;
 
-use bedrock_protocol_1_26_60::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use bedrock_protocol_1_26_60::packets::{
+    BlockEvent, ClientboundMapItemData, ContainerOpen, OpenSign,
+};
 use bedrock_protocol_1_26_60::types::{ActorUniqueID, BlockPos};
 
 use super::*;
-use crate::{BlockEventEvent, MapDataEvent, OpenSignEvent, WorldEvent};
+use crate::{BlockEventEvent, MapDataEvent, OpenCommandBlockEvent, OpenSignEvent, WorldEvent};
 
 #[test]
 fn block_event_packets_normalize_with_the_current_dimension() {
@@ -148,4 +150,43 @@ fn creation_without_pixels_announces_an_unpainted_saved_map() {
         }))
     );
     assert_eq!(decode_map(ClientboundMapItemData::default()), None);
+}
+
+/// A `ContainerOpen` for `container_type` over `target_actor`.
+fn decode_container_open(container_type: u8, target_actor: i64) -> WorldEvent {
+    let packet: Packet = crate::Packet::new(ContainerOpen {
+        container_id: bedrock_protocol_1_26_60::wire::U8(2),
+        container_type: bedrock_protocol_1_26_60::wire::U8(container_type),
+        position: block_pos(2, -60, 0),
+        target_actor_id: ActorUniqueID(target_actor),
+    });
+    let mut batch = crate::encode(&packet).expect("encode container open");
+    batch.advance(1);
+    let raw = decode_packet_raw(&mut batch).expect("raw container open");
+    decode_world_raw_with(raw, 1, super::decode_test_raw)
+        .expect("decode container open")
+        .expect("world event")
+}
+
+#[test]
+fn a_command_block_window_over_a_block_opens_the_command_block_editor() {
+    assert_eq!(
+        decode_container_open(16, -1),
+        WorldEvent::OpenCommandBlock(OpenCommandBlockEvent {
+            dimension: 1,
+            position: [2, -60, 0],
+        })
+    );
+}
+
+#[test]
+fn other_windows_and_a_minecart_command_block_stay_inventory_events() {
+    assert!(matches!(
+        decode_container_open(16, 7),
+        WorldEvent::Inventory(_)
+    ));
+    assert!(matches!(
+        decode_container_open(0, -1),
+        WorldEvent::Inventory(_)
+    ));
 }

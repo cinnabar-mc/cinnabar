@@ -56,6 +56,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         (
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
             drive_sign_editor.in_set(OrdinaryInputSet),
+            drive_command_block.in_set(OrdinaryInputSet),
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,

@@ -33,6 +33,24 @@ pub fn is_leaf_particle(effect: super::ParticleEffect) -> bool {
     effect.name().ends_with("leaves_particle")
 }
 
+/// The kinds of command block, each its own block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandBlockKind {
+    Impulse,
+    Repeating,
+    Chain,
+}
+
+/// The kind of command block `identifier` names; any other name reads as impulse.
+#[must_use]
+pub fn command_block_kind(identifier: Option<&str>) -> CommandBlockKind {
+    match identifier {
+        Some("minecraft:repeating_command_block") => CommandBlockKind::Repeating,
+        Some("minecraft:chain_command_block") => CommandBlockKind::Chain,
+        _ => CommandBlockKind::Impulse,
+    }
+}
+
 /// Resolves sign editor artwork using the compiled texture naming contract.
 pub fn sign_texture(identifier: Option<&str>) -> (String, bool) {
     let name = identifier.unwrap_or_default();

@@ -60,6 +60,9 @@ pub(crate) fn drain_committed_ui_before_authority(
     ui_runtime
         .server_forms_mut()
         .synchronize_epoch(session, dimension_epoch);
+    ui_runtime
+        .command_block_mut()
+        .synchronize_epoch(dimension_epoch);
     let committed_ui = stream.take_committed_ui();
     let local_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     if !committed_ui.is_empty() {

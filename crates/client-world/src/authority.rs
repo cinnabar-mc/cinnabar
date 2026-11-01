@@ -111,6 +111,7 @@ pub struct WorldAuthority {
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
+    pending_command_block: Option<[i32; 3]>,
     audio_nondefault_camera_observed: bool,
     network_id_mode: NetworkIdMode,
     air_block_id: u32,
@@ -217,6 +218,7 @@ impl WorldAuthority {
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,
+            pending_command_block: None,
             audio_nondefault_camera_observed: false,
             network_id_mode,
             air_block_id,
@@ -278,6 +280,8 @@ impl WorldAuthority {
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
+        // Its coordinates named a block in the dimension just left.
+        self.pending_command_block = None;
         self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }

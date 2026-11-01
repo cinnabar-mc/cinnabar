@@ -290,6 +290,16 @@ impl UiPresentationRuntime {
                             now_millis,
                         )?;
                     }
+                    Scene::CommandBlock => {
+                        self.append_command_block(
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content_width,
+                            content_height,
+                        )?;
+                    }
                     Scene::ServerForm | Scene::ServerSettingsForm => {
                         self.append_server_form(
                             runtime,

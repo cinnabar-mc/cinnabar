@@ -12,6 +12,8 @@ use super::request::StackRequestContainer;
 /// Unspecified type used by client closes and acknowledgements for absent windows.
 pub const NO_CONTAINER_WINDOW_TYPE: i8 = -9;
 pub const WINDOW_TYPE_CONTAINER: i8 = WindowType::Container.wire_value();
+/// The command block editor: an unmanaged window with no slots, opened over a block or a minecart.
+pub const WINDOW_TYPE_COMMAND_BLOCK: i8 = WindowType::CommandBlock.wire_value();
 pub const WINDOW_TYPE_WORKBENCH: i8 = WindowType::Workbench.wire_value();
 pub const WINDOW_TYPE_FURNACE: i8 = WindowType::Furnace.wire_value();
 pub const WINDOW_TYPE_ENCHANTMENT: i8 = WindowType::Enchantment.wire_value();

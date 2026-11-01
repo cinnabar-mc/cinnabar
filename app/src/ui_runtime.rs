@@ -4,6 +4,8 @@ use client_ui::ui_runtime::UiRuntime;
 #[cfg(not(target_arch = "wasm32"))]
 use client_ui::ui_runtime::inventory_drag;
 #[cfg(not(target_arch = "wasm32"))]
+pub mod command_block;
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod data_driven;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod emotes;
@@ -26,6 +28,8 @@ pub mod sign_editor;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod touch_pointer;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) use command_block::drive_command_block;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) use forms::{drive_server_form_input, flush_server_form_network};
 #[cfg(not(target_arch = "wasm32"))]

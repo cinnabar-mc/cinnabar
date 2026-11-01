@@ -65,6 +65,7 @@ pub mod regression_snapshots;
 use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod accounts;
+pub mod command_block;
 #[cfg(test)]
 pub mod play_flow_snapshots;
 mod player_list;
@@ -164,6 +165,8 @@ pub(super) struct FrameProjections {
     container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
     /// Last build's container frame, for this build's pointer hover.
     previous_container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// The command block editor drawn this build.
+    command_block: Option<EngineFrame>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.
