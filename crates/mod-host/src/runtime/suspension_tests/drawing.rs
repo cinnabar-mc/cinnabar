@@ -36,6 +36,18 @@ fn source() -> String {
     )
 }
 
+/// Waits for admission without assuming the preceding callback left no scheduling debt.
+fn start_suspended(instance: &mut Instance, budget: &crate::CallbackBudget) {
+    for _ in 0..256 {
+        match instance.run_frame_slice().unwrap() {
+            CallbackOutcome::Suspended => return,
+            CallbackOutcome::Deferred => next_frame(instance, budget),
+            CallbackOutcome::Executed => panic!("fixture must suspend before publication"),
+        }
+    }
+    panic!("bounded scheduling debt prevented invocation admission")
+}
+
 #[test]
 fn repeated_suspended_geometry_and_material_replacements_release_renderer_retirements() {
     let (mut instance, _ticker, budget) = scheduled(&source(), 2_000_000);
@@ -77,10 +89,7 @@ fn repeated_suspended_geometry_and_material_replacements_release_renderer_retire
             )
         });
         replace.store(true, Ordering::Relaxed);
-        assert_eq!(
-            instance.run_frame_slice().unwrap(),
-            CallbackOutcome::Suspended
-        );
+        start_suspended(&mut instance, &budget);
         assert!(Arc::ptr_eq(
             instance.store.data().render.retained.snapshot(),
             &renderer
@@ -162,10 +171,7 @@ fn new_actor_references_survive_culling_but_confirmed_despawns_remove_anchored_d
             }
             Ok(())
         });
-        assert_eq!(
-            instance.run_frame_slice().unwrap(),
-            CallbackOutcome::Suspended
-        );
+        start_suspended(&mut instance, &budget);
         assert!(
             instance
                 .store

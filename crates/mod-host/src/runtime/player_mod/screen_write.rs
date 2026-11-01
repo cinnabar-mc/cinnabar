@@ -5,7 +5,6 @@ use server_experience::screen::{Modal, Row, Value};
 use std::{collections::BTreeMap, io::Write};
 
 /// One callback's screen copy, published only if at least one write was accepted.
-#[derive(Clone)]
 pub(in crate::runtime) struct ScreenTransaction {
     screens: ModScreens,
     changed: bool,

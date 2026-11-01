@@ -1,6 +1,6 @@
 //! Pending outputs and retained values follow the lifecycle of their owning subsystem.
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct Environment {
     pub time_override: Option<u32>,
     pub pending_time: Option<Option<u32>>,
@@ -11,7 +11,7 @@ pub(super) struct Environment {
     pub writes: u32,
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct Movement {
     pub snapshot: Option<crate::GameplayMovementSnapshot>,
     pub pending_jump: bool,

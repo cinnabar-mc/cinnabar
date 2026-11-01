@@ -30,7 +30,6 @@ mod transaction_tests;
 pub(super) use super::{DataSource, Modifiers, ScreenLayout as Layout};
 
 /// What the screen's queries report about the events being delivered.
-#[derive(Clone)]
 pub(super) struct EventContext {
     /// The modifiers held with them (`screen.held-modifiers`).
     pub(super) modifiers: crate::KeyModifiers,

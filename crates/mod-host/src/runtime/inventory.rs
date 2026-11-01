@@ -7,7 +7,7 @@ use anyhow::Result;
 use mod_api::{MAX_INVENTORY_REQUESTS, MAX_ITEM_IDENTIFIER_BYTES};
 
 /// This callback's staged requests and the last successful callback's.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct InventoryRequests {
     pending: Vec<InventoryRequest>,
     committed: Vec<InventoryRequest>,

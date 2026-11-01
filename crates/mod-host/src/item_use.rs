@@ -2,7 +2,7 @@ use super::{MAX_IMPORT_WRITES, State, cinnabar};
 use anyhow::{Result, bail};
 
 /// A use pulse staged by the running frame callback and published only when it succeeds.
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub(super) struct ItemUsePolicy {
     pending_pulse: bool,
     writes: u32,
