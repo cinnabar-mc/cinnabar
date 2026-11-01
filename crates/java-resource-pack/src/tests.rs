@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     hud::{LEGACY_ICON_RECTS, Rect},
-    texture::{decode, encode},
+    texture::{Budget, encode},
 };
 use image::{Rgba, RgbaImage};
 use std::collections::BTreeMap;
@@ -58,7 +58,15 @@ fn output(translation: &Translation) -> BTreeMap<&str, &[u8]> {
 
 /// The size of a translated texture and its pixel at (`x`, `y`).
 fn pixel(out: &BTreeMap<&str, &[u8]>, path: &str, x: u32, y: u32) -> ((u32, u32), [u8; 4]) {
-    let image = decode(out.get(path).unwrap_or_else(|| panic!("{path} missing"))).unwrap();
+    let bytes = out.get(path).unwrap_or_else(|| panic!("{path} missing"));
+    let format = if path.ends_with(".tga") {
+        image::ImageFormat::Tga
+    } else {
+        image::ImageFormat::Png
+    };
+    let image = image::load_from_memory_with_format(bytes, format)
+        .unwrap()
+        .into_rgba8();
     (image.dimensions(), image.get_pixel(x, y).0)
 }
 
@@ -384,6 +392,133 @@ fn hostile_hud_sprites_cannot_request_huge_canvases() {
 }
 
 #[test]
+fn textures_vanilla_ships_as_tga_are_written_as_tga() {
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/block/oak_leaves.png",
+            solid(16, 16, GREEN),
+        ),
+        (
+            "assets/minecraft/textures/item/leather_helmet.png",
+            solid(16, 16, RED),
+        ),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/blocks/leaves_oak.tga", 0, 0),
+        ((16, 16), GREEN)
+    );
+    assert!(!out.contains_key("textures/blocks/leaves_oak.png"));
+    assert!(
+        !out.keys().any(|path| path.contains("leather_helmet")),
+        "dye masks are left alone"
+    );
+}
+
+#[test]
+fn grass_sides_become_tint_masks() {
+    let overlay = encode(&RgbaImage::from_fn(16, 16, |_, y| {
+        Rgba(if y < 4 { [150, 150, 150, 255] } else { [0; 4] })
+    }));
+    let blocks = "assets/minecraft/textures/block/";
+    let files = pack(vec![
+        (
+            &format!("{blocks}grass_block_side.png"),
+            solid(16, 16, [120, 80, 50, 255]),
+        ),
+        (
+            &format!("{blocks}grass_block_side_overlay.png"),
+            overlay.clone(),
+        ),
+        (
+            &format!("{blocks}grass_block_snow.png"),
+            solid(16, 16, WHITE),
+        ),
+    ]);
+    let out_files = run(&files, "Current").unwrap();
+    let out = output(&out_files);
+    assert_eq!(
+        pixel(&out, "textures/blocks/grass_side.tga", 0, 0).1,
+        [150, 150, 150, 255]
+    );
+    assert_eq!(
+        pixel(&out, "textures/blocks/grass_side.tga", 0, 8).1,
+        [120, 80, 50, 0]
+    );
+    assert_eq!(
+        pixel(&out, "textures/blocks/grass_side_snowed.tga", 3, 3).1,
+        [255, 255, 255, 0]
+    );
+    assert!(out.contains_key("textures/blocks/grass_side_carried.png"));
+
+    let legacy_side_only = pack(vec![
+        (
+            "assets/minecraft/textures/blocks/grass_side.png",
+            solid(16, 16, [120, 80, 50, 255]),
+        ),
+        (
+            "assets/minecraft/textures/blocks/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let translation = run(&legacy_side_only, "Legacy").unwrap();
+    let out = output(&translation);
+    assert!(
+        !out.keys()
+            .any(|path| path.starts_with("textures/blocks/grass_side."))
+    );
+}
+
+#[test]
+fn default_potion_bottles_are_filled_with_water() {
+    let items = "assets/minecraft/textures/item/";
+    let files = pack(vec![
+        (&format!("{items}potion_overlay.png"), solid(16, 16, WHITE)),
+        (
+            &format!("{items}potion.png"),
+            encode(&RgbaImage::new(16, 16)),
+        ),
+    ]);
+    let translation = run(&files, "Current").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/items/potion_bottle_drinkable.png", 8, 8).1,
+        [56, 92, 196, 255]
+    );
+    assert_eq!(
+        pixel(&out, "textures/items/potion_bottle_heal.png", 8, 8).1,
+        [245, 35, 34, 255]
+    );
+}
+
+#[test]
+fn translations_beyond_the_pixel_budget_fail() {
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/item/potion_overlay.png",
+            solid(64, 64, WHITE),
+        ),
+        (
+            "assets/minecraft/textures/item/potion.png",
+            solid(64, 64, RED),
+        ),
+    ]);
+    let paths: Vec<String> = files.keys().cloned().collect();
+    let read = |path: &str| files.get(path).cloned();
+    let small = Budget::with_pixels(64 * 64 * 10);
+    assert_eq!(
+        translate::translate_within(&paths, read, "Pack", &small).unwrap_err(),
+        TranslateError::TooLarge
+    );
+    assert!(run(&files, "Pack").is_ok());
+}
+
+#[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(
         "assets/minecraft/textures/block/stone.png",
@@ -458,6 +593,19 @@ fn roots_are_found_at_the_shallowest_marker() {
     assert_eq!(
         find_root(["p/assets/minecraft/textures/a.png"]).as_deref(),
         Some("p/")
+    );
+    assert_eq!(
+        find_root([
+            "data/minecraft/datapacks/extra/pack.mcmeta",
+            "assets/minecraft/textures/block/stone.png",
+        ])
+        .as_deref(),
+        Some(""),
+        "a nested data pack never wins"
+    );
+    assert_eq!(
+        find_root(["data/minecraft/datapacks/extra/pack.mcmeta"]).as_deref(),
+        Some("data/minecraft/datapacks/extra/")
     );
     assert_eq!(
         find_root(["manifest.json", "textures/a.png", "notpack.mcmeta"]),

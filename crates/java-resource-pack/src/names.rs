@@ -129,29 +129,9 @@ mod tests {
         }
     }
 
-    /// The pinned sample pack's `resource_pack` folder, or `None` with a missing-fixture notice.
-    fn sample_pack() -> Option<std::path::PathBuf> {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        let manifest: serde_json::Value = serde_json::from_slice(
-            &std::fs::read(root.join("assets/vanilla-source.json")).unwrap(),
-        )
-        .unwrap();
-        let pack = root
-            .join(manifest["cache_dir"].as_str().unwrap())
-            .join("resource_pack");
-        if pack.join("textures/flipbook_textures.json").is_file() {
-            return Some(pack);
-        }
-        eprintln!(
-            "missing fixture: pinned sample pack at {}; skipping (run `make vanilla-assets`)",
-            pack.display()
-        );
-        None
-    }
-
     #[test]
     fn tables_match_the_pinned_sample_pack() {
-        let Some(pack) = sample_pack() else {
+        let Some(pack) = crate::test_support::sample_pack() else {
             return;
         };
         for path in FLATTENED.values().chain(LEGACY.values()) {

@@ -1,7 +1,10 @@
 //! PNG decoding, encoding and the pixel operations the translation needs.
 
 use image::{ImageFormat, ImageReader, Limits, RgbaImage};
-use std::io::Cursor;
+use std::{
+    io::Cursor,
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
+};
 
 /// Largest width or height decoded for one texture; HD Java atlases stay well below it.
 const MAX_DIMENSION: u32 = 16_384;
@@ -19,9 +22,71 @@ fn reader(bytes: &[u8]) -> ImageReader<Cursor<&[u8]>> {
     reader
 }
 
-/// Decodes PNG bytes into 8-bit RGBA, or `None` when they are not a PNG within the limits.
-pub(crate) fn decode(bytes: &[u8]) -> Option<RgbaImage> {
+/// Pixels one translation may hold in decoded or derived images: 1 GiB of RGBA, enough for a
+/// 512x pack's atlases, HUD and composed items, while bounding what a small archive can demand.
+const MAX_TRANSLATION_PIXELS: u64 = 1 << 28;
+
+/// The cumulative pixel allowance of one translation. Every decode and derived image reserves
+/// its pixels before allocating, so the total held stays bounded however work is parallelized.
+pub(crate) struct Budget {
+    remaining: AtomicU64,
+    exhausted: AtomicBool,
+}
+
+impl Budget {
+    /// A full allowance of [`MAX_TRANSLATION_PIXELS`].
+    pub(crate) fn new() -> Self {
+        Self::with_pixels(MAX_TRANSLATION_PIXELS)
+    }
+
+    /// An allowance of `pixels`.
+    pub(crate) fn with_pixels(pixels: u64) -> Self {
+        Self {
+            remaining: AtomicU64::new(pixels),
+            exhausted: AtomicBool::new(false),
+        }
+    }
+
+    /// Reserves a `width` x `height` image. An image over the per-image limit is refused on its
+    /// own; running out of the translation's allowance is also recorded as exhaustion.
+    pub(crate) fn reserve(&self, width: u32, height: u32) -> bool {
+        let pixels = u64::from(width) * u64::from(height);
+        if pixels > MAX_DERIVED_PIXELS {
+            return false;
+        }
+        let reserved = self
+            .remaining
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                left.checked_sub(pixels)
+            })
+            .is_ok();
+        if !reserved {
+            self.exhausted.store(true, Ordering::Relaxed);
+        }
+        reserved
+    }
+
+    /// Whether any reservation was refused.
+    pub(crate) fn exhausted(&self) -> bool {
+        self.exhausted.load(Ordering::Relaxed)
+    }
+}
+
+/// Decodes PNG bytes into 8-bit RGBA after reserving their pixels, or `None` when they are not a
+/// PNG within the limits or the budget is spent.
+pub(crate) fn decode(bytes: &[u8], budget: &Budget) -> Option<RgbaImage> {
+    let (width, height) = dimensions(bytes)?;
+    if !budget.reserve(width, height) {
+        return None;
+    }
     reader(bytes).decode().ok().map(|image| image.into_rgba8())
+}
+
+/// Copies an image after reserving its pixels.
+pub(crate) fn duplicate(image: &RgbaImage, budget: &Budget) -> Option<RgbaImage> {
+    budget
+        .reserve(image.width(), image.height())
+        .then(|| image.clone())
 }
 
 /// Reads a PNG's width and height from its header without decoding pixels.
@@ -51,10 +116,11 @@ pub(crate) fn encode(image: &RgbaImage) -> Vec<u8> {
 /// limit at four bytes per pixel, enough for an 8192x8192 atlas from a 512x pack.
 const MAX_DERIVED_PIXELS: u64 = MAX_DECODE_BYTES / 4;
 
-/// A transparent `width` x `height` image, or `None` when it would exceed the derived-image budget,
-/// so small hostile sources cannot request huge canvases.
-pub(crate) fn canvas(width: u32, height: u32) -> Option<RgbaImage> {
-    (u64::from(width) * u64::from(height) <= MAX_DERIVED_PIXELS)
+/// A transparent `width` x `height` image, or `None` when it exceeds the per-image limit or the
+/// translation's budget, so small hostile sources cannot request huge canvases.
+pub(crate) fn canvas(width: u32, height: u32, budget: &Budget) -> Option<RgbaImage> {
+    budget
+        .reserve(width, height)
         .then(|| RgbaImage::new(width, height))
 }
 
@@ -64,15 +130,16 @@ pub(crate) fn is_empty(image: &RgbaImage) -> bool {
 }
 
 /// Copies the `width` x `height` region at (`x`, `y`); parts outside the image stay transparent.
-/// Returns `None` when the region exceeds the derived-image budget.
+/// Returns `None` when the region exceeds the budget.
 pub(crate) fn crop(
     image: &RgbaImage,
     x: u32,
     y: u32,
     width: u32,
     height: u32,
+    budget: &Budget,
 ) -> Option<RgbaImage> {
-    let mut out = canvas(width, height)?;
+    let mut out = canvas(width, height, budget)?;
     for out_y in 0..height {
         let Some(source_y) = y.checked_add(out_y).filter(|row| *row < image.height()) else {
             break;
@@ -96,19 +163,19 @@ pub(crate) fn strip_frame(width: u32, height: u32) -> Option<u32> {
 }
 
 /// Multiplies every pixel's colour by `color`, the way Minecraft tints item layers.
-pub(crate) fn tint(image: &RgbaImage, color: [u8; 3]) -> RgbaImage {
-    let mut out = image.clone();
+pub(crate) fn tint(image: &RgbaImage, color: [u8; 3], budget: &Budget) -> Option<RgbaImage> {
+    let mut out = duplicate(image, budget)?;
     for pixel in out.pixels_mut() {
         for (channel, factor) in pixel.0.iter_mut().zip(color) {
             *channel = (u16::from(*channel) * u16::from(factor) / 255) as u8;
         }
     }
-    out
+    Some(out)
 }
 
 /// Composites `top` over `base`, both aligned at their top-left corners, with source-over blending
 /// on 16-bit premultiplied values.
-pub(crate) fn over(base: &RgbaImage, top: &RgbaImage) -> RgbaImage {
+pub(crate) fn over(base: &RgbaImage, top: &RgbaImage, budget: &Budget) -> Option<RgbaImage> {
     const MAX: u32 = 0xffff;
     let premultiplied = |pixel: [u8; 4]| {
         let alpha = u32::from(pixel[3]) * 0x101;
@@ -120,7 +187,7 @@ pub(crate) fn over(base: &RgbaImage, top: &RgbaImage) -> RgbaImage {
             alpha,
         ]
     };
-    let mut out = base.clone();
+    let mut out = duplicate(base, budget)?;
     for (x, y, pixel) in out.enumerate_pixels_mut() {
         if x >= top.width() || y >= top.height() {
             continue;
@@ -143,7 +210,7 @@ pub(crate) fn over(base: &RgbaImage, top: &RgbaImage) -> RgbaImage {
             ]
         };
     }
-    out
+    Some(out)
 }
 
 /// Copies `source` onto `canvas` with its top-left corner at (`x`, `y`), replacing pixels.
@@ -159,7 +226,7 @@ mod tests {
     #[test]
     fn crop_keeps_parts_outside_the_source_transparent() {
         let image = RgbaImage::from_pixel(2, 2, Rgba([9, 9, 9, 255]));
-        let cropped = crop(&image, 1, 1, 3, 3).unwrap();
+        let cropped = crop(&image, 1, 1, 3, 3, &Budget::new()).unwrap();
         assert_eq!(cropped.get_pixel(0, 0).0, [9, 9, 9, 255]);
         assert_eq!(cropped.get_pixel(1, 0).0, [0; 4]);
         assert_eq!(cropped.get_pixel(0, 2).0, [0; 4]);
@@ -167,9 +234,23 @@ mod tests {
 
     #[test]
     fn derived_images_stay_within_the_pixel_budget() {
-        assert!(canvas(8192, 8192).is_some());
-        assert!(canvas(279_552, 279_552).is_none());
-        assert!(crop(&RgbaImage::new(1, 1), 0, 0, 1 << 20, 1 << 20).is_none());
+        let budget = Budget::new();
+        assert!(canvas(8192, 8192, &budget).is_some());
+        assert!(!budget.exhausted());
+        assert!(canvas(279_552, 279_552, &budget).is_none());
+        assert!(crop(&RgbaImage::new(1, 1), 0, 0, 1 << 20, 1 << 20, &budget).is_none());
+        assert!(
+            !budget.exhausted(),
+            "an oversized image is refused on its own"
+        );
+    }
+
+    #[test]
+    fn the_budget_bounds_the_total_across_images() {
+        let budget = Budget::with_pixels(300);
+        assert!(canvas(16, 16, &budget).is_some());
+        assert!(canvas(16, 16, &budget).is_none());
+        assert!(budget.exhausted());
     }
 
     #[test]
@@ -182,7 +263,7 @@ mod tests {
                 Rgba([200, 100, 50, 255])
             }
         });
-        let out = over(&base, &top);
+        let out = over(&base, &top, &Budget::new()).unwrap();
         assert_eq!(out.get_pixel(0, 0).0, [10, 20, 30, 255]);
         assert_eq!(out.get_pixel(1, 0).0, [200, 100, 50, 255]);
     }

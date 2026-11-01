@@ -4,7 +4,8 @@ use crate::{
     Layout, TranslateError, Translation, hud, items, manifest,
     meta::{TEXTURES, detect_layout, read_meta},
     names, sky,
-    texture::{crop, decode, dimensions, encode, strip_frame},
+    texture::{Budget, crop, decode, dimensions, encode, strip_frame},
+    tga::{self, TgaKind},
 };
 use image::RgbaImage;
 use rayon::prelude::*;
@@ -17,6 +18,8 @@ enum Output {
     Raw(Vec<u8>),
     /// Pixels still to be encoded as PNG.
     Image(RgbaImage),
+    /// Pixels still to be encoded as TGA.
+    Tga(RgbaImage),
 }
 
 /// Reads source files in path order, hashing what it reads and counting what it cannot read.
@@ -77,13 +80,21 @@ fn pngs_below<'a>(
         .collect()
 }
 
+/// The top square frame of a vertical animation strip, or the image itself.
+fn first_frame(image: RgbaImage, budget: &Budget) -> Option<RgbaImage> {
+    match strip_frame(image.width(), image.height()) {
+        Some(side) => crop(&image, 0, 0, side, side, budget),
+        None => Some(image),
+    }
+}
+
 /// Translates a block texture: Bedrock-animated textures keep their strip, others their first
 /// frame. Returns `None` for invalid PNGs.
-fn block(layout: Layout, name: &str, bytes: Vec<u8>) -> Option<(String, Output)> {
+fn block(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> Option<(String, Output)> {
     let bedrock = names::block_path(layout, name);
     let (width, height) = dimensions(&bytes)?;
     let output = match strip_frame(width, height).filter(|_| !names::is_flipbook(&bedrock)) {
-        Some(side) => Output::Image(crop(&decode(&bytes)?, 0, 0, side, side)?),
+        Some(side) => Output::Image(crop(&decode(&bytes, budget)?, 0, 0, side, side, budget)?),
         None => Output::Raw(bytes),
     };
     Some((format!("textures/{bedrock}.png"), output))
@@ -95,7 +106,7 @@ type ItemResult = Option<((String, Output), Option<(String, RgbaImage)>)>;
 /// Translates an item texture. Source alpha is kept: the client applies Bedrock's own alpha
 /// handling to translated packs as to any other pack. Pixels are decoded only when the texture
 /// is cropped or composed into potions or atlases.
-fn item(layout: Layout, name: &str, bytes: Vec<u8>) -> ItemResult {
+fn item(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> ItemResult {
     let (width, height) = dimensions(&bytes)?;
     if let Some(atlas) = items::legacy_strip_atlas(layout, name, width, height) {
         return Some((
@@ -107,12 +118,12 @@ fn item(layout: Layout, name: &str, bytes: Vec<u8>) -> ItemResult {
     let frame = strip_frame(width, height).filter(|_| !names::is_flipbook(&bedrock));
     let composes = items::composes(name);
     let image = if frame.is_some() || composes {
-        Some(decode(&bytes)?)
+        Some(decode(&bytes, budget)?)
     } else {
         None
     };
     let output = match (frame, &image) {
-        (Some(side), Some(image)) => Output::Image(crop(image, 0, 0, side, side)?),
+        (Some(side), Some(image)) => Output::Image(crop(image, 0, 0, side, side, budget)?),
         _ => Output::Raw(bytes),
     };
     let composed = image
@@ -139,6 +150,7 @@ fn equipment_name(stem: &str, layer: &str) -> String {
 fn read_sky<R: FnMut(&str) -> Option<Vec<u8>>>(
     paths: &[String],
     source: &mut Source<R>,
+    budget: &Budget,
 ) -> Option<RgbaImage> {
     let folder = sky::sky_folder(paths.iter().map(String::as_str))?;
     for path in paths
@@ -150,17 +162,75 @@ fn read_sky<R: FnMut(&str) -> Option<Vec<u8>>>(
         };
         let image_path = sky::source_path(&folder, &sky_source);
         if paths.binary_search(&image_path).is_ok() {
-            return source.load(&image_path).and_then(|bytes| decode(&bytes));
+            return source
+                .load(&image_path)
+                .and_then(|bytes| decode(&bytes, budget));
         }
     }
     None
 }
 
 /// Decodes HUD textures in parallel, dropping invalid PNGs.
-fn decode_all(files: Vec<(String, Vec<u8>)>) -> BTreeMap<String, RgbaImage> {
+fn decode_all(files: Vec<(String, Vec<u8>)>, budget: &Budget) -> BTreeMap<String, RgbaImage> {
     files
         .into_par_iter()
-        .filter_map(|(key, bytes)| Some((key, decode(&bytes)?)))
+        .filter_map(|(key, bytes)| Some((key, decode(&bytes, budget)?)))
+        .collect()
+}
+
+/// Rewrites PNG outputs whose vanilla texture is a TGA, which would otherwise be shadowed: cutouts
+/// become TGA files, and tint and dye masks are dropped because their alpha means something else.
+fn retarget_tga(out: &mut BTreeMap<String, Output>, budget: &Budget) {
+    let targets: Vec<(String, TgaKind)> = out
+        .keys()
+        .filter_map(|path| {
+            let target = path.strip_prefix("textures/")?.strip_suffix(".png")?;
+            Some((path.clone(), tga::kind(target)?))
+        })
+        .collect();
+    for (path, kind) in targets {
+        let Some(output) = out.remove(&path) else {
+            continue;
+        };
+        if kind != TgaKind::Cutout {
+            continue;
+        }
+        let image = match output {
+            Output::Raw(bytes) => decode(&bytes, budget),
+            Output::Image(image) | Output::Tga(image) => Some(image),
+        };
+        if let Some(image) = image {
+            let target = &path[..path.len() - ".png".len()];
+            out.insert(format!("{target}.tga"), Output::Tga(image));
+        }
+    }
+}
+
+/// Composes Bedrock's tint-mask grass sides from the Java base and overlay block textures named
+/// for `layout`, when the pack overrides all of a mask's sources.
+fn tint_mask_outputs(
+    layout: Layout,
+    blocks: &[(String, Vec<u8>)],
+    budget: &Budget,
+) -> Vec<(String, Output)> {
+    let folder = layout.folders().0;
+    let find = |key: &str| {
+        let name = key
+            .strip_prefix(folder.trim_end_matches('/'))?
+            .strip_prefix('/')?;
+        let (_, bytes) = blocks.iter().find(|(stem, _)| stem == name)?;
+        first_frame(decode(bytes, budget)?, budget)
+    };
+    tga::tint_masks(layout)
+        .filter_map(|(target, sources)| {
+            let base = find(sources.base)?;
+            let overlay = match sources.overlay {
+                Some(key) => Some(find(key)?),
+                None => None,
+            };
+            let mask = tga::tint_mask(&base, overlay.as_ref(), budget)?;
+            Some((format!("textures/{target}.tga"), Output::Tga(mask)))
+        })
         .collect()
 }
 
@@ -169,6 +239,16 @@ pub(crate) fn translate(
     paths: &[String],
     read: impl FnMut(&str) -> Option<Vec<u8>>,
     name: &str,
+) -> Result<Translation, TranslateError> {
+    translate_within(paths, read, name, &Budget::new())
+}
+
+/// Translates within an explicit pixel `budget`.
+pub(crate) fn translate_within(
+    paths: &[String],
+    read: impl FnMut(&str) -> Option<Vec<u8>>,
+    name: &str,
+    budget: &Budget,
 ) -> Result<Translation, TranslateError> {
     let mut paths = paths.to_vec();
     paths.sort();
@@ -218,27 +298,31 @@ pub(crate) fn translate(
     let sprites = source.load_all(pngs_below(&paths, &sprite_folder, true, |path| {
         path[sprite_folder.len()..path.len() - ".png".len()].to_owned()
     }));
-    let sky_image = read_sky(&paths, &mut source);
+    let sky_image = read_sky(&paths, &mut source, budget);
 
+    let masks = tint_mask_outputs(layout, &blocks, budget);
     let sources = blocks.len() + item_files.len();
     let block_outputs: Vec<_> = blocks
         .into_par_iter()
-        .filter_map(|(name, bytes)| block(layout, &name, bytes))
+        .filter_map(|(name, bytes)| block(layout, &name, bytes, budget))
         .collect();
     let item_outputs: Vec<_> = item_files
         .into_par_iter()
-        .filter_map(|(name, bytes)| item(layout, &name, bytes))
+        .filter_map(|(name, bytes)| item(layout, &name, bytes, budget))
         .collect();
     let invalid = sources - block_outputs.len() - item_outputs.len();
-    let mut sprites = decode_all(sprites);
-    let icons_image = icons.as_deref().and_then(decode);
-    let widgets = widgets.and_then(|bytes| decode(&bytes));
+    let mut sprites = decode_all(sprites, budget);
+    let icons_image = icons.as_deref().and_then(|bytes| decode(bytes, budget));
+    let widgets = widgets.and_then(|bytes| decode(&bytes, budget));
 
     let mut out: BTreeMap<String, Output> = BTreeMap::new();
     if let Some(bytes) = pack_icon.filter(|bytes| dimensions(bytes).is_some()) {
         out.insert("pack_icon.png".into(), Output::Raw(bytes));
     }
-    if let Some(faces) = sky_image.as_ref().and_then(sky::cubemap_faces) {
+    if let Some(faces) = sky_image
+        .as_ref()
+        .and_then(|sky| sky::cubemap_faces(sky, budget))
+    {
         for (index, face) in faces.into_iter().enumerate() {
             out.insert(
                 format!("textures/environment/overworld_cubemap/cubemap_{index}.png"),
@@ -258,9 +342,9 @@ pub(crate) fn translate(
         out.insert(output.0, output.1);
         composed.extend(image);
     }
-    for (path, image) in items::potion_textures(&composed, layout)
+    for (path, image) in items::potion_textures(&composed, layout, budget)
         .into_iter()
-        .chain(items::atlas_textures(&composed))
+        .chain(items::atlas_textures(&composed, budget))
     {
         out.insert(path, Output::Image(image));
     }
@@ -273,26 +357,35 @@ pub(crate) fn translate(
     // Crop the legacy atlases first so 1.20.2+ sprites, when present, take precedence.
     let mut hud_sprites = icons_image
         .as_ref()
-        .map(hud::legacy_sprites)
+        .map(|icons| hud::legacy_sprites(icons, budget))
         .unwrap_or_default();
-    let hotbar = sprites.remove("hotbar").or_else(|| {
+    let widget_rect = |region| {
         let widgets = widgets.as_ref()?;
-        hud::crop_rect(widgets, hud::LEGACY_HOTBAR, hud::atlas_scale(widgets))
-    });
-    let selection = sprites.remove("hotbar_selection").or_else(|| {
-        let widgets = widgets.as_ref()?;
-        hud::crop_rect(widgets, hud::LEGACY_SELECTION, hud::atlas_scale(widgets))
-    });
+        hud::crop_rect(widgets, region, hud::atlas_scale(widgets), budget)
+    };
+    let hotbar = sprites
+        .remove("hotbar")
+        .or_else(|| widget_rect(hud::LEGACY_HOTBAR));
+    let selection = sprites
+        .remove("hotbar_selection")
+        .or_else(|| widget_rect(hud::LEGACY_SELECTION));
     hud_sprites.extend(sprites);
-    for (path, image) in hud::hud_textures(&hud_sprites, hotbar.as_ref(), selection.as_ref()) {
+    for (path, image) in
+        hud::hud_textures(&hud_sprites, hotbar.as_ref(), selection.as_ref(), budget)
+    {
         out.insert(path, Output::Image(image));
     }
     if icons_image.is_none()
-        && let Some(rebuilt) = hud::icons_from_sprites(&hud_sprites)
+        && let Some(rebuilt) = hud::icons_from_sprites(&hud_sprites, budget)
     {
         out.insert("textures/gui/icons.png".into(), Output::Image(rebuilt));
     }
+    retarget_tga(&mut out, budget);
+    out.extend(masks);
 
+    if budget.exhausted() {
+        return Err(TranslateError::TooLarge);
+    }
     if !out.keys().any(|path| path.starts_with("textures/")) {
         return Err(TranslateError::NothingToTranslate);
     }
@@ -302,6 +395,7 @@ pub(crate) fn translate(
         .map(|(path, output)| match output {
             Output::Raw(bytes) => (path, bytes),
             Output::Image(image) => (path, encode(&image)),
+            Output::Tga(image) => (path, tga::encode(&image)),
         })
         .collect();
     files.push((

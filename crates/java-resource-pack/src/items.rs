@@ -3,7 +3,7 @@
 
 use crate::{
     meta::Layout,
-    texture::{canvas, over, paste, tint},
+    texture::{Budget, canvas, over, paste, tint},
 };
 use image::RgbaImage;
 use std::collections::HashMap;
@@ -72,7 +72,13 @@ const POTION_TINTS: [PotionTint; 31] = [
     potion("wither", [115, 97, 86], true, true, true),
 ];
 
-/// Bottle kinds: the Bedrock name infix and the Java bottle texture per layout.
+/// The tint of Bedrock's default filled bottles (`potion_bottle_drinkable`, `_splash` and
+/// `_lingering`, shown for water, mundane and awkward potions), derived like [`POTION_TINTS`] by
+/// matching the current Java bottles over the tinted overlay against those textures.
+const WATER_TINT: [u8; 3] = [56, 92, 196];
+
+/// Bottle kinds: the Bedrock name infix and the Java bottle texture per layout. The legacy Java
+/// bottle names are also the names of Bedrock's default filled bottles.
 const BOTTLES: [(&str, &str, &str); 3] = [
     ("", "potion_bottle_drinkable", "potion"),
     ("splash_", "potion_bottle_splash", "splash_potion"),
@@ -119,11 +125,13 @@ pub(crate) fn composes(name: &str) -> bool {
 }
 
 /// Builds Bedrock's pre-coloured potion textures. Java draws a potion as its bottle over a tinted
-/// `potion_overlay`, while Bedrock ships one texture per effect, so each is composed the same way.
-/// Nothing is produced for a bottle kind unless the pack overrides both that bottle and the overlay.
+/// `potion_overlay`, while Bedrock ships one texture per effect and a default filled bottle per
+/// kind, so each is composed the same way. Nothing is produced for a bottle kind unless the pack
+/// overrides both that bottle and the overlay.
 pub(crate) fn potion_textures(
     items: &HashMap<String, RgbaImage>,
     layout: Layout,
+    budget: &Budget,
 ) -> Vec<(String, RgbaImage)> {
     let Some(overlay) = items.get("potion_overlay") else {
         return Vec::new();
@@ -140,19 +148,23 @@ pub(crate) fn potion_textures(
         else {
             continue;
         };
+        let compose = |color| over(&tint(overlay, color, budget)?, bottle, budget);
+        if let Some(filled) = compose(WATER_TINT) {
+            out.push((format!("textures/items/{legacy}.png"), filled));
+        }
         for tint_entry in &POTION_TINTS {
             let shipped = match kind {
                 "" => tint_entry.drink,
                 "splash_" => tint_entry.splash,
                 _ => tint_entry.lingering,
             };
-            if shipped {
+            if let Some(image) = shipped.then(|| compose(tint_entry.color)).flatten() {
                 out.push((
                     format!(
                         "textures/items/potion_bottle_{kind}{}.png",
                         tint_entry.effect
                     ),
-                    over(&tint(overlay, tint_entry.color), bottle),
+                    image,
                 ));
             }
         }
@@ -162,7 +174,10 @@ pub(crate) fn potion_textures(
 
 /// Stitches clock and compass frames into the Bedrock atlases when the pack overrides every frame
 /// at one size; a partial set would leave holes in the atlas.
-pub(crate) fn atlas_textures(items: &HashMap<String, RgbaImage>) -> Vec<(String, RgbaImage)> {
+pub(crate) fn atlas_textures(
+    items: &HashMap<String, RgbaImage>,
+    budget: &Budget,
+) -> Vec<(String, RgbaImage)> {
     let mut out = Vec::new();
     'atlases: for (prefix, atlas, count) in ITEM_ATLASES {
         let mut frames = Vec::with_capacity(count);
@@ -181,7 +196,7 @@ pub(crate) fn atlas_textures(items: &HashMap<String, RgbaImage>) -> Vec<(String,
         let (width, height) = frames[0].dimensions();
         let Some(mut atlas_image) = height
             .checked_mul(count as u32)
-            .and_then(|atlas_height| canvas(width, atlas_height))
+            .and_then(|atlas_height| canvas(width, atlas_height, budget))
         else {
             continue;
         };

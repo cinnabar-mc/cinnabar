@@ -1,6 +1,9 @@
 //! OptiFine/MCPatcher custom skies and the Bedrock overworld cube map built from them.
 
-use crate::{meta::ASSETS, texture::crop};
+use crate::{
+    meta::ASSETS,
+    texture::{Budget, crop},
+};
 use image::RgbaImage;
 
 /// Bedrock cube-map face written for each 3x2 cell of an OptiFine sky, in reading order.
@@ -52,7 +55,7 @@ pub(crate) fn source_path(folder: &str, source: &str) -> String {
 }
 
 /// Splits a 3x2 OptiFine sky into the six Bedrock `cubemap_<n>.png` faces, indexed by `n`.
-pub(crate) fn cubemap_faces(sky: &RgbaImage) -> Option<[RgbaImage; 6]> {
+pub(crate) fn cubemap_faces(sky: &RgbaImage, budget: &Budget) -> Option<[RgbaImage; 6]> {
     let (width, height) = (sky.width() / 3, sky.height() / 2);
     if width == 0 || height == 0 {
         return None;
@@ -60,7 +63,14 @@ pub(crate) fn cubemap_faces(sky: &RgbaImage) -> Option<[RgbaImage; 6]> {
     let mut faces: [RgbaImage; 6] = Default::default();
     for (cell, face) in CUBEMAP_FACES.into_iter().enumerate() {
         let cell = cell as u32;
-        faces[face as usize] = crop(sky, (cell % 3) * width, (cell / 3) * height, width, height)?;
+        faces[face as usize] = crop(
+            sky,
+            (cell % 3) * width,
+            (cell / 3) * height,
+            width,
+            height,
+            budget,
+        )?;
     }
     Some(faces)
 }
@@ -110,7 +120,7 @@ mod tests {
         let sky = RgbaImage::from_fn(6, 4, |x, y| {
             image::Rgba([(x / 2 + 3 * (y / 2)) as u8, 0, 0, 255])
         });
-        let faces = cubemap_faces(&sky).unwrap();
+        let faces = cubemap_faces(&sky, &crate::texture::Budget::new()).unwrap();
         for (cell, face) in CUBEMAP_FACES.into_iter().enumerate() {
             assert_eq!(faces[face as usize].get_pixel(0, 0).0[0], cell as u8);
         }

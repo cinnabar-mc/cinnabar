@@ -1281,12 +1281,16 @@ Bedrock pack, which then passes the usual import validation. This is a Cinnabar 
 a vanilla counterpart. Translation covers block and item textures for pre-1.13 layouts (1.7
 and 1.8 included) and flattened layouts, worn armour including 1.21.2+ equipment, pre-coloured
 potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD atlases and
-1.20.2+ HUD sprites, and OptiFine overworld skies. Every vanilla 1.7.10 and 1.8.9 block and item
-texture with a Bedrock counterpart maps to it, and their HUD crops match pixel for pixel. The
+1.20.2+ HUD sprites, and OptiFine overworld skies. Targets vanilla ships as TGA are written as TGA
+so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedrock's tint masks.
+Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
+their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
+pixels, an implementation bound rather than a vanilla limit. The
 Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
 Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
 target and the flipbook list against the pinned sample pack, but no pinned Java source checks the
-Java side. Incomplete: Java animation metadata, models, block states, fonts, sounds, languages,
+Java side. Incomplete: dye-masked TGA targets (leather armour and items, firework charges), whose alpha
+encoding has no Java equivalent, Java animation metadata, models, block states, fonts, sounds, languages,
 entity and GUI textures beyond armour and the HUD, and OptiFine features other than the
 overworld sky are ignored. Import from Java launcher folders and live rendering acceptance with
 real Java packs remain open.
