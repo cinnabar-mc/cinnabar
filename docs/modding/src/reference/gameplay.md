@@ -395,6 +395,33 @@ only this mod's request. Renew every frame. Omission, focus loss, unload and fai
 callbacks release it. Does not press attack or select targets; normal block reach,
 obstruction, game mode, tool timing, item use and server checks still apply.
 
+<a id="read-block-target"></a>
+
+### `read-block-target`
+
+```wit
+read-block-target: func() -> result<option<vector3>, string>;
+```
+
+Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="set-block-mining-target"></a>
+
+### `set-block-mining-target`
+
+```wit
+set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+```
+
+Redirects held physical block mining toward a world point for one successful frame.
+Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+view. Renew every frame; none or omission restores the crosshair. The first supplying
+mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
 <a id="set-packet-delay"></a>
 
 ### `set-packet-delay`

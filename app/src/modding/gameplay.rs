@@ -412,6 +412,12 @@ impl GameplayContext<'_> {
                             sprint: input.phase(semantic_input::Action::Sprint).held,
                         })
                 }),
+            block_target: input_owned.then(|| self.block_target()).flatten(),
+            attack_held: input_owned
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.phase(semantic_input::Action::Attack).held),
             camera,
             damage_shake: damage_shake
                 .map(|shake| mod_host::DamageShake {
@@ -429,6 +435,56 @@ impl GameplayContext<'_> {
                     .as_ref()
                     .is_some_and(|input| input.phase(semantic_input::Action::Use).held),
         }
+    }
+
+    /// Observes the current crosshair without applying any component mining request.
+    fn block_target(&self) -> Option<GameplayVector3> {
+        let stream = self.world.as_ref()?.stream.as_ref()?;
+        let player = self.player.as_ref()?;
+        if self
+            .melee
+            .as_ref()
+            .is_some_and(|melee| melee.actor_in_front())
+        {
+            return None;
+        }
+        let origin = self.origin.as_ref()?.outbound_ray()?;
+        if origin.session_generation().get() != self.clock.as_ref()?.session_generation()
+            || origin.actor_session_id() != stream.authority().actor_session_id()
+        {
+            return None;
+        }
+        let collisions = self.collisions.as_ref()?;
+        let selection = client_interaction::mining::hand_interaction_selection(player)?;
+        let mode = player.facts.player_game_mode();
+        let pick = crate::interaction_authority::pick_context(
+            stream,
+            collisions,
+            mode,
+            Some(selection.item.block_runtime_id()),
+        );
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            pick,
+        );
+        let input_mode =
+            gameplay::mining::protocol_input_mode(self.input.as_ref()?.snapshot()?.input_mode);
+        let reach = if player.facts.game_mode_capabilities()?.creative_reach {
+            gameplay::mining::creative_reach(input_mode)
+        } else {
+            gameplay::mining::survival_reach(input_mode)
+        };
+        let widen = |p: Vec3| sim::Vec3::new(f64::from(p.x), f64::from(p.y), f64::from(p.z));
+        let hit = world
+            .block_interaction_ray_current(widen(origin.origin()), widen(origin.direction()), reach)
+            .ok()??;
+        Some(GameplayVector3 {
+            x: hit.block_pos[0] as f32 + 0.5,
+            y: hit.block_pos[1] as f32 + 0.5,
+            z: hit.block_pos[2] as f32 + 0.5,
+        })
     }
 
     /// Called only for a successfully committed, once-consumed current-frame delta.

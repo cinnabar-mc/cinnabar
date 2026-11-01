@@ -9,6 +9,8 @@ pub struct ModInteraction {
     pub attack_pulse: bool,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.
     pub block_mining: bool,
+    /// Destination for physically held mining; does not change the view or attack input.
+    pub block_mining_target: Option<[f32; 3]>,
 }
 
 /// Applies a bounded personal actor reach without enabling attacks forbidden by the mode.

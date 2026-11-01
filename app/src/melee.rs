@@ -347,12 +347,30 @@ fn maintain_attacks(
         && attack
             .as_ref()
             .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let mut mining_origin = (*context.origin).clone();
+    let requested = context
+        .mod_interaction
+        .as_ref()
+        .and_then(|request| request.block_mining_target)
+        .filter(|_| {
+            crate::ordered_interactions::build_held(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Attack,
+            )
+        });
+    if let Some(point) = requested
+        && let Some(ray) = mining_origin.outbound_ray()
+    {
+        let direction = bevy::prelude::Vec3::from_array(point) - ray.origin();
+        mining_origin.assist_direction(direction);
+    }
     let observation = if wants_target || block_press {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &context.origin,
+                &mining_origin,
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
@@ -370,7 +388,9 @@ fn maintain_attacks(
             None
         }
         Some(crate::survival_mining::DestroyObservation::Target(target)) if wants_target => {
-            Some(target)
+            requested
+                .is_none_or(|point| target.position == point.map(|v| v.floor() as i32))
+                .then_some(target)
         }
         _ => None,
     };

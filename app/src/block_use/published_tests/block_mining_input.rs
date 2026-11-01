@@ -138,3 +138,117 @@ fn mining_hold_preserves_block_reach_with_an_actor_reach_override() {
         None
     );
 }
+
+#[test]
+fn directed_mining_requires_physical_attack_and_preserves_the_presented_ray() {
+    let (mut world, _captured) = unpublished_attack_fixture(-30.0);
+    item_use_tests::hold_snowball(&mut world);
+    let stone = assets::pinned_block_registry_bytes();
+    let stone =
+        assets::read_registry_for_protocol(stone, assets::active_content_registry_protocol())
+            .unwrap();
+    let stone = stone
+        .iter()
+        .find(|r| r.name.as_ref() == "minecraft:stone")
+        .unwrap()
+        .sequential_id;
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: [5, 2, 6],
+                    layer: 0,
+                    network_id: stone,
+                }]),
+            )
+            .unwrap();
+        test_time::eventually("directed mining terrain", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    let origin = world.resource::<InteractionOriginSnapshot>().clone();
+    let view = world.resource::<LocalViewPose>().clone();
+    world.insert_resource(ModInteraction {
+        block_mining_target: Some([5.5, 2.5, 6.5]),
+        ..Default::default()
+    });
+    attack_progress_tests::buttons(&mut world, vec![1]);
+    attack_progress_tests::ticks(&mut world, 102, 103);
+    world
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource::<SurvivalMiningRuntime>()
+            .destroying_target()
+            .map(|(p, _)| p),
+        Some([5, 2, 6])
+    );
+    assert_eq!(*world.resource::<InteractionOriginSnapshot>(), origin);
+    assert_eq!(
+        world.resource::<LocalViewPose>().eye_translation(),
+        view.eye_translation()
+    );
+    assert_eq!(
+        world.resource::<LocalViewPose>().rotation(),
+        view.rotation()
+    );
+    frame(&mut world, 103);
+    assert!(
+        world
+            .resource::<SurvivalMiningRuntime>()
+            .destroying_target()
+            .is_none()
+    );
+}
+
+#[test]
+fn directed_mining_does_not_mine_an_obstruction_instead_of_its_requested_block() {
+    let (mut world, _captured) = unpublished_attack_fixture(-30.0);
+    item_use_tests::hold_snowball(&mut world);
+    world.insert_resource(ModInteraction {
+        block_mining_target: Some([4.5, 2.5, 5.5]),
+        ..Default::default()
+    });
+    attack_progress_tests::buttons(&mut world, vec![1]);
+    attack_progress_tests::ticks(&mut world, 102, 103);
+    world
+        .run_system_cached(crate::melee::prepare_melee)
+        .unwrap();
+    world
+        .run_system_cached(crate::melee::produce_attacks)
+        .unwrap();
+    assert!(
+        world
+            .resource::<SurvivalMiningRuntime>()
+            .destroying_target()
+            .is_none()
+    );
+}
+
+#[test]
+fn directed_mining_requests_do_not_press_attack() {
+    let (mut world, _captured) = unpublished_attack_fixture(-30.0);
+    item_use_tests::hold_snowball(&mut world);
+    world.insert_resource(ModInteraction {
+        block_mining_target: Some([4.5, 2.5, 6.5]),
+        ..Default::default()
+    });
+    frame(&mut world, 102);
+    assert!(
+        world
+            .resource::<SurvivalMiningRuntime>()
+            .destroying_target()
+            .is_none()
+    );
+    assert!(!world.resource::<MeleeRuntime>().press_pending());
+}
