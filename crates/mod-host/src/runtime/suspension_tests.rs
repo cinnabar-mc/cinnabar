@@ -39,9 +39,9 @@ fn scheduled(
 /// Advances the host boundary, without polling a continuation or sleeping.
 fn next_frame(instance: &mut Instance, budget: &crate::CallbackBudget) {
     budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
-    budget.schedule_frames(&[0]);
+    budget.schedule_frames(&[instance.frame_owner()]);
     instance.begin_frame();
-    instance.set_frame_authority(budget.clone(), false, false, 0);
+    instance.set_frame_authority(budget.clone(), false, false);
 }
 
 /// Finishes the original invocation, counting host frames without starting a second one.
@@ -204,7 +204,13 @@ fn real_fuel_exhaustion_is_identical_across_schedules_and_three_overruns_quarant
             assert_eq!(instance.consecutive_frame_overruns, count);
             if count < MAX_CONSECUTIVE_FRAME_OVERRUNS {
                 next_frame(&mut instance, &budget);
+                let previous = instance.frame_owner();
                 assert!(instance.recover_frame_fuel().unwrap());
+                assert_ne!(instance.frame_owner(), previous);
+                budget.time.reset();
+                budget.time.reset();
+                budget.time.configure(&[previous]);
+                assert!(budget.time.slice(previous).is_some());
                 next_frame(&mut instance, &budget);
             }
         }
@@ -317,6 +323,7 @@ fn events_coalesce_with_a_bound_independent_of_suspension_duration() {
 #[test]
 fn reload_failure_keeps_the_old_continuation_and_success_replaces_it_atomically() {
     let (directory, mut host, budget) = suspended_host();
+    let previous = host.frame_owner();
     let path = directory.path().join("suspended.wat");
     let failed = crate::tests::fixture("", "Candidate").replace(
         "i32.const 0 i32.const 9 i32.const 512 call $label",
@@ -324,12 +331,17 @@ fn reload_failure_keeps_the_old_continuation_and_success_replaces_it_atomically(
     );
     std::fs::write(&path, failed).unwrap();
     assert!(host.reload_if_changed().is_err());
+    assert_eq!(host.frame_owner(), previous);
     assert!(host.instance.continuation.is_some());
     assert_eq!(host.label(), Some("Hello"));
     assert_eq!(host.instance.consecutive_frame_overruns, 0);
     next_frame(&mut host.instance, &budget);
     std::fs::write(&path, crate::tests::fixture("", "Replacement")).unwrap();
     assert!(host.reload_if_changed().unwrap());
+    assert_ne!(host.frame_owner(), previous);
+    budget.time.reset();
+    budget.time.configure(&[previous]);
+    assert!(budget.time.slice(previous).is_some());
     assert!(host.instance.continuation.is_none());
     assert_eq!(host.label(), Some("Replacement"));
     assert_eq!(host.instance.consecutive_frame_overruns, 0);
@@ -346,7 +358,8 @@ impl Drop for DropProbe {
 
 #[test]
 fn unload_drops_the_owned_continuation_without_recording_a_fault() {
-    let (directory, mut host, _) = suspended_host();
+    let (directory, mut host, budget) = suspended_host();
+    let previous = host.frame_owner();
     let drops = Arc::new(AtomicU64::new(0));
     let probe = DropProbe(drops.clone());
     let call = host.instance.continuation.as_mut().unwrap();
@@ -359,6 +372,9 @@ fn unload_drops_the_owned_continuation_without_recording_a_fault() {
     assert_eq!(host.instance.consecutive_frame_overruns, 0);
     drop(host);
     assert_eq!(drops.load(Ordering::Relaxed), 1);
+    budget.time.reset();
+    budget.time.configure(&[previous]);
+    assert!(budget.time.slice(previous).is_some());
     drop(directory);
 }
 

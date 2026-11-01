@@ -148,6 +148,7 @@ impl Instance {
             status: InstanceStatus::Running,
             last_fuel,
             callback_budget: None,
+            frame_owner: crate::FrameOwner::new(),
             filter_identity: super::action_filter::next_identity(),
             consecutive_frame_overruns: 0,
             world_entry: Default::default(),

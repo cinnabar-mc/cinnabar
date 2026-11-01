@@ -333,6 +333,7 @@ pub(super) struct Instance {
     /// Fuel the last `init` or callback consumed.
     last_fuel: u64,
     callback_budget: Option<crate::CallbackBudget>,
+    frame_owner: crate::FrameOwner,
     filter_identity: u64,
     consecutive_frame_overruns: u32,
     world_entry: world_entry::WorldEntry,
@@ -550,7 +551,7 @@ impl Instance {
             if fuel == FRAME_FUEL
                 && let Some(budget) = &self.callback_budget
             {
-                budget.time.completed(self.store.data().exclusive.owner);
+                budget.time.completed(self.frame_owner);
             }
             return Err(self.callback_failure(fuel, error));
         }
@@ -558,7 +559,7 @@ impl Instance {
         self.charge_callback_time(timing);
         if fuel == FRAME_FUEL {
             if let Some(budget) = &self.callback_budget {
-                budget.time.completed(self.store.data().exclusive.owner);
+                budget.time.completed(self.frame_owner);
             }
             self.consecutive_frame_overruns = 0;
         }
@@ -571,8 +572,13 @@ impl Instance {
         budget: crate::CallbackBudget,
         camera: bool,
         environment: bool,
-        owner: usize,
     ) {
+        if let Some(previous) = &self.callback_budget
+            && !previous.time.shares_with(&budget.time)
+        {
+            previous.forget_frame(self.frame_owner);
+            self.cancel_continuation();
+        }
         self.callback_budget = Some(budget);
         let state = self.store.data_mut();
         if camera && !state.exclusive.camera && state.exclusive.camera_claimed {
@@ -588,7 +594,6 @@ impl Instance {
         state.exclusive.camera_claimed |= state.camera_output();
         state.exclusive.camera = camera;
         state.exclusive.environment = environment;
-        state.exclusive.owner = owner;
     }
 
     /// Remembers camera output even after its one-shot delta has been consumed by the app.
@@ -633,6 +638,9 @@ impl Instance {
 
     /// Disables callbacks and drops everything the guest presented or staged.
     pub(super) fn quarantine(&mut self) {
+        if let Some(budget) = &self.callback_budget {
+            budget.forget_frame(self.frame_owner);
+        }
         self.continuation = None;
         self.status = InstanceStatus::Quarantined;
         let state = self.store.data_mut();

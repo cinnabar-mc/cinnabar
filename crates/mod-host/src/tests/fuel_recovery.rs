@@ -100,7 +100,7 @@ fn repeated_frame_fuel_overruns_quarantine_the_guest() {
 fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     for _ in 0..crate::runtime::MAX_CONSECUTIVE_FRAME_OVERRUNS {
         host.frame(true).unwrap_err();
         budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
@@ -126,7 +126,7 @@ fn successful_frames_reset_overruns_but_deferred_frames_do_not() {
 fn busy_loading_lane_defers_recovery_without_reentering_the_trapped_guest() {
     let (_directory, mut host) = host();
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     host.frame(true).unwrap_err();
     assert_eq!(
         budget.remaining(),
@@ -168,7 +168,7 @@ fn fuel_recovery_preserves_committed_settings_and_rejects_failed_writes() {
     host.frame(true).unwrap_err();
     assert_eq!(host.settings_snapshot(), Some(settings));
     // Successful init of a fresh store must retain the committed in-memory preferences.
-    host.set_frame_authority(CallbackBudget::new(0), false, false, 0);
+    host.set_frame_authority(CallbackBudget::new(0), false, false);
     host.frame(false).unwrap();
     assert!(host.is_active());
     assert_eq!(host.settings_snapshot(), Some(settings));

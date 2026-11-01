@@ -1568,21 +1568,18 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   synchronous decision exports retain async continuations across soft time slices, with
   frozen observations and private output until post-return succeeds. Late frame actions
   are dropped; authority changes and unload cancel without a fault. Decision-exporting
-  instances keep synchronous frames. Added deterministic regression coverage has not been
-  executed; live overrun recovery and suspension pacing qualification remain incomplete. Host-observed world entry admits one larger frame
-  callback per mod and session, with one extra slot shared across mods per update and
-  unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
-  and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared
-  resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Host-observed world entry admits one larger frame
-  callback per mod and session, with one extra slot shared across mods per update.
-  Frame callbacks charge actual fuel to the shared pool, carrying world-entry excess into
-  later updates. Rotating the first callback prevents starvation without withholding fuel;
+  instances keep synchronous frames. Scheduling accounts and the admission cursor follow
+  stable guest identities across reordering. Removal and successful guest replacement retire
+  the old account; rejected replacements retain it with the old continuation. Host-observed
+  world entry admits one larger frame callback per mod and session, with one extra slot
+  shared across mods per update. Frame callbacks charge the shared pool, carrying world-entry
+  excess into later updates; suspended callbacks conservatively reserve a share on each
+  serviced frame. Rotating the first callback prevents starvation without withholding fuel;
   input reservations and output authority retain load order. Filters and event handlers
-  have independent limits.
-  Regression coverage includes accounting, fair admission, precedence, lifecycle, replacement
-  and recovery; execution of the new fuel regressions, live frame-time and slow-device
-  qualification remain incomplete. Unmeasured shared
+  have independent limits. Regression coverage includes accounting, fair admission,
+  precedence, lifecycle, replacement, recovery and scheduling account lifetime. Execution of
+  the new regressions, live overrun recovery, suspension pacing and slow-device qualification
+  remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;

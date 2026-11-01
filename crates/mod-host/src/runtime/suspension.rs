@@ -25,23 +25,40 @@ pub(super) struct Continuation {
 }
 
 impl Instance {
+    /// Identifies this guest independently of its current load-order position.
+    pub(crate) fn frame_owner(&self) -> crate::FrameOwner {
+        self.frame_owner
+    }
+
+    /// Discards the departed guest's scheduling account before admitting fresh memory.
+    pub(super) fn renew_frame_owner(&mut self) {
+        if let Some(budget) = &self.callback_budget {
+            budget.forget_frame(self.frame_owner);
+        }
+        self.frame_owner = crate::FrameOwner::new();
+    }
+
     /// Starts shared time accounting without borrowing the guest during its call.
     pub(super) fn callback_timing(
         &self,
-    ) -> Option<(crate::frame_time::FrameTime, usize, std::time::Duration)> {
-        self.callback_budget.as_ref().map(|budget| {
-            (
-                budget.time.clone(),
-                self.store.data().exclusive.owner,
-                budget.time.now(),
-            )
-        })
+    ) -> Option<(
+        crate::frame_time::FrameTime,
+        crate::FrameOwner,
+        std::time::Duration,
+    )> {
+        self.callback_budget
+            .as_ref()
+            .map(|budget| (budget.time.clone(), self.frame_owner, budget.time.now()))
     }
 
     /// Charges mandatory work against the same soft budget used for deferrable frames.
     pub(super) fn charge_callback_time(
         &self,
-        timing: Option<(crate::frame_time::FrameTime, usize, std::time::Duration)>,
+        timing: Option<(
+            crate::frame_time::FrameTime,
+            crate::FrameOwner,
+            std::time::Duration,
+        )>,
     ) {
         if let Some((time, owner, started)) = timing {
             time.charge(owner, time.now().saturating_sub(started));
@@ -73,7 +90,7 @@ impl Instance {
             .callback_budget
             .clone()
             .expect("scheduled frame budget");
-        let owner = self.store.data().exclusive.owner;
+        let owner = self.frame_owner;
         let Some(slice) = budget.time.slice(owner) else {
             self.last_fuel = 0;
             return Ok(if self.continuation.is_some() {
@@ -184,7 +201,7 @@ impl Instance {
                 self.last_fuel = used;
                 // A live reservation covers resumed work conservatively until its exact
                 // cumulative fuel is available after post-return; it never refills guest fuel.
-                budget.refund(FRAME_FUEL.saturating_sub(used));
+                budget.refund(allowance.saturating_sub(used));
                 if let Err(error) = result {
                     slice
                         .time
@@ -210,6 +227,15 @@ impl Instance {
             slice.time.completed(owner);
         }
         Ok(outcome)
+    }
+}
+
+impl Drop for Instance {
+    /// Retires scheduling state alongside the instance's continuation and transaction.
+    fn drop(&mut self) {
+        if let Some(budget) = &self.callback_budget {
+            budget.forget_frame(self.frame_owner);
+        }
     }
 }
 

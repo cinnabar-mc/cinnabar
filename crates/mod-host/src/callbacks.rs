@@ -4,6 +4,11 @@ use super::*;
 use anyhow::Result;
 
 impl ModHost {
+    /// Identifies this guest's scheduling account across changes in load order.
+    pub fn frame_owner(&self) -> FrameOwner {
+        self.instance.frame_owner()
+    }
+
     /// Resets frame-local outputs before input or lifecycle callbacks, preserving retained state.
     pub fn begin_frame(&mut self) {
         self.instance.begin_frame();
@@ -67,15 +72,9 @@ impl ModHost {
     }
 
     /// Shares frame fuel; the booleans say whether a higher mod owns camera or time output.
-    pub fn set_frame_authority(
-        &mut self,
-        budget: CallbackBudget,
-        camera: bool,
-        environment: bool,
-        owner: usize,
-    ) {
+    pub fn set_frame_authority(&mut self, budget: CallbackBudget, camera: bool, environment: bool) {
         self.instance
-            .set_frame_authority(budget, camera, environment, owner);
+            .set_frame_authority(budget, camera, environment);
     }
 
     /// Whether this instance currently publishes exclusive camera output in this frame.

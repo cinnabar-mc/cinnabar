@@ -6,7 +6,6 @@ pub(crate) struct Exclusive {
     /// A consumed one-shot camera publication keeps precedence until the next native frame.
     pub camera_claimed: bool,
     pub environment: bool,
-    pub owner: usize,
     pub refused: u64,
 }
 impl Exclusive {

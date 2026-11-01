@@ -36,9 +36,25 @@ pub struct CallbackBudget {
 impl CallbackBudget {
     /// Creates the shared regular-frame allowance and bounded event/loading lanes.
     pub fn new(fuel: u64) -> Self {
+        Self::with_time(fuel, Default::default())
+    }
+
+    /// Uses a caller-owned monotonic clock for deterministic scheduling boundaries.
+    pub fn with_clock(
+        fuel: u64,
+        clock: impl Fn() -> std::time::Duration + Send + Sync + 'static,
+    ) -> Self {
+        Self::with_time(
+            fuel,
+            crate::frame_time::FrameTime::with_clock(Arc::new(clock)),
+        )
+    }
+
+    /// Initializes all allowance lanes against the selected scheduling clock.
+    fn with_time(fuel: u64, time: crate::frame_time::FrameTime) -> Self {
         let budget = Self {
             allowance: Arc::new(Mutex::new(Allowance::default())),
-            time: Default::default(),
+            time,
         };
         budget.reset(fuel);
         budget
@@ -56,8 +72,13 @@ impl CallbackBudget {
         };
     }
     /// Shares a soft time allowance among current runnable owners, preserving scheduling debt.
-    pub fn schedule_frames(&self, owners: &[usize]) {
+    pub fn schedule_frames(&self, owners: &[crate::FrameOwner]) {
         self.time.configure(owners);
+    }
+
+    /// Drops an instance's account immediately, even if its removed host remains alive.
+    pub fn forget_frame(&self, owner: crate::FrameOwner) {
+        self.time.forget(owner);
     }
 
     /// Reserves a full callback allowance, or defers it without reducing its guest fuel limit.

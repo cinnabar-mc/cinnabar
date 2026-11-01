@@ -25,6 +25,7 @@ mod callback_budget;
 mod callbacks;
 mod frame_time;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
+pub use frame_time::FrameOwner;
 pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,

@@ -22,7 +22,7 @@ pub struct ModHosts {
     panel_open_order: u64,
     budget: mod_host::CallbackBudget,
     /// Next runnable mod to execute first against the shared frame pool.
-    next_frame_priority: usize,
+    next_frame_priority: Option<mod_host::FrameOwner>,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
@@ -174,7 +174,7 @@ impl ModHosts {
             panel_selection: 0,
             panel_open_order: 0,
             budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
-            next_frame_priority: 0,
+            next_frame_priority: None,
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
@@ -191,6 +191,7 @@ impl ModHosts {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
         let runnable: Vec<_> = (0..self.host_count())
             .filter(|index| self.host(*index).is_active())
+            .map(|index| self.host(index).frame_owner())
             .collect();
         self.budget.schedule_frames(&runnable);
         self.teleport_fuel = mod_api::TOTAL_TELEPORT_HANDLER_FUEL;
@@ -215,7 +216,7 @@ impl ModHosts {
         let budget = self.budget.clone();
         let host = self.host_mut(index);
         if host.is_active() {
-            host.set_frame_authority(budget, camera, environment, index);
+            host.set_frame_authority(budget, camera, environment);
         }
     }
 
@@ -239,6 +240,10 @@ impl ModHosts {
             "a mod host collection must stay nonempty"
         );
         let host = self.hosts.remove(index);
+        self.budget.forget_frame(host.frame_owner());
+        if self.next_frame_priority == Some(host.frame_owner()) {
+            self.next_frame_priority = Some(self.hosts[index % self.hosts.len()].frame_owner());
+        }
         if self.panel_selection == index {
             self.panel_selection = 0;
         } else if self.panel_selection > index {
@@ -681,12 +686,19 @@ pub fn run_frame_callbacks(
     };
     let owner = runtime.panel_owner();
     let chat_owner = runtime.chat_action_owner();
+    let priority = (0..runtime.host_count())
+        .find(|&index| Some(runtime.host(index).frame_owner()) == runtime.next_frame_priority)
+        .unwrap_or(0);
     let first = (0..runtime.host_count())
-        .map(|offset| (runtime.next_frame_priority + offset) % runtime.host_count())
+        .map(|offset| (priority + offset) % runtime.host_count())
         .find(|&index| runtime.host(index).is_active() && !runtime.host(index).is_recovering())
         .unwrap_or(0);
     if runtime.budget.remaining() >= mod_host::FRAME_FUEL {
-        runtime.next_frame_priority = (first + 1) % runtime.host_count();
+        runtime.next_frame_priority = Some(
+            runtime
+                .host((first + 1) % runtime.host_count())
+                .frame_owner(),
+        );
     }
     // Sample key claims in load order before any callback can replace its reservations.
     let mut claimed = Vec::new();
@@ -743,7 +755,7 @@ pub fn run_frame_callbacks(
         let budget = runtime.budget.clone();
         runtime
             .host_mut(index)
-            .set_frame_authority(budget, false, false, index);
+            .set_frame_authority(budget, false, false);
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
         let player_state = host

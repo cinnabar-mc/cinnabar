@@ -2,7 +2,10 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 
@@ -10,13 +13,28 @@ use std::{
 const FRAME_TIME: Duration = Duration::from_millis(1);
 type Clock = Arc<dyn Fn() -> Duration + Send + Sync>;
 
+/// Identifies one guest instance independently of its position or component source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct FrameOwner(u64);
+
+impl FrameOwner {
+    /// Allocates an identity that no replacement or later instance can reuse.
+    pub(crate) fn new() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(1);
+        Self(
+            NEXT.try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
+                .expect("mod frame identity exhausted"),
+        )
+    }
+}
+
 struct Schedule {
     clock: Clock,
     enabled: bool,
     frame: u64,
     used: Duration,
-    credits: BTreeMap<usize, i128>,
-    pending: BTreeSet<usize>,
+    credits: BTreeMap<FrameOwner, i128>,
+    pending: BTreeSet<FrameOwner>,
 }
 
 /// Shares time accounting with mandatory synchronous calls and every runnable frame owner.
@@ -33,7 +51,7 @@ impl Default for FrameTime {
 
 impl FrameTime {
     /// Creates a scheduler with an elapsed-time source independent of guest observations.
-    fn with_clock(clock: Clock) -> Self {
+    pub(crate) fn with_clock(clock: Clock) -> Self {
         Self(Arc::new(Mutex::new(Schedule {
             clock,
             enabled: false,
@@ -52,7 +70,7 @@ impl FrameTime {
     }
 
     /// Adds equal shares, carries overshoot debt, and removes departed owners.
-    pub(crate) fn configure(&self, owners: &[usize]) {
+    pub(crate) fn configure(&self, owners: &[FrameOwner]) {
         let mut state = self.0.lock().expect("mod time budget");
         state.enabled = true;
         state.pending = owners.iter().copied().collect();
@@ -64,9 +82,21 @@ impl FrameTime {
         }
     }
 
+    /// Removes all scheduling state when an instance leaves this budget.
+    pub(crate) fn forget(&self, owner: FrameOwner) {
+        let mut state = self.0.lock().expect("mod time budget");
+        state.credits.remove(&owner);
+        state.pending.remove(&owner);
+    }
+
     /// Whether the production host has installed a frame-wide schedule.
     pub(crate) fn enabled(&self) -> bool {
         self.0.lock().expect("mod time budget").enabled
+    }
+
+    /// Whether two budget handles account against the same host frame boundaries.
+    pub(crate) fn shares_with(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 
     /// Samples scheduling time without borrowing a running guest's store.
@@ -76,14 +106,16 @@ impl FrameTime {
     }
 
     /// Accounts synchronous work and cooperative polls against the same total and owner debt.
-    pub(crate) fn charge(&self, owner: usize, elapsed: Duration) {
+    pub(crate) fn charge(&self, owner: FrameOwner, elapsed: Duration) {
         let mut state = self.0.lock().expect("mod time budget");
         state.used = state.used.saturating_add(elapsed);
-        *state.credits.entry(owner).or_default() -= elapsed.as_nanos() as i128;
+        if let Some(credit) = state.credits.get_mut(&owner) {
+            *credit -= elapsed.as_nanos() as i128;
+        }
     }
 
     /// Returns one owner slice only while both its fair share and the total permit work.
-    pub(crate) fn slice(&self, owner: usize) -> Option<Slice> {
+    pub(crate) fn slice(&self, owner: FrameOwner) -> Option<Slice> {
         let state = self.0.lock().expect("mod time budget");
         let credit = *state.credits.get(&owner)?;
         if credit <= 0 || state.used >= FRAME_TIME {
@@ -99,10 +131,12 @@ impl FrameTime {
     }
 
     /// Redistributes unused shares to owners that have not completed this frame.
-    pub(crate) fn completed(&self, owner: usize) {
+    pub(crate) fn completed(&self, owner: FrameOwner) {
         let mut state = self.0.lock().expect("mod time budget");
         state.pending.remove(&owner);
-        let credit = state.credits.entry(owner).or_default();
+        let Some(credit) = state.credits.get_mut(&owner) else {
+            return;
+        };
         let unused = (*credit).max(0);
         *credit -= unused;
         let share = unused / state.pending.len().max(1) as i128;
@@ -134,15 +168,34 @@ mod tests {
     #[test]
     fn shares_redistribute_and_overshoot_debt_survives_frame_reset() {
         let time = FrameTime::fake(|| Duration::ZERO);
-        time.configure(&[0, 1]);
-        assert_eq!(time.slice(0).unwrap().allowance, FRAME_TIME / 2);
-        time.charge(0, FRAME_TIME / 4);
-        time.completed(0);
-        assert_eq!(time.slice(1).unwrap().allowance, FRAME_TIME * 3 / 4);
-        time.charge(1, FRAME_TIME);
-        assert!(time.slice(1).is_none());
+        let [first, second] = [FrameOwner::new(), FrameOwner::new()];
+        time.configure(&[first, second]);
+        assert_eq!(time.slice(first).unwrap().allowance, FRAME_TIME / 2);
+        time.charge(first, FRAME_TIME / 4);
+        time.completed(first);
+        assert_eq!(time.slice(second).unwrap().allowance, FRAME_TIME * 3 / 4);
+        time.charge(second, FRAME_TIME);
+        assert!(time.slice(second).is_none());
         time.reset();
-        time.configure(&[0, 1]);
-        assert_eq!(time.slice(1).unwrap().allowance, FRAME_TIME / 4);
+        time.configure(&[first, second]);
+        assert_eq!(time.slice(second).unwrap().allowance, FRAME_TIME / 4);
+    }
+
+    #[test]
+    fn forgetting_an_owner_drops_debt_and_pending_redistribution() {
+        let time = FrameTime::fake(|| Duration::ZERO);
+        let [first, removed, survivor] = [FrameOwner::new(), FrameOwner::new(), FrameOwner::new()];
+        time.configure(&[first, removed, survivor]);
+        time.charge(removed, FRAME_TIME * 20);
+        time.forget(removed);
+        time.reset();
+        time.completed(first);
+        assert_eq!(time.slice(survivor).unwrap().allowance, FRAME_TIME / 3 * 2);
+        assert!(time.slice(removed).is_none());
+        time.charge(removed, Duration::ZERO);
+        time.completed(removed);
+        assert!(time.slice(removed).is_none());
+        time.configure(&[removed]);
+        assert_eq!(time.slice(removed).unwrap().allowance, FRAME_TIME);
     }
 }

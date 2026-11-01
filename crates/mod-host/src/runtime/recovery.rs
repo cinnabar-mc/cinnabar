@@ -56,6 +56,7 @@ impl Instance {
                 self.last_fuel = fuel;
                 self.status = InstanceStatus::Running;
                 self.filter_identity = super::action_filter::next_identity();
+                self.renew_frame_owner();
             }
             Err(error) => {
                 self.quarantine();
