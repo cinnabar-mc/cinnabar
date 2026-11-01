@@ -5,6 +5,7 @@ use super::*;
 /// Native presentation facts and retained observers available to one mod frame.
 #[derive(SystemParam)]
 pub(super) struct ModObservation<'w, 's> {
+    pointer: ResMut<'w, super::pointer::Pending>,
     weather: Option<ResMut<'w, crate::environment::VisualWeatherOverride>>,
     action_filter: Local<'s, semantic_input::action_filter::ActionFilterState>,
     action_scope: Local<'s, Option<(u64, i32)>>,
@@ -56,6 +57,7 @@ pub(super) fn drive_mod(
     observation: ModObservation,
 ) {
     let ModObservation {
+        mut pointer,
         mut weather,
         mut action_filter,
         mut action_scope,
@@ -446,17 +448,18 @@ pub(super) fn drive_mod(
         }
         warn!("Cinnabar action filter failed: {error}");
     }
-    let mut pointer = None;
-    for host in extension.hosts.iter_mut() {
-        let requested = host.take_pointer_position();
-        if pointer.is_none() {
-            pointer = requested;
+    let mut requested_pointer = None;
+    for index in 0..extension.hosts.host_count() {
+        if let Some(point) = extension.hosts.host_mut(index).take_pointer_position()
+            && requested_pointer.is_none()
+        {
+            requested_pointer = Some((index, point));
         }
     }
-    if let Some([x, y]) = pointer
+    if let Some((owner, [x, y])) = requested_pointer
         && let Ok((mut window, _)) = windows.single_mut()
         && (driven.is_some() || window.focused)
-        && container.is_some()
+        && let Some(container) = container
         && !extension
             .hosts
             .host(extension.hosts.panel_owner())
@@ -477,6 +480,14 @@ pub(super) fn drive_mod(
             (x * window.width()).min((window.width() - 1.0).max(0.0)),
             (y * window.height()).min((window.height() - 1.0).max(0.0)),
         );
+        if driven.is_none() {
+            pointer.stage(
+                owner,
+                extension.hosts.host(owner).touch_owner(),
+                container,
+                point,
+            );
+        }
         #[cfg(all(feature = "developer-control", not(target_arch = "wasm32")))]
         crate::developer_control::cursor_isolation::position_pointer(
             &mut window,
@@ -659,7 +670,7 @@ fn exchange_native_frame(
 }
 
 /// Observes a rendered container only while it is actually open, without requiring input focus.
-fn observed_container_screen(
+pub(super) fn observed_container_screen(
     player: &player_state::PlayerState,
     ui: &client_ui::ui_runtime::UiRuntime,
 ) -> Option<&'static str> {
@@ -669,7 +680,7 @@ fn observed_container_screen(
 }
 
 /// Driven input owns virtual focus independently of occluded or unfocused desktop windows.
-fn pointer_focus_available(
+pub(super) fn pointer_focus_available(
     focused: bool,
     focus: Option<&client_state::CursorFocus>,
     driven: bool,
@@ -678,7 +689,7 @@ fn pointer_focus_available(
 }
 
 /// Restricts pointer writes to the top container scene and authoritative desktop focus.
-fn container_pointer_available(
+pub(super) fn container_pointer_available(
     player: &player_state::PlayerState,
     ui: &client_ui::ui_runtime::UiRuntime,
     presentation: &client_ui::ui_runtime::presentation::UiPresentationRuntime,

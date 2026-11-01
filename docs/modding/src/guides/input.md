@@ -126,3 +126,6 @@ consumed once. Closing or changing the observed screen discards it; unloading,
 revocation and world departure clear it. Multiple requests in a callback use the
 last position; conflicts between mods use load order. No click or capture is
 introduced. Compositors may restrict programmatic pointer movement.
+Desktop requests wait for native mouse capture to release, then submit an explicit
+move even when the target matches the window's cached pointer position. The same
+container and granted mod must retain focused input throughout that wait.
