@@ -22,6 +22,9 @@ use ui::IconRef;
 /// The controller collection filled by the recipe book. Its cells have a literal pixel size,
 /// draw at most a few pixels past it, and bind only per-index focus and collection details once.
 pub const COLLECTION: &str = "recipe_book";
+/// Cells prepared with the closed inventory, covering ordinary browsing without materializing
+/// an entire large creative catalogue.
+const INITIAL_GRID_WINDOW: usize = 256;
 
 /// Builds nearby recipe cells only when the screen and templates retain the base behavior.
 pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
@@ -29,7 +32,7 @@ pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
     if virtualize {
         // The admitted base cell art overhangs by only a few pixels; one complete cell extent
         // retains that paint without keeping whole offscreen viewports active during scroll.
-        binding.virtualize_grid_with_margin(COLLECTION, 1);
+        binding.virtualize_grid_with_window_and_margin(COLLECTION, INITIAL_GRID_WINDOW, 1);
     }
     binding
 }

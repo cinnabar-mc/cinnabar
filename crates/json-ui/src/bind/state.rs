@@ -321,19 +321,25 @@ impl BindState {
         self.virtualize_grid_with_window(collection, INITIAL_GRID_WINDOW);
     }
 
-    /// Selects a smaller first window for fixed native viewports with large tile templates.
+    /// Selects the first materialized window for a grid whose host knows an appropriate warmup
+    /// budget. Binding still stops at the shared node limit.
     pub fn virtualize_grid_with_window(&mut self, collection: &str, initial: usize) {
         self.set_grid_policy(collection, initial, false, None);
     }
 
     /// Opts in cells whose descendants paint at most `margin_cells` cell extents past their rect.
     pub fn virtualize_grid_with_margin(&mut self, collection: &str, margin_cells: usize) {
-        self.set_grid_policy(
-            collection,
-            INITIAL_GRID_WINDOW,
-            margin_cells == 0,
-            Some(margin_cells),
-        );
+        self.virtualize_grid_with_window_and_margin(collection, INITIAL_GRID_WINDOW, margin_cells);
+    }
+
+    /// Selects a warmup window for cells with a bounded paint overflow.
+    pub fn virtualize_grid_with_window_and_margin(
+        &mut self,
+        collection: &str,
+        initial: usize,
+        margin_cells: usize,
+    ) {
+        self.set_grid_policy(collection, initial, margin_cells == 0, Some(margin_cells));
     }
 
     /// Opts in host-admitted tiles whose descendants cannot paint outside their cell rectangle.
@@ -350,7 +356,7 @@ impl BindState {
         margin_cells: Option<usize>,
     ) {
         let policy = GridPolicy {
-            initial: initial.clamp(1, INITIAL_GRID_WINDOW),
+            initial: initial.clamp(1, super::feed::MAX_FACTORY_ITEMS),
             clipped,
             margin_cells,
         };
