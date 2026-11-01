@@ -51,6 +51,7 @@ impl<'a> Source<'a> {
                 creative_expanded: groups,
                 search: "",
                 container_scroll: scrolls,
+                storage_radios: const { &BTreeMap::new() },
                 text_focused: false,
                 book: None,
             },
