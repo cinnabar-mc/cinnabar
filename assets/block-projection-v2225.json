@@ -15,28 +15,27 @@
     "states": 23960,
     "legacy_exact_states": 15930,
     "authored_states": 24,
-    "legacy_reduced_states": 5248,
+    "legacy_reduced_states": 5312,
     "twin_states": 2026,
     "twin_names": 119,
     "twin_fingerprint": "8241b13c69a52d991beb3b2ffff30357a5cbf83fda18abad50b5ec0ceb5f7ec3",
     "unresolved_retail": [
-      "minecraft:chorus_plant",
       "minecraft:disc_press",
       "minecraft:ice_crystal",
       "minecraft:icicle"
     ],
-    "denied_count": 552,
-    "denied_fingerprint": "d38d32e6aae6b2ba4257bae087783db0613280a3174cb87fbb52ef4195cc43ae",
+    "denied_count": 488,
+    "denied_fingerprint": "bfde6734d2e4346a7fe9534b02e634586f61ea95758043af9232a75e442a535c",
     "education_states": 180
   },
   "output": {
     "format": "BREG1005",
     "path": "crates/assets/data/block-registry-v2225.bin",
-    "sha256": "857441d4da34ac108cffae92468bc2115545740c1d637676f17c4da5526be266"
+    "sha256": "412f29c2a15745c228c8ddefa4672e30c426222d23530b94cc0070b1f83dcc11"
   },
   "light": {
     "format": "LREG1001",
     "path": "crates/assets/data/block-light-registry-v2225.bin",
-    "sha256": "6c4019bfe51ccb06eba5e9321c6bf6d111b7e7b89276713c1e2236ea79dfafb0"
+    "sha256": "8c2c01775c6fec197a82ae45dc86941e68e20c879933b0041d618b8a1925be32"
   }
 }

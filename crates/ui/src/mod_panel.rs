@@ -60,9 +60,7 @@ impl LabelFont {
     }
 }
 
-/// Opens the selected personal panel when its authored hotkey is unavailable on a keyboard.
-pub const FALLBACK_TOGGLE_KEY: &str = "F10";
-
+/// An authored personal panel. Its owner explicitly controls visibility.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Panel {
@@ -71,6 +69,8 @@ pub struct Panel {
     /// Logical authored-surface dimensions to fit within smaller viewports.
     #[serde(default)]
     pub reference_size: Option<[f32; 2]>,
+    /// Legacy metadata accepted and ignored; call panel.set-open to change visibility.
+    #[serde(default)]
     pub toggle_key: String,
     /// Value-bearing input widgets the host routes surface actions to.
     #[serde(default)]
@@ -129,10 +129,6 @@ impl WidgetColors {
 }
 
 impl Panel {
-    /// Accepts the authored binding or the native keyboard-independent fallback.
-    pub fn is_toggle_key(&self, key: &str) -> bool {
-        key == self.toggle_key || key == FALLBACK_TOGGLE_KEY
-    }
     /// Validates before retaining any guest-controlled text or input geometry.
     pub fn validate(&self) -> Result<(), String> {
         self.validate_inner(true)
@@ -209,15 +205,6 @@ impl Panel {
             if !valid {
                 return Err("panel surface action must reference a declared control".into());
             }
-        }
-        if self.toggle_key.is_empty()
-            || self.toggle_key.len() > MAX_PANEL_ID_BYTES
-            || !self
-                .toggle_key
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric())
-        {
-            return Err("panel toggle key must be a bounded physical key name".into());
         }
         if self.controls.len() > MAX_PANEL_CONTROLS {
             return Err("panel has too many controls".into());

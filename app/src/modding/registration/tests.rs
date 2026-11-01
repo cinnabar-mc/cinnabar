@@ -1006,3 +1006,50 @@ fn active_dimension_rebinds_do_not_queue_redundant_admission() {
     snapshot.drawing = super::super::admission::DrawingContext::capture(host);
     assert!(snapshot.needs_admission(Some(&admitted)));
 }
+
+#[test]
+fn stale_packet_grants_do_not_change_a_frame_components_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    let entry = Entry {
+        component,
+        enabled: true,
+        grants: mod_host::ModGrants {
+            packets: true,
+            wasi: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+    let CandidateRuntime::Frame(prepared) = candidate.runtime else {
+        panic!("frame component entered the packet runtime")
+    };
+    assert!(!prepared.host.grants().packets);
+    assert!(!prepared.host.grants().wasi);
+}
+
+#[test]
+fn frame_permission_edits_reject_packet_only_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config");
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    for (index, capability) in mod_host::ModGrants::CAPABILITIES.iter().enumerate() {
+        if matches!(capability.name, "packets" | "wasi") {
+            assert!(
+                selection::permission(&config, &component, index, true, "permission".into())
+                    .is_err()
+            );
+        }
+    }
+}

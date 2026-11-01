@@ -149,46 +149,30 @@ fn selection_returns_the_old_executable_for_off_thread_retirement() {
     assert!(Arc::ptr_eq(&first, &retired));
 }
 
-/// Reconnecting to the same source creates a fresh native UI scope before UI session publication.
 #[test]
-fn reconnecting_the_same_mod_replaces_the_native_menu_identity() {
+fn panel_mailboxes_belong_to_the_current_session_and_revoke_immediately() {
     let directory = tempfile::tempdir().unwrap();
-    let path = guest(directory.path());
-    let mut source = std::fs::read_to_string(&path).unwrap();
-    source = source.trim_end().strip_suffix(')').unwrap().to_owned();
-    source.push_str(
-        r#"
-        (func (export "native-init") (param i32))
-        (func (export "menu") (param i32 i32) (result i32) (i32.const 128)))
-    "#,
-    );
-    std::fs::write(&path, source).unwrap();
-    let mut selected = selection(path);
+    let mut selected = selection(guest(directory.path()));
     selected.grants.controls = true;
-    let program = Arc::new(CompiledPacketMod::load(&selected.path, &selected.grants).unwrap());
     let loader = PacketModLoader::default();
-    loader.select_prepared(selected, program);
+    loader.select_prepared(
+        selected.clone(),
+        Arc::new(CompiledPacketMod::load(&selected.path, &selected.grants).unwrap()),
+    );
     let first = loader.session_relay().unwrap();
     first.start(&identity(), "{}", &[1]);
-    let old_id = loader
-        .native_menu_identity()
-        .expect("first capable session");
+    let old = loader.panel().unwrap();
     let second = loader.session_relay().unwrap();
-    assert!(
-        loader.native_menu_identity().is_none(),
-        "new relay is unavailable before startup"
-    );
+    assert!(loader.panel().is_none());
     second.start(&identity(), "{}", &[1]);
-    let new_id = loader
-        .native_menu_identity()
-        .expect("second capable session");
-    assert_ne!(old_id, new_id);
+    let current = loader.panel().unwrap();
+    assert!(!old.same_instance(&current));
+    assert_ne!(old.identity(), current.identity());
+    assert_eq!(current.identity(), current.clone().identity());
     first.stop();
-    assert_eq!(
-        loader.native_menu_identity(),
-        Some(new_id),
-        "old-session cleanup cannot revoke the replacement"
-    );
+    assert!(!old.enabled());
+    assert!(loader.panel().unwrap().same_instance(&current));
     second.stop();
-    assert!(loader.native_menu_identity().is_none());
+    assert!(!current.enabled());
+    assert!(loader.panel().is_none());
 }

@@ -931,3 +931,72 @@ fn compact_equipment_queries_are_exact_granted_and_session_bound() {
             .is_err()
     );
 }
+
+/// The selection read is session-scoped, granted, and bounded by its own allowance, so it
+/// stays available after every snapshot read and leaves those reads available.
+#[test]
+fn selected_slot_reads_use_their_own_bounded_allowance() {
+    use cinnabar::extension::player_state::SelectedSlot;
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    assert_eq!(state.read_selected_slot().unwrap().unwrap(), None);
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    for _ in 0..MAX_IMPORT_WRITES {
+        state.read_revision().unwrap().unwrap();
+    }
+    let expected = SelectedSlot {
+        session: 7,
+        dimension: 0,
+        slot: 2,
+    };
+    for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+        assert_eq!(state.read_selected_slot().unwrap().unwrap(), Some(expected));
+    }
+    assert!(state.read_selected_slot().is_err());
+    state.player_state.begin_frame();
+    let mut unselected = snapshot();
+    unselected.selected_slot = None;
+    state.player_state.set_snapshot(Some(unselected)).unwrap();
+    assert_eq!(state.read_selected_slot().unwrap().unwrap(), None);
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+        state.read_selected_slot().unwrap().unwrap();
+    }
+    state.read_revision().unwrap().unwrap();
+    state.player_state.begin_frame();
+    state.grants.player_state = false;
+    assert!(state.read_selected_slot().unwrap().is_err());
+}
+
+/// Consecutive callbacks in one frame each receive the full selection allowance, with or
+/// without a snapshot.
+#[test]
+fn selected_slot_allowance_renews_per_callback_within_a_frame() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    for snapshot in [None, Some(snapshot())] {
+        state.player_state.begin_frame();
+        state.player_state.set_snapshot(snapshot).unwrap();
+        for _ in 0..3 {
+            state.player_state.begin_callback();
+            for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+                state.read_selected_slot().unwrap().unwrap();
+            }
+        }
+        assert!(state.read_selected_slot().is_err());
+    }
+}

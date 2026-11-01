@@ -81,6 +81,7 @@ fn view(metadata: bool) -> Fixture {
         file: file.into(),
         bytes: 182_272,
         permissions: vec![Permission {
+            applicable: true,
             name: "time override".into(),
             description: "Lets the mod fix the local time of day.".into(),
             enabled: true,
@@ -234,9 +235,22 @@ fn permissions(customizing: bool, show_all: bool, consent: bool, declared: bool)
             false,
             true,
         ),
+        (
+            "Session packets",
+            "Allows session packet access for packet components.",
+            false,
+            true,
+        ),
+        (
+            "WASI runtime",
+            "Allows the packet runtime's WASI services.",
+            false,
+            false,
+        ),
     ]
     .into_iter()
     .map(|(name, description, requested, sensitive)| Permission {
+        applicable: !matches!(name, "Session packets" | "WASI runtime"),
         name: name.into(),
         description: description.into(),
         enabled: requested && !consent,

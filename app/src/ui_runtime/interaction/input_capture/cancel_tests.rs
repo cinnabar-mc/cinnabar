@@ -21,23 +21,29 @@ fn consumed_mouse_back_does_not_reopen_chat_or_inventory_after_bed_or_sign() {
                 runtime.set_local_sleeping(true);
             }
             let mut menu = client_shell::menu::MenuRuntime::new(false, 2, "Bindings".into());
-            let row = KEY_BINDINGS
-                .iter()
-                .position(|(_, name)| *name == binding.name())
-                .or_else(|| {
-                    EXTRA_KEYS
-                        .iter()
-                        .position(|(name, _)| *name == binding.name())
-                        .map(|row| KEY_BINDINGS.len() + row)
-                })
-                .unwrap();
-            assert!(client_shell::menu::test_support::remap_control(
-                &mut menu,
-                row,
-                semantic_input::PhysicalControl::MouseButton(
-                    client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
-                )
-            ));
+            let row_of = |binding: BindingId| {
+                KEY_BINDINGS
+                    .iter()
+                    .position(|(_, name)| *name == binding.name())
+                    .or_else(|| {
+                        EXTRA_KEYS
+                            .iter()
+                            .position(|(name, _)| *name == binding.name())
+                            .map(|row| KEY_BINDINGS.len() + row)
+                    })
+                    .unwrap()
+            };
+            // Taking Menu Cancel's control unbinds it, so the button is shared only once Menu
+            // Cancel is bound back onto it.
+            for row in [row_of(binding), row_of(BindingId::MenuCancel)] {
+                assert!(client_shell::menu::test_support::remap_control(
+                    &mut menu,
+                    row,
+                    semantic_input::PhysicalControl::MouseButton(
+                        client_shell::physical_input::mouse_button_code(MouseButton::Back).unwrap()
+                    )
+                ));
+            }
             let (network, captured) = client_runtime::network::NetworkHandle::<
                 crate::runtime::network::resource_packs::PackApplication,
             >::stub_capturing_packets();
