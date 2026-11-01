@@ -6,7 +6,7 @@ use image::RgbaImage;
 use std::collections::BTreeMap;
 
 /// Java 1.20.2+ HUD sprites (paths below `gui/sprites/hud`) and the Bedrock textures they become.
-const SPRITE_UI: [(&str, &str); 50] = [
+const SPRITE_UI: [(&str, &str); 52] = [
     ("heart/container", "textures/ui/heart_background.png"),
     ("heart/container_blinking", "textures/ui/heart_blink.png"),
     ("heart/full", "textures/ui/heart.png"),
@@ -129,7 +129,27 @@ const SPRITE_UI: [(&str, &str); 50] = [
     ("air", "textures/ui/bubble.png"),
     ("air_bursting", "textures/ui/bubble_pop.png"),
     ("air_empty", "textures/ui/bubble_empty.png"),
+    (XP_BAR_EMPTY, XP_BAR_TEXTURES[0]),
+    (XP_BAR_FULL, XP_BAR_TEXTURES[1]),
 ];
+
+/// The experience bar sprites. Java draws each as one 182x5 image with its notches baked in,
+/// while Bedrock nine-slices a 13x5 texture and tiles separate notches over it.
+const XP_BAR_EMPTY: &str = "experience_bar_background";
+const XP_BAR_FULL: &str = "experience_bar_progress";
+
+/// Bedrock's empty and full experience bar textures, which carry nine-slice sidecars.
+pub(crate) const XP_BAR_TEXTURES: [&str; 2] = [
+    "textures/ui/experiencebarempty.png",
+    "textures/ui/experiencebarfull.png",
+];
+
+/// Bedrock's tiled experience bar notches, cleared when a Java bar supplies its own.
+const XP_NUB: &str = "textures/ui/experiencenub.png";
+
+/// The sidecar written beside a translated experience bar texture: Java's bar is one plain 182x5
+/// image, so it replaces vanilla's 13x5 nine-slice description.
+pub(crate) const XP_BAR_SIDECAR: &[u8] = br#"{"base_size":[182,5]}"#;
 
 /// A region of a 256x256 legacy GUI atlas.
 #[derive(Clone, Copy, Debug)]
@@ -199,8 +219,8 @@ pub(crate) const LEGACY_ICON_RECTS: [(&str, Rect); 61] = [
     ("heart/absorbing_hardcore_half", rect(169, 45, 9, 9)),
     ("heart/frozen_hardcore_full", rect(178, 45, 9, 9)),
     ("heart/frozen_hardcore_half", rect(187, 45, 9, 9)),
-    ("experience_bar_background", rect(0, 64, 182, 5)),
-    ("experience_bar_progress", rect(0, 69, 182, 5)),
+    (XP_BAR_EMPTY, rect(0, 64, 182, 5)),
+    (XP_BAR_FULL, rect(0, 69, 182, 5)),
     ("jump_bar_cooldown", rect(0, 74, 182, 5)),
     ("jump_bar_background", rect(0, 84, 182, 5)),
     ("jump_bar_progress", rect(0, 89, 182, 5)),
@@ -290,6 +310,11 @@ pub(crate) fn hud_textures(
                 out.insert(format!("textures/ui/{name}.png"), piece);
             }
         }
+    }
+    if sprites.contains_key(XP_BAR_EMPTY)
+        && let Some(clear) = canvas(1, 1, budget)
+    {
+        out.insert(XP_NUB.to_owned(), clear);
     }
     if let Some(selection) = selection.and_then(|selection| square_selection(selection, budget)) {
         out.insert("textures/ui/selected_hotbar_slot.png".into(), selection);

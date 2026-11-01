@@ -4,7 +4,7 @@ use crate::{
     Layout, TranslateError, Translation, hud, items, manifest,
     meta::{TEXTURES, detect_layout, read_meta},
     names, sky,
-    texture::{Budget, crop, decode, dimensions, encode, strip_frame},
+    texture::{Budget, crop, decode, dimensions, duplicate, encode, strip_frame},
     tga::{self, TgaKind},
 };
 use image::RgbaImage;
@@ -117,18 +117,22 @@ fn item(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> ItemResu
     let bedrock = names::item_path(layout, name);
     let frame = strip_frame(width, height).filter(|_| !names::is_flipbook(&bedrock));
     let composes = items::composes(name);
-    let image = if frame.is_some() || composes {
+    let decoded = if frame.is_some() || composes {
         Some(decode(&bytes, budget)?)
     } else {
         None
     };
-    let output = match (frame, &image) {
-        (Some(side), Some(image)) => Output::Image(crop(image, 0, 0, side, side, budget)?),
-        _ => Output::Raw(bytes),
+    // Potions and atlases compose the same first frame the standalone texture keeps.
+    let framed = match (frame, decoded) {
+        (Some(side), Some(image)) => Some(crop(&image, 0, 0, side, side, budget)?),
+        (_, image) => image,
     };
-    let composed = image
-        .filter(|_| composes)
-        .map(|image| (name.to_owned(), image));
+    let (output, composed) = match (frame.is_some(), framed) {
+        (true, Some(image)) if composes => (Output::Image(duplicate(&image, budget)?), Some(image)),
+        (true, Some(image)) => (Output::Image(image), None),
+        (_, image) => (Output::Raw(bytes), image.filter(|_| composes)),
+    };
+    let composed = composed.map(|image| (name.to_owned(), image));
     let output =
         (!items::is_filled_bottle(&bedrock)).then(|| (format!("textures/{bedrock}.png"), output));
     Some((output, composed))
@@ -379,6 +383,12 @@ pub(crate) fn translate_within(
         hud::hud_textures(&hud_sprites, hotbar.as_ref(), selection.as_ref(), budget)
     {
         out.insert(path, Output::Image(image));
+    }
+    for bar in hud::XP_BAR_TEXTURES {
+        if let Some(stem) = out.contains_key(bar).then(|| bar.trim_end_matches(".png")) {
+            let sidecar = hud::XP_BAR_SIDECAR.to_vec();
+            out.insert(format!("{stem}.json"), Output::Raw(sidecar));
+        }
     }
     // Bedrock reads the crosshair from the legacy atlas, so a 1.20.2+ crosshair sprite replaces
     // the atlas's crosshair, or rebuilds the atlas at the sprite's scale.

@@ -598,6 +598,60 @@ fn generated_textures_over_the_runtime_limit_are_left_out() {
 }
 
 #[test]
+fn experience_bars_reach_the_hud_textures_as_plain_images() {
+    let sprites = "assets/minecraft/textures/gui/sprites/hud/";
+    let files = pack(vec![
+        (
+            &format!("{sprites}experience_bar_background.png"),
+            solid(182, 5, GREEN),
+        ),
+        (
+            &format!("{sprites}experience_bar_progress.png"),
+            solid(182, 5, YELLOW),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/ui/experiencebarempty.png", 181, 4),
+        ((182, 5), GREEN)
+    );
+    assert_eq!(
+        pixel(&out, "textures/ui/experiencebarfull.png", 0, 0),
+        ((182, 5), YELLOW)
+    );
+    for sidecar in [
+        "textures/ui/experiencebarempty.json",
+        "textures/ui/experiencebarfull.json",
+    ] {
+        let value: serde_json::Value = serde_json::from_slice(out[sidecar]).unwrap();
+        assert_eq!(value, serde_json::json!({"base_size": [182, 5]}));
+    }
+    assert_eq!(pixel(&out, "textures/ui/experiencenub.png", 0, 0).1, [0; 4]);
+}
+
+#[test]
+fn animated_potion_layers_compose_their_first_frame() {
+    let items = "assets/minecraft/textures/item/";
+    let overlay = encode(&RgbaImage::from_fn(16, 32, |_, y| {
+        Rgba(if y < 16 { WHITE } else { BLUE })
+    }));
+    let files = pack(vec![
+        (&format!("{items}potion_overlay.png"), overlay),
+        (
+            &format!("{items}potion.png"),
+            encode(&RgbaImage::new(16, 16)),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/items/potion_bottle_heal.png", 8, 8),
+        ((16, 16), [245, 35, 34, 255])
+    );
+}
+
+#[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(
         "assets/minecraft/textures/block/stone.png",
