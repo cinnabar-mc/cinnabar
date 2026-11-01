@@ -76,9 +76,10 @@ impl cinnabar::extension::input::Host for State {
 }
 
 impl Instance {
-    /// Records whether a native editor on this instance's open panel owns the next frame's keys.
+    /// Records whether a native editor on this instance's open panel owns the next frame's
+    /// keys; the value applies once that frame's controls are staged.
     pub(crate) fn set_native_editing(&mut self, editing: bool) {
-        self.store.data_mut().controls.native_editing = editing;
+        self.store.data_mut().controls.native_editing_next = editing;
     }
 
     /// Retains native committed text while a callback is deferred, without granting guest writes.

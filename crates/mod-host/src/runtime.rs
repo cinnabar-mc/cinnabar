@@ -371,6 +371,7 @@ impl Instance {
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
         state.controls.native_editing = false;
+        state.controls.native_editing_next = false;
         state.pressed = false;
     }
 
@@ -414,6 +415,7 @@ impl Instance {
         state.world.mobs = mobs;
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
+        state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);
         Ok(())
     }
 

@@ -88,6 +88,8 @@ pub(super) struct ControlState {
     pub open_order: u64,
     /// A native field or editor on this mod's open panel owns this frame's key input.
     pub native_editing: bool,
+    /// The supplied editor state, applied when the next frame's controls are staged.
+    pub native_editing_next: bool,
     /// Where the host last laid out this mod's panel; none while another mod's panel or no
     /// panel is up.
     pub layout: Option<ui::mod_hud::PanelLayout>,
@@ -132,6 +134,7 @@ impl ControlState {
             open_requested: _,
             open_order: _,
             native_editing: _,
+            native_editing_next: _,
             layout: _,
             keys: _,
             interaction: _,
@@ -170,6 +173,7 @@ impl ControlState {
             open_requested: false,
             open_order: 0,
             native_editing: false,
+            native_editing_next: false,
             layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
