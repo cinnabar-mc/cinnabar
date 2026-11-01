@@ -347,3 +347,19 @@ fn confirmed_despawn_cannot_be_restored_by_staged_mask_membership() {
     assert!(native.commit()[0].entities.is_empty());
     assert_eq!(native.select(mask, &[target]), Err(MaskError::StaleHandle));
 }
+
+#[test]
+fn despawn_pruning_never_publishes_uncommitted_staging() {
+    let (mut store, entity) = store(1);
+    let target = store.entity(entity.runtime_id).unwrap();
+    let mask = store.create(MaskDepth::Test).unwrap();
+    store.select(mask, &[target]).unwrap();
+    store.commit();
+    let other = store.create(MaskDepth::Test).unwrap();
+    store.select(other, &[target]).unwrap();
+    store.remove_entities(&[entity]);
+    let committed = store.committed();
+    assert_eq!(committed.len(), 1);
+    assert!(committed[0].entities.is_empty());
+    assert!(store.commit().iter().all(|mask| mask.entities.is_empty()));
+}

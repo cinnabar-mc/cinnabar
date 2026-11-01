@@ -7,6 +7,7 @@ use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::Arc;
 
+#[path = "render/publication.rs"]
 mod publication;
 
 /// Preserves the admission category while legacy callers continue receiving plain detail.
@@ -224,7 +225,7 @@ impl RenderState {
             .map(Into::into)
             .collect::<Vec<_>>();
         self.masks.remove_entities(&removed);
-        let masks = self.masks.commit();
+        let masks = self.masks.committed();
         let changed = !Arc::ptr_eq(&masks, &self.committed.masks);
         self.committed.masks = masks;
         if self.publish_retained() || changed {

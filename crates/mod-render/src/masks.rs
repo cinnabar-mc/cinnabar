@@ -154,14 +154,19 @@ impl MaskStore {
         self.pending_targets
             .retain(|_, (key, _)| !despawned.contains(key));
         self.candidates.retain(|key, _| !despawned.contains(key));
+        // Committed and staged masks are pruned separately, so this never publishes staging.
+        let prune = |mask: &mut Mask| mask.entities.retain(|key| !despawned.contains(key));
         if self
-            .current()
+            .committed
             .iter()
             .any(|mask| mask.entities.iter().any(|key| despawned.contains(key)))
         {
-            for mask in self.staged() {
-                mask.entities.retain(|key| !despawned.contains(key));
-            }
+            let mut committed = self.committed.to_vec();
+            committed.iter_mut().for_each(prune);
+            self.committed = committed.into();
+        }
+        if let Some(staged) = &mut self.staged {
+            staged.iter_mut().for_each(prune);
         }
     }
 
@@ -305,6 +310,11 @@ impl MaskStore {
     pub fn begin(&mut self) {
         self.staged = None;
         self.pending_targets.clear();
+    }
+
+    /// Returns published masks without committing any guest staging.
+    pub fn committed(&self) -> Arc<[Mask]> {
+        Arc::clone(&self.committed)
     }
 
     /// Publishes a successful transaction, preserving identity for unchanged selections.
