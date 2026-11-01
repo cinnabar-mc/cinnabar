@@ -247,6 +247,12 @@ fn color(
     Ok(value)
 }
 
+/// Whether a controller's `is_hurt_color` replaces its `overlay_color`: native reads it only while
+/// the actor shows damage, so a pack's constant hurt colour never tints an unhurt actor.
+fn hurt_overlay_active(evaluator: &Evaluator<'_>) -> bool {
+    evaluator.actor.overlay_alpha() > 0.0
+}
+
 /// Evaluates the rig's render controllers against the actor's Molang state.
 /// Unavailable attachable artwork returns `None` without invalidating authored state.
 pub(super) fn evaluate_render(
@@ -341,6 +347,10 @@ mod multitexture_tests;
 #[cfg(test)]
 #[path = "render/projectile_tests.rs"]
 mod projectile_tests;
+
+#[cfg(test)]
+#[path = "render/hurt_color_tests.rs"]
+mod hurt_color_tests;
 
 /// One authored controller layer and whether its selected artwork is unavailable.
 #[derive(Clone, Debug)]
@@ -459,7 +469,11 @@ fn evaluate_layer_into(
         .collect();
     let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
     let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
-    let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
+    let overlay = if hurt_overlay_active(evaluator) {
+        color(evaluator, variables, layer.hurt_color, overlay, budget)?
+    } else {
+        overlay
+    };
     let uv_anim = color(
         evaluator,
         variables,
