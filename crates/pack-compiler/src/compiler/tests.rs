@@ -40,8 +40,6 @@ mod crop_families;
 mod crops;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
-#[path = "tests/dried_ghast.rs"]
-mod dried_ghast;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
 #[path = "tests/entity_particles.rs"]

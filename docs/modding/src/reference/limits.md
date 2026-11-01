@@ -4,13 +4,15 @@
 
 These are Cinnabar sandbox and API limits. Counts apply per mod unless stated otherwise. Bytes count UTF-8 or encoded data, not characters. Fuel measures guest execution; host imports have separate allowances. Handle errors and spread work across callbacks.
 
-## Sound events
+## Event handlers
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
-| `mod_api::TOTAL_SOUND_FILTER_FUEL` | 400000 | Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped. |
-| `mod_api::MAX_SOUND_FILTER_EVENTS` | 256 | New playback observations offered per audio frame; excess requests play normally. |
+| `mod_api::HANDLER_CALL_FUEL` | 50000 | Fuel for one handler call; a handler is skipped when its event family's remaining allowance is smaller. |
+| `mod_api::TOTAL_SOUND_HANDLER_FUEL` | 400000 | Guest fuel shared by all sound handlers per audio frame. |
+| `mod_api::MAX_HANDLED_SOUNDS` | 256 | New playback requests offered per audio frame; excess requests play unhandled. |
 | `mod_api::MAX_SOUND_NAME_BYTES` | 128 | Bytes in one offered sound-definition name. |
+| `mod_api::TOTAL_TELEPORT_HANDLER_FUEL` | 400000 | Guest fuel shared by all teleport handlers per frame. |
 
 ## Execution and packages
 
@@ -37,6 +39,7 @@ The guest's `budget.remaining-fuel` reports its actual current allowance. Action
 
 | Constant | Value | Scope |
 | --- | ---: | --- |
+| `mod_api::MAX_SELECTED_SLOT_READS` | 8 | Selected-slot reads per callback, apart from the player-state read allowance. |
 | `mod_api::MAX_INPUT_BINDINGS_PER_READ` | 16 | Physical binding entries copied per read. |
 | `mod_api::MAX_INPUT_BINDINGS` | 128 | Physical binding entries per settings snapshot. |
 | `mod_api::MAX_INPUT_ACTION_BYTES` | 32 | Bytes per stable binding action name. |

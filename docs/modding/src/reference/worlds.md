@@ -4,222 +4,6 @@
 
 A world names the host imports and guest exports of a component. Included worlds are expanded below. Each imported interface documents its own grants.
 
-<a id="audio-filtered-player-mod"></a>
-
-## audio-filtered-player-mod
-
-Explicit opt-in sound cancellation together with the existing action-filter callback.
-
-### Imports
-
-- [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
-- [cinnabar:extension/screen@0.1.0](screen.md)
-- [cinnabar:session/items@0.1.0](session-items.md)
-- [cinnabar:session/recipes@0.1.0](session-recipes.md)
-- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
-- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
-- [cinnabar:extension/terrain@0.1.0](terrain.md)
-- [cinnabar:extension/player-state@0.1.0](player-state.md)
-- [cinnabar:extension/inventory@0.1.0](inventory.md)
-- [cinnabar:extension/item-use@0.1.0](item-use.md)
-- [cinnabar:extension/camera@0.1.0](camera.md)
-- [cinnabar:extension/hud@0.1.0](hud.md)
-- [cinnabar:extension/clock@0.1.0](clock.md)
-- [cinnabar:extension/facts@0.1.0](facts.md)
-- [cinnabar:extension/gameplay@0.1.0](gameplay.md)
-- [cinnabar:extension/render@0.1.0](render.md)
-- [cinnabar:extension/presentation@0.1.0](presentation.md)
-- [cinnabar:extension/panel@0.1.0](panel.md)
-- [cinnabar:extension/input@0.1.0](input.md)
-- [cinnabar:extension/touch@0.1.0](touch.md)
-- [cinnabar:extension/environment@0.1.0](environment.md)
-- [cinnabar:extension/events@0.1.0](events.md)
-- [cinnabar:extension/settings@0.1.0](settings.md)
-- [cinnabar:extension/budget@0.1.0](budget.md)
-- [cinnabar:extension/permissions@0.1.0](permissions.md)
-- [cinnabar:extension/action-filter@0.1.0](action-filter.md)
-- [cinnabar:extension/sound-filter@0.1.0](sound-filter.md)
-<a id="audio-filtered-player-mod-type-data-source"></a>
-
-### `data-source`
-
-What a `data-changed` reports as changed. Closed: changing it would refuse every built
-`data-changed`, so a new kind of change arrives as a new optional export instead.
-
-```wit
-enum data-source {
-    items,
-    recipes,
-}
-```
-
-| Member | Type | Description |
-| --- | --- | --- |
-| `items` |  |  |
-| `recipes` |  |  |
-
-
-### Exports
-
-<a id="audio-filtered-player-mod-filter-actions"></a>
-
-### `filter-actions`
-
-```wit
-filter-actions: func(frame: action-frame) -> action-verdict;
-```
-
-Optional and explicitly exported by filtering modules; requires controls authority.
-The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
-frame with a retained hold. No callback is needed for an idle physical hold.
-Suppressing a release retains its hold. Suppressing its following press joins that
-hold; accepting that press completes the outstanding release before a fresh press.
-Suppressing a fresh press blocks its gesture until release. Rejected repeats leave
-the existing hold intact. Native never creates a press without an observed source.
-Traps or invalid verdicts quarantine the module and complete retained releases;
-owner loss and input-authority interruptions do the same. Suppressed physical holds
-stay suppressed until release. No duration or filtering policy is imposed by the host.
-
-Types: [`action-frame`](action-filter.md#type-action-frame), [`action-verdict`](action-filter.md#type-action-verdict).
-
-<a id="audio-filtered-player-mod-screen-changed"></a>
-
-### `screen-changed`
-
-```wit
-screen-changed: func(layout: option<screen-layout>);
-```
-
-A container screen opened, closed (`none`) or was laid out anew.
-
-Types: [`screen-layout`](screen.md#type-screen-layout).
-
-<a id="audio-filtered-player-mod-action"></a>
-
-### `action`
-
-```wit
-action: func(id: string, collection-index: option<u32>);
-```
-
-A primary press on an overlay or view control mapped to a declared action; the index is
-the control's row in its nearest collection.
-
-<a id="audio-filtered-player-mod-secondary-action"></a>
-
-### `secondary-action`
-
-```wit
-secondary-action: func(id: string, collection-index: option<u32>);
-```
-
-A secondary press (a right click) on a control that maps `button.menu_secondary_select`
-to a declared action.
-
-<a id="audio-filtered-player-mod-scrolled"></a>
-
-### `scrolled`
-
-```wit
-scrolled: func(delta: f64, x: f64, y: f64, modifiers: modifiers);
-```
-
-The wheel turned `delta` notches (one per detent; a pixel-precise wheel reports its
-pixels / 16) with the pointer at `x`, `y` in GUI units, over the overlay's drawn area or
-the view, with `modifiers` held. Positive scrolls down, towards the end.
-
-Types: [`modifiers`](screen.md#type-modifiers).
-
-<a id="audio-filtered-player-mod-text-changed"></a>
-
-### `text-changed`
-
-```wit
-text-changed: func(control: string, text: string);
-```
-
-The text of the edit box named `control`, a declared action, changed.
-
-<a id="audio-filtered-player-mod-key"></a>
-
-### `key`
-
-```wit
-key: func(id: string, hovered: option<stack>, row: option<tuple<string, u32>>);
-```
-
-A declared key was pressed while a container screen or the view was up and no edit box
-had focus. `hovered` is the vanilla slot's stack under the pointer; `row` is the
-collection name and index of the mod's control under the pointer, overlay or view, by
-the rule `action` uses (its nearest collection).
-
-Types: [`stack`](session-items.md#type-stack).
-
-<a id="audio-filtered-player-mod-data-changed"></a>
-
-### `data-changed`
-
-```wit
-data-changed: func(sources: list<data-source>);
-```
-
-The listed session sources changed revision, each listed once. It gets the load fuel
-budget, as does `init` of a component that exports it.
-
-Types: [`data-source`](worlds.md#audio-filtered-player-mod-type-data-source).
-
-<a id="audio-filtered-player-mod-view-closed"></a>
-
-### `view-closed`
-
-```wit
-view-closed: func();
-```
-
-The host closed the view (Escape, or the container closing), not the mod.
-
-<a id="audio-filtered-player-mod-init"></a>
-
-### `init`
-
-```wit
-init: func();
-```
-
-Creates the initial retained UI state.
-
-<a id="audio-filtered-player-mod-frame"></a>
-
-### `frame`
-
-```wit
-frame: func();
-```
-
-Bounded frame callback used to measure the spike's crossing cost.
-
-<a id="audio-filtered-player-mod-filter-sounds"></a>
-
-### `filter-sounds`
-
-```wit
-filter-sounds: func(events: list<sound-event>) -> list<bool>;
-```
-
-One batch per presented audio frame, at most 256 new playback requests.
-Return one boolean per event: true plays, false cancels. Admitted active
-filters see the same events; any cancellation wins. No host imports are permitted.
-Full callback fuel within a shared audio-frame allowance, in load order. Observers
-without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
-a failing component is quarantined. Oversized names and excess requests pass through.
-Approved starts waiting for decoding are not offered again. Playing voices are not
-retroactively stopped; managed loops are offered again when they next need a start.
-
-Types: [`sound-event`](sound-filter.md#type-sound-event).
-
-
 <a id="extension"></a>
 
 ## extension
@@ -470,6 +254,234 @@ frame: func();
 ```
 
 Bounded frame callback used to measure the spike's crossing cost.
+
+
+<a id="handled-player-mod"></a>
+
+## handled-player-mod
+
+A personal component with the action filter, every event handler, and ordinary frame and
+UI callbacks. A component needing fewer composes its own world from `player-mod` or
+`filtered-player-mod` and the handler worlds it implements.
+
+### Imports
+
+- [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
+- [cinnabar:extension/screen@0.1.0](screen.md)
+- [cinnabar:session/items@0.1.0](session-items.md)
+- [cinnabar:session/recipes@0.1.0](session-recipes.md)
+- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
+- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
+- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
+- [cinnabar:extension/terrain@0.1.0](terrain.md)
+- [cinnabar:extension/player-state@0.1.0](player-state.md)
+- [cinnabar:extension/inventory@0.1.0](inventory.md)
+- [cinnabar:extension/item-use@0.1.0](item-use.md)
+- [cinnabar:extension/camera@0.1.0](camera.md)
+- [cinnabar:extension/hud@0.1.0](hud.md)
+- [cinnabar:extension/clock@0.1.0](clock.md)
+- [cinnabar:extension/facts@0.1.0](facts.md)
+- [cinnabar:extension/gameplay@0.1.0](gameplay.md)
+- [cinnabar:extension/render@0.1.0](render.md)
+- [cinnabar:extension/presentation@0.1.0](presentation.md)
+- [cinnabar:extension/panel@0.1.0](panel.md)
+- [cinnabar:extension/input@0.1.0](input.md)
+- [cinnabar:extension/touch@0.1.0](touch.md)
+- [cinnabar:extension/environment@0.1.0](environment.md)
+- [cinnabar:extension/events@0.1.0](events.md)
+- [cinnabar:extension/settings@0.1.0](settings.md)
+- [cinnabar:extension/budget@0.1.0](budget.md)
+- [cinnabar:extension/permissions@0.1.0](permissions.md)
+- [cinnabar:extension/action-filter@0.1.0](action-filter.md)
+- [cinnabar:extension/sound-handling@0.1.0](sound-handling.md)
+- [cinnabar:extension/teleport-handling@0.1.0](teleport-handling.md)
+<a id="handled-player-mod-type-data-source"></a>
+
+### `data-source`
+
+What a `data-changed` reports as changed. Closed: changing it would refuse every built
+`data-changed`, so a new kind of change arrives as a new optional export instead.
+
+```wit
+enum data-source {
+    items,
+    recipes,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `items` |  |  |
+| `recipes` |  |  |
+
+
+### Exports
+
+<a id="handled-player-mod-filter-actions"></a>
+
+### `filter-actions`
+
+```wit
+filter-actions: func(frame: action-frame) -> action-verdict;
+```
+
+Optional and explicitly exported by filtering modules; requires controls authority.
+The earliest active exporting module is the sole owner. Runs after ordinary frame
+callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+frame with a retained hold. No callback is needed for an idle physical hold.
+Suppressing a release retains its hold. Suppressing its following press joins that
+hold; accepting that press completes the outstanding release before a fresh press.
+Suppressing a fresh press blocks its gesture until release. Rejected repeats leave
+the existing hold intact. Native never creates a press without an observed source.
+Traps or invalid verdicts quarantine the module and complete retained releases;
+owner loss and input-authority interruptions do the same. Suppressed physical holds
+stay suppressed until release. No duration or filtering policy is imposed by the host.
+
+Types: [`action-frame`](action-filter.md#type-action-frame), [`action-verdict`](action-filter.md#type-action-verdict).
+
+<a id="handled-player-mod-screen-changed"></a>
+
+### `screen-changed`
+
+```wit
+screen-changed: func(layout: option<screen-layout>);
+```
+
+A container screen opened, closed (`none`) or was laid out anew.
+
+Types: [`screen-layout`](screen.md#type-screen-layout).
+
+<a id="handled-player-mod-action"></a>
+
+### `action`
+
+```wit
+action: func(id: string, collection-index: option<u32>);
+```
+
+A primary press on an overlay or view control mapped to a declared action; the index is
+the control's row in its nearest collection.
+
+<a id="handled-player-mod-secondary-action"></a>
+
+### `secondary-action`
+
+```wit
+secondary-action: func(id: string, collection-index: option<u32>);
+```
+
+A secondary press (a right click) on a control that maps `button.menu_secondary_select`
+to a declared action.
+
+<a id="handled-player-mod-scrolled"></a>
+
+### `scrolled`
+
+```wit
+scrolled: func(delta: f64, x: f64, y: f64, modifiers: modifiers);
+```
+
+The wheel turned `delta` notches (one per detent; a pixel-precise wheel reports its
+pixels / 16) with the pointer at `x`, `y` in GUI units, over the overlay's drawn area or
+the view, with `modifiers` held. Positive scrolls down, towards the end.
+
+Types: [`modifiers`](screen.md#type-modifiers).
+
+<a id="handled-player-mod-text-changed"></a>
+
+### `text-changed`
+
+```wit
+text-changed: func(control: string, text: string);
+```
+
+The text of the edit box named `control`, a declared action, changed.
+
+<a id="handled-player-mod-key"></a>
+
+### `key`
+
+```wit
+key: func(id: string, hovered: option<stack>, row: option<tuple<string, u32>>);
+```
+
+A declared key was pressed while a container screen or the view was up and no edit box
+had focus. `hovered` is the vanilla slot's stack under the pointer; `row` is the
+collection name and index of the mod's control under the pointer, overlay or view, by
+the rule `action` uses (its nearest collection).
+
+Types: [`stack`](session-items.md#type-stack).
+
+<a id="handled-player-mod-data-changed"></a>
+
+### `data-changed`
+
+```wit
+data-changed: func(sources: list<data-source>);
+```
+
+The listed session sources changed revision, each listed once. It gets the load fuel
+budget, as does `init` of a component that exports it.
+
+Types: [`data-source`](worlds.md#handled-player-mod-type-data-source).
+
+<a id="handled-player-mod-view-closed"></a>
+
+### `view-closed`
+
+```wit
+view-closed: func();
+```
+
+The host closed the view (Escape, or the container closing), not the mod.
+
+<a id="handled-player-mod-init"></a>
+
+### `init`
+
+```wit
+init: func();
+```
+
+Creates the initial retained UI state.
+
+<a id="handled-player-mod-frame"></a>
+
+### `frame`
+
+```wit
+frame: func();
+```
+
+Bounded frame callback used to measure the spike's crossing cost.
+
+<a id="handled-player-mod-handle-sound"></a>
+
+### `handle-sound`
+
+```wit
+handle-sound: func(ctx: sound-context) -> sound-context;
+```
+
+One call per new playback request, at most 256 per audio frame; excess and oversized
+requests play unhandled. Approved starts waiting for decoding are not offered again.
+Playing voices are not retroactively stopped; managed loops are offered again when they
+next need a start.
+
+Types: [`sound-context`](sound-handling.md#type-sound-context).
+
+<a id="handled-player-mod-handle-teleport"></a>
+
+### `handle-teleport`
+
+```wit
+handle-teleport: func(ctx: teleport-context) -> teleport-context;
+```
+
+One call per committed local-player MovePlayer with a finite rotation, before it applies.
+A non-finite rotation or a pitch outside -90..90 is invalid.
+
+Types: [`teleport-context`](teleport-handling.md#type-teleport-context).
 
 
 <a id="packet-mod"></a>
@@ -854,227 +866,62 @@ focus with Shift held: `held` is whether it is held now. A screen can show what 
 on Shift, as Java screens' `hasShiftDown` does.
 
 
-<a id="sound-filter-callback"></a>
+<a id="sound-handler"></a>
 
-## sound-filter-callback
+## sound-handler
 
-Composable sound-filter callback; older worlds remain supported without this export.
-
-### Imports
-
-- [cinnabar:extension/sound-filter@0.1.0](sound-filter.md)
-
-### Exports
-
-<a id="sound-filter-callback-filter-sounds"></a>
-
-### `filter-sounds`
-
-```wit
-filter-sounds: func(events: list<sound-event>) -> list<bool>;
-```
-
-One batch per presented audio frame, at most 256 new playback requests.
-Return one boolean per event: true plays, false cancels. Admitted active
-filters see the same events; any cancellation wins. No host imports are permitted.
-Full callback fuel within a shared audio-frame allowance, in load order. Observers
-without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
-a failing component is quarantined. Oversized names and excess requests pass through.
-Approved starts waiting for decoding are not offered again. Playing voices are not
-retroactively stopped; managed loops are offered again when they next need a start.
-
-Types: [`sound-event`](sound-filter.md#type-sound-event).
-
-
-<a id="sound-filtered-player-mod"></a>
-
-## sound-filtered-player-mod
-
-A personal component with sound cancellation and ordinary frame and UI callbacks.
-Exporting this world does not claim action-filter ownership.
+The optional event handlers. Each receives a context of the event's facts and changeable
+values and returns it; the host applies only the changeable values. Handlers run in load
+order, each receiving the previous handler's changes. They cannot call host imports and
+each call has full callback fuel within a shared per-event allowance; handlers without a
+full allowance are skipped. Denial and absence pass the event through unchanged. Traps and
+invalid values quarantine the component and keep the context it received.
+A component exporting a handler world must implement every handler in it; include only
+the handlers a component uses.
 
 ### Imports
 
-- [cinnabar:server-experience/ui@1.5.0](server-experience-ui.md)
-- [cinnabar:extension/screen@0.1.0](screen.md)
-- [cinnabar:session/items@0.1.0](session-items.md)
-- [cinnabar:session/recipes@0.1.0](session-recipes.md)
-- [cinnabar:world-draw/drawing@0.2.0](world-draw-drawing.md)
-- [cinnabar:world-draw/masks@0.2.0](world-draw-masks.md)
-- [cinnabar:world-draw/assets@0.2.0](world-draw-assets.md)
-- [cinnabar:extension/terrain@0.1.0](terrain.md)
-- [cinnabar:extension/player-state@0.1.0](player-state.md)
-- [cinnabar:extension/inventory@0.1.0](inventory.md)
-- [cinnabar:extension/item-use@0.1.0](item-use.md)
-- [cinnabar:extension/camera@0.1.0](camera.md)
-- [cinnabar:extension/hud@0.1.0](hud.md)
-- [cinnabar:extension/clock@0.1.0](clock.md)
-- [cinnabar:extension/facts@0.1.0](facts.md)
-- [cinnabar:extension/gameplay@0.1.0](gameplay.md)
-- [cinnabar:extension/render@0.1.0](render.md)
-- [cinnabar:extension/presentation@0.1.0](presentation.md)
-- [cinnabar:extension/panel@0.1.0](panel.md)
-- [cinnabar:extension/input@0.1.0](input.md)
-- [cinnabar:extension/touch@0.1.0](touch.md)
-- [cinnabar:extension/environment@0.1.0](environment.md)
-- [cinnabar:extension/events@0.1.0](events.md)
-- [cinnabar:extension/settings@0.1.0](settings.md)
-- [cinnabar:extension/budget@0.1.0](budget.md)
-- [cinnabar:extension/permissions@0.1.0](permissions.md)
-- [cinnabar:extension/sound-filter@0.1.0](sound-filter.md)
-<a id="sound-filtered-player-mod-type-data-source"></a>
-
-### `data-source`
-
-What a `data-changed` reports as changed. Closed: changing it would refuse every built
-`data-changed`, so a new kind of change arrives as a new optional export instead.
-
-```wit
-enum data-source {
-    items,
-    recipes,
-}
-```
-
-| Member | Type | Description |
-| --- | --- | --- |
-| `items` |  |  |
-| `recipes` |  |  |
-
+- [cinnabar:extension/sound-handling@0.1.0](sound-handling.md)
 
 ### Exports
 
-<a id="sound-filtered-player-mod-screen-changed"></a>
+<a id="sound-handler-handle-sound"></a>
 
-### `screen-changed`
-
-```wit
-screen-changed: func(layout: option<screen-layout>);
-```
-
-A container screen opened, closed (`none`) or was laid out anew.
-
-Types: [`screen-layout`](screen.md#type-screen-layout).
-
-<a id="sound-filtered-player-mod-action"></a>
-
-### `action`
+### `handle-sound`
 
 ```wit
-action: func(id: string, collection-index: option<u32>);
+handle-sound: func(ctx: sound-context) -> sound-context;
 ```
 
-A primary press on an overlay or view control mapped to a declared action; the index is
-the control's row in its nearest collection.
+One call per new playback request, at most 256 per audio frame; excess and oversized
+requests play unhandled. Approved starts waiting for decoding are not offered again.
+Playing voices are not retroactively stopped; managed loops are offered again when they
+next need a start.
 
-<a id="sound-filtered-player-mod-secondary-action"></a>
+Types: [`sound-context`](sound-handling.md#type-sound-context).
 
-### `secondary-action`
+
+<a id="teleport-handler"></a>
+
+## teleport-handler
+
+See `sound-handler` for the shared handler contract.
+
+### Imports
+
+- [cinnabar:extension/teleport-handling@0.1.0](teleport-handling.md)
+
+### Exports
+
+<a id="teleport-handler-handle-teleport"></a>
+
+### `handle-teleport`
 
 ```wit
-secondary-action: func(id: string, collection-index: option<u32>);
+handle-teleport: func(ctx: teleport-context) -> teleport-context;
 ```
 
-A secondary press (a right click) on a control that maps `button.menu_secondary_select`
-to a declared action.
+One call per committed local-player MovePlayer with a finite rotation, before it applies.
+A non-finite rotation or a pitch outside -90..90 is invalid.
 
-<a id="sound-filtered-player-mod-scrolled"></a>
-
-### `scrolled`
-
-```wit
-scrolled: func(delta: f64, x: f64, y: f64, modifiers: modifiers);
-```
-
-The wheel turned `delta` notches (one per detent; a pixel-precise wheel reports its
-pixels / 16) with the pointer at `x`, `y` in GUI units, over the overlay's drawn area or
-the view, with `modifiers` held. Positive scrolls down, towards the end.
-
-Types: [`modifiers`](screen.md#type-modifiers).
-
-<a id="sound-filtered-player-mod-text-changed"></a>
-
-### `text-changed`
-
-```wit
-text-changed: func(control: string, text: string);
-```
-
-The text of the edit box named `control`, a declared action, changed.
-
-<a id="sound-filtered-player-mod-key"></a>
-
-### `key`
-
-```wit
-key: func(id: string, hovered: option<stack>, row: option<tuple<string, u32>>);
-```
-
-A declared key was pressed while a container screen or the view was up and no edit box
-had focus. `hovered` is the vanilla slot's stack under the pointer; `row` is the
-collection name and index of the mod's control under the pointer, overlay or view, by
-the rule `action` uses (its nearest collection).
-
-Types: [`stack`](session-items.md#type-stack).
-
-<a id="sound-filtered-player-mod-data-changed"></a>
-
-### `data-changed`
-
-```wit
-data-changed: func(sources: list<data-source>);
-```
-
-The listed session sources changed revision, each listed once. It gets the load fuel
-budget, as does `init` of a component that exports it.
-
-Types: [`data-source`](worlds.md#sound-filtered-player-mod-type-data-source).
-
-<a id="sound-filtered-player-mod-view-closed"></a>
-
-### `view-closed`
-
-```wit
-view-closed: func();
-```
-
-The host closed the view (Escape, or the container closing), not the mod.
-
-<a id="sound-filtered-player-mod-init"></a>
-
-### `init`
-
-```wit
-init: func();
-```
-
-Creates the initial retained UI state.
-
-<a id="sound-filtered-player-mod-frame"></a>
-
-### `frame`
-
-```wit
-frame: func();
-```
-
-Bounded frame callback used to measure the spike's crossing cost.
-
-<a id="sound-filtered-player-mod-filter-sounds"></a>
-
-### `filter-sounds`
-
-```wit
-filter-sounds: func(events: list<sound-event>) -> list<bool>;
-```
-
-One batch per presented audio frame, at most 256 new playback requests.
-Return one boolean per event: true plays, false cancels. Admitted active
-filters see the same events; any cancellation wins. No host imports are permitted.
-Full callback fuel within a shared audio-frame allowance, in load order. Observers
-without a full allowance are skipped for that frame. Denial, absence, traps and malformed results pass through;
-a failing component is quarantined. Oversized names and excess requests pass through.
-Approved starts waiting for decoding are not offered again. Playing voices are not
-retroactively stopped; managed loops are offered again when they next need a start.
-
-Types: [`sound-event`](sound-filter.md#type-sound-event).
+Types: [`teleport-context`](teleport-handling.md#type-teleport-context).

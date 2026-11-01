@@ -139,11 +139,6 @@ pub(super) fn drive_mod(
         let source = output.as_ref().map_or(0, |output| output.camera_sequence);
         let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
-            camera.set_preserve_teleport_rotation(
-                effects
-                    .as_ref()
-                    .is_some_and(|effects| effects.preserve_teleport_rotation),
-            );
             camera.set_view_tilt(
                 effects
                     .as_ref()
@@ -195,7 +190,6 @@ pub(super) fn drive_mod(
             packets.native_frame(None);
         }
         if let Some(camera) = camera.as_deref_mut() {
-            camera.set_preserve_teleport_rotation(false);
             camera.set_view_tilt(None);
             native_camera.apply(
                 camera,
@@ -548,10 +542,6 @@ pub(super) fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
-        camera.set_preserve_teleport_rotation(
-            merged.preserve_teleport_rotation
-                || native_effects.is_some_and(|effects| effects.preserve_teleport_rotation),
-        );
         let [fov_scale, look_scale] = merged.view_scale.unwrap_or([1.0, 1.0]);
         camera.set_view_scale(fov_scale, look_scale);
         camera.set_view_tilt(

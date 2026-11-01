@@ -761,9 +761,7 @@ lookup across the passing list.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
-  Dried-ghast inventory previews keep separate body and tentacle artwork.
-  Held and dropped dried ghasts keep the world shape, but their tentacles remain incomplete: they
-  draw with body art because the shared block item sheet has six tiles.
+  Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
   Sensor previews retain inactive tendrils and the calibration crystal with independent lighting.
   Shrieker previews retain open inner walls, bone caps and a separate inner floor.
   Large and small dripleaf previews use their distinct carried leaves and stems.

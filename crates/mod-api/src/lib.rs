@@ -26,12 +26,19 @@ pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {
 
 pub use guest::PlayerMod;
 
-/// Maximum new sound requests offered in one sound-filter callback.
-pub const MAX_SOUND_FILTER_EVENTS: usize = 256;
-/// Guest fuel shared by all sound observers in one audio frame.
-pub const TOTAL_SOUND_FILTER_FUEL: u64 = TOTAL_MOD_FRAME_FUEL;
-/// Maximum bytes in one sound-filter definition name.
+/// Maximum new sound requests offered to sound handlers in one audio frame.
+pub const MAX_HANDLED_SOUNDS: usize = 256;
+/// Guest fuel shared by all sound handlers in one audio frame.
+pub const TOTAL_SOUND_HANDLER_FUEL: u64 = TOTAL_MOD_FRAME_FUEL;
+/// Maximum bytes in one handled sound definition name.
 pub const MAX_SOUND_NAME_BYTES: usize = 128;
+/// Guest fuel shared by all teleport handlers in one frame.
+pub const TOTAL_TELEPORT_HANDLER_FUEL: u64 = TOTAL_MOD_FRAME_FUEL;
+/// Guest fuel for one event-handler call; a handler is skipped when its event family's
+/// remaining shared allowance is smaller.
+pub const HANDLER_CALL_FUEL: u64 = 50_000;
+/// Selected-slot reads one callback may make, apart from the player-state read allowance.
+pub const MAX_SELECTED_SLOT_READS: u32 = 8;
 
 /// Native tick rate used when recording elapsed playtime; the app checks the simulation clock.
 pub const BEDROCK_TICKS_PER_SECOND: u32 = 20;
@@ -178,11 +185,12 @@ pub mod player_mod;
 /// Explicit opt-in player-mod bindings; ordinary SDK exports do not claim input filtering.
 pub mod filtered_player_mod;
 
-/// Opt-in cancellable sound observations, retaining the existing input-filter contract.
-pub mod audio_filtered_player_mod;
-
-/// Sound-only opt-in bindings that never claim action-filter ownership.
-pub mod sound_filtered_player_mod;
+/// The action filter and every event handler, with ordinary frame and UI callbacks.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Canonical ABI flattens screen records"
+)]
+pub mod handled_player_mod;
 
 /// The `packet-mod` world: a trusted mod that relays every session packet.
 #[allow(

@@ -13,8 +13,11 @@ pub use declarations::{
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod action_filter;
-mod sound_filter;
-pub use runtime::cinnabar::extension::sound_filter::{Position as SoundPosition, SoundEvent};
+mod handlers;
+pub use runtime::cinnabar::extension::sound_handling::{Position as SoundPosition, SoundContext};
+pub use runtime::cinnabar::extension::teleport_handling::{
+    Rotation as TeleportRotation, TeleportContext, TeleportMode,
+};
 mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;

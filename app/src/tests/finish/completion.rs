@@ -255,6 +255,7 @@ fn start_game_anchor_tracks_fifo_move_correction_and_dimension_before_surface_re
             &mut view,
             &mut camera_settings,
             &mut pending_surface_spawn,
+            &mut |_| None,
         );
     }
     assert_eq!(acceptance.mutation_surface_anchor(), Some([240, -18]));

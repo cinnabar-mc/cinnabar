@@ -141,11 +141,7 @@ fn collect_shapes(
             if shown as usize >= world.visual_count() {
                 return None;
             }
-            template_model(
-                world,
-                shown,
-                assets::gui_item::has_carried_bitmap_shape(&definition.key.identifier),
-            )
+            template_model(world, shown)
         });
         let Some(materials) = model.as_ref().map(|(materials, _)| *materials).or(cube) else {
             continue;
@@ -257,12 +253,10 @@ fn sheet_model(quads: &[assets::ModelQuad]) -> Option<([u32; 6], Vec<crate::Acto
 /// The geometry a non-cube block item (slab, stairs, fence, anvil) holds as: its template's
 /// quads, as the inventory model draws them, with up to six distinct face materials composed
 /// into one sheet, in centred block coordinates. `None` keeps the sprite: a refused state, more
-/// than six materials unless `retain_shape` folds the extras, or a UV wrapping past its tile,
-/// which one sheet tile cannot hold.
+/// than six materials, or a UV wrapping past its tile, which one sheet tile cannot hold.
 fn template_model(
     world: &RuntimeAssets,
     visual: u32,
-    retain_shape: bool,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let block = world.resolve(NetworkIdMode::Sequential, visual);
     if !block.is_known()
@@ -284,15 +278,12 @@ fn template_model(
         world.model_quads(),
     )
     .ok()?;
-    template_quads(&quads, retain_shape)
+    template_quads(&quads)
 }
 
-/// Maps bounded template geometry into the same material sheet used by held cubes. The sheet holds
-/// six tiles, so with `retain_shape` any further material draws with the first tile's art, and
-/// without it such a model is refused.
+/// Maps bounded template geometry into the same material sheet used by held cubes.
 fn template_quads(
     quads: &[assets::gui_item::GuiBlockQuad],
-    retain_shape: bool,
 ) -> Option<([u32; 6], Vec<crate::ActorRigVertex>)> {
     let mut materials: Vec<u32> = Vec::with_capacity(BlockFace::ALL.len());
     for quad in quads {
@@ -308,16 +299,14 @@ fn template_quads(
             materials.push(quad.material);
         }
     }
-    if materials.is_empty() || (materials.len() > BlockFace::ALL.len() && !retain_shape) {
+    if materials.is_empty() || materials.len() > BlockFace::ALL.len() {
         return None;
     }
-    materials.truncate(BlockFace::ALL.len());
     let slots: [u32; 6] = std::array::from_fn(|slot| *materials.get(slot).unwrap_or(&materials[0]));
     let rects = face_rects([0.0, 0.0, 1.0, 1.0]);
     let mut vertices = Vec::with_capacity(quads.len() * 6);
     for quad in quads {
-        let tile = materials.iter().position(|id| *id == quad.material);
-        let rect = rects[tile.unwrap_or(0)];
+        let rect = rects[materials.iter().position(|id| *id == quad.material)?];
         let [a, b, c, _] = quad.corners.map(glam::Vec3::from);
         let normal = (b - a).cross(c - a).normalize_or_zero().to_array();
         for corner in [0, 1, 2, 0, 2, 3] {
@@ -460,7 +449,7 @@ pub fn overlay_item(
         &overlay.model_quads,
     )
     .ok()?;
-    let (materials, vertices) = template_quads(&quads, false)?;
+    let (materials, vertices) = template_quads(&quads)?;
     Some((
         overlay_face_sheet_tinted(overlay, materials, base, tint)?,
         Some(vertices),

@@ -130,8 +130,6 @@ pub struct Effects {
     pub capture_movement: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub view_tilt: Option<ViewTilt>,
-    #[serde(default)]
-    pub preserve_teleport_rotation: bool,
 }
 
 impl Effects {

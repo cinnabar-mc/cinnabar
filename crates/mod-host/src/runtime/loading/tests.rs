@@ -209,7 +209,6 @@ fn stage_world_output(state: &mut State) -> Result<()> {
             fov_delta: 1.,
         }))?
         .unwrap();
-    state.set_preserve_teleport_rotation(true)?.unwrap();
     state.set_view_scale(0.8, 0.8)?.unwrap();
     state
         .set_view_tilt(Some(camera::ViewTilt {
@@ -250,7 +249,6 @@ fn assert_no_world_output(host: &mut crate::ModHost) {
     assert!(!host.take_jump_pulse());
     assert!(host.take_camera_delta().is_none());
     assert!(host.camera_rig().is_none());
-    assert!(!host.preserves_teleport_rotation());
     assert!(host.camera_view_scale().is_none());
     assert!(host.camera_view_tilt().is_none());
     assert_eq!(host.take_interaction(), crate::InteractionOutput::default());

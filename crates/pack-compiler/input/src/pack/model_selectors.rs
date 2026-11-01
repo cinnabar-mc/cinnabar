@@ -32,10 +32,6 @@ pub(super) enum ModelTextureSelector {
     TurtleEgg {
         count: usize,
     },
-    /// Art by `rehydration_level`; levels past the array fall back to its first entry.
-    DriedGhast {
-        count: usize,
-    },
 }
 
 impl ModelTextureSelector {
@@ -69,7 +65,7 @@ impl ModelTextureSelector {
         }
     }
 
-    /// Binds rod, anchor, turtle egg and dried ghast selectors to their pack texture keys, including custom keys.
+    /// Binds rod, anchor and turtle egg selectors to their pack texture keys, including custom keys.
     pub(super) fn bind_record(self, record: &RegistryRecord, count: usize) -> Self {
         if crate::respawn_anchor::is_record(record) {
             if count > 0 {
@@ -86,12 +82,6 @@ impl ModelTextureSelector {
         } else if record.name.as_ref() == PackBlock::TurtleEgg.identifier() {
             if count > 0 {
                 Self::TurtleEgg { count }
-            } else {
-                Self::Unresolved
-            }
-        } else if record.name.as_ref() == PackBlock::DriedGhast.identifier() {
-            if count > 0 {
-                Self::DriedGhast { count }
             } else {
                 Self::Unresolved
             }
@@ -115,8 +105,7 @@ impl ModelTextureSelector {
             Self::LightningRod | Self::Powered | Self::Stem | Self::Torchflower => 2,
             Self::Index { count, .. }
             | Self::RespawnAnchor { count }
-            | Self::TurtleEgg { count }
-            | Self::DriedGhast { count } => count,
+            | Self::TurtleEgg { count } => count,
             Self::CropStages => 4,
             Self::Single => 1,
             Self::Unresolved => 0,
@@ -194,13 +183,6 @@ impl ModelTextureSelector {
                 };
                 let stage = domain.iter().position(|value| *value == state.as_ref())?;
                 if stage < count { stage } else { 0 }
-            }
-            Self::DriedGhast { count } => {
-                let level = canonical_u32(
-                    &record.canonical_state,
-                    assets::facts::BlockProperty::RehydrationLevel.name(),
-                )? as usize;
-                if level < count { level } else { 0 }
             }
             Self::Single => 0,
             Self::Unresolved => return None,
