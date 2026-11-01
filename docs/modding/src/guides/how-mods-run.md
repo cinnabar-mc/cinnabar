@@ -25,6 +25,8 @@ The [generated limits reference](../reference/limits.md#execution-and-packages) 
 
 Frame callbacks reserve their full allowance and refund unused fuel. When the pool cannot pay a full ordinary allowance, the callback waits for a later frame. Each update rotates which runnable mod executes first so later mods eventually run, without withholding fuel from other callbacks. Input reservations are sampled in load order before execution, and output authority and collection follow load order. Deferred frame callbacks keep terrain subscriptions, touch taps and text input batches for the callback that eventually runs.
 
+Camera and environment writes are staged independently, then the earliest active mod supplying output wins after all callbacks finish. A successful write can therefore lose precedence to another mod's output. This also lets a later mod take over in the same update when an earlier mod releases its output or is quarantined. When several mods request opening a panel in one update, the last requesting mod in load order wins; separate requests from other runtimes retain their global ordering.
+
 One callback per observed world session may receive `WORLD_ENTRY_FRAME_FUEL`, with at most one such admission per update. Its full allowance may exceed the shared frame pool: actual use is charged to that pool, and excess use reduces capacity in later frames. No callback runs with a partial fuel limit. See the limits reference for the session lifecycle rules.
 
 Per-callback caps sit under the fuel budget too. Imports count calls — for example a callback may make at most 8 presentation calls, 128 `facts` reads, or 32 render and retained-drawing calls — and one call over the cap traps the callback. The per-interface guides and reference pages give each cap.

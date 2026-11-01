@@ -2,8 +2,19 @@ use super::*;
 
 /// Runs one update with optional world-entry observations, failing on any guest fault.
 fn frame(runtime: &mut ModHosts, world: Option<&mod_host::WorldObservation>) -> Merged {
+    let (merged, failures) = frame_result(runtime, world);
+    assert!(failures.is_empty(), "guest failures: {failures:?}");
+    merged
+}
+
+/// Runs one update and records guest failures so ownership after a trap can be checked.
+fn frame_result(
+    runtime: &mut ModHosts,
+    world: Option<&mod_host::WorldObservation>,
+) -> (Merged, Vec<(usize, String)>) {
     let controls = mod_host::empty_controls();
-    run_frame(
+    let mut failures = Vec::new();
+    let merged = run_frame(
         runtime,
         FrameInput {
             native_editing: None,
@@ -20,8 +31,9 @@ fn frame(runtime: &mut ModHosts, world: Option<&mod_host::WorldObservation>) -> 
             gameplay_facts: Default::default(),
         },
         |_| (Some(snapshot()), Vec::new(), None),
-        |index, error| panic!("mod {index} failed: {error}"),
-    )
+        |index, error| failures.push((index, error)),
+    );
+    (merged, failures)
 }
 
 /// Writes a probe with optional bounded frame work and cue checks disabled.
@@ -132,6 +144,127 @@ fn cold_rotated_execution_still_gives_first_mod_output_authority() {
         merged.commands,
         ["/ability A", "/ability BB", "/ability CCC"]
     );
+}
+
+#[test]
+fn rotated_callbacks_hand_over_exclusive_output_after_release_or_quarantine() {
+    for (extra, quarantined) in [
+        (
+            "global.get $frames i32.const 2 i32.eq if
+             i32.const 0 i32.const 0 i32.const 512 call $time
+             i32.const 0 f32.const 0 f32.const 0 f32.const 0 f32.const 0 f32.const 0
+             i32.const 512 call $rig end",
+            false,
+        ),
+        (
+            "global.get $frames i32.const 2 i32.eq if unreachable end",
+            true,
+        ),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut runtime = load_set(
+            [
+                Probe {
+                    extra,
+                    second_frame_cues: 0,
+                    ..Probe::new("A", 1, 0.5)
+                },
+                Probe {
+                    second_frame_cues: 0,
+                    ..Probe::new("B", 2, -0.5)
+                },
+            ]
+            .into_iter()
+            .map(|probe| (probe.write(directory.path()), granted()))
+            .collect(),
+        );
+        runtime.begin_frame();
+        assert_eq!(frame(&mut runtime, None).time_override, Some(1));
+        runtime.begin_frame();
+        let (merged, failures) = frame_result(&mut runtime, None);
+        assert_eq!(failures.len(), usize::from(quarantined));
+        if quarantined {
+            assert_eq!(failures[0].0, 0);
+        }
+        assert_eq!(runtime.host(0).is_active(), !quarantined);
+        assert_eq!(merged.time_override, Some(2));
+        assert_eq!(merged.rig.unwrap().offset.x, -0.5);
+        assert!(runtime.host(1).is_active() && runtime.host(1).last_fuel_used() > 0);
+    }
+}
+
+#[test]
+fn simultaneous_panel_requests_keep_load_order_precedence_at_every_priority() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let source = r#"(component
+      (import "$PANEL" (instance $panel
+        (export "open" (func (result (result (error string)))))))
+      (alias export $panel "open" (func $open))
+      (core module $memory-module
+        (memory (export "memory") 1)
+        (func (export "realloc") (param i32 i32 i32 i32) (result i32) i32.const 4096))
+      (core instance $mem (instantiate $memory-module))
+      (alias core export $mem "memory" (core memory $memory))
+      (alias core export $mem "realloc" (core func $realloc))
+      (core func $lower-open (canon lower (func $open) (memory $memory) (realloc $realloc)))
+      (core module $code
+        (import "host" "open" (func $open (param i32)))
+        (import "host" "memory" (memory 1))
+        (func (export "init"))
+        (func (export "frame") i32.const 0 call $open
+          i32.const 0 i32.load8_u if unreachable end))
+      (core instance $host (export "open" (func $lower-open)) (export "memory" (memory $memory)))
+      (core instance $run (instantiate $code (with "host" (instance $host))))
+      (func (export "init") (canon lift (core func $run "init")))
+      (func (export "frame") (canon lift (core func $run "frame"))))"#
+        .replace("$PANEL", &format!("{name}/panel@{version}"));
+    let mut runtime = load_set(
+        (0..2)
+            .map(|index| {
+                let path = directory.path().join(format!("panel-{index}.wat"));
+                std::fs::write(&path, &source).unwrap();
+                (
+                    path,
+                    ModGrants {
+                        controls: true,
+                        ..Default::default()
+                    },
+                )
+            })
+            .collect(),
+    );
+    let bundle = serde_json::json!({
+        "panel": {"controls":[], "surface":{"screen":"test.root",
+            "document":r#"{"namespace":"test","root":{"type":"panel"}}"#}},
+        "surfaces":{}
+    });
+    for index in 0..runtime.host_count() {
+        runtime
+            .host_mut(index)
+            .set_panel_bundle(&bundle.to_string())
+            .unwrap();
+    }
+    let mut previous = runtime.latest_panel_open_order();
+    for _ in 0..runtime.host_count() * 2 {
+        runtime.begin_frame();
+        frame(&mut runtime, None);
+        assert_eq!(runtime.panel_owner(), 1);
+        assert!(!runtime.host(0).panel_open() && runtime.host(1).panel_open());
+        let newest = (0..runtime.host_count())
+            .map(|index| runtime.host(index).panel_open_order())
+            .max()
+            .unwrap();
+        assert_eq!(runtime.latest_panel_open_order(), newest);
+        assert!(newest > previous);
+        previous = newest;
+    }
 }
 
 #[test]

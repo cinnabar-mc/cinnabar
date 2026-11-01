@@ -508,13 +508,23 @@ impl ModHosts {
 
     /// Applies committed requests by their order, independently of callback or admission order.
     pub fn reconcile_panel_requests(&mut self) -> Option<u64> {
+        self.reconcile_panel_requests_in_order(false)
+    }
+
+    /// Applies global request order, or load-order precedence within one completed frame
+    /// batch. A batch keeps the newest global order for comparisons with other runtimes.
+    fn reconcile_panel_requests_in_order(&mut self, frame_batch: bool) -> Option<u64> {
+        let previous = self.panel_open_order;
         let mut latest = self.panel_open_order;
         let mut selected = None;
         for index in 0..self.host_count() {
             let host = self.host_mut(index);
-            if host.take_panel_open_request() && host.panel_open_order() > latest {
-                latest = host.panel_open_order();
-                selected = Some(index);
+            if host.take_panel_open_request() {
+                let order = host.panel_open_order();
+                if order > previous && (frame_batch || order > latest) {
+                    selected = Some(index);
+                }
+                latest = latest.max(order);
             }
         }
         let selected = selected?;
@@ -725,7 +735,11 @@ pub fn run_frame_callbacks(
         };
         let movement = if grants.movement { movement } else { None };
         controls.gameplay = snapshot.is_some() || movement.is_some();
-        runtime.authorize(index);
+        // Stage each mod's exclusive writes before resolving the completed batch in load order.
+        let budget = runtime.budget.clone();
+        runtime
+            .host_mut(index)
+            .set_frame_authority(budget, false, false, index);
         let host = runtime.host_mut(index);
         host.deliver_cues(input.previous_cues.to_vec());
         let player_state = host
@@ -768,7 +782,7 @@ pub fn run_frame_callbacks(
     for index in 0..runtime.host_count() {
         runtime.authorize(index);
     }
-    let _ = runtime.reconcile_panel_requests();
+    let _ = runtime.reconcile_panel_requests_in_order(true);
 }
 
 /// A sampled native editor belongs to the mod that owned the panel when keys were routed, so
