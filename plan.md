@@ -1777,7 +1777,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   DX12 and software adapters use integer-backed fused dot accumulation to preserve the
   reference hash rounding; other hardware backends retain native fused instructions. Those
   helpers loop over components and select instead of branching, so DXC compiles a large pack
-  in seconds rather than minutes. Hardware DX12 pack acceptance remains incomplete.
+  in seconds rather than minutes. Windows CI's D3D12 adapter returned NaN for a dot step with an
+  infinite operand where binary32 gives infinity, which WGSL permits; other non-finite samples on
+  D3D12 are unchecked. Hardware DX12 pack acceptance remains incomplete.
   Geometry draw pipelines build on worker threads (half the hardware threads), and the loading
   toast counts built pipelines. Retired loads cancel between GPU batches and between pipelines;
   a superseded load is left to stop on its own, so the next selection starts at once. Atlas

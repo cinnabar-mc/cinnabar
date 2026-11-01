@@ -31,15 +31,17 @@ fn completed_admission_wakes_without_waiting_for_file_poll() {
 fn authority_changes_wake_admission_without_a_registration_edit() {
     let directory = tempfile::tempdir().unwrap();
     let prepared = candidate(directory.path(), "authority.wasm", "Hello");
-    let entry = prepared.registration.clone();
-    select_entry(directory.path(), entry.clone());
+    select_entry(directory.path(), prepared.registration.clone());
     let watcher =
         Watcher::start_with_poll_interval(directory.path().into(), Duration::from_secs(3600))
             .unwrap();
     let mut update = wait_update(&watcher, "initial authority fixture admission", |update| {
         !update.changes.is_empty()
     });
-    let candidate = *update.changes.remove(0).result.unwrap();
+    // The observer keys everything by its resolved entry, not the fixture's unresolved temp path.
+    let change = update.changes.remove(0);
+    let entry = change.entry;
+    let candidate = *change.result.unwrap();
     let identity = candidate.identity;
     watcher.send(Message::Acknowledge {
         generation: update.generation,
@@ -77,16 +79,16 @@ fn authority_changes_wake_admission_without_a_registration_edit() {
     };
     runtime.hosts.host_mut(0).bind_drawing_session(session);
     watcher.remember_settings(Some(&runtime));
-    // An admission already queued from before the change can arrive first without the session.
     let update = wait_update(&watcher, "authority change wakes admission", |update| {
-        host_of(update).is_some_and(|host| host.drawing_session() == Some(session))
+        !update.changes.is_empty()
     });
-    let host = host_of(&update).unwrap();
+    let host = update.changes[0]
+        .result
+        .as_ref()
+        .unwrap()
+        .frame_host()
+        .unwrap();
+    assert_eq!(host.drawing_session(), Some(session));
     assert!(host.is_active());
     assert!(!host.needs_drawing_restart());
-}
-
-/// The frame host of an update's first change, if it loaded.
-fn host_of(update: &Update) -> Option<&ModHost> {
-    update.changes.first()?.result.as_ref().ok()?.frame_host()
 }
