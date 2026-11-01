@@ -205,6 +205,10 @@ impl PlayerList {
                         .with(
                             format!("#span_{slot}_color"),
                             Scalar::Json(serde_json::json!(color.map(f64::from))),
+                        )
+                        .with(
+                            format!("#span_{slot}_alpha"),
+                            Scalar::Num(f64::from(color[3])),
                         );
                     span_x += width;
                 }
