@@ -51,6 +51,7 @@ domain!(PackTexture {
 });
 domain!(PackBlock {
     RedstoneTorch,
+    RedstoneWire,
     UnlitRedstoneTorch,
     Beacon,
     Obsidian,
@@ -76,6 +77,8 @@ domain!(PackBlock {
     HeavyCore,
     Crafter,
     DriedGhast,
+    TurtleEgg,
+    TripWire,
     SculkSensor,
     CalibratedSculkSensor,
     SculkShrieker,

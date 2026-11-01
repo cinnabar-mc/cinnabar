@@ -53,6 +53,13 @@ pub(crate) struct CubeQuadStreams {
 }
 
 impl CubeQuadStreams {
+    /// Counts temporary quad and lighting storage, excluding result-owned streams.
+    pub(crate) fn retained_bytes(&self) -> usize {
+        (self.solid.capacity() + self.two_sided.capacity()) * size_of::<PackedQuad>()
+            + (self.solid_lighting.capacity() + self.two_sided_lighting.capacity())
+                * size_of::<PackedQuadLighting>()
+    }
+
     /// Solid quads must arrive grouped by face in `Face::ALL` order.
     fn push(&mut self, quad: PackedQuad, lighting: PackedQuadLighting, solid: bool) {
         if solid {
@@ -65,7 +72,8 @@ impl CubeQuadStreams {
         }
     }
 
-    pub(crate) fn finish(self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
+    /// Copies the final streams into result-owned storage, retaining temporary capacities.
+    pub(crate) fn finish(&self) -> (Vec<PackedQuad>, Vec<PackedQuadLighting>, CubeQuadLayout) {
         let len = self.solid.len() + self.two_sided.len();
         let mut quads = Vec::with_capacity(len);
         let mut lighting = Vec::with_capacity(len);
@@ -75,13 +83,24 @@ impl CubeQuadStreams {
             quads.extend_from_slice(&self.solid[range.clone()]);
             lighting.extend_from_slice(&self.solid_lighting[range]);
         }
-        quads.extend(self.two_sided);
-        lighting.extend(self.two_sided_lighting);
+        quads.extend_from_slice(&self.two_sided);
+        lighting.extend_from_slice(&self.two_sided_lighting);
         (
             quads,
             lighting,
             CubeQuadLayout::from_solid_counts(self.solid_counts),
         )
+    }
+
+    /// Resets ordering metadata and retains only ordinary-sized working buffers.
+    pub(crate) fn reset(&mut self) {
+        use crate::scratch::{RETAIN_MULTIPLIER, reset_buffer};
+        let limit = Face::ALL.len() * SIDE * SIDE * RETAIN_MULTIPLIER;
+        reset_buffer(&mut self.solid, limit);
+        reset_buffer(&mut self.solid_lighting, limit);
+        reset_buffer(&mut self.two_sided, limit);
+        reset_buffer(&mut self.two_sided_lighting, limit);
+        self.solid_counts.fill(0);
     }
 }
 
@@ -406,5 +425,41 @@ pub(crate) const fn block_coordinate(face: Face, slice: usize, u: usize, v: usiz
         Face::NegativeX | Face::PositiveX => [slice, v, u],
         Face::NegativeY | Face::PositiveY => [u, slice, v],
         Face::NegativeZ | Face::PositiveZ => [u, v, slice],
+    }
+}
+
+#[cfg(test)]
+mod scratch_tests {
+    use super::*;
+
+    #[test]
+    fn cube_scratch_retains_warm_buffers_and_discards_oversized_streams() {
+        let limit = Face::ALL.len() * SIDE * SIDE * crate::scratch::RETAIN_MULTIPLIER;
+        let mut streams = CubeQuadStreams::default();
+        let quad = PackedQuad::new([1, 2, 3], Face::PositiveY, 1, 1, 0);
+        let light = PackedQuadLighting::default();
+        for _ in 0..SIDE * SIDE {
+            streams.push(quad, light, true);
+            streams.push(quad, light, false);
+        }
+        let output = streams.finish();
+        let retained = streams.retained_bytes();
+        streams.reset();
+        assert_eq!(streams.retained_bytes(), retained);
+        assert_eq!(streams.solid_counts, [0; 6]);
+        assert!(streams.finish().0.is_empty());
+        for _ in 0..SIDE * SIDE {
+            streams.push(quad, light, true);
+            streams.push(quad, light, false);
+        }
+        assert_eq!(streams.retained_bytes(), retained);
+        assert_eq!(streams.finish(), output);
+        for _ in 0..=limit {
+            streams.push(quad, light, true);
+            streams.push(quad, light, false);
+        }
+        streams.reset();
+        assert_eq!(streams.retained_bytes(), 0);
+        assert_eq!(output.0.len(), SIDE * SIDE * 2);
     }
 }

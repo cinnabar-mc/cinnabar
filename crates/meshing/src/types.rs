@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use world::SubChunk;
 
 use crate::SIDE;
@@ -690,38 +692,38 @@ impl<'a> Neighbourhood<'a> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ChunkMesh {
     pub(crate) cube_streams: Box<CubeStreams>,
-    pub(crate) model_refs: Box<[PackedModelRef]>,
-    pub(crate) model_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) model_refs: Arc<[PackedModelRef]>,
+    pub(crate) model_lighting: Arc<[PackedQuadLighting]>,
     pub(crate) model_draw_refs: Box<ModelDrawRefs>,
-    pub(crate) liquid_quads: Box<[PackedLiquidQuad]>,
-    pub(crate) liquid_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) liquid_quads: Arc<[PackedLiquidQuad]>,
+    pub(crate) liquid_lighting: Arc<[PackedQuadLighting]>,
     pub(crate) connectivity: FaceConnectivity,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct CubeStreams {
-    pub(crate) cube_quads: Box<[PackedQuad]>,
-    pub(crate) cube_lighting: Box<[PackedQuadLighting]>,
+    pub(crate) cube_quads: Arc<[PackedQuad]>,
+    pub(crate) cube_lighting: Arc<[PackedQuadLighting]>,
     pub(crate) layout: crate::CubeQuadLayout,
     pub(crate) diagnostic_geometry: DiagnosticGeometrySummary,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ModelDrawRefs {
-    pub(crate) opaque: Box<[PackedModelDrawRef]>,
-    pub(crate) transparent: Box<[PackedModelDrawRef]>,
+    pub(crate) opaque: Arc<[PackedModelDrawRef]>,
+    pub(crate) transparent: Arc<[PackedModelDrawRef]>,
 }
 
-/// Owned packed streams transferred from worker meshing into the render queue.
+/// Shared packed streams finalized by meshing and moved into the render queue.
 pub type ChunkMeshStreams = (
-    Box<[PackedQuad]>,
-    Box<[PackedQuadLighting]>,
-    Box<[PackedModelRef]>,
-    Box<[PackedQuadLighting]>,
-    Box<[PackedModelDrawRef]>,
-    Box<[PackedModelDrawRef]>,
-    Box<[PackedLiquidQuad]>,
-    Box<[PackedQuadLighting]>,
+    Arc<[PackedQuad]>,
+    Arc<[PackedQuadLighting]>,
+    Arc<[PackedModelRef]>,
+    Arc<[PackedQuadLighting]>,
+    Arc<[PackedModelDrawRef]>,
+    Arc<[PackedModelDrawRef]>,
+    Arc<[PackedLiquidQuad]>,
+    Arc<[PackedQuadLighting]>,
 );
 
 /// Structural rejection for externally assembled chunk mesh streams.
@@ -792,19 +794,19 @@ impl ChunkMesh {
         }
         Ok(Self {
             cube_streams: Box::new(CubeStreams {
-                cube_quads: cube_quads.into_boxed_slice(),
-                cube_lighting: cube_lighting.into_boxed_slice(),
+                cube_quads: cube_quads.into(),
+                cube_lighting: cube_lighting.into(),
                 layout: crate::CubeQuadLayout::default(),
                 diagnostic_geometry: DiagnosticGeometrySummary::default(),
             }),
-            model_refs: model_refs.into_boxed_slice(),
-            model_lighting: model_lighting.into_boxed_slice(),
+            model_refs: model_refs.into(),
+            model_lighting: model_lighting.into(),
             model_draw_refs: Box::new(ModelDrawRefs {
-                opaque: model_draw_refs.into_boxed_slice(),
-                transparent: Box::new([]),
+                opaque: model_draw_refs.into(),
+                transparent: Arc::from([]),
             }),
-            liquid_quads: liquid_quads.into_boxed_slice(),
-            liquid_lighting: liquid_lighting.into_boxed_slice(),
+            liquid_quads: liquid_quads.into(),
+            liquid_lighting: liquid_lighting.into(),
             connectivity,
         })
     }
@@ -852,7 +854,7 @@ impl ChunkMesh {
 
     #[must_use]
     pub fn with_transparent_model_draw_refs(mut self, draw_refs: Vec<PackedModelDrawRef>) -> Self {
-        self.model_draw_refs.transparent = draw_refs.into_boxed_slice();
+        self.model_draw_refs.transparent = draw_refs.into();
         self
     }
 
@@ -894,7 +896,7 @@ impl ChunkMesh {
     }
 
     #[must_use]
-    pub fn into_quads(self) -> Box<[PackedQuad]> {
+    pub fn into_quads(self) -> Arc<[PackedQuad]> {
         self.cube_streams.cube_quads
     }
 

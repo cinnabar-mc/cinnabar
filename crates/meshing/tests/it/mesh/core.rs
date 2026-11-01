@@ -21,6 +21,25 @@ fn one_opaque_block_emits_six_packed_quads() {
 }
 
 #[test]
+fn worker_mesh_clones_and_publishes_the_same_cube_allocations() {
+    let mesh = mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &blocks(7, &[[1, 2, 3]]),
+    );
+    let retained = mesh.clone();
+    let (quads, lighting, _, _, _, _, _, _) = mesh.into_streams();
+    assert_eq!(quads.as_ptr(), retained.cube_quads().as_ptr());
+    assert_eq!(lighting.as_ptr(), retained.cube_lighting().as_ptr());
+    assert_eq!(quads.as_ref(), retained.cube_quads());
+    assert_eq!(lighting.as_ref(), retained.cube_lighting());
+    drop(retained);
+    assert_eq!(quads.len(), 6);
+    assert_eq!(lighting.len(), quads.len());
+}
+
+#[test]
 fn cube_lighting_roundtrips_with_streams_and_rejects_count_mismatch() {
     let base = mesh(
         &classifier(),

@@ -357,6 +357,8 @@ interface panel {
     record event { id: string, value: f32 }
     /// Changes this instance's panel input ownership on successful callback return.
     /// Requires controls authority and a retained or pending panel when opening.
+    /// The latest opener owns the panel and closes other owners. Opening keys belong
+    /// to the mod: legacy toggle_key JSON is accepted and ignored by the host.
     set-open: func(open: bool) -> result<_, string>;
     /// Bounded panel JSON; empty text removes the panel and releases its input. A
     /// `cinnabar_hud_control` node draws a named control of this mod's HUD surface, centred:
@@ -434,7 +436,8 @@ interface input {
         focused: bool,
         gameplay: bool,
         panel-open: bool,
-        /// Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle.
+        /// Physical non-repeat edges, including while this owner edits a native field;
+        /// pointer buttons use MouseLeft/MouseRight/MouseMiddle.
         keys-pressed: list<string>,
         /// Physical keys held this frame, including reserved ones, in physical-name order.
         /// Truncated to MAX_CONTROL_KEYS when more are held.
@@ -614,6 +617,12 @@ interface gameplay {
     /// One attack-press edge, only while the physical attack control is held.
     /// An active action filter receives it as a repeat.
     pulse-attack: func() -> result<_, string>;
+    /// Holds ordinary mining on the crosshair block for one successful gameplay frame.
+    /// Requires interaction authority and a current gameplay frame when true; false releases
+    /// only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+    /// callbacks release it. Does not press attack or select targets; normal block reach,
+    /// obstruction, game mode, tool timing, item use and server checks still apply.
+    set-block-mining: func(held: bool) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.

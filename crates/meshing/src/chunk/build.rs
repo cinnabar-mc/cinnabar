@@ -40,14 +40,14 @@ pub fn mesh_sub_chunk_with_lighting<S: crate::lighting::MeshLightSampler + ?Size
             let _ = neighbourhood.insert(face_offset(face), neighbour);
         }
     }
-    mesh_sub_chunk_core(
+    mesh_sub_chunk_core::<false, S>(
         classifier,
         visuals,
         network_id_mode,
         &neighbourhood,
         light_sampler,
-        false,
         MeshOptions::default(),
+        &mut crate::MeshScratch::default(),
     )
 }
 
@@ -120,41 +120,81 @@ pub fn mesh_sub_chunk_in_neighbourhood_with_options<
     light_sampler: &S,
     options: MeshOptions<'_>,
 ) -> ChunkMesh {
-    mesh_sub_chunk_core(
+    mesh_sub_chunk_in_neighbourhood_with_scratch(
         classifier,
         visuals,
         network_id_mode,
         neighbourhood,
         light_sampler,
-        true,
         options,
+        &mut crate::MeshScratch::default(),
     )
 }
 
-fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
+/// Meshes with worker-owned temporary storage, resetting it before and after every job.
+/// Returned streams own their bytes and remain valid across reuse or release of `scratch`.
+#[must_use]
+pub fn mesh_sub_chunk_in_neighbourhood_with_scratch<
+    S: crate::lighting::MeshLightSampler + ?Sized,
+>(
     classifier: &BlockClassifier,
     visuals: &RuntimeAssets,
     network_id_mode: NetworkIdMode,
     neighbourhood: &MeshNeighbourhood<'_>,
     light_sampler: &S,
-    include_liquids: bool,
     options: MeshOptions<'_>,
+    scratch: &mut crate::MeshScratch,
+) -> ChunkMesh {
+    scratch.reset();
+    let output = mesh_sub_chunk_core::<true, S>(
+        classifier,
+        visuals,
+        network_id_mode,
+        neighbourhood,
+        light_sampler,
+        options,
+        scratch,
+    );
+    scratch.reset();
+    output
+}
+
+/// Builds independent streams; legacy callers omit liquids that need the full neighbourhood.
+fn mesh_sub_chunk_core<
+    const INCLUDE_LIQUIDS: bool,
+    S: crate::lighting::MeshLightSampler + ?Sized,
+>(
+    classifier: &BlockClassifier,
+    visuals: &RuntimeAssets,
+    network_id_mode: NetworkIdMode,
+    neighbourhood: &MeshNeighbourhood<'_>,
+    light_sampler: &S,
+    options: MeshOptions<'_>,
+    scratch: &mut crate::MeshScratch,
 ) -> ChunkMesh {
     let sub_chunk = neighbourhood
         .sub_chunk([0, 0, 0])
         .expect("MeshNeighbourhood always contains its center");
-    let mut facts = PaletteFacts::new(*classifier, visuals, network_id_mode, sub_chunk);
+    let mut facts = PaletteFacts::with_scratch(
+        *classifier,
+        visuals,
+        network_id_mode,
+        sub_chunk,
+        std::mem::take(&mut scratch.palette),
+    );
     // Every pass below asks about each voxel and its neighbours, so the section decodes once.
     facts.decode_voxels();
     if facts.is_air() {
+        let connectivity = cave_connectivity(&facts, |_| true);
+        scratch.palette = facts.scratch;
         return ChunkMesh {
             cube_streams: Box::default(),
-            model_refs: Box::new([]),
-            model_lighting: Box::new([]),
+            model_refs: Arc::from([]),
+            model_lighting: Arc::from([]),
             model_draw_refs: Box::default(),
-            liquid_quads: Box::new([]),
-            liquid_lighting: Box::new([]),
-            connectivity: cave_connectivity(&facts, |_| true),
+            liquid_quads: Arc::from([]),
+            liquid_lighting: Arc::from([]),
+            connectivity,
         };
     }
     let masks = VisibilityMasks::from_facts(&facts);
@@ -193,7 +233,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         options.rendering.transparent_leaves,
         options.cutout_leaves,
     );
-    let mut cube_streams = CubeQuadStreams::default();
+    let cube_streams = &mut scratch.cubes;
     let mut diagnostic_geometry = DiagnosticGeometryAccumulator::default();
     // Greedy merging reads lighting only at the current slice's visible cells, which are
     // all rewritten before it runs, so one scratch serves every slice.
@@ -251,7 +291,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
                 &mut rows,
                 &lighting_scratch,
                 &mut CubeMeshOutput::new(
-                    &mut cube_streams,
+                    cube_streams,
                     &mut diagnostic_geometry,
                     visuals.materials(),
                     options.split_tinted_faces,
@@ -514,7 +554,7 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         },
     );
 
-    let (liquid_quads, liquid_lighting) = if include_liquids {
+    let (liquid_quads, liquid_lighting) = if INCLUDE_LIQUIDS {
         mesh_liquids(
             *classifier,
             visuals,
@@ -527,25 +567,26 @@ fn mesh_sub_chunk_core<S: crate::lighting::MeshLightSampler + ?Sized>(
         (Vec::new(), Vec::new())
     };
     let (quads, cube_lighting, layout) = cube_streams.finish();
+    scratch.palette = facts.scratch;
     ChunkMesh {
         cube_streams: Box::new(CubeStreams {
-            cube_quads: quads.into_boxed_slice(),
-            cube_lighting: cube_lighting.into_boxed_slice(),
+            cube_quads: quads.into(),
+            cube_lighting: cube_lighting.into(),
             layout,
             diagnostic_geometry: diagnostic_geometry.finish(),
         }),
-        model_refs: model_refs.into_boxed_slice(),
-        model_lighting: model_lighting.into_boxed_slice(),
+        model_refs: model_refs.into(),
+        model_lighting: model_lighting.into(),
         model_draw_refs: Box::new(ModelDrawRefs {
-            opaque: model_draw_refs.into_boxed_slice(),
-            transparent: transparent_model_draw_refs.into_boxed_slice(),
+            opaque: model_draw_refs.into(),
+            transparent: transparent_model_draw_refs.into(),
         }),
-        liquid_quads: liquid_quads.into_boxed_slice(),
-        liquid_lighting: liquid_lighting.into_boxed_slice(),
+        liquid_quads: liquid_quads.into(),
+        liquid_lighting: liquid_lighting.into(),
         connectivity,
     }
 }
-use std::cell::OnceCell;
+use std::{cell::OnceCell, sync::Arc};
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,
@@ -562,8 +603,8 @@ use super::{
         model_template_flags, select_model_templates, snow_side_is_covered, vine_quad_mask,
     },
     opaque::{
-        CubeMeshOutput, CubeQuadStreams, DiagnosticGeometryAccumulator, VisibilityMasks,
-        block_coordinate, exposed_columns, face_offset, greedy_slice,
+        CubeMeshOutput, DiagnosticGeometryAccumulator, VisibilityMasks, block_coordinate,
+        exposed_columns, face_offset, greedy_slice,
     },
 };
 use crate::{

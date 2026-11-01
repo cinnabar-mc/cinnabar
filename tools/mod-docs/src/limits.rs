@@ -71,8 +71,6 @@ pub(super) fn render() -> String {
         mod_api::MAX_ICON_BYTES => "Mods library icon bytes.",
         mod_api::MAX_ICON_SIDE => "Mods library icon side in pixels.",
         mod_api::native_frame::MAX_BYTES => "Native frame input and camera output bytes.",
-        mod_api::native_menu::MAX_INPUT_BYTES => "Native menu input bytes.",
-        mod_api::native_menu::MAX_OUTPUT_BYTES => "Native menu output bytes.",
         mod_api::native_render::MAX_BYTES => "Native drawing output bytes.",
     );
     section!("Block geometry and clipping",

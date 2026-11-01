@@ -71,8 +71,8 @@ impl WorldStream {
     ) -> Self {
         let _ = &*workers::WORKERS;
         warm_block_mutation_facts();
-        let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
+        let (decode_tx, decode_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let (mesh_tx, mesh_rx) = result_mailbox(WORK_RESULT_CAPACITY);
         let authority = client_world::WorldAuthority::new_with_actor_catalog(
             bootstrap,
             runtime_assets,

@@ -1,4 +1,5 @@
 //! Runtime metrics, process logging and shared diagnostic marker contracts.
+pub mod benchmark;
 pub mod bounded_file;
 pub mod console;
 #[cfg(not(target_arch = "wasm32"))]
@@ -10,6 +11,7 @@ pub mod secret;
 pub mod session;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod session_log;
+pub mod thread_cpu;
 
 /// Writes one diagnostic marker and flushes it immediately.
 pub fn write_stdout_marker(stdout: &mut impl std::io::Write, marker: &str) {

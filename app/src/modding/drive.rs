@@ -49,7 +49,7 @@ pub(super) fn drive_mod(
     mut presentation: ResMut<UiPresentationResource>,
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
-    interaction: Option<ResMut<interaction::ModInteraction>>,
+    mut interaction: Option<ResMut<interaction::ModInteraction>>,
     outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
@@ -78,6 +78,9 @@ pub(super) fn drive_mod(
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
+    if let Some(interaction) = interaction.as_deref_mut() {
+        interaction.block_mining = false;
+    }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
     }
@@ -311,9 +314,10 @@ pub(super) fn drive_mod(
     }
     let panel_owner = extension.hosts.panel_owner();
     let panel_was_recovering = panel_owner < extension.hosts.host_count()
-        && !packets
-            .as_ref()
-            .is_some_and(|packets| packets.menu_owns_panel())
+        && !packets.as_ref().is_some_and(|packets| {
+            packets.panel.owned
+                && !(0..extension.hosts.host_count()).any(|i| extension.hosts.host(i).panel_open())
+        })
         && extension.hosts.host(panel_owner).is_recovering();
     let recovering_screen = extension
         .hosts
@@ -385,8 +389,6 @@ pub(super) fn drive_mod(
         }
         warn!("Cinnabar extension callback failed: {error}");
     }
-    // A tapped mod that opened its panel shows it, as its toggle key would.
-    extension.hosts.select_panels_opened_by_taps();
     for index in 0..extension.hosts.host_count() {
         for message in extension.hosts.host_mut(index).take_local_messages() {
             ui.push_local_chat_line(
@@ -499,6 +501,7 @@ pub(super) fn drive_mod(
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
+    interaction.block_mining = enabled && merged.block_mining;
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
@@ -593,29 +596,26 @@ pub(super) fn drive_mod(
         style.presentation = std::sync::Arc::clone(&mod_presentation);
     }
     presentation.set_mod_presentation(mod_presentation);
-    if !packets
-        .as_ref()
-        .is_some_and(|packets| packets.menu_owns_panel())
-    {
-        let owner = extension.hosts.panel_owner();
-        presentation.set_mod_menu_branding(extension.menu_branding());
-        if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone())
+    let packet_owns_panel = packets.as_ref().is_some_and(|packets| {
+        packets.panel.owned
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order > extension.hosts.latest_panel_open_order())
+    });
+    if packet_owns_panel {
+        for index in 0..extension.hosts.host_count() {
+            extension.hosts.host_mut(index).set_panel_open(false);
+        }
+    } else {
+        if let Some(packets) = packets.as_ref()
+            && packets
+                .panel_open_order()
+                .is_some_and(|order| order < extension.hosts.latest_panel_open_order())
+            && let Some(handle) = packets.panel_handle()
         {
-            warn!("Cinnabar extension panel font rejected: {error}");
+            handle.close();
         }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
-        if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
-            extension.panel_ui_owner(owner),
-            extension.hosts.host(owner).panel(),
-        ) {
-            warn!("Cinnabar extension panel rejected: {error}");
-            extension.hosts.host_mut(owner).set_panel_open(false);
-        }
-        presentation
-            .mod_ui_mut()
-            .set_mod_panel_open(extension.hosts.host(owner).panel_open());
+        present_frame_panel(&mut extension, &mut presentation);
     }
     let hosts = &extension.hosts;
     presentation.set_mod_touch_buttons(
@@ -704,6 +704,31 @@ fn container_pointer_available(
             .scenes(player, SceneHost::of(None, ui))
             .top()
             .is_some_and(|scene| scene.key == Scene::Container)
+}
+
+/// Publishes the selected frame owner's surface through the shared presentation path.
+pub(super) fn present_frame_panel(
+    extension: &mut ModRuntime,
+    presentation: &mut UiPresentationResource,
+) {
+    let owner = extension.hosts.panel_owner();
+    presentation.set_mod_menu_branding(extension.menu_branding());
+    if let Err(error) = presentation.set_mod_panel_font(extension.metadata[owner].font.clone()) {
+        warn!("Cinnabar extension panel font rejected: {error}");
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_actor_authority(actor_authority(extension.hosts.host(owner).grants()));
+    if let Err(error) = presentation.mod_ui_mut().set_mod_panel(
+        extension.panel_ui_owner(owner),
+        extension.hosts.host(owner).panel(),
+    ) {
+        warn!("Cinnabar extension panel rejected: {error}");
+        extension.hosts.host_mut(owner).set_panel_open(false);
+    }
+    presentation
+        .mod_ui_mut()
+        .set_mod_panel_open(extension.hosts.host(owner).panel_open());
 }
 
 #[cfg(test)]

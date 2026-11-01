@@ -16,8 +16,8 @@ pub use input::{
 };
 pub mod native_camera;
 pub mod native_frame;
-pub mod native_menu;
 pub mod native_render;
+pub mod panel_input;
 
 /// Converts observed actor YXZ degrees (forward -Z, pitch up) to Bedrock view degrees.
 pub fn bedrock_view_angles(yaw: f32, pitch: f32) -> [f32; 2] {

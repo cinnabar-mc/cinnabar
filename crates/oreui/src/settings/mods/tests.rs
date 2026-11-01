@@ -15,6 +15,7 @@ fn installed(id: u64, name: &str) -> InstalledMod {
         file: format!("{name}.wasm"),
         bytes: 2048,
         permissions: vec![Permission {
+            applicable: true,
             name: "camera".into(),
             description: "Allows camera output.".into(),
             enabled: false,

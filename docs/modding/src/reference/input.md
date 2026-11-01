@@ -105,7 +105,7 @@ record controls {
 | `focused` | `bool` |  |
 | `gameplay` | `bool` |  |
 | `panel-open` | `bool` |  |
-| `keys-pressed` | `list<string>` | Physical non-repeat edges; pointer buttons use MouseLeft/MouseRight/MouseMiddle. |
+| `keys-pressed` | `list<string>` | Physical non-repeat edges, including while this owner edits a native field;<br>pointer buttons use MouseLeft/MouseRight/MouseMiddle. |
 | `keys-held` | `list<string>` | Physical keys held this frame, including reserved ones, in physical-name order.<br>Truncated to MAX_CONTROL_KEYS when more are held. |
 | `keys-admitted` | `list<string>` | Held desktop keys/buttons admitted by the finalized gameplay router, including<br>modifiers. Uses keys-held names and bounds; excludes consumed, quarantined,<br>reserved and ineligible-device controls. Empty outside gameplay input ownership.<br>Match read-bindings chords against this list, respecting modifier precedence.<br>This is physical admission, never a resolved action or permission to act.<br>Same physical-name order as keys-held, independently truncated to MAX_CONTROL_KEYS.<br>Above that held-key cap, chord resolution can differ from the host's gate. |
 | `events` | `list<event>` |  |

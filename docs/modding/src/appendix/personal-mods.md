@@ -328,3 +328,22 @@ direction. Hunger, item-use, collision, input locks and server authority remain
 in force. The override only operates while focused gameplay owns walking input;
 passing `None`, omitting renewal or unloading restores ordinary controls. Older
 hosts cannot load components importing these operations.
+
+## Explicit panel ownership
+
+Panel visibility belongs to the mod. Read physical keys with controls authority,
+choose your own opening and closing policy, and call `panel.set-open`. The host
+never opens or toggles a panel for F10 or legacy `toggle_key` metadata. That field
+is still accepted and ignored, allowing existing components to load during migration;
+a mod depending on host toggles must be updated before its panel can be opened.
+The most recent explicit opener owns input and closes every other mod panel.
+Escape dismissal (unless `capture_key`) and native text editing remain standard UI
+navigation. Packet reactors use [panel and input imports](packet-panels.md).
+
+This behavior change retires earlier supported mod API revisions from update
+eligibility. Manual installation still admits compatible binaries; revision-update
+metadata on newly published mods must name the new supported revision. The WIT
+package remains `cinnabar:extension@0.1.0` because these existing component function
+signatures have not changed. Server-experience client parts use the separate
+`cinnabar:extension/server-bundle@0.1.0` world and do not import the personal-mod panel interface, so this change
+does not alter their bundle contract.

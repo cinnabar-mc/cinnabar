@@ -34,11 +34,14 @@ impl ResourceMeshSnapshot {
         Some(
             self.chunks
                 .into_par_iter()
-                .map(|(key, snapshot)| {
-                    let biome = pack_biome_record(&snapshot.biomes, &resolved);
-                    let mesh = snapshot.mesh(classifier, assets, mode, &biome);
-                    (key, mesh, biome)
-                })
+                .map_init(
+                    ::meshing::MeshScratch::default,
+                    |scratch, (key, snapshot)| {
+                        let biome = pack_biome_record(&snapshot.biomes, &resolved);
+                        let mesh = snapshot.mesh(classifier, assets, mode, &biome, scratch);
+                        (key, mesh, biome)
+                    },
+                )
                 .collect(),
         )
     }
