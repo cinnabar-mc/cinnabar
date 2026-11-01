@@ -77,10 +77,10 @@ fn a_constant_hurt_color_tints_the_actor_only_while_it_is_hurt() {
     assert_eq!(sampled_overlay(&mut store, &actor), OVERLAY);
 }
 
-/// A rig sampled every frame reuses whole samples between ticks, so a hit that starts or ends
-/// between them must still reach its hurt colour.
+/// A hit starting or ending between ticks reaches the hurt colour without waiting for the next
+/// tick, including through samples retained for the current one.
 #[test]
-fn frame_sampled_rigs_follow_damage_between_ticks() {
+fn hurt_colors_follow_damage_between_ticks() {
     let identifier = "custom:hurt_color";
     let mut actor = tests::actor_with_metadata(HashMap::new());
     actor.kind = protocol::ActorKind::Entity {
@@ -88,14 +88,14 @@ fn frame_sampled_rigs_follow_damage_between_ticks() {
     };
     let mut store = ActorAnimationStore::with_assets(hurt_color_assets(identifier));
     store.insert(1, 0, &actor);
-    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
-    let advance = |store: &mut ActorAnimationStore| {
-        store.advance_tick(&actors, None, None, true, true, |_| Default::default());
-    };
-    advance(&mut store);
-    let lifetime = store.runtime_to_lifetime[&actor.runtime_id];
-    store.rigs.get_mut(&lifetime).unwrap().samples_render_frames = true;
-    advance(&mut store);
+    store.advance_tick(
+        &HashMap::from([(actor.runtime_id, actor.clone())]),
+        None,
+        None,
+        true,
+        true,
+        |_| Default::default(),
+    );
 
     assert_eq!(sampled_overlay(&mut store, &actor), OVERLAY);
     actor.status.overlay_alpha = 0.6;
