@@ -97,15 +97,20 @@ pub(crate) fn render_layer_expressions(
     RenderExpressions { expressions, gates }
 }
 
-/// Frame-time queries require fresh rendered-layer evaluation between simulation ticks.
+/// Frame-time queries require fresh rendered-layer evaluation between simulation ticks, as does a
+/// hurt colour, which follows the actor's damage state rather than any authored input.
 pub(crate) fn needs_frame_sampling(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     binding: usize,
 ) -> bool {
-    render_expressions(assets, binding)
-        .into_iter()
-        .any(|expression| layout.expression_inputs(expression as usize).frame)
+    assets
+        .render_layers(binding)
+        .iter()
+        .any(|layer| layer.hurt_color.is_some())
+        || render_expressions(assets, binding)
+            .into_iter()
+            .any(|expression| layout.expression_inputs(expression as usize).frame)
 }
 
 /// Rendered expressions retain motion endpoints whenever they read interpolated actor inputs.

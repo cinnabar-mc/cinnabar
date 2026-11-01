@@ -52,6 +52,11 @@ pub trait AnimatedActor: Send + Sync + std::fmt::Debug {
     fn swell_full_ticks(&self) -> f32;
     /// Red damage overlay alpha; zero while no overlay shows.
     fn overlay_alpha(&self) -> f32;
+    /// Whether a render controller's `is_hurt_color` replaces its `overlay_color`. Native reads it
+    /// only while the actor shows damage, so a pack's constant hurt colour leaves it untinted otherwise.
+    fn shows_damage(&self) -> bool {
+        self.overlay_alpha() > 0.0
+    }
     fn hurt_time(&self) -> u8;
     fn shake_time(&self) -> i32;
     fn hurt_direction(&self) -> Option<f32>;

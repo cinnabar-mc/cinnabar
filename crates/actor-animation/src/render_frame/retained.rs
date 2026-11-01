@@ -10,6 +10,7 @@ pub(super) struct Key {
     swell: u32,
     legacy: bool,
     color: [u32; 4],
+    hurt: bool,
     skin: bool,
     skin_tick: Option<u64>,
 }
@@ -50,6 +51,7 @@ impl Key {
             ),
             color: crate::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
                 .map(f32::to_bits),
+            hurt: evaluator.actor.shows_damage(),
             skin,
             skin_tick: (skin && !state.skin_layers.is_empty()).then_some(evaluator.life_tick),
         }

@@ -366,9 +366,9 @@ Molang state, and every texture a candidate can select is built into the actor p
 
 | Status | Coverage |
 | --- | --- |
-| Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color` |
+| Drawn | geometry candidates from ternary and `Array.x[expr]` expressions, re-selected every tick (baby, sheared), texture aliases, `Array.x[expr]` selection, nested ternaries, several `textures` entries per controller (drawn as stacked layers), several controllers per entity that share the rig's geometry, `part_visibility` (bone-name patterns, trailing `*`), `color` as the tint, `overlay_color`, `is_hurt_color` while the actor shows damage |
 | Approximated | materials are all drawn with the neutral binary-alpha material; a controller layer whose `geometry` never selects the rig's default geometry is skipped; hidden bones hide only their own cubes; fractional-alpha and mis-sized variant rasters are omitted; an entity without a `default` geometry alias rests on its first alias until its controller selects |
-| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `is_hurt_color`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape) |
+| Missing | `uv_anim`, `light_color_multiplier`, `ignore_lighting`, `on_fire_color` (compiled, not drawn), per-bone `materials`, controllers using another geometry (sheep wool geometry, cape-style second rigs other than the player cape) |
 
 Player skins: a skin's own geometry (resource patch `geometry.default`, inheritance only within
 the skin's JSON, lenient field parsing) replaces the default humanoid, driven by the player's
