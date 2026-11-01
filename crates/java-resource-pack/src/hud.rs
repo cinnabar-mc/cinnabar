@@ -149,24 +149,6 @@ pub(crate) const XP_BAR_TEXTURES: [&str; 2] = [
 /// Bedrock's tiled experience bar notches, cleared when a Java bar supplies its own.
 pub(crate) const XP_NUB: &str = "textures/ui/experiencenub.png";
 
-/// Legacy atlas sprites without a Bedrock HUD texture: the crosshair is written through the atlas
-/// itself, and Bedrock has no mount-heart container, hardcore container, mount jump bar or attack
-/// indicator textures.
-const NO_BEDROCK_TEXTURE: [&str; 12] = [
-    CROSSHAIR,
-    "heart/vehicle_container",
-    "heart/container_hardcore",
-    "heart/container_hardcore_blinking",
-    "jump_bar_cooldown",
-    "jump_bar_background",
-    "jump_bar_progress",
-    "hotbar_attack_indicator_background",
-    "hotbar_attack_indicator_progress",
-    "crosshair_attack_indicator_background",
-    "crosshair_attack_indicator_progress",
-    "crosshair_attack_indicator_full",
-];
-
 /// Legacy atlas sprites added after the atlas layout itself (frozen hearts in 1.17, the attack
 /// indicator in 1.9): packs made earlier leave their regions empty, so an empty region means the
 /// sprite is missing rather than deliberately transparent.
@@ -416,6 +398,24 @@ pub(crate) fn icons_from_sprites(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Legacy atlas sprites without a Bedrock HUD texture: the crosshair is written through the atlas
+    /// itself, and Bedrock has no mount-heart container, hardcore container, mount jump bar or attack
+    /// indicator textures.
+    const NO_BEDROCK_TEXTURE: [&str; 12] = [
+        CROSSHAIR,
+        "heart/vehicle_container",
+        "heart/container_hardcore",
+        "heart/container_hardcore_blinking",
+        "jump_bar_cooldown",
+        "jump_bar_background",
+        "jump_bar_progress",
+        "hotbar_attack_indicator_background",
+        "hotbar_attack_indicator_progress",
+        "crosshair_attack_indicator_background",
+        "crosshair_attack_indicator_progress",
+        "crosshair_attack_indicator_full",
+    ];
 
     #[test]
     fn every_legacy_atlas_sprite_is_mapped_or_has_no_bedrock_texture() {
