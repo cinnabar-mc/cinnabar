@@ -89,6 +89,14 @@ type ItemResult = Option<((String, Output), Option<(String, RgbaImage)>)>;
 fn item(layout: Layout, name: &str, bytes: Vec<u8>) -> ItemResult {
     let mut image = decode(&bytes)?;
     let changed = fix_alpha(&mut image);
+    if let Some(atlas) = items::legacy_strip_atlas(layout, name, image.width(), image.height()) {
+        let output = if changed {
+            Output::Image(image)
+        } else {
+            Output::Raw(bytes)
+        };
+        return Some(((format!("textures/items/{atlas}.png"), output), None));
+    }
     let bedrock = names::item_path(layout, name);
     let frame =
         strip_frame(image.width(), image.height()).filter(|_| !names::is_flipbook(&bedrock));

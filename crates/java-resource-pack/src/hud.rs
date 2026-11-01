@@ -145,7 +145,7 @@ const fn rect(x: u32, y: u32, w: u32, h: u32) -> Rect {
     Rect { x, y, w, h }
 }
 
-/// Each 1.20.2+ HUD sprite's region in the `gui/icons.png` of packs made for 1.8-1.20.1; the
+/// Each 1.20.2+ HUD sprite's region in the `gui/icons.png` of packs made for 1.7-1.20.1; the
 /// positions match the 1.20.1 atlas pixel for pixel.
 pub(crate) const LEGACY_ICON_RECTS: [(&str, Rect); 61] = [
     ("crosshair", rect(0, 0, 15, 15)),

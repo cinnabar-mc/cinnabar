@@ -1278,9 +1278,11 @@ descriptions, through the shared parser used by local import and installed-pack 
 Global pack import also accepts Java Edition resource packs: an archive or folder with
 `pack.mcmeta` and no Bedrock manifest is translated by `java-resource-pack` into an ordinary
 Bedrock pack, which then passes the usual import validation. This is a Cinnabar feature without
-a vanilla counterpart. Translation covers block and item textures for legacy and flattened
-layouts, worn armour including 1.21.2+ equipment, pre-coloured potions, clock and compass
-atlases, the legacy HUD atlases and 1.20.2+ HUD sprites, and OptiFine overworld skies. The
+a vanilla counterpart. Translation covers block and item textures for pre-1.13 layouts (1.7
+and 1.8 included) and flattened layouts, worn armour including 1.21.2+ equipment, pre-coloured
+potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD atlases and
+1.20.2+ HUD sprites, and OptiFine overworld skies. Every vanilla 1.7.10 and 1.8.9 block and item
+texture with a Bedrock counterpart maps to it, and their HUD crops match pixel for pixel. The
 Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
 Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
 target and the flipbook list against the pinned sample pack, but no pinned Java source checks the

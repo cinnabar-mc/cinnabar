@@ -13,7 +13,8 @@ const FIRST_FLATTENED_FORMAT: i64 = 4;
 /// How a Java pack names its block and item texture folders.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Layout {
-    /// 1.8-1.12: `textures/blocks`, `textures/items` and pre-flattening names.
+    /// Before 1.13 (1.7 and 1.8 included): `textures/blocks`, `textures/items` and
+    /// pre-flattening names.
     Legacy,
     /// 1.13 and later: `textures/block`, `textures/item` and flattened names.
     Flattened,

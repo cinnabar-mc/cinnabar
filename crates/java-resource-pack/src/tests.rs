@@ -270,6 +270,57 @@ fn a_current_pack_translates_flattened_names_strips_sprites_and_equipment() {
     assert!(out.contains_key("textures/models/armor/turtle_1.png"));
 }
 
+/// A vertical strip of `frames` square frames, each filled with a colour derived from its index.
+fn strip(side: u32, frames: u32) -> Vec<u8> {
+    encode(&RgbaImage::from_fn(side, side * frames, |_, y| {
+        Rgba([(y / side) as u8, 0, 0, 255])
+    }))
+}
+
+#[test]
+fn pre_1_9_clock_and_compass_strips_become_the_bedrock_atlases() {
+    let items = "assets/minecraft/textures/items/";
+    let files = pack(vec![
+        (
+            "pack.mcmeta",
+            br#"{"pack":{"pack_format":1,"description":"1.7"}}"#.to_vec(),
+        ),
+        (&format!("{items}clock.png"), strip(16, 64)),
+        (&format!("{items}compass.png"), strip(16, 32)),
+        (&format!("{items}bed.png"), solid(16, 16, RED)),
+    ]);
+    let translation = run(&files, "Legacy").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/items/watch_atlas.png", 0, 63 * 16),
+        ((16, 1024), [63, 0, 0, 255])
+    );
+    assert_eq!(
+        pixel(&out, "textures/items/compass_atlas.png", 0, 31 * 16),
+        ((16, 512), [31, 0, 0, 255])
+    );
+    assert!(!out.contains_key("textures/items/clock.png"));
+    assert!(!out.contains_key("textures/items/compass.png"));
+    assert!(out.contains_key("textures/items/bed_red.png"));
+}
+
+#[test]
+fn strips_with_another_frame_count_are_not_used_as_atlases() {
+    let files = pack(vec![(
+        "assets/minecraft/textures/items/clock.png",
+        strip(16, 8),
+    )]);
+    let out_files = run(&files, "Legacy").unwrap();
+    let out = output(&out_files);
+    assert!(!out.contains_key("textures/items/watch_atlas.png"));
+    let flattened = pack(vec![(
+        "assets/minecraft/textures/item/clock.png",
+        strip(16, 64),
+    )]);
+    let translation = run(&flattened, "Current").unwrap();
+    assert!(!output(&translation).contains_key("textures/items/watch_atlas.png"));
+}
+
 #[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(

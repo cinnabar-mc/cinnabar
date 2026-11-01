@@ -1,12 +1,13 @@
 //! Translation of Java Edition resource packs into Bedrock resource packs.
 //!
 //! [`find_root`] recognizes a Java pack among archive paths and [`translate`] rewrites its
-//! textures into a Bedrock pack with a generated manifest. Both editions' layouts are supported:
-//! legacy 1.8-1.12 packs and flattened 1.13+ packs, including the 1.20.2+ HUD sprites and
-//! 1.21.2+ equipment folders. Block and item textures are renamed to their Bedrock paths, armour
-//! layers take Bedrock names, potions are pre-coloured, clock and compass frames are stitched into
-//! atlases, the HUD atlases are cut into Bedrock's individual textures and an OptiFine sky becomes
-//! the overworld cube map. Files Bedrock cannot use are ignored.
+//! textures into a Bedrock pack with a generated manifest. Both Java layouts are supported:
+//! legacy pre-1.13 packs, 1.7 and 1.8 included, and flattened 1.13+ packs with the 1.20.2+ HUD
+//! sprites and 1.21.2+ equipment folders. Block and item textures are renamed to their Bedrock
+//! paths, armour layers take Bedrock names, potions are pre-coloured, clock and compass frames or
+//! pre-1.9 strips become the Bedrock atlases, the HUD atlases are cut into Bedrock's individual
+//! textures and an OptiFine sky becomes the overworld cube map. Files Bedrock cannot use are
+//! ignored.
 //!
 //! The mappings follow portmypack (<https://github.com/RestartFU/portmypack>), whose tables were
 //! derived by matching Java Edition textures against Mojang/bedrock-samples.

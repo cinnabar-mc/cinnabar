@@ -1,5 +1,7 @@
-# Java Edition legacy (1.8-1.12) texture path -> Bedrock texture path, both without extension.
-# Unlisted paths keep their name. Derived like flattened-names.tsv from the 1.12.2 client textures.
+# Java Edition legacy (pre-1.13) texture path -> Bedrock texture path, both without extension.
+# Unlisted paths keep their name. Derived like flattened-names.tsv from the 1.12.2 client textures,
+# and checked against the 1.7.10 and 1.8.9 client textures; items/bed is the only bed before 1.12,
+# which is red.
 blocks/destroy_stage_0	environment/destroy_stage_0
 blocks/destroy_stage_1	environment/destroy_stage_1
 blocks/destroy_stage_2	environment/destroy_stage_2
@@ -16,6 +18,7 @@ blocks/water_flow	blocks/water_flow_grey
 blocks/water_still	blocks/water_still_grey
 items/acacia_boat	items/boat_acacia
 items/barrier	blocks/barrier
+items/bed	items/bed_red
 items/beetroot_seeds	items/seeds_beetroot
 items/birch_boat	items/boat_birch
 items/dark_oak_boat	items/boat_darkoak

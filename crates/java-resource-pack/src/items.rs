@@ -86,6 +86,26 @@ const ITEM_ATLASES: [(&str, &str, usize); 3] = [
     ("recovery_compass_", "recovery_compass_atlas", 32),
 ];
 
+/// The Bedrock atlas a pre-1.9 animated strip becomes: before 1.9, Java stored the clock and
+/// compass as one vertical strip (`clock.png`, `compass.png`) laid out frame for frame like the
+/// Bedrock atlas. Only a strip with exactly the atlas's frame count is used.
+pub(crate) fn legacy_strip_atlas(
+    layout: Layout,
+    name: &str,
+    width: u32,
+    height: u32,
+) -> Option<&'static str> {
+    if layout != Layout::Legacy {
+        return None;
+    }
+    ITEM_ATLASES.iter().find_map(|(prefix, atlas, count)| {
+        (name == prefix.trim_end_matches('_')
+            && width != 0
+            && u64::from(height) == u64::from(width) * *count as u64)
+            .then_some(*atlas)
+    })
+}
+
 /// Whether the potion or atlas translation reads the item texture named `name`.
 pub(crate) fn composes(name: &str) -> bool {
     name == "potion_overlay"
