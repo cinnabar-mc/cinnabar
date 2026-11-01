@@ -153,6 +153,7 @@ struct VisualCompiler {
     chiseled_bookshelf_templates: BTreeMap<[u32; 5], u32>,
     sculk_templates: BTreeMap<(bool, [u32; 6], u32), u32>,
     spore_blossom_templates: BTreeMap<[u32; 2], u32>,
+    dried_ghast_templates: BTreeMap<([u32; 6], u32, usize), u32>,
     turtle_egg_templates: BTreeMap<(u32, usize), u32>,
     dripleaf_templates: BTreeMap<([u32; 6], super::dripleaf::Shape), u32>,
     trip_wire_templates: BTreeMap<(u32, u8), u32>,
@@ -494,6 +495,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.sculk_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::dried_ghast::compile_rule(
+            record,
+            inputs,
+            &mut self.dried_ghast_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,
