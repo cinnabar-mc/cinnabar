@@ -265,6 +265,16 @@ impl UiRuntime {
             .is_showing_menu
     }
 
+    /// Whether the open command block editor counts as a menu, by the same rule as a container.
+    pub(super) fn command_block_shows_menu(&self) -> bool {
+        self.command_block().is_open()
+            && self
+                .screen_settings
+                .get(ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN)
+                .unwrap_or_default()
+                .is_showing_menu
+    }
+
     pub fn note_player_hurt(&mut self) {
         self.session.hurt_pending = true;
     }

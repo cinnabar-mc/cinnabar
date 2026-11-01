@@ -280,6 +280,8 @@ impl WorldAuthority {
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
+        // Its coordinates named a block in the dimension just left.
+        self.pending_command_block = None;
         self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }

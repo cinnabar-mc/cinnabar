@@ -109,4 +109,37 @@ mod tests {
         assert_eq!(authority.take_pending_command_block(), Some([1, 2, 3]));
         assert_eq!(authority.take_pending_command_block(), None);
     }
+
+    /// The coordinates of a request left untaken name another block after a transition.
+    #[test]
+    fn a_dimension_transition_discards_a_pending_command_block_request() {
+        let assets = Arc::new(RuntimeAssets::diagnostic());
+        let mut authority = WorldAuthority::new(
+            WorldBootstrap {
+                local_player_unique_id: 1,
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            assets,
+            None,
+            [0.0; 3],
+            None,
+        );
+        authority.consume_open_command_block(OpenCommandBlockEvent {
+            dimension: 0,
+            position: [1, 2, 3],
+        });
+        authority.reset_dimension(4, 1);
+        assert_eq!(authority.take_pending_command_block(), None);
+        // A request in the new dimension is kept.
+        authority.consume_open_command_block(OpenCommandBlockEvent {
+            dimension: 1,
+            position: [4, 5, 6],
+        });
+        assert_eq!(authority.take_pending_command_block(), Some([4, 5, 6]));
+    }
 }

@@ -207,6 +207,7 @@ pub struct CommandBlockEditor {
     active: Option<CommandBlockEdit>,
     engine: FormEngineState,
     exit: Option<Exit>,
+    watched_epoch: Option<u64>,
 }
 
 impl CommandBlockEditor {
@@ -236,6 +237,18 @@ impl CommandBlockEditor {
         self.active = None;
         self.exit = None;
         self.engine = FormEngineState::default();
+    }
+
+    /// Closes an editor left open across a dimension transition without reporting: its block
+    /// belongs to the dimension just left, and the same coordinates name another block here.
+    pub fn synchronize_epoch(&mut self, dimension_epoch: u64) {
+        if self
+            .watched_epoch
+            .is_some_and(|watched| watched != dimension_epoch)
+        {
+            self.close();
+        }
+        self.watched_epoch = Some(dimension_epoch);
     }
 
     /// Drops pointer input in progress, for a frame the editor can't read input.

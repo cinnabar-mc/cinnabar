@@ -23,6 +23,7 @@ pub(crate) mod platform_back;
 pub mod presentation;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod scene_stack;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod sign_editor;
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) mod touch_pointer;
@@ -36,6 +37,7 @@ pub(crate) use interaction::{
     drive_chat_keyboard_input, drive_chat_ui_actions, drive_inventory_ui_actions,
     inventory::drive_world_inventory_keys,
 };
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) use sign_editor::drive_sign_editor;
 
 #[cfg(test)]

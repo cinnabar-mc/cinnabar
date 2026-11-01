@@ -48,6 +48,9 @@ impl CommandBlockInputSources<'_, '_> {
     fn clear(&mut self) {
         self.wheel.clear();
         self.keyboard.clear();
+        if let Some(messages) = self.button_messages.as_deref() {
+            self.button_cursor.clear(messages);
+        }
         *self.held = false;
         *self.stick = [false; 4];
     }
@@ -87,6 +90,14 @@ pub(crate) fn drive_command_block(
     }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         runtime.command_block_mut().close();
+        sources.clear();
+        *owned_last_frame = false;
+        return;
+    }
+    // A server form over the editor owns the keys, and a request made under one opens once it
+    // closes, so one key press never reaches both.
+    if runtime.server_forms().owns_input() {
+        runtime.command_block_mut().cancel_pointer_input();
         sources.clear();
         *owned_last_frame = false;
         return;
@@ -192,3 +203,6 @@ pub(crate) fn drive_command_block(
         *owned_last_frame = false;
     }
 }
+
+#[cfg(test)]
+mod tests;

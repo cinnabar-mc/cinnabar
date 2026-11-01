@@ -304,3 +304,15 @@ fn maximizing_swaps_the_command_box_without_dirtying_the_block() {
     assert!(!editor.active().unwrap().input().maximized);
     assert!(sent(&mut editor, &[pressed("button.menu_exit")]).is_none());
 }
+
+#[test]
+fn a_dimension_transition_closes_the_editor_without_reporting() {
+    let mut editor = editor();
+    editor.synchronize_epoch(3);
+    editor.apply(&frame(), &edited(COMMAND_TEXT_BOX, "say bye", false), None);
+    editor.synchronize_epoch(3);
+    assert!(editor.is_open(), "the same epoch keeps the edit");
+    editor.synchronize_epoch(9);
+    assert!(!editor.is_open(), "the block belongs to the old dimension");
+    assert!(!editor.finish(|_| panic!("a discarded edit reports nothing")));
+}

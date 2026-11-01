@@ -426,6 +426,28 @@ fn forms_open_over_containers_that_are_not_menus() {
     }
 }
 
+/// A form over the command block editor follows the same menu rule as one over a container.
+#[test]
+fn forms_answer_busy_over_a_command_block_editor_that_is_a_menu() {
+    for (showing_menu, admitted) in [(None, false), (Some(true), false), (Some(false), true)] {
+        let mut player_runtime = player_state::PlayerState::new(1);
+        let mut table = HashMap::new();
+        if let Some(flag) = showing_menu {
+            table.insert(
+                ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN,
+                settings(json!({ "is_showing_menu": flag })),
+            );
+        }
+        let mut runtime = in_world(&mut player_runtime, Arc::new(ScreenSettingsTable(table)));
+        runtime.command_block_mut().open(Default::default());
+        assert_eq!(
+            form_admitted(&mut runtime, &mut player_runtime),
+            admitted,
+            "is_showing_menu {showing_menu:?}"
+        );
+    }
+}
+
 /// Admits a generic storage window before any world observation refreshes its block identity.
 fn open_storage_window(
     runtime: &mut UiRuntime,
