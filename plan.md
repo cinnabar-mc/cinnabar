@@ -627,6 +627,15 @@ qualification remain open.
 Remote players remain eligible while their collision box contains the camera. Render and
 animation bounds containing the eye survive frustum rejection after distance admission;
 matched overlapping-player visual qualification remains open.
+Named villager eggs use the selected current actor's
+[spawn egg icon](docs/reference/retail-villager-eggs.md), preserving authored
+aliases and indices. Generic villager auxiliaries resolve their declared current
+replacement when available, falling back to the original actor instead of indexing
+the atlas. NPC eggs retain the actor's
+icon for both a server-announced named item and the legacy generic selector,
+even though the retained registry omits the named item. Generated protocol
+selector facts cover all 91 generic egg variants. Gameplay comparisons confirm
+the legacy trader artwork and visible server-announced NPC egg.
 
 Pure numeric Molang expressions use bound f32 lane programs with load fusion;
 mixed values and effects retain the generic evaluator, including exact budget tails.
