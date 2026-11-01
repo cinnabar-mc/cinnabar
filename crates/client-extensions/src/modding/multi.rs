@@ -597,8 +597,8 @@ fn claim_controls(
 pub struct FrameInput<'a> {
     pub pressed: bool,
     pub controls: &'a ControlFrame,
-    /// A native editor on the panel owner's open panel owns this frame's keys.
-    pub native_editing: bool,
+    /// The panel owner whose native editor owned this frame's keys when they were routed.
+    pub native_editing: Option<usize>,
     /// Every mod's committed cues from the previous frame.
     pub previous_cues: &'a [ModCue],
     /// Captured once from the current local session, delivered only to granted components.
@@ -725,7 +725,11 @@ pub fn run_frame_callbacks(
             failed(index, format!("{error:#}"));
             continue;
         }
-        host.set_native_editing(input.native_editing && controls.panel_open);
+        host.set_native_editing(editing_for(
+            index,
+            input.native_editing,
+            controls.panel_open,
+        ));
         if let Err(error) = host.frame_with_movement(
             input.pressed,
             snapshot,
@@ -741,6 +745,12 @@ pub fn run_frame_callbacks(
         }
     }
     let _ = runtime.reconcile_panel_requests();
+}
+
+/// A sampled native editor belongs to the mod that owned the panel when keys were routed, so
+/// a panel handed to another mod before delivery never inherits it.
+fn editing_for(index: usize, sampled_owner: Option<usize>, panel_open: bool) -> bool {
+    panel_open && sampled_owner == Some(index)
 }
 
 /// Collects only still-active guests, so a failed input callback cannot publish prior output.
