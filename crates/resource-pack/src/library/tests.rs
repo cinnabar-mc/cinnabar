@@ -261,12 +261,52 @@ fn java_edition_packs_without_usable_textures_are_rejected() {
         ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
         ("assets/minecraft/sounds.json", b"{}"),
     ]);
+    let report = library
+        .import(&fixture.write("sounds.zip", &bytes))
+        .unwrap();
+    assert!(report.imported.is_empty());
+    assert_eq!(report.rejected.len(), 1, "{:?}", report.rejected);
     assert!(
-        library
-            .import(&fixture.write("sounds.zip", &bytes))
-            .is_err()
+        report.rejected[0].contains("no textures"),
+        "{:?}",
+        report.rejected
     );
     assert!(library.available().is_empty());
+}
+
+#[test]
+fn java_packs_in_bundles_keep_their_nested_siblings() {
+    let nested = zip(&[
+        ("manifest.json", manifest(140, "resources", "").as_bytes()),
+        ("marker.txt", b"nested"),
+    ]);
+    let texture = png([0, 255, 0, 255]);
+    for (usable, imported, rejected) in [(true, 2, 0), (false, 1, 1)] {
+        let fixture = Fixture::new();
+        let mut library = fixture.library();
+        let java: (&str, &[u8]) = if usable {
+            ("java/assets/minecraft/textures/block/stone.png", &texture)
+        } else {
+            ("java/assets/minecraft/sounds.json", b"{}")
+        };
+        let bytes = zip(&[
+            ("java/pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+            java,
+            ("java/assets/minecraft/extra.zip", b"not a pack"),
+            ("resource.mcpack", &nested),
+        ]);
+        let report = library
+            .import(&fixture.write("bundle.zip", &bytes))
+            .unwrap();
+        assert_eq!(report.imported.len(), imported, "{:?}", report.rejected);
+        assert_eq!(report.rejected.len(), rejected, "{:?}", report.rejected);
+        assert!(
+            report
+                .imported
+                .iter()
+                .any(|pack| pack.id == Uuid::from_u128(140))
+        );
+    }
 }
 
 #[test]

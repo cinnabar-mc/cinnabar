@@ -3,7 +3,7 @@
 
 use crate::{
     meta::Layout,
-    texture::{over, paste, tint},
+    texture::{canvas, over, paste, tint},
 };
 use image::RgbaImage;
 use std::collections::HashMap;
@@ -179,11 +179,16 @@ pub(crate) fn atlas_textures(items: &HashMap<String, RgbaImage>) -> Vec<(String,
             frames.push(frame);
         }
         let (width, height) = frames[0].dimensions();
-        let mut canvas = RgbaImage::new(width, height * count as u32);
+        let Some(mut atlas_image) = height
+            .checked_mul(count as u32)
+            .and_then(|atlas_height| canvas(width, atlas_height))
+        else {
+            continue;
+        };
         for (index, frame) in frames.iter().enumerate() {
-            paste(&mut canvas, frame, 0, index as u32 * height);
+            paste(&mut atlas_image, frame, 0, index as u32 * height);
         }
-        out.push((format!("textures/items/{atlas}.png"), canvas));
+        out.push((format!("textures/items/{atlas}.png"), atlas_image));
     }
     out
 }

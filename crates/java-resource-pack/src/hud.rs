@@ -1,7 +1,7 @@
 //! HUD textures: Java's `gui/icons.png` and `gui/widgets.png` atlases, the 1.20.2+ HUD sprites
 //! that replaced them, and the individual textures the Bedrock HUD draws.
 
-use crate::texture::{crop, is_empty, paste};
+use crate::texture::{canvas, crop, is_empty, paste};
 use image::RgbaImage;
 use std::collections::BTreeMap;
 
@@ -221,8 +221,8 @@ pub(crate) fn atlas_scale(atlas: &RgbaImage) -> u32 {
     (atlas.width() / 256).max(1)
 }
 
-/// Cuts `region`, scaled by `scale`, out of an atlas.
-pub(crate) fn crop_rect(atlas: &RgbaImage, region: Rect, scale: u32) -> RgbaImage {
+/// Cuts `region`, scaled by `scale`, out of an atlas, within the derived-image budget.
+pub(crate) fn crop_rect(atlas: &RgbaImage, region: Rect, scale: u32) -> Option<RgbaImage> {
     crop(
         atlas,
         region.x * scale,
@@ -239,7 +239,7 @@ pub(crate) fn legacy_sprites(icons: &RgbaImage) -> BTreeMap<String, RgbaImage> {
     LEGACY_ICON_RECTS
         .iter()
         .filter_map(|(name, region)| {
-            let sprite = crop_rect(icons, *region, scale);
+            let sprite = crop_rect(icons, *region, scale)?;
             (!is_empty(&sprite)).then(|| ((*name).to_owned(), sprite))
         })
         .collect()
@@ -262,60 +262,65 @@ pub(crate) fn hud_textures(
         // cap; Bedrock stores each piece separately.
         let scale = (hotbar.width() / 182).max(1);
         let height = hotbar.height();
-        out.insert(
-            "textures/ui/hotbar_start_cap.png".into(),
-            crop(hotbar, 0, 0, scale, height),
-        );
-        for slot in 0..9 {
-            let x = (1 + 20 * slot) * scale;
-            out.insert(
-                format!("textures/ui/hotbar_{slot}.png"),
-                crop(hotbar, x, 0, 20 * scale, height),
-            );
+        let pieces = std::iter::once(("hotbar_start_cap".to_owned(), 0, scale))
+            .chain((0..9).map(|slot| {
+                (
+                    format!("hotbar_{slot}"),
+                    (1 + 20 * slot) * scale,
+                    20 * scale,
+                )
+            }))
+            .chain(std::iter::once((
+                "hotbar_end_cap".to_owned(),
+                181 * scale,
+                scale,
+            )));
+        for (name, x, width) in pieces {
+            if let Some(piece) = crop(hotbar, x, 0, width, height) {
+                out.insert(format!("textures/ui/{name}.png"), piece);
+            }
         }
-        out.insert(
-            "textures/ui/hotbar_end_cap.png".into(),
-            crop(hotbar, 181 * scale, 0, scale, height),
-        );
     }
-    if let Some(selection) = selection {
-        out.insert(
-            "textures/ui/selected_hotbar_slot.png".into(),
-            square_selection(selection),
-        );
+    if let Some(selection) = selection.and_then(square_selection) {
+        out.insert("textures/ui/selected_hotbar_slot.png".into(), selection);
     }
     out.into_iter().collect()
 }
 
 /// Pads the 24x23 hotbar selection of 1.20.2+ to Bedrock's 24x24 by repeating its top border row
 /// at the bottom, which is how the 24x24 legacy and Bedrock textures are drawn.
-fn square_selection(selection: &RgbaImage) -> RgbaImage {
+fn square_selection(selection: &RgbaImage) -> Option<RgbaImage> {
     let (width, height) = selection.dimensions();
     if width == height || width == 0 || height > width {
-        return selection.clone();
+        return Some(selection.clone());
     }
     let scale = (width / 24).max(1);
-    let mut canvas = RgbaImage::new(width, width);
-    paste(&mut canvas, selection, 0, 0);
+    let mut square = canvas(width, width)?;
+    paste(&mut square, selection, 0, 0);
     for y in height..width {
-        let row = crop(selection, 0, (y - height) % scale, width, 1);
-        paste(&mut canvas, &row, 0, y);
+        let row = crop(selection, 0, (y - height) % scale, width, 1)?;
+        paste(&mut square, &row, 0, y);
     }
-    canvas
+    Some(square)
 }
 
 /// Rebuilds a legacy-layout `gui/icons.png` from 1.20.2+ sprites so the crosshair, which Bedrock
-/// still reads from that atlas, is translated. Regions without a matching sprite stay empty.
+/// still reads from that atlas, is translated. The crosshair must be a square multiple of its
+/// 15-pixel vanilla size; regions without a matching sprite stay empty.
 pub(crate) fn icons_from_sprites(sprites: &BTreeMap<String, RgbaImage>) -> Option<RgbaImage> {
-    let scale = (sprites.get("crosshair")?.width() / 15).max(1);
-    let mut canvas = RgbaImage::new(256 * scale, 256 * scale);
+    let (width, height) = sprites.get("crosshair")?.dimensions();
+    if width != height || width == 0 || !width.is_multiple_of(15) {
+        return None;
+    }
+    let scale = width / 15;
+    let mut atlas = canvas(256 * scale, 256 * scale)?;
     for (name, region) in LEGACY_ICON_RECTS {
         let Some(sprite) = sprites.get(name) else {
             continue;
         };
         if sprite.dimensions() == (region.w * scale, region.h * scale) {
-            paste(&mut canvas, sprite, region.x * scale, region.y * scale);
+            paste(&mut atlas, sprite, region.x * scale, region.y * scale);
         }
     }
-    Some(canvas)
+    Some(atlas)
 }

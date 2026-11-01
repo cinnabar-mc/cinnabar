@@ -133,12 +133,19 @@ fn read_bundle(
             MANIFEST_NAMES.contains(&name).then(|| root.to_owned())
         })
         .collect::<HashSet<_>>();
-    if roots.is_empty()
-        && let Some(root) = java::root(&paths)
-    {
-        let translated = java::translate(&mut archive, &paths, &root, source)?;
-        return read_bundle(translated, source, depth + 1, report, imported);
+    // A Java pack is one more candidate: its outcome never hides nested sibling archives.
+    let java_root = roots.is_empty().then(|| java::root(&paths)).flatten();
+    if let Some(root) = &java_root {
+        let result = java::translate(&mut archive, &paths, root, source)
+            .and_then(|translated| read_bundle(translated, source, depth + 1, report, imported));
+        if let Err(error) = result {
+            if depth > 0 {
+                return Err(error);
+            }
+            report.rejected.push(format!("{source}: {error}"));
+        }
     }
+    let java_assets = java_root.map(|root| format!("{root}assets/"));
     let mut roots = roots.into_iter().collect::<Vec<_>>();
     roots.sort();
     if roots.len() > MAX_PACKS {
@@ -159,6 +166,9 @@ fn read_bundle(
         let mut nested_bytes = 0usize;
         for (index, path) in &paths {
             if !roots.iter().any(|root| path.starts_with(root))
+                && !java_assets
+                    .as_ref()
+                    .is_some_and(|assets| path.starts_with(assets.as_str()))
                 && is_pack_import_path(Path::new(path))
             {
                 let bytes = match read_entry(&mut archive, *index, MAX_ARCHIVE_BYTES as u64) {
@@ -180,7 +190,7 @@ fn read_bundle(
             }
         }
     }
-    if roots.is_empty() && depth > 0 {
+    if roots.is_empty() && java_assets.is_none() && depth > 0 {
         return Err(AdmissionError::MissingManifest.into());
     }
     if depth == 0

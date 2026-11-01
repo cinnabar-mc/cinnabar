@@ -60,7 +60,7 @@ pub(crate) fn cubemap_faces(sky: &RgbaImage) -> Option<[RgbaImage; 6]> {
     let mut faces: [RgbaImage; 6] = Default::default();
     for (cell, face) in CUBEMAP_FACES.into_iter().enumerate() {
         let cell = cell as u32;
-        faces[face as usize] = crop(sky, (cell % 3) * width, (cell / 3) * height, width, height);
+        faces[face as usize] = crop(sky, (cell % 3) * width, (cell / 3) * height, width, height)?;
     }
     Some(faces)
 }

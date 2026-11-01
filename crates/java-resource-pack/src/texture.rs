@@ -47,17 +47,15 @@ pub(crate) fn encode(image: &RgbaImage) -> Vec<u8> {
     bytes
 }
 
-/// Makes every partially transparent pixel fully transparent, because Bedrock draws items and HUD
-/// icons with alpha testing. Returns whether any pixel changed.
-pub(crate) fn fix_alpha(image: &mut RgbaImage) -> bool {
-    let mut changed = false;
-    for pixel in image.pixels_mut() {
-        if pixel.0[3] != 0 && pixel.0[3] != 255 {
-            pixel.0 = [0; 4];
-            changed = true;
-        }
-    }
-    changed
+/// Largest image, in pixels, the translation derives from source textures: the decode allocation
+/// limit at four bytes per pixel, enough for an 8192x8192 atlas from a 512x pack.
+const MAX_DERIVED_PIXELS: u64 = MAX_DECODE_BYTES / 4;
+
+/// A transparent `width` x `height` image, or `None` when it would exceed the derived-image budget,
+/// so small hostile sources cannot request huge canvases.
+pub(crate) fn canvas(width: u32, height: u32) -> Option<RgbaImage> {
+    (u64::from(width) * u64::from(height) <= MAX_DERIVED_PIXELS)
+        .then(|| RgbaImage::new(width, height))
 }
 
 /// Whether every pixel is fully transparent.
@@ -66,8 +64,15 @@ pub(crate) fn is_empty(image: &RgbaImage) -> bool {
 }
 
 /// Copies the `width` x `height` region at (`x`, `y`); parts outside the image stay transparent.
-pub(crate) fn crop(image: &RgbaImage, x: u32, y: u32, width: u32, height: u32) -> RgbaImage {
-    let mut out = RgbaImage::new(width, height);
+/// Returns `None` when the region exceeds the derived-image budget.
+pub(crate) fn crop(
+    image: &RgbaImage,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+) -> Option<RgbaImage> {
+    let mut out = canvas(width, height)?;
     for out_y in 0..height {
         let Some(source_y) = y.checked_add(out_y).filter(|row| *row < image.height()) else {
             break;
@@ -82,7 +87,7 @@ pub(crate) fn crop(image: &RgbaImage, x: u32, y: u32, width: u32, height: u32) -
             out.put_pixel(out_x, out_y, *image.get_pixel(source_x, source_y));
         }
     }
-    out
+    Some(out)
 }
 
 /// The side of the top square frame when the image is a vertical animation strip.
@@ -154,19 +159,17 @@ mod tests {
     #[test]
     fn crop_keeps_parts_outside_the_source_transparent() {
         let image = RgbaImage::from_pixel(2, 2, Rgba([9, 9, 9, 255]));
-        let cropped = crop(&image, 1, 1, 3, 3);
+        let cropped = crop(&image, 1, 1, 3, 3).unwrap();
         assert_eq!(cropped.get_pixel(0, 0).0, [9, 9, 9, 255]);
         assert_eq!(cropped.get_pixel(1, 0).0, [0; 4]);
         assert_eq!(cropped.get_pixel(0, 2).0, [0; 4]);
     }
 
     #[test]
-    fn alpha_fix_clears_only_partial_alpha() {
-        let mut image = RgbaImage::from_fn(3, 1, |x, _| Rgba([1, 2, 3, [0, 128, 255][x as usize]]));
-        assert!(fix_alpha(&mut image));
-        assert_eq!(image.get_pixel(1, 0).0, [0; 4]);
-        assert_eq!(image.get_pixel(2, 0).0, [1, 2, 3, 255]);
-        assert!(!fix_alpha(&mut image));
+    fn derived_images_stay_within_the_pixel_budget() {
+        assert!(canvas(8192, 8192).is_some());
+        assert!(canvas(279_552, 279_552).is_none());
+        assert!(crop(&RgbaImage::new(1, 1), 0, 0, 1 << 20, 1 << 20).is_none());
     }
 
     #[test]

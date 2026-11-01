@@ -322,6 +322,68 @@ fn strips_with_another_frame_count_are_not_used_as_atlases() {
 }
 
 #[test]
+fn textures_in_subfolders_never_replace_vanilla_textures() {
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+        (
+            "assets/minecraft/textures/block/variants/stone.png",
+            solid(16, 16, BLUE),
+        ),
+        (
+            "assets/minecraft/textures/item/custom/apple.png",
+            solid(16, 16, BLUE),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(pixel(&out, "textures/blocks/stone.png", 0, 0).1, RED);
+    assert!(!out.contains_key("textures/items/apple.png"));
+}
+
+#[test]
+fn partially_transparent_pixels_keep_their_alpha() {
+    let translucent = encode(&RgbaImage::from_pixel(16, 16, Rgba([10, 20, 30, 254])));
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/item/apple.png",
+            translucent.clone(),
+        ),
+        (
+            "assets/minecraft/textures/gui/icons.png",
+            encode(&RgbaImage::from_pixel(256, 256, Rgba([1, 2, 3, 200]))),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(out["textures/items/apple.png"], translucent.as_slice());
+    assert_eq!(pixel(&out, "textures/ui/heart.png", 0, 0).1, [1, 2, 3, 200]);
+}
+
+#[test]
+fn hostile_hud_sprites_cannot_request_huge_canvases() {
+    let sprites = "assets/minecraft/textures/gui/sprites/hud/";
+    let files = pack(vec![
+        (&format!("{sprites}crosshair.png"), solid(16_380, 1, WHITE)),
+        (
+            &format!("{sprites}hotbar_selection.png"),
+            solid(16_380, 1, WHITE),
+        ),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert!(!out.contains_key("textures/gui/icons.png"));
+    assert!(!out.contains_key("textures/ui/selected_hotbar_slot.png"));
+    assert!(out.contains_key("textures/blocks/stone.png"));
+}
+
+#[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(
         "assets/minecraft/textures/block/stone.png",
