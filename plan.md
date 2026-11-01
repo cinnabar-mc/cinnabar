@@ -296,6 +296,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
+  An invalid cave proof is replaced by an inline full search in the same update. A due
+  rebuild of a still-safe superset runs on an immutable connectivity snapshot off the frame
+  thread while the superset stays drawn and openings apply inline, unless its retained
+  reach costs less than the snapshot copy or no worker thread can start.
   A developer-supplied cost calibration can select Hi-Z indirect cull passes by
   captured submitted indices per stream, matched to adapter, backend, viewport and
   sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
@@ -761,7 +765,9 @@ lookup across the passing list.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
-  Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
+  Dried-ghast inventory previews keep separate body and tentacle artwork.
+  Held and dropped dried ghasts keep the world shape, but their tentacles remain incomplete: they
+  draw with body art because the shared block item sheet has six tiles.
   Sensor previews retain inactive tendrils and the calibration crystal with independent lighting.
   Shrieker previews retain open inner walls, bone caps and a separate inner floor.
   Large and small dripleaf previews use their distinct carried leaves and stems.
@@ -1511,8 +1517,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   attack and use pulses reach it as repeats. Local weather overrides retain
   transactional host APIs. Granted actor reach requests set the local pick and attack
   distance within the API bound, preserving attack eligibility, obstruction checks and
-  ordinary block reach. These contracts have offline behavior coverage; populated-world
-  interaction and rendering acceptance remain incomplete.
+  ordinary block reach. Frame-scoped crosshair mining holds use that same interaction grant
+  and ordinary held-mining admission, with no host target-selection policy. These contracts
+  have offline behavior tests; populated-world interaction and rendering acceptance remain incomplete.
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.

@@ -729,6 +729,8 @@ pub struct Merged {
     pub weather_override: Option<[f32; 2]>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    /// Any active mod requesting an ordinary crosshair mining hold.
+    pub block_mining: bool,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
     /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
@@ -768,6 +770,7 @@ impl Merged {
         let interaction = host.take_interaction();
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
+        self.block_mining |= interaction.block_mining;
         let delta = host.take_camera_delta();
         self.delta = self.delta.or(delta);
         self.rig = self.rig.or(host.camera_rig());

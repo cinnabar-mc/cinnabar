@@ -617,6 +617,12 @@ interface gameplay {
     /// One attack-press edge, only while the physical attack control is held.
     /// An active action filter receives it as a repeat.
     pulse-attack: func() -> result<_, string>;
+    /// Holds ordinary mining on the crosshair block for one successful gameplay frame.
+    /// Requires interaction authority and a current gameplay frame when true; false releases
+    /// only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+    /// callbacks release it. Does not press attack or select targets; normal block reach,
+    /// obstruction, game mode, tool timing, item use and server checks still apply.
+    set-block-mining: func(held: bool) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.
