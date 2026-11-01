@@ -106,6 +106,8 @@ pub struct GameplayFacts {
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    /// Ordinary crosshair mining hold, renewed by a successful mod frame.
+    pub block_mining: bool,
 }
 
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as
