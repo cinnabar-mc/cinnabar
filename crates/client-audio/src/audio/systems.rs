@@ -196,9 +196,7 @@ pub fn ingest_audio_events(
     mut state: Local<IngestState>,
 ) {
     for cue in cues.read() {
-        if client_ui::sound_requests::interface_sound_enabled(cue.0) {
-            engine.enqueue(SoundRequest::new(cue.0));
-        }
+        engine.enqueue(SoundRequest::new(cue.0));
     }
     let sounds = client_ui::sound_requests::take_sounds();
     for (name, volume, pitch) in sounds {

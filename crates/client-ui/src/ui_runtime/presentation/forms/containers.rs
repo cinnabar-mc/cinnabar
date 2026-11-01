@@ -572,6 +572,14 @@ impl UiPresentationRuntime {
         let (frame, layout) = self.projections.container.as_ref()?;
         layout.hit(frame, gui)
     }
+
+    /// The press sound the pack declares on the enabled container-screen control under a point.
+    pub fn engine_container_press_sound(&self, gui: [f32; 2]) -> Option<&json_ui::ControlSound> {
+        let (frame, _) = self.projections.container.as_ref()?;
+        json_ui::hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?
+            .sound
+            .as_ref()
+    }
 }
 
 /// Tooltip lines as one `#hover_text`, each coloured by its format code.
