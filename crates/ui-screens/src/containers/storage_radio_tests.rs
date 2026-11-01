@@ -207,3 +207,21 @@ fn storage_tabs_with_a_view_bound_index_switch_when_pressed() {
         );
     assert_eq!(switches_tabs(&screen), 1);
 }
+
+/// A `view` binding on a tab indexed by its cell leaves that index in place.
+#[test]
+fn storage_tabs_using_their_cell_keep_it_through_a_view_binding() {
+    let tab = r#""toggle_grid_collection_name": "container_items","#;
+    let screen = indexed(tab, "", "")
+        .replace(
+            r##""#toggle_state": true}"##,
+            r##""#toggle_state": true, "#tab_label": "tab"}"##,
+        )
+        .replace(
+            r##""bindings": [{"binding_type": "global""##,
+            r##""bindings": [{"binding_type": "view", "source_property_name": "#tab_label",
+              "target_property_name": "#label"},
+              {"binding_type": "global""##,
+        );
+    assert_eq!(switches_tabs(&screen), 46);
+}

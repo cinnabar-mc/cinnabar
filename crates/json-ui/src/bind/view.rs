@@ -521,7 +521,7 @@ impl Binder<'_> {
             );
         }
         if wrote || first {
-            super::radio::after_view(self.data, node);
+            self.radio_after_view(node);
         }
         wrote
     }

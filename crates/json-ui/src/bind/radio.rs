@@ -3,7 +3,7 @@
 use serde_json::Value;
 
 use super::native::{self, Native};
-use super::{Bag, DataSource, Node, Scope};
+use super::{Bag, Binder, DataSource, Node, Scope};
 use crate::predicate::Scalar;
 use crate::tree::ResolvedControl;
 
@@ -38,12 +38,18 @@ pub(super) fn apply(
     native::apply("#toggle_state", &Value::Bool(checked), control, own, native);
 }
 
-/// Applies the selection again after a `view` binding wrote to `node`, as views run after the
-/// bindings [`apply`] follows and can supply the index or the state it replaces.
-pub(super) fn after_view(data: &DataSource, node: &mut Node) {
-    let control = node.src.get();
-    if control.properties.get("radio_toggle_group") == Some(&Value::Bool(true)) {
-        apply(data, control, &node.scope, &mut node.own, &mut node.native);
+impl Binder<'_> {
+    /// Applies the selection again after a `view` binding wrote to `node`, as views run after the
+    /// bindings [`apply`] follows and can supply the index or the state it replaces. A node keeps
+    /// the scope it was built under, so this attaches its collection item again as building did.
+    pub(super) fn radio_after_view(&self, node: &mut Node) {
+        let control = node.src.get();
+        if control.properties.get("radio_toggle_group") != Some(&Value::Bool(true)) {
+            return;
+        }
+        let mut scope = node.scope.clone();
+        self.attach_item(&node.src, &mut scope);
+        apply(self.data, control, &scope, &mut node.own, &mut node.native);
     }
 }
 
