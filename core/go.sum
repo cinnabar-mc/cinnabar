@@ -12,8 +12,6 @@ github.com/creachadair/jrpc2 v1.3.5 h1:onJko+1u6xoiRph3xwWmfNISR91teCRhbJwSyS9Sv
 github.com/creachadair/jrpc2 v1.3.5/go.mod h1:YXDmS53AavsiytbAwskrczJPcVHvKC9GoyWzwfSQXoE=
 github.com/creachadair/mds v0.26.1 h1:CQG8f4cueHX/c20q5Sy/Ubk8Bvy+aRzVgbpxVieMBAs=
 github.com/creachadair/mds v0.26.1/go.mod h1:dMBTCSy3iS3dwh4Rb1zxeZz2d7K8+N24GCTsayWtQRI=
-github.com/df-mc/go-nethernet v1.0.27-0.20261028141106-74af70df9aa6 h1:F7E3YjnQeKxz7NpuHHUPAMrWmj8zEiACi/H/UrM0ih0=
-github.com/df-mc/go-nethernet v1.0.27-0.20261028141106-74af70df9aa6/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
 github.com/df-mc/go-playfab/v2 v2.0.3 h1:7L46Zp1Ca17Mmw7Zd5m4kGDDr8XhzGbaEv9SN2GIYdk=
 github.com/df-mc/go-playfab/v2 v2.0.3/go.mod h1:CS3FV3tJlohvGQiX0IJiaYKOVNfy0p778B84oEVyxlw=
 github.com/df-mc/go-xsapi/v2 v2.0.4-0.20261012072832-90ce120e31cd h1:iS5VPtV1uZrMByC0npMMgTp3fHi/xPqTPOAurXCiF+Q=
@@ -78,6 +76,8 @@ github.com/quic-go/quic-go v0.62.0 h1:ZHDjCk5OacATwGvs8PWE97CTvX7AqZiVoW7++ZOXTf
 github.com/quic-go/quic-go v0.62.0/go.mod h1:RAro2j2yN9a9EiPACLHT9IB2NXCvGQmmo/alT0yYI0w=
 github.com/quic-go/webtransport-go v0.13.0 h1:RJLrTUHlTj8jJaQlQJUy0z0Mf7u1fVM0I6L1b9pe2M0=
 github.com/quic-go/webtransport-go v0.13.0/go.mod h1:K83X9YHbAqgSLO6ikS6BXCMdWOvqh9JTHALulvb2JVk=
+github.com/restartfu/go-nethernet v1.0.27-0.20261101212236-f1c5080a0212 h1:6zFG0JioF9u9F+ypWi3QqQ6REfUToWkS+n5mdUf0z0w=
+github.com/restartfu/go-nethernet v1.0.27-0.20261101212236-f1c5080a0212/go.mod h1:SFH4cfiLRWUUNGMvQeaOjFfFX4eexTkIfBtp55vJNqY=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 h1:KRzFb2m7YtdldCEkzs6KqmJw4nqEVZGK7IN2kJkjTuQ=
 github.com/santhosh-tekuri/jsonschema/v6 v6.0.2/go.mod h1:JXeL+ps8p7/KNMjDQk3TCwPpBy0wYklyWTfbkIzdIFU=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
