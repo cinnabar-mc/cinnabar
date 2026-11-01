@@ -1231,7 +1231,9 @@ Signed-in addressed NetherNet joins, and transfers from any signed-in target, ga
 candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
 does; signed-out joins gather local candidates only. A refused relay request, or one past the
 10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
-vanilla holds its config from sign-in. NAT and relay-only join acceptance remain open.
+vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
+allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
+STUN but no relay candidates. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
