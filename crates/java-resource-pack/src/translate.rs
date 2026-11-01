@@ -384,12 +384,6 @@ pub(crate) fn translate_within(
     {
         out.insert(path, Output::Image(image));
     }
-    for bar in hud::XP_BAR_TEXTURES {
-        if let Some(stem) = out.contains_key(bar).then(|| bar.trim_end_matches(".png")) {
-            let sidecar = hud::XP_BAR_SIDECAR.to_vec();
-            out.insert(format!("{stem}.json"), Output::Raw(sidecar));
-        }
-    }
     // Bedrock reads the crosshair from the legacy atlas, so a 1.20.2+ crosshair sprite replaces
     // the atlas's crosshair, or rebuilds the atlas at the sprite's scale.
     let icons_atlas = match &icons_image {
@@ -424,6 +418,18 @@ pub(crate) fn translate_within(
         .collect();
     let oversized = encoded.iter().filter(|file| file.is_none()).count();
     let mut files: Vec<(String, Vec<u8>)> = encoded.into_iter().flatten().collect();
+    // Experience bar companions follow only bars that survived size filtering: the sidecars
+    // describe the Java image, and the notches are cleared because the empty bar carries its own.
+    let survived = |path: &str| files.iter().any(|(file, _)| file == path);
+    let mut companions = Vec::new();
+    for bar in hud::XP_BAR_TEXTURES.into_iter().filter(|bar| survived(bar)) {
+        let stem = bar.trim_end_matches(".png");
+        companions.push((format!("{stem}.json"), hud::XP_BAR_SIDECAR.to_vec()));
+    }
+    if survived(hud::XP_BAR_TEXTURES[0]) {
+        companions.push((hud::XP_NUB.to_owned(), encode(&RgbaImage::new(1, 1))));
+    }
+    files.extend(companions);
     // Checked after size filtering, so a pack whose every texture was dropped is not installed.
     if !files.iter().any(|(path, _)| path.starts_with("textures/")) {
         return Err(TranslateError::NothingToTranslate);

@@ -6,7 +6,7 @@ use image::RgbaImage;
 use std::collections::BTreeMap;
 
 /// Java 1.20.2+ HUD sprites (paths below `gui/sprites/hud`) and the Bedrock textures they become.
-const SPRITE_UI: [(&str, &str); 52] = [
+const SPRITE_UI: [(&str, &str); 54] = [
     ("heart/container", "textures/ui/heart_background.png"),
     ("heart/container_blinking", "textures/ui/heart_blink.png"),
     ("heart/full", "textures/ui/heart.png"),
@@ -129,6 +129,8 @@ const SPRITE_UI: [(&str, &str); 52] = [
     ("air", "textures/ui/bubble.png"),
     ("air_bursting", "textures/ui/bubble_pop.png"),
     ("air_empty", "textures/ui/bubble_empty.png"),
+    ("heart/vehicle_full", "textures/ui/horse_heart.png"),
+    ("heart/vehicle_half", "textures/ui/horse_heart_half.png"),
     (XP_BAR_EMPTY, XP_BAR_TEXTURES[0]),
     (XP_BAR_FULL, XP_BAR_TEXTURES[1]),
 ];
@@ -145,7 +147,40 @@ pub(crate) const XP_BAR_TEXTURES: [&str; 2] = [
 ];
 
 /// Bedrock's tiled experience bar notches, cleared when a Java bar supplies its own.
-const XP_NUB: &str = "textures/ui/experiencenub.png";
+pub(crate) const XP_NUB: &str = "textures/ui/experiencenub.png";
+
+/// Legacy atlas sprites without a Bedrock HUD texture: the crosshair is written through the atlas
+/// itself, and Bedrock has no mount-heart container, hardcore container, mount jump bar or attack
+/// indicator textures.
+const NO_BEDROCK_TEXTURE: [&str; 12] = [
+    CROSSHAIR,
+    "heart/vehicle_container",
+    "heart/container_hardcore",
+    "heart/container_hardcore_blinking",
+    "jump_bar_cooldown",
+    "jump_bar_background",
+    "jump_bar_progress",
+    "hotbar_attack_indicator_background",
+    "hotbar_attack_indicator_progress",
+    "crosshair_attack_indicator_background",
+    "crosshair_attack_indicator_progress",
+    "crosshair_attack_indicator_full",
+];
+
+/// Legacy atlas sprites added after the atlas layout itself (frozen hearts in 1.17, the attack
+/// indicator in 1.9): packs made earlier leave their regions empty, so an empty region means the
+/// sprite is missing rather than deliberately transparent.
+const LATE_SPRITES: [&str; 9] = [
+    "heart/frozen_full",
+    "heart/frozen_half",
+    "heart/frozen_hardcore_full",
+    "heart/frozen_hardcore_half",
+    "hotbar_attack_indicator_background",
+    "hotbar_attack_indicator_progress",
+    "crosshair_attack_indicator_background",
+    "crosshair_attack_indicator_progress",
+    "crosshair_attack_indicator_full",
+];
 
 /// The sidecar written beside a translated experience bar texture: Java's bar is one plain 182x5
 /// image, so it replaces vanilla's 13x5 nine-slice description.
@@ -258,15 +293,16 @@ pub(crate) fn crop_rect(
     )
 }
 
-/// Cuts the HUD sprites out of a legacy `gui/icons.png`, skipping regions the pack left empty
-/// (frozen hearts, for example, which packs made before 1.17 do not have).
+/// Cuts the HUD sprites out of a legacy `gui/icons.png`. Transparent regions are kept as
+/// deliberate artwork, except for [`LATE_SPRITES`], whose empty regions mean the pack predates them.
 pub(crate) fn legacy_sprites(icons: &RgbaImage, budget: &Budget) -> BTreeMap<String, RgbaImage> {
     let scale = atlas_scale(icons);
     LEGACY_ICON_RECTS
         .iter()
         .filter_map(|(name, region)| {
             let sprite = crop_rect(icons, *region, scale, budget)?;
-            (!is_empty(&sprite)).then(|| ((*name).to_owned(), sprite))
+            let missing = LATE_SPRITES.contains(name) && is_empty(&sprite);
+            (!missing).then(|| ((*name).to_owned(), sprite))
         })
         .collect()
 }
@@ -310,11 +346,6 @@ pub(crate) fn hud_textures(
                 out.insert(format!("textures/ui/{name}.png"), piece);
             }
         }
-    }
-    if sprites.contains_key(XP_BAR_EMPTY)
-        && let Some(clear) = canvas(1, 1, budget)
-    {
-        out.insert(XP_NUB.to_owned(), clear);
     }
     if let Some(selection) = selection.and_then(|selection| square_selection(selection, budget)) {
         out.insert("textures/ui/selected_hotbar_slot.png".into(), selection);
@@ -380,4 +411,33 @@ pub(crate) fn icons_from_sprites(
         }
     }
     Some(atlas)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_legacy_atlas_sprite_is_mapped_or_has_no_bedrock_texture() {
+        for (name, _) in LEGACY_ICON_RECTS {
+            let mapped = SPRITE_UI.iter().any(|(sprite, _)| *sprite == name);
+            assert!(mapped != NO_BEDROCK_TEXTURE.contains(&name), "{name}");
+        }
+        for name in LATE_SPRITES {
+            assert!(
+                LEGACY_ICON_RECTS.iter().any(|(sprite, _)| *sprite == name),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_hud_target_is_a_sample_pack_texture() {
+        let Some(pack) = crate::test_support::sample_pack() else {
+            return;
+        };
+        for path in SPRITE_UI.iter().map(|(_, path)| *path).chain([XP_NUB]) {
+            assert!(pack.join(path).is_file(), "{path}");
+        }
+    }
 }

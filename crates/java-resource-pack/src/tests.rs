@@ -652,6 +652,47 @@ fn animated_potion_layers_compose_their_first_frame() {
 }
 
 #[test]
+fn legacy_regions_left_transparent_stay_transparent() {
+    let icons = marked_atlas(256, &[(icon("heart/full"), RED)]);
+    let files = pack(vec![
+        ("assets/minecraft/textures/gui/icons.png", icons),
+        (
+            "assets/minecraft/textures/gui/sprites/hud/heart/vehicle_full.png",
+            solid(9, 9, BLUE),
+        ),
+    ]);
+    let translation = run(&files, "Legacy").unwrap();
+    let out = output(&translation);
+    assert_eq!(pixel(&out, "textures/ui/hunger_full.png", 4, 4).1, [0; 4]);
+    assert!(
+        !out.contains_key("textures/ui/freeze_heart.png"),
+        "frozen hearts predate 1.17 packs"
+    );
+    assert_eq!(pixel(&out, "textures/ui/horse_heart.png", 0, 0).1, BLUE);
+}
+
+#[test]
+fn experience_bar_companions_follow_only_surviving_bars() {
+    let sprites = "assets/minecraft/textures/gui/sprites/hud/";
+    let noisy = encode(&RgbaImage::from_fn(182, 5, |x, y| {
+        Rgba([(x * 7) as u8, (y * 31 + x) as u8, (x ^ y) as u8, 255])
+    }));
+    let files = pack(vec![
+        (&format!("{sprites}experience_bar_background.png"), noisy),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let paths: Vec<String> = files.keys().cloned().collect();
+    let translation = translate(&paths, |path| files.get(path).cloned(), "Pack", 1024).unwrap();
+    let out = output(&translation);
+    assert!(!out.contains_key("textures/ui/experiencebarempty.png"));
+    assert!(!out.contains_key("textures/ui/experiencebarempty.json"));
+    assert!(!out.contains_key("textures/ui/experiencenub.png"));
+}
+
+#[test]
 fn translating_the_same_content_keeps_the_pack_identity() {
     let files = pack(vec![(
         "assets/minecraft/textures/block/stone.png",
