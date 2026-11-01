@@ -376,23 +376,6 @@ impl cinnabar::extension::gameplay::Host for State {
         State::pulse_attack(self)
     }
 
-    fn set_block_mining(&mut self, held: bool) -> Result<Result<(), String>> {
-        self.controls.budget(false)?;
-        if !self.grants.interaction {
-            return Ok(Err("interaction capability denied".into()));
-        }
-        if held
-            && (self.snapshot.is_none()
-                || !self.controls.frame.focused
-                || !self.controls.frame.gameplay
-                || self.controls.frame.panel_open)
-        {
-            return Ok(Err("block mining requires focused gameplay".into()));
-        }
-        self.controls.pending_interaction.block_mining = held;
-        Ok(Ok(()))
-    }
-
     /// The presented camera, available with the same grants and frame as `read-frame`.
     fn read_camera(&mut self) -> Result<Result<Option<GameplayCameraPose>, String>> {
         self.gameplay_reads += 1;

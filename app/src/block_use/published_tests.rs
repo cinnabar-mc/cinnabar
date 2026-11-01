@@ -56,9 +56,6 @@ mod attack_validation_tests;
 #[path = "published_tests/attack_mod_reach.rs"]
 mod attack_mod_reach_tests;
 
-#[path = "published_tests/block_mining_input.rs"]
-mod block_mining_input_tests;
-
 #[path = "published_tests/attack_frame.rs"]
 mod attack_frame_tests;
 

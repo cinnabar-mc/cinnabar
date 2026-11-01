@@ -49,7 +49,7 @@ pub(super) fn drive_mod(
     mut presentation: ResMut<UiPresentationResource>,
     time_override: Option<ResMut<VisualTimeOverride>>,
     mut gameplay: gameplay::GameplayContext,
-    mut interaction: Option<ResMut<interaction::ModInteraction>>,
+    interaction: Option<ResMut<interaction::ModInteraction>>,
     outputs: ModOutputs,
     mut screen_input: screens::ScreenInput,
     time: Res<Time<Real>>,
@@ -78,9 +78,6 @@ pub(super) fn drive_mod(
     } = observation;
     let now = time.elapsed_secs_f64();
     let (network, mut camera, cues, mut item_use) = outputs;
-    if let Some(interaction) = interaction.as_deref_mut() {
-        interaction.block_mining = false;
-    }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
     }
@@ -502,7 +499,6 @@ pub(super) fn drive_mod(
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
-    interaction.block_mining = enabled && merged.block_mining;
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()

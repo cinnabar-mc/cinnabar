@@ -130,7 +130,6 @@ pub(super) fn link(
         forward!("rotate", rotate, yaw: f32, pitch: f32);
         forward!("set-attack-reach", set_attack_reach, reach: Option<f32>);
         forward!("pulse-attack", pulse_attack);
-        forward!("set-block-mining", set_block_mining, held: bool);
         forward!("set-packet-delay", set_packet_delay, delay: u32);
         forward!("read-relayed-position", read_relayed_position);
         forward!("read-camera", read_camera);

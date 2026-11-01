@@ -198,11 +198,7 @@ pub(crate) fn prepare_melee(
     }
     let pending = runtime.observe_input_with_capture(
         attack.pressed,
-        attack.held
-            || context
-                .mod_interaction
-                .as_ref()
-                .is_some_and(|request| request.block_mining),
+        attack.held,
         context
             .network
             .pick_trace()
@@ -331,15 +327,11 @@ fn maintain_attacks(
     // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
         && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
-        && (context
-            .mod_interaction
-            .as_ref()
-            .is_some_and(|request| request.block_mining)
-            || crate::ordered_interactions::build_held(
-                context.ordered.as_deref(),
-                &context.input,
-                Action::Attack,
-            ));
+        && crate::ordered_interactions::build_held(
+            context.ordered.as_deref(),
+            &context.input,
+            Action::Attack,
+        );
     let wants_target =
         active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
     // A block press is refused at its start even where the game mode cannot mine.

@@ -381,20 +381,6 @@ pulse-attack: func() -> result<_, string>;
 One attack-press edge, only while the physical attack control is held.
 An active action filter receives it as a repeat.
 
-<a id="set-block-mining"></a>
-
-### `set-block-mining`
-
-```wit
-set-block-mining: func(held: bool) -> result<_, string>;
-```
-
-Holds ordinary mining on the crosshair block for one successful gameplay frame.
-Requires interaction authority and a current gameplay frame when true; false releases
-only this mod's request. Renew every frame. Omission, focus loss, unload and failed
-callbacks release it. Does not press attack or select targets; normal block reach,
-obstruction, game mode, tool timing, item use and server checks still apply.
-
 <a id="set-packet-delay"></a>
 
 ### `set-packet-delay`

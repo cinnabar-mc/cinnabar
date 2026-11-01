@@ -4,7 +4,7 @@ use super::*;
 use protocol::test_support::transactions::observe_transaction;
 
 /// Starts eating a golden apple with the use button still held.
-pub(super) fn start_eating(world: &mut World) {
+fn start_eating(world: &mut World) {
     item_use_tests::hold_air_item(world, "minecraft:golden_apple", 2, [].into());
     let selection = client_interaction::block_use::verified_use_selection(
         world.resource::<client_state::PlayerRuntime>(),

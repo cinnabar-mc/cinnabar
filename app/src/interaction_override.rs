@@ -7,8 +7,6 @@ use bevy::prelude::Resource;
 pub struct ModInteraction {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
-    /// Ordinary crosshair mining hold, renewed by a successful mod frame.
-    pub block_mining: bool,
 }
 
 /// Applies a bounded personal actor reach without enabling attacks forbidden by the mode.

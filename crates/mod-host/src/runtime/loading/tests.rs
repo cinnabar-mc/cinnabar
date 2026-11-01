@@ -220,7 +220,6 @@ fn stage_world_output(state: &mut State) -> Result<()> {
         .unwrap();
     state.set_attack_reach(Some(4.))?.unwrap();
     state.pulse_attack()?.unwrap();
-    state.set_block_mining(true)?.unwrap();
     state.pulse_use()?.unwrap();
     state.fill_recipe(7)?.unwrap();
     state.request_command("/fixture".into())?.unwrap();
