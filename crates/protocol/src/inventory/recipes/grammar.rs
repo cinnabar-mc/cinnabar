@@ -115,7 +115,8 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         let value = reader.string()?;
         // `item_tag` descriptors name a tag rather than an item.
         match key {
-            "name" | "item_tag" if identifier(value) => {
+            "name" => name = value,
+            "item_tag" if identifier(value) => {
                 name = value;
                 tag = key == "item_tag";
             }
@@ -124,6 +125,13 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
     }
     let aux = reader.int()?;
     let count = reader.int()?;
+    if !tag {
+        if let Some(identifier) = ingredient_identifier(name, aux) {
+            name = identifier;
+        } else {
+            valid = false;
+        }
+    }
     valid &= (0..=u16::MAX as i32).contains(&aux) && (1..=255).contains(&count);
     if pairs == 0 && count == 0 {
         valid = true;
@@ -135,6 +143,20 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         count,
         valid,
     })
+}
+
+/// A named ingredient may repeat its numeric aux after its namespaced identifier.
+/// Normalize only redundant values; tags and negotiated registry names stay strict.
+fn ingredient_identifier(name: &str, aux: i32) -> Option<&str> {
+    if identifier(name) {
+        return Some(name);
+    }
+    let (base, suffix) = name.rsplit_once(':')?;
+    (identifier(base)
+        && !suffix.is_empty()
+        && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        && suffix.parse::<u16>().ok().map(i32::from) == Some(aux))
+    .then_some(base)
 }
 
 fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {
