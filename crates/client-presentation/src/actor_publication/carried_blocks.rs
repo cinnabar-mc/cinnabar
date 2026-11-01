@@ -87,7 +87,8 @@ fn wears_pumpkin(kind: &ActorKind, sheared: bool) -> bool {
 }
 
 /// Places the block every drawn body in `batch` carries or wears, lit like its carrier.
-/// `partial_tick` matches the head angles to the body's own frame interpolation.
+/// `partial_tick` samples a worn block's head bone like the body's own vertices. A golem model
+/// without a head part wears nothing, like the native layer.
 pub(super) fn carried_blocks_for(
     batch: &ActorPresentationBatch,
     stream: &WorldStream,
@@ -100,16 +101,18 @@ pub(super) fn carried_blocks_for(
         .filter_map(|body| {
             let actor = stream.authority().actor(body.input.identity.runtime_id)?;
             let (block, world_from_block) = if wears_pumpkin(&actor.kind, actor.is_sheared()) {
-                let alpha = partial_tick.clamp(0.0, 1.0);
-                let lerp = crate::presentation::actors::lerp_degrees;
-                let head_yaw = lerp(actor.previous_pose.head_yaw, actor.head_yaw, alpha);
-                let pitch = lerp(actor.previous_pose.pitch, actor.pitch, alpha);
+                let rig = stream.authority().actor_rig(actor.runtime_id)?;
+                let head = rig
+                    .bone_names
+                    .iter()
+                    .position(|name| name.as_ref() == "head")?;
                 (
                     CarriedBlockId::Pinned(snow_golem_pumpkin()?),
                     render_model::dropped_item::snow_golem_pumpkin_transform(
                         body.world_from_actor,
-                        head_yaw,
-                        pitch,
+                        *body.input.previous_bones.get(head)?,
+                        *body.input.current_bones.get(head)?,
+                        partial_tick,
                     )?,
                 )
             } else {
