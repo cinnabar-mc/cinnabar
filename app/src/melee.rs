@@ -340,14 +340,6 @@ fn maintain_attacks(
                 &context.input,
                 Action::Attack,
             ));
-    let wants_target =
-        active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
-    // A block press is refused at its start even where the game mode cannot mine.
-    let block_press = focused
-        && attack
-            .as_ref()
-            .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
-    let mut mining_origin = (*context.origin).clone();
     let requested = context
         .mod_interaction
         .as_ref()
@@ -359,6 +351,21 @@ fn maintain_attacks(
                 Action::Attack,
             )
         });
+    let directed = requested.is_some()
+        && target
+            .attack
+            .is_some_and(|pick| !matches!(pick.crosshair, gameplay::melee::Crosshair::Actor(_)))
+        && !selected_attack_timing(&player, &context.client_world)
+            .is_some_and(|item| item.piercing_weapon);
+    let wants_target = active
+        && (directed || !runtime.actor_in_front())
+        && (attack_held || runtime.press_pending());
+    // A block press is refused at its start even where the game mode cannot mine.
+    let block_press = focused
+        && attack
+            .as_ref()
+            .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let mut mining_origin = (*context.origin).clone();
     if let Some(point) = requested
         && let Some(ray) = mining_origin.outbound_ray()
     {
