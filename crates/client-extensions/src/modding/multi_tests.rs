@@ -1080,6 +1080,9 @@ fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
 #[path = "multi_handler_tests.rs"]
 mod handlers;
 
+#[path = "multi_budget_tests.rs"]
+mod budget;
+
 /// A native editor sampled for one panel owner never reaches a mod that took the panel
 /// before delivery, nor a closed panel.
 #[test]

@@ -21,6 +21,8 @@ pub struct ModHosts {
     panel_selection: usize,
     panel_open_order: u64,
     budget: mod_host::CallbackBudget,
+    /// Next runnable mod to receive a protected full frame reservation.
+    next_frame_priority: usize,
     label: Option<String>,
     label_inputs: Vec<String>,
     label_rebuilds: u64,
@@ -172,6 +174,7 @@ impl ModHosts {
             panel_selection: 0,
             panel_open_order: 0,
             budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+            next_frame_priority: 0,
             label: None,
             label_inputs: Vec::new(),
             label_rebuilds: 0,
@@ -614,7 +617,7 @@ pub struct FrameInput<'a> {
     pub gameplay_facts: mod_host::GameplayFacts,
 }
 
-/// Runs each mod once in load order with its own grants and merges what they commit.
+/// Admits mods fairly, executes them in load order and merges what they commit.
 /// A failing mod is reported and quarantined by its host; the others still run.
 pub fn run_frame(
     runtime: &mut ModHosts,
@@ -664,8 +667,20 @@ pub fn run_frame_callbacks(
     };
     let owner = runtime.panel_owner();
     let chat_owner = runtime.chat_action_owner();
+    let priority = (0..runtime.host_count())
+        .map(|offset| (runtime.next_frame_priority + offset) % runtime.host_count())
+        .find(|&index| runtime.host(index).is_active() && !runtime.host(index).is_recovering());
+    let mut reservation = priority.and_then(|_| runtime.budget.reserve_frame_priority());
+    if let Some(index) = priority
+        && reservation.is_some()
+    {
+        runtime.next_frame_priority = (index + 1) % runtime.host_count();
+    }
     let mut claimed = Vec::new();
     for index in 0..runtime.host_count() {
+        if priority == Some(index) {
+            drop(reservation.take());
+        }
         let host = runtime.host(index);
         if !host.is_active() {
             continue;
