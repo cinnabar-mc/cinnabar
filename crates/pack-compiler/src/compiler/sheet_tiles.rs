@@ -5,15 +5,13 @@
 //! any other tile. The whole-sheet material stays the sheet's identity for texture keys, particles
 //! and pack replacements, so nothing else that reads the sheet changes.
 //!
-//! The layers are optional. Models are compiled as a pair of whole-sheet templates, and only the
-//! required texture copies come before installation, so a full carrier keeps every model and pack
-//! it could already hold and simply draws these sheets from their downsampled layer.
+//! The layers are optional. Models are compiled as a pair of whole-sheet templates, the required
+//! texture copies come before installation, and installation only fills existing pages. A full
+//! carrier keeps every model and pack it could already hold and simply draws these sheets from
+//! their downsampled layer.
 
 use super::lily_pad_textures::append_layer;
-use assets::{
-    MAX_CARRIER_TEXTURE_PAGES, MODEL_TEMPLATE_FLAG_SHEET_TILES, MODEL_TEMPLATE_FLAG_SHELF,
-    TILE_SIZE, TextureMip,
-};
+use assets::{MODEL_TEMPLATE_FLAG_SHEET_TILES, MODEL_TEMPLATE_FLAG_SHELF, TILE_SIZE, TextureMip};
 use pack_compile_input::image::build_texture_mip_chain;
 use std::collections::BTreeSet;
 use {super::*, assets::BlockFace};
@@ -153,13 +151,14 @@ pub(super) fn plan(inputs: Inputs<'_>, materials: &[Material]) -> Result<SheetPl
     Ok(plan)
 }
 
-/// Whether the carrier's pages can take one more sheet's quadrants.
+/// Whether the existing pages can take one more sheet's quadrants. A new base page would cost
+/// session overlays one of their texture arrays, which optional layers must not do.
 fn has_room(pages: &[TexturePage]) -> bool {
-    let used = pages
+    let free = pages
         .iter()
-        .map(|page| page.texture.layers as usize)
+        .map(|page| MAX_CARRIER_TEXTURE_LAYERS.saturating_sub(page.texture.layers as usize))
         .sum::<usize>();
-    used + QUADRANTS <= MAX_CARRIER_TEXTURE_PAGES * MAX_CARRIER_TEXTURE_LAYERS
+    free >= QUADRANTS
 }
 
 /// Crops and normalizes a square sheet larger than one tile; `None` for any other image.

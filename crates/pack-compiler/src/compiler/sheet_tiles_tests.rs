@@ -110,6 +110,26 @@ fn a_carrier_without_room_keeps_its_whole_sheet_templates() {
     );
 }
 
+/// A further base page would take a texture array from every session overlay.
+#[test]
+fn optional_layers_never_open_a_new_page() {
+    let (visuals, mut templates, mut quads) = model();
+    let mut materials = vec![Material::unvaried(); 2];
+    let mut pages = vec![page(MAX_CARRIER_TEXTURE_LAYERS - QUADRANTS + 1)];
+    let original = pages.clone();
+    plan()
+        .install(
+            &mut materials,
+            &mut pages,
+            &visuals,
+            &mut templates,
+            &mut quads,
+        )
+        .unwrap();
+    assert_eq!(pages, original);
+    assert_eq!(templates[0].flags, MODEL_TEMPLATE_FLAG_SHELF);
+}
+
 #[test]
 fn the_last_exact_room_is_used() {
     let (visuals, mut templates, mut quads) = model();
