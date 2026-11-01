@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::super::super::UiPresentationRuntime;
 use launcher::menu::auth::AuthState;
-use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
+use launcher::menu::settings_options::SETTINGS_OPTIONS;
 use launcher::menu::{MenuAction, MenuField, MenuScreen, MenuView};
 use ui::{UiNode, UiRect};
 use ui_engine::test_support::fixture_font;
@@ -316,53 +316,27 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
             let action = MenuAction::Navigate(tab);
             let visible = hits.iter().any(|(candidate, _)| *candidate == action);
             assert_eq!(visible, tab != screen);
-            assert_eq!(
-                presentation.menu_sound(action),
-                Some(crate::sound_requests::native_press_sound())
-            );
+            assert!(presentation.menu_sound(action).is_none());
         }
-        assert_eq!(
-            presentation.menu_sound(MenuAction::Navigate(MenuScreen::Profile)),
-            Some(crate::sound_requests::native_press_sound())
+        assert!(
+            presentation
+                .menu_sound(MenuAction::Navigate(MenuScreen::Profile))
+                .is_none()
         );
     }
 }
 
+/// No OreUI control on a screen declares a press sound, so none plays.
 #[test]
-fn oreui_buttons_click_while_their_text_fields_and_sliders_stay_silent() {
+fn oreui_controls_stay_silent() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     view.screen = MenuScreen::Play;
-    append(&mut presentation, &view, [1280.0, 720.0]);
-    let sound = crate::sound_requests::native_press_sound();
-    assert_eq!(sound.name, crate::sound_requests::UI_CLICK);
-    let click = Some(sound);
-    assert_eq!(
-        presentation.menu_sound(MenuAction::Navigate(MenuScreen::Servers)),
-        click
-    );
-    assert_eq!(presentation.menu_sound(MenuAction::OpenExitDialog), click);
-    assert_eq!(presentation.menu_sound(MenuAction::SettingsScale(1)), None);
-    assert_eq!(
-        presentation.menu_sound(MenuAction::SettingsMacroCommand(0)),
-        None
-    );
-    let slider = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| matches!(option.kind, SettingKind::Slider))
-        .expect("a settings slider");
-    assert_eq!(
-        presentation.menu_sound(MenuAction::SettingsOption(slider as u16, 0)),
-        None
-    );
-    let toggle = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| matches!(option.kind, SettingKind::Toggle))
-        .expect("a settings toggle");
-    assert_eq!(
-        presentation.menu_sound(MenuAction::SettingsOption(toggle as u16, 0)),
-        click
-    );
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    assert!(!hits.is_empty());
+    for (action, _) in hits {
+        assert_eq!(presentation.menu_sound(action), None, "{action:?}");
+    }
 }
 
 #[test]

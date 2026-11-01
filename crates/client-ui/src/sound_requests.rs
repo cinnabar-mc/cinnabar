@@ -1,20 +1,5 @@
 //! Bounded sound requests drained by the app audio adapter at its existing frame stage.
 
-/// Sound the pack's ordinary JSON-UI buttons and toggles declare, at volume and pitch 1.
-pub const UI_CLICK: &str = "random.click";
-
-/// The press sound of a client-owned OreUI control, which has no pack definition to declare one.
-pub fn native_press_sound() -> &'static json_ui::ControlSound {
-    static CLICK: std::sync::LazyLock<json_ui::ControlSound> =
-        std::sync::LazyLock::new(|| json_ui::ControlSound {
-            name: UI_CLICK.into(),
-            volume: 1.0,
-            pitch: 1.0,
-            min_seconds: 0.0,
-        });
-    &CLICK
-}
-
 /// Interface sounds JSON-UI sound components asked for: name, volume, pitch.
 static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
     std::sync::Mutex::new(Vec::new());
@@ -70,13 +55,19 @@ mod tests {
 
     #[test]
     fn interface_clicks_reach_the_audio_queue_with_their_authored_scalars() {
-        ui_sound(UI_CLICK, 0.75, 1.0);
-        ui_control_sound(native_press_sound());
+        const CLICK: &str = "random.click";
+        ui_sound(CLICK, 0.75, 1.0);
+        ui_control_sound(&json_ui::ControlSound {
+            name: CLICK.into(),
+            volume: 1.0,
+            pitch: 1.0,
+            min_seconds: 0.0,
+        });
         ui_sound("ui.reject", 0.5, 1.25);
         let sounds = take_sounds();
         for expected in [
-            (UI_CLICK, 0.75, 1.0),
-            (UI_CLICK, 1.0, 1.0),
+            (CLICK, 0.75, 1.0),
+            (CLICK, 1.0, 1.0),
             ("ui.reject", 0.5, 1.25),
         ] {
             assert!(

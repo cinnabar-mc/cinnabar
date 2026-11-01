@@ -118,8 +118,6 @@ pub(super) struct ScreenStates {
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
     /// The engine menu's press sounds by action.
     menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
-    /// Whether the current menu is an OreUI canvas, whose controls declare no sounds of their own.
-    native_menu_sounds: bool,
     /// Where the installed catalog's title image draws from.
     menu_title: Option<menu_title::TitleSource>,
     /// The title splash, picked once per resource reload.
@@ -569,20 +567,11 @@ impl UiPresentationRuntime {
 
     /// The sound the engine menu's control for `action` plays when pressed.
     pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        if self.screens.native_menu_sounds {
-            return native_control_sounds(action).then(crate::sound_requests::native_press_sound);
-        }
         self.screens
             .menu_sounds
             .iter()
             .find(|(candidate, _)| *candidate == action)
             .map(|(_, sound)| sound)
-    }
-
-    /// Marks the current menu as an OreUI canvas, dropping any previous screen's authored sounds.
-    fn use_native_menu_sounds(&mut self) {
-        self.screens.menu_sounds.clear();
-        self.screens.native_menu_sounds = true;
     }
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
@@ -860,17 +849,3 @@ impl UiPresentationRuntime {
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
-
-/// Whether an OreUI control clicks when pressed. The pack declares clicks on its buttons and toggles
-/// and none on its sliders and edit boxes, so the OreUI counterparts of those stay silent.
-fn native_control_sounds(action: launcher::menu::MenuAction) -> bool {
-    use launcher::menu::MenuAction;
-    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
-    match action {
-        MenuAction::SettingsScale(_) => false,
-        MenuAction::SettingsOption(index, _) => !SETTINGS_OPTIONS
-            .get(usize::from(index))
-            .is_some_and(|option| matches!(option.kind, SettingKind::Slider)),
-        _ => action.text_field().is_none(),
-    }
-}

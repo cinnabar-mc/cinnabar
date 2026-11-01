@@ -449,7 +449,6 @@ impl UiPresentationRuntime {
         }
         self.add_menu_text_spots(spots);
         self.screens.menu_sounds = sounds;
-        self.screens.native_menu_sounds = false;
         // An owned dialog or the join's trust question takes all input over its screen.
         if let Some(popup) =
             self.append_dialog(runtime, view, &state, nodes, next, metrics, [width, height])
@@ -484,7 +483,7 @@ impl UiPresentationRuntime {
             Some(view.dialog?)
         };
         if has_native_dialog(dialog) {
-            self.use_native_menu_sounds();
+            self.screens.menu_sounds = Vec::new();
             let rollback = (nodes.len(), *next);
             let drawn = if dialog == Some(launcher::menu::MenuDialog::MinecraftImport) {
                 self.append_oreui_minecraft_import(view, nodes, next, metrics, [width, height])
@@ -601,7 +600,6 @@ impl UiPresentationRuntime {
             }
         }
         self.screens.menu_sounds = sounds;
-        self.screens.native_menu_sounds = false;
         Some((hits, keys))
     }
 }

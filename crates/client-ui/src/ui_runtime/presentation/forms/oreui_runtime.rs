@@ -187,7 +187,7 @@ impl UiPresentationRuntime {
         } else {
             paint.apply_entrance(nodes, size)?;
         }
-        self.use_native_menu_sounds();
+        self.screens.menu_sounds.clear();
         Ok(Some(hits))
     }
 
@@ -224,7 +224,7 @@ impl UiPresentationRuntime {
         let scrolls = self.window_scrolls(scrolls)?;
         let hits = self.window_hits(output.hits)?;
         self.menu_scrolls.set_areas(scrolls);
-        self.use_native_menu_sounds();
+        self.screens.menu_sounds.clear();
         Ok(hits)
     }
 
