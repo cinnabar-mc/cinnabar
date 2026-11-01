@@ -80,7 +80,7 @@ stonecutter selection, cursor dragging, block passengers and registered audio pa
 are decoded, counted and skipped until their client features are implemented.
 The target catalog includes fire and wire connection states with empty collision;
 collision, selection and connection-rendering acceptance for those states remains incomplete.
-Chorus plants, disc presses, ice crystals and icicles remain reserved because their
+Disc presses, ice crystals and icicles remain reserved because their
 new state geometry is unverified. Their collision, selection and rendering acceptance
 remains incomplete. The official matching-protocol preview resource pack supplies
 property domains and HUD inputs, including the combined hotbar-slot renderer.
@@ -118,7 +118,11 @@ Menus, HUD and inventory previews retain native output pixels; the hand, world-s
 nametags, shader-pack targets and Enhanced world effects use the reduced world size. Screenshots retain native output dimensions.
 If native UI composition is unavailable, screen UI draws into the reduced view.
 The default is 100% on every device. Launcher, partial and shared-output views stay native.
-Displayed-frame pacing and complete resize/platform acceptance remain incomplete.
+Lost surfaces are recreated on the existing device after retained outputs are released.
+Repeated acquisition validation failures escalate from configuration to recreation.
+Zero-size and oversized windows suspend window rendering and resume at a valid size.
+Displayed recovery on Vulkan, DX12 and Wayland, oversized native-window resize,
+displayed-frame pacing and complete resize/platform acceptance remain incomplete.
 
 An optional `render/frame-generation` build feature provides SDR world-image
 optical flow, camera/depth interpolation and disocclusion filling. It has no
@@ -184,24 +188,30 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   remains incomplete.
 - [ ] Close redstone component visuals. Redstone torches, repeater delay and output torches and
   comparator rear and front torches draw at their native positions from each block state.
-  Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
-  neighbour check, and redstone wire, which draws neither its power tint nor its connections.
+  Redstone wire draws its flat line or cross art, wall climbs and 16-level power tint from the
+  block state. Remaining: the bar a locked repeater shows instead of its delay torch, which needs a
+  neighbour check.
 - [ ] Close barrel/trapdoor visual acceptance, including facing/open states, grain,
   carried items, edge UVs, replacement materials and different texture resolutions.
+- [ ] Close chorus visuals. Plants grow arms toward chorus neighbours and end stone below, with
+  position-selected stubs elsewhere, and flowers draw their three bars. Collision reaches the edges the
+  state's connections name. Drawing selects from the neighbours, as the 26.30 reference does; a
+  1.26.61 server keeps the connection states set the same way, and whether the 1.26.60 client reads
+  them instead is unverified.
 - [ ] Close sculk block visuals. Sensors draw their half-height body and phase-selected tendrils,
   and shriekers their walls, floor and rim. Tendrils still ignore the dimmer vertex colour of the
   inactive and cooldown phases, and calibrated sensors keep their provisional shape without
   tendrils, crystal or facing-mapped faces.
-- [ ] Close chorus visuals. Flowers draw their three bars and withered art at age 5. Placed chorus
-  plants stay diagnostic until their reserved registry entry has a reviewed fact source.
 - [ ] Close directional cube face mapping. Furnace-family cubes and the loom select pack
   faces (and the loom's top/bottom flips) from their facing, and the stonecutter turns its saw
   plane and top art with its direction. Pumpkins pick their face slot and variant from their
   direction and class. Observers, crafters, dispensers, droppers, piston bodies, jigsaws and
   vaults select each face's slot, UV turn and texture variant from their state; vaults also
-  draw their inward-facing cutout interior. Piston bodies remain full cubes: the native
-  three-quarter body and its separately drawn head are incomplete. Native-server captures
-  remain.
+  draw their inward-facing cutout interior. Piston bodies draw their three-quarter body with
+  native per-face UV turns, and their head plate, rod and sleeve follow `PistonArm` actor
+  progress or rest retracted without actor data. Blocks a piston pushes (`MovingBlock`
+  rendering) are incomplete, and other mapped-face blocks still use the shared UV flips, which
+  differ from the native east and down turns seen on pistons. Native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
@@ -292,6 +302,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   before sampling and retain the CPU command caches between paths. Compute kernels
   fit device limits; bounded, recoverable cull storage falls back to CPU drawing
   when a complete table cannot be prepared.
+  An invalid cave proof is replaced by an inline full search in the same update. A due
+  rebuild of a still-safe superset runs on an immutable connectivity snapshot off the frame
+  thread while the superset stays drawn and openings apply inline, unless its retained
+  reach costs less than the snapshot copy or no worker thread can start.
   A developer-supplied cost calibration can select Hi-Z indirect cull passes by
   captured submitted indices per stream, matched to adapter, backend, viewport and
   sample count; raster occlusion keeps the count policy. Samples without a matching measurement use the existing count policy,
@@ -762,7 +776,9 @@ lookup across the passing list.
   Shulker previews apply each face brightness once.
   Lectern previews turn their reading surface toward the viewer.
   Furnace-family previews use their authored carried front faces.
-  Dried-ghast previews keep separate body and tentacle artwork and preserve the held model.
+  Dried-ghast inventory previews keep separate body and tentacle artwork.
+  Held and dropped dried ghasts keep the world shape, but their tentacles remain incomplete: they
+  draw with body art because the shared block item sheet has six tiles.
   Sensor previews retain inactive tendrils and the calibration crystal with independent lighting.
   Shrieker previews retain open inner walls, bone caps and a separate inner floor.
   Large and small dripleaf previews use their distinct carried leaves and stems.
@@ -926,6 +942,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Browser preparation and hardware warmup and first-open qualification remain incomplete.
   Rounded JSON-UI chrome supports bounded analytic box shadows with cached geometry;
   full menu visual and hardware frame-work acceptance remains open.
+  Mods explicitly open their own panels; the latest opening owns input and closes other panels.
+  Legacy toggle metadata is accepted without host key handling. Packet reactors use
+  grant-gated panel and physical-input imports; hardware acceptance remains pending.
   Client-owned panel collections support bounded five-column card grids with
   item-scoped expressions, vector artwork and one-time guest requests to reveal filtered
   items without rebuilding the catalog; hardware frame-work acceptance remains open.
@@ -1109,6 +1128,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
 - [ ] `P5.8-SETTINGS` — Close menu, control, video and persistence acceptance. Desktop
   wiring alone does not establish native parity; language-specific scale dialogs,
   safe-zone handling, service-controlled spacing and touch/console behavior remain open.
+  Desktop fullscreen entry is journaled until the platform reports the window settled
+  (AppKit's enter notification on macOS, the compositor's configure on Wayland) and a
+  presentation extracted afterwards completes. An interrupted entry resets only fullscreen
+  on the next launch; successful entry and orderly exits preserve the preference, and a
+  client launched during another's entry waits for its lease. X11 reports the request
+  before the window manager applies it, so its settle confirmation is incomplete; native
+  compositor failure acceptance remains open.
   Settings search filters translated option labels, help text and input bindings across
   categories, with editable results and category shortcuts. Desktop live input acceptance
   remains open.
@@ -1502,8 +1528,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   attack and use pulses reach it as repeats. Local weather overrides retain
   transactional host APIs. Granted actor reach requests set the local pick and attack
   distance within the API bound, preserving attack eligibility, obstruction checks and
-  ordinary block reach. These contracts have offline behavior coverage; populated-world
-  interaction and rendering acceptance remain incomplete.
+  ordinary block reach. Frame-scoped crosshair mining holds use that same interaction grant
+  and ordinary held-mining admission, with no host target-selection policy. These contracts
+  have offline behavior tests; populated-world interaction and rendering acceptance remain incomplete.
   Client parts now share personal-mod retained drawing, procedural materials, immediate
   primitives and local environment imports, with signed asset reads and an optional frame
   callback. Camera anchors admit celestial-scale scenes without terrain residency.
@@ -1875,6 +1902,12 @@ Opt-in stage profiling reports calling-thread CPU time beside wall time in slow-
 spans, trace exports and developer-control state on supported desktop and Android
 platforms. Missing or incomparable thread clocks leave wall time alone. Native clock
 accuracy and sampling overhead still need hardware acceptance.
+
+The scripted resident-render benchmark copies a frozen fixture and isolated user template,
+flies real-time camera paths and exports exact interval statistics with native stage spans.
+It rejects lost frame evidence and incompatible report conditions. Visible-cohort readiness,
+authoritative streaming routes, GPU source-frame coverage, repeated-run confidence intervals,
+shipping-artifact equivalence and hardware release qualification remain incomplete.
 
 Compiled entities, blocks and icons share a compressed disk cache. Entries stream through
 compression to and from disk, so storing or loading one stages no encoded copy of its

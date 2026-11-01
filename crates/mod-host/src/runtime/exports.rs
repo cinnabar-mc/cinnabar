@@ -62,14 +62,15 @@ event_callbacks! {
     view_closed: () = "view-closed" => ModEvent::ViewClosed,
 }
 
-/// Canonical signature of a synchronous batch of sound playback decisions.
-type SoundCallback = TypedFunc<(Vec<crate::SoundEvent>,), (Vec<bool>,)>;
+/// Canonical signature of an event handler taking and returning its context.
+type Handler<C> = TypedFunc<(C,), (C,)>;
 
 pub(super) struct Exports {
     frame: TypedFunc<(), ()>,
     events: Events,
     filter: Option<TypedFunc<(super::ActionFrame,), (super::ActionVerdict,)>>,
-    sound_filter: Option<SoundCallback>,
+    sound_handler: Option<Handler<crate::SoundContext>>,
+    teleport_handler: Option<Handler<crate::TeleportContext>>,
 }
 
 impl Exports {
@@ -78,7 +79,12 @@ impl Exports {
         check::<()>(pre, INIT, true)?;
         check::<()>(pre, FRAME, true)?;
         Events::check(pre)?;
-        check_result::<(Vec<crate::SoundEvent>,), (Vec<bool>,)>(pre, "filter-sounds", false)?;
+        check_result::<(crate::SoundContext,), (crate::SoundContext,)>(pre, "handle-sound", false)?;
+        check_result::<(crate::TeleportContext,), (crate::TeleportContext,)>(
+            pre,
+            "handle-teleport",
+            false,
+        )?;
         check_result::<(super::ActionFrame,), (super::ActionVerdict,)>(pre, "filter-actions", false)
     }
 
@@ -100,29 +106,43 @@ impl Exports {
                 frame: frame.typed(&*store)?,
                 events,
                 filter: typed(store, instance, "filter-actions")?,
-                sound_filter: typed(store, instance, "filter-sounds")?,
+                sound_handler: typed(store, instance, "handle-sound")?,
+                teleport_handler: typed(store, instance, "handle-teleport")?,
             },
         ))
     }
 
-    /// Whether this component explicitly exports cancellable sound observations.
-    pub(super) fn has_sound_filter(&self) -> bool {
-        self.sound_filter.is_some()
+    /// Whether this component explicitly exports `handle-sound`.
+    pub(super) fn has_sound_handler(&self) -> bool {
+        self.sound_handler.is_some()
     }
 
-    /// Executes a sound verdict without publishing ordinary frame output.
-    pub(super) fn filter_sounds(
+    /// Whether this component explicitly exports `handle-teleport`.
+    pub(super) fn has_teleport_handler(&self) -> bool {
+        self.teleport_handler.is_some()
+    }
+
+    /// Calls `handle-sound` without publishing ordinary frame output.
+    pub(super) fn handle_sound(
         &self,
         store: &mut Store<State>,
-        events: Vec<crate::SoundEvent>,
-    ) -> Result<Vec<bool>> {
-        let filter = self
-            .sound_filter
-            .as_ref()
-            .context("component lacks filter-sounds")?;
-        let (verdict,) = filter.call(&mut *store, (events,))?;
-        filter.post_return(store)?;
-        Ok(verdict)
+        ctx: crate::SoundContext,
+    ) -> Result<crate::SoundContext> {
+        call_handler(self.sound_handler.as_ref(), store, ctx, "handle-sound")
+    }
+
+    /// Calls `handle-teleport` without publishing ordinary frame output.
+    pub(super) fn handle_teleport(
+        &self,
+        store: &mut Store<State>,
+        ctx: crate::TeleportContext,
+    ) -> Result<crate::TeleportContext> {
+        call_handler(
+            self.teleport_handler.as_ref(),
+            store,
+            ctx,
+            "handle-teleport",
+        )
     }
 
     /// Whether this component explicitly opts into action filtering.
@@ -270,4 +290,19 @@ where
                 .with_context(|| format!("export {name} has another signature"))
         })
         .transpose()
+}
+
+/// Calls one exported handler and finishes it before its returned context is used.
+fn call_handler<
+    C: wasmtime::component::Lower + wasmtime::component::Lift + Send + Sync + 'static,
+>(
+    handler: Option<&Handler<C>>,
+    store: &mut Store<State>,
+    ctx: C,
+    name: &str,
+) -> Result<C> {
+    let handler = handler.with_context(|| format!("component lacks {name}"))?;
+    let (returned,) = handler.call(&mut *store, (ctx,))?;
+    handler.post_return(store)?;
+    Ok(returned)
 }

@@ -1,8 +1,9 @@
 //! Experimental component host. Only the explicit WIT imports carry authority.
 
 mod declarations;
+mod panel_order;
 mod source;
-pub use source::{SourceKind, read_source, validate_source};
+pub use source::{SourceKind, is_frame_source, is_packet_source, read_source, validate_source};
 mod drawing_policy;
 use drawing_policy::DrawingRestart;
 mod grants;
@@ -13,8 +14,11 @@ pub use declarations::{
 pub mod helper;
 pub use grants::{Capability, ModGrants};
 mod action_filter;
-mod sound_filter;
-pub use runtime::cinnabar::extension::sound_filter::{Position as SoundPosition, SoundEvent};
+mod handlers;
+pub use runtime::cinnabar::extension::sound_handling::{Position as SoundPosition, SoundContext};
+pub use runtime::cinnabar::extension::teleport_handling::{
+    Rotation as TeleportRotation, TeleportContext, TeleportMode,
+};
 mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;
@@ -106,6 +110,8 @@ pub struct GameplayFacts {
 pub struct InteractionOutput {
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
+    /// Ordinary crosshair mining hold, renewed by a successful mod frame.
+    pub block_mining: bool,
 }
 
 /// A vanilla inventory request a player mod committed, consumed once; the client makes it as

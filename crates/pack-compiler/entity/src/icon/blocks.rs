@@ -197,13 +197,19 @@ impl IconBlocks {
         if !block.is_known() {
             return false;
         }
+        let record = self.records.get(visual.0 as usize);
+        // A piston's item is a full cube, although its exact world body is cropped.
+        if record.is_some_and(|record| {
+            record
+                .traits
+                .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+        }) {
+            return true;
+        }
         if block.support() == VisualSupport::VanillaFallback
-            && self.records.get(visual.0 as usize).is_some_and(|record| {
+            && record.is_some_and(|record| {
                 record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
                     || record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
-                    || record
-                        .traits
-                        .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
             })
         {
             return true;

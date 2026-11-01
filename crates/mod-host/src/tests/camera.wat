@@ -4,11 +4,8 @@
     (export "view-tilt" (type $view-tilt (eq $tilt)))
     (export "set-view-tilt" (func (param "tilt" (option $view-tilt))
       (result (result (error string)))))
-    (export "set-preserve-teleport-rotation" (func (param "enabled" bool)
-      (result (result (error string)))))
     (export "set-view-scale" (func (param "fov-scale" f32) (param "look-scale" f32)
       (result (result (error string)))))))
-  (alias export $camera "set-preserve-teleport-rotation" (func $preserve))
   (alias export $camera "set-view-scale" (func $view-scale))
   (alias export $camera "set-view-tilt" (func $view-tilt))
   (core module $memory-module
@@ -17,11 +14,9 @@
   (core instance $mem (instantiate $memory-module))
   (alias core export $mem "memory" (core memory $memory))
   (alias core export $mem "realloc" (core func $realloc))
-  (core func $lower (canon lower (func $preserve) (memory $memory) (realloc $realloc)))
   (core func $scale-lower (canon lower (func $view-scale) (memory $memory) (realloc $realloc)))
   (core func $tilt-lower (canon lower (func $view-tilt) (memory $memory) (realloc $realloc)))
   (core module $code
-    (import "host" "preserve" (func $preserve (param i32 i32)))
     (import "host" "view-scale" (func $view-scale (param f32 f32 i32)))
     (import "host" "view-tilt" (func $view-tilt (param i32 f32 f32 i32 i32)))
     (import "host" "memory" (memory 1))
@@ -31,7 +26,6 @@
       global.get $count i32.const 1 i32.add global.set $count
       $FRAME))
   (core instance $host
-    (export "preserve" (func $lower))
     (export "view-scale" (func $scale-lower))
     (export "view-tilt" (func $tilt-lower))
     (export "memory" (memory $memory)))

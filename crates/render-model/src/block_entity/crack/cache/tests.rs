@@ -696,3 +696,72 @@ fn selection_shape(
 ) -> CrackShape {
     crate::crack_shape_for_block(assets, mode, runtime_id, block, primary_at).unwrap_or_default()
 }
+
+/// Mining cracks and highlights reach every outer face of a piston, head side included.
+#[test]
+fn piston_overlays_cover_the_whole_block() {
+    let data = assets::pinned_block_registry_bytes();
+    let protocol = assets::registry_header_protocol(data).unwrap();
+    let records: Vec<_> = assets::read_registry_for_protocol(data, protocol)
+        .unwrap()
+        .into_iter()
+        .filter(|record| {
+            matches!(
+                record.name.as_ref(),
+                "minecraft:air" | "minecraft:stone" | "minecraft:piston"
+            )
+        })
+        .enumerate()
+        .map(|(id, mut record)| {
+            record.sequential_id = id as u32;
+            record
+        })
+        .collect();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    std::fs::create_dir_all(root.join("textures/blocks")).unwrap();
+    std::fs::write(
+        root.join("blocks.json"),
+        r#"{"stone":{"textures":"test"},"piston":{"textures":"test"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("textures/terrain_texture.json"),
+        r#"{"texture_data":{"test":{"textures":"textures/blocks/test"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(root.join("textures/flipbook_textures.json"), "[]").unwrap();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba([127, 127, 127, 255]))
+        .save(root.join("textures/blocks/test.png"))
+        .unwrap();
+    let lights = vec![assets::LightProperties::default(); records.len()];
+    let compiled = pack_compiler::compile_pack(root, &records, &lights).unwrap();
+    let assets = assets::RuntimeAssets::decode(&assets::encode_blob(&compiled).unwrap()).unwrap();
+
+    let pistons = records
+        .iter()
+        .filter(|record| record.name.as_ref() == "minecraft:piston");
+    let mut seen = 0;
+    for record in pistons {
+        let visual = assets.resolve(assets::NetworkIdMode::Sequential, record.sequential_id);
+        let template = visual.model_template().unwrap();
+        let Some(CrackShape::Quads(quads)) =
+            crack_shape_from_template(&assets, template, visual.variant(), [0, 0, 0])
+        else {
+            panic!("{} has no overlay shape", record.canonical_state);
+        };
+        for axis in 0..3 {
+            let values = quads.iter().flat_map(|quad| quad.corners.map(|c| c[axis]));
+            let (low, high) = values.fold((f32::MAX, f32::MIN), |(low, high), value| {
+                (low.min(value), high.max(value))
+            });
+            assert!(
+                low <= 0.0 && high >= 1.0,
+                "{} overlay spans {low}..{high} on axis {axis}",
+                record.canonical_state
+            );
+        }
+        seen += 1;
+    }
+    assert!(seen > 0, "the registry must contain pistons");
+}

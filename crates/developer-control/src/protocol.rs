@@ -214,6 +214,8 @@ pub enum Command {
         text: String,
     },
     CameraPath(CameraPath),
+    /// Samples a resident-render route on real time, independent of game-time clamping.
+    CameraPathRealTime(CameraPath),
     CameraRelease,
     /// Installs or removes an original local cape for animation captures.
     TestCape {
@@ -244,6 +246,8 @@ pub enum Command {
         kind: CrashKind,
     },
     State,
+    /// Read-only timing and effective-setting observations for a diagnostic benchmark.
+    BenchmarkState,
     WaitFor {
         condition: Condition,
         timeout_ms: Option<u64>,

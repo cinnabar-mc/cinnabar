@@ -18,8 +18,9 @@ The `camera` interface is opt-in policy that expires unless renewed. All of it n
 | --- | --- |
 | `set_view_tilt` | Adds `roll` and `pitch`, each at most `MAX_VIEW_TILT_DEGREES` (90), to the first-person view where native damage shake applies; `suppress_hurt_shake` removes that shake. Positive pitch turns up. Current frame only, including while a menu owns input; none, omission, unload and failed callbacks restore the native view |
 | `read_damage_shake` | The native damage shake of the last presented view at full strength, in the same degrees, before the player's damage-shake setting or any mod tilt — so a suppressing tilt can redraw it at another intensity |
-| `set_preserve_teleport_rotation` | Renew every frame: only actual teleports preserve yaw and pitch. Omission, no gameplay frame or a failed callback restores server rotation |
 | `set_view_scale` | Current-frame FOV and look multipliers, bounded to 0.1..1 and 0.05..1 (`MIN_VIEW_FOV_SCALE`, `MIN_VIEW_LOOK_SCALE`). Renew only during focused, input-owned gameplay; omission restores both without touching saved settings |
+
+To keep or replace the view's rotation when the server moves the player, implement `handle-teleport`; see [event handlers](presentation.md#teleports).
 
 `gameplay::set_camera_rig` retains a third-person rig: a camera-local offset (x right, y up, z back), roll in radians and FOV change in degrees, swept against blocks; none restores the player's own view. The bounds are `MAX_RIG_SIDE_BLOCKS` (2.0), `MAX_RIG_VERTICAL_BLOCKS` (2.0), `MAX_RIG_BACK_BLOCKS` (8.0), `MAX_RIG_ROLL_RADIANS` (0.6) and `MAX_RIG_FOV_DELTA_DEGREES` (30.0).
 

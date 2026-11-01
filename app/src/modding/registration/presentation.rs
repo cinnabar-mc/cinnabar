@@ -57,7 +57,6 @@ pub(super) fn clear_presentation(world: &mut World) {
         world.get_resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
     {
         camera.set_rig(None);
-        camera.set_preserve_teleport_rotation(false);
         camera.set_presented_view(None);
         camera.set_view_scale(1.0, 1.0);
         camera.set_view_tilt(None);
