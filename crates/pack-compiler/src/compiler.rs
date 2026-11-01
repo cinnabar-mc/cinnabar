@@ -47,6 +47,7 @@ mod materials;
 use materials::compile_materials;
 mod pack_bindings;
 mod seasonal_leaves;
+mod sheet_tiles;
 mod variations;
 mod visuals;
 
@@ -557,12 +558,26 @@ fn compile_pack_sources(
         material_keys::build(&pack, &material_by_descriptor, &materials, &animations);
     let vanilla_fallback_material =
         visuals::fallback::neutral_material(fallback, records, &pack, &material_by_descriptor)?;
+    let mut materials = materials.into_vec();
+    let mut texture_pages = texture_pages.into_vec();
+    let sheet_tiles = sheet_tiles::install(
+        sheet_tiles::Inputs {
+            root,
+            pack: &pack,
+            records,
+            fallback,
+            descriptors: &material_by_descriptor,
+        },
+        &mut materials,
+        &mut texture_pages,
+    )?;
     let (visuals, hashed, model_templates, mut model_quads) = compile_visuals(
         records,
         &pack,
         &material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        &sheet_tiles,
         ExactAdmissions {
             mineral_cubes: admit_mineral_cubes,
             chiseled_bookshelves: admit_chiseled_bookshelves,
@@ -574,7 +589,6 @@ fn compile_pack_sources(
             bee_housing: admit_bee_housing,
         },
     )?;
-    let mut materials = materials.into_vec();
     let mut visuals = visuals.into_vec();
     material_facts::install(records, &mut visuals, registry_protocol)?;
     destroy_facts::install(records, &mut visuals, registry_protocol)?;
@@ -593,7 +607,7 @@ fn compile_pack_sources(
         &mut materials,
         &mut visuals,
         &mut model_quads,
-        texture_pages.into_vec(),
+        texture_pages,
     )?;
     let seasonal_copies =
         seasonal_leaves::install(records, &pack.blocks, &mut visuals, &mut materials)?;

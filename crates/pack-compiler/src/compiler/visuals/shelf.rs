@@ -87,17 +87,62 @@ pub(in crate::compiler) fn compile_rule(
     let template = if let Some(&template) = templates.get(&key) {
         template
     } else {
-        let template = push_model_template(
-            shelf_quads(materials, direction, front),
-            assets::MODEL_TEMPLATE_FLAG_SHELF,
-            storage.templates,
-            storage.quads,
-        )?;
+        let sheet = shelf_quads(materials, direction, front);
+        let tiled = tile_quads(&sheet, inputs.sheet_tiles);
+        let template = if let Some(tiled) = tiled {
+            let template = push_model_template(
+                tiled,
+                assets::MODEL_TEMPLATE_FLAG_SHELF | assets::MODEL_TEMPLATE_FLAG_SHEET_TILES,
+                storage.templates,
+                storage.quads,
+            )?;
+            push_model_template(
+                sheet,
+                assets::MODEL_TEMPLATE_FLAG_SHELF,
+                storage.templates,
+                storage.quads,
+            )?;
+            template
+        } else {
+            push_model_template(
+                sheet,
+                assets::MODEL_TEMPLATE_FLAG_SHELF,
+                storage.templates,
+                storage.quads,
+            )?
+        };
         templates.insert(key, template);
         template
     };
     set_model_visual(&mut visual, materials, template);
     Ok(CompileRuleResult::Compiled(visual))
+}
+
+/// Moves each whole-sheet quad onto the quadrant layer holding its region at full resolution.
+/// Native regions never cross a quadrant; a sheet without quadrants returns `None`.
+fn tile_quads(sheet: &[ModelQuad], tiles: &sheet_tiles::SheetTiles) -> Option<Vec<ModelQuad>> {
+    const HALF: u16 = 2048;
+    sheet
+        .iter()
+        .map(|quad| {
+            let tiles = tiles.get(&quad.material)?;
+            let quadrant = [0, 1].map(|axis| {
+                let values = quad.uvs.map(|uv| uv[axis]);
+                u16::from(values.iter().min().is_some_and(|&low| low >= HALF))
+            });
+            let mut tiled = *quad;
+            for uv in &mut tiled.uvs {
+                for axis in 0..2 {
+                    uv[axis] = uv[axis]
+                        .checked_sub(quadrant[axis] * HALF)
+                        .filter(|&local| local <= HALF)?
+                        * 2;
+                }
+            }
+            tiled.material = tiles[usize::from(quadrant[0] + 2 * quadrant[1])];
+            Some(tiled)
+        })
+        .collect()
 }
 
 /// Fits one face's UVs to a rectangle in the 32-pixel shelf sheet, retaining orientation.

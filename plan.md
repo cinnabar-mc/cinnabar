@@ -250,7 +250,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
   attachment and signal states.
-- [ ] Close shelf native-gallery, pack-pixel fidelity and live replacement-pack acceptance.
+- [ ] Close shelf native-gallery acceptance across poses and powered states, and read the
+  1.26.60 client's shelf tables. Bounds, front selection and face regions match the 26.30
+  native tables. Base art draws full 32-texel sheet regions from quadrant layers, and a global
+  pack's replacement art at another resolution draws in game across the whole sheet.
 - [ ] Close the static-sign gallery and native visual acceptance.
 - [ ] Establish exact standing/hanging sign board, post and support geometry, UVs and
   GPU/native evidence. Provisional dimensions are not final geometry parity.

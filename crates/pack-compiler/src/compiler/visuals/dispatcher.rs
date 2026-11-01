@@ -916,6 +916,7 @@ pub(in crate::compiler) fn compile_visuals(
     material_by_descriptor: &BTreeMap<Descriptor, u32>,
     vanilla_fallback_material: u32,
     fallback: &'static FallbackInventory<'static>,
+    sheet_tiles: &sheet_tiles::SheetTiles,
     admissions: ExactAdmissions,
 ) -> Result<CompiledVisuals, AssetError> {
     let canonical_air = resolve_canonical_air(records)?;
@@ -933,6 +934,7 @@ pub(in crate::compiler) fn compile_visuals(
         material_by_descriptor,
         vanilla_fallback_material,
         fallback,
+        sheet_tiles,
     };
     compiler.flower_pot_soil = super::flower_pot::soil_material(records, &inputs);
     compiler.diode_torches = super::diode::TorchMaterials::find(records, &inputs);

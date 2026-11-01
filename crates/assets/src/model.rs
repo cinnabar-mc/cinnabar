@@ -126,6 +126,9 @@ pub const MODEL_TEMPLATE_FLAG_WEEPING_VINE: u32 = 1 << 25;
 pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
 /// A piston's three-quarter world body; the next template is the full cube its item draws.
 pub const MODEL_TEMPLATE_FLAG_PISTON_BODY: u32 = 1 << 27;
+/// Draws a sheet's regions from its full-resolution quadrant layers; the next template is the same
+/// shape with UVs across the whole sheet, for a sheet replaced by art on a single layer.
+pub const MODEL_TEMPLATE_FLAG_SHEET_TILES: u32 = 1 << 29;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
@@ -189,6 +192,32 @@ pub fn item_model_template(templates: &[ModelTemplate], template: u32) -> u32 {
     template + u32::from(body)
 }
 
+/// Selects the shape whose UVs are fractions of the block's whole texture sheet, which is what a
+/// surface drawn with other art, such as breaking cracks, maps across each face.
+pub fn whole_sheet_model_template(templates: &[ModelTemplate], template: u32) -> u32 {
+    let tiled = templates
+        .get(template as usize)
+        .is_some_and(|part| part.flags & MODEL_TEMPLATE_FLAG_SHEET_TILES != 0);
+    template + u32::from(tiled)
+}
+
+/// Requires a sheet-tile template to be followed by its whole-sheet pair of equal shape.
+pub(crate) const fn sheet_tile_template_pair_is_valid(
+    flags: u32,
+    quad_count: u32,
+    next: Option<(u32, u32)>,
+) -> bool {
+    if flags & MODEL_TEMPLATE_FLAG_SHEET_TILES == 0 {
+        return true;
+    }
+    match next {
+        Some((next_flags, next_quad_count)) => {
+            next_flags == flags & !MODEL_TEMPLATE_FLAG_SHEET_TILES && next_quad_count == quad_count
+        }
+        None => false,
+    }
+}
+
 pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
     matches!(
         flags,
@@ -220,6 +249,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_PISTON_BODY
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
+        || flags == MODEL_TEMPLATE_FLAG_SHELF | MODEL_TEMPLATE_FLAG_SHEET_TILES
 }
 
 /// Page field of a texture reference: three bits above the GPU metadata word,

@@ -134,7 +134,9 @@ pub fn crack_shape_from_template(
     let quads = assets.model_quads();
     let mut shape = Vec::new();
     // A piston's cropped body stops short of the head plate, so overlays use its full cube.
-    let mut index = usize::try_from(assets::item_model_template(templates, template)).ok()?;
+    let template = assets::item_model_template(templates, template);
+    let mut index =
+        usize::try_from(assets::whole_sheet_model_template(templates, template)).ok()?;
     loop {
         let part = templates.get(index)?;
         let start = usize::try_from(part.quad_start).ok()?;
