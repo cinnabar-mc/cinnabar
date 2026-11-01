@@ -948,6 +948,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   safe areas, focus/navigation and keyboard/mouse/controller/touch acceptance. Prove
   stable retained resources and correct supported DPI/aspect behavior. Labels share primary/backup
   face selection across measurement and painting; broader text acceptance remains open.
+  Sliced image backgrounds share physical pixel edges so translucent joins do not
+  blend twice. [Slice-grid regressions](docs/reference/ui-sprite-seams.md) cover DPI,
+  animation and cached translation. An in-game Cinnabar comparison confirms the
+  HUD's dark slice seam is removed; broader matched native frames remain open.
   Unmapped cursor-following buttons pass held-stack presses through to inventory and
   container backgrounds, allowing outside clicks to drop items.
   Native closed inventory binding, text measurement and layout run on a worker. Closed frames

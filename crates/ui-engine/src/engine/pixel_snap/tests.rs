@@ -66,6 +66,22 @@ fn adjacent_slices_stay_joined() {
     }
 }
 
+#[test]
+fn partition_edges_meet_without_changing_the_snapped_outer_image() {
+    for x in [-3.25, 0.0, 10.1, 142.5] {
+        for pixels in [1.0, 2.0, 3.0, 5.0] {
+            let parent = [x, 4.1, 38.25, 18.25];
+            let outer = snapped(parent, pixels, pixels / 1.25);
+            let left = super::slice([x, 4.1, 4.0, 18.25], parent, pixels, pixels / 1.25);
+            let center = super::slice([x + 4.0, 4.1, 30.25, 18.25], parent, pixels, pixels / 1.25);
+            let right = super::slice([x + 34.25, 4.1, 4.0, 18.25], parent, pixels, pixels / 1.25);
+            assert_eq!(left[2], center[0]);
+            assert_eq!(center[2], right[0]);
+            assert_eq!([left[0], left[1], right[2], right[3]], outer);
+        }
+    }
+}
+
 /// Text moves to the pixel grid but keeps its size, so its wrap width is unchanged.
 #[test]
 fn text_keeps_its_size() {
