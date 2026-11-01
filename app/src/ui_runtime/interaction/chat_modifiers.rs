@@ -41,7 +41,7 @@ pub(crate) fn track(held: &mut ButtonInput<KeyCode>, input: &KeyboardInput) {
 ///
 /// Alt is excluded because AltGr and Option, alone or reported as Ctrl+Alt on Windows,
 /// are how many keyboard layouts produce characters such as `@`, `{` and `ą`.
-pub(super) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
+pub(crate) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
     let held = held
         .get_pressed()
         .map(|key| keyboard_key(*key))

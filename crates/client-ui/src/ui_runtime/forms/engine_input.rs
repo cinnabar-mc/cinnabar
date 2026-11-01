@@ -54,6 +54,9 @@ pub struct EngineInput<'a> {
     /// Pressed keys this frame with their produced text.
     /// Key presses with their text and whether the OS auto-repeated them.
     pub typed: Vec<(KeyboardKey, Option<String>, bool)>,
+    /// Whether edit shortcut modifiers were down as each press in `typed` arrived, for a caller
+    /// that knows. A press past its end uses `keys`, the state the frame ended with.
+    pub press_shortcuts: Vec<bool>,
     /// The key bound to Menu Cancel, which raises the form's cancel button like Escape.
     pub menu_cancel: Option<KeyboardKey>,
     /// Seconds on the app clock.
@@ -219,7 +222,8 @@ pub fn dispatch(
     {
         engine_scroll::wheel(engine, frame, point, &input.wheel);
     }
-    for (key, text, repeat) in input.typed {
+    for (index, (key, text, repeat)) in input.typed.into_iter().enumerate() {
+        let control = input.press_shortcuts.get(index).copied().unwrap_or(control);
         let editing = editing(engine, frame);
         // Held keys repeat text into an edit box, but never re-press a control.
         if repeat && !editing {

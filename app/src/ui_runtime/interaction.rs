@@ -124,6 +124,8 @@ pub(crate) fn drive_inventory_ui_actions(
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !input_available
+        // The editor can open over an inventory; its clicks aren't the inventory's.
+        || runtime.command_block().is_open()
     {
         runtime.screen_state_mut().container_close_armed = false;
         runtime.screen_state_mut().container_scroll_drag = None;

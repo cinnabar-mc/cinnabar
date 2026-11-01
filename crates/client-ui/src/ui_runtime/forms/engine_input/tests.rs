@@ -42,6 +42,7 @@ fn complete_large_menu_final_button_sends_its_original_wire_index() {
                 &mut runtime,
                 &frame,
                 EngineInput {
+                    press_shortcuts: Vec::new(),
                     touch: false,
                     cursor: Some(cursor),
                     keys: &[],
@@ -196,6 +197,7 @@ fn toggle_submit(touch: bool) {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch,
                 cursor: Some(cursor),
                 keys: &[],
@@ -375,6 +377,7 @@ fn review_pointer_release_then_press_keeps_the_second_capture() {
         &mut runtime,
         &frame,
         EngineInput {
+            press_shortcuts: Vec::new(),
             touch: false,
             cursor: Some(UiPoint::new(gui[0], gui[1]).unwrap()),
             keys: &[],
@@ -427,6 +430,7 @@ fn review_ui_release_applies_the_final_control_drag_position() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: Some(cursor),
                 keys: &[],
@@ -485,6 +489,7 @@ fn review_ui_release_applies_the_final_scrollbar_position() {
         &mut runtime,
         &frame,
         EngineInput {
+            press_shortcuts: Vec::new(),
             touch: false,
             cursor: Some(
                 UiPoint::new(frame.origin[0], frame.origin[1] + 30.0 * frame.scale).unwrap(),
@@ -831,6 +836,7 @@ fn a_completed_form_swipe_preserves_fling_and_overscroll_motion() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: true,
                 cursor: Some(UiPoint::new(point[0] as f32, point[1] as f32).unwrap()),
                 keys: &[],
@@ -960,6 +966,7 @@ fn menu_cancel_key_yields_to_a_selected_edit_box() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: None,
                 keys: &[],
@@ -1009,6 +1016,7 @@ fn menu_cancel_key_dismisses_a_form_without_an_edit_box() {
             &mut runtime,
             &frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: None,
                 keys: &[],

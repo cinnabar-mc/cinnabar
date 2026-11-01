@@ -144,6 +144,7 @@ pub(crate) fn engine_frame_input<'a, 'p>(
             .cursor_position()
             .and_then(|point| ui::UiPoint::new(point.x, point.y).ok()),
         keys: &[],
+        press_shortcuts: Vec::new(),
         pointer,
         wheel: wheel
             .map(|event| (event.y, scroll_unit(event.unit)))

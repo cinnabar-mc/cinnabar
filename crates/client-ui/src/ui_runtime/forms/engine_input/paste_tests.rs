@@ -157,6 +157,7 @@ fn typed_with(held: &[KeyboardKey], key: KeyboardKey, text: &str) -> Option<Stri
     let (mut runtime, frame) = selected_edit_box(10);
     let engine = runtime.server_forms_mut().engine_mut();
     let input = EngineInput {
+        press_shortcuts: Vec::new(),
         touch: false,
         cursor: None,
         keys: held,

@@ -258,3 +258,20 @@ fn losing_focus_forgets_the_held_modifiers() {
     set_focus(&mut app, true);
     assert_eq!(type_a(&mut app, window), "a");
 }
+
+/// A batch of key edges in one frame takes each press's modifiers from when it arrived.
+#[test]
+fn a_modifier_applies_only_to_the_presses_made_while_it_was_down() {
+    let (mut app, window) = app_typing_into_the_command_box();
+    key_edge(&mut app, window, KeyCode::ControlLeft, None, true);
+    key_edge(&mut app, window, KeyCode::KeyA, Some("a"), true);
+    key_edge(&mut app, window, KeyCode::ControlLeft, None, false);
+    app.update();
+    assert_eq!(typed_command(&app), "");
+
+    key_edge(&mut app, window, KeyCode::KeyA, None, false);
+    key_edge(&mut app, window, KeyCode::KeyA, Some("a"), true);
+    key_edge(&mut app, window, KeyCode::ControlLeft, None, true);
+    app.update();
+    assert_eq!(typed_command(&app), "a");
+}

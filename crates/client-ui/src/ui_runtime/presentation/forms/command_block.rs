@@ -127,6 +127,7 @@ mod tests {
             runtime.command_block_mut().drive(
                 &frame,
                 EngineInput {
+                    press_shortcuts: Vec::new(),
                     cursor: Some(cursor),
                     keys: &keys,
                     pointer: PointerButtons {

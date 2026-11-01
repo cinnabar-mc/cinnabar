@@ -153,8 +153,12 @@ pub(crate) fn drive_command_block(
     );
     let keyboard: Vec<_> = sources.keyboard.read().cloned().collect();
     chat_modifiers::capture_before_events(&mut sources.modifiers, &keys, &keyboard);
+    let mut press_shortcuts = Vec::new();
     for input in &keyboard {
         chat_modifiers::track(&mut sources.modifiers, input);
+        if input.state == ButtonState::Pressed {
+            press_shortcuts.push(chat_modifiers::text_modified(&sources.modifiers));
+        }
     }
     let frame = presentation.command_block_frame().cloned();
     if input_available && let Some(frame) = frame {
@@ -169,6 +173,7 @@ pub(crate) fn drive_command_block(
             .collect();
         let input = engine_input::EngineInput {
             keys: &held,
+            press_shortcuts,
             ..engine_frame_input(
                 window,
                 sources

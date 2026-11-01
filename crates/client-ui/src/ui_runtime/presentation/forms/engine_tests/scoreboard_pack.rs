@@ -202,6 +202,7 @@ fn submit(presentation: &UiPresentationRuntime, runtime: &mut UiRuntime) {
             runtime,
             frame,
             EngineInput {
+                press_shortcuts: Vec::new(),
                 touch: false,
                 cursor: Some(cursor),
                 keys: &[],
