@@ -227,6 +227,12 @@ pub(in crate::modding) fn permission(
         let descriptor = ModGrants::CAPABILITIES
             .get(capability)
             .ok_or("Unknown capability.")?;
+        if enabled && descriptor.packet_only {
+            let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+            if !mod_host::is_packet_source(&bytes) {
+                return Err("This permission requires a packet component.".into());
+            }
+        }
         let requested = if enabled {
             mod_host::declarations(component)
                 .and_then(|declared| declared.requested)
@@ -248,10 +254,13 @@ pub(in crate::modding) fn allow_requested(
     component: &Path,
     request_id: String,
 ) -> Result<(), String> {
-    let requested = mod_host::declarations(component)
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::is_packet_source(&bytes);
+    let mut requested = mod_host::declarations_snapshot(&bytes)
         .and_then(|declared| declared.requested)
         .map_err(|error| error.to_string())?
         .ok_or("This mod doesn't declare its permissions.")?;
+    requested.retain_applicable(packet);
     change_grants(directory, component, request_id, |grants| {
         *grants = requested;
         Ok(())
@@ -265,17 +274,14 @@ pub(in crate::modding) fn grant_all(
     request_id: String,
 ) -> Result<(), String> {
     let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
-    let packet = mod_host::SourceKind::of(&bytes) == mod_host::SourceKind::Packet;
+    let packet = mod_host::is_packet_source(&bytes);
     let requested = mod_host::declarations_snapshot(&bytes)
         .and_then(|declared| declared.requested)
         .map_err(|error| error.to_string())?;
     change_grants(directory, component, request_id, |grants| {
         for capability in ModGrants::CAPABILITIES {
-            (capability.set)(grants, true, requested.as_ref());
+            (capability.set)(grants, capability.applies_to(packet), requested.as_ref());
         }
-        // Wrapped packet mods share the component framing, so check their packet interface.
-        grants.packets =
-            packet || mod_host::packet_mod::CompiledPacketMod::compile(&bytes, grants).is_ok();
         Ok(())
     })
 }

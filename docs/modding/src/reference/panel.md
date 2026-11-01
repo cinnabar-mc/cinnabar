@@ -66,6 +66,8 @@ set-open: func(open: bool) -> result<_, string>;
 
 Changes this instance's panel input ownership on successful callback return.
 Requires controls authority and a retained or pending panel when opening.
+The latest opener owns the panel and closes other owners. Opening keys belong
+to the mod: legacy toggle_key JSON is accepted and ignored by the host.
 
 <a id="set-content"></a>
 

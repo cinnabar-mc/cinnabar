@@ -297,11 +297,10 @@ pub fn parse_skin_geometry(
     let model = assets::parse_skin_geometry(&patch, data)
         .map_err(|_| SkinImportError::Geometry)?
         .ok_or(SkinImportError::Geometry)?;
-    if model.bones.iter().all(|bone| bone.cubes.is_empty())
-        && model
-            .poly_meshes
-            .iter()
-            .all(|mesh| mesh.as_ref().is_none_or(|mesh| mesh.vertices.is_empty()))
+    if model
+        .bones
+        .iter()
+        .all(|bone| bone.cubes.is_empty() && !bone.has_polygons())
     {
         return Err(SkinImportError::Geometry);
     }

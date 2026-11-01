@@ -2,7 +2,7 @@ use std::{fs, io::Cursor, path::Path};
 
 use ::image::{ImageFormat, ImageReader};
 use assets::{
-    parse_skin_geometry,
+    EntityGeometryPolyMesh, parse_skin_geometry,
     starter_skins::{
         CLASSIC_SKIN_GEOMETRY, MAX_STARTER_SKIN_GEOMETRY_BYTES, SLIM_SKIN_GEOMETRY,
         STARTER_SKIN_SIDE, STARTER_SKIN_SOURCES, StarterSkin, StarterSkins, encode_starter_skins,
@@ -167,6 +167,16 @@ fn unmirror_skin_bones(resolved: &mut Value, model: &str) {
     }
 }
 
+/// Combines a redeclared bone's mesh with its inherited one the way the skin reader does, whether
+/// or not the child resets its cubes. Returns `None` when there is nothing to combine.
+fn merged_poly_mesh(inherited: &Map<String, Value>, child: &Map<String, Value>) -> Option<Value> {
+    let name = inherited.get("name").and_then(Value::as_str).unwrap_or("");
+    let child = EntityGeometryPolyMesh::parse_bone(child.get("poly_mesh"), name)?;
+    let mut merged = EntityGeometryPolyMesh::parse_bone(inherited.get("poly_mesh"), name)?;
+    merged.append(&child);
+    Some(merged.to_authored())
+}
+
 /// Flattens a legacy child while preserving resolved cube defaults and inherited inflation.
 fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> {
     let mut bones = base["bones"].as_array().cloned().unwrap_or_default();
@@ -205,11 +215,8 @@ fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> 
         let inherited = inherited
             .as_object_mut()
             .ok_or_else(|| "invalid inherited skin bone".to_owned())?;
-        // A redeclared bone defaults to visible, and reset also clears its mesh.
+        // A redeclared bone defaults to visible.
         inherited.remove("neverRender");
-        if reset {
-            inherited.remove("poly_mesh");
-        }
         let mut properties = bone
             .as_object()
             .ok_or_else(|| "invalid child skin bone".to_owned())?
@@ -217,7 +224,11 @@ fn overlay_skin_model(base: &mut Value, mut child: Value) -> Result<(), String> 
         // The skin reader keeps the first declaration's name and bind pose.
         properties.remove("name");
         properties.remove("bind_pose_rotation");
+        let mesh = merged_poly_mesh(inherited, &properties);
         inherited.extend(properties);
+        if let Some(mesh) = mesh {
+            inherited.insert("poly_mesh".to_owned(), mesh);
+        }
         inherited.insert("cubes".to_owned(), Value::Array(cubes));
     }
     let description = base["description"]
@@ -536,6 +547,49 @@ mod tests {
             assert_eq!(after.texture_width, before.texture_width);
             assert_eq!(after.texture_height, before.texture_height);
             assert_eq!(after.visible_bounds, before.visible_bounds);
+        }
+    }
+
+    #[test]
+    fn normalized_inheritance_appends_meshes_with_and_without_reset() {
+        let mesh = |x: f32, normalized: bool| {
+            serde_json::json!({
+                "normalized_uvs": normalized,
+                "positions": [[x, 0, 0], [x + 1.0, 0.0, 0.0], [x, 1.0, 0.0]],
+                "normals": [[0, 0, -1]],
+                "uvs": [[0, 0]],
+                "polys": [[[0, 0, 0], [1, 0, 0], [2, 0, 0]]],
+            })
+        };
+        for reset in [false, true] {
+            let mut parent = cube_model();
+            parent["bones"][0]["poly_mesh"] = mesh(0.0, false);
+            let mut child = cube_model()["bones"][0].clone();
+            child["reset"] = reset.into();
+            child["poly_mesh"] = mesh(5.0, true);
+            let models = serde_json::json!({
+                "format_version": "1.8.0",
+                "geometry.parent": parent,
+                "geometry.humanoid.custom:geometry.parent": {"bones": [child]},
+                "geometry.humanoid.customSlim:geometry.humanoid.custom": {
+                    "bones": [{"name": "body", "poly_mesh": {"polys": []}}]
+                },
+            });
+            let normalized = skin_geometry(models.as_object().unwrap()).unwrap();
+            assert_modern_skin_schema(&normalized);
+            for (name, normalized_uvs) in
+                [(CLASSIC_SKIN_GEOMETRY, true), (SLIM_SKIN_GEOMETRY, false)]
+            {
+                let patch = serde_json::json!({"geometry":{"default":name}}).to_string();
+                let before = parse_skin_geometry(&patch, &models.to_string())
+                    .unwrap()
+                    .unwrap();
+                let after = parse_skin_geometry(&patch, &normalized).unwrap().unwrap();
+                assert_eq!(after.bones, before.bones, "{name}, reset={reset}");
+                let merged = after.bones[0].poly_mesh.as_deref().unwrap();
+                assert_eq!(merged.triangles.len(), 2);
+                assert_eq!(merged.normalized_uvs, normalized_uvs);
+            }
         }
     }
 

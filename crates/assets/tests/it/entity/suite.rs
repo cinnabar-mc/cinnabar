@@ -198,6 +198,7 @@ fn entity_carrier_rejects_unresolved_inherited_bone_parents() {
         reset: None,
         binding: None,
         texture_meshes: Box::new([]),
+        poly_mesh: None,
         cubes: Box::new([]),
     }]
     .into_boxed_slice();
@@ -516,6 +517,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
                 reset: None,
                 binding: None,
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
                 cubes: Box::new([]),
             }]
             .into_boxed_slice(),

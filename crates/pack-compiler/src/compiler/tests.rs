@@ -40,6 +40,8 @@ mod crop_families;
 mod crops;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/dried_ghast.rs"]
+mod dried_ghast;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
 #[path = "tests/entity_particles.rs"]
@@ -443,6 +445,8 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
         "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision",
         "minecraft:light_block_0",
         "minecraft:light_block_15",
     ] {
@@ -451,7 +455,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
             "{name}"
         );
     }
-    assert_eq!(invisible.len(), 20);
+    assert_eq!(invisible.len(), 32);
     for record in invisible {
         let visual = &visuals[record.sequential_id as usize];
         assert_eq!(visual.kind, VisualKind::Invisible, "{}", record.name);

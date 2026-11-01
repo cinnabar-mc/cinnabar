@@ -162,11 +162,6 @@ impl ModHost {
         self.instance.observe_gameplay(facts)
     }
 
-    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
-    pub fn preserves_teleport_rotation(&self) -> bool {
-        self.instance.preserves_teleport_rotation()
-    }
-
     /// Current-frame FOV and look multipliers; absence restores neutral 1/1.
     pub fn camera_view_scale(&self) -> Option<[f32; 2]> {
         self.instance.camera_view_scale()
