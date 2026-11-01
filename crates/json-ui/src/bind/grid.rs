@@ -12,7 +12,9 @@ use serde_json::Value;
 use super::feed::collection_name;
 use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
-use crate::layout::{GRID_CLIPPED_CELL_KEY, GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY};
+use crate::layout::{
+    GRID_CLIPPED_CELL_KEY, GRID_MARGIN_CELLS_KEY, GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY,
+};
 use crate::tree::{ControlRef, ResolvedControl};
 
 #[cfg(test)]
@@ -46,8 +48,9 @@ impl Binder<'_> {
         };
         let initial = self.state.initial_grid_window(collection);
         let clipped = self.state.clips_grid_cells(collection);
+        let margin_cells = self.state.grid_cell_margin(collection);
         let window = (self.state.virtualizes(collection) && count >= initial)
-            .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped))
+            .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped, margin_cells))
             .flatten();
         let mut cells = Vec::with_capacity(count.min(self.remaining_nodes()));
         for index in 0..count {
@@ -70,6 +73,12 @@ impl Binder<'_> {
                     patch
                         .properties
                         .insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+                }
+                if let Some(margin) = margin_cells {
+                    patch.properties.insert(
+                        GRID_MARGIN_CELLS_KEY.into(),
+                        Value::from(u64::try_from(margin).unwrap_or(u64::MAX)),
+                    );
                 }
                 if let Some(name) = collection {
                     patch.properties.insert(
@@ -102,6 +111,7 @@ impl Binder<'_> {
         template: &Arc<ResolvedControl>,
         initial: usize,
         clipped: bool,
+        margin_cells: Option<usize>,
     ) -> Option<(Range<usize>, Arc<ResolvedControl>)> {
         if binds_size(template) {
             return None;
@@ -109,6 +119,12 @@ impl Binder<'_> {
         let mut geometry = BTreeMap::new();
         if clipped {
             geometry.insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+        }
+        if let Some(margin) = margin_cells {
+            geometry.insert(
+                GRID_MARGIN_CELLS_KEY.into(),
+                Value::from(u64::try_from(margin).unwrap_or(u64::MAX)),
+            );
         }
         for key in ["size", "min_size", "max_size"] {
             match template.properties.get(key) {

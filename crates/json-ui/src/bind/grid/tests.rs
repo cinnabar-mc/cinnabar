@@ -41,7 +41,8 @@ fn screen() -> Arc<ResolvedControl> {
         json!({
             "size": ["100%", "default"], "grid_dimensions": [5, 60],
             "collection_name": "items", "grid_item_template": "test.cell",
-            "anchor_from": "top_left", "anchor_to": "top_left"
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "allow_clipping": false
         }),
         Vec::new(),
     );

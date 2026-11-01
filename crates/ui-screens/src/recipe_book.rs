@@ -27,7 +27,9 @@ pub const COLLECTION: &str = "recipe_book";
 pub(crate) fn screen_binding(virtualize: bool) -> json_ui::BindState {
     let mut binding = json_ui::BindState::new();
     if virtualize {
-        binding.virtualize_grid(COLLECTION);
+        // The admitted base cell art overhangs by only a few pixels; one complete cell extent
+        // retains that paint without keeping whole offscreen viewports active during scroll.
+        binding.virtualize_grid_with_margin(COLLECTION, 1);
     }
     binding
 }
