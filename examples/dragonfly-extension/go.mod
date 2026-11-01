@@ -64,3 +64,5 @@ replace github.com/df-mc/dragonfly => github.com/cinnabar-mc/dragonfly v0.0.0-20
 replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261028172540-f8448d729edd
 
 replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
+
+replace github.com/df-mc/go-nethernet => github.com/restartfu/go-nethernet v1.0.27-0.20261101212236-f1c5080a0212
