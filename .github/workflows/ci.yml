@@ -182,7 +182,8 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Slower runners can use more than 45 minutes on the full checks.
+    timeout-minutes: 60
     env:
       FULL: ${{ needs.changes.outputs.full }}
       AFFECTED: ${{ needs.preflight.outputs.names }}
