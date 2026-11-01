@@ -158,19 +158,7 @@ fn software_fused_dot_matches_binary32_mul_add() {
             {
                 return None;
             }
-            // WGSL lets an implementation flush subnormals, and some adapters do.
-            let flush = |value: f32| {
-                if value.is_subnormal() {
-                    0f32.copysign(value)
-                } else {
-                    value
-                }
-            };
-            let flushed = flush(flush(a).mul_add(flush(b), flush(c)));
-            let matches = (expected.is_nan() && got.is_nan())
-                || expected.to_bits() == got.to_bits()
-                || got == flushed;
-            (!matches).then(|| {
+            (!matches_mul_add(a, b, c, got)).then(|| {
                 format!(
                     "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
                 )
@@ -184,4 +172,43 @@ fn software_fused_dot_matches_binary32_mul_add() {
         results.len(),
         mismatches[..mismatches.len().min(20)].join("\n")
     );
+}
+
+/// Accepts the exact binary32 result, or one where the adapter flushed subnormal operands, with or
+/// without flushing the result. WGSL allows each flush, and adapters differ in which they do.
+fn matches_mul_add(a: f32, b: f32, c: f32, got: f32) -> bool {
+    let flush = |value: f32| {
+        if value.is_subnormal() {
+            0f32.copysign(value)
+        } else {
+            value
+        }
+    };
+    let expected = a.mul_add(b, c);
+    let operands_flushed = flush(a).mul_add(flush(b), flush(c));
+    (expected.is_nan() && got.is_nan())
+        || expected.to_bits() == got.to_bits()
+        || got == operands_flushed
+        || got == flush(operands_flushed)
+}
+
+#[test]
+fn flushed_operands_may_keep_a_subnormal_result() {
+    // Bits a Windows CI D3D12 adapter returned: the subnormal addend is gone, the product is not.
+    for [a, b, c, got] in [
+        [0x0080_0000, 0x3f00_0000, 0x0000_0001, 0x0040_0000],
+        [0x8080_0000, 0x3f00_0000, 0x8000_0001, 0x8040_0000],
+        [0x0080_0000, 0x3f00_0000, 0x007f_ffff, 0x0040_0000],
+        [0x3f00_0000, 0x0080_0000, 0x007f_ffff, 0x0040_0000],
+        [0xa8b5_a7db, 0x9597_f67c, 0x0050_39d0, 0x000d_7a9d],
+    ] {
+        let [a, b, c, got] = [a, b, c, got].map(f32::from_bits);
+        assert!(
+            matches_mul_add(a, b, c, got),
+            "{a:?} * {b:?} + {c:?}: {got:?}"
+        );
+    }
+    // A wrong normal result stays a mismatch, as does losing an addend that isn't subnormal.
+    assert!(!matches_mul_add(1.0, 1.0, 1.0, 3.0));
+    assert!(!matches_mul_add(1.0, 1.0, 1.0, 1.0));
 }
