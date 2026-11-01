@@ -499,6 +499,7 @@ pub(super) fn drive_mod(
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
     interaction.attack_reach = merged.attack_reach;
+    interaction.block_mining = enabled && merged.block_mining;
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()
