@@ -38,6 +38,11 @@ impl PlayerState {
         self.split.begin_frame();
     }
 
+    /// Renews allowances scoped to one callback rather than one frame.
+    pub fn begin_callback(&mut self) {
+        self.selected_slot_reads = 0;
+    }
+
     /// Compares validated callback facts with the last snapshot imported by the guest.
     pub fn set_snapshot(&mut self, snapshot: Option<PlayerStateSnapshot>) -> Result<()> {
         self.split.begin_frame();

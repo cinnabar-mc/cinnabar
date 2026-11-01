@@ -975,3 +975,28 @@ fn selected_slot_reads_use_their_own_bounded_allowance() {
     state.grants.player_state = false;
     assert!(state.read_selected_slot().unwrap().is_err());
 }
+
+/// Consecutive callbacks in one frame each receive the full selection allowance, with or
+/// without a snapshot.
+#[test]
+fn selected_slot_allowance_renews_per_callback_within_a_frame() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    for snapshot in [None, Some(snapshot())] {
+        state.player_state.begin_frame();
+        state.player_state.set_snapshot(snapshot).unwrap();
+        for _ in 0..3 {
+            state.player_state.begin_callback();
+            for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+                state.read_selected_slot().unwrap().unwrap();
+            }
+        }
+        assert!(state.read_selected_slot().is_err());
+    }
+}

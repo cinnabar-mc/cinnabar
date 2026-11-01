@@ -784,8 +784,8 @@ selection is unknown. A local hotbar selection is visible no later than the next
 callback: unordered selections in the frame that admits them, and selections admitted
 through ordered desktop input, which apply after that frame's callback, in the next.
 Server selections appear once applied.
-Copies no inventory cells. Its per-callback call allowance, MAX_SELECTED_SLOT_READS, is
-separate from read-snapshot's, so it cannot exhaust the snapshot reads.
+Copies no inventory cells. Its call allowance, MAX_SELECTED_SLOT_READS, renews for every
+callback and is separate from read-snapshot's, so it cannot exhaust the snapshot reads.
 
 Types: [`selected-slot`](player-state.md#type-selected-slot).
 

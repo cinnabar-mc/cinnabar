@@ -497,6 +497,7 @@ impl Instance {
         state.environment.begin_callback();
         state.gameplay_reads = 0;
         state.camera_writes = 0;
+        state.player_state.begin_callback();
         state.motion.begin_callback();
         state.packet_delay_writes = 0;
         state.controls.reset_budget();
