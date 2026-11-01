@@ -16,16 +16,20 @@ use super::engine_focus;
 use super::engine_scroll;
 use super::values::{FormEngineState, slider_fraction, slider_value_after_step, slider_value_at};
 use super::{FormValue, LocalFormAction};
-use crate::ui_runtime::{PlatformClipboard, UiRuntime};
+use crate::ui_runtime::{PlatformClipboard, UiRuntime, interaction::is_chat_edit_shortcut};
 use ui_engine::frame::EngineFrame;
 
-/// Longest paste accepted into an edit box, before its own `max_length`.
+/// Longest paste a screen outside the engine's edit boxes accepts through [`typed_text`].
 const MAX_PASTE_BYTES: usize = 4096;
+/// The most UTF-8 bytes one character takes.
+const MAX_UTF8_BYTES_PER_CHAR: usize = 4;
 /// Animation end events one input frame relays at most.
 const MAX_END_EVENTS: usize = 64;
 /// The input button a primary pointer press is.
 const SELECT: &str = "button.menu_select";
 
+#[cfg(test)]
+mod paste_tests;
 #[cfg(test)]
 mod tests;
 
@@ -136,10 +140,7 @@ pub fn dispatch(
     mut input: EngineInput<'_>,
 ) -> DispatchedInput {
     let point = input.cursor.map(|cursor| frame.to_virtual(cursor));
-    let control = input.keys.contains(&KeyboardKey::ControlLeft)
-        || input.keys.contains(&KeyboardKey::ControlRight)
-        || input.keys.contains(&KeyboardKey::SuperLeft)
-        || input.keys.contains(&KeyboardKey::SuperRight);
+    let control = is_chat_edit_shortcut(input.keys);
     let mut events = Vec::new();
     let delta = (input.now - engine.clock).max(0.0);
     engine.clock = input.now;
@@ -232,6 +233,7 @@ pub fn dispatch(
             text.as_deref(),
             control,
             input.now,
+            &mut PlatformClipboard,
         ));
     }
     if let Some(animator) = input.animator.as_mut() {
@@ -352,18 +354,37 @@ fn editing(engine: &FormEngineState, frame: &EngineFrame) -> bool {
         .is_some_and(|key| edit_region(frame, key).is_some())
 }
 
+/// Bytes a paste into the selected edit box may take. More bytes than this are more characters
+/// than the box holds, and a box rejects text that doesn't fit whole.
+fn selected_paste_allowance(engine: &FormEngineState, frame: &EngineFrame) -> usize {
+    engine
+        .view
+        .components
+        .selected()
+        .and_then(|key| edit_region(frame, key))
+        .and_then(|region| region.widget.edit.as_ref())
+        .and_then(|edit| usize::try_from(edit.max_length).ok())
+        .unwrap_or(0)
+        .saturating_mul(MAX_UTF8_BYTES_PER_CHAR)
+}
+
 /// A key as the input buttons vanilla's keyboard mapping raises, or typed text
-/// for the selected edit box.
-fn keyboard(
+/// for the selected edit box, with Ctrl+V reading `clipboard`.
+fn keyboard<C: ChatClipboard>(
     engine: &mut FormEngineState,
     frame: &EngineFrame,
     key: KeyboardKey,
     text: Option<&str>,
     control: bool,
     now: f64,
+    clipboard: &mut C,
 ) -> Vec<ScreenEvent> {
-    let editing = editing(engine, frame);
-    let typed = editing.then(|| typed_text(key, text, control)).flatten();
+    let typed = editing(engine, frame)
+        .then(|| {
+            let allowance = selected_paste_allowance(engine, frame);
+            typed_text_from(key, text, control, allowance, clipboard)
+        })
+        .flatten();
     if let Some(typed) = typed {
         return engine
             .dispatcher
@@ -414,11 +435,23 @@ fn keyboard(
 /// and Enter as their control characters, Ctrl+V the clipboard, anything else its text without
 /// control characters.
 pub fn typed_text(key: KeyboardKey, text: Option<&str>, control: bool) -> Option<String> {
+    typed_text_from(key, text, control, MAX_PASTE_BYTES, &mut PlatformClipboard)
+}
+
+/// [`typed_text`] with the clipboard it pastes from and the most bytes it pastes; a longer
+/// clipboard pastes nothing.
+fn typed_text_from<C: ChatClipboard>(
+    key: KeyboardKey,
+    text: Option<&str>,
+    control: bool,
+    paste_allowance: usize,
+    clipboard: &mut C,
+) -> Option<String> {
     match key {
         KeyboardKey::Backspace => Some("\u{8}".to_owned()),
         KeyboardKey::Enter | KeyboardKey::NumpadEnter => Some("\r".to_owned()),
-        KeyboardKey::KeyV if control => PlatformClipboard
-            .read_text_bounded(MAX_PASTE_BYTES)
+        KeyboardKey::KeyV if control => clipboard
+            .read_text_bounded(paste_allowance)
             .ok()
             .flatten()
             .map(|text| text.to_string()),

@@ -134,6 +134,7 @@ fn review_escape_dispatches_the_vanilla_form_screen_cancel() {
         None,
         false,
         0.0,
+        &mut PlatformClipboard,
     );
     assert!(events.iter().any(|event| matches!(event,
         ScreenEvent::Button(button) if mapped_action(&runtime.server_forms().active().unwrap().model, button) == Some(LocalFormAction::Dismiss)
@@ -273,6 +274,7 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
         None,
         false,
         0.0,
+        &mut PlatformClipboard,
     );
     assert!(events.iter().any(
         |event| matches!(event, ScreenEvent::Button(button) if button.id == "button.menu_exit")
@@ -291,6 +293,7 @@ fn screen_cancel_ignores_unmapped_any_events_but_respects_a_consuming_control() 
         None,
         false,
         1.0,
+        &mut PlatformClipboard,
     );
     assert!(events.iter().any(|event| matches!(event, ScreenEvent::Button(button) if button.id == "button.dropdown_exit" && button.down)));
     assert!(!events.iter().any(

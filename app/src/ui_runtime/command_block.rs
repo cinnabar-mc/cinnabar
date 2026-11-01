@@ -27,13 +27,17 @@ use client_ui::ui_runtime::forms::engine_input;
 
 use crate::runtime::world::ClientWorld;
 use crate::ui_runtime::forms::{engine_frame_input, read_pointer_edges};
-use crate::ui_runtime::interaction::input_capture::restore_gameplay_input_after_chat;
+use crate::ui_runtime::interaction::{
+    chat_modifiers, input_capture::restore_gameplay_input_after_chat,
+};
 
 /// Input sources only the editor's frames read.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct CommandBlockInputSources<'w, 's> {
     wheel: MessageReader<'w, 's, MouseWheel>,
     keyboard: MessageReader<'w, 's, KeyboardInput>,
+    /// Modifiers held down, which the key reset each editor frame ends with would forget.
+    modifiers: Local<'s, ButtonInput<KeyCode>>,
     button_messages: Option<Res<'w, Messages<MouseButtonInput>>>,
     button_cursor: Local<'s, MessageCursor<MouseButtonInput>>,
     held: Local<'s, bool>,
@@ -48,6 +52,7 @@ impl CommandBlockInputSources<'_, '_> {
     fn clear(&mut self) {
         self.wheel.clear();
         self.keyboard.clear();
+        self.modifiers.reset_all();
         if let Some(messages) = self.button_messages.as_deref() {
             self.button_cursor.clear(messages);
         }
@@ -146,12 +151,20 @@ pub(crate) fn drive_command_block(
         &mut sources.button_cursor,
         &mut sources.held,
     );
+    let keyboard: Vec<_> = sources.keyboard.read().cloned().collect();
+    chat_modifiers::capture_before_events(&mut sources.modifiers, &keys, &keyboard);
+    for input in &keyboard {
+        chat_modifiers::track(&mut sources.modifiers, input);
+    }
     let frame = presentation.command_block_frame().cloned();
     if input_available && let Some(frame) = frame {
-        let held: Vec<_> = keys.get_pressed().map(|key| keyboard_key(*key)).collect();
-        let key_presses: Vec<_> = sources
-            .keyboard
-            .read()
+        let held: Vec<_> = sources
+            .modifiers
+            .get_pressed()
+            .map(|key| keyboard_key(*key))
+            .collect();
+        let key_presses: Vec<_> = keyboard
+            .iter()
             .filter(|input| input.state == ButtonState::Pressed)
             .collect();
         let input = engine_input::EngineInput {
@@ -177,7 +190,9 @@ pub(crate) fn drive_command_block(
         runtime.command_block_mut().drive(&frame, input);
     } else {
         sources.wheel.clear();
-        sources.keyboard.clear();
+        if !input_available {
+            sources.modifiers.reset_all();
+        }
         *sources.stick = [false; 4];
         runtime.command_block_mut().cancel_pointer_input();
     }
