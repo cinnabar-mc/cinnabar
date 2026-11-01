@@ -150,8 +150,9 @@ fn session_change_revokes_targets_and_masks_and_id_reuse_cannot_retarget() {
         },
         36,
     )]);
-    assert_eq!(store.select(mask, &[entity]), Err(MaskError::StaleHandle));
     assert_ne!(store.entity(9).unwrap(), entity);
+    store.remove_entities(&[key]);
+    assert_eq!(store.select(mask, &[entity]), Err(MaskError::StaleHandle));
     store.bind(DrawingSession {
         connection: 8,
         permissions: DrawingPermissions::ALL,
@@ -273,22 +274,22 @@ fn reconciliation_preserves_empty_masks_and_their_handles_for_later_selection() 
     let mask = native.create(MaskDepth::Test).unwrap();
     native.commit();
     let transaction = native.transaction();
-    native.accept(transaction);
+    native.accept(transaction, &[]);
     assert_eq!(native.commit()[0].handle, mask);
     let mut transaction = native.transaction();
     let target = transaction.entity(actor.runtime_id).unwrap();
     transaction.select(mask, &[target]).unwrap();
     native.publish_targets(&[]);
-    native.accept(transaction);
+    native.accept(transaction, &[]);
     let masks = native.commit();
     assert_eq!(masks.len(), 1);
-    assert!(masks[0].entities.is_empty());
+    assert_eq!(masks[0].entities, [actor]);
     assert_eq!(masks[0].handle, mask);
     native.publish_targets(&[(actor, 36)]);
     let mut transaction = native.transaction();
     let target = transaction.entity(actor.runtime_id).unwrap();
     transaction.select(mask, &[target]).unwrap();
-    native.accept(transaction);
+    native.accept(transaction, &[]);
     assert_eq!(native.commit()[0].entities, [actor]);
 }
 
@@ -310,4 +311,39 @@ fn discarded_mask_transactions_never_recycle_mask_or_actor_tokens() {
     );
     native.select(mask, &[target]).unwrap();
     assert_eq!(native.commit()[0].entities, [actor]);
+}
+
+#[test]
+fn culling_preserves_retained_mask_members_and_tokens_across_publication() {
+    let (mut native, actor) = store(1);
+    let target = native.entity(actor.runtime_id).unwrap();
+    let mask = native.create(MaskDepth::Test).unwrap();
+    native.select(mask, &[target]).unwrap();
+    let committed = native.commit();
+    let transaction = native.transaction();
+    native.publish_targets(&[]);
+    native.accept(transaction, &[]);
+    assert!(Arc::ptr_eq(&committed, &native.commit()));
+    native.publish_targets(&[(actor, 36)]);
+    assert_eq!(native.entity(actor.runtime_id).unwrap(), target);
+    assert_eq!(native.commit()[0].entities, [actor]);
+    let transaction = native.transaction();
+    native.remove_entities(&[actor]);
+    native.accept(transaction, &[actor]);
+    assert!(native.commit()[0].entities.is_empty());
+    assert_eq!(native.select(mask, &[target]), Err(MaskError::StaleHandle));
+}
+
+#[test]
+fn confirmed_despawn_cannot_be_restored_by_staged_mask_membership() {
+    let (mut native, actor) = store(1);
+    let mut transaction = native.transaction();
+    let target = transaction.entity(actor.runtime_id).unwrap();
+    let mask = transaction.create(MaskDepth::Test).unwrap();
+    transaction.select(mask, &[target]).unwrap();
+    native.publish_targets(&[]);
+    native.remove_entities(&[actor]);
+    native.accept(transaction, &[actor]);
+    assert!(native.commit()[0].entities.is_empty());
+    assert_eq!(native.select(mask, &[target]), Err(MaskError::StaleHandle));
 }

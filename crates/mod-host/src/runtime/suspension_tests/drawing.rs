@@ -211,3 +211,141 @@ fn new_actor_references_survive_culling_but_confirmed_despawns_remove_anchored_d
         }
     }
 }
+
+#[test]
+fn retained_masks_survive_culling_across_suspension_but_not_confirmed_despawns() {
+    let actor = EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    for staged_selection in [false, true] {
+        for despawn in [false, true] {
+            let (mut instance, _ticker, budget) = scheduled(&source(), 2_000_000);
+            let masks = &mut instance.store.data_mut().render.masks;
+            masks.bind(mod_api::drawing::DrawingSession {
+                connection: actor.session,
+                dimension: actor.dimension,
+                local: true,
+                permissions: DrawingPermissions::ALL,
+            });
+            masks.publish_targets(&[(actor.into(), 36)]);
+            let target = masks.entity(actor.runtime_id).unwrap();
+            let mask = masks.create(mod_api::drawing::MaskDepth::Test).unwrap();
+            if !staged_selection {
+                masks.select(mask, &[target]).unwrap();
+            }
+            instance.store.data_mut().render.commit_retained();
+            let committed = Arc::clone(&instance.store.data().render.output().masks);
+            instance.store.call_hook(move |mut store, hook| {
+                if staged_selection && matches!(hook, wasmtime::CallHook::CallingWasm) {
+                    store
+                        .data_mut()
+                        .render
+                        .masks
+                        .select(mask, &[target])
+                        .unwrap();
+                }
+                Ok(())
+            });
+            start_suspended(&mut instance, &budget);
+            assert!(instance.drawing_entity_keys().any(|key| key == actor));
+            instance.publish_mask_targets(&[]);
+            instance.update_drawing_entities(Vec::new(), &[]).unwrap();
+            assert!(Arc::ptr_eq(
+                &committed,
+                &instance.store.data().render.output().masks
+            ));
+            if despawn {
+                instance
+                    .update_drawing_entities(Vec::new(), &[actor])
+                    .unwrap();
+            }
+            finish(&mut instance, &budget).unwrap();
+            let published = &instance.store.data().render.output().masks;
+            assert_eq!(published[0].handle, mask);
+            assert_eq!(
+                published[0].entities,
+                if despawn { vec![] } else { vec![actor.into()] }
+            );
+            if !despawn {
+                instance.publish_mask_targets(&[(actor.into(), 36)]);
+                assert_eq!(
+                    instance
+                        .store
+                        .data_mut()
+                        .render
+                        .masks
+                        .entity(actor.runtime_id)
+                        .unwrap(),
+                    target
+                );
+                instance
+                    .update_drawing_entities(Vec::new(), &[actor])
+                    .unwrap();
+                assert!(
+                    instance.store.data().render.output().masks[0]
+                        .entities
+                        .is_empty()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn suspended_mask_target_creation_uses_shared_confirmed_removal_tracking() {
+    let actor = EntityKey {
+        session: 1,
+        dimension: 0,
+        runtime_id: 7,
+        spawn_revision: 1,
+    };
+    for despawn in [false, true] {
+        let (mut instance, _ticker, budget) = scheduled(&source(), 2_000_000);
+        let masks = &mut instance.store.data_mut().render.masks;
+        masks.bind(mod_api::drawing::DrawingSession {
+            connection: actor.session,
+            dimension: actor.dimension,
+            local: true,
+            permissions: DrawingPermissions::ALL,
+        });
+        masks.publish_targets(&[(actor.into(), 36)]);
+        let observed = Arc::new(Mutex::new(None));
+        let capture = Arc::clone(&observed);
+        instance.store.call_hook(move |mut store, hook| {
+            if matches!(hook, wasmtime::CallHook::CallingWasm) {
+                let mut observed = capture.lock().unwrap();
+                if observed.is_none() {
+                    let masks = &mut store.data_mut().render.masks;
+                    let target = masks.entity(actor.runtime_id).unwrap();
+                    let mask = masks.create(mod_api::drawing::MaskDepth::Test).unwrap();
+                    masks.select(mask, &[target]).unwrap();
+                    *observed = Some((target, mask));
+                }
+            }
+            Ok(())
+        });
+        start_suspended(&mut instance, &budget);
+        instance.publish_mask_targets(&[]);
+        instance.update_drawing_entities(Vec::new(), &[]).unwrap();
+        assert!(instance.drawing_entity_keys().any(|key| key == actor));
+        assert!(instance.store.data().render.output().masks.is_empty());
+        if despawn {
+            instance
+                .update_drawing_entities(Vec::new(), &[actor])
+                .unwrap();
+        }
+        finish(&mut instance, &budget).unwrap();
+        let (target, mask) = observed.lock().unwrap().unwrap();
+        let published = &instance.store.data().render.output().masks;
+        assert_eq!(published[0].handle, mask);
+        assert_eq!(
+            published[0].entities,
+            if despawn { vec![] } else { vec![actor.into()] }
+        );
+        let masks = &mut instance.store.data_mut().render.masks;
+        assert_eq!(masks.select(mask, &[target]).is_ok(), !despawn);
+    }
+}

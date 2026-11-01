@@ -96,10 +96,10 @@ impl RenderMerge {
             .iter()
             .filter(|output| !output.primitives.is_empty());
         if let (Some(only), None) = (drawing.next(), drawing.next())
-            && *only.primitives == merged
+            && only.primitives.draw_count() == merged.draw_count()
         {
             self.merged = Arc::clone(&only.primitives);
-        } else if merged != *self.merged {
+        } else if !merged.is_empty() || !self.merged.is_empty() {
             self.merged = Arc::new(merged);
         }
         Arc::clone(&self.merged)

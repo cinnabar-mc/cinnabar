@@ -68,6 +68,8 @@ impl Changes {
     /// Computes the callback's complete delta, with an exhaustive resource-field audit.
     pub(super) fn between(base: &Resources, next: &Resources) -> Self {
         let Resources {
+            #[cfg(test)]
+                comparison: _,
             connection: _,
             dimension: _,
             geometry,
@@ -178,7 +180,7 @@ impl Store {
 
     /// Keeps immutable allocations removed or replaced by a successful publication alive.
     pub(super) fn install(&mut self, resources: Resources) {
-        if resources == *self.committed {
+        if resources.revision() == self.committed.revision() {
             self.reclaim();
             return;
         }
@@ -288,8 +290,23 @@ fn reconcile_anchors(resources: &mut Resources) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
+
+    /// Makes resource content comparisons fail only in publication regression fixtures.
+    #[derive(Clone, Debug, Default)]
+    pub(crate) struct ContentComparison(pub bool);
+
+    impl PartialEq for ContentComparison {
+        /// Rejects any whole-resource comparison while a fixture is armed.
+        fn eq(&self, other: &Self) -> bool {
+            assert!(
+                !self.0 && !other.0,
+                "publication compared resource contents"
+            );
+            true
+        }
+    }
 
     /// Content equality that must never run while building a delta.
     struct Untouchable;
@@ -307,5 +324,44 @@ mod tests {
         let next = BTreeMap::from([(1, Arc::clone(&shared)), (2, replaced), (3, shared)]);
         let changes = difference(&base, &next, Arc::ptr_eq);
         assert_eq!(changes.keys().copied().collect::<Vec<_>>(), [2, 3]);
+    }
+
+    #[test]
+    fn unchanged_publication_never_compares_resource_contents() {
+        let mut native = Store::default();
+        let actor = EntityKey {
+            session: 1,
+            dimension: 0,
+            runtime_id: 7,
+            spawn_revision: 1,
+        };
+        native.bind_session(actor.session, actor.dimension);
+        native.reconcile_entities(vec![actor], &[]).unwrap();
+        native.observe_entities().unwrap();
+        let geometry = native.create_geometry(super::super::tests::mesh()).unwrap();
+        native
+            .create_material(crate::material::BUILTIN, DrawingPermissions::ALL)
+            .unwrap();
+        native.commit();
+        Arc::make_mut(&mut native.committed).comparison.0 = true;
+        let committed = Arc::clone(native.snapshot());
+        native.accept(native.transaction());
+        assert!(Arc::ptr_eq(&committed, native.snapshot()));
+        native
+            .reconcile_entities(
+                Vec::new(),
+                &[EntityKey {
+                    runtime_id: 8,
+                    ..actor
+                }],
+            )
+            .unwrap();
+        assert!(Arc::ptr_eq(&committed, native.snapshot()));
+        native.reconcile_entities(Vec::new(), &[actor]).unwrap();
+        assert!(native.snapshot().entities.is_empty());
+        assert!(Arc::ptr_eq(
+            &committed.geometry[&geometry],
+            &native.snapshot().geometry[&geometry]
+        ));
     }
 }

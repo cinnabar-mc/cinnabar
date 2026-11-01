@@ -8,7 +8,7 @@ impl State {
     pub(crate) fn drawing_entity_keys(
         &self,
     ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
-        self.render.retained.entity_keys().into_iter()
+        self.render.entity_keys()
     }
 
     /// Links the canonical imports directly to the same host implementation in both contexts.
@@ -56,9 +56,7 @@ impl State {
         }
         let removed = self
             .render
-            .retained
             .entity_keys()
-            .into_iter()
             .filter(|key| !context.live.contains(key))
             .collect::<Vec<_>>();
         self.render

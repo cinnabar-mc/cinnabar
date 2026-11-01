@@ -75,24 +75,17 @@ impl MaskStore {
         }
     }
 
-    /// Applies intended token creations and selections against current native membership.
-    pub fn accept(&mut self, transaction: Self) {
+    /// Applies guest writes and removes only actor incarnations confirmed dead by the host.
+    pub fn accept(&mut self, transaction: Self, despawned: &[MaskEntity]) {
         assert!(Arc::ptr_eq(&self.next_slot, &transaction.next_slot));
-        for (handle, (key, _)) in transaction.pending_targets {
-            if let Some(&vertices) = self.candidates.get(&key) {
-                Arc::make_mut(&mut self.targets).insert(handle, (key, vertices));
-            }
+        for (handle, (key, vertices)) in transaction.pending_targets {
+            let vertices = self.candidates.get(&key).copied().unwrap_or(vertices);
+            Arc::make_mut(&mut self.targets).insert(handle, (key, vertices));
         }
-        let mut masks = transaction
-            .staged
-            .unwrap_or_else(|| self.current().to_vec());
-        for mask in &mut masks {
-            mask.entities
-                .retain(|key| self.candidates.contains_key(key));
-        }
-        if masks.as_slice() != self.current() {
+        if let Some(masks) = transaction.staged {
             self.staged = Some(masks);
         }
+        self.remove_entities(despawned);
     }
 
     /// Starts with no session authority and no allocated attachments.
@@ -117,8 +110,6 @@ impl MaskStore {
 
     /// Replaces trusted candidates. Membership retains incarnation keys across temporary culling.
     pub fn publish_targets(&mut self, targets: &[(MaskEntity, u64)]) {
-        Arc::make_mut(&mut self.targets)
-            .retain(|_, (key, _)| targets.iter().any(|(current, _)| current == key));
         self.candidates.clear();
         for &(key, vertices) in targets {
             if key.connection != self.session.connection || key.dimension != self.session.dimension
@@ -133,14 +124,45 @@ impl MaskStore {
                 *count = vertices;
             }
         }
-        self.pending_targets.retain(|_, (key, vertices)| {
+        for (key, vertices) in self.pending_targets.values_mut() {
             if let Some(current) = self.candidates.get(key) {
                 *vertices = *current;
-                true
-            } else {
-                false
             }
-        });
+        }
+    }
+
+    /// Includes retained memberships and frozen candidates in native lifetime checks.
+    pub fn entity_keys(&self) -> impl Iterator<Item = MaskEntity> + '_ {
+        self.targets
+            .values()
+            .chain(self.pending_targets.values())
+            .map(|(key, _)| *key)
+            .chain(
+                self.current()
+                    .iter()
+                    .flat_map(|mask| mask.entities.iter().copied()),
+            )
+            .chain(self.candidates.keys().copied())
+    }
+
+    /// Removes exact confirmed despawns without treating render availability as existence.
+    pub fn remove_entities(&mut self, despawned: &[MaskEntity]) {
+        if despawned.is_empty() {
+            return;
+        }
+        Arc::make_mut(&mut self.targets).retain(|_, (key, _)| !despawned.contains(key));
+        self.pending_targets
+            .retain(|_, (key, _)| !despawned.contains(key));
+        self.candidates.retain(|key, _| !despawned.contains(key));
+        if self
+            .current()
+            .iter()
+            .any(|mask| mask.entities.iter().any(|key| despawned.contains(key)))
+        {
+            for mask in self.staged() {
+                mask.entities.retain(|key| !despawned.contains(key));
+            }
+        }
     }
 
     /// Resolves only explicitly consented unfiltered observations; a frustum is not occlusion.
@@ -152,19 +174,19 @@ impl MaskStore {
         {
             return Err(MaskError::Denied);
         }
-        if let Some(handle) = self
-            .targets
-            .iter()
-            .chain(self.pending_targets.iter())
-            .find_map(|(token, (key, _))| (key.runtime_id == runtime_id).then_some(*token))
-        {
-            return Ok(handle);
-        }
         let (&key, &vertices) = self
             .candidates
             .iter()
             .find(|(key, _)| key.runtime_id == runtime_id)
             .ok_or(MaskError::StaleHandle)?;
+        if let Some(handle) = self
+            .targets
+            .iter()
+            .chain(self.pending_targets.iter())
+            .find_map(|(token, (known, _))| (*known == key).then_some(*token))
+        {
+            return Ok(handle);
+        }
         let handle = self.allocate();
         self.pending_targets.insert(handle, (key, vertices));
         Ok(handle)
@@ -216,7 +238,10 @@ impl MaskStore {
         {
             return Err(MaskError::BudgetExceeded);
         }
-        self.staged()[index].entities = selected.into_keys().collect();
+        let entities: Vec<_> = selected.into_keys().collect();
+        if self.current()[index].entities != entities {
+            self.staged()[index].entities = entities;
+        }
         Ok(())
     }
 
@@ -235,7 +260,9 @@ impl MaskStore {
         }) {
             return Err(MaskError::Invalid);
         }
-        self.staged()[index].position = position;
+        if self.current()[index].position != position {
+            self.staged()[index].position = position;
+        }
         Ok(())
     }
 
@@ -257,7 +284,9 @@ impl MaskStore {
         if style.is_some_and(|style| !style.valid()) {
             return Err(MaskError::Invalid);
         }
-        self.staged()[index].style = style;
+        if self.current()[index].style != style {
+            self.staged()[index].style = style;
+        }
         Ok(())
     }
 
@@ -281,9 +310,7 @@ impl MaskStore {
     /// Publishes a successful transaction, preserving identity for unchanged selections.
     pub fn commit(&mut self) -> Arc<[Mask]> {
         Arc::make_mut(&mut self.targets).append(&mut self.pending_targets);
-        if let Some(staged) = self.staged.take()
-            && staged.as_slice() != self.committed.as_ref()
-        {
+        if let Some(staged) = self.staged.take() {
             self.committed = staged.into();
         }
         Arc::clone(&self.committed)

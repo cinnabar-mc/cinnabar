@@ -321,8 +321,9 @@ lanes are bounded across the full frame. Deferred lifecycle state and bounded sc
 edit text remain queued until delivery, while frame-local outputs reset. Suspendible frame
 callbacks retain their store, fuel and private output across time slices; completed output
 publishes after post-return, and late frame actions expire. Invocation writes use deltas;
-drawing allocation and retirement retain one owner, and in-flight actor references use
-confirmed despawns rather than candidate absence. Decision-exporting instances
+drawing allocation and retirement retain one owner. In-flight actor references and mask
+members use confirmed despawns rather than candidate absence, and publication uses
+resource revisions and allocation identity without mesh or shader content comparisons. Decision-exporting instances
 remain synchronous. The new deterministic regressions have not been executed. Revocation is distinct
 from quarantine, so unrelated registration changes do not restart trapped guests.
 These extension changes close no vanilla parity gate. Their native execution and visual

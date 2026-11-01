@@ -214,6 +214,8 @@ pub struct DrawError {
 /// A successful callback's immutable snapshot tracks geometry, materials and instances separately.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Resources {
+    #[cfg(test)]
+    comparison: transaction::tests::ContentComparison,
     pub connection: u64,
     pub dimension: i32,
     pub entities: BTreeMap<Handle, EntityKey>,
@@ -229,6 +231,17 @@ pub struct Resources {
 }
 
 impl Resources {
+    /// Identifies published changes without reading immutable resource contents.
+    pub fn revision(&self) -> (u64, i32, u64, u64, u64) {
+        (
+            self.connection,
+            self.dimension,
+            self.geometry_revision,
+            self.material_revision,
+            self.instance_revision,
+        )
+    }
+
     /// Counts synchronous placements and mask chains before any block meshing completes.
     pub fn static_triangle_work(&self) -> usize {
         self.triangle_work(None, false).unwrap_or(usize::MAX)
