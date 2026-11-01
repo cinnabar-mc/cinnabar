@@ -597,6 +597,8 @@ fn claim_controls(
 pub struct FrameInput<'a> {
     pub pressed: bool,
     pub controls: &'a ControlFrame,
+    /// A native editor on the panel owner's open panel owns this frame's keys.
+    pub native_editing: bool,
     /// Every mod's committed cues from the previous frame.
     pub previous_cues: &'a [ModCue],
     /// Captured once from the current local session, delivered only to granted components.
@@ -723,6 +725,7 @@ pub fn run_frame_callbacks(
             failed(index, format!("{error:#}"));
             continue;
         }
+        host.set_native_editing(input.native_editing && controls.panel_open);
         if let Err(error) = host.frame_with_movement(
             input.pressed,
             snapshot,

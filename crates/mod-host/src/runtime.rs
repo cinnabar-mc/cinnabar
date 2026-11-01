@@ -349,6 +349,7 @@ impl Instance {
         state.exclusive.camera_claimed = state.camera_output();
         state.pressed = false;
         state.controls.frame = crate::empty_controls();
+        state.controls.native_editing = false;
     }
 
     /// Validates client facts for the next frame callback only.
@@ -369,6 +370,7 @@ impl Instance {
         state.world.mobs.clear();
         state.world.incoming.clear();
         state.controls.frame = crate::empty_controls();
+        state.controls.native_editing = false;
         state.pressed = false;
     }
 

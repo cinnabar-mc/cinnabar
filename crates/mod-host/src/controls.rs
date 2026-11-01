@@ -58,6 +58,11 @@ impl ModHost {
         self.instance.set_panel_open(open);
     }
 
+    /// Supplies whether a native editor on this mod's open panel owns the next frame's keys.
+    pub fn set_native_editing(&mut self, editing: bool) {
+        self.instance.set_native_editing(editing);
+    }
+
     /// Returns the physical keys reserved by the last successful callback.
     pub fn reserved_keys(&self) -> &[String] {
         self.instance.reserved_keys()
@@ -81,6 +86,8 @@ pub(super) struct ControlState {
     pub open: bool,
     pub open_requested: bool,
     pub open_order: u64,
+    /// A native field or editor on this mod's open panel owns this frame's key input.
+    pub native_editing: bool,
     /// Where the host last laid out this mod's panel; none while another mod's panel or no
     /// panel is up.
     pub layout: Option<ui::mod_hud::PanelLayout>,
@@ -124,6 +131,7 @@ impl ControlState {
             open: _,
             open_requested: _,
             open_order: _,
+            native_editing: _,
             layout: _,
             keys: _,
             interaction: _,
@@ -161,6 +169,7 @@ impl ControlState {
             open: false,
             open_requested: false,
             open_order: 0,
+            native_editing: false,
             layout: None,
             keys: Vec::new(),
             interaction: InteractionOutput::default(),
