@@ -223,6 +223,9 @@ jobs:
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
           fi
+          if affected ui-snapshot; then
+            cargo clippy -p ui-snapshot --features test-support --all-targets --locked -- -D warnings
+          fi
       - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}
         run: cargo test -p cinnabar --features developer-control --lib --locked -- developer_control
