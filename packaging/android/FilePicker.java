@@ -46,10 +46,10 @@ public final class FilePicker {
      * another worker may still be importing an earlier one; the first selection of a process
      * clears earlier sessions' copies, and Android may reclaim the cache directory at any time.
      * A document larger than a non-negative {@code maxBytes} fails the selection without
-     * filling storage; a failed selection removes its copies. The picker shows {@code mimeType}
-     * documents, or all documents when the caller passes a wildcard for custom file types.
+     * filling storage; a failed selection removes its copies. The picker shows every document,
+     * since providers label the same ZIP differently; native code checks extensions.
      */
-    public static String[] pick(boolean multiple, long maxBytes, String mimeType)
+    public static String[] pick(boolean multiple, long maxBytes)
             throws IOException, InterruptedException {
         final Activity host;
         final Pending request = new Pending();
@@ -66,7 +66,7 @@ public final class FilePicker {
         }
         final Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT)
                 .addCategory(Intent.CATEGORY_OPENABLE)
-                .setType(mimeType)
+                .setType("*/*")
                 .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, multiple);
         host.runOnUiThread(() -> {
             try {

@@ -393,6 +393,49 @@ impl cinnabar::extension::gameplay::Host for State {
         Ok(Ok(()))
     }
 
+    fn read_block_target(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
+        self.controls.budget(false)?;
+        if !self.grants.terrain {
+            return Ok(Err("terrain capability denied".into()));
+        }
+        Ok(Ok(self.gameplay_facts.block_target.filter(|_| {
+            self.snapshot.is_some()
+                && self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        })))
+    }
+
+    fn set_block_mining_target(
+        &mut self,
+        point: Option<GameplayVector3>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        if let Some(point) = point {
+            if self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open
+                || !self.gameplay_facts.attack_held
+            {
+                return Ok(Err(
+                    "mining target requires physical attack in focused gameplay".into(),
+                ));
+            }
+            if ![point.x, point.y, point.z]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() < (i32::MAX - 16) as f32)
+            {
+                return Ok(Err("invalid mining point".into()));
+            }
+        }
+        self.controls.pending_interaction.block_mining_target = point;
+        Ok(Ok(()))
+    }
+
     /// The presented camera, available with the same grants and frame as `read-frame`.
     fn read_camera(&mut self) -> Result<Result<Option<GameplayCameraPose>, String>> {
         self.gameplay_reads += 1;

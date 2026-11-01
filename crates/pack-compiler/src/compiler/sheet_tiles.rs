@@ -5,14 +5,17 @@
 //! any other tile. The whole-sheet material stays the sheet's identity for texture keys, particles
 //! and pack replacements, so nothing else that reads the sheet changes.
 //!
+//! Authored models cross quadrants, so [`super::sheet_regions`] packs their regions instead.
+//!
 //! The layers are optional. Models are compiled as a pair of whole-sheet templates, the required
 //! texture copies come before installation, and installation only fills existing pages. A full
 //! carrier keeps every model and pack it could already hold and simply draws these sheets from
 //! their downsampled layer.
 
 use super::lily_pad_textures::append_layer;
+use assets::facts::{BlockRenderKind, block_render_fact};
 use assets::{MODEL_TEMPLATE_FLAG_SHEET_TILES, MODEL_TEMPLATE_FLAG_SHELF, TILE_SIZE, TextureMip};
-use pack_compile_input::image::build_texture_mip_chain;
+use pack_compile_input::image::{DecodedTexture, build_texture_mip_chain};
 use std::collections::BTreeSet;
 use {super::*, assets::BlockFace};
 
@@ -35,12 +38,15 @@ pub(super) struct Inputs<'a> {
 pub(in crate::compiler) struct SheetPlan {
     paths: BTreeMap<u32, Box<str>>,
     chains: BTreeMap<Box<str>, Chains>,
+    /// Authored-model sheets, by whole-sheet material, drawn through packed regions.
+    region_sheets: BTreeMap<u32, Box<str>>,
+    region_art: BTreeMap<Box<str>, Option<DecodedTexture>>,
 }
 
 impl SheetPlan {
     /// Whether templates drawing this material should be compiled as a pair.
     pub(in crate::compiler) fn contains(&self, material: u32) -> bool {
-        self.paths.contains_key(&material)
+        self.paths.contains_key(&material) || self.region_sheets.contains_key(&material)
     }
 
     /// Appends each sheet's layers while the carrier has room, then moves the first template of
@@ -102,7 +108,12 @@ impl SheetPlan {
             quads[range].copy_from_slice(&tiled);
             part.flags |= MODEL_TEMPLATE_FLAG_SHEET_TILES;
         }
-        Ok(())
+        let art = self
+            .region_sheets
+            .iter()
+            .filter_map(|(&sheet, path)| Some((sheet, self.region_art.get(path)?.as_ref()?)))
+            .collect();
+        super::sheet_regions::install(&art, materials, pages, visuals, templates, quads)
     }
 }
 
@@ -148,6 +159,31 @@ pub(super) fn plan(inputs: Inputs<'_>, materials: &[Material]) -> Result<SheetPl
         }
         plan.paths.insert(sheet, descriptor.path);
     }
+    for record in records.iter().filter(|record| {
+        block_render_fact(&record.name).kind == BlockRenderKind::AuthoredModel
+            && pack.blocks.component_model(record).is_some()
+    }) {
+        let Some((descriptor, _)) = descriptor_for(fallback, pack, record, BlockFace::Up) else {
+            continue;
+        };
+        let Some(&sheet) = descriptors.get(&descriptor) else {
+            continue;
+        };
+        let material = materials[sheet as usize];
+        if plan.contains(sheet)
+            || material.animation != NO_ANIMATION
+            || material.variation_count != 0
+        {
+            continue;
+        }
+        if !plan.region_art.contains_key(&descriptor.path) {
+            let art = decode_sheet(root, &descriptor)?;
+            plan.region_art.insert(descriptor.path.clone(), art);
+        }
+        if plan.region_art[&descriptor.path].is_some() {
+            plan.region_sheets.insert(sheet, descriptor.path);
+        }
+    }
     Ok(plan)
 }
 
@@ -161,16 +197,24 @@ fn has_room(pages: &[TexturePage]) -> bool {
     free >= QUADRANTS
 }
 
-/// Crops and normalizes a square sheet larger than one tile; `None` for any other image.
-fn quadrant_chains(root: &Path, descriptor: &Descriptor) -> Result<Option<Chains>, AssetError> {
+/// Decodes a square power-of-two sheet larger than one tile; `None` for any other image.
+fn decode_sheet(
+    root: &Path,
+    descriptor: &Descriptor,
+) -> Result<Option<DecodedTexture>, AssetError> {
     let path = static_texture_path(root, &descriptor.path, &descriptor.texture_key)?;
     let decoded = decode_texture(&path, &descriptor.texture_key)?;
-    if decoded.width != decoded.height
-        || decoded.width <= TILE_SIZE
-        || !decoded.width.is_power_of_two()
-    {
+    Ok((decoded.width == decoded.height
+        && decoded.width > TILE_SIZE
+        && decoded.width.is_power_of_two())
+    .then_some(decoded))
+}
+
+/// Crops and normalizes a sheet's quadrants; `None` for an image that is not a sheet.
+fn quadrant_chains(root: &Path, descriptor: &Descriptor) -> Result<Option<Chains>, AssetError> {
+    let Some(decoded) = decode_sheet(root, descriptor)? else {
         return Ok(None);
-    }
+    };
     let side = decoded.width as usize;
     let half = side / 2;
     let mut chains = Vec::with_capacity(QUADRANTS);

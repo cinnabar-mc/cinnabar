@@ -124,8 +124,7 @@ mod tests {
 
     #[test]
     fn widget_colors_replace_only_the_authored_palette_slots() {
-        let mut panel: Panel = serde_json::from_value(json!({"toggle_key":"F10",
-            "surface":{"screen":"p.root","document":json!({"namespace":"p","root":{"type":"panel"}}).to_string()}}))
+        let mut panel: Panel = serde_json::from_value(json!({"surface":{"screen":"p.root","document":json!({"namespace":"p","root":{"type":"panel"}}).to_string()}}))
         .unwrap();
         assert_eq!(Palette::for_panel(&panel), Palette::default());
         panel.widget_colors = Some(WidgetColors {

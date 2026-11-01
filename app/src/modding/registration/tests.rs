@@ -31,7 +31,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         label: "Enabled".into(),
         value: enabled,
     }];
-    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+    let panel = serde_json::json!({"capture_key":capture_key,
         "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
     .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");

@@ -213,7 +213,7 @@ placement is saved under the button id, so prefix ids with the mod's name. Acros
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
 `touch.read-presses` returns it during the owner's next `frame`. A mod can then open
-its panel with `panel.set-open(true)` or take any other action it is granted.
+its panel with `panel.open()` or take any other action it is granted.
 
 ## Packages and screens
 
@@ -332,10 +332,11 @@ hosts cannot load components importing these operations.
 ## Explicit panel ownership
 
 Panel visibility belongs to the mod. Read physical keys with controls authority,
-choose your own opening and closing policy, and call `panel.set-open`. The host
-never opens or toggles a panel for F10 or legacy `toggle_key` metadata. That field
-is still accepted and ignored, allowing existing components to load during migration;
-a mod depending on host toggles must be updated before its panel can be opened.
+choose your own opening and closing policy, and call `panel.open`, `panel.close`
+or `panel.toggle`. Open and close are idempotent; toggle flips the latest requested
+state, including earlier calls in the same callback. The host handles no opening
+shortcut. The removed `toggle_key` panel field is rejected instead of silently ignored;
+remove it and rebuild mods against the explicit visibility imports.
 The most recent explicit opener owns input and closes every other mod panel.
 Escape dismissal (unless `capture_key`) and native text editing remain standard UI
 navigation. Packet reactors use [panel and input imports](packet-panels.md).

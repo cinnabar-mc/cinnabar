@@ -17,7 +17,6 @@ fn every_registry_item_has_a_presentation_disposition() {
         missing,
         [
             "minecraft:brittle_ice",
-            "minecraft:chorus_plant",
             "minecraft:ice_ball",
             "minecraft:ice_crystal",
             "minecraft:icicle",

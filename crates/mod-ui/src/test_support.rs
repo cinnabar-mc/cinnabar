@@ -145,7 +145,6 @@ pub fn sample_panel() -> Panel {
     Panel {
         surface: sample_surface(&controls),
         reference_size: None,
-        toggle_key: "ShiftRight".into(),
         controls,
         widget_colors: None,
         capture_key: false,

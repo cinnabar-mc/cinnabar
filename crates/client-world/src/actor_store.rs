@@ -888,6 +888,7 @@ pub(crate) mod properties;
 mod query;
 mod shadow;
 mod spatial;
+pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
 

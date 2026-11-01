@@ -4,7 +4,7 @@ use super::*;
 use protocol_ids::ActorDataKey;
 
 /// Collision dimensions retain a small positive extent after server scaling.
-pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
+pub const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
     /// Bounds for movement use constructor dimensions when the server omits them.

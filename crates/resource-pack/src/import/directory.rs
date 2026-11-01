@@ -13,14 +13,13 @@ use zip::{ZipWriter, write::SimpleFileOptions};
 
 /// Rejects links and non-regular files while preserving each pack's relative paths.
 pub(super) fn archive(root: &Path) -> Result<Vec<u8>, LibraryError> {
-    let mut writer = ZipWriter::new(BoundedArchive(Cursor::new(Vec::new())));
+    let mut writer = ZipWriter::new(BoundedArchive::default());
     let mut entries = 0usize;
     let mut total = 0u64;
     append(root, root, 0, &mut writer, &mut entries, &mut total)?;
     Ok(writer
         .finish()
         .map_err(|_| AdmissionError::MalformedZip)?
-        .0
         .into_inner())
 }
 
@@ -86,7 +85,15 @@ fn append(
 }
 
 /// Caps output as compression runs, including ZIP metadata written at finalization.
-struct BoundedArchive(Cursor<Vec<u8>>);
+#[derive(Default)]
+pub(super) struct BoundedArchive(Cursor<Vec<u8>>);
+
+impl BoundedArchive {
+    /// The archive bytes written so far.
+    pub(super) fn into_inner(self) -> Vec<u8> {
+        self.0.into_inner()
+    }
+}
 
 impl Write for BoundedArchive {
     /// Refuses writes past the archive ceiling before the buffer can grow.

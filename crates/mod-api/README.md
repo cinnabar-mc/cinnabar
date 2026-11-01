@@ -9,7 +9,7 @@ See the [contract and migration notes](../../docs/modding/src/appendix/block-geo
 
 Personal panel visibility is guest-owned. With the `controls` grant, read physical
 keys from `input::read_controls`, decide whether your shortcut was pressed, then
-call `panel::set_open(desired_open)`. The host accepts old `toggle_key` JSON as
-ignored metadata; F10 has no host fallback behavior. The latest explicit opener
-owns the panel. See [packet panel imports](../../docs/modding/src/appendix/packet-panels.md)
+call `panel::toggle()`. Use `panel::open()` or `panel::close()` when requesting
+a specific state. The host rejects the removed `toggle_key` field and handles no
+opening shortcut. The latest explicit opener owns the panel. See [packet panel imports](../../docs/modding/src/appendix/packet-panels.md)
 for core reactors.

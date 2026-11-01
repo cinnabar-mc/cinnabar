@@ -11,6 +11,7 @@ fn plan() -> SheetPlan {
     SheetPlan {
         paths: BTreeMap::from([(SHEET, "sheet".into())]),
         chains: BTreeMap::from([("sheet".into(), std::array::from_fn(|_| chain()))]),
+        ..SheetPlan::default()
     }
 }
 

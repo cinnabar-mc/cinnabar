@@ -6,7 +6,7 @@ use super::*;
 #[test]
 fn native_text_platform_ime_commits_without_unidentified_leaks() {
     let component = fixture_with_panel(
-        r#"{"toggle_key":"F10","controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
+        r#"{"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
     );
     let (mut app, window) = personal_panel_app_with_fixture(&component);
     app.add_message::<Ime>();
@@ -63,7 +63,7 @@ fn native_text_platform_ime_commits_without_unidentified_leaks() {
 #[test]
 fn native_text_submit_then_typing_keeps_latest_value() {
     let component = fixture_with_panel(
-        r#"{"toggle_key":"F10","controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
+        r#"{"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true,"navigation_keys":true}]}"#,
     );
     let (mut app, window) = personal_panel_app_with_fixture(&component);
     open_rendered_field(&mut app);
@@ -91,7 +91,7 @@ fn native_text_submit_then_typing_keeps_latest_value() {
 #[test]
 fn native_text_orders_ime_and_keyboard_in_one_update() {
     let component = fixture_with_panel(
-        r#"{"toggle_key":"F10","controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true}]}"#,
+        r#"{"controls":[{"kind":"text","id":"name","label":"Search","value":"Main","live":true}]}"#,
     );
     let (mut app, window) = personal_panel_app_with_fixture(&component);
     app.add_message::<WindowEvent>();

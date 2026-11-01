@@ -124,33 +124,37 @@ pub(super) fn link(linker: &mut Linker<State>) -> Result<()> {
             Ok(0)
         },
     )?;
-    linker.func_wrap(
-        "cinnabar:extension/panel",
-        "set-open",
-        |caller: Caller<'_, State>, open: i32| -> Result<i32> {
-            if !caller.data().panel.enabled() {
-                return Ok(DENIED);
-            }
-            if !matches!(open, 0 | 1) {
-                return Ok(INVALID);
-            }
-            let mut state = caller
-                .data()
-                .panel
-                .inner
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner);
-            if open != 0 && state.output.panel.is_none() {
-                return Ok(NO_CONTENT);
-            }
-            state.output.open = open != 0;
-            if open != 0 {
-                state.output.open_order = crate::panel_order::next_panel_open_order();
-            }
-            state.output.revision = state.output.revision.wrapping_add(1);
-            Ok(0)
-        },
-    )?;
+    for (name, requested) in [
+        ("open", Some(true)),
+        ("close", Some(false)),
+        ("toggle", None),
+    ] {
+        linker.func_wrap(
+            "cinnabar:extension/panel",
+            name,
+            move |caller: Caller<'_, State>| -> Result<i32> {
+                if !caller.data().panel.enabled() {
+                    return Ok(DENIED);
+                }
+                let mut state = caller
+                    .data()
+                    .panel
+                    .inner
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner);
+                let open = requested.unwrap_or(!state.output.open);
+                if open && state.output.panel.is_none() {
+                    return Ok(NO_CONTENT);
+                }
+                state.output.open = open;
+                if open {
+                    state.output.open_order = crate::panel_order::next_panel_open_order();
+                }
+                state.output.revision = state.output.revision.wrapping_add(1);
+                Ok(0)
+            },
+        )?;
+    }
     linker.func_wrap(
         "cinnabar:extension/panel",
         "update-content",
@@ -273,20 +277,30 @@ mod tests {
     };
 
     /// Starts a reactor which publishes and opens an ordinary JSON-UI surface through imports.
-    fn reactor(controls: bool, panel: &str, expected: (i32, i32)) -> crate::packet_mod::PacketMod {
+    fn reactor(
+        controls: bool,
+        panel: &str,
+        expected: (i32, i32),
+        requests: &[&str],
+    ) -> crate::packet_mod::PacketMod {
         let encoded: String = panel.bytes().map(|byte| format!("\\{byte:02x}")).collect();
         let imports = format!(
             r#"
           (import "cinnabar:extension/panel" "set-content" (func $content (param i32 i32) (result i32)))
-          (import "cinnabar:extension/panel" "set-open" (func $open (param i32) (result i32)))
+          (import "cinnabar:extension/panel" "open" (func $open (result i32)))
+          (import "cinnabar:extension/panel" "close" (func $close (result i32)))
+          (import "cinnabar:extension/panel" "toggle" (func $toggle (result i32)))
           (data (i32.const 4096) "{encoded}")"#
         );
-        let start = format!(
-            "(if (i32.ne (call $content (i32.const 4096) (i32.const {})) (i32.const {})) (then unreachable)) (if (i32.ne (call $open (i32.const 1)) (i32.const {})) (then unreachable))",
+        let mut start = format!(
+            "(if (i32.ne (call $content (i32.const 4096) (i32.const {})) (i32.const {})) (then unreachable)) (if (i32.ne (call $open) (i32.const {})) (then unreachable))",
             panel.len(),
             expected.0,
             expected.1
         );
+        for name in requests {
+            start.push_str(&format!(" (if (call ${name}) (then unreachable))"));
+        }
         let bytes = wat::parse_str(
             include_str!("tests/guest.wat")
                 .replace("$IMPORTS", &imports)
@@ -311,7 +325,7 @@ mod tests {
     }
     #[test]
     fn reactor_publishes_a_generic_panel_without_a_menu_export() {
-        let mut guest = reactor(true, &surface(), (0, 0));
+        let mut guest = reactor(true, &surface(), (0, 0), &[]);
         guest
             .start(
                 &SessionIdentity {
@@ -332,11 +346,38 @@ mod tests {
         assert!(!handle.enabled());
     }
     #[test]
+    fn reactor_visibility_calls_are_idempotent_and_toggle_the_latest_state() {
+        for (requests, open) in [
+            (vec!["open", "open"], true),
+            (vec!["close", "close"], false),
+            (vec!["toggle"], false),
+            (vec!["toggle", "toggle"], true),
+            (vec!["close", "toggle"], true),
+        ] {
+            let mut guest = reactor(true, &surface(), (0, 0), &requests);
+            guest
+                .start(
+                    &SessionIdentity {
+                        display_name: "Fixture".into(),
+                        xuid: "1".into(),
+                        uuid: "fixture".into(),
+                    },
+                    "{}",
+                    &[],
+                )
+                .unwrap();
+            let output = guest.panel().unwrap().output();
+            assert_eq!(output.open, open, "{requests:?}");
+            assert!(output.panel.is_some());
+            guest.stop();
+        }
+    }
+    #[test]
     fn denied_and_invalid_surface_calls_preserve_packet_processing() {
         for (granted, panel, expected) in
             [(false, surface(), (-1, -1)), (true, "{}".into(), (-2, -3))]
         {
-            let mut guest = reactor(granted, &panel, expected);
+            let mut guest = reactor(granted, &panel, expected, &[]);
             guest
                 .start(
                     &SessionIdentity {

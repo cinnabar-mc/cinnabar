@@ -56,18 +56,39 @@ record panel-layout {
 
 ## Functions
 
-<a id="set-open"></a>
+<a id="open"></a>
 
-### `set-open`
+### `open`
 
 ```wit
-set-open: func(open: bool) -> result<_, string>;
+open: func() -> result<_, string>;
 ```
 
-Changes this instance's panel input ownership on successful callback return.
-Requires controls authority and a retained or pending panel when opening.
-The latest opener owns the panel and closes other owners. Opening keys belong
-to the mod: legacy toggle_key JSON is accepted and ignored by the host.
+Opens this instance's panel on successful callback return. Requires controls
+authority and retained or pending panel content. Repeated opens keep it open.
+The latest opener owns input and closes other owners. Opening keys belong to the mod.
+
+<a id="close"></a>
+
+### `close`
+
+```wit
+close: func() -> result<_, string>;
+```
+
+Closes this instance's panel on successful callback return. Requires controls authority.
+Repeated closes keep it closed; content remains available for a later open.
+
+<a id="toggle"></a>
+
+### `toggle`
+
+```wit
+toggle: func() -> result<_, string>;
+```
+
+Flips this instance's requested visibility, including earlier requests in this callback.
+Uses the same authority, content and successful-return rules as open and close.
 
 <a id="set-content"></a>
 

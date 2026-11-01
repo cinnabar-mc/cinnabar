@@ -22,7 +22,7 @@ fn host() -> (tempfile::TempDir, ModHost) {
     .unwrap();
     let bundle = serde_json::json!({
         "panel": {"surface": panel_surface("retained"),
-            "toggle_key": "ShiftRight", "controls": []},
+            "controls": []},
         "surfaces": {}
     });
     host.set_panel_bundle(&bundle.to_string()).unwrap();
@@ -190,8 +190,7 @@ fn failed_recovery_initialization_quarantines_instead_of_retrying() {
 fn edit_host(live: bool) -> (tempfile::TempDir, ModHost) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("edits.wat");
-    let panel = serde_json::json!({"surface": panel_surface("edits"), "toggle_key": "ShiftRight",
-        "controls": [{"kind":"text", "id":"value", "label":"Value", "value":r#"{"v":0}"#,
+    let panel = serde_json::json!({"surface": panel_surface("edits"), "controls": [{"kind":"text", "id":"value", "label":"Value", "value":r#"{"v":0}"#,
             "min_chars":4,"live":live,"navigation_keys":true},
             {"kind":"keybind", "id":"capture", "label":"Capture", "key":"KeyQ", "capturing":false}]});
     let json = panel.to_string();
