@@ -28,6 +28,9 @@ use super::{
     write_private,
 };
 
+/// Names entries found at a world link and moved beside the world's data.
+const DISPLACED_PREFIX: &str = "displaced-";
+
 pub(crate) const BDS_START_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 pub(crate) const BDS_READY_MARKER: &str = "Server started.";
 /// The server configuration each start writes into the install.
@@ -528,7 +531,40 @@ pub(crate) fn link_world(link: &Path, target: &Path) -> Result<(), WorldError> {
             .map_err(|error| failed(format!("prepare worlds folder: {error}")))?;
     }
     unlink_world(link);
+    if resolves_to(link, target) {
+        return Ok(());
+    }
+    move_occupant_aside(link, target)
+        .map_err(|error| failed(format!("move aside the entry at the world link: {error}")))?;
     create_world_link(link, target).map_err(|error| failed(format!("link world folder: {error}")))
+}
+
+/// Whether `link` is a surviving link, such as one another process holds open, already reaching
+/// `target`.
+fn resolves_to(link: &Path, target: &Path) -> bool {
+    match (fs::canonicalize(link), fs::canonicalize(target)) {
+        (Ok(link), Ok(target)) => link == target,
+        _ => false,
+    }
+}
+
+/// Moves what [`unlink_world`] left at `link` into a free `displaced-N` beside `target`: it may
+/// hold world data, so it is kept, and the world's own folder owns it from then on.
+fn move_occupant_aside(link: &Path, target: &Path) -> io::Result<()> {
+    if fs::symlink_metadata(link).is_err() {
+        return Ok(());
+    }
+    let parent = target.parent().unwrap_or(target);
+    let free = (1u32..)
+        .map(|number| parent.join(format!("{DISPLACED_PREFIX}{number}")))
+        .find(|path| fs::symlink_metadata(path).is_err())
+        .expect("a displaced entry name is free");
+    tracing::warn!(
+        "moving the unexpected entry at {} to {}",
+        link.display(),
+        free.display()
+    );
+    fs::rename(link, free)
 }
 
 /// Removes only the link, never the world data it points at; a real folder goes only when empty.
