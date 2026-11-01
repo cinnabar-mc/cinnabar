@@ -41,10 +41,13 @@ fn icon(name: &str) -> Rect {
         .1
 }
 
+/// The runtime texture source limit the tests translate under.
+const TEXTURE_LIMIT: u64 = 4 * 1024 * 1024;
+
 /// Translates in-memory pack files.
 fn run(files: &BTreeMap<String, Vec<u8>>, name: &str) -> Result<Translation, TranslateError> {
     let paths: Vec<String> = files.keys().cloned().collect();
-    translate(&paths, |path| files.get(path).cloned(), name)
+    translate(&paths, |path| files.get(path).cloned(), name, TEXTURE_LIMIT)
 }
 
 /// Translated files keyed by path.
@@ -512,10 +515,76 @@ fn translations_beyond_the_pixel_budget_fail() {
     let read = |path: &str| files.get(path).cloned();
     let small = Budget::with_pixels(64 * 64 * 10);
     assert_eq!(
-        translate::translate_within(&paths, read, "Pack", &small).unwrap_err(),
+        translate::translate_within(&paths, read, "Pack", TEXTURE_LIMIT, &small).unwrap_err(),
         TranslateError::TooLarge
     );
     assert!(run(&files, "Pack").is_ok());
+}
+
+#[test]
+fn modern_crosshairs_replace_the_legacy_atlas_crosshair() {
+    let textures = "assets/minecraft/textures/";
+    let icons = marked_atlas(
+        256,
+        &[(icon("crosshair"), WHITE), (icon("heart/full"), RED)],
+    );
+    let files = pack(vec![
+        (&format!("{textures}gui/icons.png"), icons),
+        (
+            &format!("{textures}gui/sprites/hud/crosshair.png"),
+            solid(15, 15, BLUE),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    let out = output(&translation);
+    assert_eq!(
+        pixel(&out, "textures/gui/icons.png", 0, 0),
+        ((256, 256), BLUE)
+    );
+    assert_eq!(
+        pixel(&out, "textures/gui/icons.png", 52, 0).1,
+        RED,
+        "the rest of the atlas stays"
+    );
+}
+
+#[test]
+fn bottles_without_an_overlay_are_not_published_as_filled_bottles() {
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/item/potion.png",
+            encode(&RgbaImage::new(16, 16)),
+        ),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let translation = run(&files, "Pack").unwrap();
+    assert!(!output(&translation).contains_key("textures/items/potion_bottle_drinkable.png"));
+}
+
+#[test]
+fn generated_textures_over_the_runtime_limit_are_left_out() {
+    let files = pack(vec![
+        (
+            "assets/minecraft/textures/block/oak_leaves.png",
+            solid(16, 16, GREEN),
+        ),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            solid(16, 16, RED),
+        ),
+    ]);
+    let paths: Vec<String> = files.keys().cloned().collect();
+    let translation = translate(&paths, |path| files.get(path).cloned(), "Pack", 8).unwrap();
+    let out = output(&translation);
+    assert!(!out.contains_key("textures/blocks/leaves_oak.tga"));
+    assert!(
+        out.contains_key("textures/blocks/stone.png"),
+        "copied sources are kept"
+    );
+    assert_eq!(translation.skipped, 1);
 }
 
 #[test]
@@ -560,6 +629,7 @@ fn unreadable_and_invalid_files_are_skipped() {
         &paths,
         |path| (!path.ends_with("apple.png")).then(|| files[path].clone()),
         "Pack",
+        TEXTURE_LIMIT,
     )
     .unwrap();
     assert_eq!(translation.skipped, 2);

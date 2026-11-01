@@ -112,6 +112,15 @@ pub(crate) fn legacy_strip_atlas(
     })
 }
 
+/// Whether `bedrock_path` (relative to `textures/`, without extension) is one of Bedrock's
+/// default filled bottles, which only potion composition may produce: a Java bottle on its own
+/// has no liquid.
+pub(crate) fn is_filled_bottle(bedrock_path: &str) -> bool {
+    bedrock_path
+        .strip_prefix("items/")
+        .is_some_and(|name| BOTTLES.iter().any(|(_, legacy, _)| name == *legacy))
+}
+
 /// Whether the potion or atlas translation reads the item texture named `name`.
 pub(crate) fn composes(name: &str) -> bool {
     name == "potion_overlay"

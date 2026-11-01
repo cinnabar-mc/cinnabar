@@ -101,7 +101,7 @@ fn block(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> Option<
 }
 
 /// A translated item texture and, when potions or atlases compose it, its full decoded image.
-type ItemResult = Option<((String, Output), Option<(String, RgbaImage)>)>;
+type ItemResult = Option<(Option<(String, Output)>, Option<(String, RgbaImage)>)>;
 
 /// Translates an item texture. Source alpha is kept: the client applies Bedrock's own alpha
 /// handling to translated packs as to any other pack. Pixels are decoded only when the texture
@@ -110,7 +110,7 @@ fn item(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> ItemResu
     let (width, height) = dimensions(&bytes)?;
     if let Some(atlas) = items::legacy_strip_atlas(layout, name, width, height) {
         return Some((
-            (format!("textures/items/{atlas}.png"), Output::Raw(bytes)),
+            Some((format!("textures/items/{atlas}.png"), Output::Raw(bytes))),
             None,
         ));
     }
@@ -129,7 +129,9 @@ fn item(layout: Layout, name: &str, bytes: Vec<u8>, budget: &Budget) -> ItemResu
     let composed = image
         .filter(|_| composes)
         .map(|image| (name.to_owned(), image));
-    Some(((format!("textures/{bedrock}.png"), output), composed))
+    let output =
+        (!items::is_filled_bottle(&bedrock)).then(|| (format!("textures/{bedrock}.png"), output));
+    Some((output, composed))
 }
 
 /// Names a 1.21.2+ equipment layer like the legacy `models/armor` files:
@@ -239,8 +241,9 @@ pub(crate) fn translate(
     paths: &[String],
     read: impl FnMut(&str) -> Option<Vec<u8>>,
     name: &str,
+    max_texture_bytes: u64,
 ) -> Result<Translation, TranslateError> {
-    translate_within(paths, read, name, &Budget::new())
+    translate_within(paths, read, name, max_texture_bytes, &Budget::new())
 }
 
 /// Translates within an explicit pixel `budget`.
@@ -248,6 +251,7 @@ pub(crate) fn translate_within(
     paths: &[String],
     read: impl FnMut(&str) -> Option<Vec<u8>>,
     name: &str,
+    max_texture_bytes: u64,
     budget: &Budget,
 ) -> Result<Translation, TranslateError> {
     let mut paths = paths.to_vec();
@@ -339,7 +343,7 @@ pub(crate) fn translate_within(
     out.extend(block_outputs);
     let mut composed = HashMap::new();
     for (output, image) in item_outputs {
-        out.insert(output.0, output.1);
+        out.extend(output);
         composed.extend(image);
     }
     for (path, image) in items::potion_textures(&composed, layout, budget)
@@ -369,16 +373,25 @@ pub(crate) fn translate_within(
     let selection = sprites
         .remove("hotbar_selection")
         .or_else(|| widget_rect(hud::LEGACY_SELECTION));
+    let modern_crosshair = sprites.contains_key(hud::CROSSHAIR);
     hud_sprites.extend(sprites);
     for (path, image) in
         hud::hud_textures(&hud_sprites, hotbar.as_ref(), selection.as_ref(), budget)
     {
         out.insert(path, Output::Image(image));
     }
-    if icons_image.is_none()
-        && let Some(rebuilt) = hud::icons_from_sprites(&hud_sprites, budget)
-    {
-        out.insert("textures/gui/icons.png".into(), Output::Image(rebuilt));
+    // Bedrock reads the crosshair from the legacy atlas, so a 1.20.2+ crosshair sprite replaces
+    // the atlas's crosshair, or rebuilds the atlas at the sprite's scale.
+    let icons_atlas = match &icons_image {
+        Some(atlas) if modern_crosshair => {
+            hud::with_crosshair(atlas, &hud_sprites[hud::CROSSHAIR], budget)
+                .or_else(|| hud::icons_from_sprites(&hud_sprites, budget))
+        }
+        Some(_) => None,
+        None => hud::icons_from_sprites(&hud_sprites, budget),
+    };
+    if let Some(atlas) = icons_atlas {
+        out.insert("textures/gui/icons.png".into(), Output::Image(atlas));
     }
     retarget_tga(&mut out, budget);
     out.extend(masks);
@@ -390,14 +403,20 @@ pub(crate) fn translate_within(
         return Err(TranslateError::NothingToTranslate);
     }
     let digest: [u8; 32] = source.hasher.finalize().into();
-    let mut files: Vec<(String, Vec<u8>)> = out
+    // Generated textures the runtime would refuse are left out so vanilla art stays in place.
+    let encoded: Vec<Option<(String, Vec<u8>)>> = out
         .into_par_iter()
-        .map(|(path, output)| match output {
-            Output::Raw(bytes) => (path, bytes),
-            Output::Image(image) => (path, encode(&image)),
-            Output::Tga(image) => (path, tga::encode(&image)),
+        .map(|(path, output)| {
+            let (bytes, generated) = match output {
+                Output::Raw(bytes) => (bytes, false),
+                Output::Image(image) => (encode(&image), true),
+                Output::Tga(image) => (tga::encode(&image), true),
+            };
+            (!generated || bytes.len() as u64 <= max_texture_bytes).then_some((path, bytes))
         })
         .collect();
+    let oversized = encoded.iter().filter(|file| file.is_none()).count();
+    let mut files: Vec<(String, Vec<u8>)> = encoded.into_iter().flatten().collect();
     files.push((
         "manifest.json".into(),
         manifest::manifest(name, &meta.description, &digest),
@@ -406,6 +425,6 @@ pub(crate) fn translate_within(
     Ok(Translation {
         files,
         layout,
-        skipped: source.skipped + invalid,
+        skipped: source.skipped + invalid + oversized,
     })
 }

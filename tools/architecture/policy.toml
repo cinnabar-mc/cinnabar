@@ -128,7 +128,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "java-resource-pack"
 path = "crates/java-resource-pack"
-allowed_dependencies = []
+allowed_dependencies = ["pack-json"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 
 [[crates]]

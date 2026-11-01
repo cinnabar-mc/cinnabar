@@ -15,14 +15,12 @@ doctest = false
 
 [dependencies]
 image.workspace = true
+pack-json = { path = "../pack-json" }
 rayon.workspace = true
 serde_json = "1"
 sha2.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
-
-[dev-dependencies]
-pack-json = { path = "../pack-json" }
 
 [lints]
 workspace = true

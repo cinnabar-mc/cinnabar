@@ -111,20 +111,44 @@ pub(crate) fn tint_mask(
     Some(out)
 }
 
-/// Encodes an image as an uncompressed 32-bit TGA with a bottom-left origin, the layout of most
-/// vanilla TGA textures, which every TGA decoder reads.
+/// Encodes an image as a run-length-encoded 32-bit TGA with a bottom-left origin, the layout
+/// vanilla's compressed TGA textures use. Packets never cross a row, as the format requires.
 pub(crate) fn encode(image: &RgbaImage) -> Vec<u8> {
     let (width, height) = image.dimensions();
-    let mut bytes = Vec::with_capacity(18 + image.as_raw().len());
-    bytes.extend_from_slice(&[0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    let mut bytes = Vec::with_capacity(18 + image.as_raw().len() / 4);
+    bytes.extend_from_slice(&[0, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     // TGA stores dimensions in 16 bits; decoded textures stay within the decoder's limits.
     bytes.extend_from_slice(&(width as u16).to_le_bytes());
     bytes.extend_from_slice(&(height as u16).to_le_bytes());
     bytes.extend_from_slice(&[32, 8]);
+    let bgra = |x: u32, y: u32| {
+        let [r, g, b, a] = image.get_pixel(x, y).0;
+        [b, g, r, a]
+    };
     for y in (0..height).rev() {
-        for x in 0..width {
-            let [r, g, b, a] = image.get_pixel(x, y).0;
-            bytes.extend_from_slice(&[b, g, r, a]);
+        let mut x = 0;
+        while x < width {
+            let pixel = bgra(x, y);
+            let run = (x..width.min(x + 128))
+                .take_while(|&next| bgra(next, y) == pixel)
+                .count() as u32;
+            if run > 1 {
+                bytes.push(0x80 | (run - 1) as u8);
+                bytes.extend_from_slice(&pixel);
+                x += run;
+                continue;
+            }
+            // A raw packet runs until two equal neighbours could start a run instead.
+            let start = x;
+            while x < width && x - start < 128 && (x + 1 >= width || bgra(x, y) != bgra(x + 1, y)) {
+                x += 1;
+            }
+            let x_end = x.max(start + 1);
+            bytes.push((x_end - start - 1) as u8);
+            for column in start..x_end {
+                bytes.extend_from_slice(&bgra(column, y));
+            }
+            x = x_end;
         }
     }
     bytes
@@ -193,7 +217,7 @@ mod tests {
             Rgba([x as u8, y as u8, 7, [0, 255][(x % 2) as usize]])
         });
         let bytes = encode(&image);
-        assert_eq!((bytes[2], bytes[16], bytes[17]), (2, 32, 8));
+        assert_eq!((bytes[2], bytes[16], bytes[17]), (10, 32, 8));
         let decoded = image::load_from_memory_with_format(&bytes, image::ImageFormat::Tga)
             .unwrap()
             .into_rgba8();

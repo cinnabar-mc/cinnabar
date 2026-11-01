@@ -42,7 +42,8 @@ pub(crate) struct PackMeta {
 /// Reads `pack.mcmeta`, leaving defaults for anything missing or malformed.
 pub(crate) fn read_meta(bytes: Option<&[u8]>) -> PackMeta {
     let bytes = bytes.map(|bytes| bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes));
-    let Some(root) = bytes.and_then(|bytes| serde_json::from_slice::<Value>(bytes).ok()) else {
+    // The shared pack JSON parser bounds the value tree a small file may allocate.
+    let Some(root) = bytes.and_then(|bytes| pack_json::parse_jsonc::<Value>(bytes).ok()) else {
         return PackMeta::default();
     };
     let pack = &root["pack"];

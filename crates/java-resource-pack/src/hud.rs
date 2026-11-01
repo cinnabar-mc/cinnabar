@@ -148,7 +148,7 @@ const fn rect(x: u32, y: u32, w: u32, h: u32) -> Rect {
 /// Each 1.20.2+ HUD sprite's region in the `gui/icons.png` of packs made for 1.7-1.20.1; the
 /// positions match the 1.20.1 atlas pixel for pixel.
 pub(crate) const LEGACY_ICON_RECTS: [(&str, Rect); 61] = [
-    ("crosshair", rect(0, 0, 15, 15)),
+    (CROSSHAIR, rect(0, 0, 15, 15)),
     ("heart/container", rect(16, 0, 9, 9)),
     ("heart/container_blinking", rect(25, 0, 9, 9)),
     ("heart/full", rect(52, 0, 9, 9)),
@@ -314,6 +314,25 @@ fn square_selection(selection: &RgbaImage, budget: &Budget) -> Option<RgbaImage>
     Some(square)
 }
 
+/// The 1.20.2+ sprite that Bedrock still reads from the legacy `gui/icons.png` atlas.
+pub(crate) const CROSSHAIR: &str = "crosshair";
+
+/// Replaces the crosshair region of a legacy `gui/icons.png` with a 1.20.2+ crosshair sprite at
+/// the atlas's scale, keeping the rest of the atlas. Returns `None` when the sizes differ.
+pub(crate) fn with_crosshair(
+    icons: &RgbaImage,
+    crosshair: &RgbaImage,
+    budget: &Budget,
+) -> Option<RgbaImage> {
+    let side = LEGACY_ICON_RECTS[0].1.w * atlas_scale(icons);
+    if crosshair.dimensions() != (side, side) {
+        return None;
+    }
+    let mut atlas = duplicate(icons, budget)?;
+    paste(&mut atlas, crosshair, 0, 0);
+    Some(atlas)
+}
+
 /// Rebuilds a legacy-layout `gui/icons.png` from 1.20.2+ sprites so the crosshair, which Bedrock
 /// still reads from that atlas, is translated. The crosshair must be a square multiple of its
 /// 15-pixel vanilla size; regions without a matching sprite stay empty.
@@ -321,7 +340,7 @@ pub(crate) fn icons_from_sprites(
     sprites: &BTreeMap<String, RgbaImage>,
     budget: &Budget,
 ) -> Option<RgbaImage> {
-    let (width, height) = sprites.get("crosshair")?.dimensions();
+    let (width, height) = sprites.get(CROSSHAIR)?.dimensions();
     if width != height || width == 0 || !width.is_multiple_of(15) {
         return None;
     }

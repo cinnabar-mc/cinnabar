@@ -275,6 +275,79 @@ fn java_edition_packs_without_usable_textures_are_rejected() {
 }
 
 #[test]
+fn java_metadata_over_the_manifest_allowance_is_not_read() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let mut meta = br#"{"pack":{"pack_format":15,"description":"Padded"},"pad":""#.to_vec();
+    meta.resize(crate::MAX_MANIFEST_BYTES + 16, b' ');
+    meta.extend_from_slice(b"\"}");
+    let bytes = zip(&[
+        ("pack.mcmeta", &meta),
+        (
+            "assets/minecraft/textures/block/stone.png",
+            &png([1, 2, 3, 255]),
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("padded.zip", &bytes))
+        .unwrap();
+    assert_eq!(report.imported[0].description, "Java Edition resource pack");
+}
+
+#[test]
+fn compressible_java_translations_fit_the_compressed_archive_limit() {
+    // Each checkerboard TGA is about 4 MB uncompressed but deflates to almost nothing.
+    let checkerboard = {
+        let mut bytes = Vec::new();
+        image::RgbaImage::from_fn(1000, 1000, |x, y| {
+            image::Rgba(if (x + y) % 2 == 0 {
+                [0, 128, 0, 255]
+            } else {
+                [0; 4]
+            })
+        })
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+        bytes
+    };
+    let names = [
+        "acacia_leaves",
+        "birch_leaves",
+        "dark_oak_leaves",
+        "flowering_azalea_leaves",
+        "jungle_leaves",
+        "large_fern_bottom",
+        "large_fern_top",
+        "lilac_bottom",
+        "lilac_top",
+        "oak_leaves",
+        "short_grass",
+        "spruce_leaves",
+        "sugar_cane",
+        "tall_grass_bottom",
+        "tall_grass_top",
+        "tall_seagrass_bottom",
+        "tall_seagrass_top",
+    ];
+    let paths: Vec<String> = names
+        .iter()
+        .map(|name| format!("assets/minecraft/textures/block/{name}.png"))
+        .collect();
+    let mut files: Vec<(&str, &[u8])> = vec![("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#)];
+    files.extend(
+        paths
+            .iter()
+            .map(|path| (path.as_str(), checkerboard.as_slice())),
+    );
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let report = library
+        .import(&fixture.write("leaves.zip", &zip(&files)))
+        .unwrap();
+    assert_eq!(report.imported.len(), 1, "{:?}", report.rejected);
+}
+
+#[test]
 fn java_packs_in_bundles_keep_their_nested_siblings() {
     let nested = zip(&[
         ("manifest.json", manifest(140, "resources", "").as_bytes()),

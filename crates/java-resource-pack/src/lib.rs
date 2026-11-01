@@ -76,7 +76,8 @@ pub fn find_root<'a>(paths: impl IntoIterator<Item = &'a str> + Clone) -> Option
 
 /// Translates the Java pack whose files are `paths` (relative to its root, as returned by
 /// [`find_root`]) into a Bedrock pack named `name`. `read` returns a file's bytes, or `None` when
-/// it cannot be read within the caller's limits; such files are counted in
+/// it cannot be read within the caller's limits; such files, and generated textures whose encoding
+/// exceeds `max_texture_bytes` (the runtime's texture source limit), are counted in
 /// [`Translation::skipped`]. Files are read sequentially on the calling thread and decoded in
 /// parallel. The manifest identity is derived from the content read, so translating the same
 /// pack twice yields the same pack identity.
@@ -84,8 +85,9 @@ pub fn translate(
     paths: &[String],
     read: impl FnMut(&str) -> Option<Vec<u8>>,
     name: &str,
+    max_texture_bytes: u64,
 ) -> Result<Translation, TranslateError> {
-    translate::translate(paths, read, name)
+    translate::translate(paths, read, name, max_texture_bytes)
 }
 
 #[cfg(test)]
