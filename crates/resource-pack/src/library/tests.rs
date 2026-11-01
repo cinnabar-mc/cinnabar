@@ -191,6 +191,84 @@ fn directory_preview_reuses_validation_and_installs_the_previewed_bytes() {
     );
 }
 
+/// A 16x16 PNG filled with `color`.
+fn png(color: [u8; 4]) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    image::RgbaImage::from_pixel(16, 16, image::Rgba(color))
+        .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+        .unwrap();
+    bytes
+}
+
+#[test]
+fn java_edition_packs_import_as_translated_bedrock_packs() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let planks = png([0, 255, 0, 255]);
+    let bytes = zip(&[
+        (
+            "Faithful/pack.mcmeta",
+            br#"{"pack":{"pack_format":15,"description":"Java textures"}}"#,
+        ),
+        ("Faithful/pack.png", &png([0, 0, 255, 255])),
+        (
+            "Faithful/assets/minecraft/textures/block/oak_planks.png",
+            &planks,
+        ),
+        (
+            "Faithful/assets/minecraft/sounds/ignored.ogg",
+            b"not a texture",
+        ),
+    ]);
+    let report = library
+        .import(&fixture.write("faithful.zip", &bytes))
+        .unwrap();
+    assert!(report.rejected.is_empty(), "{:?}", report.rejected);
+    let imported = &report.imported[0];
+    assert_eq!(imported.name, "Faithful");
+    assert_eq!(imported.description, "Java textures");
+    library.activate(imported.id).unwrap();
+    let view = LayeredPackView::new(library.apply().unwrap());
+    assert_eq!(
+        view.read("textures/blocks/planks_oak.png")
+            .unwrap()
+            .as_ref(),
+        planks.as_slice()
+    );
+    assert!(view.read("assets/minecraft/sounds/ignored.ogg").is_none());
+
+    let directory = fixture.0.join("java-pack");
+    fs::create_dir_all(directory.join("assets/minecraft/textures/item")).unwrap();
+    fs::write(
+        directory.join("pack.mcmeta"),
+        br#"{"pack":{"pack_format":15}}"#,
+    )
+    .unwrap();
+    fs::write(
+        directory.join("assets/minecraft/textures/item/golden_apple.png"),
+        png([255, 255, 0, 255]),
+    )
+    .unwrap();
+    let prepared = crate::prepare_import(&directory).unwrap();
+    assert_eq!(prepared.report.imported[0].name, "java-pack");
+}
+
+#[test]
+fn java_edition_packs_without_usable_textures_are_rejected() {
+    let fixture = Fixture::new();
+    let mut library = fixture.library();
+    let bytes = zip(&[
+        ("pack.mcmeta", br#"{"pack":{"pack_format":15}}"#),
+        ("assets/minecraft/sounds.json", b"{}"),
+    ]);
+    assert!(
+        library
+            .import(&fixture.write("sounds.zip", &bytes))
+            .is_err()
+    );
+    assert!(library.available().is_empty());
+}
+
 #[test]
 fn directory_preview_rejects_encrypted_or_malformed_manifests() {
     let fixture = Fixture::new();

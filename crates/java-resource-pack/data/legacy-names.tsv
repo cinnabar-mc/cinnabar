@@ -1,0 +1,29 @@
+# Java Edition legacy (1.8-1.12) texture path -> Bedrock texture path, both without extension.
+# Unlisted paths keep their name. Derived like flattened-names.tsv from the 1.12.2 client textures.
+blocks/destroy_stage_0	environment/destroy_stage_0
+blocks/destroy_stage_1	environment/destroy_stage_1
+blocks/destroy_stage_2	environment/destroy_stage_2
+blocks/destroy_stage_3	environment/destroy_stage_3
+blocks/destroy_stage_4	environment/destroy_stage_4
+blocks/destroy_stage_5	environment/destroy_stage_5
+blocks/destroy_stage_6	environment/destroy_stage_6
+blocks/destroy_stage_7	environment/destroy_stage_7
+blocks/destroy_stage_8	environment/destroy_stage_8
+blocks/destroy_stage_9	environment/destroy_stage_9
+blocks/fire_layer_0	blocks/fire_0
+blocks/fire_layer_1	blocks/fire_1
+blocks/water_flow	blocks/water_flow_grey
+blocks/water_still	blocks/water_still_grey
+items/acacia_boat	items/boat_acacia
+items/barrier	blocks/barrier
+items/beetroot_seeds	items/seeds_beetroot
+items/birch_boat	items/boat_birch
+items/dark_oak_boat	items/boat_darkoak
+items/dragon_breath	items/dragons_breath
+items/fish_cod_cooked	items/fish_cooked
+items/fish_cod_raw	items/fish_raw
+items/jungle_boat	items/boat_jungle
+items/oak_boat	items/boat_oak
+items/spruce_boat	items/boat_spruce
+items/structure_void	blocks/structure_void
+items/wooden_armorstand	items/armor_stand

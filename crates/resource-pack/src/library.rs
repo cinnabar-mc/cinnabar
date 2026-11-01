@@ -93,6 +93,8 @@ pub enum LibraryError {
     },
     #[error(transparent)]
     Admission(#[from] AdmissionError),
+    #[error(transparent)]
+    JavaPack(java_resource_pack::TranslateError),
     #[error("encrypted or password-protected packs are unsupported")]
     Encrypted,
     #[error("open a supported resource-pack archive")]

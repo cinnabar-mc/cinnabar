@@ -1,4 +1,5 @@
-//! Bounded import of ordinary pack archives and resource halves of add-on bundles.
+//! Bounded import of ordinary pack archives, resource halves of add-on bundles and Java Edition
+//! resource packs, which are translated into Bedrock packs first.
 
 use pack_json::parse_jsonc;
 
@@ -20,6 +21,7 @@ use std::{
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 mod directory;
+mod java;
 mod selection;
 pub use selection::{
     GlobalSelectionEntry, ParsedGlobalSelection, merge_global_selection, parse_global_selection,
@@ -131,6 +133,12 @@ fn read_bundle(
             MANIFEST_NAMES.contains(&name).then(|| root.to_owned())
         })
         .collect::<HashSet<_>>();
+    if roots.is_empty()
+        && let Some(root) = java::root(&paths)
+    {
+        let translated = java::translate(&mut archive, &paths, &root, source)?;
+        return read_bundle(translated, source, depth + 1, report, imported);
+    }
     let mut roots = roots.into_iter().collect::<Vec<_>>();
     roots.sort();
     if roots.len() > MAX_PACKS {

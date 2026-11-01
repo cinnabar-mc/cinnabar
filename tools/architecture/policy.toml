@@ -124,10 +124,17 @@ path = "crates/shaderpack-worker"
 allowed_dependencies = ["shaderpack", "test-time", "update-manifest"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 
+# Java Edition resource-pack translation into Bedrock pack files; archive admission stays in `resource-pack`.
+[[crates]]
+name = "java-resource-pack"
+path = "crates/java-resource-pack"
+allowed_dependencies = []
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
 [[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
-allowed_dependencies = ["pack-json", "protocol", "zip-footer"]
+allowed_dependencies = ["java-resource-pack", "pack-json", "protocol", "zip-footer"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -1174,6 +1181,7 @@ clock_free_crates = [
     "crates/block-transform",
     "crates/input",
     "crates/inventory",
+    "crates/java-resource-pack",
     "crates/json-ui",
     "crates/pack-json",
     "crates/meshing",
@@ -1422,6 +1430,56 @@ reason = "The standalone guest example demonstrates an animated liquid in a name
 path = "examples/mods/portal-view/src/lib.rs"
 literal = "minecraft:obsidian"
 reason = "The standalone guest example supplies a concrete named block for its retained frame."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/hud.rs"
+literal = "air"
+reason = "Java HUD sprite file name (gui/sprites/hud/air.png) translated into a Bedrock UI texture, not a block identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_drinkable"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_splash"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "splash_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "lingering_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_lingering"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_overlay"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "wither"
+reason = "Bedrock potion texture suffix (potion_bottle_wither.png) paired with its tint, not an actor identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/translate.rs"
+literal = "turtle_scute"
+reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
 
 [identifier_literals]
 owners = [
