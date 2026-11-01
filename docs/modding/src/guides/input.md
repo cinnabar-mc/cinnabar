@@ -129,3 +129,5 @@ introduced. Compositors may restrict programmatic pointer movement.
 Desktop requests wait for native mouse capture to release, then submit an explicit
 move even when the target matches the window's cached pointer position. The same
 container and granted mod must retain focused input throughout that wait.
+A hidden cursor with capture already released cancels the request, so switching
+back to a visible pointer cannot deliver an old move.

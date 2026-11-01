@@ -45,7 +45,8 @@ struct ApplyNativePointer;
 
 /// Runs after both cached window updates and native cursor capture changes in Last.
 fn install_schedule(app: &mut App) {
-    app.init_resource::<Pending>()
+    app.init_resource::<Backend>()
+        .init_resource::<Pending>()
         .init_schedule(ApplyNativePointer);
     app.world_mut()
         .resource_mut::<MainScheduleOrder>()
@@ -62,7 +63,7 @@ pub(super) fn configure(app: &mut App) {
 #[derive(SystemParam)]
 struct Authority<'w, 's> {
     windows: Query<'w, 's, (Entity, &'static Window, &'static CursorOptions), With<PrimaryWindow>>,
-    runtime: Res<'w, ModRuntime>,
+    runtime: Option<Res<'w, ModRuntime>>,
     player: Res<'w, client_state::PlayerRuntime>,
     ui: Res<'w, UiRuntimeResource>,
     presentation: Res<'w, UiPresentationResource>,
@@ -77,7 +78,16 @@ fn desktop_available(window: &Window, cursor: &CursorOptions, driven: bool) -> b
 }
 
 /// Submits every accepted write explicitly, even when its coordinates match the backend cache.
-fn apply(mut pending: ResMut<Pending>, authority: Authority, _main_thread: NonSendMarker) {
+fn apply(
+    mut pending: ResMut<Pending>,
+    mut backend: ResMut<Backend>,
+    authority: Authority,
+    _main_thread: NonSendMarker,
+) {
+    let Some(runtime) = authority.runtime.as_deref() else {
+        pending.0 = None;
+        return;
+    };
     let Some(request) = pending.0.as_ref() else {
         return;
     };
@@ -85,8 +95,8 @@ fn apply(mut pending: ResMut<Pending>, authority: Authority, _main_thread: NonSe
         pending.0 = None;
         return;
     };
-    let runtime = &authority.runtime;
     let invalid = authority.driven.is_some()
+        || (!cursor.visible && cursor.grab_mode == CursorGrabMode::None)
         || runtime.suspended
         || request.owner >= runtime.hosts.host_count()
         || runtime.hosts.host(request.owner).touch_owner() != request.instance
@@ -112,99 +122,40 @@ fn apply(mut pending: ResMut<Pending>, authority: Authority, _main_thread: NonSe
     let Some(request) = pending.take(!invalid, desktop_available(window, cursor, false)) else {
         return;
     };
-    WINIT_WINDOWS.with_borrow(|windows| {
-        if let Some(native) = windows.get_window(entity) {
-            let point = request.point.as_dvec2() * f64::from(window.resolution.scale_factor());
-            if let Err(error) =
-                native.set_cursor_position(winit::dpi::PhysicalPosition::new(point.x, point.y))
-            {
-                warn!(%error, "Could not apply container pointer position");
-            }
-        }
-    });
+    let point = request.point.as_dvec2() * f64::from(window.resolution.scale_factor());
+    if let Err(error) = backend.0.position(entity, point) {
+        debug!(%error, "Could not apply container pointer position");
+    }
+}
+
+/// Native delivery can be recorded without replacing the production authority checks.
+trait NativePointer: Send + Sync + 'static {
+    /// Delivers one explicit move in physical pixels on the event-loop thread.
+    fn position(&mut self, window: Entity, point: bevy::math::DVec2) -> Result<(), String>;
+}
+
+#[derive(Resource)]
+struct Backend(Box<dyn NativePointer>);
+impl Default for Backend {
+    /// Uses the real window backend outside tests.
+    fn default() -> Self {
+        Self(Box::new(Desktop))
+    }
+}
+struct Desktop;
+impl NativePointer for Desktop {
+    /// Sends every explicit request, including coordinates already in the window cache.
+    fn position(&mut self, window: Entity, point: bevy::math::DVec2) -> Result<(), String> {
+        WINIT_WINDOWS.with_borrow(|windows| {
+            let Some(native) = windows.get_window(window) else {
+                return Ok(());
+            };
+            native
+                .set_cursor_position(winit::dpi::PhysicalPosition::new(point.x, point.y))
+                .map_err(|error| error.to_string())
+        })
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// An explicit write still reaches the native adapter when cached coordinates are equal.
-    #[test]
-    fn explicit_write_follows_backend_capture_release() {
-        #[derive(Resource, Default)]
-        struct Backend {
-            captured: bool,
-            point: Vec2,
-            writes: Vec<Vec2>,
-        }
-        /// Queues the same coordinates the backend already remembers.
-        fn request(mut pending: ResMut<Pending>, backend: Res<Backend>) {
-            pending.stage(0, 1, "fixture.container", backend.point);
-        }
-        /// Models the backend applying its cursor options in Last.
-        fn release(mut backend: ResMut<Backend>) {
-            backend.captured = false;
-        }
-        /// Records an explicit OS write after capture release.
-        fn write(mut pending: ResMut<Pending>, mut backend: ResMut<Backend>) {
-            let request = pending.0.take().unwrap();
-            assert!(
-                !backend.captured,
-                "native capture must be released before positioning"
-            );
-            backend.writes.push(request.point);
-        }
-        let mut app = App::new();
-        install_schedule(&mut app);
-        app.insert_resource(Backend {
-            captured: true,
-            point: Vec2::new(640., 400.),
-            ..Default::default()
-        })
-        .add_systems(Update, request)
-        .add_systems(Last, release)
-        .add_systems(ApplyNativePointer, write);
-        app.update();
-        assert_eq!(
-            app.world().resource::<Backend>().writes,
-            vec![Vec2::new(640., 400.)]
-        );
-        assert!(app.world().resource::<Pending>().0.is_none());
-    }
-
-    /// A request waits for native capture release, and loses all authority on cancellation.
-    #[test]
-    fn pending_write_waits_without_outliving_its_authority() {
-        let mut pending = Pending::default();
-        pending.stage(0, 1, "fixture.container", Vec2::new(160., 90.));
-        assert!(pending.take(true, false).is_none());
-        assert_eq!(
-            pending.take(true, true).unwrap().point,
-            Vec2::new(160., 90.)
-        );
-        assert!(pending.take(true, true).is_none());
-        pending.stage(0, 1, "fixture.container", Vec2::ZERO);
-        assert!(pending.take(false, false).is_none());
-        assert!(pending.take(true, true).is_none());
-    }
-
-    /// Desktop positioning cannot move a captured cursor or escape driven-input isolation.
-    #[test]
-    fn native_write_requires_visible_released_desktop_cursor() {
-        let mut window = Window {
-            focused: true,
-            ..Default::default()
-        };
-        let mut cursor = CursorOptions::default();
-        assert!(desktop_available(&window, &cursor, false));
-        assert!(!desktop_available(&window, &cursor, true));
-        cursor.grab_mode = CursorGrabMode::Locked;
-        assert!(!desktop_available(&window, &cursor, false));
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = false;
-        assert!(!desktop_available(&window, &cursor, false));
-        cursor.visible = true;
-        window.focused = false;
-        assert!(!desktop_available(&window, &cursor, false));
-    }
-}
+mod tests;
