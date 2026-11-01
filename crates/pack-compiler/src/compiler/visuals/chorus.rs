@@ -145,7 +145,12 @@ fn piece(direction: Direction, connections: u32, class: u32) -> Option<([i16; 2]
 }
 
 /// Faces of one cuboid except the one touching the core, which nothing can see.
-fn arm_quads(material: u32, direction: Direction, section: [i16; 2], reach: i16) -> Vec<ModelQuad> {
+fn arm_quads(
+    materials: [u32; 6],
+    direction: Direction,
+    section: [i16; 2],
+    reach: i16,
+) -> Vec<ModelQuad> {
     let (near, far) = if direction.positive {
         (CORE[1], CORE[1] + reach)
     } else {
@@ -158,7 +163,7 @@ fn arm_quads(material: u32, direction: Direction, section: [i16; 2], reach: i16)
     let hidden = opposite(outward_face(direction));
     BlockFace::ALL
         .into_iter()
-        .zip(vanilla_cuboid_quads([material; 6], min, max))
+        .zip(vanilla_cuboid_quads(materials, min, max))
         .filter(|&(face, _)| face != hidden)
         .map(|(_, quad)| quad)
         .collect()
@@ -166,16 +171,16 @@ fn arm_quads(material: u32, direction: Direction, section: [i16; 2], reach: i16)
 
 /// A plant's visible quads: arms and stubs, plus each core face no full-width piece covers.
 pub(in crate::compiler) fn plant_quads(
-    material: u32,
+    materials: [u32; 6],
     connections: u32,
     class: u32,
 ) -> Vec<ModelQuad> {
-    let core = vanilla_cuboid_quads([material; 6], [CORE[0]; 3], [CORE[1]; 3]);
+    let core = vanilla_cuboid_quads(materials, [CORE[0]; 3], [CORE[1]; 3]);
     let mut quads = Vec::new();
     for direction in DIRECTIONS {
         let grown = piece(direction, connections, class);
         if let Some((section, reach)) = grown {
-            quads.extend(arm_quads(material, direction, section, reach));
+            quads.extend(arm_quads(materials, direction, section, reach));
         }
         if !grown.is_some_and(|(section, _)| section == CORE) {
             let face = outward_face(direction) as usize;
@@ -253,20 +258,20 @@ pub(in crate::compiler) fn compile_rule(
 pub(in crate::compiler) fn compile_plant_rule(
     record: &RegistryRecord,
     inputs: &RuleInputs<'_>,
-    templates: &mut BTreeMap<u32, u32>,
+    templates: &mut BTreeMap<[u32; 6], u32>,
     storage: &mut ModelStorage<'_>,
 ) -> Result<CompileRuleResult, AssetError> {
     if !is_plant(record) {
         return Ok(CompileRuleResult::NoMatch);
     }
     let mut visual = diagnostic_visual(record);
-    if let Some(material) = inputs.material(record, BlockFace::Up) {
-        let template = if let Some(&template) = templates.get(&material) {
+    if let Some(materials) = inputs.materials(record) {
+        let template = if let Some(&template) = templates.get(&materials) {
             template
         } else {
             let first = storage.templates.len() as u32;
             for offset in 0..chorus::TEMPLATE_COUNT {
-                let quads = plant_quads(material, offset & 63, offset >> 6);
+                let quads = plant_quads(materials, offset & 63, offset >> 6);
                 push_model_template(
                     quads,
                     assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT,
@@ -274,10 +279,10 @@ pub(in crate::compiler) fn compile_plant_rule(
                     storage.quads,
                 )?;
             }
-            templates.insert(material, first);
+            templates.insert(materials, first);
             first
         };
-        set_model_visual(&mut visual, [material; 6], template);
+        set_model_visual(&mut visual, materials, template);
     }
     Ok(CompileRuleResult::Compiled(visual))
 }
@@ -314,31 +319,51 @@ mod tests {
     }
 
     #[test]
+    fn every_piece_keeps_each_faces_own_art() {
+        let materials = [1, 2, 3, 4, 5, 6];
+        let material_of = |flags: u32| {
+            vanilla_cuboid_quads(materials, [CORE[0]; 3], [CORE[1]; 3])
+                .into_iter()
+                .find(|quad| quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK == flags)
+                .map(|quad| quad.material)
+        };
+        let every = chorus::NORTH | chorus::EAST | chorus::SOUTH | chorus::WEST;
+        for class in 0..chorus::POSITION_CLASSES {
+            for connections in [0, every | chorus::UP | chorus::DOWN] {
+                for quad in plant_quads(materials, connections, class) {
+                    let face = quad.flags & assets::MODEL_QUAD_FLAG_FACE_MASK;
+                    assert_eq!(Some(quad.material), material_of(face));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn connected_arms_reach_the_block_edge_in_every_class() {
         let every = chorus::NORTH | chorus::EAST | chorus::SOUTH | chorus::WEST;
         for class in 0..chorus::POSITION_CLASSES {
-            let quads = plant_quads(9, every | chorus::UP | chorus::DOWN, class);
+            let quads = plant_quads([9; 6], every | chorus::UP | chorus::DOWN, class);
             assert_eq!(bounds(&quads), [[0, 256]; 3], "class {class}");
         }
     }
 
     #[test]
     fn unconnected_stubs_vary_with_position_class() {
-        let north = |class| beyond(&plant_quads(9, 0, class), 2, false);
+        let north = |class| beyond(&plant_quads([9; 6], 0, class), 2, false);
         assert!(north(0).is_empty());
         assert_eq!(bounds(&north(1))[2], [48, 64]);
         assert_eq!(bounds(&north(2))[2], [32, 64]);
         assert_eq!(bounds(&north(2))[0], THIN);
         assert_eq!(bounds(&north(3))[2], [48, 64]);
 
-        let up = |class| beyond(&plant_quads(9, 0, class), 1, true);
+        let up = |class| beyond(&plant_quads([9; 6], 0, class), 1, true);
         assert!(up(0).is_empty());
         assert_eq!(bounds(&up(1))[1], [192, 208]);
         assert_eq!(bounds(&up(2))[1], [192, 208]);
         assert_eq!(bounds(&up(3))[1], [192, 224]);
         assert_eq!(bounds(&up(3))[0], THIN);
 
-        let down = |class| beyond(&plant_quads(9, 0, class), 1, false);
+        let down = |class| beyond(&plant_quads([9; 6], 0, class), 1, false);
         assert_eq!(bounds(&down(0))[1], [48, 64]);
         assert_eq!(bounds(&down(1))[1], [32, 64]);
         assert!(down(3).is_empty());
@@ -347,18 +372,18 @@ mod tests {
     #[test]
     fn every_template_fits_the_quad_limit_and_shows_the_core_where_nothing_covers_it() {
         for offset in 0..chorus::TEMPLATE_COUNT {
-            let quads = plant_quads(9, offset & 63, offset >> 6);
+            let quads = plant_quads([9; 6], offset & 63, offset >> 6);
             assert!(quads.len() <= assets::MAX_MODEL_TEMPLATE_QUADS, "{offset}");
         }
         // Class 0 grows nothing north: the core's own north face closes the gap.
-        let quads = plant_quads(9, 0, 0);
+        let quads = plant_quads([9; 6], 0, 0);
         assert!(quads.iter().any(|quad| {
             quad.positions
                 .iter()
                 .all(|p| p[2] == CORE[0] && CORE.contains(&p[0]) && CORE.contains(&p[1]))
         }));
         // With every side connected no core face remains.
-        let quads = plant_quads(9, 63, 0);
+        let quads = plant_quads([9; 6], 63, 0);
         assert_eq!(quads.len(), 30);
     }
 
