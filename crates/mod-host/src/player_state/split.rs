@@ -35,7 +35,7 @@ impl SplitState {
     /// Issues a unique content token even while native observations advance during suspension.
     fn next_revision(&self) -> anyhow::Result<u64> {
         self.sequence
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
             .map(|previous| previous + 1)

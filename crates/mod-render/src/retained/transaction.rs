@@ -41,9 +41,8 @@ fn difference<K: Ord + Clone, V: Clone + PartialEq>(
 ) -> BTreeMap<K, Option<V>> {
     base.keys()
         .chain(next.keys())
-        .filter_map(|key| {
-            (base.get(key) != next.get(key)).then(|| (key.clone(), next.get(key).cloned()))
-        })
+        .filter(|key| base.get(*key) != next.get(*key))
+        .map(|key| (key.clone(), next.get(key).cloned()))
         .collect()
 }
 
@@ -89,19 +88,27 @@ impl Changes {
 
     /// Merges writes into the current owner and advances only changed resource revisions.
     pub(super) fn apply(&self, target: &mut Resources) {
-        apply(&self.geometry, &mut target.geometry);
-        apply(&self.materials, &mut target.materials);
-        apply(&self.instances, &mut target.instances);
-        apply(&self.entities, &mut target.entities);
-        apply(&self.clips, &mut target.clips);
-        apply(&self.groups, &mut target.groups);
-        target.geometry_revision += u64::from(!self.geometry.is_empty());
-        target.material_revision += u64::from(!self.materials.is_empty());
+        let Self {
+            geometry,
+            materials,
+            instances,
+            entities,
+            clips,
+            groups,
+        } = self;
+        apply(geometry, &mut target.geometry);
+        apply(materials, &mut target.materials);
+        apply(instances, &mut target.instances);
+        apply(entities, &mut target.entities);
+        apply(clips, &mut target.clips);
+        apply(groups, &mut target.groups);
+        target.geometry_revision += u64::from(!geometry.is_empty());
+        target.material_revision += u64::from(!materials.is_empty());
         target.instance_revision += u64::from(
-            !self.instances.is_empty()
-                || !self.entities.is_empty()
-                || !self.clips.is_empty()
-                || !self.groups.is_empty(),
+            !instances.is_empty()
+                || !entities.is_empty()
+                || !clips.is_empty()
+                || !groups.is_empty(),
         );
     }
 }
@@ -250,7 +257,7 @@ impl Store {
             .filter(|(id, value)| {
                 candidate
                     .materials
-                    .get(id)
+                    .get(*id)
                     .is_none_or(|new| !Arc::ptr_eq(new, value))
                     && !owner
                         .retired_materials

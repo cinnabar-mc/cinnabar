@@ -321,7 +321,7 @@ impl MaskStore {
     fn allocate(&mut self) -> DrawingHandle {
         let slot = self
             .next_slot
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |slot| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |slot| {
                 slot.checked_add(1)
             })
             .expect("drawing handle space exhausted")
