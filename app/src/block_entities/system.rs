@@ -539,7 +539,7 @@ pub(crate) fn update_block_entity_scene(
                     // Actor data, when present, drives the head instead.
                     portals.retain(|(block, kind)| {
                         !matches!(kind, BlockEntityKind::PistonArm(_))
-                            || !piston_arms::has_actor(chunk, *block)
+                            || !piston_arms::has_actor(chunk, dimension, *block)
                     });
                     let entities = columns::routed_entities(
                         chunk,

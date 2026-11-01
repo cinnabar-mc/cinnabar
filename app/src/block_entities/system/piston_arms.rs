@@ -40,11 +40,10 @@ pub(super) fn resting(
 }
 
 /// Whether `block` of `chunk` holds the actor data that drives its piston head.
-pub(super) fn has_actor(chunk: &world::Chunk, block: [i32; 3]) -> bool {
+pub(super) fn has_actor(chunk: &world::Chunk, dimension: i32, [x, y, z]: [i32; 3]) -> bool {
     chunk
-        .shared_block_entities()
-        .iter()
-        .any(|(key, nbt)| key.position() == block && nbt.id() == Some(ACTOR_ID))
+        .block_entity(world::BlockEntityKey::new(dimension, x, y, z))
+        .is_some_and(|nbt| nbt.id() == Some(ACTOR_ID))
 }
 
 /// Where a piston head's world light is read from; other kinds light from elsewhere.
