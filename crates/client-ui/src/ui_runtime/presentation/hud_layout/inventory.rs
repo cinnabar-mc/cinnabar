@@ -329,7 +329,7 @@ impl HudLayout<'_> {
             self.inventory_slot(slot)?;
             if let Some(stack) = runtime
                 .inventory_ledger(player_runtime)
-                .storage_stack(index as u8)
+                .storage_stack(index as u16)
             {
                 self.inventory_item(
                     frame.storage_icons.0[index],
@@ -340,7 +340,7 @@ impl HudLayout<'_> {
             }
             if runtime
                 .inventory_ledger(player_runtime)
-                .storage_slot_pending(index as u8)
+                .storage_slot_pending(index as u16)
             {
                 self.solid_gui(
                     [slot[0] + 1.0, slot[1] + 1.0],

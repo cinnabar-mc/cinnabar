@@ -213,6 +213,7 @@ fn vacant_hit() -> HitRegion {
         checked: None,
         max_length: None,
         group_index: None,
+        radio_index: None,
         renderer: None,
         drag_axes: [false; 2],
         sound: None,

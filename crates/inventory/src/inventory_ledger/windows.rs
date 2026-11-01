@@ -64,7 +64,7 @@ impl PlayerInventoryLedger {
             return true;
         }
         for slot in 0..self.confirmed.storage_len().max(slots.len()) {
-            self.prepare_authoritative_cell(Cell::Storage(slot as u8));
+            self.prepare_authoritative_cell(Cell::Storage(slot as u16));
         }
         self.bind_storage_request_identity();
         let storage = self.storage.as_mut().expect("ordinary window observed");
@@ -92,7 +92,7 @@ impl PlayerInventoryLedger {
         let cell = if kind.is_ui_backed() {
             ordinary_ui_cell(kind, usize::from(slot))
         } else {
-            u8::try_from(slot).ok().map(Cell::Storage)
+            Some(Cell::Storage(slot))
         };
         if !matches || !cell.is_some_and(|cell| self.set_authoritative_cell(cell, Held::new(stack)))
         {

@@ -28,11 +28,11 @@ pub struct CraftingFrame {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct StorageIcons(pub [Option<IconRef>; protocol::MAX_GENERIC_STORAGE_SLOTS]);
+pub struct StorageIcons(pub Arc<[Option<IconRef>]>);
 
 impl Default for StorageIcons {
     fn default() -> Self {
-        Self([None; protocol::MAX_GENERIC_STORAGE_SLOTS])
+        Self(Arc::from(vec![None; protocol::MAX_GENERIC_STORAGE_SLOTS]))
     }
 }
 
@@ -40,7 +40,7 @@ impl Default for StorageIcons {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Durability {
     pub player: [Option<f32>; 36],
-    pub storage: [Option<f32>; protocol::MAX_GENERIC_STORAGE_SLOTS],
+    pub storage: Arc<[Option<f32>]>,
     pub ui: [Option<f32>; protocol::UI_SLOT_COUNT],
 }
 
@@ -48,7 +48,7 @@ impl Default for Durability {
     fn default() -> Self {
         Self {
             player: [None; 36],
-            storage: [None; protocol::MAX_GENERIC_STORAGE_SLOTS],
+            storage: Arc::from(vec![None; protocol::MAX_GENERIC_STORAGE_SLOTS]),
             ui: [None; protocol::UI_SLOT_COUNT],
         }
     }
@@ -78,12 +78,15 @@ pub fn capture_contents(
             *icon = resolve_icon(stack, Some(slot as u8));
         }
     }
-    let mut storage_icons = StorageIcons::default();
-    for (slot, icon) in storage_icons.0.iter_mut().enumerate() {
-        if let Some(stack) = ledger.furnace_visual_stack(slot as u8) {
-            *icon = resolve_icon(stack, None);
-        }
-    }
+    let storage_icons = StorageIcons(
+        (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
+            .map(|slot| {
+                ledger
+                    .furnace_visual_stack(slot as u16)
+                    .and_then(|stack| resolve_icon(stack, None))
+            })
+            .collect(),
+    );
     let mut crafting = CraftingFrame::default();
     if inventory_open {
         for (icon, slot) in crafting
@@ -110,7 +113,7 @@ pub fn capture_contents(
             .filter_map(|slot| ledger.displayed_stack(slot))
             .chain(
                 (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
-                    .filter_map(|slot| ledger.furnace_visual_stack(slot as u8)),
+                    .filter_map(|slot| ledger.furnace_visual_stack(slot as u16)),
             )
             .chain(ledger.crafting_grid().slots().filter_map(|slot| {
                 ledger
@@ -181,11 +184,13 @@ pub fn capture_decorations(
             *bar = fraction(stack, correction);
         }
     }
-    for (slot, bar) in durability.storage.iter_mut().enumerate() {
-        if let Some(stack) = ledger.storage_stack(slot as u8) {
-            *bar = fraction(stack, None);
-        }
-    }
+    durability.storage = (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
+        .map(|slot| {
+            ledger
+                .storage_stack(slot as u16)
+                .and_then(|stack| fraction(stack, None))
+        })
+        .collect();
     for slot in 0..protocol::UI_SLOT_COUNT as u8 {
         let stack = if slot == protocol::CREATED_OUTPUT_SLOT {
             ledger.created_output_stack()

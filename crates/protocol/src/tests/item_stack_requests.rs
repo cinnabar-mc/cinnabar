@@ -4,7 +4,7 @@ use protocol::{
     item_stack_request_packet,
 };
 
-fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
+fn slot(container: StackRequestContainer, slot: u16, stack_network_id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container,
         slot,
@@ -183,7 +183,7 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
         amount: 1,
         source: slot(
             StackRequestContainer::CreatedOutput,
-            CREATED_OUTPUT_SLOT,
+            u16::from(CREATED_OUTPUT_SLOT),
             id,
         ),
         destination: slot(StackRequestContainer::Cursor, 0, 0),
@@ -200,7 +200,7 @@ fn negative_stack_ids_name_prior_predictions_or_this_requests_created_output() {
             amount: 1,
             source: slot(
                 StackRequestContainer::CreatedOutput,
-                CREATED_OUTPUT_SLOT,
+                u16::from(CREATED_OUTPUT_SLOT),
                 -7,
             ),
             destination: slot(StackRequestContainer::Cursor, 0, -5),

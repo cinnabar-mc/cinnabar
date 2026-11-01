@@ -56,7 +56,7 @@ impl MountEquipment {
     }
 
     /// Hides unavailable equipment cells while preserving the server's storage cells.
-    pub const fn permits_inventory_slot(self, slot: u8) -> bool {
+    pub const fn permits_inventory_slot(self, slot: u16) -> bool {
         let slots = match self.slots() {
             Some(slots) => slots,
             None => MountSlots::EMPTY,

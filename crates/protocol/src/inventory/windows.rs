@@ -86,8 +86,9 @@ const RESULT_PREVIEW_NAMES: [u8; 9] = [
 /// Slots of the personal UI inventory (cursor, inputs, grids, output).
 pub const UI_SLOT_COUNT: usize = 54;
 
-/// Storage cells addressable by the protocol's one-byte stack-request slot.
-pub const MAX_GENERIC_STORAGE_SLOTS: usize = u8::MAX as usize + 1;
+/// Retained storage cells. Native sizes an actor's chest from a synced int and no cap on it has
+/// been identified, so this bound is an implementation limit, not a verified parity limit.
+pub const MAX_GENERIC_STORAGE_SLOTS: usize = 1024;
 
 /// Derives every nonempty container length that the retained slot address can represent.
 const fn generic_storage_lengths() -> [usize; MAX_GENERIC_STORAGE_SLOTS] {
@@ -277,16 +278,15 @@ impl WindowKind {
     }
 }
 
-/// The container name and window index request slot `cell` of an open window
-/// carries. `content_name` is the name the window's content arrived under, so a
+/// The container name and cell a request for `cell` of an open window names. `content_name` is the name the window's content arrived under, so a
 /// barrel or shulker box echoes its own name instead of the level-entity one.
 #[must_use]
 pub fn open_cell_request(
     kind: WindowKind,
-    cell: u8,
+    cell: u16,
     dynamic_id: Option<u32>,
     content_name: Option<u8>,
-) -> Option<(StackRequestContainer, u8)> {
+) -> Option<(StackRequestContainer, u16)> {
     match kind.open_cells()? {
         OpenCells::Generic(_) => Some(match content_name {
             Some(name @ (NAME_SHULKER_BOX | NAME_BARREL)) => {
@@ -295,6 +295,7 @@ pub fn open_cell_request(
             _ => (StackRequestContainer::LevelEntity { dynamic_id }, cell),
         }),
         OpenCells::Named { segments, .. } => {
+            let cell = u8::try_from(cell).ok()?;
             let segment = segment_of_cell(segments, cell)?;
             let container = if segment.name == super::address::CONTAINER_NAME_LEVEL_ENTITY {
                 StackRequestContainer::LevelEntity { dynamic_id }
@@ -304,7 +305,7 @@ pub fn open_cell_request(
                     dynamic_id: None,
                 }
             };
-            Some((container, cell))
+            Some((container, u16::from(cell)))
         }
     }
 }
@@ -521,6 +522,13 @@ mod tests {
                 dynamic_id: Some(4)
             }
         );
+    }
+
+    #[test]
+    fn generic_cells_past_one_byte_keep_their_cell() {
+        let (_, slot) = open_cell_request(WindowKind::Storage, 508, None, None).unwrap();
+        assert_eq!(slot, 508);
+        assert!(open_cell_request(WindowKind::Furnace, 256, None, None).is_none());
     }
 
     #[test]
