@@ -14,7 +14,7 @@ impl ModHost {
         self.instance.is_revoked()
     }
 
-    /// Whether a frame fuel trap is waiting for fresh guest initialization.
+    /// Whether fuel exhaustion or continuation cancellation is waiting for fresh initialization.
     pub fn is_recovering(&self) -> bool {
         self.instance.is_recovering()
     }
@@ -118,7 +118,7 @@ impl ModHost {
         result
     }
 
-    /// Restarts a fuel-trapped guest and restores its lifecycle context.
+    /// Restarts a fuel-trapped or cancelled guest and restores its lifecycle context.
     /// Returns true when input sampled before replacement must be discarded.
     fn recover_frame_fuel(&mut self) -> Result<bool> {
         let recovered = self.instance.recover_frame_fuel()?;

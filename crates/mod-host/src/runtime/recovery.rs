@@ -21,7 +21,11 @@ impl Instance {
     /// Moves complete host state into a fresh store and reinitializes admitted guest code.
     /// Returns true only after the bounded loading lane admitted a successful restart.
     pub(crate) fn recover_frame_fuel(&mut self) -> Result<bool> {
-        if self.status != InstanceStatus::Recovering || !self.can_reload() {
+        if !matches!(
+            self.status,
+            InstanceStatus::Recovering | InstanceStatus::Cancelled
+        ) || !self.can_reload()
+        {
             return Ok(false);
         }
         if let Some(budget) = &self.callback_budget {
@@ -30,6 +34,7 @@ impl Instance {
                 "loading callback deferred"
             );
         }
+        let timing = self.callback_timing();
         self.begin_frame();
         self.store.data_mut().rollback_callback();
         self.store.data_mut().render.restart_guest();
@@ -43,7 +48,9 @@ impl Instance {
         );
         let previous = std::mem::replace(&mut self.store, placeholder);
         self.store = Store::new(self.pre.engine(), previous.into_data());
-        match Self::initialize(&self.pre, &mut self.store) {
+        let initialized = Self::initialize(&self.pre, &mut self.store);
+        self.charge_callback_time(timing);
+        match initialized {
             Ok((exports, fuel)) => {
                 self.exports = exports;
                 self.last_fuel = fuel;
@@ -107,6 +114,7 @@ impl State {
             output,
             inventory,
             events: _,
+            clock: _,
             touch,
         } = self;
         *pending = None;

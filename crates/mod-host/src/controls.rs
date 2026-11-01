@@ -74,6 +74,7 @@ impl ModHost {
     }
 }
 
+#[derive(Clone)]
 pub(super) struct ControlState {
     pub pointer: super::input_host::PointerState,
     pub frame: ControlFrame,
@@ -107,6 +108,20 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Applies guest writes without restoring consumed input or overwriting native UI ownership.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, same_ui: bool) {
+        if same_ui {
+            self.pending_panel = transaction.pending_panel;
+        }
+        self.pending_settings = transaction.pending_settings;
+        self.pending_keys = transaction.pending_keys;
+        if current_frame && same_ui {
+            self.pending_open = transaction.pending_open;
+            self.pending_interaction = transaction.pending_interaction;
+            self.pointer.accept(transaction.pointer);
+        }
+    }
+
     /// Retains panel preferences while removing references into the departed world.
     pub(super) fn clear_world_projections(&mut self) {
         self.pointer = Default::default();
@@ -280,7 +295,7 @@ pub(super) fn queue_text_events(
 ) -> Result<()> {
     ensure!(state.grants.controls, "controls capability denied");
     ensure!(
-        state.controls.text_events.len() + events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
+        events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
         "too many native text events"
     );
     if events.is_empty() {
@@ -291,6 +306,15 @@ pub(super) fn queue_text_events(
         .panel
         .as_mut()
         .context("native text events require a retained panel")?;
+    let mut pending = state.controls.text_events.clone();
+    for event in &events {
+        pending.retain(|old| old.id != event.id);
+        ensure!(
+            pending.len() < ui::mod_panel::MAX_PANEL_EVENTS,
+            "too many native text events"
+        );
+        pending.push(event.clone());
+    }
     for event in &events {
         let Some(ui::mod_panel::Control::Text {
             min_chars,
@@ -310,7 +334,7 @@ pub(super) fn queue_text_events(
             value.clone_from(&event.value);
         }
     }
-    state.controls.text_events.extend(events);
+    state.controls.text_events = pending;
     Ok(())
 }
 
@@ -567,7 +591,12 @@ impl cinnabar::extension::settings::Host for State {
         if !self.grants.settings {
             return Ok(Err("settings capability denied".into()));
         }
-        Ok(Ok(self.controls.settings.clone()))
+        Ok(Ok(self
+            .controls
+            .pending_settings
+            .as_ref()
+            .unwrap_or(&self.controls.settings)
+            .clone()))
     }
 
     fn save(&mut self, json: String) -> Result<Result<(), String>> {

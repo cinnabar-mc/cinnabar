@@ -23,3 +23,4 @@ remaining-fuel: func() -> u64;
 
 Fuel left in the running callback, about the WebAssembly instructions it may still
 execute before it traps. Mods use it to spread large work over later callbacks.
+Fuel carries across suspension and is never refilled. Time yields are not overruns.

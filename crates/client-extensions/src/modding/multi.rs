@@ -186,6 +186,10 @@ impl ModHosts {
     /// exclusive camera and time output to the first active instance publishing that output.
     pub fn begin_frame(&mut self) {
         self.budget.reset(mod_api::TOTAL_MOD_FRAME_FUEL);
+        let runnable: Vec<_> = (0..self.host_count())
+            .filter(|index| self.host(*index).is_active())
+            .collect();
+        self.budget.schedule_frames(&runnable);
         self.teleport_fuel = mod_api::TOTAL_TELEPORT_HANDLER_FUEL;
         for index in 0..self.host_count() {
             self.host_mut(index).begin_frame();

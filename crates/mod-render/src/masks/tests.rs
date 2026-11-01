@@ -266,3 +266,29 @@ fn production_resource_owners_are_unique_across_kinds() {
     assert_ne!(a.owner, handle.owner);
     assert_ne!(b.owner, handle.owner);
 }
+
+#[test]
+fn reconciliation_preserves_empty_masks_and_their_handles_for_later_selection() {
+    let (mut native, actor) = store(1);
+    let mask = native.create(MaskDepth::Test).unwrap();
+    native.commit();
+    let mut transaction = native.clone();
+    transaction.begin();
+    transaction.commit();
+    transaction.reconcile_observations(&native);
+    assert_eq!(transaction.commit()[0].handle, mask);
+    let target = transaction.entity(actor.runtime_id).unwrap();
+    transaction.select(mask, &[target]).unwrap();
+    transaction.commit();
+    native.publish_targets(&[]);
+    transaction.reconcile_observations(&native);
+    let masks = transaction.commit();
+    assert_eq!(masks.len(), 1);
+    assert!(masks[0].entities.is_empty());
+    assert_eq!(masks[0].handle, mask);
+    native.publish_targets(&[(actor, 36)]);
+    transaction.reconcile_observations(&native);
+    let target = transaction.entity(actor.runtime_id).unwrap();
+    transaction.select(mask, &[target]).unwrap();
+    assert_eq!(transaction.commit()[0].entities, [actor]);
+}

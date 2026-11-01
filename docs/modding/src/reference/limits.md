@@ -33,7 +33,7 @@ These are Cinnabar sandbox and API limits. Counts apply per mod unless stated ot
 
 After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It reserves `FRAME_FUEL` from the ordinary shared pool; the extra allowance is discarded after the callback and never refunded into that pool. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.
 
-The guest's `budget.remaining-fuel` reports its actual current allowance. Action filters, events, loading, host-call limits and execution deadlines retain their existing limits. Fuel bounds guest execution work; it does not guarantee a wall-clock duration.
+The guest's `budget.remaining-fuel` reports its cumulative invocation allowance across suspension. Elapsed time only schedules suspendible frames; fuel is their only execution fault limit. Host-call limits, validation, events, loading and synchronous decision-handler instances keep their separate limits. Fuel does not guarantee a wall-clock duration.
 
 ## Controls and presentation
 

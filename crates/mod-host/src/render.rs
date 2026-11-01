@@ -15,6 +15,7 @@ fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct RenderState {
     pub(super) masks: mod_render::masks::MaskStore,
     committed: RenderOutput,
@@ -29,6 +30,24 @@ pub(crate) struct RenderState {
 }
 
 impl RenderState {
+    /// Publishes a completed drawing transaction after reconciling native actor lifetimes.
+    pub(super) fn accept(&mut self, mut transaction: Self) {
+        transaction.commit();
+        // Candidate counts were validated on entry; reconciling cannot exceed their cap.
+        transaction
+            .retained
+            .reconcile_observations(&self.retained)
+            .expect("validated drawing observations");
+        transaction.masks.reconcile_observations(&self.masks);
+        let masks = transaction.masks.commit();
+        let masks_changed = transaction.committed.masks != masks;
+        transaction.committed.masks = masks;
+        if transaction.publish_retained() || masks_changed {
+            transaction.generation = mod_render::next_owner();
+        }
+        *self = transaction;
+    }
+
     pub fn new() -> Self {
         Self {
             masks: mod_render::masks::MaskStore::default(),

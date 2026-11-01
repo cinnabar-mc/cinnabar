@@ -1564,8 +1564,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
-  resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Host-observed world entry admits one larger frame
+  resets the count. Other guest traps still quarantine immediately. Frame callbacks without
+  synchronous decision exports retain async continuations across soft time slices, with
+  frozen observations and private output until post-return succeeds. Late frame actions
+  are dropped; authority changes and unload cancel without a fault. Decision-exporting
+  instances keep synchronous frames. Added deterministic regression coverage has not been
+  executed; live overrun recovery and suspension pacing qualification remain incomplete. Host-observed world entry admits one larger frame
   callback per mod and session, with one extra slot shared across mods per update and
   unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
   and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared

@@ -3,7 +3,7 @@
 use super::cinnabar::extension::player_state::{Effects, Equipment, Revisions};
 use crate::PlayerStateSnapshot;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct SplitState {
     pub equipment: Option<Equipment>,
     pub effects: Option<Effects>,

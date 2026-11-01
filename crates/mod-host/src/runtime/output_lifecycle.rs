@@ -1,6 +1,6 @@
 //! Pending outputs and retained values follow the lifecycle of their owning subsystem.
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Environment {
     pub time_override: Option<u32>,
     pub pending_time: Option<Option<u32>>,
@@ -11,7 +11,7 @@ pub(super) struct Environment {
     pub writes: u32,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct Movement {
     pub snapshot: Option<crate::GameplayMovementSnapshot>,
     pub pending_jump: bool,
@@ -22,6 +22,15 @@ pub(super) struct Movement {
 }
 
 impl Environment {
+    /// Revalidates exclusive presentation ownership at the publication boundary.
+    pub(super) fn accept(&mut self, transaction: Self, blocked: bool) {
+        self.pending_fullbright = transaction.pending_fullbright;
+        if !blocked {
+            self.pending_time = transaction.pending_time;
+            self.pending_weather = transaction.pending_weather;
+        }
+    }
+
     /// Drops failed override writes without revoking the last committed environment.
     pub fn rollback(&mut self) {
         let Self {

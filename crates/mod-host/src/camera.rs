@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use mod_api::native_camera::ViewTilt;
 
 /// Ephemeral output published only after a successful frame callback.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct CameraPolicy {
     pub pending_view_scale: Option<[f32; 2]>,
     pub committed_view_scale: Option<[f32; 2]>,

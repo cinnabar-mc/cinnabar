@@ -73,7 +73,9 @@ impl Instance {
             );
             Ok(())
         });
+        let timing = self.callback_timing();
         let result = call(&self.exports, &mut self.store);
+        self.charge_callback_time(timing);
         self.store.call_hook(|_, _| Ok(()));
         self.last_fuel = fuel - self.store.get_fuel().unwrap_or(0).min(fuel);
         if result.is_err() {

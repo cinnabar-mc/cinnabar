@@ -60,7 +60,7 @@ mod touch;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
-fn fixture(frame: &str, text: &str) -> String {
+pub(crate) fn fixture(frame: &str, text: &str) -> String {
     let source = include_str!("../../mod-api/wit/extension.wit");
     let package = source
         .lines()

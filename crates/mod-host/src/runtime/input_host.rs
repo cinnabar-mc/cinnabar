@@ -91,7 +91,12 @@ impl Instance {
             self.is_active(),
             "native text events require an active component"
         );
-        controls::queue_text_events(self.store.data_mut(), events)
+        let changed = !events.is_empty();
+        controls::queue_text_events(self.store.data_mut(), events)?;
+        if changed {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
+        Ok(())
     }
 }
 
@@ -105,12 +110,25 @@ impl Instance {
             self.is_active(),
             "native field events require an active component"
         );
-        controls::queue_field_events(self.store.data_mut(), events)
+        let changed = !events.is_empty();
+        controls::queue_field_events(self.store.data_mut(), events)?;
+        if changed {
+            self.ui_generation = self.ui_generation.wrapping_add(1);
+        }
+        if self.continuation.is_some() {
+            // Values are current state; submit and navigation keys are expired input edges.
+            self.store
+                .data_mut()
+                .controls
+                .field_events
+                .retain(|event| matches!(event, ui::mod_panel::FieldEvent::Change(_)));
+        }
+        Ok(())
     }
 }
 
 /// Transactional one-shot output scoped to the currently observed container.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct PointerState {
     screen: Option<String>,
     available: bool,
@@ -118,6 +136,13 @@ pub(crate) struct PointerState {
     committed: Option<[f32; 2]>,
 }
 impl PointerState {
+    /// Transfers a request only while the native container and pointer owner still agree.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        if self.available && self.screen == transaction.screen {
+            self.pending = transaction.pending;
+        }
+    }
+
     /// Reconciles input ownership before each callback and invalidates departed requests.
     fn observe(&mut self, screen: Option<&str>, available: bool) {
         if self.screen.as_deref() != screen || !available {

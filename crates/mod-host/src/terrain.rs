@@ -101,7 +101,7 @@ pub(crate) enum Sample {
     Failed(TerrainReadError),
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct TerrainState {
     /// Queries the last executed callback read, with their latest samples. Deferred or skipped
     /// callbacks leave them untouched.
@@ -114,6 +114,12 @@ pub(crate) struct TerrainState {
     revision: u64,
 }
 impl TerrainState {
+    /// Reconciles callback subscriptions with the latest host samples at publication.
+    pub(crate) fn accept(&mut self, transaction: Self) {
+        self.pending_queries = transaction.pending_queries;
+        self.pending_searches = transaction.pending_searches;
+    }
+
     /// Discards world samples while keeping stamps unique for the surviving guest.
     pub fn clear_world(&mut self) {
         *self = Self {

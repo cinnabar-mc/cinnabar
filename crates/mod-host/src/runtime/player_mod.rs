@@ -30,11 +30,13 @@ mod transaction_tests;
 pub(super) use super::{DataSource, Modifiers, ScreenLayout as Layout};
 
 /// What the screen's queries report about the events being delivered.
+#[derive(Clone)]
 pub(super) struct EventContext {
     /// The modifiers held with them (`screen.held-modifiers`).
     pub(super) modifiers: crate::KeyModifiers,
     /// When the instance was created, which `screen.elapsed-seconds` counts from.
     pub(super) started: std::time::Instant,
+    pub(super) elapsed: Option<f64>,
 }
 
 impl Default for EventContext {
@@ -42,6 +44,7 @@ impl Default for EventContext {
         Self {
             modifiers: crate::KeyModifiers::default(),
             started: std::time::Instant::now(),
+            elapsed: None,
         }
     }
 }
@@ -225,7 +228,10 @@ impl screen::Host for State {
 
     fn elapsed_seconds(&mut self) -> Result<f64> {
         self.charge()?;
-        Ok(self.events.started.elapsed().as_secs_f64())
+        Ok(*self
+            .events
+            .elapsed
+            .get_or_insert_with(|| self.events.started.elapsed().as_secs_f64()))
     }
 }
 

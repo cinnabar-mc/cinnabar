@@ -17,7 +17,7 @@ pub trait HudTextMeasure: Send + Sync {
     fn width(&self, text: &str, font: ui::mod_panel::LabelFont) -> Option<f32>;
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct HudState {
     /// The committed surface, with its current bindings.
     pub surface: Option<Arc<ui::mod_panel::Surface>>,
@@ -41,6 +41,16 @@ pub(super) struct HudState {
 }
 
 impl HudState {
+    /// Adopts private writes and their validated index without replacing native observations.
+    pub(super) fn accept(&mut self, mut transaction: Self) {
+        if transaction.pending_surface.is_some() {
+            self.pending_surface = transaction.pending_surface.take();
+            self.index = transaction.index;
+        }
+        self.pending_hidden = transaction.pending_hidden;
+        self.pending_messages = transaction.pending_messages;
+    }
+
     /// Invalidates world projections without rebuilding unaffected retained HUD surfaces.
     pub(super) fn clear_world_projections(&mut self) {
         let mut changed = false;

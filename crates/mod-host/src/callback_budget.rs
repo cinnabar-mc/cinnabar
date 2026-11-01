@@ -19,30 +19,44 @@ struct Allowance {
 pub enum CallbackOutcome {
     Executed,
     Deferred,
+    /// A started invocation retains its store, fuel and private transaction.
+    Suspended,
 }
 
 /// Preserves each callback's full fuel limit instead of trapping on a partial frame allowance.
 #[derive(Clone)]
-pub struct CallbackBudget(Arc<Mutex<Allowance>>);
+pub struct CallbackBudget {
+    allowance: Arc<Mutex<Allowance>>,
+    pub(crate) time: crate::frame_time::FrameTime,
+}
 impl CallbackBudget {
     /// Creates the shared regular-frame allowance and bounded event/loading lanes.
     pub fn new(fuel: u64) -> Self {
-        let budget = Self(Arc::new(Mutex::new(Allowance::default())));
+        let budget = Self {
+            allowance: Arc::new(Mutex::new(Allowance::default())),
+            time: Default::default(),
+        };
         budget.reset(fuel);
         budget
     }
     /// Starts a new frame before any guest input or lifecycle callback.
     pub fn reset(&self, fuel: u64) {
-        *self.0.lock().expect("mod callback budget") = Allowance {
+        self.time.reset();
+        *self.allowance.lock().expect("mod callback budget") = Allowance {
             frame: fuel,
             events: LARGE_CALLBACKS_PER_FRAME,
             loads: LARGE_CALLBACKS_PER_FRAME,
             world_entries: LARGE_CALLBACKS_PER_FRAME,
         };
     }
+    /// Shares a soft time allowance among current runnable owners, preserving scheduling debt.
+    pub fn schedule_frames(&self, owners: &[usize]) {
+        self.time.configure(owners);
+    }
+
     /// Reserves a full callback allowance, or defers it without reducing its guest fuel limit.
     pub(crate) fn reserve(&self, fuel: u64) -> Option<u64> {
-        let mut remaining = self.0.lock().expect("mod callback budget");
+        let mut remaining = self.allowance.lock().expect("mod callback budget");
         if fuel == LOAD_FUEL {
             if remaining.loads == 0 {
                 return None;
@@ -64,7 +78,7 @@ impl CallbackBudget {
     /// Admits one world-entry callback per frame, charging its base to the ordinary pool.
     /// Unused extra fuel is discarded rather than refunded to that pool.
     pub(crate) fn reserve_world_entry_frame(&self) -> Option<u64> {
-        let mut remaining = self.0.lock().expect("mod callback budget");
+        let mut remaining = self.allowance.lock().expect("mod callback budget");
         if remaining.world_entries == 0 || remaining.frame < crate::FRAME_FUEL {
             return None;
         }
@@ -74,15 +88,15 @@ impl CallbackBudget {
     }
     /// Returns regular-frame fuel which a completed callback did not use.
     pub(crate) fn refund(&self, fuel: u64) {
-        self.0.lock().expect("mod callback budget").frame += fuel;
+        self.allowance.lock().expect("mod callback budget").frame += fuel;
     }
     /// Whether the loading lane can admit another hot replacement this frame.
     pub(crate) fn can_load(&self) -> bool {
-        self.0.lock().expect("mod callback budget").loads != 0
+        self.allowance.lock().expect("mod callback budget").loads != 0
     }
     /// Reports regular-frame fuel remaining after completed frame callbacks.
     pub fn remaining(&self) -> u64 {
-        self.0.lock().expect("mod callback budget").frame
+        self.allowance.lock().expect("mod callback budget").frame
     }
 }
 

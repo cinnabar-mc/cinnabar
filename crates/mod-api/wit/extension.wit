@@ -88,7 +88,8 @@ interface facts {
 interface clock {
     /// Milliseconds since the Unix epoch and the local zone's current offset from UTC.
     record local-time { unix-ms: u64, utc-offset-seconds: s32 }
-    /// Reads the local machine clock and its current UTC offset with clock authority.
+    /// Reads the local clock snapshot captured when this invocation started.
+    /// The time and UTC offset stay frozen across suspension. Requires clock authority.
     read-local-time: func() -> result<local-time, string>;
 }
 
@@ -416,6 +417,7 @@ interface permissions {
 interface budget {
     /// Fuel left in the running callback, about the WebAssembly instructions it may still
     /// execute before it traps. Mods use it to spread large work over later callbacks.
+    /// Fuel carries across suspension and is never refilled. Time yields are not overruns.
     remaining-fuel: func() -> u64;
 }
 
@@ -1028,7 +1030,10 @@ world extension {
     import cinnabar:world-draw/drawing@0.2.0;
     /// Creates the initial retained UI state.
     export init: func();
-    /// Bounded frame callback used to measure the spike's crossing cost.
+    /// Runs a frame transaction with frozen input, session and clock observations.
+    /// The host may suspend it without refilling fuel; time only schedules work.
+    /// Output publishes after successful post-return. Late input actions are dropped.
+    /// Instances exporting decision handlers keep synchronous frame execution.
     export frame: func();
 }
 

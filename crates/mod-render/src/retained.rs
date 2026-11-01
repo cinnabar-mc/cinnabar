@@ -268,6 +268,8 @@ impl Resources {
 }
 
 /// A store owns a single guest incarnation. Tokens are never reused after rollback.
+/// Clones fork transactions for that same incarnation; publish only one branch.
+#[derive(Clone)]
 pub struct Store {
     owner: u64,
     generation: u64,

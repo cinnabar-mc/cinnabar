@@ -6,6 +6,7 @@ use ui::mod_touch::{MAX_QUEUED_TOUCH_PRESSES, TouchButton};
 /// Source of per-instance owner tokens, distinct for every component instance in the process.
 static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
+#[derive(Clone)]
 pub(super) struct TouchState {
     /// Identifies this guest's touch input. Every replacement gets a new owner,
     /// even when its published button IDs are unchanged.
@@ -38,6 +39,12 @@ impl Default for TouchState {
 }
 
 impl TouchState {
+    /// Publishes button definitions without replaying taps captured by an earlier invocation.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        self.pending = transaction.pending;
+        self.delivered = transaction.delivered;
+    }
+
     /// Invalidates old queued and captured touches while retaining published buttons.
     pub fn restart_guest(&mut self) {
         *self = Self {
@@ -175,7 +182,7 @@ impl Instance {
     /// Queues one completed tap for the next frame callback. Taps on a button the instance no
     /// longer retains, or beyond the bounded queue, are dropped and return false.
     pub(crate) fn queue_touch_press(&mut self, id: &str) -> bool {
-        let active = self.is_active();
+        let active = self.is_active() && self.continuation.is_none();
         let state = self.store.data_mut();
         active && state.grants.controls && state.touch.queue(id)
     }

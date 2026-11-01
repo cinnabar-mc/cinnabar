@@ -6,7 +6,7 @@ use anyhow::{Result, bail};
 use std::sync::Arc;
 
 /// The installed food table, its foods once listed, and this callback's read count.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct FactsState {
     reads: u32,
     food: Option<Arc<assets::RuntimeEquipmentCatalog>>,
@@ -15,6 +15,17 @@ pub(super) struct FactsState {
 }
 
 impl FactsState {
+    /// Keeps lazy catalog results only when the native catalog is still the frozen one.
+    pub(super) fn accept_reads(&mut self, transaction: Self) {
+        if match (&self.food, &transaction.food) {
+            (Some(current), Some(frozen)) => Arc::ptr_eq(current, frozen),
+            (None, None) => true,
+            _ => false,
+        } {
+            self.foods = transaction.foods;
+        }
+    }
+
     /// Starts a callback with a fresh read allowance.
     pub fn begin(&mut self) {
         self.reads = 0;

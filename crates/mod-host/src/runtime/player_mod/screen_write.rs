@@ -5,6 +5,7 @@ use server_experience::screen::{Modal, Row, Value};
 use std::{collections::BTreeMap, io::Write};
 
 /// One callback's screen copy, published only if at least one write was accepted.
+#[derive(Clone)]
 pub(in crate::runtime) struct ScreenTransaction {
     screens: ModScreens,
     changed: bool,
@@ -29,6 +30,11 @@ impl ScreenTransaction {
     /// Returns accepted output without replacing committed screens for a denied-only callback.
     pub(in crate::runtime) fn commit(self) -> Option<ModScreens> {
         self.changed.then_some(self.screens)
+    }
+
+    /// Drops a focus edge when its callback completes after the originating input frame.
+    pub(in crate::runtime) fn expire_focus(&mut self) {
+        self.screens.focus = None;
     }
 
     /// Exposes private staging for deterministic regression witnesses.

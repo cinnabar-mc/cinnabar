@@ -11,7 +11,7 @@ use mod_api::{
 #[path = "player_state/split.rs"]
 mod split;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct PlayerState {
     pub snapshot: Option<PlayerStateSnapshot>,
     comparison_snapshot: Option<PlayerStateSnapshot>,
@@ -29,6 +29,15 @@ pub(super) struct PlayerState {
 }
 
 impl PlayerState {
+    /// Retains the guest's comparison tokens without replacing current native observations.
+    pub(super) fn accept_reads(&mut self, transaction: Self) {
+        self.comparison_snapshot = transaction.comparison_snapshot;
+        self.comparison_revision = transaction.comparison_revision;
+        self.revision = self.revision.max(transaction.revision);
+        self.split = transaction.split;
+        self.split.begin_frame();
+    }
+
     /// Clears current reads without discarding the exact observation used for change detection.
     pub fn begin_frame(&mut self) {
         self.snapshot = None;

@@ -36,6 +36,8 @@ impl Mask {
 }
 
 /// The owner incarnation is process-unique. Slots are never reused, even after rollback.
+/// Clones fork transactions for that same incarnation; publish only one branch.
+#[derive(Clone)]
 pub struct MaskStore {
     owner: u64,
     next_slot: u64,
@@ -54,6 +56,21 @@ impl Default for MaskStore {
 }
 
 impl MaskStore {
+    /// Refreshes trusted membership without reviving targets removed during a callback.
+    pub fn reconcile_observations(&mut self, latest: &Self) {
+        self.candidates.clone_from(&latest.candidates);
+        self.targets
+            .retain(|_, (key, _)| self.candidates.contains_key(key));
+        let mut masks = self.committed.to_vec();
+        for mask in &mut masks {
+            mask.entities
+                .retain(|key| self.candidates.contains_key(key));
+        }
+        if masks.as_slice() != self.committed.as_ref() {
+            self.committed = masks.into();
+        }
+    }
+
     /// Starts with no session authority and no allocated attachments.
     fn new(owner: u64) -> Self {
         Self {

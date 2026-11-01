@@ -11,6 +11,7 @@ mod tests;
 impl Instance {
     /// Clears world-scoped observations and output while preserving guest memory and HUD.
     pub(crate) fn clear_drawing_world(&mut self) {
+        self.cancel_continuation();
         let state = self.store.data_mut();
         state.clear_world_output();
         state.terrain.clear_world();
@@ -29,6 +30,7 @@ impl Instance {
         grants: ModGrants,
         session: mod_api::drawing::DrawingSession,
     ) {
+        self.cancel_continuation();
         let state = self.store.data_mut();
         state.render.revoke();
         state.grants = grants;
@@ -149,6 +151,8 @@ impl Instance {
             filter_identity: super::action_filter::next_identity(),
             consecutive_frame_overruns: 0,
             world_entry: Default::default(),
+            continuation: None,
+            ui_generation: 0,
         })
     }
 
@@ -168,9 +172,10 @@ impl Instance {
         state.controls.layout = None;
         state.touch.restart_guest();
         store.limiter(|state| &mut state.limits);
+        store.data_mut().begin_callback();
         let initial = FRAME_FUEL;
         crate::execution::arm(store, initial, true)?;
-        let instance = pre.instantiate(&mut *store)?;
+        let instance = crate::execution::complete(pre.instantiate_async(&mut *store))?;
         let (init, exports) = exports::Exports::find(store, &instance)?;
         let instantiated = initial - store.get_fuel().unwrap_or(0).min(initial);
         let mut armed = initial;
@@ -178,8 +183,8 @@ impl Instance {
             armed = LOAD_FUEL;
             crate::execution::arm(store, armed, true)?;
         }
-        init.call(&mut *store, ())?;
-        init.post_return(&mut *store)?;
+        crate::execution::complete(init.call_async(&mut *store, ()))?;
+        crate::execution::complete(init.post_return_async(&mut *store))?;
         commit(store);
         let last_fuel = armed - store.get_fuel().unwrap_or(0).min(armed)
             + if exports.loads_session() {
@@ -207,7 +212,8 @@ impl Instance {
                 "loading callback deferred"
             );
         }
-        let mut candidate = Self::new_with_drawing_policy(
+        let timing = self.callback_timing();
+        let candidate = Self::new_with_drawing_policy(
             engine,
             component,
             grants,
@@ -215,7 +221,9 @@ impl Instance {
             declared,
             panel_bundle,
             self.store.data().drawing_policy,
-        )?;
+        );
+        self.charge_callback_time(timing);
+        let mut candidate = candidate?;
         candidate.callback_budget = budget;
         candidate.world_entry = self.world_entry;
         candidate.store.data_mut().exclusive = self.store.data().exclusive.clone();

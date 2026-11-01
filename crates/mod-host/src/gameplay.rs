@@ -14,7 +14,7 @@ use mod_api::{
 };
 
 /// Mob input, the retained rig, and per-frame command and cue output.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct WorldState {
     /// Complete movement input committed for one successful callback.
     pub movement_input: Option<crate::GameplayMovementInput>,
@@ -40,6 +40,20 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
+    /// Keeps rate accounting host-owned and discards actions completed after their frame.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
+        if current_frame {
+            self.pending_movement_input = transaction.pending_movement_input;
+            self.pending_movement_intents = transaction.pending_movement_intents;
+            self.pending_control_modes = transaction.pending_control_modes;
+            if !camera_blocked {
+                self.pending_rig = transaction.pending_rig;
+            }
+            self.pending_commands = transaction.pending_commands;
+            self.pending_cues = transaction.pending_cues;
+        }
+    }
+
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
         self.movement_input = None;

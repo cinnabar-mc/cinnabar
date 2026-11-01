@@ -33,7 +33,7 @@ const _: () = assert!(
 );
 
 /// One mod's committed presentation, its callback's staged copy and its write allowance.
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(super) struct PresentationState {
     committed: ModPresentation,
     pending: Option<ModPresentation>,
@@ -42,6 +42,11 @@ pub(super) struct PresentationState {
 }
 
 impl PresentationState {
+    /// Moves only the staged presentation into the current committed owner.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        self.pending = transaction.pending;
+    }
+
     /// All native presentation parameters, including global styles, are world-scoped.
     /// Reset through normal publication so consumers observe a fresh revision immediately.
     pub fn clear_world(&mut self) {
