@@ -51,6 +51,46 @@ mod tests {
     }
 
     #[test]
+    fn actor_lifetime_checks_deduplicate_mask_members_and_frozen_candidates() {
+        let mut render = RenderState::new();
+        let actor = mod_api::drawing::MaskEntity {
+            connection: 1,
+            dimension: 0,
+            runtime_id: 7,
+            spawn_revision: 1,
+        };
+        render.masks.bind(mod_api::drawing::DrawingSession {
+            connection: actor.connection,
+            dimension: actor.dimension,
+            local: true,
+            permissions: mod_api::drawing::DrawingPermissions::ALL,
+        });
+        render.masks.publish_targets(&[(actor, 36)]);
+        let target = render.masks.entity(actor.runtime_id).unwrap();
+        for _ in 0..2 {
+            let mask = render
+                .masks
+                .create(mod_api::drawing::MaskDepth::Test)
+                .unwrap();
+            render.masks.select(mask, &[target]).unwrap();
+        }
+        render.commit_retained();
+        let transaction = render.transaction();
+        assert_eq!(render.entity_keys().collect::<Vec<_>>(), [actor.into()]);
+        render.masks.publish_targets(&[]);
+        assert_eq!(render.entity_keys().collect::<Vec<_>>(), [actor.into()]);
+        render.update_entities(Vec::new(), &[actor.into()]).unwrap();
+        render.accept(transaction);
+        assert!(
+            render
+                .output()
+                .masks
+                .iter()
+                .all(|mask| mask.entities.is_empty())
+        );
+    }
+
+    #[test]
     fn primitive_admission_preserves_identity_across_differently_partitioned_imports() {
         let mut render = RenderState::new();
         render.append_primitives(primitives(&[1., 2.])).unwrap();

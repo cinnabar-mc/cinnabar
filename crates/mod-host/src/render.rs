@@ -239,6 +239,8 @@ impl RenderState {
             .entity_keys()
             .into_iter()
             .chain(self.masks.entity_keys().map(Into::into))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
     }
 
     /// Copies only the immutable snapshot identity into renderer output.
