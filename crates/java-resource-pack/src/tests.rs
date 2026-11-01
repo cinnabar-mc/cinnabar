@@ -585,6 +585,16 @@ fn generated_textures_over_the_runtime_limit_are_left_out() {
         "copied sources are kept"
     );
     assert_eq!(translation.skipped, 1);
+
+    let only_oversized = pack(vec![(
+        "assets/minecraft/textures/block/oak_leaves.png",
+        solid(16, 16, GREEN),
+    )]);
+    let paths: Vec<String> = only_oversized.keys().cloned().collect();
+    assert_eq!(
+        translate(&paths, |path| only_oversized.get(path).cloned(), "Pack", 8).unwrap_err(),
+        TranslateError::NothingToTranslate
+    );
 }
 
 #[test]

@@ -399,9 +399,6 @@ pub(crate) fn translate_within(
     if budget.exhausted() {
         return Err(TranslateError::TooLarge);
     }
-    if !out.keys().any(|path| path.starts_with("textures/")) {
-        return Err(TranslateError::NothingToTranslate);
-    }
     let digest: [u8; 32] = source.hasher.finalize().into();
     // Generated textures the runtime would refuse are left out so vanilla art stays in place.
     let encoded: Vec<Option<(String, Vec<u8>)>> = out
@@ -417,6 +414,10 @@ pub(crate) fn translate_within(
         .collect();
     let oversized = encoded.iter().filter(|file| file.is_none()).count();
     let mut files: Vec<(String, Vec<u8>)> = encoded.into_iter().flatten().collect();
+    // Checked after size filtering, so a pack whose every texture was dropped is not installed.
+    if !files.iter().any(|(path, _)| path.starts_with("textures/")) {
+        return Err(TranslateError::NothingToTranslate);
+    }
     files.push((
         "manifest.json".into(),
         manifest::manifest(name, &meta.description, &digest),
