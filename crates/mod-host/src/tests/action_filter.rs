@@ -52,6 +52,18 @@ fn filter_returns_a_verdict_even_when_ordinary_frame_fuel_is_empty() {
 }
 
 #[test]
+fn action_filters_keep_their_independent_fuel_limit() {
+    let (_dir, mut host) = host("(loop $forever br $forever)", "local.get $count", true);
+    let error = host.filter_actions(frame()).unwrap_err();
+    assert_eq!(
+        error.downcast_ref::<wasmtime::Trap>(),
+        Some(&wasmtime::Trap::OutOfFuel)
+    );
+    assert_eq!(host.last_fuel_used(), mod_api::ACTION_FILTER_FUEL);
+    assert!(!host.is_active());
+}
+
+#[test]
 fn loading_gap_suspends_filter_output_without_replacing_the_guest() {
     use mod_api::drawing::{DrawingPermissions, DrawingSession};
     let (_dir, mut host) = host("", "local.get $count", true);

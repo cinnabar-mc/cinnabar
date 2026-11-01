@@ -161,14 +161,13 @@ pub const MAX_COMPONENT_SOURCE_BYTES: usize = MAX_COMPONENT_BYTES
     + component_assets::MAX_SECTION_FRAMING_BYTES;
 /// Plain-text UI limit, checked before publishing any guest output.
 pub const MAX_LABEL_BYTES: usize = 256;
-/// Fuel one frame callback may use: about twice the 105k peak the first-party Cinnabar Client
-/// mod's layout editor reached, so its editor and menu paths keep headroom. Measured on a Ryzen 9
-/// 7900X with a release host driving that mod's string building and JSON encoding, guest code
-/// ran 24 µs per 100k fuel at the median, 90–110 µs at p99 and at most 0.41 ms right after a
-/// multi-millisecond host import evicted its caches. A full 200k callback therefore takes
-/// about 0.05 ms, 0.2 ms at p99; a frame's `mod_api::TOTAL_MOD_FRAME_FUEL`, two of them, about
-/// 0.1 ms, 0.5 ms at p99 and 1.7 ms at worst, well inside the live-testing main-CPU budgets.
-pub const FRAME_FUEL: u64 = 200_000;
+/// Fuel one frame callback may use. On a Ryzen 9 7900X, a release host driving the
+/// first-party mod's string building and JSON encoding measured 24 µs per 100k fuel
+/// at the median and 90–110 µs at p99. Scaling those measurements gives about 0.24 ms
+/// median and 0.9–1.1 ms p99 for this allowance, or 0.48 ms and 1.8–2.2 ms for
+/// `mod_api::TOTAL_MOD_FRAME_FUEL`. These estimates are not wall-clock guarantees;
+/// host imports and cache effects can take longer.
+pub const FRAME_FUEL: u64 = 1_000_000;
 /// One frame callback per observed world session may use this larger allowance.
 pub const WORLD_ENTRY_FRAME_FUEL: u64 = 4 * FRAME_FUEL;
 const _: () = assert!(
