@@ -24,6 +24,9 @@ pub enum SpatialReset {
 pub enum ControlDisposition {
     Handled,
     Environment,
+    /// Physics eases the position; the caller applies only the control's aim and keeps
+    /// its frame and camera history.
+    Aim,
     Spatial(SpatialReset),
 }
 
@@ -274,6 +277,13 @@ impl CommittedGameplayState<'_> {
             }
             return ControlDisposition::Handled;
         }
+        if let CommittedControlEvent::MovePlayer {
+            movement, resolved, ..
+        } = control
+            && self.eases_local_move_player(&movement, resolved.position, world)
+        {
+            return ControlDisposition::Aim;
+        }
         observe(ControlObservation::BeforeSpatial(control));
         let reset = match &control {
             CommittedControlEvent::PlayerMovementCorrection {
@@ -335,9 +345,9 @@ impl CommittedGameplayState<'_> {
                 };
                 if self.movement.physics_is_authorized() {
                     let previous = self.physics.network_position().unwrap_or(resolved.position);
-                    // A teleport rewinds when nearby and retained, else snaps. An
-                    // unmarked MovePlayer is classified like a correction (Cinnabar
-                    // policy). HandledTeleport arms on the teleport path only.
+                    // A teleport rewinds when nearby and retained, else snaps. Another
+                    // unmarked MovePlayer that cannot ease is classified like a correction
+                    // (Cinnabar policy). HandledTeleport arms on the teleport path only.
                     let outcome = if correction.teleported {
                         self.movement
                             .note_server_teleport(ServerTeleportKind::MovePlayer);
@@ -504,6 +514,30 @@ impl CommittedGameplayState<'_> {
         };
         self.movement.enforce_local_physics_authority(self.physics);
         ControlDisposition::Spatial(reset)
+    }
+
+    /// Bedrock eases a Normal-mode `MovePlayer` over its interpolation steps without a
+    /// rewind, whatever its tick. A mounted player or an unloaded target keeps the
+    /// correction path.
+    fn eases_local_move_player(
+        &mut self,
+        movement: &protocol::MovePlayerEvent,
+        position: [f32; 3],
+        world: &impl CollisionWorld,
+    ) -> bool {
+        if movement.teleported
+            || movement.mode != protocol::MovePlayerMode::Normal
+            || movement.riding_runtime_id != 0
+            || !self.movement.physics_is_authorized()
+            || self.physics.mode() == sim::MovementMode::Riding
+            || !self
+                .physics
+                .start_server_movement_lerp(position, movement.on_ground, world)
+        {
+            return false;
+        }
+        self.movement.note_unmarked_local_move_player();
+        true
     }
 }
 

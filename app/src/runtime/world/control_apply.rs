@@ -34,19 +34,7 @@ pub(crate) fn apply_committed_control(
                 position = ?movement.position,
                 "applying committed local MovePlayer"
             );
-            if movement.yaw.is_finite() && movement.pitch.is_finite() {
-                let presented = bedrock_view_degrees(view.rotation());
-                let applied = rotation_filter(MovePlayerRotation {
-                    mode: movement.mode,
-                    server: [movement.yaw, movement.pitch],
-                    presented,
-                })
-                .unwrap_or([movement.yaw, movement.pitch]);
-                // Keeping the presented view leaves it untouched rather than round-tripping it.
-                if applied != presented {
-                    view.set_rotation(bedrock_camera_rotation(applied[0], applied[1]));
-                }
-            }
+            apply_move_player_rotation(&movement, view, rotation_filter);
             resolved
         }
         CommittedControlEvent::PlayerMovementCorrection {
@@ -101,6 +89,39 @@ pub(crate) fn apply_committed_control(
     view.reanchor_camera();
     view.set_eye_translation(bevy::prelude::Vec3::from_array(resolved.position));
     *pending_surface_spawn = resolved.surface_anchor;
+}
+
+/// Applies only the aim of a committed local MovePlayer whose position physics eases,
+/// keeping the eye and camera history continuous.
+pub(crate) fn apply_committed_aim(
+    control: CommittedControlEvent,
+    view: &mut LocalViewPose,
+    rotation_filter: &mut dyn FnMut(MovePlayerRotation) -> Option<[f32; 2]>,
+) {
+    if let CommittedControlEvent::MovePlayer { movement, .. } = control {
+        apply_move_player_rotation(&movement, view, rotation_filter);
+    }
+}
+
+/// MovePlayer owns the view rotation, which `rotation_filter` may replace.
+fn apply_move_player_rotation(
+    movement: &protocol::MovePlayerEvent,
+    view: &mut LocalViewPose,
+    rotation_filter: &mut dyn FnMut(MovePlayerRotation) -> Option<[f32; 2]>,
+) {
+    if movement.yaw.is_finite() && movement.pitch.is_finite() {
+        let presented = bedrock_view_degrees(view.rotation());
+        let applied = rotation_filter(MovePlayerRotation {
+            mode: movement.mode,
+            server: [movement.yaw, movement.pitch],
+            presented,
+        })
+        .unwrap_or([movement.yaw, movement.pitch]);
+        // Keeping the presented view leaves it untouched rather than round-tripping it.
+        if applied != presented {
+            view.set_rotation(bedrock_camera_rotation(applied[0], applied[1]));
+        }
+    }
 }
 
 /// Bedrock yaw and pitch degrees of a view rotation; the inverse of [`bedrock_camera_rotation`].
