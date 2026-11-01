@@ -184,6 +184,13 @@ fn bind_with(
     let truncated = std::mem::take(&mut state.node_budget_exceeded);
     state.built.clear();
     state.views_run = 0;
+    if state
+        .data
+        .as_deref()
+        .is_some_and(|previous| previous != data)
+    {
+        state.clear_grid_cell_cache();
+    }
     let mut changes = match &state.data {
         Some(previous) if incremental && !truncated && data.components.is_empty() => {
             reuse::changes(previous, data)

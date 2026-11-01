@@ -68,6 +68,17 @@ impl Binder<'_> {
                 (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
                 _ => inner.clone(),
             };
+            if let Some(mut cached) = self
+                .state
+                .take_grid_cell(grid_cell_cache_key(scope.parent_key, index))
+            {
+                let prior = self
+                    .pool
+                    .remove(&cached.key)
+                    .map(|placeholder| self.replace(placeholder).1);
+                cached.track.restore(prior);
+                self.pool.insert(cached.key, cached);
+            }
             let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
                 if clipped {
                     patch
@@ -175,7 +186,21 @@ impl Binder<'_> {
         let key = self.control_key(&src, scope.parent_key);
         let prior = match self.pool.remove(&key) {
             Some(previous) if previous.src.same(&src) => return self.reuse(previous),
-            Some(previous) => Some(self.replace(previous).1),
+            Some(previous) => {
+                let index = src
+                    .prop("collection_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok());
+                if let Some(index) = index
+                    && previous.src.prop(GRID_PLACEHOLDER_KEY).is_none()
+                {
+                    self.state
+                        .cache_grid_cell(grid_cell_cache_key(scope.parent_key, index), previous);
+                    None
+                } else {
+                    Some(self.replace(previous).1)
+                }
+            }
             None => None,
         };
         self.created += 1;
@@ -224,6 +249,10 @@ impl Binder<'_> {
             track: super::reuse::Track::built(Default::default(), false, None, None),
         })
     }
+}
+
+fn grid_cell_cache_key(grid: u64, index: usize) -> u64 {
+    super::state::key_hash(grid ^ super::state::KEY_ROOT, &index.to_le_bytes())
 }
 
 /// A `[w, h]` of plain numbers.

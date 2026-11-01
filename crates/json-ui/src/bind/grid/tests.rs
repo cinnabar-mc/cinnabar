@@ -227,6 +227,7 @@ impl Session {
                     hits: render.hits,
                     scrolls: render.report.scrolls,
                     candidates: self.measures.widest_placement_candidates(),
+                    rebuilt: self.state.rebuilt(),
                 };
                 self.tree = Some(render.bound);
                 return drawn;
@@ -253,6 +254,7 @@ struct Drawn {
     scrolls: BTreeMap<String, crate::ScrollMetrics>,
     built: usize,
     candidates: usize,
+    rebuilt: usize,
 }
 
 fn count(control: &ResolvedControl, name: &str) -> usize {
@@ -267,6 +269,31 @@ fn count(control: &ResolvedControl, name: &str) -> usize {
 #[test]
 fn a_virtualized_grid_draws_as_one_built_in_full() {
     draws_as_built_in_full(&Cells::new(), "items", true);
+}
+
+#[test]
+fn reversing_scroll_reuses_materialized_cells() {
+    let root = screen();
+    let library = Cells::new();
+    let data = items("a");
+    let mut full = Session::new(None);
+    let mut virtualized = Session::new(Some("items"));
+
+    for scroll in [0.0, 560.0] {
+        virtualized.draw(&root, &library, &data, scroll);
+    }
+    let first_move = virtualized.state.rebuilt();
+
+    for scroll in [0.0, 560.0] {
+        let expected = full.draw(&root, &library, &data, scroll);
+        let drawn = virtualized.draw(&root, &library, &data, scroll);
+        assert_eq!(drawn.nodes, expected.nodes, "scroll at {scroll}");
+        assert!(
+            drawn.rebuilt < first_move,
+            "returning to {scroll} rebuilt {} controls after the first move rebuilt {first_move}",
+            drawn.rebuilt
+        );
+    }
 }
 
 #[test]
@@ -365,7 +392,7 @@ fn draws_as_built_in_full(library: &Cells, opted: &str, virtualizes: bool) {
         } else {
             assert_eq!(drawn.built, CELLS + 1);
         }
-        assert!(!drawn.nodes.is_empty());
+        assert!(!drawn.nodes.is_empty(), "{prefix} at {scroll}");
         assert_eq!(drawn.nodes, expected.nodes, "{prefix} at {scroll}");
         assert_eq!(drawn.hits, expected.hits, "{prefix} at {scroll}");
         assert_eq!(drawn.scrolls, expected.scrolls);
