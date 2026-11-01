@@ -630,6 +630,10 @@ which can cross a block corner between clear endpoints. Teleports discard that
 segment immediately. A remote player teleport also releases the old riding link before
 the next seat update. Behavioral coverage of these cases does not establish
 live-server movement acceptance.
+Authored base seats and streamed seat metadata share the
+[native-origin conversion](docs/reference/rider-seat-origins.md) before local and
+remote passenger placement. Live bench camera/body alignment, authored scale
+semantics and special passenger families remain unqualified.
 Remote alive notices restore depleted health to the streamed maximum while keeping
 movement interpolation intact. Repeated notices preserve a living actor's hurt timing.
 

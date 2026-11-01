@@ -119,32 +119,32 @@ impl ActorStore {
             Some(ActorMetadataValue::Float(value)) if value.is_finite() => Some(*value),
             _ => None,
         };
-        if let Some(ActorMetadataValue::Vector(seat)) =
+        let mut seat = if let Some(ActorMetadataValue::Vector(seat)) =
             rider.metadata.get(&ActorDataKey::SeatOffset.wire_value())
         {
-            return seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
-                // Streamed offsets join native actor origins; the store keeps collision feet.
-                position: [
-                    seat[0],
-                    seat[1] + mount.network_position_offset() - rider.network_position_offset(),
-                    seat[2],
-                ],
+            seat.iter().all(|axis| axis.is_finite()).then(|| RideSeat {
+                position: *seat,
                 min_riders: 0,
                 max_riders: u32::MAX,
                 rotate_by: degrees(ActorDataKey::SeatRotationOffsetDegrees.wire_value()),
                 lock_degrees: degrees(ActorDataKey::SeatLockPassengerRotationDegrees.wire_value()),
-            });
-        }
-        let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
-        let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
-        // Seats follow the seated passenger order, the same order that picks the driver.
-        let passengers = self.seated_passengers(mount.unique_id);
-        let index = passengers.iter().position(|&id| id == rider_unique_id)?;
-        compiled_seat(
-            admission,
-            u32::try_from(passengers.len()).unwrap_or(u32::MAX),
-            index,
-        )
+            })?
+        } else {
+            let descriptor = self.seat_bindings.get(&mount.runtime_id)?.as_ref()?;
+            let admission = self.entity_assets.as_ref()?.seat_descriptor(*descriptor)?;
+            // Seats follow the seated passenger order, the same order that picks the driver.
+            let passengers = self.seated_passengers(mount.unique_id);
+            let index = passengers.iter().position(|&id| id == rider_unique_id)?;
+            compiled_seat(
+                admission,
+                u32::try_from(passengers.len()).unwrap_or(u32::MAX),
+                index,
+            )?
+        };
+        // Both sources join native actor origins; the store keeps collision feet.
+        seat.position[1] =
+            seat.position[1] + mount.network_position_offset() - rider.network_position_offset();
+        Some(seat)
     }
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
@@ -724,6 +724,63 @@ mod compiled_seat_tests {
         let (second, _) = store.rider_seat_pose(10).unwrap();
         assert!((driver[2] - (mount_z + 0.5)).abs() < 1.0e-4, "{driver:?}");
         assert!((second[2] - (mount_z - 0.5)).abs() < 1.0e-4, "{second:?}");
+    }
+
+    /// An authored seat and an equivalent streamed seat connect the same actor origins.
+    #[test]
+    fn default_player_seats_match_streamed_seat_origins() {
+        use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue};
+        for scale in [0.0, 1.0, 3.0] {
+            for link_first in [false, true] {
+                let mut positions = Vec::new();
+                for streamed in [false, true] {
+                    let mut store = store();
+                    advertise(&mut store, 1, "minecraft:allay");
+                    let link = protocol::ActorLinkEvent {
+                        dimension: 0,
+                        ridden_unique_id: 80,
+                        rider_unique_id: 10,
+                        link_type: protocol::ActorLinkType::Rider,
+                        immediate: false,
+                        rider_initiated: false,
+                    };
+                    if link_first {
+                        store.apply_link(1, 2, link);
+                    }
+                    spawn_mount(&mut store, 3);
+                    store.actors.get_mut(&8).unwrap().metadata.insert(
+                        ActorDataKey::Scale.wire_value(),
+                        ActorMetadataValue::Float(scale),
+                    );
+                    let ActorEvent::Spawn(mut rider) = super::super::tests::spawn(10, 10) else {
+                        unreachable!()
+                    };
+                    rider.kind = ActorKind::Player {
+                        uuid: [0; 16],
+                        username: "Rider".into(),
+                    };
+                    if streamed {
+                        rider.metadata = std::sync::Arc::from([ActorMetadata {
+                            key: ActorDataKey::SeatOffset.wire_value(),
+                            value: ActorMetadataValue::Vector([0.0, 1.0, 0.5]),
+                        }]);
+                    }
+                    store.apply(1, 4, ActorEvent::Spawn(rider));
+                    if !link_first {
+                        store.apply_link(1, 5, link);
+                    }
+                    let local = store.rider_seat_pose(10).unwrap().0;
+                    store.advance_interpolation_ticks(1);
+                    let rider = store.get(10).unwrap();
+                    assert_eq!(rider.position, local);
+                    positions.push((local, rider.native_position()));
+                }
+                assert_eq!(
+                    positions[0], positions[1],
+                    "mount scale={scale}, early link={link_first}"
+                );
+            }
+        }
     }
 
     #[test]
