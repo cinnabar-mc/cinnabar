@@ -130,7 +130,7 @@ pub const MODEL_TEMPLATE_FLAG_TWISTING_VINE: u32 = 1 << 26;
 pub const MODEL_TEMPLATE_FLAG_PISTON_BODY: u32 = 1 << 27;
 /// Draws a sheet's regions from its full-resolution quadrant layers; the next template is the same
 /// shape with UVs across the whole sheet, for a sheet replaced by art on a single layer.
-pub const MODEL_TEMPLATE_FLAG_SHEET_TILES: u32 = 1 << 29;
+pub const MODEL_TEMPLATE_FLAG_SHEET_TILES: u32 = 1 << 30;
 
 /// Standalone plant templates that may follow their separate pot-content geometry.
 pub(crate) const fn potted_world_template_flags_are_valid(flags: u32) -> bool {
