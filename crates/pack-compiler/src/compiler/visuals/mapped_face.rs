@@ -81,21 +81,21 @@ fn piston_uv(face: BlockFace, rotation: u8, [x, y, z]: [i16; 3]) -> [u16; 2] {
         (BlockFace::Down | BlockFace::Up, 2) => [far(z), near(x)],
         (BlockFace::Down | BlockFace::Up, 3) => [far(x), far(z)],
         (BlockFace::Down | BlockFace::Up, _) => [near(x), near(z)],
-        (BlockFace::North, 1) => [far(y), far(x)],
-        (BlockFace::North, 2) => [near(y), near(x)],
-        (BlockFace::North, 3) => [far(x), near(y)],
+        (BlockFace::North, 1) => [near(y), far(x)],
+        (BlockFace::North, 2) => [far(y), near(x)],
+        (BlockFace::North, 3) => [near(x), near(y)],
         (BlockFace::North, _) => [far(x), far(y)],
-        (BlockFace::South, 1) => [near(y), far(x)],
-        (BlockFace::South, 2) => [far(y), near(x)],
+        (BlockFace::South, 1) => [far(y), far(x)],
+        (BlockFace::South, 2) => [near(y), near(x)],
         (BlockFace::South, 3) => [far(x), near(y)],
         (BlockFace::South, _) => [near(x), far(y)],
-        (BlockFace::West, 1) => [near(y), far(z)],
-        (BlockFace::West, 2) => [far(y), near(z)],
+        (BlockFace::West, 1) => [far(y), far(z)],
+        (BlockFace::West, 2) => [near(y), near(z)],
         (BlockFace::West, 3) => [far(z), near(y)],
         (BlockFace::West, _) => [near(z), far(y)],
-        (BlockFace::East, 1) => [far(y), far(z)],
-        (BlockFace::East, 2) => [near(y), near(z)],
-        (BlockFace::East, 3) => [far(z), near(y)],
+        (BlockFace::East, 1) => [near(y), far(z)],
+        (BlockFace::East, 2) => [far(y), near(z)],
+        (BlockFace::East, 3) => [near(z), near(y)],
         (BlockFace::East, _) => [far(z), far(y)],
     }
 }
@@ -207,6 +207,21 @@ mod tests {
             assert_eq!(max[axis] - min[axis], 192, "{facing}");
             for (face, quad) in BlockFace::ALL.into_iter().zip(&quads) {
                 assert_eq!(cull(quad) == 0, face == head, "{facing} {face:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn piston_sides_turn_their_art_like_a_flipped_full_cube() {
+        for flip in 0..4u8 {
+            let cube = super::super::geometry::flipped_cube_quads([1, 2, 3, 4, 5, 6], [flip; 6]);
+            for (face, quad) in BlockFace::ALL.into_iter().zip(&cube) {
+                if matches!(face, BlockFace::Down | BlockFace::Up) {
+                    continue;
+                }
+                for (corner, uv) in quad.positions.iter().zip(&quad.uvs) {
+                    assert_eq!(piston_uv(face, flip, *corner), *uv, "{face:?} {flip}");
+                }
             }
         }
     }

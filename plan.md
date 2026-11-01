@@ -207,8 +207,8 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   draw their inward-facing cutout interior. Piston bodies draw their three-quarter body with
   native per-face UV turns, and their head plate, rod and sleeve follow `PistonArm` actor
   progress or rest retracted without actor data. Blocks a piston pushes (`MovingBlock`
-  rendering) are incomplete, and other mapped-face blocks still use the shared UV flips, which
-  differ from the native east and down turns seen on pistons. Native-server captures remain.
+  rendering) are incomplete. The body's up and down faces keep their own UV table, not yet
+  reconciled with the shared flips for cropped spans. Native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
   GPU-completed model-stream witnesses.
 - [ ] Close resin-clump native-gallery acceptance with two consecutive exact
