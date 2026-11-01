@@ -120,7 +120,7 @@ pub(crate) fn press(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                input.context.attack.block_pick(),
                 caps,
                 input.context.mode,
                 input.context.identity,

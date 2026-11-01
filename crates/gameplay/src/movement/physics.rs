@@ -38,6 +38,8 @@ mod visual_correction;
 mod fall_tests;
 #[cfg(test)]
 mod liquid_probe_tests;
+#[cfg(test)]
+mod pick_origin_tests;
 
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
