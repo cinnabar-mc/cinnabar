@@ -4,7 +4,7 @@
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum InventoryCellHit {
     Player(u8),
-    Storage(u8),
+    Storage(u16),
     Armor(u8),
     Offhand,
     /// A screen input or crafting cell by UI inventory slot.
@@ -82,6 +82,11 @@ pub enum Widget {
     },
     /// A book reader or editor button.
     Reader(ReaderButton),
+    /// A server pack's radio tab on a storage screen: its group key and place in the group.
+    StorageRadio {
+        group: u64,
+        index: u16,
+    },
     /// The screen's close (X) button, which closes it as the inventory key does.
     Close,
 }

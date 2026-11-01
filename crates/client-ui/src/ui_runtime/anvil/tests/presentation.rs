@@ -657,7 +657,7 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
             let ledger = runtime.inventory_ledger(&player);
             protocol::StackRequestSlot {
                 container: protocol::ui_slot_request_container(slot).unwrap(),
-                slot,
+                slot: u16::from(slot),
                 stack_network_id: ledger
                     .target_stack(InventoryTarget::Craft(slot))
                     .unwrap()
@@ -703,7 +703,7 @@ fn enchanting_a_plain_book_predicts_the_negotiated_enchanted_book_kind() {
                     amount: 1,
                     source: StackRequestSlot {
                         container: Container::CreatedOutput,
-                        slot: protocol::CREATED_OUTPUT_SLOT,
+                        slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
                         stack_network_id: request_id,
                     },
                     destination: StackRequestSlot {

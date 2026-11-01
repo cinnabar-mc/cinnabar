@@ -53,7 +53,7 @@ fn empty_success_ack_clears_the_rendered_shop_cursor() {
     }
     runtime.drain_pending_inventory(&mut player);
     let ledger = runtime.inventory_ledger_mut(&mut player);
-    let request = ledger.begin_storage_click(SHOP_SLOT as u8).unwrap();
+    let request = ledger.begin_storage_click(SHOP_SLOT as u16).unwrap();
     assert!(ledger.mark_transport_enqueued(0));
     let acknowledgement = protocol::into_world_event(
         protocol::test_support::packets::empty_stack_response(request, false),
@@ -107,7 +107,8 @@ fn empty_success_ack_clears_the_rendered_shop_cursor() {
     let ledger = runtime.inventory_ledger(&player);
     let frame = presentation.hud_frame_mut();
     frame.window_text.title = Some("Item Shop".into());
-    frame.storage_icons.0[SHOP_SLOT] = ledger.storage_stack(SHOP_SLOT as u8).map(|_| icon);
+    std::sync::Arc::make_mut(&mut frame.storage_icons.0)[SHOP_SLOT] =
+        ledger.storage_stack(SHOP_SLOT as u16).map(|_| icon);
     frame.inventory_icons.0[1] = Some(icon);
     frame.cursor_icon = ledger.cursor_stack().map(|_| icon);
     for now in [0, 500] {

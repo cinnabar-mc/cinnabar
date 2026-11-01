@@ -150,8 +150,8 @@ pub struct InventoryProjectionCache {
     animation: ProjectionAnimation,
     inventory_open: bool,
     player: [CellProjection; protocol::PLAYER_INVENTORY_SLOTS as usize],
-    visual_storage: [CellProjection; protocol::MAX_GENERIC_STORAGE_SLOTS],
-    storage: [CellProjection; protocol::MAX_GENERIC_STORAGE_SLOTS],
+    visual_storage: Box<[CellProjection]>,
+    storage: Box<[CellProjection]>,
     ui: [CellProjection; protocol::UI_SLOT_COUNT],
     output: CellProjection,
     output_is_ghost: bool,
@@ -161,6 +161,14 @@ pub struct InventoryProjectionCache {
     ui_icons: [Option<IconRef>; protocol::UI_SLOT_COUNT],
 }
 
+/// One empty projection per retained storage cell, kept on the heap: the frame threads' stacks
+/// cannot hold the whole window.
+fn storage_projections() -> Box<[CellProjection]> {
+    (0..protocol::MAX_GENERIC_STORAGE_SLOTS)
+        .map(|_| CellProjection::default())
+        .collect()
+}
+
 impl Default for InventoryProjectionCache {
     fn default() -> Self {
         Self {
@@ -168,8 +176,8 @@ impl Default for InventoryProjectionCache {
             animation: Default::default(),
             inventory_open: false,
             player: std::array::from_fn(|_| CellProjection::default()),
-            visual_storage: std::array::from_fn(|_| CellProjection::default()),
-            storage: std::array::from_fn(|_| CellProjection::default()),
+            visual_storage: storage_projections(),
+            storage: storage_projections(),
             ui: std::array::from_fn(|_| CellProjection::default()),
             output: CellProjection::default(),
             output_is_ghost: false,
@@ -350,12 +358,15 @@ impl InventoryProjectionCache {
         if contents_changed {
             self.contents.inventory_icons.0 =
                 std::array::from_fn(|slot| self.player[slot].artwork.icon);
-            self.contents.storage_icons.0 =
-                std::array::from_fn(|slot| self.visual_storage[slot].artwork.icon);
+            self.contents.storage_icons.0 = self
+                .visual_storage
+                .iter()
+                .map(|cell| cell.artwork.icon)
+                .collect();
         }
         if decorations_changed {
             self.durability.player = std::array::from_fn(|slot| self.player[slot].durability);
-            self.durability.storage = std::array::from_fn(|slot| self.storage[slot].durability);
+            self.durability.storage = self.storage.iter().map(|cell| cell.durability).collect();
             self.durability.ui = std::array::from_fn(|slot| self.ui[slot].durability);
             self.ui_icons = std::array::from_fn(|slot| self.ui[slot].artwork.icon);
         }
@@ -393,10 +404,10 @@ impl InventoryProjectionCache {
             );
         }
         for (slot, cell) in self.visual_storage.iter_mut().enumerate() {
-            cell.read(ledger.furnace_visual_stack(slot as u8), None);
+            cell.read(ledger.furnace_visual_stack(slot as u16), None);
         }
         for (slot, cell) in self.storage.iter_mut().enumerate() {
-            cell.read(ledger.storage_stack(slot as u8), None);
+            cell.read(ledger.storage_stack(slot as u16), None);
         }
         for (slot, cell) in self.ui.iter_mut().enumerate() {
             let slot = slot as u8;

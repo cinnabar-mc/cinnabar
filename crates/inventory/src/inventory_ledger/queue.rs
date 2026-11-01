@@ -516,16 +516,14 @@ impl PlayerInventoryLedger {
                 continue;
             }
             for correction in container.slots.iter() {
-                let Some(cell) =
-                    self.retained_response_cell(&container.container, u16::from(correction.slot))
+                let Some(cell) = self.response_cell(request, &container.container, correction.slot)
                 else {
                     self.note_unrouted_container();
                     continue;
                 };
-                let Some(requested) = self.retained_response_cell(
-                    &container.container,
-                    u16::from(correction.hotbar_slot),
-                ) else {
+                let Some(requested) =
+                    self.response_cell(request, &container.container, correction.hotbar_slot)
+                else {
                     self.note_unrouted_container();
                     continue;
                 };
@@ -542,6 +540,31 @@ impl PlayerInventoryLedger {
         if request.requires_distinct_stack_ids && !self.split_is_distinct(request) {
             self.recover_request(request);
         }
+    }
+
+    /// The cell a response's one-byte `slot` means. A slot its request predicted is that cell, and
+    /// otherwise a storage slot means the predicted cell past the one-byte range that sent it.
+    fn response_cell(
+        &self,
+        request: &PendingRequest,
+        container: &ContainerIdentity,
+        slot: u8,
+    ) -> Option<Cell> {
+        let cell = self.retained_response_cell(container, u16::from(slot))?;
+        let predicted = |wanted: Cell| request.predicted.iter().any(|p| p.cell == wanted);
+        if !matches!(cell, Cell::Storage(_)) || predicted(cell) {
+            return Some(cell);
+        }
+        Some(
+            request
+                .predicted
+                .iter()
+                .find_map(|prediction| match prediction.cell {
+                    Cell::Storage(high) if high as u8 == slot => Some(prediction.cell),
+                    _ => None,
+                })
+                .unwrap_or(cell),
+        )
     }
 
     /// Applies one accepted count/stack-id/overlay correction to server truth.

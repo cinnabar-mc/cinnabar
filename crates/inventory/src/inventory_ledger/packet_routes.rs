@@ -86,7 +86,7 @@ impl PlayerInventoryLedger {
             } else if cells
                 .iter()
                 .copied()
-                .eq((0..self.confirmed.storage_len()).map(|slot| Cell::Storage(slot as u8)))
+                .eq((0..self.confirmed.storage_len()).map(|slot| Cell::Storage(slot as u16)))
             {
                 if let Some(storage) = &mut self.storage {
                     storage.resync_required = false;
@@ -148,7 +148,7 @@ impl PlayerInventoryLedger {
                         .filter_map(|slot| {
                             let (container, _) = protocol::open_cell_request(
                                 storage.kind,
-                                slot as u8,
+                                slot as u16,
                                 None,
                                 storage.identity.and_then(|identity| identity.slot_type),
                             )?;
@@ -159,7 +159,7 @@ impl PlayerInventoryLedger {
                                 protocol::StackRequestContainer::OpenWindow { name, .. } => name,
                                 _ => return None,
                             };
-                            (registered_name == name).then_some(Cell::Storage(slot as u8))
+                            (registered_name == name).then_some(Cell::Storage(slot as u16))
                         })
                         .collect()
                 } else {

@@ -294,7 +294,7 @@ pub enum InventoryPacketError {
     #[error("item stack request slot {slot} is invalid for {container:?}")]
     InvalidStackRequestSlot {
         container: StackRequestContainer,
-        slot: u8,
+        slot: u16,
     },
     #[error("item stack request network ID {0} is invalid")]
     InvalidRequestStackNetworkId(i32),

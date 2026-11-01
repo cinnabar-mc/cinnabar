@@ -83,7 +83,7 @@ fn totem_quick_move_equips_from_main_inventory_and_hotbar() {
         assert!(matches!(
             ledger.newest_action(),
             Some(StackRequestAction::Place { amount: 1, source: from, destination })
-                if from.slot == source && from.stack_network_id == 100
+                if from.slot == u16::from(source) && from.stack_network_id == 100
                     && destination.container == StackRequestContainer::Offhand
                     && destination.slot == 1 && destination.stack_network_id == 0
         ));

@@ -675,6 +675,7 @@ impl HudLayout<'_> {
                 | Widget::InventoryLayout(_)
                 | Widget::InventoryRightTab(_)
                 | Widget::FurnaceTab(_)
+                | Widget::StorageRadio { .. }
                 | Widget::FurnaceClearRecipe
                 | Widget::LoomPatternAt(_)
                 | Widget::BookRecipe(_)

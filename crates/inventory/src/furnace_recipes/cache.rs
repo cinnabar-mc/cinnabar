@@ -109,7 +109,7 @@ pub(super) fn project(inventory: &InventorySession, filtering: bool) -> FurnaceR
         registry: ledger.item_registry_snapshot().cloned(),
         stacks: std::array::from_fn(|index| {
             let stack = if index >= usize::from(protocol::PLAYER_INVENTORY_SLOTS) {
-                ledger.storage_stack((index - usize::from(protocol::PLAYER_INVENTORY_SLOTS)) as u8)
+                ledger.storage_stack((index - usize::from(protocol::PLAYER_INVENTORY_SLOTS)) as u16)
             } else {
                 ledger.displayed_stack(index as u8)
             }?;

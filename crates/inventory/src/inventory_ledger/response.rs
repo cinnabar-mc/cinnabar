@@ -117,7 +117,7 @@ impl PlayerInventoryLedger {
     /// The authoritative response overlay retained for one open generic
     /// storage slot.
     #[must_use]
-    pub fn storage_slot_overlay(&self, slot: u8) -> Option<&StackResponseOverlay> {
+    pub fn storage_slot_overlay(&self, slot: u16) -> Option<&StackResponseOverlay> {
         self.confirmed.get(Cell::Storage(slot))?.overlay.as_ref()
     }
 

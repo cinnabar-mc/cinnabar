@@ -1070,6 +1070,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
+  Actor-backed storage menus keep every cell up to an implementation bound of 1,024, not a
+  verified native limit. Stack requests for cells above 255 send the low byte with the stack
+  network ID, normal transactions send the full cell, and a response's byte means the cell its
+  request predicted; a server's handling of those responses is unobserved. Stack hover text
+  appends plain lore lines, up to the existing 32-line cap; JSON text-object lore is shown raw.
+  Pack radio tabs over storage cells select locally by forced or named-collection index; a member
+  with neither stays a cell click, where native checks its own component. A press on a pack's
+  auto-place button still sends a take, whose equivalence to native's request and per-frame cost
+  at 1,024 cells remain unverified.
   Actor-use transactions precede held item use when component, held-item, offhand and
   equipment-enchantment facts rule out every possible offering of an unmodified retail
   item; only components the client maps to interactions can offer one. Actors with a

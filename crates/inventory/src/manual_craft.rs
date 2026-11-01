@@ -161,7 +161,7 @@ impl ManualCraftPlan {
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container,
-        slot,
+        slot: u16::from(slot),
         stack_network_id,
     }
 }

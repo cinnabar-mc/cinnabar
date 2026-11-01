@@ -321,7 +321,7 @@ mod tests {
                     geometry,
                     InventoryScreen::Storage(count),
                 ),
-                Some(InventoryCellHit::Storage(last as u8))
+                Some(InventoryCellHit::Storage(last as u16))
             );
             assert_eq!(
                 cell_hit(
