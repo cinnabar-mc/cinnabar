@@ -29,8 +29,9 @@ pub(super) fn runtime_connected_bases(bytes: &[u8]) -> Result<Vec<(usize, u32)>,
             let Some(group) = records.get(index..index + 16) else {
                 return Err(invalid("pane template group is truncated"));
             };
-            if group.iter().enumerate().any(|(mask, record)| {
-                u32_at(record, 8) != flag || u32_at(record, 4) != 6 + (mask as u32).count_ones() * 4
+            if group.iter().any(|record| {
+                u32_at(record, 8) != flag
+                    || !crate::model::PANE_TEMPLATE_QUADS.contains(&u32_at(record, 4))
             }) {
                 return Err(invalid("pane template group is noncanonical"));
             }

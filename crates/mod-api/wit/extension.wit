@@ -521,6 +521,11 @@ interface input {
     /// Reads selected fields from the same current frame, preserving native key order.
     /// Requires controls authority and shares the read-controls callback read budget.
     read-selected-controls: func(selection: selection) -> result<controls, string>;
+    /// Whether a native field or numeric editor on this mod's open panel owns key input in
+    /// the current frame, including IME composition. The keys it consumes still appear in
+    /// keys-pressed and keys-held; skip panel key handling of your own while this is true.
+    /// False while the panel is closed or another mod owns input. Requires controls authority.
+    read-native-editing: func() -> result<bool, string>;
     /// Committed single-line native text edits, separate from legacy numeric control events.
     /// Requires controls authority; repeated reads see the same bounded batch in a frame callback.
     read-text-events: func() -> result<list<text-event>, string>;

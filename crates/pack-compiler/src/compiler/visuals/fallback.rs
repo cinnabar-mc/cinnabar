@@ -250,6 +250,7 @@ fn has_exact_family_route(record: &RegistryRecord) -> bool {
         || super::turtle_egg::is_record(record)
         || super::dripleaf::is_record(record)
         || super::trip_wire::is_record(record)
+        || super::scaffolding::is_record(record)
         || matches!(
             record.model_family,
             ModelFamily::Cross | ModelFamily::Crop | ModelFamily::Torch | ModelFamily::Rail

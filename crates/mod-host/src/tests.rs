@@ -49,6 +49,7 @@ mod gameplay;
 mod handlers;
 mod hud_surface;
 mod item_use;
+mod native_editing;
 mod player_state;
 mod prepared_settings;
 mod render;

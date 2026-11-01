@@ -23,8 +23,15 @@ pub(in crate::compiler) fn vanilla_cuboid_quads(
 pub(in crate::compiler) const FLIP_MIRROR: u8 = 4;
 
 /// Turns `quad`'s UVs by a native `Flip` value: 1 and 2 are opposite quarter turns, 3 a half
-/// turn and [`FLIP_MIRROR`] a horizontal mirror.
+/// turn and [`FLIP_MIRROR`] a horizontal mirror. North and east faces read their art right to
+/// left, which swaps the two quarter turns relative to the other faces.
 pub(in crate::compiler) fn flip_uvs(quad: &mut ModelQuad, flip: u8) {
+    let reads_backward = matches!(quad.flags & MODEL_QUAD_FLAG_FACE_MASK, 4 | 5);
+    let flip = match (flip, reads_backward) {
+        (1, true) => 2,
+        (2, true) => 1,
+        _ => flip,
+    };
     for uv in &mut quad.uvs {
         let [u, v] = *uv;
         *uv = match flip {
@@ -175,4 +182,65 @@ pub(in crate::compiler) fn stretch_uvs(
         ];
     }
     quad
+}
+
+#[cfg(test)]
+mod flip_tests {
+    use super::*;
+
+    /// Native UV at a full-cube corner, as fractions of the tile, for each face and flip.
+    fn native_uv(face: BlockFace, flip: u8, [x, y, z]: [f64; 3]) -> [f64; 2] {
+        let far = |value: f64| 1.0 - value;
+        match (face, flip) {
+            (BlockFace::Down, 0) => [x, far(z)],
+            (BlockFace::Down, 1) => [far(z), far(x)],
+            (BlockFace::Down, 2) => [z, x],
+            (BlockFace::Down, 3) => [far(x), z],
+            (BlockFace::Up, 0) => [x, z],
+            (BlockFace::Up, 1) => [z, far(x)],
+            (BlockFace::Up, 2) => [far(z), x],
+            (BlockFace::Up, 3) => [far(x), far(z)],
+            (BlockFace::North, 0) => [far(x), far(y)],
+            (BlockFace::North, 1) => [y, far(x)],
+            (BlockFace::North, 2) => [far(y), x],
+            (BlockFace::North, 3) => [x, y],
+            (BlockFace::North, FLIP_MIRROR) => [x, far(y)],
+            (BlockFace::South, 0) => [x, far(y)],
+            (BlockFace::South, 1) => [far(y), far(x)],
+            (BlockFace::South, 2) => [y, x],
+            (BlockFace::South, 3) => [far(x), y],
+            (BlockFace::West, 0) => [z, far(y)],
+            (BlockFace::West, 1) => [far(y), far(z)],
+            (BlockFace::West, 2) => [y, z],
+            (BlockFace::West, 3) => [far(z), y],
+            (BlockFace::East, 0) => [far(z), far(y)],
+            (BlockFace::East, 1) => [y, far(z)],
+            (BlockFace::East, 2) => [far(y), z],
+            (BlockFace::East, 3) => [z, y],
+            (BlockFace::East, FLIP_MIRROR) => [z, far(y)],
+            _ => unreachable!("{face:?} flip {flip} has no native reading in this table"),
+        }
+    }
+
+    #[test]
+    fn every_face_turns_its_art_like_the_native_tessellator() {
+        for (face, flips) in [
+            (BlockFace::Down, &[0, 1, 2, 3][..]),
+            (BlockFace::Up, &[0, 1, 2, 3]),
+            (BlockFace::North, &[0, 1, 2, 3, FLIP_MIRROR]),
+            (BlockFace::South, &[0, 1, 2, 3]),
+            (BlockFace::West, &[0, 1, 2, 3]),
+            (BlockFace::East, &[0, 1, 2, 3, FLIP_MIRROR]),
+        ] {
+            for &flip in flips {
+                let quads = flipped_cube_quads([1; 6], BlockFace::ALL.map(|_| flip));
+                let quad = quads[face as usize];
+                for (position, uv) in quad.positions.iter().zip(quad.uvs) {
+                    let corner = position.map(|axis| f64::from(axis) / 256.0);
+                    let expected = native_uv(face, flip, corner).map(|axis| (axis * 4096.0) as u16);
+                    assert_eq!(uv, expected, "{face:?} flip {flip} at {position:?}");
+                }
+            }
+        }
+    }
 }

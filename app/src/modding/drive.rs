@@ -242,6 +242,7 @@ pub(super) fn drive_mod(
     );
     let pressed = keybind_allowed(focused, absorbed) && keys.just_pressed(DEMO_KEY);
     let mut controls = std::mem::replace(&mut extension.controls, mod_host::empty_controls());
+    let native_editing = std::mem::take(&mut extension.native_editing);
     controls.keys_admitted = bindings::admitted_keys(
         gameplay.input.as_deref().and_then(|input| input.snapshot()),
         captured && !absorbed,
@@ -335,6 +336,7 @@ pub(super) fn drive_mod(
         multi::FrameInput {
             pressed,
             controls: &controls,
+            native_editing,
             previous_cues: &previous_cues,
             player_state: player_state.as_ref(),
             world_observation: world_observation.as_ref(),
