@@ -178,6 +178,41 @@ fn authored_up(pitch: f32, yaw: f32) -> Vec3 {
 }
 
 #[test]
+fn a_snow_golem_pumpkin_keeps_the_rig_head_when_a_controller_draws_another_skeleton() {
+    let stream = golem_stream(r#"{"head":{"rotation":[25,40,0]}}"#, 0.0, 0.0);
+    let authority = stream.authority();
+    let rig = authority.actor_rig(GOLEM).expect("spawned golem rig");
+    let actor = authority.actor(GOLEM).expect("spawned golem");
+    let artwork = ActorArtworkPages::default();
+    let mut body = entity_rig_presentation(&rig, actor, &artwork, 1.0)
+        .expect("evaluated golem")
+        .submission;
+    let same = {
+        let batch = ActorPresentationBatch {
+            submissions: vec![body.clone()],
+            skin_layers: Vec::new(),
+            artwork: HashMap::new(),
+        };
+        let [pumpkin] = carried_blocks_for(&batch, &stream, 1.0)[..] else {
+            panic!("a golem wears one pumpkin");
+        };
+        pumpkin.world_from_block
+    };
+    body.input.rig = render_model::layer_geometry_rig_id(body.input.rig, 1);
+    body.input.previous_bones = Arc::from([]);
+    body.input.current_bones = Arc::from([]);
+    let batch = ActorPresentationBatch {
+        submissions: vec![body],
+        skin_layers: Vec::new(),
+        artwork: HashMap::new(),
+    };
+    let [pumpkin] = carried_blocks_for(&batch, &stream, 1.0)[..] else {
+        panic!("a golem wears one pumpkin");
+    };
+    assert_eq!(pumpkin.world_from_block, same);
+}
+
+#[test]
 fn a_snow_golem_pumpkin_follows_a_head_the_pack_animates_while_its_actor_looks_ahead() {
     let stream = golem_stream(r#"{"head":{"rotation":[25,40,0]}}"#, 0.0, 0.0);
     let (head, up) = head_and_pumpkin_up(&stream);
