@@ -46,7 +46,8 @@ fn probe(directory: &Path, label: &'static str, work: bool) -> PathBuf {
     .write(directory);
     if work {
         let source = std::fs::read_to_string(&path).unwrap()
-            .replace("(func (export \"frame\")", "(func (export \"frame\") (local $work i32)")
+            // Only the core function; the component's lifted `frame` export takes no locals.
+            .replacen("(func (export \"frame\")", "(func (export \"frame\") (local $work i32)", 1)
             .replace("global.get $frames i32.const 1 i32.add global.set $frames", &format!(
                 "i32.const {} local.set $work (loop $spin local.get $work i32.const 1 i32.sub local.tee $work br_if $spin) global.get $frames i32.const 1 i32.add global.set $frames",
                 mod_host::FRAME_FUEL / 8));
