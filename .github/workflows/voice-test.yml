@@ -1,0 +1,75 @@
+name: Voice test
+
+# Builds and tests the voice crate on Linux and Windows (Windows compiles the cpal backend that
+# Cinnabar ships), then publishes the logs to the `ci-logs` branch so they can be read without
+# an API token.
+on:
+  push:
+    branches: [voice-chat]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: voice-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Test client-voice (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.0
+      - name: Install ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends libasound2-dev pkg-config
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          cargo test -p client-voice --locked 2>&1 | tee "logs/${{ runner.os }}-test.txt"
+      - name: Clippy
+        if: always()
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p logs
+          cargo clippy -p client-voice --all-targets --locked -- -D warnings 2>&1 | tee "logs/${{ runner.os }}-clippy.txt"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-${{ runner.os }}
+          path: logs
+
+  publish-logs:
+    name: Publish logs
+    needs: core
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: collected
+          merge-multiple: true
+      - name: Push logs to ci-logs
+        run: |
+          cd collected
+          echo "commit ${{ github.sha }} run ${{ github.run_id }}" > INFO.txt
+          git init -q -b ci-logs
+          git config user.name "voice-test"
+          git config user.email "voice-test@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Logs for ${{ github.sha }}"
+          git push -f "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}" ci-logs
