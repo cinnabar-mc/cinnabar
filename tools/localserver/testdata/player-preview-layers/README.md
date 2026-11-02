@@ -1,6 +1,8 @@
 # Player preview layers
 
-Original artwork and geometry for checking HUD player-controller rendering. The panel and
+Original artwork and geometry for checking HUD player-controller rendering. The textures in
+`tools/localserver/testdata/player-preview-layers/textures/` are original fixture artwork.
+The panel and
 marker are ordinary images; the striped rectangle is a second player render-controller layer.
 A static bone animation moves that rectangle away from its renderer's nominal control bounds.
 Its UV offset depends only on camera yaw, with two horizontal texture repetitions.
