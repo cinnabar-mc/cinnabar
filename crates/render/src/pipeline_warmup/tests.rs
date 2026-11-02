@@ -173,6 +173,42 @@ fn unloaded_shaders_hold_loading() {
     }
 }
 
+/// Cancelling a request must release readiness for the already compiled active view.
+#[test]
+fn cancelled_sample_requests_do_not_hold_ready_views() {
+    let mut app = App::new();
+    let mut render = SubApp::new();
+    render.add_schedule(Render::base_schedule());
+    app.insert_sub_app(RenderApp, render);
+    register::<TwoModes>(&mut app);
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    world.insert_resource(cache());
+    world.insert_resource(TwoModes {
+        shader: Handle::default(),
+        calls: 0,
+    });
+    world.spawn((
+        crate::render_test_support::camera(false),
+        Msaa::Off,
+        Camera3d::default(),
+    ));
+    world.run_schedule(Render);
+    world.resource_mut::<PipelineCache>().process_queue();
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+
+    world.resource_mut::<TwoModes>().shader = UNLOADED_SHADER;
+    world
+        .resource_mut::<SampleCountPreflight>()
+        .request(Some(Msaa::Sample8));
+    world.run_schedule(Render);
+    assert!(!world.resource::<PipelineWarmupReadiness>().is_ready());
+
+    world.resource_mut::<SampleCountPreflight>().request(None);
+    world.run_schedule(Render);
+    assert!(world.resource::<PipelineWarmupReadiness>().is_ready());
+}
+
 #[test]
 fn no_view_never_releases_loading() {
     let cache = cache();

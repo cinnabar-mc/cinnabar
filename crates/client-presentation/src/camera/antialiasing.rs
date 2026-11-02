@@ -291,6 +291,35 @@ mod tests {
         assert_eq!(preflight.requested(), None);
     }
 
+    /// A pipeline acknowledgement for SDR cannot authorize the new HDR camera configuration.
+    #[test]
+    fn a_ready_count_is_not_reused_after_the_camera_format_changes() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .init_resource::<render_scene::SampleCountPreflight>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 8]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 8;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let camera = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Camera::default(), Msaa::Off))
+            .id();
+        app.update();
+        app.world()
+            .resource::<render_scene::SampleCountPreflight>()
+            .publish_ready(Some(Msaa::Sample8));
+        app.world_mut().get_mut::<Camera>(camera).unwrap().hdr = true;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+    }
+
     #[test]
     fn shader_pack_cameras_draw_single_sampled_and_restore_vanilla_msaa() {
         let mut app = App::new();
