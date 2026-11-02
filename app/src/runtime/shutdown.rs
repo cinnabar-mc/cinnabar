@@ -304,6 +304,7 @@ mod tests {
             render::install_error_policy(&mut app);
             app.add_systems(Update, exit_on_gpu_failure);
             let terminal = TerminalCause::install(&mut app);
+            app.update();
             let handler = app.world().resource::<RenderErrorHandler>().0;
             handler(
                 &RenderError {
@@ -314,7 +315,9 @@ mod tests {
                 app.world_mut(),
                 &mut bevy::ecs::world::World::new(),
             );
-            assert!(app.run().is_error());
+            assert!(app.should_exit().is_none());
+            app.update();
+            assert!(app.should_exit().is_some_and(|exit| exit.is_error()));
             let message = terminal.exit_message();
             assert!(message.ends_with("pipeline binding report"), "{message}");
             assert!(!message.contains("driver reset"), "{message}");

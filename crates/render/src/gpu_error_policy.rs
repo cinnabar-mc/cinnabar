@@ -2,7 +2,7 @@
 
 use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy};
 
-/// Preserves GPU error details in the main world before applying Bevy's exit policy.
+/// Stops rendering so the app can report the GPU failure before requesting an exit.
 /// Install after the render plugin so this handler replaces the default.
 pub fn install_error_policy(app: &mut bevy::app::App) {
     app.init_resource::<GpuFailure>()
@@ -29,7 +29,7 @@ impl GpuFailure {
 fn error_policy(
     error: &RenderError,
     main_world: &mut bevy::ecs::world::World,
-    render_world: &mut bevy::ecs::world::World,
+    _render_world: &mut bevy::ecs::world::World,
 ) -> RenderErrorPolicy {
     let failure = main_world.get_resource_or_init::<GpuFailure>();
     if failure.message().is_none() {
@@ -47,10 +47,8 @@ fn error_policy(
         &error.description
     };
     main_world.resource_mut::<GpuFailure>().record(description);
-    match error.ty {
-        ErrorType::DeviceLost | ErrorType::OutOfMemory => RenderErrorPolicy::StopRendering,
-        _ => (RenderErrorHandler::default().0)(error, main_world, render_world),
-    }
+    // Extraction follows the main update. An immediate exit here would skip cause capture.
+    RenderErrorPolicy::StopRendering
 }
 
 #[cfg(test)]
@@ -108,9 +106,9 @@ mod tests {
         }
     }
 
-    /// Validation and internal failures retain their details as well as Bevy's error exit.
+    /// Validation and internal failures wait for the app to capture their cause before exiting.
     #[test]
-    fn other_errors_keep_bevys_default_policy_and_driver_report() {
+    fn other_errors_stop_rendering_without_a_premature_exit() {
         for ty in [ErrorType::Validation, ErrorType::Internal] {
             let (mut main_world, mut render_world) = (World::new(), World::new());
             main_world.init_resource::<Messages<AppExit>>();
@@ -121,7 +119,7 @@ mod tests {
             };
             let policy = error_policy(&error, &mut main_world, &mut render_world);
             assert!(matches!(policy, RenderErrorPolicy::StopRendering));
-            assert!(!main_world.resource::<Messages<AppExit>>().is_empty());
+            assert!(main_world.resource::<Messages<AppExit>>().is_empty());
             assert_eq!(
                 main_world.resource::<GpuFailure>().message(),
                 Some("driver report")
