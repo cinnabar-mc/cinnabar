@@ -104,21 +104,36 @@ type AntiAliasedCamera<'a> = (
     &'a mut Msaa,
     Option<&'a Smaa>,
     Has<render_scene::shaderpack::ShaderPackRendering>,
+    Option<&'a Camera>,
 );
 
 /// Updates world-camera coverage and spatial smoothing only when their settings change;
 /// shader-pack cameras draw single-sampled.
+///
+/// A drawing camera keeps its old sample count until the renderer reports every pipeline
+/// variant for the new one compiled, so a settings change never skips world draws.
 pub fn apply_camera_antialiasing(
     mut commands: Commands,
     settings: Res<CameraSettingsAuthority>,
     support: Res<CameraAntiAliasingSupport>,
+    preflight: Option<ResMut<render_scene::SampleCountPreflight>>,
     mut cameras: Query<AntiAliasedCamera, With<FlyCamera>>,
 ) {
     let vanilla = support.msaa(settings.anti_aliasing_samples());
-    for (entity, mut msaa, smaa, shader_pack) in &mut cameras {
+    let mut waiting = None;
+    for (entity, mut msaa, smaa, shader_pack, camera) in &mut cameras {
         let desired = if shader_pack { Msaa::Off } else { vanilla };
         if *msaa != desired {
-            *msaa = desired;
+            let drawing = camera.is_some_and(|camera| camera.is_active);
+            let compiled = preflight
+                .as_ref()
+                .is_none_or(|preflight| preflight.is_ready(desired));
+            // Shader packs replace the vanilla passes, so they switch at once.
+            if !drawing || shader_pack || compiled {
+                *msaa = desired;
+            } else {
+                waiting = Some(desired);
+            }
         }
         match (settings.smaa_mode(), smaa.is_some()) {
             (ui::SmaaMode::Smaa, false) => {
@@ -129,6 +144,11 @@ pub fn apply_camera_antialiasing(
             }
             _ => {}
         }
+    }
+    if let Some(mut preflight) = preflight
+        && preflight.requested() != waiting
+    {
+        preflight.request(waiting);
     }
 }
 
@@ -219,6 +239,56 @@ mod tests {
                 .unwrap()
                 .is_changed()
         );
+    }
+
+    #[test]
+    fn a_drawing_camera_keeps_its_samples_until_the_new_count_has_compiled() {
+        let mut app = App::new();
+        app.init_resource::<CameraSettingsAuthority>()
+            .init_resource::<render_scene::SampleCountPreflight>()
+            .insert_resource(CameraAntiAliasingSupport(
+                ui::AntiAliasingSupport::from_counts([1, 2, 8]),
+            ))
+            .add_systems(Update, apply_camera_antialiasing);
+        let mut settings = ui::UserSettings::default();
+        settings.video.anti_aliasing_samples = 2;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(1, &settings)
+            .unwrap();
+        let drawing = app
+            .world_mut()
+            .spawn((FlyCamera::default(), Camera::default(), Msaa::Sample2))
+            .id();
+        let hidden = app
+            .world_mut()
+            .spawn((
+                FlyCamera::default(),
+                Camera {
+                    is_active: false,
+                    ..default()
+                },
+                Msaa::Sample2,
+            ))
+            .id();
+        settings.video.anti_aliasing_samples = 8;
+        app.world_mut()
+            .resource_mut::<CameraSettingsAuthority>()
+            .replace(2, &settings)
+            .unwrap();
+        for _ in 0..3 {
+            app.update();
+            assert_eq!(*app.world().get::<Msaa>(drawing).unwrap(), Msaa::Sample2);
+        }
+        assert_eq!(*app.world().get::<Msaa>(hidden).unwrap(), Msaa::Sample8);
+        let preflight = app.world().resource::<render_scene::SampleCountPreflight>();
+        assert_eq!(preflight.requested(), Some(Msaa::Sample8));
+
+        preflight.publish_ready(Some(Msaa::Sample8));
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(drawing).unwrap(), Msaa::Sample8);
+        let preflight = app.world().resource::<render_scene::SampleCountPreflight>();
+        assert_eq!(preflight.requested(), None);
     }
 
     #[test]

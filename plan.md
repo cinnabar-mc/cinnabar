@@ -181,6 +181,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
+- [ ] Predict bed placement. Door and bed items now report a local placement and start the
+  repeat delay as native `DoorItem::_useOn` and `BedItem::_tryUseOn` do, but beds are drawn
+  only from the server's update: native places both halves and colors them locally, and a
+  prediction needs the same block entity color. Their local room check accepts any non-empty
+  support; stricter native support and liquid rules remain unverified.
 - [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
   native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
   leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
@@ -251,9 +256,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Leaf litter has state-driven ground patches and flat carried-item routing. Its focused
   regressions, registry regeneration and Linux rendered comparison pass; matched native
   visual and replacement-pack qualification remain incomplete.
-- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm and
-  other panes two planes with end caps only at four arms. Cap culling against stacked panes
-  and the two-sidedness of single-plane arms have no native comparison yet.
+- [ ] Close thin-fence native acceptance. Iron and copper bars draw one plane per arm with
+  two-sided, never-culled rails; other panes draw two planes with end caps only at four arms.
+  Glass-pane rails stay unculled and one-sided: native culls them only against neighbours that
+  hide them anyway, and its blend-layer backface state is unread. No side-by-side native
+  render has been compared yet.
 - [ ] Close coral-fan native placement and rendered acceptance for floor/wall orientations
   and replacement-pack artwork.
 - [ ] Close tripwire-hook native placement and rendered acceptance across facing,
@@ -283,6 +290,9 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   with base-owned size, rotation and ground supports. Per-face UV overrides,
   default-pack resource coverage, text rendering, editing, placement and interaction
   semantics, complete native galleries and Windows resource correspondence remain incomplete.
+  Bell frames are terrain models for every mounting and direction; the block entity draws
+  the body with the native pivot and swing. Native visual comparison, the frame's render
+  layer and which server update starts a ring remain unverified.
 - [ ] Qualify the provisional block-entity carrier/render pass across its supported
   families, updates, animation and item contents; implementation alone closes no gate.
   Banner patterns share immutable layer descriptions and retain texture-name scratch.
@@ -1527,6 +1537,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   they would exceed the 512 MiB cache budget or leave less than 512 MiB free. Physical-phone timing, shutdown, storage
   and executable-cache acceptance remain incomplete.
   Pipeline loading prepares single-sample coverage before switching to Performance.
+  An Anti-Aliasing change keeps the world camera at its old sample count until every warm-up
+  and actor variant for the new count has compiled in the background; pipelines outside
+  warm-up still compile on first use, and hardware timing of the switch is unmeasured.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
@@ -2085,8 +2098,10 @@ Discrete-GPU memory placement, pressure recovery and frame-pacing qualification 
 incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
-frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
-screens with a free cursor still receive every raw report.
+frame, and runs a pending frame ahead of queued input once pointer moves have held it back for
+1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report. Raw reports in gameplay are still
+handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,

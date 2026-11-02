@@ -106,6 +106,7 @@ struct VisualCompiler {
     shelf_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     grindstone_templates: BTreeMap<([u32; 6], u8, u8), u32>,
     lectern_templates: BTreeMap<([u32; 6], u8), u32>,
+    bell_templates: BTreeMap<(u32, u32, u8, u8), u32>,
     stonecutter_templates: BTreeMap<([u32; 6], bool), u32>,
     sea_pickle_templates: BTreeMap<(u32, u8, bool), u32>,
     tripwire_hook_templates: BTreeMap<([u32; 6], u8, bool, bool), u32>,
@@ -294,6 +295,15 @@ impl VisualCompiler {
             record,
             inputs,
             &mut self.lectern_templates,
+            &mut ModelStorage {
+                templates: &mut self.model_templates,
+                quads: &mut self.model_quads,
+            },
+        ));
+        ordered_rule!(super::bell::compile_rule(
+            record,
+            inputs,
+            &mut self.bell_templates,
             &mut ModelStorage {
                 templates: &mut self.model_templates,
                 quads: &mut self.model_quads,

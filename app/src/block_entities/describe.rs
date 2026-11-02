@@ -84,7 +84,8 @@ pub(super) enum Template {
     },
     Bell {
         attachment: BellAttachment,
-        direction: u8,
+        /// The side the last ring struck from, as the bell's record stores it.
+        ring_direction: u8,
     },
     Conduit {
         active: bool,
@@ -372,8 +373,8 @@ pub(super) fn describe(
                 .text("attachment")
                 .and_then(BellAttachment::from_state)
                 .unwrap_or(BellAttachment::Standing),
-            direction: state
-                .int("direction")
+            ring_direction: nbt
+                .integer("Direction")
                 .and_then(|value| u8::try_from(value.rem_euclid(4)).ok())
                 .unwrap_or(0),
         }),

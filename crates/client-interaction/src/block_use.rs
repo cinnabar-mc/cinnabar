@@ -172,6 +172,50 @@ pub fn predicted_seed_planting(
     Some((cell, crop))
 }
 
+/// The block a selected door or bed item places, which vanilla items name without carrying
+/// a block of their own. Block items resolve through [`held_block_store_id`] instead.
+pub fn paired_item_block(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    item: &protocol::VerifiedNetworkItemStack,
+) -> Option<u32> {
+    if item.block_runtime_id() != 0 {
+        return None;
+    }
+    let identifier = stream.authority().item_identifier(item.network_id())?;
+    gameplay::block_use::paired_item_block(collisions, stream.network_id_mode(), &identifier)
+}
+
+/// Whether the observed click has room for the door or bed `block`, read through the caller's
+/// palette view and the same yaw placement prediction uses.
+pub fn paired_item_fits(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    block: u32,
+    observed: &FrozenBlockObservation,
+    surroundings: &UseSurroundings,
+    view: LocalViewPose,
+) -> bool {
+    let mode = stream.network_id_mode();
+    let Some(build_height) = build_height(stream) else {
+        return false;
+    };
+    let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+    gameplay::block_use::paired_item_fits(
+        collisions.block_facts(mode, block),
+        observed.target.position,
+        observed.target.face,
+        gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
+        surroundings,
+        build_height,
+        |cell| {
+            let block = world.primary_runtime_id(cell).ok()?;
+            Some(collisions.block_facts(mode, block))
+        },
+    )
+}
+
 /// Resolves switch prediction through the caller's observed palette view.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
@@ -193,20 +237,18 @@ pub fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
     world: &PaletteWorld<'_>,
-    item_block: i32,
+    held: u32,
     observed: &FrozenBlockObservation,
     surroundings: &UseSurroundings,
     view: LocalViewPose,
 ) -> Option<gameplay::block_use::PredictedPlacement> {
     let mode = stream.network_id_mode();
-    let range = stream
-        .authority()
-        .dimension_range(stream.current_dimension())?;
+    let build_height = build_height(stream)?;
     let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
     gameplay::block_use::predicted_placement(
         collisions,
         mode,
-        held_block_store_id(stream, item_block)?,
+        held,
         world,
         &gameplay::block_use::PlacementContext {
             clicked: observed.target.position,
@@ -217,10 +259,17 @@ pub fn predicted_placement(
                 pitch: -pitch.to_degrees(),
             },
             surroundings,
-            build_height: range.base_sub_chunk_y * 16
-                ..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16,
+            build_height,
         },
     )
+}
+
+/// The block heights of the current dimension, or `None` before its range is known.
+fn build_height(stream: &chunk_pipeline::WorldStream) -> Option<std::ops::Range<i32>> {
+    let range = stream
+        .authority()
+        .dimension_range(stream.current_dimension())?;
+    Some(range.base_sub_chunk_y * 16..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16)
 }
 /// Resolves an item block through the production gameplay boundary.
 pub fn held_block_store_id(stream: &chunk_pipeline::WorldStream, item_block: i32) -> Option<u32> {
