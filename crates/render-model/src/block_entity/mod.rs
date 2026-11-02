@@ -46,7 +46,7 @@ pub use atlas::{
 pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
-pub use bell::{BellAttachment, BellModel, swing_degrees};
+pub use bell::{BellAttachment, BellModel};
 pub use book::{BookPose, EnchantingBook};
 pub use chalkboard::ChalkboardModel;
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};

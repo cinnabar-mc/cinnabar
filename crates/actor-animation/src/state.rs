@@ -35,6 +35,7 @@ pub(super) struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     pub(super) ui_pose: Option<Vec<BoneTransform>>,
     pub(super) ui_animation: Option<hud::UiAnimationState>,
+    pub(super) paper_doll_animation: Option<hud::UiAnimationState>,
     pub(super) view_context: Option<bool>,
     pub(super) rest: Vec<BoneTransform>,
     pub(super) rest_completed_tick: u64,

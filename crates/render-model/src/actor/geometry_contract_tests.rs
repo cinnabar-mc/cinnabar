@@ -3,6 +3,39 @@ use assets::block_entity_geometry::heads::HeadModel;
 
 const SOURCE: &str = include_str!("fixtures/cube_defaults.geo.json");
 
+#[test]
+fn named_model_parts_keep_palette_indices_when_drawing_in_key_order() {
+    let geometry = super::super::fixture::masked_parts();
+    let parts = geometry
+        .vertices
+        .iter()
+        .map(|vertex| vertex.bone_index)
+        .collect::<Vec<_>>();
+    assert_eq!(parts, [vec![1; 12], vec![0; 6]].concat());
+    assert_eq!(geometry.bone_pivots.len(), 2);
+}
+
+#[test]
+fn named_parent_registers_its_children_before_the_next_root() {
+    let catalog = catalog_from_source(
+        r#"{"format_version":"1.12.0","minecraft:geometry":[{
+        "description":{"identifier":"geometry.original_hierarchy","texture_width":8,"texture_height":8},
+        "bones":[
+            {"name":"z_child","parent":"A_PARENT","cubes":[{"origin":[2,0,0],"size":[1,1,1],"uv":[0,0]}]},
+            {"name":"a_parent","cubes":[{"origin":[0,0,0],"size":[1,1,1],"uv":[0,0]}]},
+            {"name":"m_other","cubes":[{"origin":[4,0,0],"size":[1,1,1],"uv":[0,0]}]}
+        ]}]}"#,
+    );
+    let index = find_geometry_index(&catalog, "geometry.original_hierarchy").unwrap() as usize;
+    let geometry = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
+    let parts = geometry
+        .vertices
+        .iter()
+        .map(|vertex| vertex.bone_index)
+        .collect::<Vec<_>>();
+    assert_eq!(parts, [vec![1; 36], vec![0; 36], vec![2; 36]].concat());
+}
+
 /// Compiles only original geometry into a normally admitted catalog, without local game assets.
 fn catalog() -> RuntimeEntityAssets {
     catalog_from_source(SOURCE)

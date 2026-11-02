@@ -24,10 +24,10 @@ fn pinned_dropped_item_classification_is_unchanged() {
         digest.update(if sprite { b"\t1\n" } else { b"\t0\n" });
     }
     // Freeze the complete classification, including every default block route.
-    assert_eq!((registry.len(), sprites), (1590, 84));
+    assert_eq!((registry.len(), sprites), (1590, 85));
     assert_eq!(
         format!("{:x}", digest.finalize()),
-        "f3b7e9715892caf7a3d90d7accf574941ebd44881ff5a297af5a943006b543c8"
+        "9d8e9c27cb81f4ef2f64630da98a61efda23c136eef7d324ee67ae4545028a61"
     );
 }
 

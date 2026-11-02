@@ -98,20 +98,21 @@ pub fn geometry_from_geometry_index(
     ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
 }
 
-/// Meshes visible bones in vanilla's order: each part's cubes and quads, then all triangles.
+/// Draws named part hierarchies without changing their animation-palette indices.
+/// Each part's cubes and quads precede the shared triangle pass.
 fn bone_vertices(
     bones: &[EntityGeometryBone],
     texture_size: (u16, u16),
 ) -> Result<Vec<super::ActorRigVertex>, ActorRigGeometryError> {
     let mut vertices = Vec::new();
-    let visible = || {
-        bones
-            .iter()
-            .enumerate()
-            .filter(|(_, bone)| bone.never_render != Some(true))
-            .map(|(index, bone)| (index as u32, bone))
-    };
-    for (bone_index, bone) in visible() {
+    let order = model_part_order(bones);
+    let visible = order
+        .iter()
+        .copied()
+        .filter(|&index| bones[index].never_render != Some(true))
+        .map(|index| (index as u32, &bones[index]))
+        .collect::<Vec<_>>();
+    for &(bone_index, bone) in &visible {
         for cube in &bone.cubes {
             super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
@@ -126,10 +127,47 @@ fn bone_vertices(
         }
         super::poly_mesh::append_quads(&mut vertices, bone, bone_index, texture_size)?;
     }
-    for (bone_index, bone) in visible() {
+    for &(bone_index, bone) in &visible {
         super::poly_mesh::append_triangles(&mut vertices, bone, bone_index, texture_size)?;
     }
     Ok(vertices)
+}
+
+/// Registers each named part before its ordered children, skipping already registered parts.
+fn model_part_order(bones: &[EntityGeometryBone]) -> Vec<usize> {
+    let keys = bones
+        .iter()
+        .map(|bone| bone.name.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let named = keys
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.as_str(), index))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let mut children = vec![Vec::new(); bones.len()];
+    for &index in named.values() {
+        if let Some(parent) = bones[index]
+            .parent
+            .as_deref()
+            .and_then(|name| named.get(name.to_ascii_lowercase().as_str()))
+        {
+            children[*parent].push(index);
+        }
+    }
+    let mut order = Vec::with_capacity(bones.len());
+    let mut visited = vec![false; bones.len()];
+    let mut pending = Vec::new();
+    for &index in named.values() {
+        pending.push(index);
+        while let Some(index) = pending.pop() {
+            if std::mem::replace(&mut visited[index], true) {
+                continue;
+            }
+            order.push(index);
+            pending.extend(children[index].iter().rev().copied());
+        }
+    }
+    order
 }
 
 /// Rig geometry of a player skin's own model under `id`. Cubes carry their resolved mirror and

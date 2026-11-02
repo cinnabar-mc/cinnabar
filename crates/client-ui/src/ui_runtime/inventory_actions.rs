@@ -269,7 +269,17 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         action: PointerAction,
     ) {
-        let _ = match action {
+        let _ = self.try_pointer_action(player_runtime, action);
+    }
+
+    /// Runs one pointer action and returns the queued request id, or why the
+    /// ledger refused the gesture.
+    pub fn try_pointer_action(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        action: PointerAction,
+    ) -> Outcome {
+        match action {
             PointerAction::Click(hit) => {
                 let before = place_snapshot(player_runtime, hit);
                 let result = self.click_hit(player_runtime, hit);
@@ -317,7 +327,7 @@ impl UiRuntime {
                     _ => ledger.begin_gather(),
                 }
             }
-        };
+        }
     }
 
     /// Lets a drag that continues from a press-time placement rebalance it.

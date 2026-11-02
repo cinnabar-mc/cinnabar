@@ -350,6 +350,7 @@ fn compile_pack_sources(
             || visuals::literal::is_literal_cube(record)
             || visuals::bubble_column::is_record(record)
             || visuals::beacon::is_record(record)
+            || visuals::cube::is_hash_only(record)
             || fallback.contains(record)
     }) {
         if visuals::beacon::is_record(record) {
