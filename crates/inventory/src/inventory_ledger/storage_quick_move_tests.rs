@@ -2,6 +2,45 @@
 
 use super::*;
 
+#[test]
+fn chest_return_names_the_remainder_after_each_partial_merge() {
+    let mut ledger = chest(
+        &[(5, stack(6, 10, 62)), (11, stack(6, 11, 61))],
+        stack(6, 100, 10),
+    );
+    let request = ledger
+        .begin_quick_move(InventoryTarget::Storage(2))
+        .unwrap();
+    let actions = &ledger.newest_request().unwrap().actions;
+    let mut source_count = 10;
+    let mut source_id = 100;
+    for (index, action) in actions.iter().enumerate() {
+        let StackRequestAction::Place { amount, source, .. } = action else {
+            panic!("expected a transfer");
+        };
+        // A server assigns a new stack ID when the first transfer changes its count.
+        let resolved = if index != 0 && source.stack_network_id == request {
+            source_id
+        } else {
+            source.stack_network_id
+        };
+        assert_eq!(resolved, source_id, "transfer {index} names a stale source");
+        assert!(u16::from(*amount) <= source_count);
+        source_count -= u16::from(*amount);
+        source_id += 1;
+    }
+    assert_eq!(source_count, 0);
+    let (_, requests) = ledger.pending_batch().unwrap().unwrap();
+    assert_eq!(requests, 1);
+    assert!(ledger.mark_transport_enqueued(10));
+    ledger.begin_world_drop(0, Some(1)).unwrap();
+    let (drop, _) = ledger.pending_batch().unwrap().unwrap();
+    let drop = protocol::test_support::transactions::observe_transaction(&drop).unwrap();
+    assert_eq!(drop.actions[0].from_item.count, 5);
+    assert_eq!(drop.actions[0].to_item.count, 4);
+    assert_eq!(drop.actions[1].to_item.count, 1);
+}
+
 /// Opens a chest with an identified source stack and known player slots.
 fn chest(slots: &[(usize, NetworkItemStack)], source: NetworkItemStack) -> PlayerInventoryLedger {
     let mut ledger = known_ledger(slots);
@@ -32,7 +71,8 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
         .unwrap()
         .actions
         .iter()
-        .map(|action| {
+        .enumerate()
+        .map(|(index, action)| {
             let StackRequestAction::Place {
                 amount,
                 source,
@@ -46,7 +86,14 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
                 StackRequestContainer::LevelEntity { dynamic_id: None }
             );
             assert_eq!(source.slot, 2);
-            assert_eq!(source.stack_network_id, 100);
+            assert_eq!(
+                source.stack_network_id,
+                if index == 0 {
+                    100
+                } else {
+                    ledger.newest_request().unwrap().request_id
+                }
+            );
             assert_eq!(
                 destination.container,
                 StackRequestContainer::PlayerInventory
