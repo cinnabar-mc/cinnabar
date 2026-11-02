@@ -391,11 +391,13 @@ impl ActorAnimationStore {
         else {
             return false;
         };
+        // UI poses index the skin's skeleton when the skin brings its own geometry.
+        let bones = state.posed_bones();
         let mut current = Some(bone);
-        for _ in 0..=state.bones.len() {
+        for _ in 0..=bones.len() {
             match current {
                 Some(index) if index == ancestor => return true,
-                Some(index) => current = state.bones.get(index).and_then(|bone| bone.parent),
+                Some(index) => current = bones.get(index).and_then(|bone| bone.parent),
                 None => return false,
             }
         }

@@ -108,6 +108,10 @@ impl LivePlayer {
     pub(super) fn head_turn(&self, pitch: f32, yaw: f32) -> Option<Affine3A> {
         let (head, unturned) = self.head?;
         let (_, rotation, pivot) = head.to_scale_rotation_translation();
+        // A head an animation scales to nothing has no orientation to replace.
+        if !rotation.is_finite() || !unturned.is_finite() {
+            return None;
+        }
         // The preview rig's Y turn runs opposite glam's for the same angle.
         let look = Quat::from_rotation_y(-yaw) * Quat::from_rotation_x(pitch) * unturned;
         Some(
@@ -298,7 +302,8 @@ impl UiPresentationRuntime {
         live.head = head_index.and_then(|index| {
             let posed = frame * render_matrix(live.bones.get(index)?)?;
             let (_, unturned, _) = frame.to_scale_rotation_translation();
-            Some((posed, unturned))
+            // A collapsed head cannot be decomposed into a rotation to replace.
+            (posed.matrix3.determinant().abs() > f32::EPSILON).then_some((posed, unturned))
         });
         live.head_bones.clear();
         if let Some(head) = head_index {

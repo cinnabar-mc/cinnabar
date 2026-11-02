@@ -165,12 +165,10 @@ pub struct PreparedGuiModels {
 }
 
 impl GuiModels {
-    /// The retained model of a doll: one for the HUD and one for an open screen.
-    pub(super) fn doll_model(
-        &self,
-        view: player_preview::PreviewView,
-    ) -> &std::sync::Mutex<hud_model::HudModel> {
-        if view == player_preview::PreviewView::Hud {
+    /// The retained model of the doll the HUD paints, or of the one an open screen paints,
+    /// whichever renderer each uses.
+    pub(super) fn doll_model(&self, in_hud: bool) -> &std::sync::Mutex<hud_model::HudModel> {
+        if in_hud {
             &self.hud_model
         } else {
             &self.screen_model
@@ -535,6 +533,14 @@ impl UiPresentationRuntime {
         self.gui_models
             .live_renderer_shown
             .store(false, std::sync::atomic::Ordering::Relaxed);
+        // Node identities change between frames, so no doll keeps another frame's controls.
+        for in_hud in [true, false] {
+            self.gui_models
+                .doll_model(in_hud)
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clear_scopes();
+        }
         if !self.gui_models.enabled {
             return;
         }
@@ -623,53 +629,57 @@ impl UiPresentationRuntime {
                 .filter(|(index, node)| is_preview(*index, node.visual()))
                 .count();
             let held = self.preview_held_models([true; 2]);
-            let player = self.live_player_mesh(view, held, |cache, mask, indices, batches| {
-                let prospective = ui::UiTree::check_visual_budget_with_mesh(
-                    nodes
-                        .iter()
-                        .enumerate()
-                        .filter(|(index, node)| !is_preview(*index, node.visual()))
-                        .map(|(_, node)| node.visual()),
-                    indices,
-                    batches,
-                    instances,
-                );
-                match prospective {
-                    Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
-                    Ok(_) => {
-                        let Some(probe) = cache.batch_probe(mask) else {
-                            return false;
-                        };
-                        let mut baseline = nodes.to_vec();
-                        replace_model_icons(
-                            &mut baseline,
-                            Some(targets),
-                            &self.gui_models.sources.faded_thumbnails,
-                            || Some(probe),
-                            |_| None,
-                            modulated,
-                        );
-                        RetainedDraw::build(
-                            &baseline,
-                            viewport,
-                            UiScale::default(),
-                            safe_area,
-                            effects,
-                        )
-                        .is_ok_and(|draw| {
-                            draw.draw_list().batches.len() <= UiLimits::MAX_DRAW_BATCHES
-                        })
+            let player = self.live_player_mesh(
+                view,
+                targets.in_hud,
+                held,
+                |cache, mask, indices, batches| {
+                    let prospective = ui::UiTree::check_visual_budget_with_mesh(
+                        nodes
+                            .iter()
+                            .enumerate()
+                            .filter(|(index, node)| !is_preview(*index, node.visual()))
+                            .map(|(_, node)| node.visual()),
+                        indices,
+                        batches,
+                        instances,
+                    );
+                    match prospective {
+                        Ok(bound) if bound <= UiLimits::MAX_DRAW_BATCHES => true,
+                        Ok(_) => {
+                            let Some(probe) = cache.batch_probe(mask) else {
+                                return false;
+                            };
+                            let mut baseline = nodes.to_vec();
+                            replace_model_icons(
+                                &mut baseline,
+                                Some(targets),
+                                &self.gui_models.sources.faded_thumbnails,
+                                || Some(probe),
+                                |_| None,
+                                modulated,
+                            );
+                            RetainedDraw::build(
+                                &baseline,
+                                viewport,
+                                UiScale::default(),
+                                safe_area,
+                                effects,
+                            )
+                            .is_ok_and(|draw| {
+                                draw.draw_list().batches.len() <= UiLimits::MAX_DRAW_BATCHES
+                            })
+                        }
+                        Err(_) => false,
                     }
-                    Err(_) => false,
-                }
-            });
+                },
+            );
             if let Some(player) = player {
                 let mut model = self
                     .gui_models
-                    .doll_model(view)
+                    .doll_model(targets.in_hud)
                     .lock()
                     .unwrap_or_else(|error| error.into_inner());
-                model.clear_scopes();
                 for (index, node) in nodes.iter_mut().enumerate() {
                     if !targets.shows(index, node.visual()) {
                         continue;

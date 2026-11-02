@@ -711,15 +711,17 @@ impl UiPresentationRuntime {
         held: [Option<PreviewHeldModel>; 2],
         admit: impl FnMut(&HudModel, [bool; 2], usize, usize) -> bool,
     ) -> Option<Arc<UiMesh>> {
-        self.live_player_mesh(PreviewView::Hud, held, admit)
+        self.live_player_mesh(PreviewView::Hud, true, held, admit)
     }
 
-    /// Draws the live actor from resident source vertices and freshly evaluated bone frames.
-    /// A screen's live renderer turns the head subtree toward the pointer, as native
-    /// `LivePlayerRenderer::render` overwrites the actor's rotations before drawing it.
+    /// Draws the live actor from resident source vertices and freshly evaluated bone frames,
+    /// into the HUD's retained model when `in_hud`. A live renderer turns the head subtree toward
+    /// the pointer, as native `LivePlayerRenderer::render` overwrites the actor's rotations
+    /// before drawing it.
     pub(super) fn live_player_mesh(
         &self,
         view: PreviewView,
+        in_hud: bool,
         held: [Option<PreviewHeldModel>; 2],
         admit: impl FnMut(&HudModel, [bool; 2], usize, usize) -> bool,
     ) -> Option<Arc<UiMesh>> {
@@ -734,7 +736,7 @@ impl UiPresentationRuntime {
         };
         let mut cache = self
             .gui_models
-            .doll_model(view)
+            .doll_model(in_hud)
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         cache.begin();
@@ -875,8 +877,8 @@ impl UiPresentationRuntime {
             cache.fire_batches = batches;
             prepared?;
         }
-        if view == PreviewView::Hud
-            && self.player_preview_view == PreviewView::Hud
+        // The particle mesh follows the preview view it was generated for.
+        if view == self.player_preview_view
             && let Some(particles) = self.gui_models.particles.mesh.as_deref()
         {
             for batch in particles.batches() {
