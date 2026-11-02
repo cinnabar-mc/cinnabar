@@ -1450,6 +1450,7 @@ On macOS and extracted Linux AppDirs, a staged update's carriers build in the ba
 the lowest priority with bounded parallelism, and its first launch promotes them without
 setup. Windows MSI updates still prepare at launch. Packaged update acceptance and frame-time
 captures of a game running beside the background build remain incomplete.
+Bootstrap windows initialize only the platform-preferred graphics API by default, preserving explicit `WGPU_BACKEND` overrides, so unused Windows Vulkan drivers are not loaded before setup can fall back to system dialogs. Affected Intel driver and dual-GPU acceptance remain incomplete.
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
