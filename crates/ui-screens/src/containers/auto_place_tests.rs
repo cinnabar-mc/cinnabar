@@ -248,3 +248,31 @@ fn layout_cells_invert_hits_and_keep_auto_place_routing() {
         assert_eq!(engine_auto_place_destroys(&frame, point), hotbar, "{hit:?}");
     }
 }
+
+/// Many controls stacked over a cell leave its time bounded by the controls over it, and a
+/// strip they all leave exposed is still found.
+#[test]
+fn layout_cells_scale_with_stacked_covers() {
+    let mut frame = frame_of(STRIP);
+    let mut hits = frame.hits.to_vec();
+    let slot = hits
+        .iter()
+        .position(|region| region.name == "slot")
+        .unwrap();
+    hits[slot].collection = Some("hotbar_items".to_owned());
+    hits[slot].collection_index = Some(0);
+    let cover = hits
+        .iter()
+        .find(|region| region.name == "cover")
+        .unwrap()
+        .clone();
+    hits.extend(std::iter::repeat_n(cover, 250));
+    frame.hits = hits.into();
+    let layout = ScreenLayout::Personal { book: false };
+    let cells = layout.cells(&frame);
+    let (_, point) = cells
+        .iter()
+        .find(|(hit, _)| *hit == InventoryCellHit::Player(0))
+        .expect("the strip under every cover is found");
+    assert!(point[0] < 1.0, "the point lies in the exposed strip");
+}

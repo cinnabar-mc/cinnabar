@@ -273,3 +273,24 @@ fn a_mod_view_over_the_inventory_takes_its_input() {
     );
     assert!(!accepts(&ui, Some(&presentation)));
 }
+
+/// A player mod's panel sits outside the scene stack but holds the player's input, so the
+/// endpoint refuses inventory commands while it is open, as the ordinary input paths do.
+#[test]
+fn an_open_mod_panel_holds_the_inventory_input() {
+    let Some(presentation) = client_ui::test_support::engine_presentation() else {
+        eprintln!("skipping mod panel input test: missing installed UI carrier; make assets");
+        return;
+    };
+    let mut world = World::new();
+    world.insert_resource(UiPresentationResource(presentation));
+    assert!(!presentation_holds_input(&world));
+    let panel = mod_ui::test_support::sample_panel();
+    let mut view = world.resource_mut::<UiPresentationResource>();
+    view.0
+        .mod_ui_mut()
+        .set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))
+        .unwrap();
+    view.0.mod_ui_mut().set_mod_panel_open(true);
+    assert!(presentation_holds_input(&world));
+}

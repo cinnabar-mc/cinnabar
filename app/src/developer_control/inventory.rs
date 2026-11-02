@@ -25,14 +25,16 @@ use crate::runtime::world::ClientWorld;
 const OPEN_WAIT_MS: u64 = 5_000;
 
 /// Opens the player's inventory, replying once the screen accepts clicks. Like the inventory
-/// key, it opens only from gameplay, never under another screen.
+/// key, it opens only from gameplay, never under another screen, mod panel or modal.
 pub(super) fn open(world: &mut World, reply: Reply) {
     let opened = with_inventory(world, |player, ui, world| {
         let stream = world
             .get_resource::<ClientWorld>()
             .and_then(|world| world.stream.as_ref())
             .ok_or("the player is not in a world")?;
-        if !ui.inventory_open() && foreground(world, player, ui) != Scene::Gameplay {
+        if !ui.inventory_open()
+            && (foreground(world, player, ui) != Scene::Gameplay || presentation_holds_input(world))
+        {
             return Err(COVERED.into());
         }
         open_screen(player, ui, Some(stream.authority().inventory_ui()))
@@ -116,15 +118,24 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
     }
 }
 
-/// Whether the open inventory takes the player's input now: it is the scene on top, and no
-/// player mod's view or edit box holds the keys and pointer, the same checks Escape uses.
+/// Whether the open inventory takes the player's input now: it is the scene on top, no mod
+/// panel or client-part modal is up, and no player mod's view or edit box holds the keys and
+/// pointer, the same checks Escape uses.
 fn inventory_takes_input(
     world: &World,
     player: &player_state::PlayerState,
     ui: &UiRuntime,
 ) -> bool {
     foreground(world, player, ui) == Scene::Container
+        && !presentation_holds_input(world)
         && crate::ui_runtime::interaction::inventory::accepts_menu_cancel(ui, presentation(world))
+}
+
+/// Whether a drawn surface outside the scene stack holds the player's input: a player mod's
+/// panel or a client-part modal, which the ordinary input paths also check.
+fn presentation_holds_input(world: &World) -> bool {
+    presentation(world)
+        .is_some_and(|view| view.mod_ui().mod_panel_open() || view.mod_ui().experience_modal_open())
 }
 
 /// Why a command refuses while another screen takes the player's input.
