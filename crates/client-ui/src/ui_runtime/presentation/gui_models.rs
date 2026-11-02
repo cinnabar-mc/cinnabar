@@ -25,6 +25,7 @@ mod held;
 pub(super) mod hud_model;
 mod live_player;
 mod pack_equipment;
+mod player_layers;
 mod shield_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
@@ -135,6 +136,7 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) player_layers: player_layers::PlayerLayers,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
     pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
@@ -619,6 +621,13 @@ impl UiPresentationRuntime {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if (view == player_preview::PreviewView::Hud
+            || (targets.in_hud
+                && matches!(
+                    view,
+                    player_preview::PreviewView::Doll { .. }
+                        | player_preview::PreviewView::DollLook { .. }
+                )
+                && self.gui_models.player_layers.has_layers())
             || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
             && self.gui_models.live_player.body.geometry.is_some()

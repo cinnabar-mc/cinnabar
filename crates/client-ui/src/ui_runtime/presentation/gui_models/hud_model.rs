@@ -189,6 +189,7 @@ impl HudModel {
                 normal: rows.map(|row| [row[0], row[1], row[2], 0.0]),
                 overlay,
                 uv_rect: icon.uv.map(f32::from),
+                uv_transform: [0., 0., 1., 1.],
                 styles: [0; 4],
                 uv_cross: [0.; 4],
                 tint: {
@@ -809,6 +810,58 @@ impl UiPresentationRuntime {
                     .and_then(|key| self.menu_artwork_icon(key))
             {
                 model(model_source, icon, &|_| model_source.follows_head)?;
+            }
+        }
+        // Controller geometry keeps the player's projection; expanded bounds affect coverage,
+        // never the model scale or the control's ancestor clip.
+        if in_hud
+            && matches!(
+                view,
+                PreviewView::Doll { .. } | PreviewView::DollLook { .. }
+            )
+        {
+            for (model, layer, icon) in &self.gui_models.player_layers.layers {
+                let Some(geometry) = model.geometry.as_ref() else {
+                    continue;
+                };
+                let start = cache.bones.len();
+                cache.layer(
+                    &geometry.vertices,
+                    model
+                        .transforms
+                        .iter()
+                        .map(|frame| screen * Mat4::from(*frame)),
+                    model.transforms.iter().map(|frame| {
+                        if layer.ignore_lighting {
+                            Mat3::ZERO
+                        } else {
+                            normal_frame(light * Mat3::from(frame.matrix3), true)
+                        }
+                    }),
+                    *icon,
+                    None,
+                    layer.overlay,
+                )?;
+                for bone in &mut cache.bones[start..] {
+                    bone.uv_transform = layer.uv_anim;
+                    bone.styles[1] = 1;
+                    bone.tint = layer.color;
+                    for channel in &mut bone.tint[..3] {
+                        *channel *= layer.light_color_multiplier;
+                    }
+                }
+                let state = layer.material_state.unwrap_or_default();
+                let material = (
+                    ui::UiBlendMode::Alpha,
+                    !state.depth_always,
+                    state.depth_write,
+                    state
+                        .alpha_test
+                        .then_some(assets::ENTITY_ALPHA_TEST_THRESHOLD),
+                );
+                let index = cache.cursor - 1;
+                cache.dirty |= cache.sources[index].material != material;
+                cache.sources[index].material = material;
             }
         }
         for slot in 0..4 {

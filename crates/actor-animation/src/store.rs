@@ -417,6 +417,18 @@ impl ActorAnimationStore {
         })
     }
 
+    /// Completed controller layers for a paper doll drawn over the level view.
+    pub fn paper_doll_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let ui = state.paper_doll_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+            head_rotation: None,
+        })
+    }
+
     pub fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.rigs
             .iter()

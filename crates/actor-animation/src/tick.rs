@@ -96,8 +96,10 @@ pub struct ActorTickContext {
     pub is_flying: bool,
     /// The committed level default resolves players that use the default mode.
     pub world_game_mode: Option<protocol::PlayerGameMode>,
-    /// Native HUD rendering uses a UI actor context without a first-person hand camera.
+    /// The actor is drawn inside a menu rather than over the level view.
     pub is_in_ui: bool,
+    /// The actor is drawn by a paper-doll renderer, independently of its screen context.
+    pub is_paperdoll: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
@@ -851,6 +853,8 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.right_arm_swim_amount, input.swim_amount);
     variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
+    variables.set(engine.is_paperdoll, truth(context.is_paperdoll));
+    variables.set(engine.context_paperdoll, truth(context.is_paperdoll));
     variables.set(
         engine.player_x_rotation,
         if context.is_in_ui { 0.0 } else { input.pitch },

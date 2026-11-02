@@ -19,9 +19,12 @@ pub struct UiModelBone {
     pub normal: [[f32; 4]; 3],
     pub overlay: [f32; 4],
     pub uv_rect: [f32; 4],
+    /// Offset and scale in source UV space, before mapping into the texture rectangle.
+    pub uv_transform: [f32; 4],
     /// Cross-axis terms retain the texture orientation of an effect triangle.
     pub uv_cross: [f32; 4],
     pub tint: [f32; 4],
+    /// Vertex style mask, source-UV repeat flag, and two reserved words.
     pub styles: [u32; 4],
 }
 
@@ -46,11 +49,17 @@ impl UiModelBone {
         vertex.position = [point.x, point.y];
         vertex.clip_z = point.z;
         vertex.clip_w = point.w;
-        vertex.uv = [0, 1].map(|axis| {
-            self.uv_rect[axis]
-                + vertex.uv[axis] * (self.uv_rect[axis + 2] - self.uv_rect[axis])
-                + vertex.uv[1 - axis] * self.uv_cross[axis]
-        });
+        let uv = [0, 1]
+            .map(|axis| self.uv_transform[axis] + vertex.uv[axis] * self.uv_transform[axis + 2]);
+        vertex.uv = if self.styles[1] != 0 {
+            uv
+        } else {
+            [0, 1].map(|axis| {
+                self.uv_rect[axis]
+                    + uv[axis] * (self.uv_rect[axis + 2] - self.uv_rect[axis])
+                    + uv[1 - axis] * self.uv_cross[axis]
+            })
+        };
         vertex.color = [0, 1, 2, 3]
             .map(|channel| (f32::from(vertex.color[channel]) * self.tint[channel]).round() as u8);
         let source = Vec3::from_slice(&vertex.overlay_color[..3]);
@@ -62,9 +71,24 @@ impl UiModelBone {
         vertex.model_light = normal.try_normalize().map_or(vertex.model_light, |normal| {
             render_api::fancy_actor_shade(normal.to_array(), 0.0)
         });
-        vertex.overlay_color = self.overlay;
-        vertex.style_flags =
-            (vertex.style_flags | self.styles[0]) & !render_api::UI_STYLE_MODEL_VERTEX;
+        vertex.overlay_color = if self.styles[1] != 0 {
+            [
+                self.uv_rect[0],
+                self.uv_rect[1],
+                self.uv_rect[2] - self.uv_rect[0],
+                self.uv_rect[3] - self.uv_rect[1],
+            ]
+        } else {
+            self.overlay
+        };
+        vertex.style_flags = (vertex.style_flags
+            | self.styles[0]
+            | if self.styles[1] != 0 {
+                u32::from(render_api::ui_repeat::UI_STYLE_REPEAT)
+            } else {
+                0
+            })
+            & !render_api::UI_STYLE_MODEL_VERTEX;
         vertex
     }
 }

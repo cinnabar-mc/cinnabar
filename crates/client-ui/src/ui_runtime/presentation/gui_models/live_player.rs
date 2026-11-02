@@ -19,7 +19,7 @@ pub(super) struct ModelGeometry {
 
 impl ModelGeometry {
     /// Retains immutable geometry and evaluates each bone frame once, independently of vertex count.
-    fn capture(
+    pub(super) fn capture(
         &mut self,
         geometry: &ActorRigGeometry,
         pose: &[RenderBoneTransform],
@@ -136,6 +136,7 @@ impl UiPresentationRuntime {
     /// Marks the next frame's actor capture as not yet taken; call before capturing.
     pub fn begin_live_capture(&mut self) {
         self.gui_models.live_player.fresh = false;
+        self.gui_models.player_layers.layers.clear();
     }
 
     /// Whether a screen drew a live player renderer in the last published frame.
@@ -186,6 +187,7 @@ impl UiPresentationRuntime {
         swimming: bool,
         emote: Option<(cosmetics::emotes::Item, f64)>,
     ) {
+        self.capture_player_layers(local);
         let fire_frames = self.gui_models.fire.frames.len();
         let draw_cape =
             self.menu_preview_model.cape_key.is_some() && !self.gui_models.wearing_elytra;
@@ -443,7 +445,7 @@ fn bone_matrix(bone: &actor_animation::BoneTransform) -> Option<Affine3A> {
 }
 
 /// Converts an evaluated model-space bone to the block coordinates shared by both renderers.
-fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransform> {
+pub(super) fn render_bone(bone: &actor_animation::BoneTransform) -> Option<RenderBoneTransform> {
     RenderBoneTransform::from_model_space_scaled(
         bone.rotation,
         bone.translation_scale,
@@ -491,4 +493,4 @@ mod hud_doll_tests;
 #[cfg(test)]
 mod redraw_tests;
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

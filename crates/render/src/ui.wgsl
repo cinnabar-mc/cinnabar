@@ -69,6 +69,7 @@ struct UiModelBone {
     normal_z: vec4<f32>,
     overlay: vec4<f32>,
     uv_rect: vec4<f32>,
+    uv_transform: vec4<f32>,
     uv_cross: vec4<f32>,
     tint: vec4<f32>,
     styles: vec4<u32>,
@@ -116,9 +117,15 @@ fn ui_vertex(
             light = ((1.0 + n.y) * ACTOR_SHADE[0] + n.x * n.x * ACTOR_SHADE[1]) + n.z * n.z * ACTOR_SHADE[2] + ACTOR_SHADE[3];
         }
         overlay = bone.overlay;
-        model_uv = bone.uv_rect.xy + uv * (bone.uv_rect.zw - bone.uv_rect.xy) + uv.yx * bone.uv_cross.xy;
+        let source_uv = bone.uv_transform.xy + uv * bone.uv_transform.zw;
+        model_uv = bone.uv_rect.xy + source_uv * (bone.uv_rect.zw - bone.uv_rect.xy) + source_uv.yx * bone.uv_cross.xy;
         model_color = color * bone.tint;
         model_styles |= bone.styles.x;
+        if bone.styles.y != 0u {
+            model_uv = source_uv;
+            overlay = vec4<f32>(bone.uv_rect.xy, bone.uv_rect.zw - bone.uv_rect.xy);
+            model_styles |= STYLE_REPEAT_X | STYLE_REPEAT_Y;
+        }
     }
     let ndc = vec2<f32>(
         point.x / viewport.viewport_size.x * 2.0 - point.w,

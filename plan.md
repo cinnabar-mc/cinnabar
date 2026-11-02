@@ -1020,6 +1020,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
+  HUD paper-doll controls retain independently evaluated player-controller layers, authored
+  bone translations and camera-driven repeated UVs. Model coverage may extend outside a
+  control while retaining its ancestor clip. Selected source artwork shares the UI catalog's
+  existing texture-layer and byte budgets. Other entity material modes and menu-controller
+  layer acceptance remain open.
   A screen's live player renderer draws the same animated actor from its own palette, the
   head subtree turned toward the pointer. It replaces the head's orientation rather than
   re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
