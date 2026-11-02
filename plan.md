@@ -181,6 +181,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   World walls preserve the central post outside postless straight pairs, merge those pairs
   to their lower connection height, and use outside-facing UVs. Complete wall material,
   lighting and gallery acceptance remain open.
+- [ ] Predict bed placement. Door and bed items now report a local placement and start the
+  repeat delay as native `DoorItem::_useOn` and `BedItem::_tryUseOn` do, but beds are drawn
+  only from the server's update: native places both halves and colors them locally, and a
+  prediction needs the same block entity color. Their local room check accepts any non-empty
+  support; stricter native support and liquid rules remain unverified.
 - [ ] Close paired-door presentation and interaction acceptance. Side faces mirror by the
   native swung-direction, open and hinge rule, and caps stretch the outer art rows along the
   leaf. Remaining: lower/upper state resolution, cross-subchunk neighbours, missing pairs, highlights, cracks,
