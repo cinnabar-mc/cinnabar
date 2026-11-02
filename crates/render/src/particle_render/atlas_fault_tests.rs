@@ -158,8 +158,17 @@ fn failed_particle_patches_release_the_atlas_and_replay_after_retry() {
         }]);
         frame.patch_seq = 1;
     }
+    let attempts = std::rc::Rc::new(std::cell::Cell::new(0));
     {
-        let _fault = crate::gpu_allocation::inject(|label, _| label == "particle atlas patches");
+        let attempts = std::rc::Rc::clone(&attempts);
+        let _fault = crate::gpu_allocation::inject(move |label, _| {
+            if label == "particle atlas patches" {
+                attempts.set(attempts.get() + 1);
+                true
+            } else {
+                false
+            }
+        });
         world.run_system_once(prepare_particle_resources).unwrap();
         let gpu = world.resource::<ParticleGpu>();
         assert!(gpu.texture.is_none());
@@ -167,11 +176,27 @@ fn failed_particle_patches_release_the_atlas_and_replay_after_retry() {
         assert!(gpu.bind_group.is_none());
         assert_eq!(gpu.uploaded_seq, 0, "failed patches must stay uncommitted");
         assert!(gpu.atlas.retry.failed());
+        world
+            .resource::<RenderDevice>()
+            .poll(PollType::wait_indefinitely())
+            .unwrap();
+        world.run_system_once(prepare_particle_resources).unwrap();
+        assert!(world.resource::<ParticleGpu>().texture.is_none());
     }
+    assert_eq!(attempts.get(), 2, "retirement permits the first replay");
     world
         .resource::<RenderDevice>()
         .poll(PollType::wait_indefinitely())
         .unwrap();
+    for _ in 1..crate::gpu_allocation::MIN_RETRY_FRAMES * 2 {
+        world.run_system_once(prepare_particle_resources).unwrap();
+        assert_eq!(
+            attempts.get(),
+            2,
+            "a second failure must double the backoff"
+        );
+        assert!(world.resource::<ParticleGpu>().texture.is_none());
+    }
     world.run_system_once(prepare_particle_resources).unwrap();
     let gpu = world.resource::<ParticleGpu>();
     assert!(gpu.texture.is_some());
