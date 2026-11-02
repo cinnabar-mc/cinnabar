@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use bevy::render::render_resource::{
     CachedPipelineState, CachedRenderPipelineId, PipelineCache, PipelineDescriptor,
 };
+use bevy::shader::ShaderCacheError;
 use web_time::Instant;
 
 /// Shortest gap between progress lines; a wait with no new progress stays silent until it ends.
@@ -40,10 +41,10 @@ impl WarmupCounts {
             ..Self::default()
         };
         for &id in ids {
-            match cache.get_render_pipeline_state(id) {
-                CachedPipelineState::Ok(_) | CachedPipelineState::Err(_) => counts.finished += 1,
-                _ if counts.next.is_none() => counts.next = Some(label(cache, id)),
-                _ => {}
+            if settled(cache.get_render_pipeline_state(id)) {
+                counts.finished += 1;
+            } else if counts.next.is_none() {
+                counts.next = Some(label(cache, id));
             }
         }
         counts
@@ -52,6 +53,23 @@ impl WarmupCounts {
     fn busy(&self) -> bool {
         self.finished < self.total || self.compiling > 0 || self.owned_pending
     }
+}
+
+/// Whether a variant no longer holds loading: compiled, or failed in a way retrying cannot fix.
+pub(super) fn settled(state: &CachedPipelineState) -> bool {
+    match state {
+        CachedPipelineState::Ok(_) => true,
+        CachedPipelineState::Err(error) => !retryable(error),
+        _ => false,
+    }
+}
+
+/// Errors the cache retries every frame, because the shader or one of its imports is still loading.
+pub(super) fn retryable(error: &ShaderCacheError) -> bool {
+    matches!(
+        error,
+        ShaderCacheError::ShaderNotLoaded(_) | ShaderCacheError::ShaderImportNotYetAvailable
+    )
 }
 
 /// The debug label of a pipeline, including one that has not left the cache's intake yet.
@@ -154,6 +172,19 @@ mod tests {
         assert!(end.contains("10 variants after 9.0 s"), "{end}");
         assert!(end.contains("2 compile workers"), "{end}");
         assert_eq!(progress.observe(&counts(10, 0), 2, at(20)), None);
+    }
+
+    #[test]
+    fn variants_waiting_on_shader_loads_are_not_settled() {
+        let unloaded = ShaderCacheError::ShaderNotLoaded(
+            bevy::prelude::Handle::<bevy::prelude::Shader>::default().id(),
+        );
+        assert!(!settled(&CachedPipelineState::Err(unloaded)));
+        let import = ShaderCacheError::ShaderImportNotYetAvailable;
+        assert!(!settled(&CachedPipelineState::Err(import)));
+        assert!(!settled(&CachedPipelineState::Queued));
+        let failed = ShaderCacheError::CreateShaderModule("bad".into());
+        assert!(settled(&CachedPipelineState::Err(failed)));
     }
 
     #[test]

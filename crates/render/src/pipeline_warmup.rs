@@ -23,7 +23,6 @@ use bevy::{
         },
         view::ViewTarget,
     },
-    shader::ShaderCacheError,
 };
 
 /// The view properties our built-in pipeline keys depend on.
@@ -256,20 +255,14 @@ fn registered_pipelines_ready(cache: &PipelineCache, registry: &mut WarmupRegist
     } = registry;
     let mut ready = !views.is_empty() && !*pending;
     for &id in ids.iter() {
-        ready &= match cache.get_render_pipeline_state(id) {
-            CachedPipelineState::Ok(_) => true,
-            CachedPipelineState::Err(
-                ShaderCacheError::ShaderNotLoaded(_)
-                | ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => false,
-            CachedPipelineState::Err(error) => {
-                if failed.insert(id) {
-                    error!("pipeline prewarm {id:?}: {error}");
-                }
-                true
-            }
-            _ => false,
-        };
+        let state = cache.get_render_pipeline_state(id);
+        if let CachedPipelineState::Err(error) = state
+            && !progress::retryable(error)
+            && failed.insert(id)
+        {
+            error!("pipeline prewarm {id:?}: {error}");
+        }
+        ready &= progress::settled(state);
     }
     ready
 }
