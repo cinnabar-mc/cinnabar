@@ -59,21 +59,39 @@ pub(super) fn prepare(
         && frame.patch_seq != gpu.uploaded_seq
     {
         let factor = gpu.atlas.reduction.max(1);
-        for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
-            let origin = [patch.x / factor, patch.y / factor];
-            if factor == 1 {
-                write_rect(
-                    queue,
-                    texture,
-                    origin,
-                    [patch.width, patch.height],
-                    &patch.rgba8,
-                );
-            } else if let Some((size, pixels)) =
-                reduce(patch.width, patch.height, &patch.rgba8, factor)
-            {
-                write_rect(queue, texture, origin, size, &pixels);
+        let bytes = frame
+            .patches
+            .iter()
+            .filter(|patch| patch.seq > gpu.uploaded_seq)
+            .map(|patch| patch.rgba8.len() as u64)
+            .sum();
+        let uploaded = gpu_allocation::checked(device, "particle atlas patches", bytes, || {
+            for patch in frame.patches.iter().filter(|p| p.seq > gpu.uploaded_seq) {
+                let origin = [patch.x / factor, patch.y / factor];
+                if factor == 1 {
+                    write_rect(
+                        queue,
+                        texture,
+                        origin,
+                        [patch.width, patch.height],
+                        &patch.rgba8,
+                    );
+                } else if let Some((size, pixels)) =
+                    reduce(patch.width, patch.height, &patch.rgba8, factor)
+                {
+                    write_rect(queue, texture, origin, size, &pixels);
+                }
             }
+        });
+        if uploaded.is_none() {
+            // A partial write cannot commit this generation. Rebuild the base and replay the
+            // current patches after the released texture's last submission retires.
+            shared_atlases.release(gpu.texture.as_ref());
+            gpu.texture = None;
+            gpu.texture_view = None;
+            gpu.bind_group = None;
+            gpu.atlas.retry.record(false, Some(queue));
+            return;
         }
         gpu.uploaded_seq = frame.patch_seq;
     }
