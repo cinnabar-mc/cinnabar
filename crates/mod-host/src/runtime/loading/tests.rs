@@ -122,7 +122,7 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
             .unwrap();
         let before = host.instance.store.data().presentation.output().1;
         let budget = crate::CallbackBudget::new(0);
-        host.set_frame_authority(budget, false, false, 0);
+        host.set_frame_authority(budget, false, false);
         if gap {
             host.bind_drawing_world(session(), false);
             assert!(
@@ -209,7 +209,6 @@ fn stage_world_output(state: &mut State) -> Result<()> {
             fov_delta: 1.,
         }))?
         .unwrap();
-    state.set_preserve_teleport_rotation(true)?.unwrap();
     state.set_view_scale(0.8, 0.8)?.unwrap();
     state
         .set_view_tilt(Some(camera::ViewTilt {
@@ -220,6 +219,7 @@ fn stage_world_output(state: &mut State) -> Result<()> {
         .unwrap();
     state.set_attack_reach(Some(4.))?.unwrap();
     state.pulse_attack()?.unwrap();
+    state.set_block_mining(true)?.unwrap();
     state.pulse_use()?.unwrap();
     state.fill_recipe(7)?.unwrap();
     state.request_command("/fixture".into())?.unwrap();
@@ -250,7 +250,6 @@ fn assert_no_world_output(host: &mut crate::ModHost) {
     assert!(!host.take_jump_pulse());
     assert!(host.take_camera_delta().is_none());
     assert!(host.camera_rig().is_none());
-    assert!(!host.preserves_teleport_rotation());
     assert!(host.camera_view_scale().is_none());
     assert!(host.camera_view_tilt().is_none());
     assert_eq!(host.take_interaction(), crate::InteractionOutput::default());
@@ -351,7 +350,7 @@ fn loading_gap_invalidates_world_projections_but_keeps_local_hud_and_panel_conte
         state
             .set_content(
                 serde_json::json!({
-                    "surface": surface, "toggle_key": "ShiftRight", "controls": []
+                    "surface": surface, "controls": []
                 })
                 .to_string(),
             )?

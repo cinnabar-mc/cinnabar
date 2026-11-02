@@ -115,6 +115,7 @@ fn present(
         None,
         None,
         view,
+        0,
         Some(WorldObservation {
             stream: Some(&world.0),
         }),

@@ -342,6 +342,10 @@ mod multitexture_tests;
 #[path = "render/projectile_tests.rs"]
 mod projectile_tests;
 
+#[cfg(test)]
+#[path = "render/hurt_color_tests.rs"]
+mod hurt_color_tests;
+
 /// One authored controller layer and whether its selected artwork is unavailable.
 #[derive(Clone, Debug)]
 pub(crate) struct LayerOutput {
@@ -459,7 +463,11 @@ fn evaluate_layer_into(
         .collect();
     let tint = color(evaluator, variables, layer.color, actor_color, budget)?;
     let overlay = color(evaluator, variables, layer.overlay_color, [0.0; 4], budget)?;
-    let overlay = color(evaluator, variables, layer.hurt_color, overlay, budget)?;
+    let overlay = if evaluator.actor.shows_damage() {
+        color(evaluator, variables, layer.hurt_color, overlay, budget)?
+    } else {
+        overlay
+    };
     let uv_anim = color(
         evaluator,
         variables,

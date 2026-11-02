@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{ItemRegistry, StartGame};
+use bedrock_protocol_1_26_60::packets::{ItemRegistry, StartGame};
 
 use crate::{
     CustomBlocks, DeathRules, GameModeUpdate, HudRules, InventoryAuthority, ItemComponents,
     ItemRegistryEvent, PlayerGameMode, WorldBootstrap, WorldEnvironmentBootstrap, WorldPacketError,
-    item::normalize_item_registry,
+    item::{normalize_item_registry, with_block_items},
 };
 
 /// What StartGame and its item registry establish for one session, read once at login.
@@ -97,7 +97,7 @@ impl GameData {
                     start_game,
                 ),
             },
-            items: StartupItems::from_wire(item_registry),
+            items: StartupItems::from_wire(&with_block_items(item_registry, start_game)),
             custom_blocks: CustomBlocks::from_start_game(start_game),
             block_definition_count: start_game.block_properties.len(),
             level_identity: level_identity(start_game),
@@ -163,8 +163,8 @@ impl StartupItems {
 mod tests {
     use super::*;
     use crate::{ItemPacketError, WorldWireError};
-    use bedrock_protocol_1_26_51::types::ItemData;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::types::ItemData;
+    use bedrock_protocol_1_26_60::wire;
 
     fn registry(items: &[(&str, i16)]) -> ItemRegistry {
         ItemRegistry {

@@ -39,6 +39,7 @@ mod dials;
 mod lighting;
 mod preparation;
 mod source_cost;
+use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
 use preparation::DropPreparation;
@@ -208,7 +209,8 @@ fn block_template(
     if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
         return None;
     }
-    template_model(assets, block.model_template()?, block.variant() & 3)
+    let template = assets::item_model_template(assets.model_templates(), block.model_template()?);
+    template_model(assets, template, block.variant() & 3)
 }
 
 /// Retains the authored quads and pixels for a selected world or pot-content template.
@@ -443,6 +445,13 @@ impl DroppedItemPublisher<'_, '_> {
             let model = assets.and_then(|assets| Self::potted_model(cache, assets, id));
             return cache.count_item(model);
         }
+        if placement.allow_block_models
+            && placement.identifier.as_ref() == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(placement.shield_pattern.as_ref())
+            && let Some((_, model)) = cache.shield_model(artwork)
+        {
+            return cache.count_item(Some(model));
+        }
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
                 placement.allow_block_models.then_some(())?;
@@ -493,6 +502,14 @@ impl DroppedItemPublisher<'_, '_> {
     ) -> Option<preparation::PreparedDrop> {
         let view = preparation.view;
         let identifier = view.item.identifier.as_deref()?;
+        if identifier == assets::gui_item::SHIELD_IDENTIFIER
+            && let Some(artwork) = icons.world_shield_artwork(view.item.shield_pattern.as_ref())
+            && let Some((key, model)) = cache.shield_model(artwork)
+        {
+            let prepared =
+                preparation.model(cache, &key, DroppedItemShape::Shield, |_| Some(model));
+            return cache.count_item(prepared);
+        }
         let (icon_identifier, variant) = dropped_icon_key(icons, identifier, &view.item);
         cache.artwork(|cache, source| match source {
             ItemArtwork::SessionCube => {
@@ -698,7 +715,14 @@ impl DroppedItemPublisher<'_, '_> {
                     if cache.is_planning() {
                         continue;
                     }
-                    let rows = placement.world_from_item;
+                    let rows = if placement.identifier.as_ref()
+                        == assets::gui_item::SHIELD_IDENTIFIER
+                        && matches!(&cache.models[model as usize], DroppedItemModel::Block(_))
+                    {
+                        render_model::equipment::shield::framed_transform(placement.world_from_item)
+                    } else {
+                        placement.world_from_item
+                    };
                     let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
                         stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])
                     });
@@ -777,11 +801,16 @@ impl DroppedItemPublisher<'_, '_> {
                 }
                 let air = stream.air_block_id();
                 for carried in carried_blocks {
-                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
-                    if id == air {
-                        continue;
-                    }
-                    let mode = stream.network_id_mode();
+                    let (mode, id) = match carried.block {
+                        CarriedBlockId::Wire(id) => {
+                            let id = stream.resolve_block_network_id(id);
+                            if id == air {
+                                continue;
+                            }
+                            (stream.network_id_mode(), id)
+                        }
+                        CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
+                    };
                     let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;

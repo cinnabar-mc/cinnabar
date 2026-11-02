@@ -551,11 +551,7 @@ impl ModuleObserver {
         let ping_ms = self.ping.sample(
             world.session,
             authority.local_player_runtime_id(),
-            gameplay
-                .session
-                .as_ref()
-                .and_then(|session| session.socket_directory())
-                .map(PathBuf::from),
+            gameplay.core_socket_directory().map(PathBuf::from),
         );
         ModuleObservations {
             world_time: gameplay.world_time(world),

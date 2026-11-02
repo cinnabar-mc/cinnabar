@@ -1,6 +1,9 @@
 //! Collects guarded adapter probes before creating the best available renderer.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use super::device::{
     backends, dxc_failed, flags, force_fallback, identity, instance, log, meets_requirements,
@@ -26,8 +29,29 @@ use bevy::{
 use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
+/// The startup guard and the worker, if any, that is saving the working renderer with it.
 #[derive(Resource)]
-struct RendererGuard(StartupGuard);
+struct RendererGuard {
+    guard: Arc<Mutex<StartupGuard>>,
+    saving: Option<std::thread::JoinHandle<()>>,
+}
+
+impl RendererGuard {
+    fn new(guard: StartupGuard) -> Self {
+        Self {
+            guard: Arc::new(Mutex::new(guard)),
+            saving: None,
+        }
+    }
+
+    /// Runs `change` after any background save, so cancellation never overtakes a success.
+    fn settled<T>(&mut self, change: impl FnOnce(&mut StartupGuard) -> T) -> T {
+        if let Some(worker) = self.saving.take() {
+            let _ = worker.join();
+        }
+        change(&mut self.guard.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
 
 /// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
@@ -118,10 +142,24 @@ pub(super) fn render_plugin(
                             *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
                             instance = create(wgpu::Dx12Compiler::Fxc);
                         }
+                        let mut native =
+                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        let current = dx12_shader_compiler.borrow().clone();
+                        if let Some(legacy) = render::device_settings::adapter_requiring_fxc(
+                            &current,
+                            native.iter().map(wgpu::Adapter::get_info),
+                        ) {
+                            log(format_args!(
+                                "Renderer DX12 shader compiler: FXC, since {} driver {} loses the device with DXC",
+                                legacy.name, legacy.driver
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
+                            native =
+                                bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        }
                         let mut found = Vec::new();
-                        for adapter in
-                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
-                        {
+                        for adapter in native {
                             if let Err(error) = meets_requirements(&adapter) {
                                 failures.push(format!(
                                     "{} ({backend:?}): {error:#}",
@@ -230,7 +268,7 @@ fn show_fallback_notice(
 
 /// Tracks presentation and cancels startup on a controlled exit before window teardown.
 fn install_guard(app: &mut App, guard: StartupGuard) {
-    app.insert_resource(RendererGuard(guard))
+    app.insert_resource(RendererGuard::new(guard))
         .add_systems(Update, mark_presented)
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
 }
@@ -238,7 +276,7 @@ fn install_guard(app: &mut App, guard: StartupGuard) {
 /// Cancels this app's pending presentation marker after an orderly pre-loop failure.
 pub(super) fn cancel_startup(app: &mut App) {
     if let Some(mut guard) = app.world_mut().get_resource_mut::<RendererGuard>()
-        && let Err(error) = guard.0.cancel()
+        && let Err(error) = guard.settled(StartupGuard::cancel)
     {
         log(format_args!(
             "Renderer could not cancel startup sentinel: {error:#}"
@@ -249,7 +287,7 @@ pub(super) fn cancel_startup(app: &mut App) {
 /// Leaves crash recovery untouched when the application requests an orderly shutdown.
 fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut guard: ResMut<RendererGuard>) {
     if exits.read().next().is_some()
-        && let Err(error) = guard.0.cancel()
+        && let Err(error) = guard.settled(StartupGuard::cancel)
     {
         log(format_args!(
             "Renderer could not cancel startup sentinel: {error:#}"
@@ -282,28 +320,40 @@ async fn create_renderer(
     ))
 }
 
-/// Clears the guard only after a primary-window presentation and GPU completion.
+/// Clears the guard after a GPU-completed primary-window presentation. The save syncs files to
+/// storage (a full flush on macOS, tens of milliseconds), so it runs on a worker.
 fn mark_presented(
     feedback: Res<render_scene::startup_presentation::StartupPresentation>,
     mut guard: ResMut<RendererGuard>,
     mut done: Local<bool>,
 ) {
-    if !*done && feedback.has_presented() {
-        match guard.0.presented() {
-            Ok(()) => {
-                *done = true;
-                log(format_args!(
-                    "Renderer first frame completed {:.1} ms after launch; saved working backend and adapter",
-                    crate::lifecycle::launched_at().elapsed().as_secs_f64() * 1e3
-                ));
-            }
-            Err(error) => {
-                *done = true;
-                log(format_args!(
-                    "Renderer could not clear startup sentinel: {error:#}"
-                ));
-            }
+    if *done || !feedback.has_presented() {
+        return;
+    }
+    *done = true;
+    let elapsed = crate::lifecycle::launched_at().elapsed();
+    let shared = Arc::clone(&guard.guard);
+    let save = move || {
+        let result = shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .presented();
+        match result {
+            Ok(()) => log(format_args!(
+                "Renderer first frame completed {:.1} ms after launch; saved working backend and adapter",
+                elapsed.as_secs_f64() * 1e3
+            )),
+            Err(error) => log(format_args!(
+                "Renderer could not clear startup sentinel: {error:#}"
+            )),
         }
+    };
+    match std::thread::Builder::new()
+        .name("renderer-choice".into())
+        .spawn(save.clone())
+    {
+        Ok(worker) => guard.saving = Some(worker),
+        Err(_) => save(),
     }
 }
 

@@ -16,6 +16,9 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
+    /// Complete movement input committed for one successful callback.
+    pub movement_input: Option<crate::GameplayMovementInput>,
+    pending_movement_input: Option<crate::GameplayMovementInput>,
     /// Sprint and sneak held for the current frame only.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
@@ -37,8 +40,47 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            movement_input: None,
+            pending_movement_input: None,
+            movement_intents: None,
+            pending_movement_intents: None,
+            control_modes: None,
+            pending_control_modes: None,
+            mobs: self.mobs.clone(),
+            rig: None,
+            commands: Vec::new(),
+            cues: Vec::new(),
+            incoming: self.incoming.clone(),
+            polls: 0,
+            pending_rig: None,
+            pending_commands: Vec::new(),
+            pending_cues: Vec::new(),
+            window_sent: self.window_sent,
+            window_seconds: 0.,
+        }
+    }
+
+    /// Keeps rate accounting host-owned and discards actions completed after their frame.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
+        if current_frame {
+            self.pending_movement_input = transaction.pending_movement_input;
+            self.pending_movement_intents = transaction.pending_movement_intents;
+            self.pending_control_modes = transaction.pending_control_modes;
+            if !camera_blocked {
+                self.pending_rig = transaction.pending_rig;
+            }
+            self.pending_commands = transaction.pending_commands;
+            self.pending_cues = transaction.pending_cues;
+        }
+    }
+
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
+        self.movement_input = None;
+        self.pending_movement_input = None;
         self.movement_intents = None;
         self.pending_movement_intents = None;
         self.control_modes = None;
@@ -62,6 +104,7 @@ impl WorldState {
     }
 
     pub fn commit(&mut self) {
+        self.movement_input = self.pending_movement_input.take();
         self.movement_intents = self.pending_movement_intents.take();
         self.control_modes = self.pending_control_modes.take();
         if let Some(rig) = self.pending_rig.take() {
@@ -199,6 +242,10 @@ pub(super) fn validate_snapshot(snapshot: Option<&GameplaySnapshot>) -> Result<(
 /// Rejects non-finite client facts before any guest can read them.
 pub(super) fn validate_facts(facts: &GameplayFacts) -> Result<()> {
     ensure!(
+        facts.movement_input.is_none_or(valid_movement_input),
+        "invalid movement input axes"
+    );
+    ensure!(
         facts.camera.is_none_or(|camera| finite(&camera.position)
             && camera.yaw.is_finite()
             && camera.pitch.is_finite())
@@ -231,6 +278,42 @@ pub(super) fn validate_movement(
 }
 
 impl cinnabar::extension::gameplay::Host for State {
+    /// Reads only the admitted input captured before mod output is applied.
+    fn read_movement_input(
+        &mut self,
+    ) -> Result<Result<Option<crate::GameplayMovementInput>, String>> {
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        let owned = self.controls.frame.focused
+            && self.controls.frame.gameplay
+            && !self.controls.frame.panel_open;
+        Ok(Ok(self.gameplay_facts.movement_input.filter(|_| owned)))
+    }
+
+    /// Stages a complete, bounded control vector; omission restores ordinary input.
+    fn set_movement_input(
+        &mut self,
+        input: Option<crate::GameplayMovementInput>,
+    ) -> Result<Result<(), String>> {
+        self.motion.write()?;
+        if !self.grants.movement {
+            return Ok(Err("movement capability denied".into()));
+        }
+        if input.is_some()
+            && !(self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open)
+        {
+            return Ok(Err("movement input requires focused gameplay".into()));
+        }
+        if input.is_some_and(|input| !valid_movement_input(input)) {
+            return Ok(Err("movement axes must be finite and within -1..1".into()));
+        }
+        self.world.pending_movement_input = input;
+        Ok(Ok(()))
+    }
+
     /// Stages sprint and sneak holds for this focused gameplay frame; none releases both.
     fn set_movement_intents(
         &mut self,
@@ -328,6 +411,66 @@ impl cinnabar::extension::gameplay::Host for State {
 
     fn pulse_attack(&mut self) -> Result<Result<(), String>> {
         State::pulse_attack(self)
+    }
+
+    fn set_block_mining(&mut self, held: bool) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !self.grants.interaction {
+            return Ok(Err("interaction capability denied".into()));
+        }
+        if held
+            && (self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open)
+        {
+            return Ok(Err("block mining requires focused gameplay".into()));
+        }
+        self.controls.pending_interaction.block_mining = held;
+        Ok(Ok(()))
+    }
+
+    fn read_block_target(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
+        self.controls.budget(false)?;
+        if !self.grants.terrain {
+            return Ok(Err("terrain capability denied".into()));
+        }
+        Ok(Ok(self.gameplay_facts.block_target.filter(|_| {
+            self.snapshot.is_some()
+                && self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        })))
+    }
+
+    fn set_block_mining_target(
+        &mut self,
+        point: Option<GameplayVector3>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        if let Some(point) = point {
+            if self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open
+                || !self.gameplay_facts.attack_held
+            {
+                return Ok(Err(
+                    "mining target requires physical attack in focused gameplay".into(),
+                ));
+            }
+            if ![point.x, point.y, point.z]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() < (i32::MAX - 16) as f32)
+            {
+                return Ok(Err("invalid mining point".into()));
+            }
+        }
+        self.controls.pending_interaction.block_mining_target = point;
+        Ok(Ok(()))
     }
 
     /// The presented camera, available with the same grants and frame as `read-frame`.
@@ -477,3 +620,10 @@ pub(super) fn read_movement(
 #[cfg(test)]
 #[path = "gameplay_tests.rs"]
 mod tests;
+
+/// Accepts only bounded finite control lanes, including neutral and diagonal input.
+fn valid_movement_input(input: crate::GameplayMovementInput) -> bool {
+    [input.right, input.forward]
+        .iter()
+        .all(|axis| axis.is_finite() && (-1.0..=1.0).contains(axis))
+}

@@ -158,6 +158,45 @@ fn absorbing_screens_route_clicks_to_the_ui() {
     );
 }
 
+#[test]
+fn resource_pack_reload_cover_blocks_gameplay_and_menu_input() {
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let mut runtime = in_world(&mut player_runtime, vanilla_like_table());
+    runtime.set_resource_pack_loading(true);
+
+    let stack = runtime.scenes(&player_runtime, host(Some(MenuScreen::Pause)));
+    assert_eq!(
+        stack.top().map(|scene| scene.key),
+        Some(Scene::ResourcePackLoading)
+    );
+    assert_eq!(stack.input_targets(), [Scene::ResourcePackLoading]);
+    assert!(!runtime.gameplay_input(&player_runtime, None));
+    assert!(!runtime.steals_mouse(&player_runtime, None));
+
+    let launcher = SceneHost {
+        menu: Some(MenuScreen::Settings),
+        over_world: false,
+        loading: None,
+    };
+    assert_eq!(
+        runtime
+            .scenes(&player_runtime, launcher)
+            .top()
+            .map(|scene| scene.key),
+        Some(Scene::ResourcePackLoading)
+    );
+
+    // World entry keeps the vanilla loading scene in charge; the pack cover never replaces it.
+    let world_entry = SceneHost {
+        menu: None,
+        over_world: false,
+        loading: Some(ui::LoadingStage::BuildingTerrain),
+    };
+    let scenes = runtime.scenes(&player_runtime, world_entry);
+    assert_eq!(scenes.input_targets(), [Scene::Loading]);
+    assert!(!scenes.contains(Scene::ResourcePackLoading));
+}
+
 // A pack that makes the HUD absorb input takes clicks from gameplay, as vanilla would.
 #[test]
 fn pack_declared_absorbing_hud_blocks_gameplay() {

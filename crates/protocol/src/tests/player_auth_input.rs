@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
 use protocol::{
     PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch, encode,
     player_auth_input,
@@ -115,12 +115,12 @@ fn movement_hints_map_to_their_protocol_2168_list_ids() {
     assert_eq!(
         input.input_data,
         vec![
-            InputData::Upleft,
-            InputData::Upright,
-            InputData::Horizontalcollision,
-            InputData::Verticalcollision,
-            InputData::Downleft,
-            InputData::Downright,
+            InputData::UpLeft,
+            InputData::UpRight,
+            InputData::HorizontalCollision,
+            InputData::VerticalCollision,
+            InputData::DownLeft,
+            InputData::DownRight,
         ]
     );
 }
@@ -199,7 +199,7 @@ fn handled_teleport_flag_serializes_in_ascending_list_position() {
         vec![
             InputData::Up,
             InputData::Sprinting,
-            InputData::Handledteleport,
+            InputData::HandledTeleport,
         ]
     );
 }
@@ -213,7 +213,7 @@ fn missed_swing_flag_serializes_as_its_wire_ordinal() {
     };
     assert_eq!(
         input.input_data,
-        vec![InputData::Handledteleport, InputData::Missedswing,]
+        vec![InputData::HandledTeleport, InputData::MissedSwing,]
     );
 }
 
@@ -241,7 +241,7 @@ fn handled_teleport_flag_costs_exactly_one_wire_byte_and_round_trips() {
     };
     assert_eq!(
         input.input_data,
-        vec![InputData::Jumping, InputData::Handledteleport,]
+        vec![InputData::Jumping, InputData::HandledTeleport,]
     );
 }
 
@@ -292,7 +292,7 @@ fn a_predicted_vehicle_adds_its_rotation_id_and_flag() {
     assert!(
         input
             .input_data
-            .contains(&InputData::Isinclientpredictedvehicle)
+            .contains(&InputData::IsInClientPredictedVehicle)
     );
     let rotation = input.vehicle_rotation.expect("vehicle rotation");
     assert_eq!((rotation.x, rotation.y), (0.0, 135.5));
@@ -341,7 +341,7 @@ fn accumulated_block_actions_survive_one_input_packet() {
     let packets::Packet::PlayerAuthInput(input) = &*decoded[0].data else {
         panic!("expected player input");
     };
-    assert!(input.input_data.contains(&InputData::Performblockactions));
+    assert!(input.input_data.contains(&InputData::PerformBlockActions));
     let actions = input.player_block_actions.as_ref().unwrap();
     assert_eq!(actions.len(), expected.len());
     for (actual, expected) in actions.iter().zip(expected) {

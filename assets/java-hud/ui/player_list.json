@@ -259,6 +259,12 @@
               "binding_type": "collection",
               "binding_collection_name": "online_players",
               "binding_name_override": "#color"
+            },
+            {
+              "binding_name": "#span_0_alpha",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#alpha"
             }
           ]
         }
@@ -299,6 +305,12 @@
               "binding_type": "collection",
               "binding_collection_name": "online_players",
               "binding_name_override": "#color"
+            },
+            {
+              "binding_name": "#span_1_alpha",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#alpha"
             }
           ]
         }
@@ -339,6 +351,12 @@
               "binding_type": "collection",
               "binding_collection_name": "online_players",
               "binding_name_override": "#color"
+            },
+            {
+              "binding_name": "#span_2_alpha",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#alpha"
             }
           ]
         }
@@ -379,6 +397,12 @@
               "binding_type": "collection",
               "binding_collection_name": "online_players",
               "binding_name_override": "#color"
+            },
+            {
+              "binding_name": "#span_3_alpha",
+              "binding_type": "collection",
+              "binding_collection_name": "online_players",
+              "binding_name_override": "#alpha"
             }
           ]
         }

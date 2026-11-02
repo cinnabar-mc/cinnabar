@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::ModalFormRequest;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::ModalFormRequest;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     FormButtonImage, MenuElement, ServerFormModel, UiEvent, WorldEvent, into_world_event,
 };

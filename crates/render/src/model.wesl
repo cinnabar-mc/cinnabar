@@ -187,11 +187,12 @@ fn vertex(
     return model_vertex(offsets.x, offsets.y + instance_index);
 }
 
-/// One quad of a placed model, decoded as every model program reads it.
+/// One quad of a placed model, decoded as every model program reads it. Its flags are 0 or 1
+/// in `u32`s: older Mali compilers fault on bool struct members merged across returns.
 struct ModelQuad {
-    /// False when the draw ref, model ref, template or lighting record is out of range, or
+    /// Zero when the draw ref, model ref, template or lighting record is out of range, or
     /// the quad is hidden by its ref's visibility mask; no other field is meaningful then.
-    valid: bool,
+    valid: u32,
     template_quad_base: u32,
     quad_index: u32,
     packed_transform: u32,
@@ -200,8 +201,8 @@ struct ModelQuad {
     block_position: vec3<f32>,
     /// Quarter turns about the block's vertical centre line, after bamboo and lily-pad rules.
     rotation: u32,
-    is_lily_pad: bool,
-    is_bamboo: bool,
+    is_lily_pad: u32,
+    is_bamboo: u32,
     /// Bamboo's packed placement offset, added to template corners before `rotation`.
     template_offset: vec3<f32>,
     /// Bamboo leaf plane inset, added after `template_offset` and before `rotation`.
@@ -218,7 +219,7 @@ struct ModelQuad {
 
 fn invalid_model_quad() -> ModelQuad {
     var quad: ModelQuad;
-    quad.valid = false;
+    quad.valid = 0u;
     return quad;
 }
 
@@ -275,7 +276,7 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         return invalid_model_quad();
     }
     var quad: ModelQuad;
-    quad.valid = true;
+    quad.valid = 1u;
     quad.template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
     quad.quad_index = quad_index;
     quad.packed_transform = packed_transform;
@@ -286,11 +287,11 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         f32((packed_transform >> 8u) & 15u),
     );
     quad.chunk_origin = chunk_origins(metadata_index).value;
-    quad.is_lily_pad = (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u;
-    quad.is_bamboo = (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u;
+    quad.is_lily_pad = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u);
+    quad.is_bamboo = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u);
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
     quad.rotation = packed_transform >> 12u;
-    if (quad.is_bamboo) {
+    if (quad.is_bamboo != 0u) {
         if (!has_offset) {
             quad.template_offset.x = BAMBOO_OFFSET_MIN + f32(quad.rotation & 15u) * BAMBOO_OFFSET_STEP;
             quad.template_offset.z = BAMBOO_OFFSET_MIN + f32((quad.rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
@@ -299,7 +300,7 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { quad.leaf_inset.x = BAMBOO_LEAF_PLANE_INSET; }
         quad.rotation = 0u;
     }
-    if (quad.is_lily_pad) {
+    if (quad.is_lily_pad != 0u) {
         quad.rotation = lily_pad_rotation(quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     }
     if (has_offset) {
@@ -355,7 +356,7 @@ fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<
             default: {}
         }
     }
-    if (quad.is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
+    if (quad.is_bamboo != 0u && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
         uv.x += f32((quad.packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
     return uv;
@@ -388,7 +389,7 @@ fn model_shade_normal(normal: vec3<f32>, light_sample: u32) -> vec3<f32> {
 fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let corner = vertex_index & 3u;
     let quad = model_quad(instance_index, vertex_index / 4u);
-    if (!quad.valid) {
+    if (quad.valid == 0u) {
         return invisible_vertex();
     }
     let template_position = model_corner_position(quad, corner);
@@ -397,8 +398,8 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let material_id = quad.material_id;
     let quad_flags = quad.quad_flags;
     let rotation = quad.rotation;
-    let is_lily_pad = quad.is_lily_pad;
-    let is_bamboo = quad.is_bamboo;
+    let is_lily_pad = quad.is_lily_pad != 0u;
+    let is_bamboo = quad.is_bamboo != 0u;
     let material = materials(quad.selected_material_id);
     let frame = animation_sample(material);
     let light_sample = model_light_sample(quad, corner);

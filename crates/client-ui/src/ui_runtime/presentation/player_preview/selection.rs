@@ -166,6 +166,7 @@ pub(super) fn standalone_hands(held: Option<(&str, u32)>) -> [Option<(PreviewHan
         held.map(|(identifier, metadata)| {
             (
                 PreviewHandItem {
+                    shield_pattern: None,
                     grip: None,
                     glint: None,
                     identifier: Arc::from(identifier),

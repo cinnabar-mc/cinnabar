@@ -114,6 +114,28 @@ pub(crate) fn drive_server_form_input(
     }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    if runtime.resource_pack_loading() {
+        // Keep the loading cover authoritative while the replacement pack is being published.
+        // In particular, do not let a held edge answer the form behind it.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        *owned_last_frame = false;
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
     if runtime.credits().owns_input() {
         wheel.clear();
         keyboard.clear();

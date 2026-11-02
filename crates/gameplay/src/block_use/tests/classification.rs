@@ -213,7 +213,7 @@ fn interaction_and_replacement_facts_preserve_pinned_classification() {
         let records = palette(legacy);
         let facts = BlockFacts::new(&records).unwrap();
         let components: std::collections::BTreeSet<_> =
-            include_str!("../../../../assets/data/block-components-v2193.tsv")
+            include_str!("../../../../assets/data/block-components-v2225.tsv")
                 .lines()
                 .skip(1)
                 .filter_map(|row| {

@@ -1,10 +1,10 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     ContainerEnumName, InventorySourceType, ItemUseInventoryTransactionPredictedResult,
     ItemUseInventoryTransactionTriggerType, PlayerActionType,
 };
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::types::InventoryTransactionPacketData;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::types::InventoryTransactionPacketData;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{
     BlockUseRequest, ItemUseTrigger, NetworkItemStack, PredictedSlotChange,
     VerifiedNetworkItemStack, click_block_transaction_packet, decode_batch, encode,
@@ -37,7 +37,7 @@ fn held_use_start_and_stop_carry_original_and_last_destinations() {
     else {
         panic!("start item use");
     };
-    assert_eq!(start.action, PlayerActionType::Startitemuseon);
+    assert_eq!(start.action, PlayerActionType::StartItemUseOn);
     assert_eq!(start.player_runtime_id.0, 42);
     assert_eq!(
         [
@@ -60,7 +60,7 @@ fn held_use_start_and_stop_carry_original_and_last_destinations() {
     else {
         panic!("stop item use");
     };
-    assert_eq!(stop.action, PlayerActionType::Stopitemuseon);
+    assert_eq!(stop.action, PlayerActionType::StopItemUseOn);
     assert_eq!(
         [
             stop.block_position.x.0,
@@ -130,7 +130,7 @@ fn survival_press_and_repeat_record_stack_deltas_and_prediction_fields() {
             let slots = packet.legacy_set_item_slots.as_ref().unwrap();
             assert_eq!(
                 slots[0].container_enum,
-                ContainerEnumName::Inventorycontainer
+                ContainerEnumName::InventoryContainer
             );
             assert_eq!(slots[0].slots.as_ref(), [2]);
         }

@@ -700,6 +700,9 @@ pub(super) fn evaluate_state(
     state
         .compose_into(&local, &mut pose)
         .ok_or(EvalError::Invalid)?;
+    let head_angles = state
+        .head_rotation
+        .and_then(|_| super::head_rotation::angles(&state.bones, &state.bone_names, &local));
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
@@ -781,6 +784,7 @@ pub(super) fn evaluate_state(
     }
     Ok(EvaluatedState {
         pose,
+        head_angles,
         skin_layers,
         render,
         scale,

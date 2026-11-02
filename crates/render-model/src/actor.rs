@@ -7,8 +7,8 @@ mod ids;
 mod locator;
 mod rig;
 pub use locator::{ActorEmitterTransform, sampled_bone_offset, sampled_locator_transform};
+mod poly_mesh;
 mod skin;
-mod skin_poly_mesh;
 pub mod skin_portrait;
 mod surface;
 mod texel_fit;
@@ -55,7 +55,7 @@ mod glint;
 pub mod skin_slots;
 pub use artwork::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
-    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, PagePixels,
 };
 pub use cull::{ACTOR_CANDIDATE_RADIUS_BLOCKS, ActorCullView, MAX_ACTOR_RENDER_DISTANCE_BLOCKS};
 

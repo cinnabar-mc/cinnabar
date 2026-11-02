@@ -7,6 +7,51 @@ use launcher_host::{
 
 const SOURCE: &str = "https://github.com/example/zoom/releases/latest/download/zoom.wasm";
 
+#[test]
+fn revision_aware_install_requires_the_exact_promised_replacement_identity() {
+    for matches in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("zoom.wasm");
+        let identity = |revision: &str| {
+            serde_json::json!({
+                "source": SOURCE, "package": "example-mod", "api_revision": "a".repeat(40), "revision": revision,
+            })
+            .to_string()
+        };
+        let mut original = component("1.0.0", SOURCE, true);
+        section(
+            &mut original,
+            mod_api::REVISION_UPDATE_SECTION,
+            identity(&"a".repeat(40)).as_bytes(),
+        );
+        fs::write(&path, &original).unwrap();
+        let mut next = component("1.1.0", SOURCE, true);
+        section(
+            &mut next,
+            mod_api::REVISION_UPDATE_SECTION,
+            identity(&if matches { "b" } else { "c" }.repeat(40)).as_bytes(),
+        );
+        let mut download = Downloaded::fixture(
+            installed(directory.path())[0].0.id,
+            "1.1.0",
+            "example/zoom",
+            "zoom.wasm",
+            &next,
+        );
+        download.revision_update =
+            ui::mod_metadata::RevisionModUpdate::parse(identity(&"b".repeat(40)).as_bytes())
+                .map(Box::new);
+        assert_eq!(
+            install::<AppBackend>(directory.path(), &download).is_ok(),
+            matches
+        );
+        assert_eq!(
+            fs::read(&path).unwrap(),
+            if matches { next } else { original }
+        );
+    }
+}
+
 /// Builds a valid host-world component with versioned, root-level update metadata.
 fn component(version: &str, source: &str, valid: bool) -> Vec<u8> {
     let code = if valid {

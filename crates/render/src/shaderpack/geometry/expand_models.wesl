@@ -20,7 +20,7 @@ fn expand_models(@builtin(global_invocation_id) id: vec3<u32>, @builtin(num_work
 /// fail validation.
 fn model_face(job: vec4<u32>) -> JobFace {
     let quad = model_quad_at(job.x, job.w & JOB_MODEL_QUAD_MASK, job.y);
-    if (!quad.valid) {
+    if (quad.valid == 0u) {
         var invalid: JobFace;
         return invalid;
     }

@@ -1,8 +1,8 @@
 //! Outbound packets for block-side requests: sign edits and map image requests.
 
-use bedrock_protocol_1_26_51::packets::{BlockActorData, MapInfoRequest};
-use bedrock_protocol_1_26_51::types::{ActorUniqueID, BlockPos};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{BlockActorData, MapInfoRequest};
+use bedrock_protocol_1_26_60::types::{ActorUniqueID, BlockPos};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 
 use crate::Packet;

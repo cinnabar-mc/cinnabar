@@ -84,10 +84,12 @@ fn camera_and_relayed_position_reads_follow_their_grants() {
         pitch: -0.25,
     };
     let facts = GameplayFacts {
+        movement_input: None,
         camera: Some(camera),
         damage_shake: None,
         relayed_position: Some(vector(4.0, 64.0, 6.0)),
         use_held: false,
+        ..Default::default()
     };
     let mut denied = state(ModGrants::default());
     denied.gameplay_facts = facts;
@@ -537,4 +539,188 @@ fn movement_snapshot_rejects_nonfinite_or_foreign_authority() {
     ] {
         assert!(validate_movement(Some(&snapshot()), Some(&bad)).is_err());
     }
+}
+
+/// Complete control vectors are bounded, granted, staged atomically and renewed each frame.
+#[test]
+fn movement_input_is_bounded_granted_and_frame_scoped() {
+    let input = crate::GameplayMovementInput {
+        right: -0.5,
+        forward: 0.75,
+        jump: true,
+        sneak: false,
+        sprint: false,
+    };
+    let mut denied = state(ModGrants::default());
+    denied.controls.frame.focused = true;
+    denied.controls.frame.gameplay = true;
+    assert!(denied.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(denied.read_movement_input().unwrap().is_err());
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    state.gameplay_facts.movement_input = Some(input);
+    assert!(state.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(state.read_movement_input().unwrap().unwrap().is_none());
+    assert!(state.set_movement_input(None).unwrap().is_ok());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.controls.frame.panel_open = true;
+    assert!(state.set_movement_input(Some(input)).unwrap().is_err());
+    assert!(state.read_movement_input().unwrap().unwrap().is_none());
+    state.controls.frame.panel_open = false;
+    assert_eq!(state.read_movement_input().unwrap().unwrap(), Some(input));
+    for axis in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.01, 1.01] {
+        state.motion.begin_frame();
+        assert!(
+            state
+                .set_movement_input(Some(crate::GameplayMovementInput {
+                    right: axis,
+                    ..input
+                }))
+                .unwrap()
+                .is_err()
+        );
+        assert!(
+            state
+                .set_movement_input(Some(crate::GameplayMovementInput {
+                    forward: axis,
+                    ..input
+                }))
+                .unwrap()
+                .is_err()
+        );
+    }
+    state.set_movement_input(Some(input)).unwrap().unwrap();
+    assert!(state.world.movement_input.is_none());
+    state.world.commit();
+    assert_eq!(state.world.movement_input, Some(input));
+    state.world.begin_frame();
+    state.world.commit();
+    assert!(state.world.movement_input.is_none());
+    state.set_movement_input(Some(input)).unwrap().unwrap();
+    state.set_movement_input(None).unwrap().unwrap();
+    state.world.commit();
+    assert!(state.world.movement_input.is_none());
+}
+
+/// Crosshair mining is opt-in, transactional, and released with other frame interactions.
+#[test]
+fn block_mining_is_granted_and_expires_with_the_frame() {
+    let mut denied = state(ModGrants::default());
+    assert!(denied.set_block_mining(true).unwrap().is_err());
+    assert!(denied.set_block_mining(false).unwrap().is_err());
+    let mut state = state(ModGrants {
+        interaction: true,
+        ..Default::default()
+    });
+    state.snapshot = None;
+    assert!(state.set_block_mining(true).unwrap().is_err());
+    state.set_block_mining(false).unwrap().unwrap();
+    state.controls.begin_frame();
+    state.snapshot = Some(snapshot());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.controls.frame.panel_open = true;
+    assert!(state.set_block_mining(true).unwrap().is_err());
+    state.controls.frame.panel_open = false;
+    state.set_block_mining(true).unwrap().unwrap();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.commit();
+    assert!(state.controls.interaction.block_mining);
+    assert!(!state.controls.interaction.attack_pulse);
+    state.controls.begin_frame();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.controls.rollback();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.set_block_mining(false).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.begin_frame();
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.set_block_mining(true).unwrap().unwrap();
+    state.controls.commit();
+    state.controls.revoke();
+    assert!(!state.controls.interaction.block_mining);
+}
+
+#[test]
+fn mining_destination_requires_grants_physical_attack_and_successful_frame() {
+    let point = GameplayVector3 {
+        x: 1.5,
+        y: 2.5,
+        z: 3.5,
+    };
+    for (interaction, terrain) in [(false, true), (true, false)] {
+        let mut denied = state(ModGrants {
+            interaction,
+            terrain,
+            ..Default::default()
+        });
+        assert!(
+            denied
+                .set_block_mining_target(Some(point))
+                .unwrap()
+                .is_err()
+        );
+    }
+    let mut state = state(ModGrants {
+        interaction: true,
+        terrain: true,
+        ..Default::default()
+    });
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    assert!(state.set_block_mining_target(Some(point)).unwrap().is_err());
+    state.gameplay_facts.attack_held = true;
+    state.set_block_mining_target(Some(point)).unwrap().unwrap();
+    assert!(state.controls.interaction.block_mining_target.is_none());
+    state.controls.commit();
+    assert_eq!(state.controls.interaction.block_mining_target, Some(point));
+    assert!(!state.controls.interaction.block_mining);
+    state.controls.begin_frame();
+    assert!(state.controls.interaction.block_mining_target.is_none());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    for value in [f32::NAN, f32::INFINITY, f32::MAX] {
+        assert!(
+            state
+                .set_block_mining_target(Some(GameplayVector3 { x: value, ..point }))
+                .unwrap()
+                .is_err()
+        );
+    }
+    state.controls.frame.panel_open = true;
+    assert!(state.set_block_mining_target(Some(point)).unwrap().is_err());
+    state.set_block_mining_target(None).unwrap().unwrap();
+}
+
+#[test]
+fn block_target_reads_require_terrain_and_current_gameplay() {
+    let point = vector(1.5, 2.5, 3.5);
+    let mut denied = state(ModGrants::default());
+    assert!(denied.read_block_target().unwrap().is_err());
+    let mut state = state(ModGrants {
+        terrain: true,
+        ..Default::default()
+    });
+    state.gameplay_facts.block_target = Some(point);
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    assert_eq!(state.read_block_target().unwrap(), Ok(Some(point)));
+    state.controls.frame.panel_open = true;
+    assert_eq!(state.read_block_target().unwrap(), Ok(None));
+    state.controls.frame.panel_open = false;
+    state.snapshot = None;
+    assert_eq!(state.read_block_target().unwrap(), Ok(None));
 }

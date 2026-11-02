@@ -1,7 +1,7 @@
-use bedrock_protocol_1_26_51::enums::ItemVersion;
-use bedrock_protocol_1_26_51::packets::ItemRegistry as ItemRegistryPacket;
-use bedrock_protocol_1_26_51::types::ItemData;
-use bedrock_protocol_1_26_51::wire::{self, NetworkNbt as Nbt};
+use bedrock_protocol_1_26_60::enums::ItemVersion;
+use bedrock_protocol_1_26_60::packets::ItemRegistry as ItemRegistryPacket;
+use bedrock_protocol_1_26_60::types::ItemData;
+use bedrock_protocol_1_26_60::wire::{self, NetworkNbt as Nbt};
 use bytes::Bytes;
 use protocol::{
     ItemActorEvent, ItemPacketError, WorldEvent, WorldPacketError, WorldWireError,
@@ -110,7 +110,7 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
         let entry = normalize(registry_entry(
             component_data,
             false,
-            ItemVersion::Datadriven,
+            ItemVersion::DataDriven,
         ))
         .unwrap();
 
@@ -132,7 +132,7 @@ fn creative_category_survives_registry_admission_with_its_typed_default() {
             "components",
             &[compound_tag("item_properties", &[property])],
         )]);
-        let entry = normalize(registry_entry(data, true, ItemVersion::Datadriven)).unwrap();
+        let entry = normalize(registry_entry(data, true, ItemVersion::DataDriven)).unwrap();
         assert_eq!(entry.components.unwrap().creative_category, Some(expected));
     }
 }
@@ -147,8 +147,8 @@ fn repeated_registry_declaration_retains_its_populated_definition() {
     ] {
         let packet = ItemRegistryPacket {
             item_data: vec![
-                registry_entry(first, true, ItemVersion::Datadriven),
-                registry_entry(last, true, ItemVersion::Datadriven),
+                registry_entry(first, true, ItemVersion::DataDriven),
+                registry_entry(last, true, ItemVersion::DataDriven),
             ],
         };
         let WorldEvent::ItemActor(ItemActorEvent::Registry(registry)) =
@@ -213,7 +213,7 @@ fn only_the_exact_component_property_path_supplies_capacity() {
     let entry = normalize(registry_entry(
         root_compound(&[shadow, valid]),
         true,
-        ItemVersion::Datadriven,
+        ItemVersion::DataDriven,
     ))
     .unwrap();
     assert_eq!(entry.negotiated_max_stack_size, Some(64));
@@ -264,7 +264,7 @@ fn ambiguous_or_invalid_capacity_evidence_is_ignored_without_rejecting_registry(
         let entry = normalize(registry_entry(
             component_data,
             true,
-            ItemVersion::Datadriven,
+            ItemVersion::DataDriven,
         ))
         .unwrap();
         assert_eq!(entry.negotiated_max_stack_size, None);
@@ -297,7 +297,7 @@ fn unknown_version_and_excessive_walk_depth_do_not_supply_capacity() {
             nested,
         ]),
         true,
-        ItemVersion::Datadriven,
+        ItemVersion::DataDriven,
     ))
     .unwrap();
     assert_eq!(deep.negotiated_max_stack_size, None);
@@ -308,7 +308,7 @@ fn malformed_registry_nbt_remains_a_wire_error() {
     let truncated = Nbt(Bytes::from_static(&[
         COMPOUND, 0, COMPOUND, 10, b'c', b'o', b'm', b'p', b'o', b'n', b'e', b'n', b't', b's',
     ]));
-    let error = normalize(registry_entry(truncated, true, ItemVersion::Datadriven)).unwrap_err();
+    let error = normalize(registry_entry(truncated, true, ItemVersion::DataDriven)).unwrap_err();
     assert!(matches!(
         error,
         WorldPacketError::Wire(WorldWireError::Item(ItemPacketError::InvalidItemNbt))
@@ -321,7 +321,7 @@ fn a_repeated_network_id_goes_to_the_later_item_without_dropping_the_registry() 
         item_name: name.into(),
         item_id: wire::I16LE(id),
         is_component_based: component_based,
-        item_version: ItemVersion::Datadriven,
+        item_version: ItemVersion::DataDriven,
         item_component_data: data,
     };
     // A proxy that has no ID for newer vanilla items sends them all as ID 0,

@@ -29,6 +29,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.player_preview_drawn = None;
     runtime.gui_models.skin = None;
     runtime.gui_models.particles.reset();
+    runtime.gui_models.shield_icons.clear();
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_set = Default::default();
@@ -276,6 +277,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .clone()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
     );
+    let shield_pages = runtime.gui_models.shield_icons.pages();
+    dynamic.extend((0..render_model::MAX_UI_SHIELD_PAGES).map(|index| {
+        shield_pages
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()

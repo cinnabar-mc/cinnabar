@@ -27,7 +27,6 @@ pub struct CameraSettingsAuthority {
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
-    preserve_teleport_rotation: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
 }
@@ -142,7 +141,6 @@ impl Default for CameraSettingsAuthority {
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
-            preserve_teleport_rotation: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
         }
@@ -297,16 +295,6 @@ impl CameraSettingsAuthority {
             .is_some_and(|view| view.capture_movement)
     }
 
-    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
-    pub const fn preserves_teleport_rotation(&self) -> bool {
-        self.preserve_teleport_rotation
-    }
-
-    /// Position reconciliation and teleport acknowledgment remain server-owned.
-    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
-        self.preserve_teleport_rotation = enabled;
-    }
-
     /// Applies ephemeral view multipliers without changing saved FOV, sensitivity or perspective.
     /// Invalid native values restore the neutral view.
     pub fn set_view_scale(&mut self, fov_scale: f32, look_scale: f32) {
@@ -391,7 +379,6 @@ impl CameraSettingsAuthority {
         self.freelook = false;
         self.presented_view = None;
         self.death_rotation = None;
-        self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
     }

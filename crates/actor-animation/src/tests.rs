@@ -1,6 +1,8 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use protocol_ids::{ActorDataKey, ActorFlag};
 
+mod life_span;
+
 #[test]
 fn custom_identity_uses_its_admitted_builtin_appearance() {
     let base = "minecraft:pig";
@@ -301,6 +303,31 @@ fn head_target_yaw_is_relative_to_the_body_and_wrapped() {
     };
     assert!((read(&actor, &input, 0, "query.target_y_rotation") - 20.0).abs() < 1.0e-4);
     assert_eq!(read(&actor, &input, 0, "query.target_x_rotation"), 30.0);
+}
+
+// The vanilla rocket hides its body under this query while it boosts a glider.
+#[test]
+fn a_rocket_with_an_owner_reads_as_attached_to_an_entity() {
+    let rocket = |owner: Option<i64>| {
+        let key = ActorDataKey::CustomDisplay.wire_value();
+        actor_with_metadata(
+            owner
+                .map(|id| (key, ActorMetadataValue::Long(id)))
+                .into_iter()
+                .collect(),
+        )
+    };
+    let attached = |owner| {
+        read(
+            &rocket(owner),
+            &ActorTickInput::default(),
+            0,
+            "query.is_attached_to_entity",
+        )
+    };
+    assert_eq!(attached(Some(7)), 1.0);
+    assert_eq!(attached(Some(-1)), 0.0);
+    assert_eq!(attached(None), 0.0);
 }
 
 #[test]

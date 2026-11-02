@@ -36,6 +36,10 @@ pub(crate) fn source(raw: &str) -> String {
         &crate::material_shader::glint_tint_source(),
     )
     .replace(
+        "UI_STYLE_RGB_COVERAGE",
+        &format!("{}u", render_api::UI_STYLE_RGB_COVERAGE),
+    )
+    .replace(
         "UI_STYLE_ALPHA_TEST",
         &format!("{}u", render_api::UI_STYLE_ALPHA_TEST),
     )

@@ -1,11 +1,11 @@
 use std::path::{Path, PathBuf};
 
-use bedrock_protocol_1_26_51::enums::PlayStatusType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::PlayStatusType;
+use bedrock_protocol_1_26_60::packets::{
     self, ChunkRadiusUpdated, ItemRegistry, PlayStatus, SetTime, StartGame,
 };
-use bedrock_protocol_1_26_51::types::{ActorRuntimeID, ItemData};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::{ActorRuntimeID, ItemData};
+use bedrock_protocol_1_26_60::wire;
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{UnixListener, UnixStream};
@@ -151,7 +151,7 @@ fn spawn_prerequisites() -> Vec<Packet> {
             chunk_radius: wire::ZigZag32(8),
         }),
         crate::Packet::new(PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         }),
     ]
 }
@@ -496,7 +496,7 @@ async fn a_disconnect_before_the_handoff_is_a_server_disconnect() {
         disconnect.message.as_deref(),
         Some("disconnectionScreen.serverFull")
     );
-    assert_eq!(disconnect.reason, "Serverfull");
+    assert_eq!(disconnect.reason, "ServerFull");
 }
 
 /// A transfer before the handoff is followed like a login-time transfer.

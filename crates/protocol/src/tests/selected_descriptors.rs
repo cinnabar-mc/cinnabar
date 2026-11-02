@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     enums::ContainerEnumName,
     packets,
     types::{InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData},
@@ -262,7 +262,7 @@ fn assert_change(
     assert_eq!(slots.len(), 1);
     assert_eq!(
         slots[0].container_enum,
-        ContainerEnumName::Inventorycontainer
+        ContainerEnumName::InventoryContainer
     );
     assert_eq!(slots[0].slots.as_ref(), [2]);
     let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =

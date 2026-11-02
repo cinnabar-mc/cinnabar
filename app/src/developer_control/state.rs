@@ -397,6 +397,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
     });
     // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["frame_stats"] = frame_stats(world);
     snapshot["terrain_culling"] = json!({
         "occlusion_enabled": world.get_resource::<render_scene::ChunkOcclusionCulling>().map(|preference| preference.0),
         "sections": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>().map(|cache| json!({
@@ -477,4 +478,72 @@ fn aim_assist(world: &World) -> Option<Value> {
             "point": target.point.to_array(),
         })),
     }))
+}
+
+/// Copies the current stage-profile interval without draining logging or other readers.
+fn frame_stats(world: &World) -> Value {
+    let Some(samples) = world
+        .get_resource::<render_scene::RuntimeStageProfiler>()
+        .and_then(render_scene::RuntimeStageProfiler::stage_samples)
+    else {
+        return Value::Null;
+    };
+    let stages: serde_json::Map<String, Value> = render_scene::RuntimeStage::ALL
+        .into_iter()
+        .zip(samples)
+        .filter(|(_, sample)| sample.count != 0)
+        .map(|(stage, sample)| {
+            let mut value = json!({"count": sample.count,
+                "wall_ns": u64::try_from(sample.total.as_nanos()).unwrap_or(u64::MAX),
+                "max_wall_ns": u64::try_from(sample.maximum.as_nanos()).unwrap_or(u64::MAX)});
+            if sample.thread_cpu_count != 0 {
+                value["thread_cpu_count"] = json!(sample.thread_cpu_count);
+                value["thread_cpu_ns"] =
+                    json!(u64::try_from(sample.thread_cpu_total.as_nanos()).unwrap_or(u64::MAX));
+                value["max_thread_cpu_ns"] =
+                    json!(u64::try_from(sample.thread_cpu_maximum.as_nanos()).unwrap_or(u64::MAX));
+            }
+            (stage.name().to_owned(), value)
+        })
+        .collect();
+    json!({"interval": "since_stage_profile_drain", "scope": "overlapping", "stages": stages})
+}
+
+#[cfg(test)]
+mod frame_stats_tests {
+    use super::*;
+    use render_scene::{RuntimeStage, RuntimeStageProfiler};
+
+    /// Reading developer stats preserves the logging interval and omits unavailable clocks.
+    #[test]
+    fn frame_stats_include_optional_cpu_without_draining_samples() {
+        for available in [false, true] {
+            let mut world = World::new();
+            let profiler = RuntimeStageProfiler::new(true).with_thread_cpu_clock(if available {
+                || Some(Duration::ZERO)
+            } else {
+                || None
+            });
+            drop(profiler.time(RuntimeStage::WorldPoll));
+            world.insert_resource(profiler.clone());
+            let stats = frame_stats(&world);
+            let sample = &stats["stages"]["world_poll"];
+            assert_eq!(sample["count"], 1);
+            assert!(sample.get("wall_ns").is_some());
+            assert_eq!(sample.get("thread_cpu_ns").is_some(), available);
+            if available {
+                assert_eq!(sample["thread_cpu_ns"], 0);
+                assert_eq!(sample["thread_cpu_count"], 1);
+            }
+            assert_eq!(frame_stats(&world), stats);
+            assert_eq!(
+                profiler
+                    .take_snapshot_if_due(Duration::ZERO)
+                    .unwrap()
+                    .samples[RuntimeStage::WorldPoll as usize]
+                    .count,
+                1
+            );
+        }
+    }
 }

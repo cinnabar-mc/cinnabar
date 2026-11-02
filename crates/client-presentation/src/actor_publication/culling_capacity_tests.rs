@@ -603,7 +603,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
         }
         let mut batch =
             select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
-        let mut layers = crate::presentation::skin_layers::SkinLayerCache::default();
+        let mut layers = crate::presentation::skin_layers::ActorLayerCache::default();
         let _ = layers.apply(
             &mut batch,
             &artwork,
@@ -618,6 +618,7 @@ fn selected_persona_geometry_is_admitted_before_skin_registration() {
             },
             &mut caches.skin_rigs,
             |geometry| geometries.push(geometry),
+            |_, _| None,
         );
         let persona = batch
             .submissions

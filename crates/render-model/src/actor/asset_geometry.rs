@@ -88,30 +88,48 @@ pub fn geometry_from_geometry_index(
     if bones.is_empty() || bones.len() > MAX_RENDER_BONES_PER_ACTOR {
         return Err(ActorRigGeometryError::BoneCount);
     }
+    let texture_size = assets
+        .geometries()
+        .get(geometry_index)
+        .map(|geometry| (geometry.texture_width, geometry.texture_height))
+        .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?;
+    let vertices = bone_vertices(&bones, texture_size)?;
+    let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
+    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
+}
+
+/// Meshes visible bones in vanilla's order: each part's cubes and quads, then all triangles.
+fn bone_vertices(
+    bones: &[EntityGeometryBone],
+    texture_size: (u16, u16),
+) -> Result<Vec<super::ActorRigVertex>, ActorRigGeometryError> {
     let mut vertices = Vec::new();
-    for (bone_index, bone) in bones.iter().enumerate() {
-        if bone.never_render == Some(true) {
-            continue;
-        }
+    let visible = || {
+        bones
+            .iter()
+            .enumerate()
+            .filter(|(_, bone)| bone.never_render != Some(true))
+            .map(|(index, bone)| (index as u32, bone))
+    };
+    for (bone_index, bone) in visible() {
         for cube in &bone.cubes {
             super::geometry::append_entity_bone_cube_vertices(
                 &mut vertices,
                 cube,
-                bone_index as u32,
-                assets
-                    .geometries()
-                    .get(geometry_index)
-                    .map(|geometry| (geometry.texture_width, geometry.texture_height))
-                    .ok_or(ActorRigGeometryError::InvalidAssetGeometry)?,
+                bone_index,
+                texture_size,
                 bone,
             )?;
             if vertices.len() > MAX_ACTOR_RIG_VERTICES {
                 return Err(ActorRigGeometryError::CatalogCapacity);
             }
         }
+        super::poly_mesh::append_quads(&mut vertices, bone, bone_index, texture_size)?;
     }
-    let bone_pivots = bones.iter().map(bone_bind_pivot).collect::<Vec<_>>();
-    ActorRigGeometry::new(id, Arc::from(vertices), Arc::from(bone_pivots))
+    for (bone_index, bone) in visible() {
+        super::poly_mesh::append_triangles(&mut vertices, bone, bone_index, texture_size)?;
+    }
+    Ok(vertices)
 }
 
 /// Rig geometry of a player skin's own model under `id`. Cubes carry their resolved mirror and
@@ -125,33 +143,7 @@ pub fn skin_geometry(
         return Err(ActorRigGeometryError::BoneCount);
     }
     let texture_size = (geometry.texture_width, geometry.texture_height);
-    let mut vertices = Vec::new();
-    for (bone_index, bone) in bones.iter().enumerate() {
-        if bone.never_render == Some(true) {
-            continue;
-        }
-        for cube in &bone.cubes {
-            super::geometry::append_entity_bone_cube_vertices(
-                &mut vertices,
-                cube,
-                bone_index as u32,
-                texture_size,
-                bone,
-            )?;
-            if vertices.len() > MAX_ACTOR_RIG_VERTICES {
-                return Err(ActorRigGeometryError::CatalogCapacity);
-            }
-        }
-    }
-    for (bone_index, mesh) in geometry.poly_meshes.iter().enumerate() {
-        if bones[bone_index].never_render == Some(true) {
-            continue;
-        }
-        let Some(mesh) = mesh else {
-            continue;
-        };
-        super::skin_poly_mesh::append(&mut vertices, mesh, bone_index as u32, texture_size)?;
-    }
+    let vertices = bone_vertices(bones, texture_size)?;
     if vertices.is_empty() {
         return Err(ActorRigGeometryError::VertexCount);
     }
@@ -386,6 +378,7 @@ mod tests {
             name: "body".into(),
             binding: None,
             texture_meshes: Box::new([]),
+            poly_mesh: None,
             parent: None,
             pivot: None,
             rotation: None,

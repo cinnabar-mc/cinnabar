@@ -6,8 +6,8 @@
 //! use lives in `item_use`.
 
 use client_interaction::block_use::{
-    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_toggle,
-    verified_use_selection,
+    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_seed_planting,
+    predicted_toggle, verified_use_selection,
 };
 
 use crate::runtime::network::resource_packs::PackApplication;
@@ -109,7 +109,7 @@ fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repr
 
 #[cfg(test)]
 #[path = "block_use/published_tests.rs"]
-mod published_tests;
+pub(crate) mod published_tests;
 
 #[cfg(test)]
 mod startup_tests {

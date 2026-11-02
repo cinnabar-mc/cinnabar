@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{LevelEvent, SpawnParticleEffect};
+use bedrock_protocol_1_26_60::packets::{LevelEvent, SpawnParticleEffect};
 use protocol_ids::LevelEvent as LevelEventId;
 
 /// Longest effect identifier accepted from the wire.
@@ -98,7 +98,7 @@ pub(crate) fn normalize_spawn(packet: SpawnParticleEffect) -> Option<ParticleEve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::wire;
 
     fn level(event_id: i32, x: f32) -> LevelEvent {
         LevelEvent {

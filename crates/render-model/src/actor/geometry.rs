@@ -268,7 +268,11 @@ fn cuboid_corners(min: [f32; 3], max: [f32; 3]) -> [[f32; 3]; 8] {
     ]
 }
 
-fn rotate_euler_around(point: [f32; 3], pivot: [f32; 3], degrees: [f32; 3]) -> Option<[f32; 3]> {
+pub(super) fn rotate_euler_around(
+    point: [f32; 3],
+    pivot: [f32; 3],
+    degrees: [f32; 3],
+) -> Option<[f32; 3]> {
     if point
         .iter()
         .chain(pivot.iter())

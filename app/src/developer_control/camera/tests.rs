@@ -4,6 +4,7 @@ use render_scene::CameraMotionBlur;
 use std::time::Duration;
 use {super::*, client_presentation::camera::FlyCamera};
 
+/// Creates a simple pose for camera interpolation tests.
 fn frame(t: f32, x: f32) -> Keyframe {
     Keyframe {
         t,
@@ -13,6 +14,29 @@ fn frame(t: f32, x: f32) -> Keyframe {
         fov: None,
         easing: None,
     }
+}
+
+#[test]
+fn realtime_routes_follow_real_time_across_a_clamped_game_frame() {
+    let path = CameraPath {
+        keyframes: vec![frame(0., 0.), frame(10., 160.)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, camera) = app(path.clone());
+    app.init_resource::<Time<Real>>();
+    start_realtime(app.world_mut(), path).unwrap();
+    app.update();
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(Duration::from_secs(2));
+    advance(&mut app, 0.25);
+    assert_eq!(
+        app.world().get::<Transform>(camera).unwrap().translation.x,
+        32.
+    );
+    assert_eq!(app.world().resource::<ScriptedCamera>().elapsed, 2.);
 }
 
 fn app(path: CameraPath) -> (App, Entity) {

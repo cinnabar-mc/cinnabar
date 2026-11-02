@@ -326,6 +326,19 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
     }
 }
 
+/// No OreUI control on a screen declares a press sound, so none plays.
+#[test]
+fn oreui_controls_stay_silent() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Play;
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    assert!(!hits.is_empty());
+    for (action, _) in hits {
+        assert_eq!(presentation.menu_sound(action), None, "{action:?}");
+    }
+}
+
 #[test]
 fn add_server_dialog_owns_its_fields_and_blocks_background_controls() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();

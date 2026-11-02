@@ -25,20 +25,24 @@ impl RemoteSource for NoDownloads {
 
 /// Builds synthetic HUD screens and an empty carrier without installed game assets.
 fn engine() -> FormEngine {
+    engine_with_hud(
+        r#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[
+        {"image":{"type":"image","texture":"textures/ui/cross_hair",
+            "bilinear":true,"grayscale":true,"size":[16,16],
+            "anchor_from":"center","anchor_to":"center"}}
+    ]}}"#,
+    )
+}
+
+/// Builds an asset-independent HUD around the supplied original control definitions.
+fn engine_with_hud(hud: &str) -> FormEngine {
     let mut files = [
         ("ui/_global_variables.json", "{}"),
         (
             "ui/_ui_defs.json",
             r#"{"ui_defs":["ui/hud.json","ui/cursor.json"]}"#,
         ),
-        (
-            "ui/hud.json",
-            r#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[
-                {"image":{"type":"image","texture":"textures/ui/cross_hair",
-                    "bilinear":true,"grayscale":true,"size":[16,16],
-                    "anchor_from":"center","anchor_to":"center"}}
-            ]}}"#,
-        ),
+        ("ui/hud.json", hud),
         (
             "ui/cursor.json",
             r#"{"namespace":"hud_crosshair","hud_crosshair_screen":{"type":"screen","controls":[
@@ -324,15 +328,24 @@ fn native_crosshair_stays_on_physical_pixels_after_pack_swaps() {
                     .find(|node| {
                         matches!(
                             node.visual(),
-                            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+                            UiVisual::Sprite { .. }
+                                | UiVisual::RgbCoverageSprite { .. }
+                                | UiVisual::InvertedSprite { .. }
                         )
                     })
                     .unwrap();
+                assert_eq!(
+                    matches!(node.visual(), UiVisual::RgbCoverageSprite { .. }),
+                    side.is_none() && blend == UiBlendMode::Alpha
+                );
                 let bounds = node.bounds();
                 assert!(matches!(
                     (blend, node.visual()),
                     (UiBlendMode::Invert, UiVisual::InvertedSprite { .. })
-                        | (UiBlendMode::Alpha, UiVisual::Sprite { .. })
+                        | (
+                            UiBlendMode::Alpha,
+                            UiVisual::Sprite { .. } | UiVisual::RgbCoverageSprite { .. }
+                        )
                 ));
                 let edges = [
                     bounds.min().x(),
@@ -355,5 +368,53 @@ fn native_crosshair_stays_on_physical_pixels_after_pack_swaps() {
                 }
             }
         }
+    }
+}
+
+/// The current pack anchors the entire slot row with a zero-width custom control.
+#[test]
+fn combined_hotbar_renderer_paints_every_slot_from_its_anchor() {
+    let mut engine = engine_with_hud(
+        r#"{"namespace":"hud","hud_screen":{"type":"screen","controls":[
+        {"slots":{"type":"custom","renderer":"hotbar_slots_renderer","size":[0,22],
+            "anchor_from":"top_left","anchor_to":"top_left","offset":[30,10]}}
+    ]}}"#,
+    );
+    let (png, _) = texture(20);
+    let images = (0..9)
+        .map(|index| (format!("textures/ui/hotbar_{index}.png"), png.clone()))
+        .collect::<Vec<_>>();
+    engine.set_server_atlas(ServerAtlas::new(&images, None, 1), server_page());
+    let mut screens = HudScreens::default();
+    let nodes = paint(
+        &engine,
+        Some(&mut screens),
+        false,
+        UiBlendMode::Alpha,
+        [320, 200],
+        1.0,
+        1,
+    );
+    let sprites = nodes
+        .iter()
+        .filter(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sprites.len(),
+        9,
+        "all slot backgrounds paint even though the anchor has no width"
+    );
+    for (index, node) in sprites.iter().enumerate() {
+        let left = 30.0 + index as f32 * 20.0;
+        let bounds = node.bounds();
+        assert_eq!(
+            [
+                bounds.min().x(),
+                bounds.min().y(),
+                bounds.max().x(),
+                bounds.max().y()
+            ],
+            [left, 10.0, left + 20.0, 32.0]
+        );
     }
 }

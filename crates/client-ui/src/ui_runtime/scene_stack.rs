@@ -30,6 +30,8 @@ pub enum Scene {
     /// Vanilla's list of the local player's active effects.
     MobEffects,
     Loading,
+    /// Client-owned cover while an in-session global resource-pack replacement publishes.
+    ResourcePackLoading,
     SignEditor,
     ServerForm,
     /// A script form shown through data-driven UI.
@@ -49,6 +51,7 @@ impl Scene {
             | Self::Container
             | Self::Emote
             | Self::MobEffects
+            | Self::ResourcePackLoading
             | Self::SignEditor
             | Self::ServerForm
             | Self::DataDriven

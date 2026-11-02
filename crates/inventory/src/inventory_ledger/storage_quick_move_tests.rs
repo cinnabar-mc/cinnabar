@@ -51,7 +51,7 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
                 destination.container,
                 StackRequestContainer::PlayerInventory
             );
-            (*amount, destination.slot)
+            (*amount, u8::try_from(destination.slot).unwrap())
         })
         .collect()
 }
@@ -451,4 +451,34 @@ fn rejected_chest_return_restores_merges_empty_cells_and_source() {
     assert_eq!(ledger.storage_stack(2), Some(&source));
     assert_eq!(ledger.pending_request_count(), 0);
     assert!(ledger.cursor_stack().is_none());
+}
+
+#[test]
+fn double_click_gather_includes_high_server_menu_slots() {
+    let mut ledger = chest(&[], stack(6, 100, 20));
+    let mut storage = vec![NetworkItemStack::default(); 301];
+    storage[300] = stack(6, 101, 20);
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity {
+            window_id: Some(7),
+            slot_type: Some(CONTAINER_NAME_LEVEL_ENTITY),
+            dynamic_id: None,
+        },
+        slots: storage.into(),
+        storage_item: NetworkItemStack::default(),
+    }));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+    ledger
+        .begin_gather_to_player(InventoryTarget::Storage(300))
+        .unwrap();
+    assert!(ledger.storage_stack(300).is_none());
+    assert_eq!(ledger.displayed_stack(0).unwrap().count, 20);
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
 }

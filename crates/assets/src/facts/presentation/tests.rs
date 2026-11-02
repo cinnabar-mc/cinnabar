@@ -112,6 +112,9 @@ fn facts_migration_compiled_ambient_facts_preserve_exact_membership_in_numeric_b
         let expected = match record.name.as_ref() {
             "minecraft:fire" => AmbientBlock::Fire,
             "minecraft:portal" => AmbientBlock::Portal,
+            name if name.ends_with("candle") || name.ends_with("candle_cake") => {
+                AmbientBlock::Candle
+            }
             _ => AmbientBlock::Other,
         };
         assert_eq!(

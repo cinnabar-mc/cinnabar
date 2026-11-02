@@ -105,8 +105,8 @@ func TestSessionConnectFixtureDecodes(t *testing.T) {
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		t.Fatal(err)
 	}
-	if request.Protocol != 2193 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
-		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.50" {
+	if request.Protocol != 2225 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
+		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != bridgecontract.GameVersion {
 		t.Fatalf("connect = %+v, client data = %+v", request, clientData)
 	}
 }
@@ -152,7 +152,7 @@ func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *test
 // The core's device replaces whatever device the client claims, so a client that sends none still
 // logs in, and every login claims the platform the core signs in as.
 func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
-	profile := device.New(protocol.DeviceAndroid)
+	profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	request := testSessionConnect(t)
 	var claims map[string]any
 	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
@@ -213,7 +213,7 @@ func TestSessionDownstreamPreservesSignedClientRandomID(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile := device.New(protocol.DeviceAndroid)
+			profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 			downstream, err := newSessionDownstream(decoded, &profile)
 			if err != nil {
 				t.Fatal(err)

@@ -28,6 +28,7 @@ mod items;
 mod loyalty_rope;
 pub mod mesh;
 mod overlay_item;
+mod piston;
 mod portal;
 mod pot;
 mod scene;
@@ -72,6 +73,7 @@ pub use mesh::{
     model_matrix as block_matrix,
 };
 pub use overlay_item::overlay_item_transform;
+pub use piston::PistonArmModel;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,

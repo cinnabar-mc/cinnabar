@@ -132,7 +132,8 @@ fn committed_transparent_state(
     state
 }
 
-fn retirement_test_allocation() -> ArenaAllocation {
+/// Supplies one resident with cube, liquid, lighting, biome and origin addresses for retirement tests.
+pub(in crate::chunk) fn retirement_test_allocation() -> ArenaAllocation {
     ArenaAllocation {
         generation: 7,
         tint_identity: ChunkBiomeTintIdentity::new(2, 2),
@@ -182,6 +183,8 @@ mod gpu_arena;
 mod gpu_biome_ranges;
 #[path = "gpu/growth_tests.rs"]
 mod gpu_growth;
+#[path = "gpu/memory_tests.rs"]
+mod gpu_memory;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
 #[path = "gpu/publication_tests.rs"]

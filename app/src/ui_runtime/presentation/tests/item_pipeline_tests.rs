@@ -47,7 +47,7 @@ fn harness() -> Option<Harness> {
             .expect("decode installed entity fixture"),
     );
     let world = Arc::new(
-        RuntimeAssets::decode(&local("vanilla-v2193.mcbea")?)
+        RuntimeAssets::decode(&local("vanilla-v2225.mcbea")?)
             .expect("decode installed world fixture"),
     );
     let carrier = ui_engine::test_support::carrier()?;

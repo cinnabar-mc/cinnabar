@@ -112,6 +112,18 @@ fn opened(
     runtime
 }
 
+#[test]
+fn actor_menu_larger_than_one_byte_keeps_the_storage_screen() {
+    use crate::ui_runtime::presentation::inventory_pointer::InventoryScreen;
+
+    let mut player_runtime = player_state::PlayerState::new(1);
+    let runtime = opened(&mut player_runtime, 0, 549);
+    assert_eq!(
+        InventoryScreen::of_runtime(&player_runtime, &runtime),
+        InventoryScreen::Storage(549)
+    );
+}
+
 /// `runtime` with the open window's `ContainerSetData` properties applied.
 fn with_data(
     mut runtime: UiRuntime,
@@ -208,7 +220,7 @@ fn screens() -> Vec<(
     };
     use protocol::*;
     use ui_screens::container_actions::{ReaderButton as R, Widget as W};
-    let storage = |count: u8| (0..count).map(Storage).collect::<Vec<_>>();
+    let storage = |count: u8| (0..u16::from(count)).map(Storage).collect::<Vec<_>>();
     vec![
         screen(
             "inventory",

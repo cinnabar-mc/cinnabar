@@ -308,8 +308,10 @@ impl PlayerInventoryLedger {
         })
     }
 
+    /// Lists confirmed window and crafting inputs across the supported slot range.
     fn open_inventory_cells(&self) -> Vec<Cell> {
-        let mut cells = (0..u8::MAX)
+        let mut cells = (0..self.confirmed.storage_len())
+            .filter_map(|slot| u16::try_from(slot).ok())
             .map(Cell::Storage)
             .take_while(|cell| self.confirmed.contains(*cell))
             .collect::<Vec<_>>();
@@ -320,6 +322,7 @@ impl PlayerInventoryLedger {
         cells
     }
 
+    /// Lists confirmed player slots in their stable transfer order.
     fn player_inventory_cells(&self) -> Vec<Cell> {
         (0..protocol::PLAYER_INVENTORY_SLOTS)
             .filter(|slot| {
@@ -339,10 +342,9 @@ impl PlayerInventoryLedger {
             WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => Some(2),
             _ => None,
         });
-        let mut cells: Vec<Cell> = (0..u8::MAX)
+        let mut cells: Vec<Cell> = (0..self.confirmed.storage_len() as u16)
             .map(Cell::Storage)
-            .take_while(|cell| self.confirmed.contains(*cell))
-            .filter(|cell| *cell != Cell::Storage(output_cell.unwrap_or(u8::MAX)))
+            .filter(|cell| output_cell.is_none_or(|output| *cell != Cell::Storage(output)))
             .collect();
         cells.extend(
             (0..protocol::PLAYER_INVENTORY_SLOTS)

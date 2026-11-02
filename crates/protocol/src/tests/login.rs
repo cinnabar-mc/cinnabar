@@ -7,8 +7,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::wire;
 use protocol::LoginSequence;
 
 const EXTERNAL_HARNESS_TEST: &str = "^TestProxyExternalRustClientHarness$";

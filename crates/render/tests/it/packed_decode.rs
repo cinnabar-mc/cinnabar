@@ -513,8 +513,8 @@ const MODEL_WITNESS: &str = r#"
 @group(0) @binding(29) var<uniform> query: vec4<u32>;
 @compute @workgroup_size(1) fn witness() {
     let quad = model_quad(query.x, 0u);
-    results[0].x = u32(quad.valid);
-    if (quad.valid) {
+    results[0].x = quad.valid;
+    if (quad.valid != 0u) {
         results[0] = vec4(1u, quad.material_id, quad.selected_material_id, quad.quad_flags);
         results[1] = vec4(vec3<u32>(quad.block_position), u32(quad.chunk_origin.w));
         for (var corner = 0u; corner < 4u; corner++) {
@@ -523,7 +523,7 @@ const MODEL_WITNESS: &str = r#"
     }
     for (var corner = 0u; corner < 4u; corner++) {
         let vertex = model_vertex(corner, query.x);
-        if (quad.valid) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
+        if (quad.valid != 0u) { results[3u + corner] = vec4(vertex.visibility, vertex.biome_record, 0u); }
         else { results[3u + corner] = bitcast<vec4<u32>>(vertex.clip_position); }
     }
 }

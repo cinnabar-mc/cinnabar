@@ -304,6 +304,34 @@ fn first_open_and_recipe_replacement_refresh_crafting_output_before_publication(
         .unwrap();
     assert_eq!(open.crafting.output.as_ref().unwrap().1.count, 2);
     assert!(open.crafting.icons[0].is_some());
+    let capture_frame = |runtime: &mut UiRuntime, presentation: &mut UiPresentationRuntime| {
+        let authority = stream.authority().inventory_ui();
+        presentation.dress_player_preview(
+            &player,
+            runtime,
+            Some(authority),
+            Default::default(),
+            |stack| authority.canonical_item_stack(stack),
+        );
+        super::super::capture_hud_frame(
+            &player,
+            runtime,
+            presentation,
+            Some(authority),
+            semantic_input::PerspectiveMode::FirstPerson,
+            0,
+            Default::default(),
+        );
+    };
+    capture_frame(&mut runtime, &mut presentation);
+    let calls =
+        crate::ui_runtime::inventory_ingress::CRAFTING_MATCH_CALLS.with(std::cell::Cell::get);
+    capture_frame(&mut runtime, &mut presentation);
+    assert_eq!(
+        crate::ui_runtime::inventory_ingress::CRAFTING_MATCH_CALLS.with(std::cell::Cell::get),
+        calls,
+        "a nonempty grid without shields must not rematch unchanged frames"
+    );
     runtime.session.inventory_open = false;
     capture(&mut cache, &player, &runtime, &presentation, &stream);
     let icons = Arc::new(SessionIcons {

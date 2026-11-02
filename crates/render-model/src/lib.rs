@@ -12,7 +12,7 @@ mod font_atlas;
 pub mod font_shading;
 mod frame_buffers;
 mod frame_latency;
-pub use frame_buffers::FrameBuffers;
+pub use frame_buffers::{CapacityRetention, FrameBuffers, FrameScratch};
 mod frame_pacing;
 pub mod hats;
 pub use font_atlas::{
@@ -26,6 +26,9 @@ pub mod panorama;
 mod presentation;
 pub mod primitive_shapes;
 pub mod terrain_units;
+
+/// Largest in-plane cube seam step in world units per unit of clip w.
+pub const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
 mod ui;
 mod ui_model;
 mod ui_publication_pool;
@@ -99,12 +102,13 @@ pub use ui::{
 pub use ui_textures::{
     MAX_UI_ART_PAGES, MAX_UI_DYNAMIC_PAGES, MAX_UI_MODEL_ATLAS_PAGES, MAX_UI_NATIVE_SHEET_BYTES,
     MAX_UI_NATIVE_SHEET_PAGES, MAX_UI_NATIVE_SHEET_SIDE, MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES,
-    MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
-    UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
-    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_SIDE,
-    UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog,
-    UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+    MAX_UI_SHIELD_PAGES, MAX_UI_TEXTURE_BUCKETS, UI_ART_PAGE_SIDE, UI_DYNAMIC_PAGE_SIDE,
+    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_LOCAL_ICON_FONT_PAGE_SIDE,
+    UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE, UI_NATIVE_SHEET_PAGE_OFFSET,
+    UI_PARTICLE_PAGE_OFFSET, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET,
+    UI_SESSION_GLYPH_PAGE_SIDE, UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET,
+    UI_SHIELD_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation,
+    UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -181,7 +185,7 @@ pub use actor::{
 };
 pub use actor::{
     ActorArtworkLocation, ActorArtworkPageId, ActorArtworkPages, ActorTexturePage, EquipmentRaster,
-    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES,
+    MAX_ACTOR_GPU_PIXEL_BYTES, MAX_ACTOR_TEXTURE_PAGES, PagePixels,
 };
 pub use actor::{ActorRigVertexSegments, share_identical_vertices};
 pub use actor::{ActorSkinResidency, ResidentSkin, pack_skin_slot};
@@ -192,6 +196,7 @@ pub use block_entity::ConduitModel;
 pub use block_entity::CrystalBeamModel;
 pub use block_entity::DragonDeathModel;
 pub use block_entity::LoyaltyRopeModel;
+pub use block_entity::PistonArmModel;
 pub use block_entity::ShulkerModel;
 pub use block_entity::{
     AtlasRect, BlockEntityAtlas, MAP_CELL, MIN_DYNAMIC_ATLAS_WIDTH, TEXT_CELL, TEXT_SLOT_COUNT,

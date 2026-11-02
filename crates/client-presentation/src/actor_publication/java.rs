@@ -14,7 +14,9 @@ use render_model::{
     },
 };
 
-use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
+use super::hand::{
+    HandInputs, HandSource, decorated_item_atlas, hand_progress, vanilla_hand_source,
+};
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, convert_bones_with, lerp_degrees, wrap_degrees},
     equipment::{
@@ -645,7 +647,7 @@ pub(super) fn hand_source(
                 Some(hand),
             )
         });
-        let layer = attachable.flatten().or_else(|| {
+        let mut layer = attachable.flatten().or_else(|| {
             let input = item_animation
                 .map(|input| {
                     super::hand::attachable_hand_input(
@@ -679,7 +681,7 @@ pub(super) fn hand_source(
                 )
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
@@ -705,14 +707,14 @@ pub(super) fn hand_source(
                 None,
             )
         });
-        let layer = attachable.or_else(|| {
+        let mut layer = attachable.or_else(|| {
             if icon_fallback {
                 equipment.first_person_offhand_icon(&inputs.presentation.submission, item)
             } else {
                 equipment.first_person_offhand(&inputs.presentation.submission, item)
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     // A missing held-item image does not make the hand empty. The empty arm's fixed pose is

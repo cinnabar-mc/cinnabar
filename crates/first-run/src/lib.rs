@@ -8,6 +8,7 @@
 mod download;
 mod fs_retry;
 mod headless;
+mod next;
 mod prepare;
 mod runner;
 mod screen;
@@ -22,6 +23,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 pub use headless::prepare_headless;
+pub use next::prepare_next_release;
 use prepare::prepare;
 use status::Status;
 pub use window::{SETUP_FLAG, run_setup_process};
@@ -46,10 +48,16 @@ pub enum Outcome {
 }
 
 /// Prepares a packaged install's resources when they are missing or stale; a no-op for development
-/// checkouts. Android's setup activity also tries to prepare local worlds before starting the game.
+/// checkouts. Carriers the previous version built in the background are promoted without setup.
+/// Android's setup activity also tries to prepare local worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
+    let promoted = next::promote(layout);
     if !needs_preparation(layout) {
-        return Ok(Outcome::NotNeeded);
+        return Ok(if promoted {
+            Outcome::Prepared
+        } else {
+            Outcome::NotNeeded
+        });
     }
     if cfg!(target_os = "android") {
         // Android's setup activity runs `prepare_headless` before the game activity starts.

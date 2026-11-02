@@ -139,6 +139,39 @@ mod pick_tests;
 #[cfg(test)]
 mod tests;
 
+/// The cell a held seed item plants into from this click and its crop's default state,
+/// resolved through the session's item components and the caller's palette view.
+pub fn predicted_seed_planting(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    ui: &UiRuntime,
+    observed: &FrozenBlockObservation,
+) -> Option<([i32; 3], u32)> {
+    let mode = stream.network_id_mode();
+    let identifier = stream
+        .authority()
+        .item_identifier(observed.selection.item.network_id())?;
+    let seed = ui.item_components(&identifier)?.seed.as_deref()?;
+    let crop = collisions.block_default_runtime_id(mode, &seed.crop_result)?;
+    let clicked = world.primary_runtime_id(observed.target.position).ok()?;
+    let cell = gameplay::block_use::seed_planting_cell(
+        seed,
+        observed.target.position,
+        observed.target.face,
+        collisions.block_identifier(mode, clicked)?,
+        |cell| {
+            world.primary_runtime_id(cell).is_ok_and(|block| {
+                collisions
+                    .block_facts(mode, block)
+                    .traits
+                    .contains(assets::registry::BlockTraits::AIR)
+            })
+        },
+    )?;
+    Some((cell, crop))
+}
+
 /// Resolves switch prediction through the caller's observed palette view.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,

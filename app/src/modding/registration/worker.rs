@@ -63,6 +63,7 @@ pub(super) fn run(
     desired: Arc<Mutex<Desired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::super::admission::DrawingContext>>>,
+    poll_interval: std::time::Duration,
 ) {
     let (loads, receive_loads) = bounded::<LoadRequest>(1);
     let (results, receive_results) = bounded(1);
@@ -102,7 +103,7 @@ pub(super) fn run(
     loop {
         let now = Instant::now();
         if now >= next_poll {
-            next_poll = now + RELOAD_INTERVAL;
+            next_poll = now + poll_interval;
             let observed = observer.observe(&directory.join(REGISTRATION_FILE), now);
             removal.observe(observed.request_id.as_deref());
             let registration = observed
@@ -177,28 +178,34 @@ pub(super) fn run(
         {
             pending_load = Some(request);
         }
-        for result in receive_results.try_iter() {
-            match result {
-                LoadResult::Ready(update)
-                    if update.generation == latest.load(Ordering::Acquire) =>
-                {
-                    pending_update = Some(update);
-                }
-                LoadResult::Reobserve(generation)
-                    if generation == latest.load(Ordering::Acquire) =>
-                {
-                    fingerprint = None;
-                    pending_update = None;
-                }
-                _ => {}
-            }
-        }
         if let Some(update) = pending_update.take()
             && let Err(TrySendError::Full(update)) = updates.try_send(update)
         {
             pending_update = Some(update);
         }
-        match messages.recv_timeout(next_poll.saturating_duration_since(Instant::now())) {
+        let message = crossbeam_channel::select! {
+            recv(receive_results) -> result => {
+                match result {
+                    Ok(LoadResult::Ready(update))
+                        if update.generation == latest.load(Ordering::Acquire) => {
+                            pending_update = Some(update);
+                        }
+                    Ok(LoadResult::Reobserve(generation))
+                        if generation == latest.load(Ordering::Acquire) => {
+                            fingerprint = None;
+                            pending_update = None;
+                            next_poll = Instant::now();
+                        }
+                    Ok(_) => {}
+                    Err(_) => break,
+                }
+                continue;
+            }
+            recv(messages) -> message => message,
+            default(next_poll.saturating_duration_since(Instant::now())) => continue,
+        };
+        match message {
+            Ok(Message::DrawingChanged) => next_poll = Instant::now(),
             Ok(Message::Acknowledge {
                 generation,
                 request_id: id,
@@ -260,8 +267,7 @@ pub(super) fn run(
                 removal.wait(latest.load(Ordering::Acquire), selection, complete, &fences);
                 next_poll = Instant::now();
             }
-            Ok(Message::Stop) | Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
-            Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
+            Ok(Message::Stop) | Err(_) => break,
         }
     }
     latest.fetch_add(1, Ordering::AcqRel);

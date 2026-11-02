@@ -312,6 +312,7 @@ fn source_with_equipment_and_map(
         main: identifier.map(|identifier| WornItem {
             variant: Default::default(),
             map_id: map_data.map(|(id, _)| id),
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -433,7 +434,7 @@ fn write_bow_frame(name: &str, source: &HandSource, meshes: &[render_model::Acto
     let texture = Image {
         width: usize::from(atlas.width),
         height: usize::from(atlas.height),
-        rgba8: atlas.rgba8[start..start + layer_bytes].to_vec(),
+        rgba8: atlas.rgba8.joined()[start..start + layer_bytes].to_vec(),
     };
     let mut target = Target {
         color: [25, 32, 44, 255].repeat(WIDTH * HEIGHT),
@@ -613,7 +614,7 @@ fn first_person_texture_lookup_rejects_a_layer_absent_from_its_page() {
         .with_equipment_rasters(&[raster.clone(), raster.clone()]);
     let (artwork, _) = render_model::ActorArtworkPages::default().with_equipment_rasters(&[raster]);
     item.presentation.location = locations[1].unwrap();
-    assert!(item_atlas(&item, &artwork).is_none());
+    assert!(crate::actor_publication::hand::item_atlas(&item, &artwork).is_none());
 }
 
 #[test]
@@ -661,7 +662,7 @@ fn empty_hand_and_maps_keep_their_intentional_textured_arms() {
             assert_eq!(atlas.width, protocol::MAP_IMAGE_SIDE as u16);
             assert_eq!(atlas.height, protocol::MAP_IMAGE_SIDE as u16);
             assert_eq!(atlas.layers, 1);
-            assert_eq!(&atlas.rgba8[..4], &pixels[0].to_le_bytes());
+            assert_eq!(&atlas.rgba8.joined()[..4], &pixels[0].to_le_bytes());
             assert_eq!(
                 atlas.rgba8.len(),
                 usize::from(atlas.width) * usize::from(atlas.height) * 4
@@ -720,6 +721,7 @@ fn retained_native_bow_stays_idle_when_the_newly_selected_food_is_used() {
         metadata: 0,
         damage: None,
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip(BOW),

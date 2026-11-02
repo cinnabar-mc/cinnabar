@@ -93,6 +93,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
                 reset: None,
                 cubes: Box::new([]),
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
             }]
             .into_boxed_slice(),
         }]

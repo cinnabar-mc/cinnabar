@@ -9,6 +9,16 @@ pub enum AmbientBlock {
     Other,
     Fire,
     Portal,
+    /// Every candle block and candle cake, whose flames depend on its state.
+    Candle,
+}
+
+/// Resolves a block's ambient callback from its policy entry and its render kind.
+pub(super) fn ambient_callback(name: &str, render: super::BlockRenderKind) -> AmbientBlock {
+    match render {
+        super::BlockRenderKind::Candle | super::BlockRenderKind::CandleCake => AmbientBlock::Candle,
+        _ => super::presentation_generated::ambient_block(name),
+    }
 }
 
 /// Resolves a leaf species' authored effect through the pinned particle vocabulary.

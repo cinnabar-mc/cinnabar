@@ -1,17 +1,19 @@
 //! Cursor-free moves: number-key hotbar swaps and drops.
 //!
-//! Hotbar swaps follow the owner's vanilla-mirroring rule (Swap between two
-//! occupied cells, otherwise one Place) and drops use one Drop action.
+//! Hotbar moves follow vanilla's place-all: matching stacks merge into the hovered cell, other
+//! occupied cells Swap, and an empty side takes one Place. Drops use one Drop action.
 
 use protocol::StackRequestAction;
 
 use super::cells::{Cell, Held};
 use super::gesture::{
-    Built, InventoryTarget, StackRequestActionKind, Submission, counted_transfer, swap,
+    Built, InventoryTarget, StackRequestActionKind, Submission, counted_merge, counted_transfer,
+    swap,
 };
 use super::helpers::{WindowAddress, request_slot};
 use super::overlay::DeltaGroup;
 use super::queue::WorldDrop;
+use super::registry::OccupiedStackRelation;
 use super::{InventoryGestureError, PlayerInventoryLedger};
 
 /// What a drop takes from.
@@ -22,6 +24,42 @@ pub enum DropSource {
 }
 
 impl PlayerInventoryLedger {
+    /// Exchanges a player cell with the offhand without opening a screen. Uses the ordinary
+    /// request queue and equipment rules; unknown cells and a held cursor are refused.
+    pub fn begin_windowless_offhand_swap(
+        &mut self,
+        slot: u8,
+    ) -> Result<i32, InventoryGestureError> {
+        if self.storage.is_some()
+            || self.cursor_stack().is_some()
+            || self
+                .gear_slot_state(InventoryTarget::Offhand)
+                .is_none_or(|state| matches!(state, super::PlayerInventorySlot::Unknown))
+        {
+            return Err(InventoryGestureError::InvalidRequest);
+        }
+        let generation = self.gesture_preflight(false)?;
+        let (source, destination) = (Cell::Inventory(slot), Cell::Offhand);
+        self.check_surfaces([source, destination])?;
+        let from = self.movable(source)?;
+        let to = self.movable(destination)?;
+        if let Some(from) = &from
+            && self
+                .placement_capacity(destination, &from.stack)
+                .is_some_and(|limit| from.stack.count > limit)
+        {
+            return Err(super::validation::placement_refused(destination));
+        }
+        let identity = self.window_address();
+        let built = match (from, to) {
+            (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
+            (Some(from), None) => place(source, destination, &from, identity)?,
+            (None, Some(to)) => place(destination, source, &to, identity)?,
+            (None, None) => return Err(InventoryGestureError::EmptyGesture),
+        };
+        self.submit_built(built, generation)
+    }
+
     /// Deletes the requested cursor amount, or the whole selection when unspecified.
     pub fn begin_destroy_cursor(
         &mut self,
@@ -81,8 +119,8 @@ impl PlayerInventoryLedger {
         self.submit_built(built, personal_generation)
     }
 
-    /// Swaps a hovered cell with hotbar cell `hotbar`, or places into
-    /// whichever of the two is empty.
+    /// Moves the hotbar stack onto a hovered cell, merging when the stacks match and swapping
+    /// otherwise, or places into whichever of the two is empty.
     pub fn begin_hotbar_swap(
         &mut self,
         target: InventoryTarget,
@@ -139,10 +177,9 @@ impl PlayerInventoryLedger {
             return Err(super::validation::placement_refused(source));
         }
         let built = match (from, to) {
-            (Some(_), Some(to)) if equipment_limit.is_some_and(|limit| to.stack.count > limit) => {
-                return Err(super::validation::placement_refused(source));
+            (Some(from), Some(to)) => {
+                self.occupied_hotbar_move(source, destination, &from, &to, equipment_limit)?
             }
-            (Some(from), Some(to)) => swap(source, destination, &from.stack, &to.stack, identity)?,
             (Some(from), None) => place(source, destination, &from, identity)?,
             (None, Some(to)) => counted_transfer(
                 StackRequestActionKind::Place,
@@ -155,6 +192,47 @@ impl PlayerInventoryLedger {
             (None, None) => return Err(InventoryGestureError::EmptyGesture),
         };
         self.submit_built(built, personal_generation)
+    }
+
+    /// Places the hotbar stack onto the hovered one: matching stacks with room merge, while
+    /// full or different stacks swap.
+    fn occupied_hotbar_move(
+        &self,
+        hovered_cell: Cell,
+        hotbar_cell: Cell,
+        hovered: &Held,
+        hotbar: &Held,
+        equipment_limit: Option<u16>,
+    ) -> Result<Built, InventoryGestureError> {
+        let identity = self.window_address();
+        if let OccupiedStackRelation::Compatible { capacity } =
+            self.occupied_stack_relation(hotbar, hovered)
+        {
+            let capacity = equipment_limit.map_or(capacity, |limit| limit.min(capacity));
+            let room = capacity.saturating_sub(hovered.stack.count);
+            if room > 0 {
+                return counted_merge(
+                    StackRequestActionKind::Place,
+                    hotbar_cell,
+                    hovered_cell,
+                    &hotbar.stack,
+                    &hovered.stack,
+                    identity,
+                    hotbar.stack.count.min(room),
+                    capacity,
+                );
+            }
+        }
+        if equipment_limit.is_some_and(|limit| hotbar.stack.count > limit) {
+            return Err(super::validation::placement_refused(hovered_cell));
+        }
+        swap(
+            hovered_cell,
+            hotbar_cell,
+            &hovered.stack,
+            &hotbar.stack,
+            identity,
+        )
     }
 
     /// Drops `amount` (or the whole stack) from a cell or the cursor.

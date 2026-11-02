@@ -19,11 +19,11 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Deserialize)]
 pub(super) struct Release {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
+    pub(super) tag_name: String,
+    pub(super) draft: bool,
+    pub(super) prerelease: bool,
     #[serde(default)]
-    assets: Vec<download::Asset>,
+    pub(super) assets: Vec<download::Asset>,
 }
 
 impl Release {
@@ -60,10 +60,11 @@ pub(super) fn network(
     outgoing: Sender<Response>,
     generation: Arc<AtomicU64>,
     permission: Arc<AtomicU64>,
-    max_component_bytes: usize,
+    host: super::Host,
     progress: super::progress::Progress,
     staging: &std::path::Path,
 ) -> Result<()> {
+    let max_component_bytes = host.max_component_bytes;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
@@ -81,7 +82,21 @@ pub(super) fn network(
         incoming,
         outgoing,
         &generation,
-        |repository| runtime.block_on(fetch(&client, repository)),
+        |candidate| {
+            runtime.block_on(async {
+                if candidate.revision_update.is_some() {
+                    super::compatible::fetch(
+                        &client,
+                        candidate,
+                        host.revision,
+                        host.api_revisions_json,
+                    )
+                    .await
+                } else {
+                    fetch(&client, &candidate.repository).await
+                }
+            })
+        },
         |candidate, release, revision, authorization| {
             let asset = download::select(
                 &release.assets,
@@ -120,7 +135,7 @@ pub(super) fn run(
     incoming: Receiver<Request>,
     outgoing: Sender<Response>,
     generation: &AtomicU64,
-    mut fetch: impl FnMut(&str) -> Result<Option<Release>>,
+    mut fetch: impl FnMut(&Candidate) -> Result<Option<Release>>,
     mut download: impl FnMut(&Candidate, &Release, u64, u64) -> Option<download::Downloaded>,
 ) {
     let mut cache = HashMap::new();
@@ -135,12 +150,24 @@ pub(super) fn run(
             if request.generation != generation.load(Ordering::SeqCst) {
                 break;
             }
-            if !cache.contains_key(&candidate.repository) {
+            let key = candidate.revision_update.as_ref().map_or_else(
+                || candidate.repository.clone(),
+                |identity| {
+                    format!(
+                        "{}:{}:{}:{}",
+                        candidate.repository,
+                        identity.package,
+                        identity.revision,
+                        candidate.version
+                    )
+                },
+            );
+            if !cache.contains_key(&key) {
                 // Bound network work even if a directory contains hundreds of components.
                 if rate_limited || cache.len() >= MAX_REPOSITORIES {
                     continue;
                 }
-                let release = fetch(&candidate.repository).unwrap_or_else(|error| {
+                let release = fetch(candidate).unwrap_or_else(|error| {
                     rate_limited = error
                         .downcast_ref::<reqwest::Error>()
                         .and_then(|error| error.status())
@@ -157,9 +184,9 @@ pub(super) fn run(
                     );
                     None
                 });
-                cache.insert(candidate.repository.clone(), release);
+                cache.insert(key.clone(), release);
             }
-            if let Some(release) = cache.get(&candidate.repository).and_then(Option::as_ref)
+            if let Some(release) = cache.get(&key).and_then(Option::as_ref)
                 && let Some(update) = release.offer(candidate)
             {
                 updates.push(update);

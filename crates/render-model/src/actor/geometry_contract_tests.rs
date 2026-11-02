@@ -207,3 +207,53 @@ fn inherited_armour_inflation_keeps_the_shell_outside_the_player_body() {
     let mesh = entity_geometry(&catalog, index, EntityRigId(0)).unwrap();
     assert_bounds(&mesh.vertices, [-5.0, 11.0, -3.0], [5.0, 25.0, 3.0]);
 }
+
+/// Geometry made only of a polygon mesh keeps it through the pack compile and the carrier, and
+/// draws on an entity and as a held attachable.
+#[test]
+fn pack_entity_with_only_a_polygon_mesh_draws() {
+    let geometry = serde_json::json!({"format_version": "1.16.0", "minecraft:geometry": [{
+        "description": {
+            "identifier": "geometry.fixture", "texture_width": 64, "texture_height": 64
+        },
+        "bones": [{"name": "root", "pivot": [0, 0, 0], "poly_mesh": {
+            "normalized_uvs": true,
+            "positions": [[-8, 0, 0], [8, 0, 0], [8, 16, 0], [-8, 16, 0]],
+            "normals": [[0, 0, -1]],
+            "uvs": [[0, 0], [1, 0], [1, 1], [0, 1]],
+            "polys": [[[0, 0, 0], [1, 0, 1], [2, 0, 2], [3, 0, 3]]]
+        }}]
+    }]});
+    let entity = serde_json::json!({"format_version": "1.10.0", "minecraft:client_entity": {
+        "description": {
+            "identifier": "fixture:model", "geometry": {"default": "geometry.fixture"}
+        }
+    }});
+    let compiled = pack_entity_compiler::compile_entity_pack(vec![
+        (
+            "entity/fixture.json".into(),
+            entity.to_string().into_bytes(),
+        ),
+        (
+            "models/entity/fixture.geo.json".into(),
+            geometry.to_string().into_bytes(),
+        ),
+    ])
+    .unwrap()
+    .unwrap();
+    let bytes = assets::encode_entity_blob(&compiled.assets).unwrap();
+    let runtime = RuntimeEntityAssets::decode(&bytes).unwrap();
+    let built = entity_geometry(&runtime, 0, EntityRigId(0)).unwrap();
+    assert_eq!(built.vertices.len(), 6);
+    assert_eq!(built.vertices[0].position, [0.5, 0.0, 0.0]);
+    // Held attachables build through their own mesher.
+    let texture = assets::EquipmentTexture {
+        identifier: "fixture".into(),
+        width: 64,
+        height: 64,
+        rgba8: Arc::from(vec![255; 64 * 64 * 4]),
+    };
+    let held = super::super::attachable_geometry(&runtime, 0, EntityRigId(0), &texture).unwrap();
+    assert_eq!(held.vertices.len(), 6);
+    assert_eq!(held.vertices[0].position, [0.5, 0.0, 0.0]);
+}

@@ -32,6 +32,7 @@ fn mesh_snapshot_bakes_solved_halo_channels_into_cube_sidecars() {
         &RuntimeAssets::diagnostic(),
         NetworkIdMode::Sequential,
         &PackedBiomeRecord::fallback(),
+        &mut ::meshing::MeshScratch::default(),
     );
 
     assert!(!mesh.cube_lighting().is_empty());

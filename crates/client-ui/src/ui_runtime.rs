@@ -154,6 +154,8 @@ pub struct UiRuntime {
     /// The live catalog's screen settings, which the scene stack reads.
     screen_settings: Arc<scene_stack::ScreenSettingsTable>,
     loading_screen: Option<ui::LoadingStage>,
+    /// A client-owned cover shown while a global resource-pack replacement publishes.
+    resource_pack_loading: bool,
 }
 
 impl UiRuntime {
@@ -163,6 +165,7 @@ impl UiRuntime {
             item_fuel_catalog: None,
             screen_settings: Arc::default(),
             loading_screen: None,
+            resource_pack_loading: false,
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
             hide_toasts: false,
             chat_history: ChatHistory::default(),
@@ -176,6 +179,16 @@ impl UiRuntime {
             stack_facts: Default::default(),
             item_name_generation: 0,
         }
+    }
+
+    /// Shows or hides the client-owned cover used while global packs are replaced in-session.
+    pub fn set_resource_pack_loading(&mut self, loading: bool) {
+        self.resource_pack_loading = loading;
+    }
+
+    /// Whether the global resource-pack replacement currently owns the screen.
+    pub const fn resource_pack_loading(&self) -> bool {
+        self.resource_pack_loading
     }
 
     pub const fn session_id(&self) -> u64 {

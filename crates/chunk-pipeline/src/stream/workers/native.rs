@@ -37,14 +37,18 @@ fn work(shared: &Shared, name: &str, background: bool) {
     {
         tracing::warn!("{name}: could not lower worker priority: {error}");
     }
-    let mut scratch = world::LightSolverScratch::default();
+    let mut scratch = WorkerScratch::default();
     let mut queues = shared.lock();
     loop {
         if queues.shutdown {
             return;
         }
-        let Some(job) = queues.take(background, now()) else {
-            queues = shared.wait(queues);
+        let observed = now();
+        let Some(job) = queues.take(background, observed) else {
+            queues = shared.wait(queues, scratch.idle_wait(observed));
+            drop(queues);
+            scratch.release_if_idle(now());
+            queues = shared.lock();
             continue;
         };
         drop(queues);
@@ -54,6 +58,7 @@ fn work(shared: &Shared, name: &str, background: bool) {
             std::process::abort();
         }
         restore_lowered_job();
+        scratch.finished(now());
         queues = shared.lock();
     }
 }

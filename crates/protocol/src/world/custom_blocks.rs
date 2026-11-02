@@ -8,7 +8,7 @@ mod states;
 use states::MAX_STATES_PER_BLOCK;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_60::packets::StartGame;
 
 use crate::nbt_tree::{Nbt, read_root};
 #[cfg(test)]
@@ -130,6 +130,8 @@ pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
     /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
     pub geometry_use_block_type_light_absorption: bool,
+    /// Geometry's `needsLegacyTopRotation` flag; absent means false.
+    pub geometry_needs_legacy_top_rotation: bool,
     /// `bone_visibility` of the same geometry component: bone name and Molang expression.
     pub bone_visibility: Box<[(Arc<str>, Arc<str>)]>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
@@ -791,6 +793,10 @@ fn visual_descriptions(
         geometry,
         geometry_use_block_type_light_absorption: matches!(
             geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
+            Some(Nbt::Byte(value)) if *value != 0
+        ),
+        geometry_needs_legacy_top_rotation: matches!(
+            geometry_component.and_then(|geometry| geometry.field("needsLegacyTopRotation")),
             Some(Nbt::Byte(value)) if *value != 0
         ),
         bone_visibility,

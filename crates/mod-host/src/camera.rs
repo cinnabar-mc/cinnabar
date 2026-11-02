@@ -6,8 +6,6 @@ use mod_api::native_camera::ViewTilt;
 /// Ephemeral output published only after a successful frame callback.
 #[derive(Default)]
 pub(super) struct CameraPolicy {
-    pub pending: bool,
-    pub committed: bool,
     pub pending_view_scale: Option<[f32; 2]>,
     pub committed_view_scale: Option<[f32; 2]>,
     pub pending_view_tilt: Option<ViewTilt>,
@@ -41,21 +39,6 @@ impl cinnabar::extension::camera::Host for State {
             ));
         }
         self.camera_policy.pending_view_tilt = tilt;
-        Ok(Ok(()))
-    }
-
-    fn set_preserve_teleport_rotation(&mut self, enabled: bool) -> Result<Result<(), String>> {
-        self.camera_writes += 1;
-        if self.camera_writes > MAX_IMPORT_WRITES {
-            bail!("camera import budget exhausted");
-        }
-        if self.exclusive.camera {
-            return Ok(Err(self.exclusive.refuse()));
-        }
-        if !self.grants.camera {
-            return Ok(Err("camera capability denied".into()));
-        }
-        self.camera_policy.pending = enabled;
         Ok(Ok(()))
     }
 

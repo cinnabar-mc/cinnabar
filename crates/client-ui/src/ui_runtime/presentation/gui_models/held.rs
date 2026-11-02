@@ -24,6 +24,8 @@ pub(super) type HeldModels = BTreeMap<Box<str>, BTreeMap<u32, HeldModel>>;
 /// it, since every item has one and most are never held.
 pub(super) struct HeldModel {
     model: PreviewHeldModel,
+    /// An unrestricted authored model keeps the ordinary sprite available as a fallback.
+    authored: Option<PreviewHeldModel>,
     /// The item sprite extruded on first use; `None` for models built up front.
     sprite: Option<usize>,
     extruded: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
@@ -32,7 +34,7 @@ pub(super) struct HeldModel {
 impl HeldModel {
     /// Whether the held geometry follows an item sprite rather than authored or block geometry.
     pub(super) const fn is_sprite(&self) -> bool {
-        self.sprite.is_some()
+        self.authored.is_none() && self.sprite.is_some()
     }
 
     /// Changes a sprite's artwork and mask while retaining its hand placement and glint policy.
@@ -52,6 +54,7 @@ impl HeldModel {
     pub(super) const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
+            authored: None,
             sprite: None,
             extruded: OnceLock::new(),
         }
@@ -60,9 +63,18 @@ impl HeldModel {
     /// The model with its mesh, extruding a sprite item's sprite from `icons` on first use;
     /// `None` when that sprite has no mesh.
     pub(super) fn model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
-        let Some(sprite) = self.sprite else {
+        if let Some(model) = &self.authored {
+            return Some(model.clone());
+        }
+        if self.sprite.is_none() {
             return Some(self.model.clone());
-        };
+        }
+        self.sprite_model(icons)
+    }
+
+    /// Extrudes the ordinary sprite once, including when an authored model takes precedence.
+    fn sprite_model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
+        let sprite = self.sprite?;
         let vertices = self
             .extruded
             .get_or_init(|| {
@@ -160,19 +172,17 @@ pub(super) fn prepare(
             let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };
+            let model = model.with_glint(Some(entities.item_visuals().iter().any(|definition| {
+                definition.key.identifier == binding.identifier
+                    && definition.key.metadata == 0
+                    && definition.glint.enabled().unwrap_or(false)
+            })));
             models
                 .entry(binding.identifier.clone())
                 .or_default()
-                .insert(
-                    0,
-                    HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
-                        |definition| {
-                            definition.key.identifier == binding.identifier
-                                && definition.key.metadata == 0
-                                && definition.glint.enabled().unwrap_or(false)
-                        },
-                    )))),
-                );
+                .entry(0)
+                .and_modify(|held| held.authored = Some(model.clone()))
+                .or_insert_with(|| HeldModel::ready(model));
         }
     }
     Ok(models)

@@ -23,7 +23,7 @@ fn armour_presentation() -> UiPresentationRuntime {
             rgba8,
         }
     });
-    let hud = assets::encode_hud_catalog(assets::HUD_SOURCE_MANIFEST_SHA256, &textures).unwrap();
+    let hud = assets::encode_hud_catalog(assets::hud_source_manifest_sha256(), &textures).unwrap();
     let mut files = [
         ("ui/_ui_defs.json", r#"{"ui_defs":["ui/hud_screen.json"]}"#),
         ("ui/_global_variables.json", "{}"),

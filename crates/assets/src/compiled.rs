@@ -87,6 +87,8 @@ pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by 180 degrees.
+pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;
@@ -162,16 +164,23 @@ const _: () = assert!(MATERIAL_FLAGS_MASK == u32::MAX);
 pub(crate) const fn material_flags_are_valid(flags: u32) -> bool {
     (flags & crate::stem::GROWTH_MASK == 0 || flags & crate::stem::MATERIAL_FLAG != 0)
         && (flags & crate::stem::MATERIAL_FLAG == 0
-            || flags
+            || (flags
                 & (MATERIAL_FLAG_TINT_MASK
-                    | MATERIAL_LEAF_METADATA_MASK
+                    | (MATERIAL_LEAF_METADATA_MASK & !crate::redstone_wire::SIGNAL_MASK)
                     | MATERIAL_FLAG_NATIVE_LEAF_COLOUR
                     | MATERIAL_FLAG_CAULDRON_WATER)
-                == 0)
+                == 0
+                && match crate::redstone_wire::encoded_signal(flags) {
+                    Some(signal) => {
+                        signal <= crate::redstone_wire::MAX_SIGNAL
+                            && flags & crate::stem::GROWTH_MASK == 0
+                    }
+                    None => true,
+                }))
         && (flags & MATERIAL_FLAG_CAULDRON_WATER == 0
             || (flags & MATERIAL_FLAG_ALPHA_BLEND != 0 && flags & MATERIAL_FLAG_TINT_MASK == 0))
         && (flags & MATERIAL_LEAF_AO_EXPONENT_MASK == 0
-            || flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR != 0)
+            || flags & (MATERIAL_FLAG_NATIVE_LEAF_COLOUR | crate::stem::MATERIAL_FLAG) != 0)
         && (flags & MATERIAL_FLAG_TWO_SIDED == 0 || flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0)
         && (flags & MATERIAL_FLAG_NATIVE_LEAF_COLOUR == 0 || flags & MATERIAL_FLAG_ALPHA_BLEND == 0)
         && flags & (MATERIAL_FLAG_ALPHA_BLEND | MATERIAL_FLAG_ALPHA_CUTOUT)

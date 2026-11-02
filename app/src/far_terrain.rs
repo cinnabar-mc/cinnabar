@@ -34,8 +34,8 @@ pub(crate) struct FarTerrain {
     drained: Vec<FarColumnSummary>,
     unloaded: Vec<::world::ChunkKey>,
     near: Arc<NearMask>,
-    /// Centre column, near radius and drawn-set revision the mask was built for.
-    near_view: Option<([i32; 2], i32, u64)>,
+    /// Centre column, near radius, horizon and drawn-set revision the mask was built for.
+    near_view: Option<([i32; 2], i32, i32, u64)>,
     /// When turning far terrain off began waiting for near terrain to cover its columns.
     drain_since: Option<Instant>,
     near_radius: NearRadius,
@@ -94,7 +94,7 @@ impl FarTerrain {
         horizon: i32,
     ) -> bool {
         let (revision, _) = stream.near_drawn_columns();
-        let view = ([centre.x, centre.z], radius, revision);
+        let view = ([centre.x, centre.z], radius, horizon, revision);
         if self.near_view == Some(view) {
             return false;
         }

@@ -1,10 +1,10 @@
 # Android (experimental)
 
 The Android client is the desktop client built for arm64-v8a Android 8+ devices with Vulkan.
-The APK holds the client library, the Go core, the Dragonfly local server and `assetc`, plus
-the prep kit. It ships no game assets: first launch asks you to accept the Minecraft EULA,
-then downloads Mojang's sample resource pack and compiles the carriers into the app's private
-storage. Keep the app open until setup finishes.
+The APK holds the client library, the Go core, the Dragonfly local server, `assetc` and the
+shader-pack compiler, plus the prep kit. It ships no game assets: first launch asks you to accept
+the Minecraft EULA, then downloads Mojang's sample resource pack and compiles the carriers into
+the app's private storage. Keep the app open until setup finishes.
 
 ## Release APKs
 
@@ -65,6 +65,10 @@ shader debug settings, storage layouts and runtime bounds checks. A missing vali
 a named missing-fixture message; allocation-layout checks still run. Host terrain fixtures also
 honor `WGPU_DEBUG=0` to exercise release-style shader debug settings while retaining shader
 runtime checks.
+
+Set `MALIOC` to Arm's Mali Offline Compiler to compile the terrain programs for Mali-G57 with
+`cargo test --locked -p render --lib terrain_programs_keep_bools -- --nocapture`. Without it
+the test reports a named missing fixture and checks only the structural rule.
 
 The same tests can run directly on an arm64 Android device through ADB, without installing
 the app, downloading game assets or signing in. Prepare the executable before reserving a

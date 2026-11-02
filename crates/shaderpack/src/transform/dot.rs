@@ -8,7 +8,9 @@
 //! as a different pattern. Calls in function bodies therefore go through `iris_dot` helpers
 //! spelled with explicit `fma`. Constant expressions keep the built-in: naga folds those
 //! itself and cannot call functions there. Backends that need software rounding also replace
-//! the initial product, preserving subnormal values and signed zero without float64.
+//! the initial product, preserving subnormal values and signed zero without float64. Their
+//! helpers accumulate in a loop, so each call inlines the software step once rather than once
+//! per component: backend compilers inline every call, and DXC spent minutes on the copies.
 
 use crate::token::{Tok, id, lex};
 
@@ -18,6 +20,30 @@ float iris_dot(vec2 a, vec2 b) { return fma(a.y, b.y, a.x * b.x); }
 float iris_dot(vec3 a, vec3 b) { return fma(a.z, b.z, fma(a.y, b.y, a.x * b.x)); }
 float iris_dot(vec4 a, vec4 b) { return fma(a.w, b.w, fma(a.z, b.z, fma(a.y, b.y, a.x * b.x))); }
 ";
+
+/// `dot_fma.glsl`'s steps with [`HELPERS`] over them. Starting from the first product's
+/// signed zero, the first step rounds that product and keeps the sign of a zero one.
+const SOFTWARE_HELPERS: &str = concat!(
+    include_str!("dot_fma.glsl"),
+    "\
+float iris_dot(float a, float b) { return iris_dot_fma(a, b, iris_dot_zero(a, b)); }
+float iris_dot(vec2 a, vec2 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 2; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+float iris_dot(vec3 a, vec3 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 3; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+float iris_dot(vec4 a, vec4 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 4; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+"
+);
 
 /// Routes `dot` calls in function bodies through the `iris_dot` helpers, or `None` when the
 /// stage has none to route. Stages that use double precision keep the built-in: the helpers
@@ -82,19 +108,12 @@ pub(super) fn order(src: &[Tok], software_fma: bool) -> Option<Vec<Tok>> {
         return None;
     }
     let helpers = if software_fma {
-        format!(
-            "{}{}",
-            include_str!("dot_fma.glsl"),
-            HELPERS
-                .replace("fma(", "iris_dot_fma(")
-                .replace("a.x * b.x", "iris_dot_mul(a.x, b.x)")
-                .replace("a * b", "iris_dot_mul(a, b)")
-        )
+        SOFTWARE_HELPERS
     } else {
-        HELPERS.to_owned()
+        HELPERS
     };
     let mut out = Vec::new();
-    for item in super::items::split_items(&lex(&helpers)) {
+    for item in super::items::split_items(&lex(helpers)) {
         let (lp, params) = super::items::func_params(&item).unwrap();
         let types = signature(&params);
         if item[lp - 1].ident() != Some("iris_dot") || !user_types.contains(&types) {

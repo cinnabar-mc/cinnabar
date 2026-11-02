@@ -1,7 +1,7 @@
 use std::future::Future;
 use std::task::{Context, Poll};
 
-use bedrock_protocol_1_26_51::packets::SetTime;
+use bedrock_protocol_1_26_60::packets::SetTime;
 use futures::task::noop_waker;
 
 use super::*;

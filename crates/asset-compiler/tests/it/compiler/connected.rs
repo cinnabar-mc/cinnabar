@@ -2,9 +2,10 @@ use {
     super::support::*,
     assets::{
         BlockFace, BlockFlags, CollisionSeed, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND,
-        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK,
+        MATERIAL_FLAG_ALPHA_CUTOUT, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
         MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_PANE,
-        ModelFamily, ModelStateField, RegistryRecord, VisualKind, encode_blob, read_registry,
+        ModelFamily, ModelQuad, ModelStateField, RegistryRecord, VisualKind, encode_blob,
+        read_registry,
     },
     pack_compile_input::{read_pack, resolve_texture_key},
     std::{collections::HashSet, path::Path},
@@ -210,8 +211,12 @@ fn write_connected_model_pack(root: &Path) {
         root,
         r#"{
             "glass_pane":{"textures":{
-                "west":"pane_body","east":"pane_edge","down":"pane_edge",
-                "up":"pane_edge","north":"pane_body","south":"pane_body"
+                "west":"pane_body","east":"pane_edge","down":"pane_body",
+                "up":"pane_body","north":"pane_body","south":"pane_body"
+            }},
+            "iron_bars":{"textures":{
+                "west":"pane_body","east":"pane_edge","down":"pane_body",
+                "up":"pane_body","north":"pane_body","south":"pane_body"
             }},
             "oak_fence":{"textures":"oak_fence"},
             "nether_brick_fence":{"textures":"nether_fence"}
@@ -256,42 +261,121 @@ fn compiler_emits_all_sixteen_exact_pane_connection_templates() {
     ));
     let base = visual.model_template;
     assert_eq!(compiled.model_templates.len(), 16);
+    let quads_of = |mask: u32| template_quads(&compiled, base + mask);
+    assert_eq!(model_bounds(quads_of(0)), ([112, 0, 112], [144, 256, 144]));
     for mask in 0_u32..16 {
         let template = compiled.model_templates[(base + mask) as usize];
         assert_eq!(template.flags, MODEL_TEMPLATE_FLAG_PANE, "mask={mask:#06b}");
-        assert_eq!(
-            template.quad_count,
-            6 + mask.count_ones() * 4,
-            "post and arms omit both faces at every internal join, mask={mask:#06b}"
-        );
-        assert!(template.quad_count <= 26);
-        let quads = template_quads(&compiled, base + mask);
-        if mask == 0 {
-            assert_eq!(model_bounds(quads), ([112, 0, 112], [144, 256, 144]));
-        }
-        for (bit, axis, coordinate) in [(1, 2, 112), (2, 0, 144), (4, 2, 144), (8, 0, 112)] {
-            if mask & bit != 0 {
-                let span_axis = if axis == 0 { 2 } else { 0 };
-                assert!(
-                    quads.iter().all(|quad| {
-                        !quad.positions.iter().all(|position| {
-                            position[axis] == coordinate
-                                && (112..=144).contains(&position[span_axis])
-                        })
-                    }),
-                    "internal pane join remains for mask={mask:#06b} bit={bit:#06b}"
-                );
-            }
-        }
+        let quads = quads_of(mask);
+        let connections = mask.count_ones();
+        let expected = if connections == 4 {
+            22
+        } else {
+            6 + connections * 3
+        };
+        assert_eq!(quads.len() as u32, expected, "mask={mask:#06b}");
         assert!(
             quads
                 .iter()
-                .all(|quad| quad.uvs.iter().flatten().all(|uv| *uv <= 4096))
+                .all(|quad| quad.flags & MODEL_QUAD_FLAG_TWO_SIDED == 0
+                    && quad.uvs.iter().flatten().all(|uv| *uv <= 4096))
         );
+        for (bit, axis, coordinate) in [(1, 2, 112), (2, 0, 144), (4, 2, 144), (8, 0, 112)] {
+            let span_axis = if axis == 0 { 2 } else { 0 };
+            let joined = quads.iter().any(|quad| {
+                quad.positions.iter().all(|position| {
+                    position[axis] == coordinate && (112..=144).contains(&position[span_axis])
+                })
+            });
+            assert_eq!(
+                joined,
+                mask & bit == 0,
+                "only an unconnected side has a post wall, mask={mask:#06b} bit={bit:#06b}"
+            );
+        }
     }
     assert!(compiled.materials.iter().skip(1).all(|material| {
         material.flags & MATERIAL_FLAG_ALPHA_CUTOUT != 0
             && material.flags & MATERIAL_FLAG_ALPHA_BLEND == 0
+    }));
+}
+
+/// The quads of a pane template that stand the full height of the block.
+fn pane_walls(quads: &[ModelQuad]) -> Vec<&ModelQuad> {
+    quads
+        .iter()
+        .filter(|quad| quad.positions.iter().any(|position| position[1] == 0))
+        .filter(|quad| quad.positions.iter().any(|position| position[1] == 256))
+        .collect()
+}
+
+#[test]
+fn iron_bars_draw_one_plane_per_arm_and_keep_their_rail_on_the_edge_art() {
+    let directory = tempfile::tempdir().expect("create bars fixture");
+    write_connected_model_pack(directory.path());
+    let records = [
+        model_record(0, 72_000, "minecraft:glass_pane", "{}", ModelFamily::Pane),
+        model_record(1, 72_001, "minecraft:iron_bars", "{}", ModelFamily::Pane),
+    ];
+    let compiled = compile_pack(directory.path(), &records).expect("compile bars");
+    let base = compiled.visuals[1].model_template;
+    assert_ne!(
+        base, compiled.visuals[0].model_template,
+        "bars with the same art as a pane still need their own templates"
+    );
+    let quads_of = |mask: u32| template_quads(&compiled, base + mask);
+
+    // An east-west run is one plane through the block centre, without a post around it.
+    let run = quads_of(0b1010);
+    let walls = pane_walls(run);
+    assert!(!walls.is_empty());
+    for wall in &walls {
+        assert!(
+            wall.positions.iter().all(|position| position[2] == 128),
+            "{:?}",
+            wall.positions
+        );
+        assert_ne!(wall.flags & MODEL_QUAD_FLAG_TWO_SIDED, 0);
+    }
+    let covered = walls.iter().fold((256, 0), |(min, max), wall| {
+        wall.positions
+            .iter()
+            .fold((min, max), |(min, max), p| (min.min(p[0]), max.max(p[0])))
+    });
+    assert_eq!(covered, (0, 256), "the plane spans the whole run");
+
+    // The rail samples the opaque centre column of the edge art at every point along its length.
+    let edge = compiled.visuals[1].faces[BlockFace::Up as usize];
+    let rails = run
+        .iter()
+        .filter(|quad| quad.positions.iter().all(|position| position[1] == 256))
+        .collect::<Vec<_>>();
+    assert_eq!(rails.len(), 3, "two arms and the centre");
+    for rail in rails {
+        assert_eq!(rail.material, edge);
+        assert!(
+            rail.uvs.iter().all(|uv| (1792..=2301).contains(&uv[0])),
+            "{:?}",
+            rail.uvs
+        );
+    }
+
+    // A lone post keeps four walls around the centre, and a four-way crosses two planes.
+    assert_eq!(model_bounds(quads_of(0)), ([112, 0, 112], [144, 256, 144]));
+    assert_eq!(pane_walls(quads_of(0)).len(), 4);
+    let cross = quads_of(0b1111);
+    assert_eq!(cross.len(), 16);
+    assert!(pane_walls(cross).iter().all(|wall| {
+        let [x, z] = [0, 2].map(|axis| wall.positions.iter().all(|p| p[axis] == 128));
+        x != z
+    }));
+
+    // A corner closes the post with one plane on each open side.
+    let corner = pane_walls(quads_of(0b0011));
+    assert_eq!(corner.len(), 4);
+    assert!(corner.iter().all(|wall| {
+        let [x, z] = [0, 2].map(|axis| wall.positions.iter().all(|p| p[axis] == 128));
+        x != z
     }));
 }
 

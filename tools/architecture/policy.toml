@@ -51,18 +51,18 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
-path = "crates/assets/data/entity-facts-v2193.bin"
+path = "crates/assets/data/entity-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/item-facts-v2193.bin"
+path = "crates/assets/data/item-facts-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
 [[owned_artifacts]]
-path = "crates/assets/data/java-mapping-v2193.bin"
+path = "crates/assets/data/java-mapping-v2225.bin"
 ownership_record = "docs/architecture/workspace.md"
 
-# The vendored contract codec (`bedrock-protocol-1-26-51`) is a dependency of `protocol` only.
+# The vendored contract codec (`bedrock-protocol-1-26-60`) is a dependency of `protocol` only.
 [[vendored]]
 path = "crates/protocol/vendor/"
 ownership_record = "crates/protocol/vendor/UPSTREAM.md"
@@ -117,10 +117,24 @@ path = "crates/shaderpack"
 allowed_dependencies = ["zip-footer", "assets", "test-time"]
 forbidden_dependencies = ["bevy", "wgpu"]
 
+# The isolated shader-pack compiler process the client spawns for CPU translation.
+[[crates]]
+name = "shaderpack-worker"
+path = "crates/shaderpack-worker"
+allowed_dependencies = ["shaderpack", "test-time", "update-manifest"]
+forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
+
+# Java Edition resource-pack translation into Bedrock pack files; archive admission stays in `resource-pack`.
+[[crates]]
+name = "java-resource-pack"
+path = "crates/java-resource-pack"
+allowed_dependencies = ["pack-json"]
+forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
+
 [[crates]]
 name = "resource-pack"
 path = "crates/resource-pack"
-allowed_dependencies = ["pack-json", "protocol", "zip-footer"]
+allowed_dependencies = ["java-resource-pack", "pack-json", "protocol", "zip-footer"]
 forbidden_dependencies = ["asset-compiler", "assets", "bevy", "wgpu"]
 test_support_features = ["test-support"]
 
@@ -142,8 +156,10 @@ test_support_features = ["test-support"]
 [[crates]]
 name = "asset-compiler"
 path = "crates/asset-compiler"
-allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids", "shaderpack"]
+allowed_dependencies = ["pack-compiler", "pack-compile-input", "pack-entity-compiler", "pack-font-compiler", "assets", "block-transform", "world", "protocol-ids"]
 forbidden_dependencies = ["bevy", "wgpu"]
+# Every linked crate feeds the carrier fingerprint; shader-pack changes must not rebuild carriers.
+forbidden_production_transitive_dependencies = ["shaderpack"]
 
 [[crates]]
 name = "json-ui"
@@ -645,7 +661,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "cinnabar-mcp"
 path = "tools/cinnabar-mcp"
-allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "test-time"]
+allowed_dependencies = ["developer-control", "diagnostics", "mcp-stdio", "render-api", "test-time"]
 forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 
@@ -1165,6 +1181,7 @@ clock_free_crates = [
     "crates/block-transform",
     "crates/input",
     "crates/inventory",
+    "crates/java-resource-pack",
     "crates/json-ui",
     "crates/pack-json",
     "crates/meshing",
@@ -1414,6 +1431,56 @@ path = "examples/mods/portal-view/src/lib.rs"
 literal = "minecraft:obsidian"
 reason = "The standalone guest example supplies a concrete named block for its retained frame."
 
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/hud.rs"
+literal = "air"
+reason = "Java HUD sprite file name (gui/sprites/hud/air.png) translated into a Bedrock UI texture, not a block identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_drinkable"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_splash"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "splash_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "lingering_potion"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_bottle_lingering"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "potion_overlay"
+reason = "Java item texture file name read to compose Bedrock potion textures, not an item identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/items.rs"
+literal = "wither"
+reason = "Bedrock potion texture suffix (potion_bottle_wither.png) paired with its tint, not an actor identifier."
+
+[[identifier_literal_exceptions]]
+path = "crates/java-resource-pack/src/translate.rs"
+literal = "turtle_scute"
+reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
+
 [identifier_literals]
 owners = [
     "crates/asset-compiler/src/registry_policy/",
@@ -1421,18 +1488,23 @@ owners = [
     "crates/json-ui/src/vanilla.rs",
 ]
 vocabularies = [
-    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_items_1_26_50.tsv", column = 1 },
-    { path = "crates/protocol/data/retail_actors_1_26_50.txt", column = 0 },
-    { path = "crates/protocol/data/retail_biomes_1_26_50.txt", column = 0 },
+    { path = "crates/assets/data/vanilla-pack-vocabulary-1.26.60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_items_1_26_60.tsv", column = 1 },
+    { path = "crates/protocol/data/retail_actors_1_26_60.txt", column = 0 },
+    { path = "crates/protocol/data/retail_biomes_1_26_60.txt", column = 0 },
     { path = "crates/protocol/data/item_tags_native.tsv", column = 0 },
 ]
-block_registries = ["crates/assets/data/block-registry-v2193.bin"]
+block_registries = ["crates/assets/data/block-registry-v2225.bin"]
 # The provisional PBR texture-name table stays: the pinned Java/Bedrock mapping has no texture
 # names, so it waits for a model-derived source (plan.md).
 baselines = [
     { path = "crates/pack-compiler/src/pbr/sources/names.rs", max = 55 },
 ]
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/item/render_offsets.rs"
+literal = "rotation"
+reason = "Field of the minecraft:render_offsets item component, independent of block state identifiers."
 
 [[identifier_literal_exceptions]]
 path = "tools/devtool/src/startup.rs"
@@ -2070,6 +2142,11 @@ literal = "target"
 reason = "Cargo target-specific dependency table key in the manifest schema."
 
 [[identifier_literal_exceptions]]
+path = "tools/cinnabar-mcp/src/benchmark/trace.rs"
+literal = "cat"
+reason = "Chrome trace-event category field, independent of actor identifiers."
+
+[[identifier_literal_exceptions]]
 path = "tools/cinnabar-mcp/src/definitions.rs"
 literal = "string"
 reason = "MCP JSON Schema primitive type vocabulary."
@@ -2254,3 +2331,38 @@ forbidden_dependencies = ["bevy", "wgpu"]
 path = "tools/mod-docs/src/types.rs"
 literal = "string"
 reason = "WIT primitive type vocabulary in the API documentation renderer."
+
+[[identifier_literal_exceptions]]
+path = "crates/experience-runtime/src/protocol/visuals.rs"
+literal = "bottom"
+reason = "A vertical-half property value, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/gameplay/src/placement_state.rs"
+literal = "bottom"
+reason = "A vertical-half property value used when joining slab states."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/entity/src/entity/native_boat.rs"
+literal = "bottom"
+reason = "An authored boat bone name, independent of pack asset identifiers."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/fire_admission.rs"
+literal = "bottom"
+reason = "A vertical-half property value used to resolve the lower block face."
+
+[[identifier_literal_exceptions]]
+path = "crates/protocol/src/world/custom_blocks/states.rs"
+literal = "bottom"
+reason = "A built-in vertical-half trait value in the protocol state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/pbr/sources/names.rs"
+literal = "bottom"
+reason = "A door texture suffix in the existing provisional PBR name conversion."
+
+[[identifier_literal_exceptions]]
+path = "tools/jsonui-editor/src/figma/convert/button.rs"
+literal = "locked"
+reason = "A button state name in the editor conversion contract, independent of pack asset identifiers."

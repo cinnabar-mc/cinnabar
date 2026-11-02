@@ -123,7 +123,7 @@ mod render_setup;
 use render_setup::RendererSetup;
 
 const PHYSICS_REGISTRY_SHA256: &str =
-    include_str!("../../crates/assets/data/block-physics-v2193.sha256");
+    include_str!("../../crates/assets/data/block-physics-v2225.sha256");
 const PHYSICS_REGISTRY_GENERATION_GUIDANCE: &str =
     "run `make assets` (normal `make client` does this automatically)";
 
@@ -477,16 +477,7 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         client_shell::player_skin::LocalPlayerSkin::load(&layout, &args.display_name)
     });
     let screenshots_dir = layout.screenshots_dir();
-    let shader_compiler = {
-        let bundled = assets::carriers::kit_compiler(&layout.prep_kit());
-        if layout.is_installed() {
-            bundled
-        } else {
-            layout
-                .core_executable
-                .with_file_name(bundled.file_name().context("asset compiler basename")?)
-        }
-    };
+    let shader_compiler = layout.shaderpack_worker.clone();
     let renderer_data_root = layout.user_data_root.clone();
     let pipeline_cache_dir = layout.pipeline_cache_dir();
     let minecraft_import = launcher_host::minecraft_import::startup(&layout.user_config_root);

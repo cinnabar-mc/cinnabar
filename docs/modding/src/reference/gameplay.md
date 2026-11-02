@@ -128,6 +128,31 @@ record movement-intents {
 | `sprint` | `bool` |  |
 | `sneak` | `bool` |  |
 
+<a id="type-movement-input"></a>
+
+### `movement-input`
+
+A resolved local control vector: right and forward axes are finite and bounded to -1..1.
+Buttons add holds to physical controls; axes replace walking input for this frame.
+
+```wit
+record movement-input {
+    right: f32,
+    forward: f32,
+    jump: bool,
+    sneak: bool,
+    sprint: bool,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `right` | `f32` |  |
+| `forward` | `f32` |  |
+| `jump` | `bool` |  |
+| `sneak` | `bool` |  |
+| `sprint` | `bool` |  |
+
 <a id="type-control-modes"></a>
 
 ### `control-modes`
@@ -268,6 +293,34 @@ cancel-jump: func() -> result<_, string>;
 
 Cancels pending local jump input after a successful callback, even outside gameplay.
 
+<a id="read-movement-input"></a>
+
+### `read-movement-input`
+
+```wit
+read-movement-input: func() -> result<option<movement-input>, string>;
+```
+
+Reads admitted controls before any mod output is applied. Requires movement authority.
+None means focused gameplay does not own input.
+
+Types: [`movement-input`](gameplay.md#type-movement-input).
+
+<a id="set-movement-input"></a>
+
+### `set-movement-input`
+
+```wit
+set-movement-input: func(input: option<movement-input>) -> result<_, string>;
+```
+
+Replaces walking axes and supplies resolved button holds for one successful frame.
+Requires movement authority and focused gameplay. Renew every frame; none restores input.
+Sprint applies to the supplied direction; hunger, item use, collision, input locks and
+server authority still apply. A complete vector belongs to the earliest supplying mod.
+
+Types: [`movement-input`](gameplay.md#type-movement-input).
+
 <a id="set-movement-intents"></a>
 
 ### `set-movement-intents`
@@ -327,6 +380,47 @@ pulse-attack: func() -> result<_, string>;
 
 One attack-press edge, only while the physical attack control is held.
 An active action filter receives it as a repeat.
+
+<a id="set-block-mining"></a>
+
+### `set-block-mining`
+
+```wit
+set-block-mining: func(held: bool) -> result<_, string>;
+```
+
+Holds ordinary mining on the crosshair block for one successful gameplay frame.
+Requires interaction authority and a current gameplay frame when true; false releases
+only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+callbacks release it. Does not press attack or select targets; normal block reach,
+obstruction, game mode, tool timing, item use and server checks still apply.
+
+<a id="read-block-target"></a>
+
+### `read-block-target`
+
+```wit
+read-block-target: func() -> result<option<vector3>, string>;
+```
+
+Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="set-block-mining-target"></a>
+
+### `set-block-mining-target`
+
+```wit
+set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+```
+
+Redirects held physical block mining toward a world point for one successful frame.
+Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+view. Renew every frame; none or omission restores the crosshair. The first supplying
+mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+
+Types: [`vector3`](gameplay.md#type-vector3).
 
 <a id="set-packet-delay"></a>
 

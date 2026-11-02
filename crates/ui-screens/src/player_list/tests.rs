@@ -159,16 +159,18 @@ fn annotation_spans_render_separate_tints_before_or_after_a_clipped_name() {
             nodes
                 .iter()
                 .find_map(|node| match &node.draw {
-                    Draw::Text { text, color, .. } if text == wanted => Some((node.dest, *color)),
+                    Draw::Text { text, color, .. } if text == wanted => {
+                        Some((node.dest, *color, node.alpha))
+                    }
                     _ => None,
                 })
                 .unwrap()
         };
-        let (prefix, color) = find("| ");
-        assert_eq!(color, [51, 102, 153, 255]);
-        let (value, color) = find("-2");
-        assert_eq!(color, [51, 102, 153, 191]);
-        let (name, _) = find("VeryLongPlayerName");
+        let (prefix, color, alpha) = find("| ");
+        assert_eq!((color, alpha), ([51, 102, 153, 255], 1.0));
+        let (value, color, alpha) = find("-2");
+        assert_eq!((color, alpha), ([51, 102, 153, 255], 0.75));
+        let (name, _, _) = find("VeryLongPlayerName");
         let head = nodes
             .iter()
             .find(|node| {

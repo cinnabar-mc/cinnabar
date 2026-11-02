@@ -369,7 +369,7 @@ impl UiRuntime {
             }
             InventoryCellHit::CraftOutput => self.output_click(player_runtime, false),
             InventoryCellHit::Storage(slot) if self.crafter_slot_disables(player_runtime, slot) => {
-                self.set_crafter_slot(player_runtime, slot, true)
+                self.set_crafter_slot(player_runtime, slot as u8, true)
             }
             hit if self.bundle_insert_target(player_runtime, hit).is_some() => {
                 let target = self
@@ -389,7 +389,7 @@ impl UiRuntime {
 
     /// Whether a click on crafter slot `slot` disables it: an empty, enabled
     /// slot clicked with nothing held, as in vanilla's crafter screen.
-    fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u8) -> bool {
+    fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u16) -> bool {
         let ledger = player_runtime.inventory.ledger();
         ledger.window_kind() == Some(WindowKind::Crafter)
             && slot < 9
@@ -397,7 +397,7 @@ impl UiRuntime {
             && ledger
                 .target_stack(InventoryTarget::Storage(slot))
                 .is_none()
-            && !self.screen_state().crafter.is_disabled(slot)
+            && !self.screen_state().crafter.is_disabled(slot as u8)
     }
 
     /// Shows crafter slot `slot` toggled at once and asks the server to follow.
@@ -834,6 +834,10 @@ impl UiRuntime {
                 })
             }
             Widget::InventoryRightTab(tab) => self.select_inventory_right_tab(player_runtime, tab),
+            Widget::StorageRadio { group, index } => {
+                self.screen_state_mut().storage_radios.insert(group, index);
+                Ok(0)
+            }
             Widget::FurnaceTab(tab) => {
                 let tab = protocol::FurnaceTab::from_index(i32::from(tab));
                 if matches!(

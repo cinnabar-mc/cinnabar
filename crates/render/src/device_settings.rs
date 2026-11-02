@@ -99,6 +99,7 @@ fn dxc_library() -> String {
 /// launch. Only the bundled copy is used: wgpu's and Bevy's defaults load whichever
 /// `dxcompiler.dll` the launch directory or DLL search path holds, and an older copy cannot sign
 /// DXIL. Without the bundled copy, or with `WGPU_DX12_COMPILER=fxc`, DX12 keeps FXC.
+/// [`adapter_requiring_fxc`] overrides this once the adapters are known.
 fn dx12_shader_compiler(
     requested: Option<wgpu::Dx12Compiler>,
     bundled: Option<PathBuf>,
@@ -108,6 +109,39 @@ fn dx12_shader_compiler(
         (Some(wgpu::Dx12Compiler::Fxc), _) | (_, None) => wgpu::Dx12Compiler::Fxc,
         (_, Some(dxc_path)) => wgpu::Dx12Compiler::DynamicDxc { dxc_path },
     }
+}
+
+/// Intel's PCI vendor ID.
+pub(crate) const INTEL_VENDOR_ID: u32 = 0x8086;
+/// The first Intel Windows driver branch (`24.x`, 2018) not known to fail on DX12. HD Graphics 520
+/// with `23.20.16.4905` faulted in counted GPU-cull draws, drew no opaque terrain with CPU-culled
+/// indirect draws, and lost the device building wgpu's indirect-validation pipeline with DXC.
+const FIRST_MODERN_INTEL_DX12_DRIVER_MAJOR: u32 = 24;
+
+/// Recognizes a DX12 Intel adapter whose dotted driver version predates the `24.x` branch.
+/// An unparsable version, or the `0.0.0.0` wgpu reports when the query fails, is not legacy.
+pub(crate) fn legacy_intel_dx12_driver(info: &wgpu::AdapterInfo) -> bool {
+    info.backend == wgpu::Backend::Dx12
+        && info.vendor == INTEL_VENDOR_ID
+        && info
+            .driver
+            .split('.')
+            .next()
+            .and_then(|major| major.trim().parse::<u32>().ok())
+            .is_some_and(|major| (1..FIRST_MODERN_INTEL_DX12_DRIVER_MAJOR).contains(&major))
+}
+
+/// Names the adapter that needs an instance built with `compiler` to be rebuilt with FXC, because
+/// its driver loses the device on DXC's output. The driver is only known once an instance has
+/// listed its adapters. An instance holds one compiler, so its other adapters take FXC as well.
+pub fn adapter_requiring_fxc(
+    compiler: &wgpu::Dx12Compiler,
+    adapters: impl IntoIterator<Item = wgpu::AdapterInfo>,
+) -> Option<wgpu::AdapterInfo> {
+    if matches!(compiler, wgpu::Dx12Compiler::Fxc) {
+        return None;
+    }
+    adapters.into_iter().find(legacy_intel_dx12_driver)
 }
 
 #[cfg(test)]
@@ -146,6 +180,51 @@ mod tests {
             InstanceFlags::debugging(),
         ] {
             assert_eq!(backend_labels(debugging), debugging);
+        }
+    }
+
+    /// The reporting laptop's adapters, as its client log prints them.
+    fn hd_520(driver: &str) -> wgpu::AdapterInfo {
+        wgpu::AdapterInfo {
+            name: "Intel(R) HD Graphics 520".into(),
+            vendor: INTEL_VENDOR_ID,
+            device: 0x1916,
+            driver: driver.into(),
+            ..wgpu::AdapterInfo::new(wgpu::DeviceType::IntegratedGpu, wgpu::Backend::Dx12)
+        }
+    }
+
+    #[test]
+    fn legacy_intel_drivers_rebuild_a_dxc_instance_with_fxc() {
+        let dxc = wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: r"C:\Program Files\Cinnabar\dxcompiler.dll".into(),
+        };
+        let software = wgpu::AdapterInfo {
+            name: "Microsoft Basic Render Driver".into(),
+            vendor: 0x1414,
+            driver: "10.0.19041.5794".into(),
+            ..wgpu::AdapterInfo::new(wgpu::DeviceType::Cpu, wgpu::Backend::Dx12)
+        };
+        let legacy = hd_520("23.20.16.4905");
+        let found = adapter_requiring_fxc(&dxc, [software.clone(), legacy.clone()]);
+        assert_eq!(found.map(|info| info.name), Some(legacy.name.clone()));
+        // An instance already on FXC has nothing to rebuild.
+        assert!(adapter_requiring_fxc(&wgpu::Dx12Compiler::Fxc, [legacy.clone()]).is_none());
+        // Current, unknown and other-backend drivers keep DXC's faster compiles.
+        let vulkan = wgpu::AdapterInfo {
+            backend: wgpu::Backend::Vulkan,
+            ..legacy
+        };
+        for adapter in [
+            software,
+            vulkan,
+            hd_520("24.20.100.6025"),
+            hd_520("31.0.101.2135"),
+            hd_520("0.0.0.0"),
+            hd_520(""),
+        ] {
+            let driver = adapter.driver.clone();
+            assert!(adapter_requiring_fxc(&dxc, [adapter]).is_none(), "{driver}");
         }
     }
 

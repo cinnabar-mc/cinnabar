@@ -32,6 +32,8 @@ atlas_textures! {
     EntityEnchantingTableBook => "textures/entity/enchanting_table_book",
     EntityEndPortal => "textures/entity/end_portal",
     EntityPiglinPiglin => "textures/entity/piglin/piglin",
+    EntityPistonarmPistonArm => "textures/entity/pistonarm/pistonArm",
+    EntityPistonarmPistonArmSticky => "textures/entity/pistonarm/pistonArmSticky",
     EntitySteve => "textures/entity/steve",
     EnvironmentEndPortalColors => "textures/environment/end_portal_colors",
 }

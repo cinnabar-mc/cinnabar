@@ -10,6 +10,7 @@ pub(super) struct Key {
     swell: u32,
     legacy: bool,
     color: [u32; 4],
+    hurt: bool,
     skin: bool,
     skin_tick: Option<u64>,
 }
@@ -50,6 +51,7 @@ impl Key {
             ),
             color: crate::query::tint::default_render_color(evaluator.actor, evaluator.life_tick)
                 .map(f32::to_bits),
+            hurt: evaluator.actor.shows_damage(),
             skin,
             skin_tick: (skin && !state.skin_layers.is_empty()).then_some(evaluator.life_tick),
         }
@@ -61,6 +63,7 @@ struct Output {
     render: Vec<RenderTextureLayer>,
     skin: Option<Vec<SkinRenderLayer>>,
     scale: Option<f32>,
+    head_rotation: Option<HeadRotation>,
 }
 
 #[derive(Debug)]
@@ -136,6 +139,7 @@ impl Sample {
                         Cow::Owned(skin.clone())
                     }),
                 held_item_scale: output.scale,
+                head_rotation: output.head_rotation,
             });
         }
         self.valid = false;
@@ -148,6 +152,7 @@ impl Sample {
         render: &[RenderTextureLayer],
         sampled_skin: Option<&[SkinRenderLayer]>,
         scale: Option<f32>,
+        head_rotation: Option<HeadRotation>,
     ) {
         if !self.inputs.pure() {
             return;
@@ -156,6 +161,7 @@ impl Sample {
             render: Vec::new(),
             skin: None,
             scale,
+            head_rotation,
         });
         output.render.clear();
         output.render.extend_from_slice(render);
@@ -168,6 +174,7 @@ impl Sample {
             None => output.skin = None,
         }
         output.scale = scale;
+        output.head_rotation = head_rotation;
         self.valid = true;
     }
 }

@@ -22,6 +22,7 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
+            head_rotation: state.head_rotation,
         };
         let fallback = || {
             self.frame_fallbacks
@@ -634,6 +635,20 @@ impl ActorAnimationStore {
             }
             _ => Ok(Cow::Borrowed(state.skin_layers.as_slice())),
         };
+        // An unsampled body draws its tick pose, so the head keeps its tick angles too.
+        let head_rotation = state.head_rotation.map(|tick| {
+            sampled_local
+                .as_deref()
+                .and_then(|local| {
+                    HeadRotation::sampled(
+                        &state.bones,
+                        &state.bone_names,
+                        local,
+                        sampled_previous_local.as_deref(),
+                    )
+                })
+                .unwrap_or(tick)
+        });
         let complete = skin.is_ok();
         let skin = skin.unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
         if complete && let Some(retained) = retained {
@@ -644,12 +659,14 @@ impl ActorAnimationStore {
                     Cow::Borrowed(_) => None,
                 },
                 held_item_scale,
+                head_rotation,
             );
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
             skin,
             held_item_scale,
+            head_rotation,
         })
     }
 }

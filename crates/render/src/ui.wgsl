@@ -256,6 +256,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.
         sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
     }
+    if (input.style_flags & UI_STYLE_RGB_COVERAGE) != 0u {
+        let coverage = max(sample.r, max(sample.g, sample.b));
+        sample = vec4<f32>(sample.rgb / max(coverage, 0.000001), sample.a * coverage);
+    }
     // Native alpha-tested name-tag glyphs threshold the texture, not the faded vertex alpha.
     if input.alpha_cutoff >= 0.0 {
         if sample.a < input.alpha_cutoff { discard; }

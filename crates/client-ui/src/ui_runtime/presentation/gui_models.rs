@@ -25,6 +25,9 @@ mod held;
 pub(super) mod hud_model;
 mod live_player;
 mod pack_equipment;
+mod shield_icons;
+mod world_shield;
+pub use world_shield::WorldShieldArtwork;
 mod sources;
 use sources::{ModulatedMeshes, gui_cube_sheet, modulated};
 pub(super) use sources::{ordinary_cube_sheet, sheet_faces};
@@ -124,6 +127,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 
 #[derive(Default)]
 pub(super) struct GuiModels {
+    pub(super) shield_icons: shield_icons::ShieldIcons,
     pub(super) enabled: bool,
     #[cfg(test)]
     hud_cpu_reference: bool,
@@ -144,6 +148,7 @@ pub(super) struct GuiModels {
 /// Static item meshes and atlas pages prepared off the menu frame.
 #[derive(Default)]
 pub struct PreparedGuiModels {
+    pub(super) shield: Option<Arc<shield_icons::Source>>,
     pub(super) color_masks: super::color_icons::MaskRefs,
     pub(super) pages: Vec<UiTexturePage>,
     pub(super) cape: Option<render_model::cape::CapeRig>,
@@ -251,6 +256,7 @@ impl GuiModelPreparation {
             }
         }
         let mut models = BTreeMap::new();
+        let mut shield = None;
         if let Some(equipment) = equipment {
             for texture in equipment.textures() {
                 atlas.insert([texture.width, texture.height], &texture.rgba8)?;
@@ -270,6 +276,10 @@ impl GuiModelPreparation {
                 let source = atlas.insert([texture.width, texture.height], &texture.rgba8)?;
                 if let Some(mesh) = item_gui::shield(geometry, texture, source) {
                     models.insert(icon_key(icon), mesh);
+                    shield = Some(Arc::new(shield_icons::Source {
+                        geometry: geometry.clone(),
+                        texture: texture.clone(),
+                    }));
                 }
             }
         }
@@ -387,6 +397,7 @@ impl GuiModelPreparation {
             render_model::hats::rig(hat);
         }
         Ok(PreparedGuiModels {
+            shield,
             color_masks: super::color_icons::prepare(
                 entities,
                 icons,
@@ -441,6 +452,7 @@ impl UiPresentationRuntime {
         sources: PreparedGuiModels,
     ) -> Result<(), UiPresentationError> {
         self.gui_models.sources = sources;
+        self.gui_models.shield_icons = Default::default();
         self.gui_models.clear_selected_hands();
         self.gui_models.fire.pages_start = None;
         self.install_gui_fire()?;
@@ -526,6 +538,9 @@ impl UiPresentationRuntime {
             },
             |mesh, color, glint| modulated_meshes.get(mesh, color, glint),
         );
+        self.gui_models
+            .shield_icons
+            .apply(nodes, &mut modulated_meshes);
         modulated_meshes.retain_drawn();
         drop(modulated_meshes);
         if let Some(key) = self.player_preview_icon.map(icon_key) {
@@ -766,86 +781,6 @@ impl UiPresentationRuntime {
     #[cfg(test)]
     fn gui_player_mesh_with_held(&self, include_held: [bool; 2]) -> Option<Arc<UiMesh>> {
         self.gui_player_mesh_with_models(self.preview_held_models(include_held))
-    }
-
-    /// Resolves cached source geometry without projecting or allocating UI vertices.
-    fn preview_held_models(
-        &self,
-        include_held: [bool; 2],
-    ) -> [Option<player_preview::PreviewHeldModel>; 2] {
-        std::array::from_fn(|index| {
-            let hand = &self.player_preview_gear.hands[index];
-            if !include_held[index] {
-                return None;
-            }
-            let hand = hand.as_ref()?;
-            let pack_model_suppressed = !self.player_preview_gear.show_custom_item_models
-                && self
-                    .gui_models
-                    .pack_equipment
-                    .source
-                    .as_ref()
-                    .is_some_and(|pack| {
-                        self.gui_models.selected_held[index]
-                            .as_ref()
-                            .is_some_and(|selected| Arc::ptr_eq(&selected.artwork, pack))
-                    });
-            if let Some(selected) = self.gui_models.selected_held[index]
-                .as_ref()
-                .filter(|_| !pack_model_suppressed)
-                && selected.ready
-                && selected.item.identifier.as_ref() == hand.identifier.as_ref()
-                && selected.item.metadata == hand.metadata
-            {
-                return Some(
-                    selected
-                        .model
-                        .as_ref()?
-                        .with_grip(hand.grip)
-                        .with_glint(hand.glint),
-                );
-            }
-            let (identifier, metadata) = Self::item_icon_key(
-                &hand.identifier,
-                hand.metadata,
-                hand.use_animation,
-                hand.charged_projectile,
-                None,
-            );
-            let held = |metadata| self.gui_models.sources.held.get(identifier)?.get(&metadata);
-            let base = (!pack_model_suppressed)
-                .then(|| held(metadata).or_else(|| held(0)))
-                .flatten();
-            let model = if !pack_model_suppressed
-                && let Some((source, vertices)) =
-                    self.session_icons.held_block(identifier, metadata)
-            {
-                player_preview::PreviewHeldModel {
-                    source,
-                    vertices,
-                    hand_pivots: self.gui_models.sources.hand_pivots?,
-                    placements: [player_preview::PreviewHeldPlacement::Block; 2],
-                }
-            } else if base.is_none_or(held::HeldModel::is_sprite)
-                && self.session_item_icon(identifier, metadata).is_some()
-            {
-                let (source, vertices) = self.session_icons.held_sprite(identifier, metadata)?;
-                match base {
-                    Some(base) => base.with_sprite(source, vertices),
-                    None => player_preview::PreviewHeldModel {
-                        source,
-                        vertices,
-                        hand_pivots: self.gui_models.sources.hand_pivots?,
-                        placements: [player_preview::PreviewHeldPlacement::Sprite {
-                            hand_equipped: false,
-                        }; 2],
-                    },
-                }
-            } else {
-                base?.model(self.icon_catalog.as_deref()?)?
-            };
-            Some(model.with_grip(hand.grip).with_glint(hand.glint))
-        })
     }
 
     /// Builds a test preview directly from prepared source layers and selected hand models.

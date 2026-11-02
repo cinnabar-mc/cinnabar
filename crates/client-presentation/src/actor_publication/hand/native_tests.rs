@@ -138,6 +138,10 @@ fn fixture_with_binding(
         .1
         .clone();
     files.push((
+        format!("{}.png", assets::item::shield::pattern_path("")).into(),
+        paper.clone(),
+    ));
+    files.push((
         format!("{}.png", assets::entity::MAP_BACKGROUND_TEXTURE_IDENTIFIER).into(),
         paper,
     ));
@@ -298,6 +302,7 @@ fn fixture_with_binding(
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -471,6 +476,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
                 input.off = Some(crate::presentation::equipment::WornItem {
                     variant: Default::default(),
                     map_id: None,
+                    shield_pattern: None,
                     charged_projectile: None,
                     use_facts: client_world::EffectiveItemUse::default(),
                     grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -635,6 +641,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
         input.off = Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
             map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -963,3 +970,6 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
     }
     assert_eq!(cache.native_pose.sample_work, (0, 0));
 }
+
+#[path = "shield_review_tests.rs"]
+mod shield_review;

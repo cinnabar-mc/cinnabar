@@ -2,10 +2,11 @@
 //! and applies them through the same seams real input, chat and joins use.
 
 pub(crate) mod actors;
+mod benchmark;
 mod camera;
 mod cape;
 mod capture;
-mod cursor_isolation;
+pub(crate) mod cursor_isolation;
 mod input;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -172,8 +173,10 @@ fn dispatch(world: &mut World) {
                 crash(kind);
             }
             Command::CameraPath(path) => camera::start(world, path),
+            Command::CameraPathRealTime(path) => camera::start_realtime(world, path),
             Command::CameraRelease => camera::release(world),
             Command::State => Ok(state::snapshot(world)),
+            Command::BenchmarkState => benchmark::snapshot(world),
             Command::WaitFor {
                 condition,
                 timeout_ms,

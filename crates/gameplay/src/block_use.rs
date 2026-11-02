@@ -491,7 +491,8 @@ impl BlockUseRuntime {
 }
 
 /// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
-/// uses need a predicted block interaction until their successful-use timing is modeled.
+/// uses need a predicted interaction or seed planting until their successful-use timing
+/// is modeled. Buckets refuse repeats.
 pub fn repeats_while_held(
     item: &VerifiedNetworkItemStack,
     bucket: bool,
@@ -504,7 +505,7 @@ pub fn repeats_while_held(
             || traits.contains(ItemTraits::HOE)
             || traits.contains(ItemTraits::PICKAXE));
     item.block_runtime_id() != 0
-        || (!bucket && (local_use == LocalUse::Interact || passive_crop_use))
+        || (!bucket && (local_use != LocalUse::Nothing || passive_crop_use))
 }
 
 /// The cell and state a switch use predicts within the observed world.
@@ -696,3 +697,6 @@ mod stopping;
 
 mod pick;
 pub use pick::{BlockPick, PickResult};
+
+mod seed;
+pub use seed::seed_planting_cell;

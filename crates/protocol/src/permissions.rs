@@ -1,11 +1,11 @@
 //! Passive, bounded ability evidence. This module does not resolve permissions.
-//! Wire fields follow protocol 2193 and the pinned gophertunnel
+//! Wire fields follow protocol 2225 and the pinned gophertunnel
 //! `minecraft/protocol/ability.go` at b725d82563e9.
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{CommandPermissionLevel, PlayerPermissionLevel};
-use bedrock_protocol_1_26_51::types::SerializedAbilitiesData;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::{CommandPermissionLevel, PlayerPermissionLevel};
+use bedrock_protocol_1_26_60::types::SerializedAbilitiesData;
+use bedrock_protocol_1_26_60::wire;
 
 use crate::ProtocolError;
 

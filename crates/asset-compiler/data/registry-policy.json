@@ -477,7 +477,11 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [],
+  "unresolved_retail": [
+    "minecraft:disc_press",
+    "minecraft:ice_crystal",
+    "minecraft:icicle"
+  ],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -1075,6 +1079,14 @@
       "fact": "shape:SHELF_MUSHROOM",
       "members": [
         "minecraft:shelf_mushroom"
+      ],
+      "status": "verified"
+    },
+    {
+      "id": "shape-straw-bed",
+      "fact": "shape:STRAW_BED",
+      "members": [
+        "minecraft:straw_bed"
       ],
       "status": "verified"
     },
@@ -3210,6 +3222,14 @@
       ]
     },
     {
+      "id": "render-hopper",
+      "fact": "render:Hopper",
+      "status": "provisional",
+      "members": [
+        "minecraft:hopper"
+      ]
+    },
+    {
       "id": "render-bubble-column",
       "fact": "render:BubbleColumn",
       "status": "provisional",
@@ -3394,6 +3414,22 @@
       "members": [
         "minecraft:piston",
         "minecraft:sticky_piston"
+      ]
+    },
+    {
+      "id": "render-jigsaw",
+      "fact": "render:Jigsaw",
+      "status": "verified",
+      "members": [
+        "minecraft:jigsaw"
+      ]
+    },
+    {
+      "id": "render-vault",
+      "fact": "render:Vault",
+      "status": "verified",
+      "members": [
+        "minecraft:vault"
       ]
     },
     {
@@ -3611,6 +3647,12 @@
       "suffix": "candle_cake"
     },
     {
+      "id": "render-candle",
+      "fact": "render:Candle",
+      "status": "verified",
+      "suffix": "candle"
+    },
+    {
       "id": "render-shelf",
       "fact": "render:Shelf",
       "status": "provisional",
@@ -3673,7 +3715,9 @@
         "minecraft:barrier",
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
-        "minecraft:moving_block"
+        "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
       ],
       "prefix": "light_block_"
     },
@@ -5183,6 +5227,7 @@
     "minecraft:shield"
   ],
   "entity_rules": [
+    {"id": "unresolved-1-26-60-actors", "status": "provisional", "members": ["minecraft:frostbite", "minecraft:ice_ball"], "facts": {"native_class": "Unresolved", "interactions": "Unresolved", "actor_use_resolver": "Unresolved"}},
     {
       "id": "pick-radius-shulker",
       "status": "verified",
@@ -6274,6 +6319,20 @@
     },
     {
       "entry": {
+        "nbt_id": "PistonArm",
+        "route": "model",
+        "renderer": "piston_arm",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
         "nbt_id": "Bell",
         "route": "model",
         "renderer": "bell",
@@ -6540,7 +6599,7 @@
         "route": "no_draw",
         "renderer": "none",
         "diagnostic": "deferred",
-        "geometry": "diagnostic"
+        "geometry": "model_or_diagnostic"
       },
       "members": [
         "minecraft:hopper"
@@ -7139,6 +7198,9 @@
       "BeaconShell"
     ],
     "blocks": {
+      "RedstoneTorch": "minecraft:redstone_torch",
+      "RedstoneWire": "minecraft:redstone_wire",
+      "UnlitRedstoneTorch": "minecraft:unlit_redstone_torch",
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
       "Glass": "minecraft:glass",
@@ -7149,13 +7211,25 @@
       "Cake": "minecraft:cake",
       "Farmland": "minecraft:farmland",
       "ResinClump": "minecraft:resin_clump",
+      "Sunflower": "minecraft:sunflower",
       "Dirt": "minecraft:dirt",
+      "ChorusPlant": "minecraft:chorus_plant",
+      "EndStone": "minecraft:end_stone",
+      "SporeBlossom": "minecraft:spore_blossom",
+      "CarvedPumpkin": "minecraft:carved_pumpkin",
+      "ChorusFlower": "minecraft:chorus_flower",
+      "PointedDripstone": "minecraft:pointed_dripstone",
+      "SulfurSpike": "minecraft:sulfur_spike",
+      "WeepingVines": "minecraft:weeping_vines",
+      "TwistingVines": "minecraft:twisting_vines",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
       "HeavyCore": "minecraft:heavy_core",
       "Crafter": "minecraft:crafter",
       "DriedGhast": "minecraft:dried_ghast",
+      "TurtleEgg": "minecraft:turtle_egg",
+      "TripWire": "minecraft:trip_wire",
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",

@@ -646,6 +646,34 @@ fn failed_held_repeats_require_a_known_passive_crop_hand() {
     ));
 }
 
+/// A non-block item resolves to placement only by planting, which repeats like any item use.
+#[test]
+fn held_seed_planting_repeats_unless_the_item_is_a_bucket() {
+    let seeds = verified(network_item(2, 0));
+    let soil = block_fact("minecraft:farmland");
+    assert!(super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        true,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Nothing,
+        soil,
+        Default::default()
+    ));
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
@@ -676,6 +704,30 @@ fn orientation_sensitive_states_preserve_the_original_world_hit() {
         [1.5, 64.0, 0.5],
     );
     assert_eq!(intention.first_world_hit(), Some([0.75, 64.0, 0.25]));
+}
+
+#[test]
+fn a_newly_placed_cell_is_not_reinterpreted_as_an_interaction() {
+    let mut intention = super::BuildIntention::default();
+    intention.record(
+        false,
+        [4, 64, -2],
+        LocalUse::Place,
+        true,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(intention.suppress_post_place_interaction([4, 64, -2]));
+    assert!(!intention.suppress_post_place_interaction([4, 64, -1]));
+    intention.record(
+        true,
+        [4, 64, -2],
+        LocalUse::Interact,
+        false,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(!intention.suppress_post_place_interaction([4, 64, -2]));
 }
 
 #[test]
