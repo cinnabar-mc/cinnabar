@@ -46,7 +46,7 @@ pub(super) fn open(world: &mut World, reply: Reply) {
 /// Closes the open screen as Escape does and reports the client's view right after.
 pub(super) fn close(world: &mut World) -> Result<Value, String> {
     with_inventory(world, |player, ui, world| {
-        if ui.inventory_open() && foreground(world, player, ui) != Scene::Container {
+        if ui.inventory_open() && !inventory_takes_input(world, player, ui) {
             return Err(COVERED.into());
         }
         close_screen(player, ui)
@@ -60,7 +60,7 @@ pub(super) fn close(world: &mut World) -> Result<Value, String> {
 /// Clicks one cell and reports the predicted result.
 pub(super) fn click(world: &mut World, command: InventoryClick) -> Result<Value, String> {
     let request_id = with_inventory(world, |player, ui, world| {
-        if ui.inventory_open() && foreground(world, player, ui) != Scene::Container {
+        if ui.inventory_open() && !inventory_takes_input(world, player, ui) {
             return Err(COVERED.into());
         }
         click_cell(player, ui, presentation(world), command)
@@ -78,7 +78,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             player,
             ui,
             presentation(world),
-            foreground(world, player, ui) == Scene::Container,
+            inventory_takes_input(world, player, ui),
         ),
         _ => Value::Null,
     }
@@ -100,7 +100,7 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
         Condition::InventoryReady if !ledger.screen_accepts_gestures() => {
             Err("the inventory screen is still opening".into())
         }
-        Condition::InventoryReady if foreground(world, player, ui) != Scene::Container => {
+        Condition::InventoryReady if !inventory_takes_input(world, player, ui) => {
             Err(COVERED.into())
         }
         Condition::InventorySettled if ledger.pending_request_count() != 0 => Err(format!(
@@ -111,9 +111,20 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
             player,
             ui,
             presentation(world),
-            foreground(world, player, ui) == Scene::Container,
+            inventory_takes_input(world, player, ui),
         )),
     }
+}
+
+/// Whether the open inventory takes the player's input now: it is the scene on top, and no
+/// player mod's view or edit box holds the keys and pointer, the same checks Escape uses.
+fn inventory_takes_input(
+    world: &World,
+    player: &player_state::PlayerState,
+    ui: &UiRuntime,
+) -> bool {
+    foreground(world, player, ui) == Scene::Container
+        && crate::ui_runtime::interaction::inventory::accepts_menu_cancel(ui, presentation(world))
 }
 
 /// Why a command refuses while another screen takes the player's input.

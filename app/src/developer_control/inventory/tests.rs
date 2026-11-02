@@ -220,3 +220,56 @@ fn a_form_in_front_takes_the_inventory_input() {
         "clicks refuse under the form"
     );
 }
+
+/// A player mod's view over the open inventory holds the keys and pointer, so the checks the
+/// endpoint shares with Escape refuse closing it, though the inventory scene is still on top.
+#[test]
+fn a_mod_view_over_the_inventory_takes_its_input() {
+    use mod_ui::mod_screens::ModScreensInput;
+    use server_experience::screen;
+    let Some(mut presentation) = client_ui::test_support::engine_presentation() else {
+        eprintln!("skipping mod view input test: missing installed UI carrier; make assets");
+        return;
+    };
+    let (mut player, mut ui) = player_with_stone();
+    open_screen(&mut player, &mut ui, None).unwrap();
+    flush(&mut player, &mut ui);
+    let accepts = crate::ui_runtime::interaction::inventory::accepts_menu_cancel;
+    assert!(accepts(&ui, Some(&presentation)));
+    let template = serde_json::json!({"namespace":"view_test",
+        "view": {"type":"panel", "size":["100%","100%"]}});
+    let files = Arc::new(screen::Files {
+        namespace: "view_test".into(),
+        templates: [(
+            "ui/view.json".into(),
+            serde_json::to_vec(&template).unwrap(),
+        )]
+        .into(),
+        textures: Vec::new(),
+    });
+    let view = "ui/view.json".to_owned();
+    let data = screen::Modal::default();
+    presentation.set_mod_screens(Some(ModScreensInput {
+        id: "view_test",
+        files: &files,
+        overlay: None,
+        view: Some(&view),
+        focus: None,
+        data: &data,
+    }));
+    presentation
+        .build(
+            &player,
+            &ui,
+            0,
+            [1920, 1080],
+            ui::DpiScale::new(1.0).unwrap(),
+        )
+        .unwrap();
+    assert!(presentation.mod_ui().mod_view_shown());
+    assert_eq!(
+        crate::ui_runtime::input_owner::top_scene(&ui, &player, None),
+        Scene::Container
+    );
+    assert!(!accepts(&ui, Some(&presentation)));
+}

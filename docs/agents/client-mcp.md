@@ -51,7 +51,8 @@ schemas document every argument. Agents drive the client only through this endpo
   `inventory` and `state.inventory` report the screen, cursor, slots and crafting grid as
   `{identifier, count}` or null; `crafting.output` is the crafting grid's result, never a
   station's. `wait_for` `inventory_settled` waits for the server's answers. Like the player's
-  input, the commands refuse while another screen (a form, sign editor or menu) is in front.
+  input, the commands refuse while another screen (a form, sign editor, menu or a mod's view)
+  is in front.
 - `record_start` needs `ffmpeg` on PATH. Its default fixed clock steps game time exactly 1/fps per
   rendered frame, so it suits the local showcase server; record remote servers with
   `fixed_clock: false`. Audio is captured to a WAV and muxed in. A real-time recording never
