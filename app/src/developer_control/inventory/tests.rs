@@ -294,3 +294,86 @@ fn an_open_mod_panel_holds_the_inventory_input() {
     view.0.mod_ui_mut().set_mod_panel_open(true);
     assert!(presentation_holds_input(&world));
 }
+
+/// A focused edit box in a mod overlay beside the inventory keeps Escape from closing it, but a
+/// click on a slot still reaches the inventory and moves that focus away, as a pointer press
+/// does.
+#[test]
+fn a_focused_overlay_edit_box_gives_way_to_slot_clicks() {
+    use mod_ui::mod_screens::ModScreensInput;
+    use server_experience::screen;
+    let Some(mut presentation) = client_ui::test_support::engine_presentation() else {
+        eprintln!("skipping overlay focus click test: missing installed UI carrier; make assets");
+        return;
+    };
+    let (mut player, mut ui) = player_with_stone();
+    open_screen(&mut player, &mut ui, None).unwrap();
+    flush(&mut player, &mut ui);
+    let template = serde_json::json!({"namespace":"focus_test", "overlay": {
+        "type":"panel", "size":["100%","100%"], "controls":[{"search": {
+            "type":"edit_box", "size":[20,10], "anchor_from":"top_left", "anchor_to":"top_left",
+            "text_box_name":"focus_test.search", "max_length":32, "text_control":"display",
+            "bindings":[{"binding_name":"#offset"}],
+            "button_mappings":[
+                {"from_button_id":"button.menu_select","to_button_id":"button.text_edit_box_selected",
+                    "handle_select":true,"handle_deselect":false,"mapping_type":"pressed"},
+                {"from_button_id":"button.menu_select","to_button_id":"button.text_edit_box_selected",
+                    "handle_select":false,"handle_deselect":true,"mapping_type":"global","consume_event":false}],
+            "controls":[{"display":{"type":"label","text":"","size":[20,10]}}]}}]}});
+    let files = Arc::new(screen::Files {
+        namespace: "focus_test".into(),
+        templates: [(
+            "ui/overlay.json".into(),
+            serde_json::to_vec(&template).unwrap(),
+        )]
+        .into(),
+        textures: Vec::new(),
+    });
+    let overlay = "ui/overlay.json".to_owned();
+    let mut data = screen::Modal::default();
+    let dpi = ui::DpiScale::new(1.0).unwrap();
+    let mut redraw =
+        |presentation: &mut UiPresentationRuntime, data: &screen::Modal, focus: bool| {
+            let focus = focus.then(|| (1, "focus_test.search".to_owned()));
+            presentation.set_mod_screens(Some(ModScreensInput {
+                id: "focus_test",
+                files: &files,
+                overlay: Some(&overlay),
+                view: None,
+                focus: focus.as_ref(),
+                data,
+            }));
+            presentation
+                .build(&player, &ui, 0, [1920, 1080], dpi)
+                .unwrap();
+        };
+    redraw(&mut presentation, &data, false);
+    let gui = presentation.mod_ui().mod_screen_layout().unwrap().gui;
+    data.set_value(
+        "#offset".into(),
+        screen::Value::Numbers(vec![gui.x - 24.0, gui.y + 4.0]),
+    );
+    redraw(&mut presentation, &data, true);
+    assert!(presentation.mod_ui().mod_text_focused());
+
+    let mut world = World::new();
+    world.insert_resource(UiPresentationResource(presentation));
+    assert!(inventory_takes_pointer(&world, &player, &ui));
+    assert!(!escape_reaches_inventory(&world, &player, &ui));
+    let point = world
+        .resource::<UiPresentationResource>()
+        .0
+        .inventory_screen_cells(InventoryScreen::of_runtime(&player, &ui))
+        .into_iter()
+        .find(|(hit, _)| *hit == InventoryCellHit::Player(9))
+        .and_then(|(_, point)| point);
+    focus_mod_screens_at(&mut world, point);
+    assert!(
+        !world
+            .resource::<UiPresentationResource>()
+            .0
+            .mod_ui()
+            .mod_text_focused(),
+        "the slot click moved focus away from the edit box"
+    );
+}

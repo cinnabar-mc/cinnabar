@@ -116,14 +116,7 @@ impl UiPresentationRuntime {
             return self
                 .engine_container_cells()
                 .into_iter()
-                .filter(|(_, point)| {
-                    // Engine frames map virtual (GUI) px to window-logical px.
-                    let logical = [
-                        frame.origin[0] + point[0] * frame.scale,
-                        frame.origin[1] + point[1] * frame.scale,
-                    ];
-                    !mods.mod_screens_own(logical)
-                })
+                .filter(|(_, point)| !mods.mod_screens_own(engine_logical_point(frame, *point)))
                 .map(|(hit, point)| (hit, Some(point)))
                 .collect();
         }
@@ -133,6 +126,13 @@ impl UiPresentationRuntime {
             .filter(|hit| self.fallback_cell_permitted(screen, *hit))
             .map(|hit| (hit, None))
             .collect()
+    }
+
+    /// Where an engine-drawn container screen's GUI point lies in window-logical px, for
+    /// surfaces such as player mods' screens that work in window coordinates.
+    pub fn engine_container_logical_point(&self, gui: [f32; 2]) -> Option<[f32; 2]> {
+        self.engine_container_frame()
+            .map(|frame| engine_logical_point(frame, gui))
     }
 
     /// Whether the fallback renderer draws and presses a cell: a mount's window hides the
@@ -455,4 +455,12 @@ mod tests {
             Some(InventoryCellHit::Player(9))
         );
     }
+}
+
+/// An engine frame's virtual (GUI) point in window-logical px.
+fn engine_logical_point(frame: &ui_engine::frame::EngineFrame, gui: [f32; 2]) -> [f32; 2] {
+    [
+        frame.origin[0] + gui[0] * frame.scale,
+        frame.origin[1] + gui[1] * frame.scale,
+    ]
 }

@@ -48,7 +48,7 @@ pub(super) fn open(world: &mut World, reply: Reply) {
 /// Closes the open screen as Escape does and reports the client's view right after.
 pub(super) fn close(world: &mut World) -> Result<Value, String> {
     with_inventory(world, |player, ui, world| {
-        if ui.inventory_open() && !inventory_takes_input(world, player, ui) {
+        if ui.inventory_open() && !escape_reaches_inventory(world, player, ui) {
             return Err(COVERED.into());
         }
         close_screen(player, ui)
@@ -59,15 +59,36 @@ pub(super) fn close(world: &mut World) -> Result<Value, String> {
     Ok(json!({ "closed": true, "inventory": snapshot(world) }))
 }
 
-/// Clicks one cell and reports the predicted result.
+/// Clicks one cell and reports the predicted result. A left press first moves a mod screen's
+/// edit-box focus to the pressed point, as the pointer path does, so a focused overlay edit
+/// box beside the inventory gives way to the click instead of refusing it.
 pub(super) fn click(world: &mut World, command: InventoryClick) -> Result<Value, String> {
-    let request_id = with_inventory(world, |player, ui, world| {
-        if ui.inventory_open() && !inventory_takes_input(world, player, ui) {
+    let (hit, point, destroys) = with_inventory(world, |player, ui, world| {
+        if ui.inventory_open() && !inventory_takes_pointer(world, player, ui) {
             return Err(COVERED.into());
         }
-        click_cell(player, ui, presentation(world), command)
+        resolve_cell(player, ui, presentation(world), command)
+    })?;
+    if command.button == ClickButton::Left {
+        focus_mod_screens_at(world, point);
+    }
+    let request_id = with_inventory(world, |player, ui, _| {
+        dispatch_cell(player, ui, hit, destroys, command)
     })?;
     Ok(json!({ "request_id": request_id, "inventory": snapshot(world) }))
+}
+
+/// Applies a left press's edit-box selection to the player mod's screens at a cell's GUI
+/// point, or deselects them when the screen has no drawn point for it.
+fn focus_mod_screens_at(world: &mut World, point: Option<[f32; 2]>) {
+    let now = world
+        .get_resource::<Time<Real>>()
+        .map_or(0.0, Time::elapsed_secs_f64);
+    let Some(mut view) = world.get_resource_mut::<UiPresentationResource>() else {
+        return;
+    };
+    let logical = point.and_then(|gui| view.0.engine_container_logical_point(gui));
+    view.0.mod_ui_mut().focus_mod_screen_pointer(logical, now);
 }
 
 /// The client's inventory view, or null before the UI runtime exists.
@@ -80,7 +101,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             player,
             ui,
             presentation(world),
-            inventory_takes_input(world, player, ui),
+            inventory_takes_pointer(world, player, ui),
         ),
         _ => Value::Null,
     }
@@ -102,7 +123,7 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
         Condition::InventoryReady if !ledger.screen_accepts_gestures() => {
             Err("the inventory screen is still opening".into())
         }
-        Condition::InventoryReady if !inventory_takes_input(world, player, ui) => {
+        Condition::InventoryReady if !inventory_takes_pointer(world, player, ui) => {
             Err(COVERED.into())
         }
         Condition::InventorySettled if ledger.pending_request_count() != 0 => Err(format!(
@@ -113,21 +134,32 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
             player,
             ui,
             presentation(world),
-            inventory_takes_input(world, player, ui),
+            inventory_takes_pointer(world, player, ui),
         )),
     }
 }
 
-/// Whether the open inventory takes the player's input now: it is the scene on top, no mod
-/// panel or client-part modal is up, and no player mod's view or edit box holds the keys and
-/// pointer, the same checks Escape uses.
-fn inventory_takes_input(
+/// Whether the open inventory takes the player's pointer now: it is the scene on top, no mod
+/// panel or client-part modal is up, and no player mod's view hides it. A focused mod edit box
+/// does not block it; a press moves that focus first.
+fn inventory_takes_pointer(
     world: &World,
     player: &player_state::PlayerState,
     ui: &UiRuntime,
 ) -> bool {
     foreground(world, player, ui) == Scene::Container
         && !presentation_holds_input(world)
+        && !presentation(world).is_some_and(|view| view.mod_ui().mod_view_shown())
+}
+
+/// Whether Escape would close the open inventory now: it takes the pointer, and the checks
+/// Escape itself uses pass, so a focused mod edit box keeps the screen open.
+fn escape_reaches_inventory(
+    world: &World,
+    player: &player_state::PlayerState,
+    ui: &UiRuntime,
+) -> bool {
+    inventory_takes_pointer(world, player, ui)
         && crate::ui_runtime::interaction::inventory::accepts_menu_cancel(ui, presentation(world))
 }
 
@@ -219,14 +251,26 @@ fn close_screen(player: &mut player_state::PlayerState, ui: &mut UiRuntime) -> R
 }
 
 /// Runs the pointer action a plain, right or Shift click on the addressed cell produces.
-/// The cell must be one the open screen lets a pointer press, and a Shift-click takes the
-/// same layout-dependent route a pointer press there does.
+#[cfg(test)]
 fn click_cell(
     player: &mut player_state::PlayerState,
     ui: &mut UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
     command: InventoryClick,
 ) -> Result<i32, String> {
+    let (hit, _, destroys) = resolve_cell(player, ui, presentation, command)?;
+    dispatch_cell(player, ui, hit, destroys, command)
+}
+
+/// The cell a click addresses, its press point on an engine-drawn screen, and whether a
+/// Shift-click there deletes the stack. The cell must be one the open screen lets a pointer
+/// press, and a Shift-click takes the same layout-dependent route a pointer press does.
+fn resolve_cell(
+    player: &mut player_state::PlayerState,
+    ui: &mut UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
+    command: InventoryClick,
+) -> Result<(InventoryCellHit, Option<[f32; 2]>, bool), String> {
     if !ui.inventory_open() {
         return Err("no inventory screen is open; send inventory_open first".into());
     }
@@ -242,6 +286,17 @@ fn click_cell(
         && point.is_some_and(|point| {
             presentation.is_some_and(|view| view.inventory_auto_place_destroys(point))
         });
+    Ok((hit, point, destroys))
+}
+
+/// Runs the pointer action of a resolved click on `hit`.
+fn dispatch_cell(
+    player: &mut player_state::PlayerState,
+    ui: &mut UiRuntime,
+    hit: InventoryCellHit,
+    destroys: bool,
+    command: InventoryClick,
+) -> Result<i32, String> {
     let result = match (command.shift, command.button) {
         (true, _) if destroys => ui.destroy_on_auto_place(player, hit),
         (true, _) => ui.try_pointer_action(player, PointerAction::QuickMove(hit)),
