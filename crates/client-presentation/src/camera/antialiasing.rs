@@ -341,7 +341,7 @@ mod tests {
         app.world_mut().entity_mut(camera).remove::<Hdr>();
         app.world_mut()
             .entity_mut(camera)
-            .insert(render_scene::EnhancedRendering);
+            .insert(render_scene::EnhancedRendering::default());
         app.update();
         assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
     }
