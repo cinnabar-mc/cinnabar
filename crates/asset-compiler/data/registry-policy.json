@@ -1365,7 +1365,8 @@
         "minecraft:grindstone",
         "minecraft:cartography_table",
         "minecraft:smithing_table",
-        "minecraft:beacon"
+        "minecraft:beacon",
+        "minecraft:lectern"
       ]
     },
     {

@@ -44,6 +44,13 @@ fn interaction(fact: BlockFact) -> Option<Interaction> {
     }
 }
 
+/// Whether a use press aimed at `clicked` belongs to the block rather than the held
+/// item's own use, such as opening a held book. Vanilla gives an interactive block the
+/// press unless the player sneaks, whatever the player's abilities allow.
+pub fn block_takes_use_press(clicked: BlockFact, sneaking: bool) -> bool {
+    !sneaking && interaction(clicked).is_some()
+}
+
 impl Interaction {
     const fn permitted(self, caps: &GameModeCapabilities) -> bool {
         match self {

@@ -57,7 +57,8 @@ pub(super) fn handle_menu_cancel(
 }
 
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
-/// (Control+Q the whole stack) and a right-click with a book in hand opens it.
+/// (Control+Q the whole stack) and a right-click with a book in hand opens it unless an
+/// interactive block in front takes the press.
 #[allow(
     clippy::too_many_arguments,
     reason = "Player authority is borrowed separately from UI state."
@@ -77,6 +78,7 @@ pub(crate) fn drive_world_inventory_keys(
     book_transport: (
         Option<Res<client_interaction::movement::MovementTicker>>,
         Option<Res<NetworkHandle<PackApplication>>>,
+        crate::block_use::UsePressTarget,
     ),
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
@@ -101,8 +103,13 @@ pub(crate) fn drive_world_inventory_keys(
     {
         return;
     }
-    let (movement, network) = book_transport;
+    let (movement, network, press_target) = book_transport;
+    // An interactive block in front takes the press, as a lectern does to place the book.
+    let block_takes_use = movement
+        .as_deref()
+        .is_some_and(|movement| press_target.block_takes_press(movement));
     if (use_book
+        && !block_takes_use
         && runtime.open_held_book(
             &mut player_runtime,
             movement
