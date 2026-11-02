@@ -40,6 +40,9 @@ pub enum ActorStatusKind {
     Puke,
     DrinkMilk,
     Feed,
+    /// Event 60 (CloudburstMC's `BABY_ANIMAL_FEED`): feeding advanced a baby animal's growth,
+    /// which vanilla shows with green growth particles. Data is zero.
+    BabyAge,
     ActorGrowUp,
     /// Event 80 starts the held kinetic weapon's impact feedback.
     KineticDamageDealt,
@@ -139,6 +142,7 @@ pub(crate) fn normalize_actor_event(packet: ActorEventPacket) -> Option<ActorEve
         ActorEventType::Puke => ActorStatusKind::Puke,
         ActorEventType::DrinkMilk => ActorStatusKind::DrinkMilk,
         ActorEventType::Feed => ActorStatusKind::Feed,
+        ActorEventType::BabyAge => ActorStatusKind::BabyAge,
         ActorEventType::ActorGrowUp => ActorStatusKind::ActorGrowUp,
         ActorEventType::KineticDamageDealt => ActorStatusKind::KineticDamageDealt,
         _ => return None,
@@ -196,6 +200,23 @@ mod tests {
             None
         );
         assert_eq!(normalize_actor_event(packet(ActorEventType::Jump)), None);
+    }
+
+    // BDS 1.26.52 sends event 60 with zero data right after the Feed event when a baby is fed.
+    #[test]
+    fn baby_age_normalizes_to_its_own_status() {
+        let mut packet = packet(ActorEventType::from(60));
+        packet.data = wire::ZigZag32(0);
+        let encoded = packet.encode_to_vec().unwrap();
+        let decoded = ActorEventPacket::decode_exact(&encoded).unwrap();
+        assert_eq!(
+            normalize_actor_event(decoded),
+            Some(ActorEvent::Status(ActorStatusEvent {
+                runtime_id: 9,
+                kind: ActorStatusKind::BabyAge,
+                data: 0,
+            }))
+        );
     }
 
     #[test]
