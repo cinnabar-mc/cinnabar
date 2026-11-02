@@ -101,16 +101,29 @@ impl UiPresentationRuntime {
     }
 
     /// The cells the open screen lets a pointer press. An engine-drawn screen lists the cells
-    /// its active layout draws, each with a GUI point that presses it; the fallback renderer
-    /// lists its fixed cells without points, minus those its pointer refuses.
+    /// its active layout draws, each with a GUI point that presses it, minus those a player
+    /// mod's overlay covers; the fallback renderer lists its fixed cells without points, minus
+    /// those its pointer refuses. A shown mod view hides the screen, so it lists none.
     pub fn inventory_screen_cells(
         &self,
         screen: InventoryScreen,
     ) -> Vec<(InventoryCellHit, Option<[f32; 2]>)> {
-        if self.engine_container_frame().is_some() {
+        let mods = self.mod_ui();
+        if mods.mod_view_shown() {
+            return Vec::new();
+        }
+        if let Some(frame) = self.engine_container_frame() {
             return self
                 .engine_container_cells()
                 .into_iter()
+                .filter(|(_, point)| {
+                    // Engine frames map virtual (GUI) px to window-logical px.
+                    let logical = [
+                        frame.origin[0] + point[0] * frame.scale,
+                        frame.origin[1] + point[1] * frame.scale,
+                    ];
+                    !mods.mod_screens_own(logical)
+                })
                 .map(|(hit, point)| (hit, Some(point)))
                 .collect();
         }

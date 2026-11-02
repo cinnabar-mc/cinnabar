@@ -112,6 +112,25 @@ const COVERED: &str = r#"{
   }
 }"#;
 
+/// One slot a wider control covers except for its leftmost pixel column.
+const STRIP: &str = r#"{
+  "namespace": "slots",
+  "slot_button": {
+    "type": "button", "size": [20, 20],
+    "anchor_from": "top_left", "anchor_to": "top_left"
+  },
+  "screen": {
+    "type": "screen",
+    "controls": [
+      {"slot@slots.slot_button": {"offset": [0, 0]}},
+      {"cover": {
+        "type": "button", "size": [19, 20], "offset": [1, 0],
+        "anchor_from": "top_left", "anchor_to": "top_left"
+      }}
+    ]
+  }
+}"#;
+
 fn frame() -> EngineFrame {
     frame_of(SCREEN)
 }
@@ -160,10 +179,17 @@ fn shift_clicks_elsewhere_move_the_stack() {
     }
 }
 
-/// A cell whose centre is covered is still listed, through a point a pointer can reach.
+/// A cell whose centre is covered, or that shows only a one-pixel strip, is still listed
+/// through a point a pointer can reach.
 #[test]
 fn layout_cells_reach_a_partly_covered_cell() {
-    let mut frame = frame_of(COVERED);
+    for fixture in [COVERED, STRIP] {
+        covered_cell_is_listed(fixture);
+    }
+}
+
+fn covered_cell_is_listed(fixture: &str) {
+    let mut frame = frame_of(fixture);
     let mut hits = frame.hits.to_vec();
     for region in &mut hits {
         if region.name == "slot" {
