@@ -79,6 +79,9 @@ impl PaletteWorld<'_> {
     ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
         let Some(_) = &physics.door else {
             if physics.selection_context == SelectionContext::PistonArm {
+                // Native collision scans reach one cell beyond the query and add arm pieces
+                // only from the arm's own cell, so a retracting arm's sleeve that pokes past
+                // its piston is not found from two cells away; the halo stays unwidened.
                 return self.piston_arm_collision(position, physics);
             }
             return Ok(Cow::Borrowed(&physics.shapes));

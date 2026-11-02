@@ -220,3 +220,25 @@ fn an_arm_whose_piston_column_is_unloaded_has_no_collision() {
     store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
     assert!(arm_boxes(&store) > 0);
 }
+
+/// Native collision scans reach one cell past the query, so a retracted arm's sleeve that
+/// pokes 0.25 past its piston is not found from the cell beyond the piston.
+#[test]
+fn arm_pieces_are_found_only_within_the_native_one_cell_scan() {
+    let registry = registry();
+    let mut store = store();
+    piston(&mut store, [4, 4, 4], EAST, Some(0.0));
+    let arm_boxes = |query: Aabb| {
+        PaletteWorld::for_movement(&store, &registry, 0)
+            .collision_boxes_with_provenance(query)
+            .unwrap()
+            .value
+            .into_iter()
+            .filter(|collider| collider.block == Some([5, 4, 4]))
+            .count()
+    };
+    let beyond = Aabb::new(Vec3::new(3.0, 4.0, 4.0), Vec3::new(3.9, 5.0, 5.0));
+    assert_eq!(arm_boxes(beyond), 0);
+    let within = Aabb::new(Vec3::new(3.0, 4.0, 4.0), Vec3::new(4.1, 5.0, 5.0));
+    assert!(arm_boxes(within) > 0);
+}
