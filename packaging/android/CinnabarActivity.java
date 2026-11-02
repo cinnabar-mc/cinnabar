@@ -2,6 +2,7 @@ package @APPLICATION_ID@;
 
 import android.app.NativeActivity;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -20,6 +21,7 @@ public final class CinnabarActivity extends NativeActivity {
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         FilePicker.attach(this);
+        askForMicrophone();
         startup = new StartupScreen(this);
         addContentView(startup, new android.view.ViewGroup.LayoutParams(
                 android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT));
@@ -33,6 +35,15 @@ public final class CinnabarActivity extends NativeActivity {
         decor.getViewTreeObserver().addOnGlobalLayoutListener(() ->
                 updateKeyboardGeometry(decor, decor.getRootWindowInsets()));
         decor.requestApplyInsets();
+    }
+
+    /** Voice chat needs the microphone; the prompt appears once and a refusal only mutes voice. */
+    private void askForMicrophone() {
+        if (Build.VERSION.SDK_INT >= 23
+                && checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                        != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] { android.Manifest.permission.RECORD_AUDIO }, 0x4D49);
+        }
     }
 
     @Override protected void onResume() {

@@ -346,6 +346,15 @@ forbidden_dependencies = ["asset-compiler", "pack-compiler", "pack-compile-input
 forbidden_transitive_dependencies = ["app", "cinnabar", "gameplay", "client-session", "acceptance", "client-presentation", "render", "asset-compiler"]
 test_support_features = ["test-support"]
 
+# Proximity voice chat: microphone, codec, room relay and mixing. No Bevy, GPU or network
+# stack beyond std UDP; the client reaches it through a handle.
+[[crates]]
+name = "client-voice"
+path = "crates/client-voice"
+allowed_dependencies = []
+forbidden_dependencies = ["bevy", "wgpu", "reqwest", "tokio", "hyper", "client-audio"]
+forbidden_transitive_dependencies = ["bevy", "bevy_*", "wgpu*", "reqwest", "tokio", "hyper*", "client-audio"]
+
 # Crash report schema, folder layout, log sections and retention; offline and clock-free.
 [[crates]]
 name = "crash-report"

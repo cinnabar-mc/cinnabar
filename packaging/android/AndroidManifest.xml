@@ -5,6 +5,9 @@
     android:versionCode="@VERSION_CODE@"
     android:versionName="@VERSION_NAME@">
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-feature android:name="android.hardware.microphone" android:required="false" />
     <uses-feature android:name="android.hardware.vulkan.version" android:version="0x400003" android:required="true" />
     <application
         android:label="@PRODUCT_NAME@"

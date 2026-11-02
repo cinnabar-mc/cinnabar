@@ -2807,6 +2807,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "client-voice"
+version = "0.1.31"
+dependencies = [
+ "cpal",
+]
+
+[[package]]
 name = "client-world"
 version = "0.1.31"
 dependencies = [

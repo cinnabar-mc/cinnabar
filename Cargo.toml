@@ -16,6 +16,7 @@ members = [
     "web/client",
     "crates/block-transform",
     "crates/bootstrap-ui",
+    "crates/client-voice",
     "crates/client-world",
     "crates/client-state",
     "crates/client-shell",
