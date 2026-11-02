@@ -198,7 +198,8 @@ interface types {
     record overlay { slot: u8, face: face, look: overlay-look }
 
     // 0.12: what a block drops, how its item is offered, whether it takes part in redstone, and
-    // a player's game mode. Every type above is unchanged, so the older worlds share them.
+    // a player's game mode. Every type above is unchanged, so the older worlds share them; the
+    // 0.12 actor motion functions use `position` as a vector in blocks per tick.
 
     /// What breaking a block drops by itself: `itself`, its own item, as a plain block does, or
     /// `nothing`, which leaves every drop to the guest's `on-break`.
@@ -297,6 +298,17 @@ interface world-access {
         /// The actor's game mode as it was snapshotted with its inventory; `player-unavailable`
         /// without an actor.
         game-mode: func() -> result<game-mode, world-error>;
+        /// Stages a new velocity for `player`, the actor, in blocks per tick, which replaces its
+        /// own once the result commits, as a server's motion packet does. The player's client
+        /// moves it, so collision and server movement checks still apply. `denied` for another
+        /// player, `player-unavailable` without an actor, and `out-of-bounds` for a component
+        /// that is not finite. A later velocity or knockback replaces this one.
+        set-velocity: func(player: player-id, velocity: position) -> result<_, world-error>;
+        /// Stages a knockback of `player`, the actor, away from `source`: `force` horizontally
+        /// and `height` upwards, in blocks per tick, scaled by its knockback resistance and
+        /// skipped in game modes that take no damage, as an attack's knockback is. Errors as
+        /// `set-velocity`; a later velocity or knockback replaces this one.
+        knock-back: func(player: player-id, source: position, force: f64, height: f64) -> result<_, world-error>;
         /// Stages new content for one of the actor's inventory slots; none empties it.
         set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may

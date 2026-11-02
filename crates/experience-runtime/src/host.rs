@@ -848,6 +848,30 @@ impl world_access::HostCallback for HostState {
             .set_redstone_power(pos.into(), power)
     }
 
+    fn set_velocity(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        velocity: wit::Position,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .set_velocity(player, velocity.into())
+    }
+
+    fn knock_back(
+        &mut self,
+        ctx: Resource<CallbackRes>,
+        player: String,
+        source: wit::Position,
+        force: f64,
+        height: f64,
+    ) -> Result<Result<(), WorldError>> {
+        self.table
+            .get_mut(&ctx)?
+            .knock_back(player, source.into(), force, height)
+    }
+
     /// Only reachable for an owned handle, and the guest is only ever lent a callback.
     fn drop(&mut self, _: Resource<CallbackRes>) -> Result<()> {
         bail!("the guest dropped a callback it cannot own")

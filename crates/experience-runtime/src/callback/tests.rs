@@ -3,6 +3,7 @@
 mod client;
 mod content_rules;
 mod item_metadata;
+mod motion;
 mod overlays;
 mod redstone;
 
