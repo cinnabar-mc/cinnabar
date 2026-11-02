@@ -70,7 +70,7 @@ pub struct EntityPackCompilation {
 }
 
 /// Whether a pack file feeds the entity catalog: definition JSON, geometry anywhere under
-/// `models/`, and rasters anywhere under `textures/`.
+/// `models/`, and pack-relative rasters selected by the collector.
 fn in_families(path: &str) -> bool {
     let extension = path.rsplit_once('.').map(|(_, extension)| extension);
     let json = extension == Some("json");
@@ -87,14 +87,15 @@ fn in_families(path: &str) -> bool {
         ]
         .iter()
         .any(|prefix| path.starts_with(prefix)))
-        || (path.starts_with("textures/") && (raster || (json && path.contains("/entity/"))))
+        || raster
+        || (path.starts_with("textures/") && json && path.contains("/entity/"))
         || material
 }
 
 /// Geometry is keyed by identifier, so a file outside `models/entity/` is filed under it.
 fn canonical_path(path: Box<str>) -> Box<str> {
     match path.strip_prefix("models/") {
-        Some(rest) if !path.starts_with("models/entity/") => {
+        Some(rest) if path.ends_with(".json") && !path.starts_with("models/entity/") => {
             format!("models/entity/_pack/{rest}").into()
         }
         _ => path,
@@ -641,7 +642,13 @@ mod tests {
         assert!(in_families("textures/entity/a/b.png"));
         assert!(in_families("textures/cc/buddy/a.buddy.png"));
         assert!(in_families("models/mobs/a.geo.json"));
-        assert!(!in_families("entity/a.png"));
+        assert!(in_families("entity/a.png"));
+        assert!(in_families("artwork/ui/a.tga"));
+        assert_eq!(
+            canonical_path("models/ui/a.png".into()).as_ref(),
+            "models/ui/a.png"
+        );
+        assert!(!in_families("artwork/ui/a.jpg"));
         assert!(!in_families("ui/a.json"));
         assert_eq!(
             canonical_path("models/mobs/a.geo.json".into()).as_ref(),

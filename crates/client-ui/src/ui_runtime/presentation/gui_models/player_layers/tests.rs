@@ -264,3 +264,91 @@ fn selected_controller_pages_publish_after_an_existing_complete_ui_catalog() {
     );
     assert!(colored_pixels(&removed).is_empty());
 }
+
+#[test]
+fn custom_player_skin_keeps_independent_controller_geometry() {
+    let vanilla = pack();
+    let mut files = files();
+    let mut entity: serde_json::Value = serde_json::from_slice(&files[0].1).unwrap();
+    let textures = &mut entity["minecraft:client_entity"]["description"]["textures"];
+    textures["default"] = serde_json::json!("textures/entity/session_skin");
+    textures["panel"] = serde_json::json!("textures/entity/preview_layers");
+    files[0].1 = serde_json::to_vec(&entity).unwrap();
+    let mut controllers: serde_json::Value = serde_json::from_slice(&files[2].1).unwrap();
+    controllers["render_controllers"]["controller.render.preview.panel"]["textures"] =
+        serde_json::json!(["Texture.panel"]);
+    files[2].1 = serde_json::to_vec(&controllers).unwrap();
+    let compiled = pack_entity_compiler::compile_actor_pack(files)
+        .unwrap()
+        .unwrap();
+    assert_eq!(compiled.entities.rig_bindings.len(), 1);
+    assert_eq!(compiled.textures.len(), 1);
+    assert!(
+        compiled.bindings.is_empty(),
+        "the body image belongs to the session skin"
+    );
+    let pack = Arc::new(assets::SessionEntityPack {
+        assets: Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
+        textures: compiled.textures.into(),
+        bindings: compiled.bindings.into(),
+        equipment: None,
+    });
+    let mut stream = super::super::live_player::tests::player_stream(
+        Arc::clone(&vanilla.assets),
+        Arc::clone(&pack.assets),
+    );
+    stream.set_pack_entities(Some((Arc::clone(&pack.assets), Vec::new())));
+    let skin = protocol::PlayerSkin::Standard(render_api::StandardSkin {
+        width:64,height:64,rgba8:vec![255;64*64*4].into(),cape:None,
+        geometry:Some(Arc::new(render_api::SkinGeometrySource {
+            resource_patch:r#"{"geometry":{"default":"geometry.original_avatar"}}"#.into(),
+            geometry_data:r#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.original_avatar","texture_width":64,"texture_height":64},"bones":[{"name":"body","pivot":[0,0,0],"cubes":[{"origin":[-3,0,-1],"size":[6,12,2],"uv":[0,0]}]}]}]}"#.into(),
+            animations:Arc::from([]),
+        })),
+    });
+    stream
+        .submit(
+            2,
+            protocol::WorldEvent::Actor(protocol::ActorEvent::PlayerList(
+                protocol::PlayerListUpdateEvent {
+                    entries: Arc::from([protocol::PlayerListEntry::Add {
+                        uuid: [0; 16],
+                        unique_id: 1,
+                        username: "Offline".into(),
+                        verified: true,
+                        xuid: "".into(),
+                        skin,
+                    }]),
+                },
+            )),
+        )
+        .unwrap();
+    test_time::eventually("custom player skin geometry is prepared", || {
+        stream.advance_actor_interpolation_frame(0);
+        stream
+            .authority()
+            .local_player_ui()
+            .rig()
+            .is_some_and(|rig| rig.skin_geometry.is_some())
+    });
+    stream.advance_actor_interpolation_ticks(1);
+    let rig = stream.authority().local_player_ui().rig().unwrap();
+    assert!(rig.skin_geometry.is_some());
+    assert_eq!(
+        rig.geometry_source().unwrap().0.source_manifest_sha256(),
+        pack.assets.source_manifest_sha256(),
+        "a skin model does not remove the rig's catalog ownership"
+    );
+    let mut ui = presentation(false);
+    ui.set_preview_player_layers(Some(pack));
+    frame(&mut ui, &stream);
+    let rendered = frame(&mut ui, &stream);
+    let mut scene = render_model::UiRenderScene::default();
+    scene
+        .publish(rendered.clone(), &render_model::UiRenderStats::default())
+        .unwrap();
+    assert!(
+        !colored_pixels(&rendered).is_empty(),
+        "the skin-backed avatar must retain the separate controller layer"
+    );
+}

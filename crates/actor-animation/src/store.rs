@@ -29,7 +29,7 @@ pub struct ActorAnimationStore {
 
 #[derive(Debug)]
 pub(super) struct PackCatalog {
-    /// Rig geometry bindings with artwork; a pack entity without any draws as vanilla does.
+    /// Rig geometry bindings with pack artwork; players may use session skin artwork instead.
     pub(super) artwork: std::collections::BTreeSet<u32>,
     pub(super) assets: Arc<RuntimeEntityAssets>,
     pub(super) layout: Arc<VariableLayout>,
@@ -198,7 +198,9 @@ impl ActorAnimationStore {
                 identifier,
                 self.completed_tick,
             )?;
-            if !pack.artwork.contains(&state.rig.0) {
+            if !pack.artwork.contains(&state.rig.0)
+                && !matches!(actor.kind(), ActorKind::Player { .. })
+            {
                 return None;
             }
             state.pack = true;

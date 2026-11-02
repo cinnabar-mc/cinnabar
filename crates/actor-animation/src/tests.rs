@@ -4,6 +4,39 @@ use protocol_ids::{ActorDataKey, ActorFlag};
 mod life_span;
 
 #[test]
+fn player_session_artwork_does_not_require_a_pack_body_image() {
+    for player in [false, true] {
+        let identifier = if player {
+            "minecraft:player"
+        } else {
+            "minecraft:pig"
+        };
+        let actor = TestActor {
+            kind: if player {
+                ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Offline".into(),
+                }
+            } else {
+                ActorKind::Entity {
+                    identifier: identifier.into(),
+                }
+            },
+            ..TestActor::default()
+        };
+        let assets = test_support::counting_random_assets_for(identifier);
+        let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+        store.set_pack(Some((assets, Vec::new())));
+        store.insert(1, 0, &actor);
+        assert_eq!(
+            store.rigs.values().next().unwrap().pack,
+            player,
+            "session skins supply player body artwork; other actors keep their base fallback"
+        );
+    }
+}
+
+#[test]
 fn custom_identity_uses_its_admitted_builtin_appearance() {
     let base = "minecraft:pig";
     let actor = TestActor {
