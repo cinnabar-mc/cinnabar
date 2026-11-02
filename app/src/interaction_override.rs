@@ -5,6 +5,9 @@ use bevy::prelude::Resource;
 /// The host validates outputs before publishing them; absence keeps vanilla reach.
 #[derive(Resource, Debug, Default)]
 pub struct ModInteraction {
+    /// Committed explicit requests waiting for a movement carrier in this world.
+    pub block_breaks: Vec<[i32; 3]>,
+    pub block_break_scope: Option<(u64, i32)>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.

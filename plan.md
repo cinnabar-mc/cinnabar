@@ -1605,6 +1605,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the new regressions, live overrun recovery, suspension pacing and slow-device qualification
   remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Granted interaction and terrain mods can submit bounded explicit block destruction batches.
+  The host resolves current loaded cells and held items, retains game-mode edit permissions,
+  and carries the batch through movement replay and cancellation. These explicit requests
+  bypass local mining time, reach and obstruction; server acceptance and live qualification
+  remain unverified.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;
   overflow can differ from native gates. Desktop routing regressions cover consumption,

@@ -443,6 +443,41 @@ impl cinnabar::extension::gameplay::Host for State {
         })))
     }
 
+    fn break_blocks(
+        &mut self,
+        positions: Vec<crate::GameplayBlockPosition>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        let Some(frame) = self.snapshot.as_ref().filter(|_| {
+            self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        }) else {
+            return Ok(Err("block destruction requires focused gameplay".into()));
+        };
+        let pending = &mut self.controls.pending_interaction.block_breaks;
+        if positions.len() > mod_api::MAX_BLOCK_BREAKS.saturating_sub(pending.len()) {
+            return Ok(Err("too many block destruction requests".into()));
+        }
+        if positions.iter().any(|p| {
+            [p.x, p.y, p.z]
+                .into_iter()
+                .zip([frame.eye.x, frame.eye.y, frame.eye.z])
+                .map(|(v, eye)| (f64::from(v) + 0.5 - f64::from(eye)).powi(2))
+                .sum::<f64>()
+                > f64::from(mod_api::MAX_BLOCK_BREAK_DISTANCE).powi(2)
+        }) {
+            return Ok(Err("block destruction request out of range".into()));
+        }
+        pending.extend(positions);
+        pending.sort_unstable_by_key(|p| (p.x, p.y, p.z));
+        pending.dedup_by_key(|p| (p.x, p.y, p.z));
+        Ok(Ok(()))
+    }
+
     fn set_block_mining_target(
         &mut self,
         point: Option<GameplayVector3>,
