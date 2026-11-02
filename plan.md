@@ -1396,6 +1396,9 @@ start; live application of these settings remains an incomplete parity gap. Pack
 configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
 offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance
 of every option on supported platforms remain incomplete.
+Join initiation failures log their full cause for local worlds and direct sessions as well as
+launcher server joins. The offline Android join report still lacks a reproduced failure or session
+log; logging the cause improves diagnosis and does not close its acceptance gap.
 The Android translated runtime supplies a loopback route and passes two consecutive offline
 transport, signed-out login and spawn checks in an ordinary Android 15 emulator app sandbox.
 Signed-in local HTTP joins retry once with local identity when account services fail before transport
