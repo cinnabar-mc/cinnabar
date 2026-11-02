@@ -129,3 +129,89 @@ fn carrier_and_builtin_replacements_publish_new_source_ownership() {
     atlas = atlas.with_builtin_images(builtin);
     assert!(atlas.oversized().shares_storage(&shipped));
 }
+
+/// Scrolling a full grid of large icons replaces icons that left the screen, as The Hive's
+/// game picker does when its last row comes into view.
+#[test]
+fn a_full_registry_replaces_textures_no_longer_drawn() {
+    use crate::atlas::tests::MemoryPack;
+    let pack = Arc::new(MemoryPack::default());
+    let keys: Vec<String> = (0..MAX_OVERSIZED + 3)
+        .map(|index| format!("textures/icon{index:03}"))
+        .collect();
+    for key in &keys {
+        pack.write(&format!("{key}.png"), png(1).to_vec());
+    }
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_image_work(ImageWork::inline())
+        .with_fallbacks(Some(pack), None);
+    let (first, rest) = keys.split_at(MAX_OVERSIZED);
+    atlas.require(first.iter().map(String::as_str));
+    assert_eq!(atlas.oversized().len(), MAX_OVERSIZED);
+    let scrolled: Vec<&str> = first[3..].iter().chain(rest).map(String::as_str).collect();
+    atlas.require(scrolled.iter().copied());
+    let offered = atlas.oversized();
+    let offered: Vec<&str> = offered.iter().map(|entry| entry.0.as_str()).collect();
+    for key in &scrolled {
+        assert!(offered.contains(key), "{key} drawn but not offered");
+    }
+    assert_eq!(offered.len(), MAX_OVERSIZED);
+}
+
+#[test]
+fn a_frame_drawing_every_entry_keeps_them_all() {
+    use crate::atlas::tests::MemoryPack;
+    let pack = Arc::new(MemoryPack::default());
+    let keys: Vec<String> = (0..=MAX_OVERSIZED)
+        .map(|index| format!("textures/icon{index:03}"))
+        .collect();
+    for key in &keys {
+        pack.write(&format!("{key}.png"), png(1).to_vec());
+    }
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_image_work(ImageWork::inline())
+        .with_fallbacks(Some(pack), None);
+    atlas.require(keys.iter().map(String::as_str));
+    let offered = atlas.oversized();
+    assert_eq!(offered.len(), MAX_OVERSIZED);
+    assert!(
+        offered
+            .iter()
+            .all(|entry| keys[..MAX_OVERSIZED].contains(&entry.0)),
+        "an entry this frame draws is never replaced by a later one"
+    );
+}
+
+/// After scrolling, the icons now on screen lead the art-page order, so a bounded art page
+/// drops the ones that scrolled away rather than the last keys alphabetically.
+#[test]
+fn priority_puts_the_textures_drawn_last_first() {
+    use crate::atlas::tests::MemoryPack;
+    const ICONS: usize = 18;
+    const VISIBLE: usize = 15;
+    let pack = Arc::new(MemoryPack::default());
+    let keys: Vec<String> = (0..ICONS)
+        .map(|index| format!("textures/icon{index:03}"))
+        .collect();
+    for key in &keys {
+        pack.write(&format!("{key}.png"), png(1).to_vec());
+    }
+    let mut atlas = ServerAtlas::new(&[], None, 1)
+        .with_image_work(ImageWork::inline())
+        .with_fallbacks(Some(pack), None);
+    atlas.require(keys[..VISIBLE].iter().map(String::as_str));
+    let scrolled = &keys[ICONS - VISIBLE..];
+    atlas.require(scrolled.iter().map(String::as_str));
+    let offered = atlas.oversized();
+    let leading: Vec<&str> = offered
+        .by_priority()
+        .take(VISIBLE)
+        .map(|entry| entry.0.as_str())
+        .collect();
+    let mut expected: Vec<&str> = scrolled.iter().map(String::as_str).collect();
+    let mut sorted = leading.clone();
+    sorted.sort_unstable();
+    expected.sort_unstable();
+    assert_eq!(sorted, expected);
+    assert_eq!(offered.by_priority().count(), ICONS);
+}

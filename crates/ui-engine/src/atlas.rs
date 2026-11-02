@@ -306,7 +306,7 @@ pub struct ServerAtlas {
     metadata_revision: u64,
     metadata_dirty: bool,
     /// Drawn textures too big for a page, for the full-resolution art pages.
-    oversized: OversizedTextures,
+    oversized: oversized::OversizedSources,
     decodes: Decodes,
     native_enabled: bool,
     native: native_sheets::NativeSheets,
@@ -702,6 +702,10 @@ impl ServerAtlas {
             self.local_source(key)
         };
         if settled {
+            if found.is_none() {
+                // Logged once per key: the miss is cached below.
+                tracing::info!(target: "server_form", key, "UI texture unresolved");
+            }
             let mut extra = self.extra.borrow_mut();
             if extra.len() >= MAX_EXTRA {
                 extra.pop_first();
@@ -717,7 +721,7 @@ impl ServerAtlas {
 
     /// Drawn textures a page had to shrink, by key, with their source bytes.
     pub fn oversized(&self) -> OversizedTextures {
-        self.oversized.clone()
+        self.oversized.view()
     }
 
     /// Page images in order, for the reserved dynamic pages.
@@ -746,6 +750,7 @@ impl ServerAtlas {
         // this frame still draws.
         let mut missing = Vec::new();
         for key in keys {
+            self.oversized.touch(key, self.clock);
             if self.is_native_sheet(key) {
                 let Some(source) = self.native_source(key) else {
                     continue;
@@ -817,7 +822,7 @@ impl ServerAtlas {
                 None => self.fallback(key)?,
             };
             if source.packed != source.size {
-                self.oversized.insert(key, &source.bytes);
+                self.oversized.insert(key, &source.bytes, self.clock);
             }
             let size = source.packed;
             let decode_on = DecodeOn::choose(self.work.workers, within_budget, source.bytes.len());
@@ -895,8 +900,9 @@ fn source(bytes: std::sync::Arc<[u8]>) -> Option<Source> {
     })
 }
 
-/// Oversized textures remembered for the art pages.
-const MAX_OVERSIZED: usize = 16;
+/// Oversized textures remembered for the art pages; a full picker grid of large icons
+/// and its backdrops fit in one frame.
+const MAX_OVERSIZED: usize = 32;
 
 /// Largest source side decoded, as a desktop texture allows; bigger images are skipped.
 const MAX_SOURCE_SIDE: u32 = render_model::MAX_UI_NATIVE_SHEET_SIDE;

@@ -495,10 +495,11 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .paths
         .iter()
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
-        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)));
+        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)))
+        .collect::<Vec<_>>();
     let engine = set
         .oversized
-        .iter()
+        .by_priority()
         .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
     let mut all: Vec<_> = set
         .cosmetics
@@ -511,16 +512,17 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     all.extend(set.capes.iter().take(remaining).cloned().map(Source::Cape));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
-    let remaining = MAX_ARTWORKS - all.len();
-    all.extend(images.into_iter().take(remaining));
-    let remaining = MAX_ARTWORKS - all.len();
-    all.extend(files.take(remaining));
+    // Server-pack textures exist only in a session, where launcher artwork is hidden.
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
         engine
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
     );
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(images.into_iter().take(remaining));
+    let remaining = MAX_ARTWORKS - all.len();
+    all.extend(files.into_iter().take(remaining));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
         set.cosmetics

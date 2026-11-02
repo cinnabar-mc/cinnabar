@@ -51,6 +51,8 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
     let (mut page, mut x, mut y, mut shelf) = (None, GUTTER, GUTTER, 0u32);
+    let total = decoded.len();
+    let mut placed: Vec<(String, [u32; 2])> = Vec::with_capacity(total);
     for (path, art, clamp_edges) in decoded {
         if art.width == 0
             || art.height == 0
@@ -67,6 +69,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
             }
             buffers.push(vec![0; page_bytes]);
             copy_image(&mut buffers[dedicated], side, [0, 0], art, clamp_edges);
+            placed.push((path.clone(), [art.width, art.height]));
             refs.insert(path, icon(dedicated, [0, 0], art));
             continue;
         }
@@ -92,9 +95,18 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
             }
         };
         copy_image(&mut buffers[target_page], side, [x, y], art, clamp_edges);
+        placed.push((path.clone(), [art.width, art.height]));
         refs.insert(path, icon(target_page, [x, y], art));
         x += art.width + GUTTER;
         shelf = shelf.max(art.height);
+    }
+    if placed.len() < total {
+        tracing::info!(
+            target: "server_form",
+            dropped = total - placed.len(),
+            ?placed,
+            "art pages full; lower-priority artwork left out"
+        );
     }
     let pages = buffers
         .into_iter()
