@@ -368,3 +368,56 @@ fn menu_first_frame_queues_only_menu_variants_then_warms_the_world() {
             > before
     );
 }
+
+#[test]
+fn a_requested_sample_count_compiles_before_the_camera_switches_to_it() {
+    let mut app = app_with_admission(
+        render_scene::startup_work::WorldWorkAdmission::default(),
+        true,
+    );
+    // Start single-sampled: the validation backend guarantees only one and four samples.
+    set_samples(&mut app, Msaa::Off);
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    test_time::eventually("world pipeline warmup", || {
+        app.update();
+        readiness.is_ready()
+    });
+    let warmed = created(&app);
+
+    app.world_mut()
+        .resource_mut::<render_scene::SampleCountPreflight>()
+        .request(Some(Msaa::Sample4));
+    test_time::eventually("requested sample count compiles", || {
+        app.update();
+        app.world()
+            .resource::<render_scene::SampleCountPreflight>()
+            .is_ready(Msaa::Sample4)
+    });
+    let prepared = created(&app);
+    assert!(
+        prepared.0 > warmed.0,
+        "the new count needs its own variants"
+    );
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    assert_eq!(cache.waiting_pipelines().count(), 0);
+
+    set_samples(&mut app, Msaa::Sample4);
+    app.world_mut()
+        .resource_mut::<render_scene::SampleCountPreflight>()
+        .request(None);
+    for _ in 0..4 {
+        app.update();
+        assert!(readiness.is_ready());
+        assert_eq!(created(&app), prepared, "switching compiled nothing new");
+    }
+}
+
+/// Sets every world camera's sample count, as the settings system does after a switch.
+fn set_samples(app: &mut App, samples: Msaa) {
+    let mut cameras = app
+        .world_mut()
+        .query_filtered::<&mut Msaa, With<Camera3d>>();
+    for mut msaa in cameras.iter_mut(app.world_mut()) {
+        *msaa = samples;
+    }
+}
