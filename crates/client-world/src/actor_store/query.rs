@@ -302,6 +302,16 @@ impl ActorStore {
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
     }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub(crate) fn actor_bone_descends_from(
+        &self,
+        runtime_id: u64,
+        bone: usize,
+        ancestor: usize,
+    ) -> bool {
+        self.animation
+            .bone_descends_from(runtime_id, bone, ancestor)
+    }
     pub(crate) fn actor_retargeted_pose(
         &self,
         runtime_id: u64,
