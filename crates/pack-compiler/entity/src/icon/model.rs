@@ -56,6 +56,8 @@ struct Tile<'a> {
     side: usize,
     blend: bool,
     uv_scale: f32,
+    /// The material turns this tile's UVs by 180 degrees.
+    rotated: bool,
 }
 
 /// Where a visual's material tiles live.
@@ -201,9 +203,16 @@ impl<'a> Model<'a> {
                 };
                 Ok(Face {
                     corners: quad.corners,
-                    uvs: quad
-                        .uvs
-                        .map(|uv| uv.map(|component| component * tile.uv_scale)),
+                    uvs: quad.uvs.map(|uv| {
+                        uv.map(|component| {
+                            let turned = if tile.rotated {
+                                1.0 - component
+                            } else {
+                                component
+                            };
+                            turned * tile.uv_scale
+                        })
+                    }),
                     tile: tile.pixels.clone(),
                     size: [tile.side; 2],
                     blend: tile.blend,
@@ -307,6 +316,11 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
     if tint.is_some() {
         sampled.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
     }
+    let rotated =
+        material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+    if rotated {
+        sampled.flags &= !assets::MATERIAL_FLAG_UV_MASK;
+    }
     let (tile, side, blend) =
         material_tile(&[Material::unvaried(), sampled], 1, |page| {
             match parts.textures {
@@ -342,6 +356,7 @@ fn tile(parts: Parts<'_>, id: u32) -> Result<Tile<'_>, Reject> {
         side,
         blend,
         uv_scale: 1.0 / (1u32 << grid) as f32,
+        rotated,
     })
 }
 
@@ -573,6 +588,69 @@ mod review_tests {
                 .iter()
                 .any(|pixel| pixel[3] != 0);
             assert_eq!(visible, two_sided, "one-sided rear faces stay transparent");
+        }
+    }
+
+    /// Full cubes declared through the versioned geometry turn their bottom face's UVs.
+    #[test]
+    fn a_rotated_cube_face_keeps_the_cube_drawable_with_turned_uvs() {
+        let plain = assets::TextureRef::new(1, 0).unwrap();
+        let material = |flags| Material {
+            texture: plain,
+            flags,
+            ..Material::unvaried()
+        };
+        let overlay = BlockOverlay {
+            visuals: vec![assets::BlockVisual {
+                faces: [1, 1, 2, 1, 1, 1],
+                kind: VisualKind::Cube,
+                flags: assets::BlockFlags::CUBE_GEOMETRY,
+                ..assets::BlockVisual::diagnostic(
+                    assets::BlockFlags::empty(),
+                    assets::ContributorRole::Primary,
+                )
+            }],
+            materials: vec![
+                Material::unvaried(),
+                material(0),
+                material(assets::MATERIAL_FLAG_UV_ROTATE_180),
+            ],
+            textures: vec![assets::TextureArray {
+                layers: 1,
+                mips: vec![assets::TextureMip {
+                    size: 16,
+                    rgba8: [90, 90, 90, 255].repeat(16 * 16).into(),
+                }]
+                .into(),
+            }],
+            ..Default::default()
+        };
+        assert!(
+            Model::overlay(&overlay, 0, None, None).is_ok(),
+            "a hidden rotated face must not cost the cube its icon"
+        );
+        let parts = Parts {
+            materials: &overlay.materials,
+            templates: &overlay.model_templates,
+            quads: &overlay.model_quads,
+            textures: Textures::Overlay(&overlay, None),
+            tint: None,
+        };
+        let uvs = |faces| {
+            Model::build(parts, VisualKind::Cube, faces, None)
+                .ok()
+                .unwrap()
+                .faces
+                .iter()
+                .map(|face| face.uvs)
+                .collect::<Vec<_>>()
+        };
+        let (upright, turned) = (uvs([1; 6]), uvs([2; 6]));
+        assert!(!upright.is_empty());
+        for (upright, turned) in upright.iter().zip(&turned) {
+            for (upright, turned) in upright.iter().zip(turned) {
+                assert_eq!(*turned, upright.map(|component| 1.0 - component));
+            }
         }
     }
 

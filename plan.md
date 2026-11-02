@@ -777,6 +777,11 @@ lookup across the passing list.
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
   Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Custom block stacks resolve through the `block_id` StartGame declares when the server's item
+  registry omits the block's item; a later mid-session registry drops those derived items, and
+  whether that matches native behavior is unverified. Cubes declared with the versioned full-block
+  geometry keep their icon and turn their held bottom face; the held rotation is inferred from the
+  placed geometry rather than a native carried-block comparison.
   Held stacks whose wire descriptor names a block state with an aux value that has no compiled
   visual hold that state; a state with no prepared art, such as a turned log or a facing stairs,
   holds its item's base block, which remains an incomplete approximation of native's exact state.
