@@ -129,6 +129,9 @@ fn evaluate(world: &World, condition: &Condition) -> Result<Value, String> {
             Some(camera) if !camera.finished() => Err(camera.summary().to_string()),
             _ => Ok(json!({})),
         },
+        Condition::InventoryReady | Condition::InventorySettled => {
+            super::inventory::evaluate(world, condition)
+        }
     }
 }
 
@@ -405,6 +408,7 @@ pub(super) fn snapshot(world: &World) -> Value {
             "cave_visible": cache.visible_rendered,
         })),
     });
+    snapshot["inventory"] = super::inventory::snapshot(world);
     snapshot["client_part_screens"] = json!(crate::server_experiences::developer_screens(world));
     snapshot["chat"] = json!(world.get_resource::<UiRuntimeResource>().map(|ui| {
         let messages = ui.chat().messages();

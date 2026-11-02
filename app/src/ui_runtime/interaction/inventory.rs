@@ -32,7 +32,7 @@ use {
 use launcher::menu::settings_options::BindingId;
 
 /// Whether the vanilla inventory owns Menu Cancel, independently of an overlaid mod view.
-pub(super) fn accepts_menu_cancel(
+pub(crate) fn accepts_menu_cancel(
     runtime: &UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
