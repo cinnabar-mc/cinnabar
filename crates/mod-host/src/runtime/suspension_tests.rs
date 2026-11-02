@@ -127,7 +127,7 @@ fn output_waits_for_successful_post_return_and_its_trap_discards_every_write() {
                 )
                 .replace(
                     "(canon lift (core func $run \"frame\"))",
-                    "(canon lift (core func $run \"frame\") (post-return (func $run \"post\")))",
+                    "(canon lift (core func $run \"frame\") (post-return (core func $run \"post\")))",
                 );
         let (mut instance, _ticker, budget) = scheduled(&source, 2_000_000);
         assert_eq!(
