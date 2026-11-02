@@ -99,16 +99,21 @@ fn piston(store: &mut ChunkStore, body: [i32; 3], facing: u8, progress: Option<f
         arm_id(facing),
     );
     if let Some(progress) = progress {
-        let mut root = NbtCompound::default();
-        root.insert("id", NbtValue::String("PistonArm".into()));
-        root.insert("Progress", NbtValue::Float(progress));
-        let actor = BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
-            .unwrap()
-            .0;
-        store
-            .commit_block_entity_update(BlockEntityKey::new(0, body[0], body[1], body[2]), actor)
-            .unwrap();
+        set_progress(store, body, progress);
     }
+}
+
+/// Stores the piston body's actor at `progress`, as a block-entity update delivers it.
+fn set_progress(store: &mut ChunkStore, [x, y, z]: [i32; 3], progress: f32) {
+    let mut root = NbtCompound::default();
+    root.insert("id", NbtValue::String("PistonArm".into()));
+    root.insert("Progress", NbtValue::Float(progress));
+    let actor = BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
+        .unwrap()
+        .0;
+    store
+        .commit_block_entity_update(BlockEntityKey::new(0, x, y, z), actor)
+        .unwrap();
 }
 
 /// Drops a player onto the column at (4.5, 4.5) and returns where its feet come to rest.
@@ -190,4 +195,28 @@ fn arm_collision_identity_includes_the_owner_column_outside_the_scan() {
         .collision_boxes_with_provenance(query)
         .unwrap();
     assert_ne!(moved.identity, boxes.identity);
+}
+
+#[test]
+fn an_arm_whose_piston_column_is_unloaded_has_no_collision() {
+    let registry = registry();
+    let mut store = ChunkStore::new();
+    store.mark_chunk_loaded(ChunkKey::new(0, 1, 0)).unwrap();
+    // The eastward arm at x = 16 is loaded; its piston's actor at x = 15 arrives before
+    // that column's terrain.
+    set_block(&mut store, [16, 4, 4], arm_id(EAST));
+    set_progress(&mut store, [15, 4, 4], 1.0);
+    let query = Aabb::new(Vec3::new(16.5, 4.0, 4.0), Vec3::new(17.5, 5.0, 5.0));
+    let arm_boxes = |store: &ChunkStore| {
+        PaletteWorld::for_movement(store, &registry, 0)
+            .collision_boxes_with_provenance(query)
+            .unwrap()
+            .value
+            .into_iter()
+            .filter(|collider| collider.block == Some([16, 4, 4]))
+            .count()
+    };
+    assert_eq!(arm_boxes(&store), 0);
+    store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
+    assert!(arm_boxes(&store) > 0);
 }

@@ -106,13 +106,20 @@ impl PaletteWorld<'_> {
 
     /// Resolves a piston arm's collision. Native arm collision places the same three
     /// per-facing pieces as the arm's selection at the owning piston's progress and adds
-    /// nothing while that actor is absent.
+    /// nothing while that actor is absent. An actor in an unloaded column counts as absent,
+    /// because only loaded columns version actor changes.
     pub(in crate::world) fn piston_arm_collision<'a>(
         &self,
         position: [i32; 3],
         physics: &'a BlockPhysics,
     ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
-        debug_assert_eq!(physics.selection_context, SelectionContext::PistonArm);
+        let Some(owner) = self.collision_actor_owner(position, physics)? else {
+            return Ok(Cow::Borrowed(&[]));
+        };
+        let column = world::ChunkKey::new(self.dimension, owner[0] >> 4, owner[2] >> 4);
+        if self.store.collision_revision(column).is_none() {
+            return Ok(Cow::Borrowed(&[]));
+        }
         self.actor_selection(position, physics)
     }
 
