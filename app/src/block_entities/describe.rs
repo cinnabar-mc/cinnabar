@@ -84,7 +84,9 @@ pub(super) enum Template {
     },
     Bell {
         attachment: BellAttachment,
-        direction: u8,
+        ring_direction: u8,
+        /// Ring animation ticks so far, when the record says the bell is ringing.
+        ring_ticks: Option<u32>,
     },
     Conduit {
         active: bool,
@@ -371,10 +373,15 @@ pub(super) fn describe(
                 .text("attachment")
                 .and_then(BellAttachment::from_state)
                 .unwrap_or(BellAttachment::Standing),
-            direction: state
-                .int("direction")
+            ring_direction: nbt
+                .integer("Direction")
                 .and_then(|value| u8::try_from(value.rem_euclid(4)).ok())
                 .unwrap_or(0),
+            ring_ticks: nbt.boolean("Ringing").unwrap_or(false).then(|| {
+                nbt.integer("Ticks")
+                    .and_then(|ticks| u32::try_from(ticks).ok())
+                    .unwrap_or(0)
+            }),
         }),
         BlockEntityRenderer::Beacon => {
             (nbt.integer("Levels").unwrap_or(0) > 0).then_some(Template::Beacon)

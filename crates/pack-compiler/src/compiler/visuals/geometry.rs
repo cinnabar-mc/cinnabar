@@ -44,6 +44,37 @@ pub(in crate::compiler) fn flip_uvs(quad: &mut ModelQuad, flip: u8) {
     }
 }
 
+/// Maps an oriented face onto an explicit pixel rectangle, with local UV rotation.
+pub(in crate::compiler) fn sprite_region(
+    quad: &mut ModelQuad,
+    rect: [u16; 4],
+    mut rotation: u8,
+    face: BlockFace,
+) {
+    if matches!(face, BlockFace::North | BlockFace::East) {
+        rotation = match rotation {
+            1 => 2,
+            2 => 1,
+            other => other,
+        };
+    }
+    let min: [u16; 2] =
+        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).min().unwrap());
+    let max: [u16; 2] =
+        std::array::from_fn(|axis| quad.uvs.iter().map(|uv| uv[axis]).max().unwrap());
+    for uv in &mut quad.uvs {
+        let [u, v] =
+            std::array::from_fn(|axis| u16::from(uv[axis] == max[axis] && max[axis] != min[axis]));
+        let local = match rotation {
+            1 => [v, 1 - u],
+            2 => [1 - v, u],
+            3 => [1 - u, 1 - v],
+            _ => [u, v],
+        };
+        *uv = std::array::from_fn(|axis| rect[axis + usize::from(local[axis]) * 2] * 256);
+    }
+}
+
 /// Full-cube native quads with each face's UVs flipped by its native `Flip` value
 /// ([`flip_uvs`]), keeping each quad's own face culling.
 pub(in crate::compiler) fn flipped_cube_quads(

@@ -12,6 +12,38 @@ fn review_first_bell_cue_starts_once() {
 }
 
 #[test]
+fn a_bells_own_record_starts_restarts_and_ends_its_swing() {
+    let mut rings = BellDataRings::<()>::new();
+    let first = Arc::new(());
+    let at = [0, 64, 0];
+    assert_eq!(
+        bell_data_elapsed(&mut rings, at, &first, None, 100.0),
+        f32::INFINITY
+    );
+    assert_eq!(
+        bell_data_elapsed(&mut rings, at, &first, Some(0), 100.0),
+        0.0
+    );
+    assert_eq!(
+        bell_data_elapsed(&mut rings, at, &first, Some(0), 100.5),
+        0.5
+    );
+    let second = Arc::new(());
+    assert_eq!(
+        bell_data_elapsed(&mut rings, at, &second, Some(20), 101.0),
+        0.5,
+        "a new record restarts from its own tick count"
+    );
+    assert_eq!(
+        bell_data_elapsed(&mut rings, at, &second, None, 101.1),
+        f32::INFINITY,
+        "a record that stopped ringing ends the swing"
+    );
+    prune_bell_data_rings(&mut rings, 101.2);
+    assert!(rings.is_empty());
+}
+
+#[test]
 fn review_session_changes_reset_container_animation() {
     let mut runtime = BlockEntityRuntime::new();
     runtime.bind_session(Some((1, 0)));
