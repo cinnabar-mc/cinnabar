@@ -400,10 +400,7 @@ pub(super) fn validate_render_payload(compiled: &CompiledEntityAssets) -> Result
         let raster = compiled
             .sources
             .get(candidate.source as usize)
-            .is_some_and(|source| {
-                source.path.starts_with("textures/")
-                    && (source.path.ends_with(".png") || source.path.ends_with(".tga"))
-            });
+            .is_some_and(|source| source.path.ends_with(".png") || source.path.ends_with(".tga"));
         if !raster || candidate.condition.is_some_and(|index| !expression(index)) {
             return Err(invalid("entity render texture candidate is invalid"));
         }

@@ -270,6 +270,7 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    presentation.set_preview_player_layers(client_world.pack_entities.clone());
     let settings = Arc::clone(&settings_snapshot.0);
     let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
     presentation.set_player_preview_custom_item_models(show_custom_item_models);
@@ -329,6 +330,7 @@ pub(crate) fn prepare_ui_runtime(
     presentation.begin_live_capture();
     // A screen's live renderer draws the same animated actor as the HUD doll.
     if hud_doll
+        || (presentation.has_preview_player_layers() && !menu_visible)
         || runtime.emotes().is_open()
         || (presentation.live_renderer_shown() && !menu_visible)
     {

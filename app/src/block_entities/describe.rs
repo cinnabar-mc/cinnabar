@@ -84,7 +84,8 @@ pub(super) enum Template {
     },
     Bell {
         attachment: BellAttachment,
-        direction: u8,
+        /// The side the last ring struck from, as the bell's record stores it.
+        ring_direction: u8,
     },
     Conduit {
         active: bool,
@@ -361,18 +362,19 @@ pub(super) fn describe(
         BlockEntityRenderer::Banner => banner(backing, state, nbt),
         BlockEntityRenderer::Sign => sign(backing, state, nbt),
         BlockEntityRenderer::EnchantTable => Some(Template::EnchantTable),
-        BlockEntityRenderer::Lectern => Some(Template::Static(BlockEntityKind::Lectern {
-            facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
-            has_book: nbt.boolean("hasBook").unwrap_or(false),
-        })),
+        BlockEntityRenderer::Lectern => nbt.boolean("hasBook").unwrap_or(false).then(|| {
+            Template::Static(BlockEntityKind::Lectern {
+                facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
+            })
+        }),
         BlockEntityRenderer::PistonArm => piston_arm(block_name, state, Some(nbt)),
         BlockEntityRenderer::Bell => Some(Template::Bell {
             attachment: state
                 .text("attachment")
                 .and_then(BellAttachment::from_state)
                 .unwrap_or(BellAttachment::Standing),
-            direction: state
-                .int("direction")
+            ring_direction: nbt
+                .integer("Direction")
                 .and_then(|value| u8::try_from(value.rem_euclid(4)).ok())
                 .unwrap_or(0),
         }),

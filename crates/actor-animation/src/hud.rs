@@ -41,7 +41,11 @@ pub(super) fn evaluate(
     budget: &mut EvalBudget<'_>,
     advance_clocks: bool,
 ) {
-    let existing = state.ui_animation.take();
+    let existing = if context.is_paperdoll {
+        state.paper_doll_animation.take()
+    } else {
+        state.ui_animation.take()
+    };
     let original = (!advance_clocks && existing.is_none())
         .then(|| state.replay_at(tick))
         .flatten();
@@ -99,6 +103,10 @@ pub(super) fn evaluate(
         Err(_) => Vec::new(),
     };
     ui.swap_with(state);
-    state.ui_pose = Some(pose);
-    state.ui_animation = Some(ui);
+    if context.is_paperdoll {
+        state.paper_doll_animation = Some(ui);
+    } else {
+        state.ui_pose = Some(pose);
+        state.ui_animation = Some(ui);
+    }
 }

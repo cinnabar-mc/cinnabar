@@ -839,7 +839,7 @@ fn resolve(
         }
         &Template::Bell {
             attachment,
-            direction,
+            ring_direction,
         } => {
             let sequence = stream
                 .block_event_cue(position)
@@ -853,7 +853,7 @@ fn resolve(
             );
             (!hidden).then_some(BlockEntityKind::Bell(BellModel {
                 attachment,
-                direction,
+                ring_direction,
                 seconds_since_ring,
             }))
         }

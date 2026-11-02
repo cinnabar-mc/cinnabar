@@ -51,6 +51,9 @@ pub const UI_ART_PAGE_SIDE: u32 = 1024;
 /// Original-resolution UI images occupy independent, bounded logical slots.
 pub const UI_NATIVE_SHEET_PAGE_OFFSET: usize = MAX_UI_DYNAMIC_PAGES + MAX_UI_ART_PAGES;
 pub const MAX_UI_NATIVE_SHEET_PAGES: usize = 8;
+/// Selected model sources follow fixed producers and share the catalog's layer and byte budgets.
+pub const UI_SELECTED_MODEL_PAGE_OFFSET: usize =
+    UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES;
 pub const MAX_UI_NATIVE_SHEET_BYTES: usize = 96 * 1024 * 1024;
 /// Virtual sheets are tiled into ordinary device-supported texture extents.
 pub const MAX_UI_NATIVE_SHEET_SIDE: u32 = MAX_UI_TEXTURE_SIDE * 4;
@@ -471,8 +474,12 @@ impl UiTextureCatalog {
                     && page.dimensions == [UI_ART_PAGE_SIDE; 2]
             })
             .count();
-        let native = dynamic.len().saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET);
-        let small = dynamic.len() - art - native;
+        let native = dynamic
+            .len()
+            .saturating_sub(UI_NATIVE_SHEET_PAGE_OFFSET)
+            .min(MAX_UI_NATIVE_SHEET_PAGES);
+        let selected = dynamic.len().saturating_sub(UI_SELECTED_MODEL_PAGE_OFFSET);
+        let small = dynamic.len() - art - native - selected;
         if small > MAX_UI_DYNAMIC_PAGES
             || art > MAX_UI_ART_PAGES
             || native > MAX_UI_NATIVE_SHEET_PAGES
@@ -515,7 +522,12 @@ impl UiTextureCatalog {
         static_pages.update((dynamic_start as u64).to_le_bytes());
         // Reserved logical slots keep their identity when model or session icon pages resize.
         all.update((pages.len() as u64).to_le_bytes());
-        static_pages.update((pages.len() as u64).to_le_bytes());
+        // Selected sources may enter and leave after admission. Their count belongs to the
+        // full catalog identity; the fixed identity describes only the retained producers.
+        let fixed_pages = pages
+            .len()
+            .min(dynamic_start + UI_SELECTED_MODEL_PAGE_OFFSET);
+        static_pages.update((fixed_pages as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
@@ -544,7 +556,9 @@ impl UiTextureCatalog {
         &self,
         replacement: Vec<UiTexturePage>,
     ) -> Result<Self, UiRenderRejectReason> {
-        if replacement.len() != self.pages.len() - self.dynamic_start
+        let fixed = UI_SELECTED_MODEL_PAGE_OFFSET;
+        let old_len = self.pages.len() - self.dynamic_start;
+        if (replacement.len() != old_len && (replacement.len() < fixed || old_len < fixed))
             || replacement
                 .iter()
                 .zip(&self.pages[self.dynamic_start..])
@@ -605,7 +619,8 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
-    offset == UI_LOCAL_FONT_PAGE_OFFSET
+    offset >= UI_SELECTED_MODEL_PAGE_OFFSET
+        || offset == UI_LOCAL_FONT_PAGE_OFFSET
         || UI_SESSION_MODEL_PAGES.contains(&offset)
         || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
@@ -621,9 +636,7 @@ fn valid_dynamic_dimensions(
     [width, height]: [u32; 2],
     format: UiTextureFormat,
 ) -> bool {
-    if (UI_NATIVE_SHEET_PAGE_OFFSET..UI_NATIVE_SHEET_PAGE_OFFSET + MAX_UI_NATIVE_SHEET_PAGES)
-        .contains(&offset)
-    {
+    if offset >= UI_NATIVE_SHEET_PAGE_OFFSET {
         return width > 0
             && height > 0
             && width <= MAX_UI_TEXTURE_SIDE

@@ -49,6 +49,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "crates/render-model/src/hats/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "tools/localserver/testdata/player-preview-layers/textures/"
+ownership_record = "tools/localserver/testdata/player-preview-layers/README.md"
+
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
 path = "crates/assets/data/entity-facts-v2225.bin"
@@ -1502,6 +1506,11 @@ path = "crates/java-resource-pack/src/translate.rs"
 literal = "turtle_scute"
 reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
 
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "missing_tile"
+reason = "terrain_texture.json key that native BlockGraphics uses for blocks without graphics, not a block identifier."
+
 [identifier_literals]
 owners = [
     "crates/asset-compiler/src/registry_policy/",
@@ -2271,6 +2280,11 @@ reason = "Canonical-state envelope type keyword."
 path = "crates/pack-compiler/input/src/pack/model_selectors.rs"
 literal = "jungle"
 reason = "Value in the retained legacy sapling_type state domain."
+
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/bell.rs"
+literal = "hanging"
+reason = "Value in the pinned bell attachment state domain."
 
 [[identifier_literal_exceptions]]
 path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs"

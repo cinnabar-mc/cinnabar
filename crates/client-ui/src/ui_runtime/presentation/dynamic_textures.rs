@@ -305,10 +305,12 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    dynamic.extend(runtime.gui_models.player_layers.pages.iter().cloned());
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
-        let old = &previous[first_dynamic + offset];
-        if old.identity() == page.identity() {
+        if let Some(old) = previous.get(first_dynamic + offset)
+            && old.identity() == page.identity()
+        {
             *page = old.clone();
         }
     }

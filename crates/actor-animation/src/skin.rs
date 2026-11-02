@@ -110,6 +110,7 @@ impl ActorRigState {
     pub(super) fn reset_to_skeleton(&mut self, rest: Vec<BoneTransform>) {
         self.ui_pose = None;
         self.ui_animation = None;
+        self.paper_doll_animation = None;
         self.previous.clone_from(&rest);
         self.current.clone_from(&rest);
         self.rest = rest;

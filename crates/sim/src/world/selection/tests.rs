@@ -93,11 +93,16 @@ fn set_block(store: &mut ChunkStore, position: [i32; 3], id: u32) {
         .unwrap();
 }
 
-/// Ingests a finite piston snapshot through the network NBT decoder.
-fn set_piston(store: &mut ChunkStore, position: [i32; 3], progress: f32) {
+/// Piston actor `State` bytes.
+const EXPANDING: i8 = 1;
+const RETRACTING: i8 = 3;
+
+/// Ingests a piston actor reporting `state` through the network NBT decoder and simulates
+/// one tick, which moves its arm half a block toward that state's end.
+fn set_piston(store: &mut ChunkStore, position: [i32; 3], state: i8) {
     let mut root = NbtCompound::default();
     root.insert("id", NbtValue::String("PistonArm".into()));
-    root.insert("Progress", NbtValue::Float(progress));
+    root.insert("State", NbtValue::Byte(state));
     let actor = BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
         .unwrap()
         .0;
@@ -106,6 +111,9 @@ fn set_piston(store: &mut ChunkStore, position: [i32; 3], progress: f32) {
             BlockEntityKey::new(0, position[0], position[1], position[2]),
             actor,
         )
+        .unwrap();
+    store
+        .set_simulation_tick(store.simulation_tick() + 1)
         .unwrap();
 }
 
@@ -157,7 +165,7 @@ fn piston_arm_pieces_require_the_owner_actor_and_follow_all_six_directions() {
                     .is_empty()
             );
             let owner = direction.map(|value| -value);
-            set_piston(&mut store, owner, 0.5);
+            set_piston(&mut store, owner, EXPANDING);
             let view = PaletteWorld::new(&store, &registry, 0, Default::default());
             let boxes = view
                 .selection_shapes_at([0; 3], registry.physics(id).unwrap())

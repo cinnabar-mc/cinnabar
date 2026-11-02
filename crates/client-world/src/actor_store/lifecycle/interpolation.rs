@@ -402,6 +402,7 @@ impl ActorStore {
                     is_flying: is_local && local_flying,
                     world_game_mode,
                     is_in_ui: false,
+                    is_paperdoll: false,
                     camera_rotation,
                     camera_position,
                     armor: worn_armor(items, items.armor(actor.runtime_id)),

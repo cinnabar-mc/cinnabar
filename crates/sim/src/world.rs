@@ -13,11 +13,13 @@ mod contracts;
 mod current;
 mod door;
 mod flow;
+mod pistons;
 mod selection;
 mod terrain;
 pub use camera_collision::CameraShapeCache;
 pub use contracts::CollisionWorld;
 pub use flow::FlowBlockFacts;
+pub use pistons::PistonPush;
 pub use terrain::{
     TERRAIN_EMPTY_SHAPE, TERRAIN_NO_LAYER, TerrainColumn, TerrainGeometry, TerrainSample,
     TerrainSampleError, TerrainSampler, TerrainShape, TerrainShapeBinding, TerrainShapeOverride,
@@ -645,6 +647,8 @@ pub struct LenientCollisionBoxes {
 pub struct PaletteWorld<'a> {
     read_observation: Option<observation::ReadObservation>,
     unsupported_actor_selections: std::sync::atomic::AtomicU32,
+    /// The client simulation tick whose piston arm progress the geometry shows.
+    tick: std::sync::atomic::AtomicU64,
     pick_context: assets::block_shapes::PickContext,
     store: &'a ChunkStore,
     registry: &'a CollisionRegistry,
@@ -709,6 +713,7 @@ impl<'a> PaletteWorld<'a> {
         Self {
             read_observation: None,
             unsupported_actor_selections: std::sync::atomic::AtomicU32::new(0),
+            tick: std::sync::atomic::AtomicU64::new(store.simulation_tick()),
             pick_context,
             store,
             registry,
@@ -768,6 +773,12 @@ impl<'a> PaletteWorld<'a> {
         )
     }
 
+    /// The client simulation tick whose piston arm progress the geometry shows: the store's
+    /// until [`CollisionWorld::begin_tick`] sets another.
+    pub fn tick(&self) -> u64 {
+        self.tick.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Whether every layer of a loaded block is air.
     pub fn is_air(&self, block: [i32; 3]) -> Result<bool, WorldQueryError> {
         Ok(self
@@ -806,6 +817,18 @@ impl CollisionWorld for PaletteWorld<'_> {
 
     fn snapshot(&self) -> Option<CollisionSnapshot> {
         Some(CollisionSnapshot::capture(self))
+    }
+
+    fn begin_tick(&self, tick: u64) {
+        self.tick.store(tick, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn piston_pushes(
+        &self,
+        query: Aabb,
+        tick: u64,
+    ) -> Result<Option<CollisionQuery<Vec<PistonPush>>>, WorldQueryError> {
+        self.moved_piston_arms(query, tick).map(Some)
     }
 
     fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {

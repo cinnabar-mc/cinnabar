@@ -33,6 +33,10 @@ impl WorldAuthority {
     ) -> Result<bool, BlockEntityError> {
         self.terrain.commit_block_entity_update(key, nbt)
     }
+    /// Records the client simulation tick that piston arm motion follows.
+    pub fn set_simulation_tick(&mut self, tick: u64) -> Result<(), CollisionRevisionError> {
+        self.terrain.set_simulation_tick(tick)
+    }
     /// Replaces the block entities decoded with a terrain column.
     pub fn commit_chunk_block_entities(
         &mut self,

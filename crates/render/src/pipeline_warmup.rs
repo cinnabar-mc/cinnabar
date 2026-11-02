@@ -1,9 +1,9 @@
 //! Queues first-use pipeline variants as soon as a view exists, so loading absorbs compilation.
 
 use bevy::prelude::IntoScheduleConfigs;
-use render_scene::{PipelineWarmupReadiness, SampleCountPreflight};
+use render_scene::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[path = "pipeline_warmup/progress.rs"]
 mod progress;
@@ -26,7 +26,7 @@ use bevy::{
 };
 
 /// The view properties our built-in pipeline keys depend on.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct WarmView {
     pub msaa: Msaa,
     pub hdr: bool,
@@ -72,7 +72,7 @@ struct WarmupRegistry {
     /// Owned compiles still running this frame.
     pending: bool,
     /// A requested sample count this frame's world-camera views also warm.
-    requested: Option<Msaa>,
+    requested: Option<SampleCountRequest>,
 }
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
@@ -212,6 +212,7 @@ fn collect_views(
     mut registry: ResMut<WarmupRegistry>,
 ) {
     registry.views.clear();
+    registry.ids.clear();
     registry.pending = false;
     registry.requested = None;
     for (camera, msaa, target, enhanced, shader_pack, world_camera) in &views {
@@ -222,8 +223,15 @@ fn collect_views(
             shader_pack,
             output: target.and_then(ViewTarget::out_texture_view_format),
         };
-        let requested = requested_sample_mode(preflight.requested(), world_camera, shader_pack);
-        registry.requested = registry.requested.or(requested);
+        let request = preflight.requested();
+        let requested = requested_sample_mode(
+            request.and_then(|request| request.for_view(camera.hdr, enhanced.is_some())),
+            world_camera,
+            shader_pack,
+        );
+        if requested.is_some() {
+            registry.requested = request;
+        }
         for key in [Some(key), requested.map(|msaa| WarmView { msaa, ..key })]
             .into_iter()
             .flatten()
@@ -240,7 +248,7 @@ fn prewarm_owner<T: PrewarmPipelines>(
     owner: Option<ResMut<T>>,
     cache: Res<PipelineCache>,
     mut registry: ResMut<WarmupRegistry>,
-    mut warmed: Local<Vec<WarmView>>,
+    mut warmed: Local<HashMap<WarmView, WarmupIds>>,
 ) {
     // An owner that never initialised has nothing it could draw.
     let Some(mut owner) = owner else {
@@ -250,14 +258,15 @@ fn prewarm_owner<T: PrewarmPipelines>(
     for &view in views.iter() {
         for msaa in sample_modes(view.msaa) {
             let view = WarmView { msaa, ..view };
-            if warmed.contains(&view) {
-                continue;
-            }
-            // The draw path would fail the same way, so the error does not hold loading.
-            if let Err(error) = owner.prewarm(&cache, view, ids) {
-                error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
-            }
-            warmed.push(view);
+            let view_ids = warmed.entry(view).or_insert_with(|| {
+                let mut view_ids = Vec::new();
+                // The draw path would fail the same way, so the error does not hold loading.
+                if let Err(error) = owner.prewarm(&cache, view, &mut view_ids) {
+                    error!("pipeline prewarm {}: {error}", std::any::type_name::<T>());
+                }
+                view_ids
+            });
+            ids.extend_from_slice(view_ids);
         }
     }
 }

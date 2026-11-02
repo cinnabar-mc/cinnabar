@@ -33,7 +33,8 @@ mod ui;
 mod ui_model;
 mod ui_publication_pool;
 pub use ui_model::{
-    UI_MODEL_LAYER_BITS, UiModelBone, UiModelPose, project_ui_model_vertex, ui_model_instance,
+    UI_MODEL_LAYER_BITS, UiModelBone, UiModelPose, UiModelProjection, project_ui_model_vertex,
+    ui_model_instance,
 };
 pub mod ui_page_uniform;
 mod ui_textures;
@@ -106,9 +107,10 @@ pub use ui_textures::{
     UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE,
     UI_LOCAL_ICON_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
     UI_NATIVE_SHEET_PAGE_OFFSET, UI_PACK_EQUIPMENT_PAGE_OFFSET, UI_PARTICLE_PAGE_OFFSET,
-    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_SIDE,
-    UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET, UI_SHIELD_PAGE_OFFSET, UiTextureBucket,
-    UiTextureCatalog, UiTextureFormat, UiTextureLocation, UiTexturePage, UiTexturePlan,
+    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SELECTED_MODEL_PAGE_OFFSET, UI_SESSION_GLYPH_PAGE_OFFSET,
+    UI_SESSION_GLYPH_PAGE_SIDE, UI_SESSION_GLYPH_PAGES, UI_SESSION_ICON_PAGE_OFFSET,
+    UI_SHIELD_PAGE_OFFSET, UiTextureBucket, UiTextureCatalog, UiTextureFormat, UiTextureLocation,
+    UiTexturePage, UiTexturePlan,
 };
 pub use visibility::{
     ExtractedCameraIdentity, GraphicsAdapterMetadata, OpaqueDrawMode, VisibilityDiagnosticSnapshot,
@@ -214,7 +216,7 @@ pub use block_entity::{
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
 pub use block_entity::{BedModel, bed_color};
-pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook, swing_degrees};
+pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use block_entity::{

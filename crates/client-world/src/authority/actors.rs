@@ -474,6 +474,13 @@ impl WorldAuthority {
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.actors.actor_ui_layers(runtime_id)
     }
+    /// Controller layers for a paper doll drawn over the level view.
+    pub fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.actors.actor_paper_doll_layers(runtime_id)
+    }
     /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
     /// other bones keep their animated offsets from their parents.
     pub fn actor_retargeted_pose(
