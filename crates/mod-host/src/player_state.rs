@@ -29,6 +29,35 @@ pub(super) struct PlayerState {
 }
 
 impl PlayerState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            snapshot: self.snapshot.clone(),
+            comparison_snapshot: None,
+            comparison_revision: 0,
+            current_revision: self.current_revision,
+            revision: 0,
+            reads: 0,
+            selected_slot_reads: 0,
+            split: self.split.transaction(),
+            observations: self.observations.clone(),
+            world: self.world.clone(),
+            fps: self.fps,
+            sidebar: self.sidebar.clone(),
+            chat: self.chat.clone(),
+        }
+    }
+
+    /// Retains the guest's comparison tokens without replacing current native observations.
+    pub(super) fn accept_reads(&mut self, transaction: Self) {
+        if let Some(snapshot) = transaction.comparison_snapshot {
+            self.comparison_snapshot = Some(snapshot);
+            self.comparison_revision = transaction.comparison_revision;
+        }
+        self.split = transaction.split;
+        self.split.begin_frame();
+    }
+
     /// Clears current reads without discarding the exact observation used for change detection.
     pub fn begin_frame(&mut self) {
         self.snapshot = None;

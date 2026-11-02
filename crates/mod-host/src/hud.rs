@@ -41,6 +41,34 @@ pub(super) struct HudState {
 }
 
 impl HudState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            surface: self.surface.clone(),
+            surface_revision: 0,
+            pending_surface: None,
+            index: self.index.clone(),
+            hidden: self.hidden,
+            pending_hidden: None,
+            local_messages: self.local_messages.clone(),
+            pending_messages: Vec::new(),
+            measures: 0,
+            viewport: self.viewport,
+            elements: self.elements,
+            text: self.text.clone(),
+        }
+    }
+
+    /// Adopts private writes and their validated index without replacing native observations.
+    pub(super) fn accept(&mut self, mut transaction: Self) {
+        if transaction.pending_surface.is_some() {
+            self.pending_surface = transaction.pending_surface.take();
+            self.index = transaction.index;
+        }
+        self.pending_hidden = transaction.pending_hidden;
+        self.pending_messages = transaction.pending_messages;
+    }
+
     /// Invalidates world projections without rebuilding unaffected retained HUD surfaces.
     pub(super) fn clear_world_projections(&mut self) {
         let mut changed = false;

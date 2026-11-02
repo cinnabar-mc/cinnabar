@@ -5,11 +5,11 @@
 A personal mod exports two required callbacks:
 
 - `init` runs once when the component starts.
-- `frame` runs once per admitted frame; the shared budget can defer it.
+- `frame` starts when admitted and may resume across several game frames.
 
-In Rust you implement the generated `Guest` trait and export it, as in [Getting started](getting-started.md). Everything your mod does happens inside a callback: you read observations and input, then publish output. Output is committed only after the callback returns successfully. If a callback traps, everything it staged in that callback is discarded, so the game never sees half of a frame's work.
+In Rust you implement the generated `Guest` trait and export it, as in [Getting started](getting-started.md). Everything your mod does happens inside a callback: you read observations and input, then publish output. Output is committed only after the callback and its post-return cleanup finish successfully. If a callback traps, everything it staged in that callback is discarded, so the game never sees half of a frame's work.
 
-Joining, disconnecting or changing connections requires a fresh guest, so observations cannot carry across a connection boundary. A dimension transfer on the same connection keeps guest memory and HUD surfaces, but world drawing handles, native presentation policies, environment overrides and pending world output are cleared: rebuild world output after a transfer, as [Camera and rendering](camera-and-rendering.md) describes.
+Joining, disconnecting or changing connections requires a fresh guest, so observations cannot carry across a connection boundary. A dimension transfer on the same connection keeps completed guest memory and HUD surfaces, but world drawing handles, native presentation policies, environment overrides and pending world output are cleared: rebuild world output after a transfer, as [Camera and rendering](camera-and-rendering.md) describes.
 
 ### The `player-mod` events
 
@@ -17,13 +17,27 @@ A mod targeting the `player-mod` world gets optional event callbacks on top of `
 
 Input edges expire, while the latest layout and session changes wait for a callback lane. That is, a key press is a fact about one frame, but a screen layout change is delivered when there is budget to deliver it rather than dropped.
 
+## Suspension and publication
+
+Frame callbacks without decision exports run cooperatively. The host checks elapsed time between roughly 25,000-fuel slices, sharing a soft target of about 1 ms across runnable mods. Mandatory synchronous callbacks count against that total. Owners receive equal shares, carry overshoot debt across frames, and pass unused shares to other runnable owners. A host import or one fuel slice can overshoot the target.
+
+`Deferred` means the invocation has not started. `Suspended` means the same invocation will resume with its guest memory, remaining fuel, import counters and private output transaction intact. A self-wake cannot poll an expired slice again in the same game frame. There is no suspension timeout or count that becomes a fault. Fuel is the only execution fault limit for these callbacks; invalid imports, malformed output and guest traps still fail normally.
+
+Input, session data, local time and elapsed time are frozen when the invocation starts. Changes observed while it is suspended belong to a later invocation. Reads can see the invocation's staged writes, including saved settings, without publishing them. Writes and drawing handle changes are staged as deltas against committed state. Resource allocation and retirement stay with one owner; frozen read views cannot duplicate them. The last completed HUD, panel and drawing remain visible while work is suspended. Frame-only movement and camera overrides expire normally.
+
+A callback completed after its starting frame can publish retained presentation and settings. Its movement, interaction, jump and use pulses, commands, cues, inventory requests, packet-delay changes, pointer placement, panel-open requests and text-focus edge are dropped. Publication checks current grants, session, input ownership and screen identity. A changed screen or native edit prevents stale UI output from replacing the current UI. Observed actor handles, actor mask members and anchored drawings survive temporary candidate culling; only a confirmed despawn removes an actor reference. Explicit mod removals still apply.
+
+The host never re-enters a suspended instance for an event. It coalesces lifecycle changes and keeps at most the latest text per declared control, with separately bounded native edit queues. Click, key, scroll and touch edges received during suspension expire. World or session changes, grant revocation and unload cancel the continuation without a fault. The partial guest is discarded and, when still authorized, rebuilt through the loading lane. A failed hot reload keeps the old continuation; a successful replacement cancels it atomically.
+
+Action filters, sound handlers and teleport handlers need immediate synchronous decisions and share guest state with `frame`. Any instance exporting one of them keeps synchronous frame execution and its existing deadlines, even when that handler lacks a grant. Events and loading also remain synchronous at the host boundary. Standalone host callers without a shared schedule drive async calls to completion.
+
 ## The fuel budget
 
 Guest execution is metered in fuel, roughly WebAssembly instructions. Each callback kind has its own allowance:
 
 The [generated limits reference](../reference/limits.md#execution-and-packages) gives the current values of `FRAME_FUEL`, `WORLD_ENTRY_FRAME_FUEL`, `CALLBACK_FUEL`, `LOAD_FUEL` and the shared `TOTAL_MOD_FRAME_FUEL` pool. Ordinary `frame` callbacks get `FRAME_FUEL`. Events get `CALLBACK_FUEL`, except `data-changed`, which gets `LOAD_FUEL`. An `init` that exports `data-changed` gets `LOAD_FUEL`; any other `init` shares the frame allowance.
 
-Frame callbacks reserve their full allowance and refund unused fuel. When the pool cannot pay a full ordinary allowance, the callback waits for a later frame. Each update rotates which runnable mod executes first so later mods eventually run, without withholding fuel from other callbacks. Input reservations are sampled in load order before execution, and output authority and collection follow load order. Deferred frame callbacks keep terrain subscriptions, touch taps and text input batches for the callback that eventually runs.
+Frame callbacks reserve their full allowance and refund unused fuel. When the pool cannot pay a full ordinary allowance, the callback waits for a later frame. Each update rotates which runnable mod executes first so later mods eventually run, without withholding fuel from other callbacks. Input reservations are sampled in load order before execution, and output authority and collection follow load order. Deferred frame callbacks keep terrain subscriptions, touch taps and text input batches for the callback that eventually runs. Suspended invocations keep their original fuel without refilling it. Each serviced frame conservatively reserves a share. Completion or cancellation settles cumulative consumption and refunds unused current-frame capacity; unused shares from earlier frames expire. World-entry borrowing is charged only after its actual consumption is known.
 
 Camera and environment writes are staged independently, then the earliest active mod supplying output wins after all callbacks finish. A successful write can therefore lose precedence to another mod's output. This also lets a later mod take over in the same update when an earlier mod releases its output or is quarantined. When several mods request opening a panel in one update, the last requesting mod in load order wins; separate requests from other runtimes retain their global ordering.
 

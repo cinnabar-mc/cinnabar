@@ -157,6 +157,12 @@ impl ModHost {
             return Ok(CallbackOutcome::Executed);
         }
         self.scope_text_changes(&mut events)?;
+        if events
+            .iter()
+            .any(|event| matches!(event, ModEvent::TextChanged { .. }))
+        {
+            self.instance.screen_edited();
+        }
         let mut incoming = std::mem::take(&mut self.pending_events);
         incoming.extend(events);
         let mut incoming = ModEvent::coalesce(incoming).into_iter();
@@ -168,14 +174,14 @@ impl ModHost {
                 self.instance.set_layout(layout.clone());
             }
             let outcome = self.instance.dispatch(&event)?;
-            if outcome == CallbackOutcome::Deferred {
+            if outcome != CallbackOutcome::Executed {
                 self.retain_lifecycle(std::iter::once(event).chain(incoming));
                 if closed {
                     self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
                 }
                 return Ok(outcome);
             }
-            if closed && self.instance.dispatch(&ModEvent::ViewClosed)? == CallbackOutcome::Deferred
+            if closed && self.instance.dispatch(&ModEvent::ViewClosed)? != CallbackOutcome::Executed
             {
                 self.retain_lifecycle(std::iter::once(ModEvent::ViewClosed));
             }

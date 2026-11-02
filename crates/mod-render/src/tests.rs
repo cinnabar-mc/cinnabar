@@ -148,8 +148,8 @@ fn pass_changes_keep_the_merged_primitives_of_unchanged_mods() {
     camera.primitives = Arc::new((*camera.primitives).clone());
     let equal = cache.merge([&camera, &effects]).primitives;
     assert!(
-        Arc::ptr_eq(&first, &equal),
-        "equal content keeps its identity too"
+        !Arc::ptr_eq(&first, &equal),
+        "a new source allocation publishes without comparing primitive contents"
     );
     camera.primitives = Arc::new(Primitives::default());
     let changed = cache.merge([&camera, &effects]).primitives;

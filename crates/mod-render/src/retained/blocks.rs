@@ -439,13 +439,14 @@ impl super::Store {
         if edits.len() > MAX_BLOCK_CELLS {
             return Err(error(ErrorCode::BudgetExceeded, "block edits"));
         }
-        let current = self.staged.as_ref().unwrap_or(&self.committed);
+        let current = self.current();
         let old = Arc::clone(
             current
                 .geometry
                 .get(&id)
                 .ok_or(error(ErrorCode::StaleHandle, "geometry"))?,
         );
+        drop(current);
         let block = old
             .blocks()
             .ok_or(error(ErrorCode::Invalid, "block geometry"))?;
@@ -503,15 +504,10 @@ impl super::Store {
             request.previous = previous;
         }
         let bytes = geometry.bytes;
-        self.retired.push(old);
-        let result = self.edit_blocks(bytes, |resources| {
+        self.edit_blocks(bytes, |resources| {
             resources.geometry.insert(id, Arc::new(geometry));
             resources.geometry_revision += 1;
             Ok(())
-        });
-        if result.is_err() {
-            self.retired.pop();
-        }
-        result
+        })
     }
 }

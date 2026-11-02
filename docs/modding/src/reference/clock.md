@@ -38,6 +38,7 @@ record local-time {
 read-local-time: func() -> result<local-time, string>;
 ```
 
-Reads the local machine clock and its current UTC offset with clock authority.
+Reads the local clock snapshot captured when this invocation started.
+The time and UTC offset stay frozen across suspension. Requires clock authority.
 
 Types: [`local-time`](clock.md#type-local-time).

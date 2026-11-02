@@ -132,7 +132,7 @@ fn cold_rotated_execution_still_gives_first_mod_output_authority() {
             .map(|label| (probe(directory.path(), label, false), granted()))
             .collect(),
     );
-    runtime.next_frame_priority = 2;
+    runtime.next_frame_priority = Some(runtime.host(2).frame_owner());
     runtime.begin_frame();
     let merged = frame(&mut runtime, None);
     assert_eq!(merged.time_override, Some(1));
@@ -335,4 +335,115 @@ fn priority_skips_inactive_hosts_and_survives_reordering_and_removal() {
     runtime.budget.reset(mod_host::FRAME_FUEL);
     frame(&mut runtime, None);
     assert!(runtime.host(0).last_fuel_used() > 0);
+}
+
+/// Gives only the first mod a deterministic overshoot, then stops the scheduling clock.
+fn indebted_set(directory: &Path) -> ModHosts {
+    let mut runtime = load_set(
+        ["A", "BB", "CCC"]
+            .into_iter()
+            .map(|label| (probe(directory, label, false), granted()))
+            .collect(),
+    );
+    let samples = std::sync::atomic::AtomicU64::new(0);
+    runtime.budget =
+        mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, move || {
+            if samples.fetch_add(1, std::sync::atomic::Ordering::Relaxed) == 0 {
+                std::time::Duration::ZERO
+            } else {
+                std::time::Duration::from_millis(20)
+            }
+        });
+    runtime.begin_frame();
+    assert_eq!(frame(&mut runtime, None).commands, ["/ability A"]);
+    runtime
+}
+
+#[test]
+fn reordering_keeps_time_debt_with_the_expensive_instance() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = indebted_set(directory.path());
+    runtime.swap(0, 1);
+    runtime.begin_frame();
+    assert_eq!(
+        frame(&mut runtime, None).commands,
+        ["/ability BB", "/ability CCC"]
+    );
+    assert_eq!(runtime.host(1).last_fuel_used(), 0);
+}
+
+#[test]
+fn removing_a_non_tail_mod_does_not_transfer_its_time_debt() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = indebted_set(directory.path());
+    let removed = runtime.remove(0);
+    runtime.begin_frame();
+    assert_eq!(
+        frame(&mut runtime, None).commands,
+        ["/ability BB", "/ability CCC"]
+    );
+    assert!(runtime.host(0).last_fuel_used() > 0);
+    drop(removed);
+}
+
+#[test]
+fn replacing_a_host_in_place_starts_a_fresh_time_account() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = indebted_set(directory.path());
+    let replacement = probe(directory.path(), "Replacement", false);
+    *runtime.host_mut(0) = ModHost::load_with_grants(&replacement, granted()).unwrap();
+    runtime.begin_frame();
+    assert_eq!(
+        frame(&mut runtime, None).commands,
+        ["/ability Replacement", "/ability BB", "/ability CCC"]
+    );
+}
+
+#[test]
+fn hot_reload_drops_old_debt_only_after_a_successful_replacement() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = indebted_set(directory.path());
+    let original = runtime.host(0).frame_owner();
+    let path = directory.path().join("A.wat");
+    std::fs::write(&path, "(component)").unwrap();
+    assert!(runtime.host_mut(0).reload_if_changed().is_err());
+    assert_eq!(runtime.host(0).frame_owner(), original);
+    runtime.begin_frame();
+    assert_eq!(
+        frame(&mut runtime, None).commands,
+        ["/ability BB", "/ability CCC"]
+    );
+    assert_eq!(runtime.host(0).last_fuel_used(), 0);
+
+    let replacement = probe(directory.path(), "Reloaded", false);
+    std::fs::copy(replacement, path).unwrap();
+    assert!(runtime.host_mut(0).reload_if_changed().unwrap());
+    assert_ne!(runtime.host(0).frame_owner(), original);
+    runtime.begin_frame();
+    assert_eq!(
+        frame(&mut runtime, None).commands,
+        ["/ability Reloaded", "/ability BB", "/ability CCC"]
+    );
+}
+
+#[test]
+fn reordering_preserves_the_next_instances_admission_turn() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut runtime = load_set(
+        ["A", "BB", "CCC"]
+            .into_iter()
+            .map(|label| (probe(directory.path(), label, true), granted()))
+            .collect(),
+    );
+    runtime.begin_frame();
+    runtime.budget.reset(mod_host::FRAME_FUEL);
+    assert_eq!(frame(&mut runtime, None).commands, ["/ability A"]);
+    runtime.swap(1, 2);
+    runtime.begin_frame();
+    runtime.budget.reset(mod_host::FRAME_FUEL);
+    assert_eq!(frame(&mut runtime, None).commands, ["/ability BB"]);
+    runtime.remove(0);
+    runtime.begin_frame();
+    runtime.budget.reset(mod_host::FRAME_FUEL);
+    assert_eq!(frame(&mut runtime, None).commands, ["/ability CCC"]);
 }

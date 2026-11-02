@@ -4,7 +4,13 @@ use mod_api::drawing::{
     DrawingHandle, DrawingSession, MAX_MASK_ENTITIES, MAX_MASK_VERTICES, MAX_MASKS, MaskDepth,
     MaskEntity,
 };
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
+};
 
 /// A typed admission failure, preserved across the component boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,12 +44,13 @@ impl Mask {
 /// The owner incarnation is process-unique. Slots are never reused, even after rollback.
 pub struct MaskStore {
     owner: u64,
-    next_slot: u64,
+    next_slot: Arc<AtomicU64>,
     session: DrawingSession,
-    targets: BTreeMap<DrawingHandle, (MaskEntity, u64)>,
+    targets: Arc<BTreeMap<DrawingHandle, (MaskEntity, u64)>>,
     candidates: BTreeMap<MaskEntity, u64>,
     committed: Arc<[Mask]>,
     staged: Option<Vec<Mask>>,
+    pending_targets: BTreeMap<DrawingHandle, (MaskEntity, u64)>,
 }
 
 impl Default for MaskStore {
@@ -54,16 +61,44 @@ impl Default for MaskStore {
 }
 
 impl MaskStore {
+    /// Borrows immutable read views and shares token allocation, staging only new handles.
+    pub fn transaction(&self) -> Self {
+        Self {
+            owner: self.owner,
+            next_slot: Arc::clone(&self.next_slot),
+            session: self.session,
+            targets: Arc::clone(&self.targets),
+            candidates: self.candidates.clone(),
+            committed: Arc::clone(&self.committed),
+            staged: None,
+            pending_targets: BTreeMap::new(),
+        }
+    }
+
+    /// Applies guest writes and removes only actor incarnations confirmed dead by the host.
+    pub fn accept(&mut self, transaction: Self, despawned: &[MaskEntity]) {
+        assert!(Arc::ptr_eq(&self.next_slot, &transaction.next_slot));
+        for (handle, (key, vertices)) in transaction.pending_targets {
+            let vertices = self.candidates.get(&key).copied().unwrap_or(vertices);
+            Arc::make_mut(&mut self.targets).insert(handle, (key, vertices));
+        }
+        if let Some(masks) = transaction.staged {
+            self.staged = Some(masks);
+        }
+        self.remove_entities(despawned);
+    }
+
     /// Starts with no session authority and no allocated attachments.
     fn new(owner: u64) -> Self {
         Self {
             owner,
-            next_slot: 0,
+            next_slot: Arc::new(AtomicU64::new(0)),
             session: DrawingSession::default(),
-            targets: BTreeMap::new(),
+            targets: Arc::default(),
             candidates: BTreeMap::new(),
             committed: Arc::from([]),
             staged: None,
+            pending_targets: BTreeMap::new(),
         }
     }
 
@@ -75,8 +110,6 @@ impl MaskStore {
 
     /// Replaces trusted candidates. Membership retains incarnation keys across temporary culling.
     pub fn publish_targets(&mut self, targets: &[(MaskEntity, u64)]) {
-        self.targets
-            .retain(|_, (key, _)| targets.iter().any(|(current, _)| current == key));
         self.candidates.clear();
         for &(key, vertices) in targets {
             if key.connection != self.session.connection || key.dimension != self.session.dimension
@@ -84,9 +117,56 @@ impl MaskStore {
                 continue;
             }
             self.candidates.insert(key, vertices);
-            if let Some((_, count)) = self.targets.values_mut().find(|(target, _)| *target == key) {
+            if let Some((_, count)) = Arc::make_mut(&mut self.targets)
+                .values_mut()
+                .find(|(target, _)| *target == key)
+            {
                 *count = vertices;
             }
+        }
+        for (key, vertices) in self.pending_targets.values_mut() {
+            if let Some(current) = self.candidates.get(key) {
+                *vertices = *current;
+            }
+        }
+    }
+
+    /// Includes retained memberships and frozen candidates in native lifetime checks.
+    pub fn entity_keys(&self) -> impl Iterator<Item = MaskEntity> + '_ {
+        self.targets
+            .values()
+            .chain(self.pending_targets.values())
+            .map(|(key, _)| *key)
+            .chain(
+                self.current()
+                    .iter()
+                    .flat_map(|mask| mask.entities.iter().copied()),
+            )
+            .chain(self.candidates.keys().copied())
+    }
+
+    /// Removes exact confirmed despawns without treating render availability as existence.
+    pub fn remove_entities(&mut self, despawned: &[MaskEntity]) {
+        if despawned.is_empty() {
+            return;
+        }
+        Arc::make_mut(&mut self.targets).retain(|_, (key, _)| !despawned.contains(key));
+        self.pending_targets
+            .retain(|_, (key, _)| !despawned.contains(key));
+        self.candidates.retain(|key, _| !despawned.contains(key));
+        // Committed and staged masks are pruned separately, so this never publishes staging.
+        let prune = |mask: &mut Mask| mask.entities.retain(|key| !despawned.contains(key));
+        if self
+            .committed
+            .iter()
+            .any(|mask| mask.entities.iter().any(|key| despawned.contains(key)))
+        {
+            let mut committed = self.committed.to_vec();
+            committed.iter_mut().for_each(prune);
+            self.committed = committed.into();
+        }
+        if let Some(staged) = &mut self.staged {
+            staged.iter_mut().for_each(prune);
         }
     }
 
@@ -99,20 +179,21 @@ impl MaskStore {
         {
             return Err(MaskError::Denied);
         }
-        if let Some(handle) = self
-            .targets
-            .iter()
-            .find_map(|(token, (key, _))| (key.runtime_id == runtime_id).then_some(*token))
-        {
-            return Ok(handle);
-        }
         let (&key, &vertices) = self
             .candidates
             .iter()
             .find(|(key, _)| key.runtime_id == runtime_id)
             .ok_or(MaskError::StaleHandle)?;
+        if let Some(handle) = self
+            .targets
+            .iter()
+            .chain(self.pending_targets.iter())
+            .find_map(|(token, (known, _))| (*known == key).then_some(*token))
+        {
+            return Ok(handle);
+        }
         let handle = self.allocate();
-        self.targets.insert(handle, (key, vertices));
+        self.pending_targets.insert(handle, (key, vertices));
         Ok(handle)
     }
 
@@ -148,7 +229,11 @@ impl MaskStore {
         }
         let mut selected = BTreeMap::new();
         for token in entities {
-            let &(key, vertices) = self.targets.get(token).ok_or(MaskError::StaleHandle)?;
+            let &(key, vertices) = self
+                .pending_targets
+                .get(token)
+                .or_else(|| self.targets.get(token))
+                .ok_or(MaskError::StaleHandle)?;
             selected.insert(key, vertices);
         }
         if selected
@@ -158,7 +243,10 @@ impl MaskStore {
         {
             return Err(MaskError::BudgetExceeded);
         }
-        self.staged()[index].entities = selected.into_keys().collect();
+        let entities: Vec<_> = selected.into_keys().collect();
+        if self.current()[index].entities != entities {
+            self.staged()[index].entities = entities;
+        }
         Ok(())
     }
 
@@ -177,7 +265,9 @@ impl MaskStore {
         }) {
             return Err(MaskError::Invalid);
         }
-        self.staged()[index].position = position;
+        if self.current()[index].position != position {
+            self.staged()[index].position = position;
+        }
         Ok(())
     }
 
@@ -199,7 +289,9 @@ impl MaskStore {
         if style.is_some_and(|style| !style.valid()) {
             return Err(MaskError::Invalid);
         }
-        self.staged()[index].style = style;
+        if self.current()[index].style != style {
+            self.staged()[index].style = style;
+        }
         Ok(())
     }
 
@@ -217,13 +309,18 @@ impl MaskStore {
     /// Begins a fresh callback transaction without recycling issued tokens.
     pub fn begin(&mut self) {
         self.staged = None;
+        self.pending_targets.clear();
+    }
+
+    /// Returns published masks without committing any guest staging.
+    pub fn committed(&self) -> Arc<[Mask]> {
+        Arc::clone(&self.committed)
     }
 
     /// Publishes a successful transaction, preserving identity for unchanged selections.
     pub fn commit(&mut self) -> Arc<[Mask]> {
-        if let Some(staged) = self.staged.take()
-            && staged.as_slice() != self.committed.as_ref()
-        {
+        Arc::make_mut(&mut self.targets).append(&mut self.pending_targets);
+        if let Some(staged) = self.staged.take() {
             self.committed = staged.into();
         }
         Arc::clone(&self.committed)
@@ -231,7 +328,8 @@ impl MaskStore {
 
     /// Immediately invalidates handles and all pending output on trap, reload or revocation.
     pub fn revoke(&mut self) {
-        self.targets.clear();
+        Arc::make_mut(&mut self.targets).clear();
+        self.pending_targets.clear();
         self.candidates.clear();
         self.staged = None;
         self.committed = Arc::from([]);
@@ -248,22 +346,27 @@ impl MaskStore {
             candidates: _,
             committed,
             staged,
+            pending_targets,
         } = self;
-        targets.clear();
+        Arc::make_mut(targets).clear();
+        pending_targets.clear();
         *staged = None;
         *committed = Arc::from([]);
     }
 
     /// Allocates a token in a namespace shared by masks and target references.
     fn allocate(&mut self) -> DrawingHandle {
-        self.next_slot = self
+        let slot = self
             .next_slot
-            .checked_add(1)
-            .expect("drawing handle space exhausted");
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |slot| {
+                slot.checked_add(1)
+            })
+            .expect("drawing handle space exhausted")
+            + 1;
         DrawingHandle {
             owner: self.owner,
             generation: self.owner,
-            slot: self.next_slot,
+            slot,
         }
     }
 

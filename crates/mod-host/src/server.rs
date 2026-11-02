@@ -527,7 +527,7 @@ impl BundleHost {
                 && capabilities.scope.memory_bytes <= MAX_GUEST_MEMORY,
             "invalid guest memory limit"
         );
-        let (engine, ticker) = crate::execution::engine()?;
+        let (engine, ticker) = crate::execution::synchronous_engine()?;
         let component = Component::new(&engine, source)?;
         let mut linker = Linker::new(&engine);
         cinnabar::server_experience::ui::add_to_linker::<_, HasSelf<_>>(

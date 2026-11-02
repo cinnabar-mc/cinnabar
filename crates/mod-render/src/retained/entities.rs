@@ -12,7 +12,80 @@ pub struct EntityKey {
     pub spawn_revision: u64,
 }
 
+impl From<mod_api::drawing::MaskEntity> for EntityKey {
+    /// Keeps mask and drawing references in the same actor lifetime namespace.
+    fn from(key: mod_api::drawing::MaskEntity) -> Self {
+        Self {
+            session: key.connection,
+            dimension: key.dimension,
+            runtime_id: key.runtime_id,
+            spawn_revision: key.spawn_revision,
+        }
+    }
+}
+
+impl From<EntityKey> for mod_api::drawing::MaskEntity {
+    /// Preserves the exact actor incarnation when reconciling mask membership.
+    fn from(key: EntityKey) -> Self {
+        Self {
+            connection: key.session,
+            dimension: key.dimension,
+            runtime_id: key.runtime_id,
+            spawn_revision: key.spawn_revision,
+        }
+    }
+}
+
 impl Store {
+    /// Adds other retained actor memberships to this invocation's existing lifetime tracking.
+    pub fn track_entities(&self, keys: impl IntoIterator<Item = EntityKey>) {
+        if let Some(observations) = &self.observations {
+            observations
+                .lock()
+                .expect("drawing observations")
+                .keys
+                .extend(keys);
+        }
+    }
+
+    /// Reads confirmed removals recorded while this invocation was suspended.
+    pub fn removed_entities(&self) -> Vec<EntityKey> {
+        self.observations
+            .as_ref()
+            .map_or_else(Vec::new, |observations| {
+                observations
+                    .lock()
+                    .expect("drawing observations")
+                    .removed
+                    .iter()
+                    .copied()
+                    .collect()
+            })
+    }
+
+    /// Includes frozen in-flight observations so native code can report their actual despawns.
+    pub fn entity_keys(&self) -> Vec<EntityKey> {
+        let mut keys: std::collections::BTreeSet<_> =
+            self.committed.entities.values().copied().collect();
+        if let Some(observations) = self
+            .owner
+            .lock()
+            .expect("drawing owner")
+            .observing
+            .upgrade()
+        {
+            keys.extend(
+                observations
+                    .lock()
+                    .expect("drawing observations")
+                    .keys
+                    .iter()
+                    .copied(),
+            );
+        }
+        keys.into_iter().collect()
+    }
+
     /// Reconciles confirmed despawns immediately; temporary invisibility keeps references.
     pub fn reconcile_entities(
         &mut self,
@@ -28,21 +101,36 @@ impl Store {
         if despawned.is_empty() {
             return Ok(());
         }
+        if let Some(observations) = self
+            .owner
+            .lock()
+            .expect("drawing owner")
+            .observing
+            .upgrade()
+        {
+            let mut observations = observations.lock().expect("drawing observations");
+            for key in despawned {
+                if observations.keys.contains(key) {
+                    observations.removed.insert(*key);
+                }
+            }
+        }
         let mut resources = (*self.committed).clone();
         let removed: Vec<_> = resources
             .entities
             .iter()
             .filter_map(|(handle, key)| despawned.contains(key).then_some(*handle))
             .collect();
+        if removed.is_empty() {
+            return Ok(());
+        }
         resources
             .entities
             .retain(|handle, _| !removed.contains(handle));
         resources.instances.retain(|_, instance| !matches!(instance.anchor, Anchor::Entity(anchor) if removed.contains(&anchor.entity)));
         clips::reconcile(&mut resources);
-        if resources != *self.committed {
-            resources.instance_revision += 1;
-            self.committed = Arc::new(resources);
-        }
+        resources.instance_revision += 1;
+        self.install(resources);
         self.staged = None;
         Ok(())
     }

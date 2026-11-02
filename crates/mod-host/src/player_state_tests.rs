@@ -1000,3 +1000,26 @@ fn selected_slot_allowance_renews_per_callback_within_a_frame() {
         assert!(state.read_selected_slot().is_err());
     }
 }
+
+#[test]
+fn invocation_revision_allocation_does_not_fork_native_comparison_tokens() {
+    let mut native = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    native.player_state.set_snapshot(Some(snapshot())).unwrap();
+    let mut transaction = native.frame_transaction();
+    let frozen = transaction.read_revisions().unwrap().unwrap().unwrap();
+    // A discarded invocation must not leave its returned identities available for reuse.
+    drop(transaction);
+    let mut newer = snapshot();
+    newer.selected_slot = Some(3);
+    native.player_state.set_snapshot(Some(newer)).unwrap();
+    let current = native.read_revisions().unwrap().unwrap().unwrap();
+    assert!(current.equipment > frozen.equipment);
+    assert!(current.effects > frozen.effects);
+}
