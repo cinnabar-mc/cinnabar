@@ -510,10 +510,8 @@ impl HudModel {
         bones.clear();
         bones.extend_from_slice(&self.palette);
         for bone in &mut bones {
-            bone.tint = [0, 1, 2, 3].map(|channel| {
-                let source = (bone.tint[channel] * 255.).round() as u16;
-                f32::from((source * u16::from(color[channel]) / 255) as u8) / 255.
-            });
+            bone.tint =
+                [0, 1, 2, 3].map(|channel| bone.tint[channel] * (f32::from(color[channel]) / 255.));
             bone.screen = (placement * Mat4::from_cols_array_2d(&bone.screen)).to_cols_array_2d();
         }
         // Every palette is small; the frame pool retains its allocation across publications.
@@ -552,6 +550,9 @@ impl HudModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Places each skinned control with the palette of the doll model that drew it.
 pub(in crate::ui_runtime::presentation) fn model_poses(
