@@ -29,8 +29,8 @@ const OWNER: &str = "InputOwner";
 const HELP: &str = "a screen takes input as the frame's owner through `InputOwner`; anything else needs an `[input_owner]` exception saying why it isn't a screen";
 
 /// Requires every system under the configured root that takes input to take [`OWNER`] too, so a
-/// screen can't read input without being the frame's owner. A helper handed input by reference or
-/// as an iterator, or a modifier tracker in a `Local`, has no input of its own.
+/// screen can't read input without being the frame's owner. A helper handed input by reference,
+/// optional reference or iterator, or a modifier tracker in a `Local`, has no input of its own.
 pub(super) fn check_input_owner(
     root: &Path,
     policy: &Policy,
@@ -191,21 +191,35 @@ fn reads(ty: &syn::Type) -> (bool, bool) {
                 (input || takes_input, owner || takes_owner)
             },
         ),
-        syn::Type::Path(path)
-            if path
-                .path
-                .segments
-                .last()
-                .is_some_and(|segment| segment.ident == "Local") =>
-        {
-            (false, false)
-        }
+        syn::Type::Path(path) if is_local(path) || is_optional_reference(path) => (false, false),
         ty => {
             let mut names = TypeNames::default();
             names.visit_type(ty);
             (names.input, names.owner)
         }
     }
+}
+
+fn is_local(path: &syn::TypePath) -> bool {
+    path.path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "Local")
+}
+
+/// Whether `path` is `Option<&T>`, which a helper takes and a system can't.
+fn is_optional_reference(path: &syn::TypePath) -> bool {
+    path.path.segments.last().is_some_and(|segment| {
+        segment.ident == "Option"
+            && matches!(
+                &segment.arguments,
+                syn::PathArguments::AngleBracketed(arguments)
+                    if matches!(
+                        arguments.args.first(),
+                        Some(syn::GenericArgument::Type(syn::Type::Reference(_)))
+                    )
+            )
+    })
 }
 
 /// Which of the names this gate knows a type mentions.
@@ -271,6 +285,7 @@ mod tests {
             "#[derive(SystemParam)] struct D<'w> { keys: Res<'w, Touches>, owner: InputOwner<'w> }",
             "fn helper(keys: &ButtonInput<KeyCode>, pads: &Query<&Gamepad>) {}",
             "fn helper<'a>(pads: impl Iterator<Item = &'a Gamepad>) {}",
+            "fn helper(messages: Option<&Messages<MouseButtonInput>>) {}",
             "fn track(modifiers: Local<ButtonInput<KeyCode>>) {}",
             "struct Observed { modifiers: ButtonInput<KeyCode> }",
             "#[cfg(test)] mod tests { fn fixture(touches: Res<Touches>) {} }",
