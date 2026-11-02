@@ -194,6 +194,31 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
 }
 
+/// A lectern is interactive and needs the open-containers ability, so a use press aimed at
+/// it places a held book instead of opening the book's own screen.
+#[test]
+fn a_lectern_takes_the_use_press_from_a_held_book() {
+    let book = verified(network_item(3, 0));
+    let lectern = surroundings("minecraft:lectern", "minecraft:air");
+    let resolve = |mode| {
+        LocalUse::resolve(
+            &book,
+            [2, 63, 0],
+            1,
+            &lectern,
+            &GameModeCapabilities::for_mode(mode),
+        )
+    };
+    assert_eq!(resolve(PlayerGameMode::Survival), LocalUse::Interact);
+    assert_eq!(resolve(PlayerGameMode::Spectator), LocalUse::Nothing);
+    assert!(super::block_takes_use_press(lectern.clicked, false));
+    assert!(!super::block_takes_use_press(lectern.clicked, true));
+    assert!(!super::block_takes_use_press(
+        block_fact("minecraft:stone"),
+        false
+    ));
+}
+
 #[test]
 fn replacement_overrides_choose_the_clicked_cell() {
     for name in [
