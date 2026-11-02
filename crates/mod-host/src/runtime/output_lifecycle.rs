@@ -22,6 +22,15 @@ pub(super) struct Movement {
 }
 
 impl Environment {
+    /// Revalidates exclusive presentation ownership at the publication boundary.
+    pub(super) fn accept(&mut self, transaction: Self, blocked: bool) {
+        self.pending_fullbright = transaction.pending_fullbright;
+        if !blocked {
+            self.pending_time = transaction.pending_time;
+            self.pending_weather = transaction.pending_weather;
+        }
+    }
+
     /// Drops failed override writes without revoking the last committed environment.
     pub fn rollback(&mut self) {
         let Self {

@@ -107,6 +107,51 @@ pub(super) struct ControlState {
 }
 
 impl ControlState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            pointer: self.pointer.transaction(),
+            frame: self.frame.clone(),
+            bindings: self.bindings.clone(),
+            text_events: self.text_events.clone(),
+            field_events: self.field_events.clone(),
+            text_events_in_frame: self.text_events_in_frame,
+            panel: self.panel.clone(),
+            bundle: self.bundle.clone(),
+            open: self.open,
+            open_requested: false,
+            open_order: 0,
+            native_editing: self.native_editing,
+            native_editing_next: false,
+            layout: self.layout,
+            keys: Vec::new(),
+            interaction: Default::default(),
+            dirty_settings: None,
+            settings: self.settings.clone(),
+            pending_panel: None,
+            pending_open: None,
+            pending_keys: None,
+            pending_settings: None,
+            pending_interaction: Default::default(),
+            reads: 0,
+            writes: 0,
+        }
+    }
+
+    /// Applies guest writes without restoring consumed input or overwriting native UI ownership.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, same_ui: bool) {
+        if same_ui {
+            self.pending_panel = transaction.pending_panel;
+        }
+        self.pending_settings = transaction.pending_settings;
+        self.pending_keys = transaction.pending_keys;
+        if current_frame && same_ui {
+            self.pending_open = transaction.pending_open;
+            self.pending_interaction = transaction.pending_interaction;
+            self.pointer.accept(transaction.pointer);
+        }
+    }
+
     /// Retains panel preferences while removing references into the departed world.
     pub(super) fn clear_world_projections(&mut self) {
         self.pointer = Default::default();
@@ -280,7 +325,7 @@ pub(super) fn queue_text_events(
 ) -> Result<()> {
     ensure!(state.grants.controls, "controls capability denied");
     ensure!(
-        state.controls.text_events.len() + events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
+        events.len() <= ui::mod_panel::MAX_PANEL_EVENTS,
         "too many native text events"
     );
     if events.is_empty() {
@@ -291,6 +336,15 @@ pub(super) fn queue_text_events(
         .panel
         .as_mut()
         .context("native text events require a retained panel")?;
+    let mut pending = state.controls.text_events.clone();
+    for event in &events {
+        pending.retain(|old| old.id != event.id);
+        ensure!(
+            pending.len() < ui::mod_panel::MAX_PANEL_EVENTS,
+            "too many native text events"
+        );
+        pending.push(event.clone());
+    }
     for event in &events {
         let Some(ui::mod_panel::Control::Text {
             min_chars,
@@ -310,7 +364,7 @@ pub(super) fn queue_text_events(
             value.clone_from(&event.value);
         }
     }
-    state.controls.text_events.extend(events);
+    state.controls.text_events = pending;
     Ok(())
 }
 
@@ -567,7 +621,12 @@ impl cinnabar::extension::settings::Host for State {
         if !self.grants.settings {
             return Ok(Err("settings capability denied".into()));
         }
-        Ok(Ok(self.controls.settings.clone()))
+        Ok(Ok(self
+            .controls
+            .pending_settings
+            .as_ref()
+            .unwrap_or(&self.controls.settings)
+            .clone()))
     }
 
     fn save(&mut self, json: String) -> Result<Result<(), String>> {

@@ -31,6 +31,11 @@ impl ScreenTransaction {
         self.changed.then_some(self.screens)
     }
 
+    /// Drops a focus edge when its callback completes after the originating input frame.
+    pub(in crate::runtime) fn expire_focus(&mut self) {
+        self.screens.focus = None;
+    }
+
     /// Exposes private staging for deterministic regression witnesses.
     #[cfg(test)]
     pub(super) fn screens(&self) -> &ModScreens {

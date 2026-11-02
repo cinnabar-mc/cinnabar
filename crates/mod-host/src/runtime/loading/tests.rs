@@ -122,7 +122,7 @@ fn loading_gap_clears_actor_presentation_before_deferred_destination_callbacks()
             .unwrap();
         let before = host.instance.store.data().presentation.output().1;
         let budget = crate::CallbackBudget::new(0);
-        host.set_frame_authority(budget, false, false, 0);
+        host.set_frame_authority(budget, false, false);
         if gap {
             host.bind_drawing_world(session(), false);
             assert!(

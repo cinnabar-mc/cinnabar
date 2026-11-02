@@ -8,6 +8,7 @@ use chunk_pipeline::WorldStream;
 use client_world::{ActorArmorSnapshot, CanonicalItemStack};
 use protocol::ActorHandedness;
 
+use super::super::viewmodel::stack_block_visual_id;
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use client_ui::ui_runtime::UiRuntime;
 
@@ -68,7 +69,37 @@ pub(super) fn worn_item(
     })
 }
 
-fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
+/// Like [`worn_item`], drawing a stack with a retained block as vanilla builds it: a descriptor
+/// with a block runtime id takes its block from the palette, whatever its aux value.
+fn stream_worn_item(
+    stream: &WorldStream,
+    item: &CanonicalItemStack,
+    dye_rgb: Option<u32>,
+    use_facts: client_world::EffectiveItemUse,
+    fishing_rod_cast: bool,
+) -> Option<WornItem> {
+    let mut worn = worn_item(item, dye_rgb, use_facts, fishing_rod_cast)?;
+    if let ItemVisualRoute::RetainedBlock { block_runtime_id } = item.visual {
+        worn.kind = retained_block_kind(stream, &worn.identifier, block_runtime_id);
+    }
+    Some(worn)
+}
+
+/// Holds a retained block as the state it names, keeping the item's own art for the states the
+/// carried art cannot draw. An item drawn flat at its base value stays flat.
+fn retained_block_kind(stream: &WorldStream, identifier: &str, block_runtime_id: i32) -> HeldKind {
+    let state = stack_block_visual_id(stream, stream.runtime_assets(), block_runtime_id);
+    match stream.authority().named_item_visual(identifier, 0) {
+        ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
+        ItemVisualRoute::BlockItem(item) => HeldKind::RetainedBlock {
+            state,
+            item: Some(item.0),
+        },
+        _ => HeldKind::RetainedBlock { state, item: None },
+    }
+}
+
+fn armor_slots(stream: &WorldStream, armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
     let Some(armor) = armor else {
         return [None, None, None, None];
     };
@@ -78,7 +109,15 @@ fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
         &armor.leggings,
         &armor.boots,
     ]
-    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default(), false))
+    .map(|piece| {
+        stream_worn_item(
+            stream,
+            &piece.item,
+            piece.dye_rgb,
+            Default::default(),
+            false,
+        )
+    })
 }
 
 /// Selects cast artwork while the actor owns a tracked hook.
@@ -97,7 +136,8 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
             .authority()
             .actor_equipment_in_hand(runtime_id, hand)
             .and_then(|equipment| {
-                worn_item(
+                stream_worn_item(
+                    stream,
                     &equipment.item,
                     None,
                     stream
@@ -112,12 +152,13 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         is_local_player: false,
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
-        armor: armor_slots(stream.authority().actor_armor(runtime_id)),
+        armor: armor_slots(stream, stream.authority().actor_armor(runtime_id)),
         body: stream
             .authority()
             .actor_armor(runtime_id)
             .and_then(|armor| {
-                worn_item(
+                stream_worn_item(
+                    stream,
                     &armor.body.item,
                     armor.body.dye_rgb,
                     Default::default(),
@@ -146,7 +187,8 @@ pub fn local_input(
             .authority()
             .canonical_item_stack(stack)
             .and_then(|item| {
-                worn_item(
+                stream_worn_item(
+                    stream,
                     &item,
                     dye_rgb,
                     stream
@@ -450,5 +492,132 @@ mod body_tests {
                     && input.armor.iter().all(Option::is_none)
             );
         }
+    }
+
+    /// A stream whose carrier knows one block item, whose registry holds it, and one spawned actor.
+    fn stream_with_block_item(identifier: &str, route: ItemVisualRoute) -> (WorldStream, i32) {
+        let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
+        compiled.block_visual_count = 8;
+        let source = assets::ItemVisualDefinition {
+            key: assets::ItemVisualKey {
+                identifier: identifier.into(),
+                metadata: 0,
+            },
+            source: 0,
+            route: match route {
+                ItemVisualRoute::BlockItem(visual) => {
+                    assets::ItemVisualDefinitionRoute::BlockItem {
+                        block_visual: visual,
+                    }
+                }
+                _ => assets::ItemVisualDefinitionRoute::Missing,
+            },
+            grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
+            fuel: assets::item::fuel::ItemFuel::Unresolved,
+            armour: assets::item::armour::ItemArmour::Unresolved,
+            durability: assets::item::durability::ItemDurability::Unresolved,
+            first_person: assets::ItemDisplayTransform::identity(),
+            third_person: assets::ItemDisplayTransform::identity(),
+            dropped: assets::ItemDisplayTransform::identity(),
+        };
+        compiled.item_visuals = Box::new([source]);
+        let entities =
+            assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_item_use())
+                .unwrap();
+        let mut stream = WorldStream::new_with_asset_sets(
+            protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            Arc::new(entities),
+            [0.0; 3],
+            None,
+        );
+        let entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == identifier)
+            .unwrap()
+            .clone();
+        let network_id = entry.network_id;
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry])
+        }));
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:zombie".into(),
+                    },
+                    position: [0.0; 3],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                    links: Arc::from([]),
+                })),
+            )
+            .unwrap();
+        (stream, network_id)
+    }
+
+    /// Reads the held kind an actor's main hand gets from a wire stack.
+    fn held_kind(stream: &mut WorldStream, stack: NetworkItemStack) -> Option<HeldKind> {
+        stream
+            .submit(
+                2,
+                WorldEvent::Equipment(protocol::EquipmentEvent {
+                    actor_runtime_id: 2,
+                    stack,
+                    inventory_slot: 0,
+                    selected_slot: 0,
+                    window_id: 0,
+                    handedness: Some(ActorHandedness::Right),
+                }),
+            )
+            .unwrap();
+        remote_input(stream, 2).main.map(|item| item.kind)
+    }
+
+    /// Vanilla builds a stack with a block runtime id from that palette block, ignoring its aux
+    /// value, so a server sending blue terracotta with its old colour value still holds the block.
+    #[test]
+    fn legacy_aux_stack_with_a_retained_block_holds_that_block() {
+        let (mut stream, network_id) = stream_with_block_item(
+            "minecraft:blue_terracotta",
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(5)),
+        );
+        let kind = held_kind(
+            &mut stream,
+            NetworkItemStack {
+                network_id,
+                metadata: 11,
+                count: 16,
+                block_runtime_id: 6,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            kind,
+            Some(HeldKind::RetainedBlock {
+                state: Some(6),
+                item: Some(5),
+            })
+        );
     }
 }

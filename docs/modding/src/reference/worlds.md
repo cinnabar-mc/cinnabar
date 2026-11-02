@@ -56,7 +56,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="filtered-player-mod"></a>
@@ -254,7 +257,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="handled-player-mod"></a>
@@ -455,7 +461,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 <a id="handled-player-mod-handle-sound"></a>
 
@@ -725,7 +734,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="server-bundle"></a>

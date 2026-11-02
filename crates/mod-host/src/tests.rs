@@ -60,7 +60,7 @@ mod touch;
 mod world;
 
 /// Builds a tiny component with the same canonical imports as the guest SDK.
-fn fixture(frame: &str, text: &str) -> String {
+pub(crate) fn fixture(frame: &str, text: &str) -> String {
     let source = include_str!("../../mod-api/wit/extension.wit");
     let package = source
         .lines()
@@ -559,7 +559,7 @@ fn load_with_view_closed(
 /// Queues a real lifecycle notification after another guest has reserved the event lane.
 fn defer_view_closed(host: &mut ModHost) -> CallbackBudget {
     let budget = CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    host.set_frame_authority(budget.clone(), false, false, 0);
+    host.set_frame_authority(budget.clone(), false, false);
     assert!(
         budget
             .reserve(server_experience::runtime::CALLBACK_FUEL)
