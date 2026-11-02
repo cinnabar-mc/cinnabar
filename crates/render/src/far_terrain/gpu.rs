@@ -5,12 +5,13 @@ use std::{
     collections::{HashMap, HashSet},
     ops::Range,
     sync::Arc,
+    time::Duration,
 };
 
 use bevy::{
     camera::primitives::{Aabb, Frustum},
     math::{Affine3A, Vec3},
-    prelude::{Camera3d, Commands, Component, Entity, Query, Res, ResMut, Resource, With},
+    prelude::{Camera3d, Commands, Component, Entity, Query, Res, ResMut, Resource, Time, With},
     render::{
         render_resource::{
             BindGroup, BindGroupEntry, BindGroupLayoutDescriptor, BindGroupLayoutEntry,
@@ -36,6 +37,8 @@ use super::SHADER;
 
 #[path = "gpu_coverage.rs"]
 mod coverage;
+#[path = "gpu_handoff.rs"]
+mod handoff;
 
 const QUAD_BYTES: u64 = 8;
 const TILE_RECORD_BYTES: u64 = 16;
@@ -48,6 +51,7 @@ struct Resident {
     slot: u32,
     quads: Range<u32>,
     visible: bool,
+    presentation: Vec<u8>,
 }
 
 /// One tile drawn this frame: its slot is the instance index the shader reads its record by.
@@ -76,14 +80,18 @@ pub(crate) struct FarTerrainGpu {
     applied_world: Option<FarTerrainResidency>,
     protected: HashSet<ColumnPos>,
     empty_far: HashSet<ColumnPos>,
+    tile_goal: HashSet<TileKey>,
+    tile_handoffs: HashMap<TileKey, far_terrain::Handoff>,
+    column_handoffs: HashMap<ColumnPos, u32>,
+    presentation_steps: HashMap<TileKey, u32>,
     publication_revision: u64,
     pub(super) draws: Vec<FarDraw>,
     layout: BindGroupLayoutDescriptor,
-    pipelines: Vec<((TextureFormat, u32), CachedRenderPipelineId)>,
+    pipelines: Vec<((TextureFormat, u32, bool), CachedRenderPipelineId)>,
 }
 
 impl FarTerrainGpu {
-    pub(super) fn new(device: &RenderDevice) -> Self {
+    pub(crate) fn new(device: &RenderDevice) -> Self {
         let storage = |binding| BindGroupLayoutEntry {
             binding,
             visibility: ShaderStages::VERTEX,
@@ -147,6 +155,10 @@ impl FarTerrainGpu {
             applied_world: None,
             protected: HashSet::new(),
             empty_far: HashSet::new(),
+            tile_goal: HashSet::new(),
+            tile_handoffs: HashMap::new(),
+            column_handoffs: HashMap::new(),
+            presentation_steps: HashMap::new(),
             publication_revision: 0,
             draws: Vec::new(),
             layout,
@@ -160,28 +172,52 @@ impl FarTerrainGpu {
         cache: &PipelineCache,
         format: TextureFormat,
         samples: u32,
+        fading: bool,
     ) -> CachedRenderPipelineId {
-        let key = (format, samples);
+        let key = (format, samples, fading);
         if let Some((_, id)) = self.pipelines.iter().find(|(known, _)| *known == key) {
             return *id;
         }
-        let id =
-            cache.queue_render_pipeline(pipeline_descriptor(self.layout.clone(), format, samples));
+        let id = cache.queue_render_pipeline(pipeline_descriptor(
+            self.layout.clone(),
+            format,
+            samples,
+            fading,
+        ));
         self.pipelines.push((key, id));
         id
     }
 
-    /// Uploads one bounded batch, retaining covering draws until their replacements are admitted.
-    /// Returns false when the same scene needs another frame to finish its uploads.
+    /// Clockless batches, whose covered predecessors retire without a fade.
+    #[cfg(test)]
     fn apply_tiles(
         &mut self,
         device: &RenderDevice,
         queue: &RenderQueue,
         tiles: &[Arc<TileMesh>],
     ) -> bool {
+        self.apply_tiles_at(device, queue, tiles, None)
+    }
+
+    /// Uploads one bounded batch, retaining covering draws until their replacements are admitted
+    /// and, with a presentation clock, have faded in. Returns false when the same scene needs
+    /// another frame to finish its uploads.
+    fn apply_tiles_at(
+        &mut self,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        tiles: &[Arc<TileMesh>],
+        now: Option<Duration>,
+    ) -> bool {
         self.publication_revision = self.publication_revision.wrapping_add(1);
         let wanted: HashMap<TileKey, &Arc<TileMesh>> =
             tiles.iter().map(|mesh| (mesh.key, mesh)).collect();
+        let goal = wanted.keys().copied().collect();
+        if self.tile_goal != goal {
+            // A retarget commits only already-proven transitions before changing their proofs.
+            self.finish_tile_handoffs();
+            self.tile_goal = goal;
+        }
         let stale: Vec<TileKey> = self
             .resident
             .iter()
@@ -189,7 +225,11 @@ impl FarTerrainGpu {
                 !wanted.contains_key(key)
                     && (!resident.visible
                         || (!self.protects(**key)
-                            && !tiles.iter().any(|mesh| mesh.key.overlaps(**key))))
+                            && !tiles.iter().any(|mesh| mesh.key.overlaps(**key))
+                            && !self
+                                .empty_far
+                                .iter()
+                                .any(|column| coverage::contains_column(**key, *column))))
             })
             .map(|(key, _)| *key)
             .collect();
@@ -281,10 +321,15 @@ impl FarTerrainGpu {
                     slot,
                     quads,
                     visible: false,
+                    presentation: vec![
+                        far_terrain::HANDOFF_STEPS as u8;
+                        mesh.key.columns().count()
+                    ],
                 },
             );
         }
-        self.update_coverage(tiles, &wanted);
+        self.update_coverage(tiles, &wanted, now);
+        self.refresh_presentation(queue, now.unwrap_or_default());
         complete
     }
 
@@ -334,7 +379,7 @@ impl FarTerrainGpu {
                         None => {
                             // A completed fallback can free space anywhere in the batch,
                             // including when this upload does not overlap its replacements.
-                            self.replaced(*key, tiles, Some(mesh.key))
+                            self.reclaimable(*key, tiles, mesh.key)
                         }
                     }
             })
@@ -356,6 +401,7 @@ impl FarTerrainGpu {
             }
             for key in &candidates[..=index] {
                 let old = self.resident.remove(key).expect("planned resident");
+                self.tile_handoffs.remove(key);
                 self.free_slots.push(old.slot);
             }
             self.ranges = ranges;
@@ -372,55 +418,6 @@ impl FarTerrainGpu {
             .is_some_and(|resident| resident.mesh.revision == mesh.revision)
     }
 
-    /// Keeps each fallback visible until every replacement over its area is uploaded.
-    fn update_coverage(
-        &mut self,
-        tiles: &[Arc<TileMesh>],
-        wanted: &HashMap<TileKey, &Arc<TileMesh>>,
-    ) {
-        let retired: Vec<_> = self
-            .resident
-            .keys()
-            .copied()
-            .filter(|key| !wanted.contains_key(key) && self.replaced(*key, tiles, None))
-            .collect();
-        for key in retired {
-            let old = self.resident.remove(&key).expect("covered fallback");
-            self.ranges.release(old.quads);
-            self.free_slots.push(old.slot);
-        }
-        let fallbacks: Vec<_> = self
-            .resident
-            .keys()
-            .copied()
-            .filter(|key| !wanted.contains_key(key))
-            .collect();
-        self.draws.clear();
-        for resident in self.resident.values_mut() {
-            resident.visible = false;
-        }
-        for key in tiles
-            .iter()
-            .map(|mesh| mesh.key)
-            .chain(fallbacks.iter().copied())
-        {
-            if wanted.contains_key(&key) && fallbacks.iter().any(|old| old.overlaps(key)) {
-                continue;
-            }
-            let Some(resident) = self.resident.get_mut(&key) else {
-                continue;
-            };
-            resident.visible = true;
-            if !resident.mesh.quads.is_empty() {
-                self.draws.push(FarDraw {
-                    slot: resident.slot,
-                    quads: resident.quads.clone(),
-                    bounds: tile_bounds(&resident.mesh),
-                });
-            }
-        }
-    }
-
     /// Discards the old world's coverage and acknowledgements before preparing another world.
     fn clear_tiles(&mut self) {
         self.resident.clear();
@@ -431,6 +428,10 @@ impl FarTerrainGpu {
         self.applied_mask = None;
         self.protected.clear();
         self.empty_far.clear();
+        self.tile_goal.clear();
+        self.tile_handoffs.clear();
+        self.column_handoffs.clear();
+        self.presentation_steps.clear();
     }
 
     /// Returns grown storage to its initial size once nothing is resident, as when far
@@ -472,7 +473,10 @@ impl FarTerrainGpu {
                 },
                 aspect: TextureAspect::All,
             },
-            &mesh.colours,
+            &handoff::colours(
+                mesh,
+                &vec![far_terrain::HANDOFF_STEPS as u8; mesh.key.columns().count()],
+            ),
             TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(TILE_CELLS as u32 * 4),
@@ -594,7 +598,9 @@ impl crate::pipeline_warmup::PrewarmPipelines for FarTerrainGpu {
         } else {
             render_scene::SCENE_COLOR_FORMAT
         };
-        ids.push(self.pipeline(cache, format, view.msaa.samples()));
+        for fading in [false, true] {
+            ids.push(self.pipeline(cache, format, view.msaa.samples(), fading));
+        }
         Ok(())
     }
 }
@@ -668,6 +674,7 @@ fn pipeline_descriptor(
     layout: BindGroupLayoutDescriptor,
     format: TextureFormat,
     samples: u32,
+    fading: bool,
 ) -> RenderPipelineDescriptor {
     RenderPipelineDescriptor {
         label: Some("far terrain pipeline".into()),
@@ -679,7 +686,14 @@ fn pipeline_descriptor(
         },
         fragment: Some(FragmentState {
             shader: SHADER,
-            entry_point: Some("far_fragment".into()),
+            entry_point: Some(
+                if fading {
+                    "far_fragment_handoff"
+                } else {
+                    "far_fragment"
+                }
+                .into(),
+            ),
             targets: vec![Some(ColorTargetState {
                 format,
                 blend: None,
@@ -707,10 +721,11 @@ fn pipeline_descriptor(
 }
 
 /// Uploads changed tiles and the near mask; an unchanged scene does nothing.
-pub(super) fn prepare_far_terrain(
+pub(crate) fn prepare_far_terrain(
     scene: Res<FarTerrainScene>,
     device: Res<RenderDevice>,
     queue: Res<RenderQueue>,
+    time: Option<Res<Time>>,
     mut gpu: ResMut<FarTerrainGpu>,
 ) {
     if !gpu
@@ -721,6 +736,8 @@ pub(super) fn prepare_far_terrain(
         gpu.clear_tiles();
         gpu.applied_world = Some(scene.residency.clone());
     }
+    // The extracted frame clock, shared with near admission, so both read one instant.
+    let now = time.map(|time| time.elapsed());
     gpu.set_empty_coverage(
         scene
             .target
@@ -733,8 +750,21 @@ pub(super) fn prepare_far_terrain(
         .is_some_and(|applied| Arc::ptr_eq(applied, &scene.tiles))
     {
         gpu.applied_tiles = gpu
-            .apply_tiles(&device, &queue, &scene.tiles)
+            .apply_tiles_at(&device, &queue, &scene.tiles, now)
             .then(|| Arc::clone(&scene.tiles));
+        scene.residency.publish(
+            gpu.resident
+                .values()
+                .filter(|resident| resident.visible && !resident.mesh.quads.is_empty())
+                .map(|resident| (resident.mesh.key, resident.mesh.revision)),
+        );
+        if scene.tiles.is_empty() {
+            gpu.release_storage(&device);
+        }
+    }
+    if let Some(now) = now
+        && gpu.advance_handoffs(&queue, now)
+    {
         scene.residency.publish(
             gpu.resident
                 .values()
@@ -828,8 +858,13 @@ pub(super) fn prepare_far_terrain_views(
         colours: gpu.colours_view.id(),
         mask: gpu.mask.id(),
     };
+    let fading = !gpu.tile_handoffs.is_empty() || !gpu.column_handoffs.is_empty();
     for (entity, view, msaa, scene, state) in &mut views {
-        let pipeline = gpu.pipeline(&cache, scene.format(), msaa.samples());
+        let steady = gpu.pipeline(&cache, scene.format(), msaa.samples(), false);
+        // An uncompiled transition variant must never drop the pass: steady still covers.
+        let pipeline = Some(gpu.pipeline(&cache, scene.format(), msaa.samples(), true))
+            .filter(|id| fading && cache.get_render_pipeline(*id).is_some())
+            .unwrap_or(steady);
         let mut state = match state {
             Some(state) => state,
             None => {
@@ -905,6 +940,10 @@ mod tests;
 #[cfg(test)]
 #[path = "coverage_tests.rs"]
 mod coverage_tests;
+
+#[cfg(test)]
+#[path = "handoff_tests.rs"]
+mod handoff_tests;
 
 #[cfg(test)]
 mod upload_order_tests {

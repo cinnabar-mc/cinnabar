@@ -2,7 +2,7 @@ use super::*;
 use far_terrain::{COLUMN_SIDE, ColumnPos};
 
 /// Builds visible test geometry at the requested tile keys without running tile workers.
-fn meshes(keys: impl IntoIterator<Item = TileKey>) -> Vec<Arc<TileMesh>> {
+pub(super) fn meshes(keys: impl IntoIterator<Item = TileKey>) -> Vec<Arc<TileMesh>> {
     keys.into_iter()
         .enumerate()
         .map(|(index, key)| {
@@ -20,7 +20,7 @@ fn meshes(keys: impl IntoIterator<Item = TileKey>) -> Vec<Arc<TileMesh>> {
 }
 
 /// Creates a no-op device with an explicit layer ceiling for boundary transitions.
-fn device(slots: u32) -> (RenderDevice, RenderQueue) {
+pub(super) fn device(slots: u32) -> (RenderDevice, RenderQueue) {
     capacity_device(slots, None)
 }
 
@@ -91,7 +91,7 @@ fn ready(scene: &FarTerrainScene, column: ColumnPos) -> bool {
 }
 
 /// Completes initialization while leaving transition batches individually observable.
-fn populate(
+pub(super) fn populate(
     gpu: &mut FarTerrainGpu,
     device: &RenderDevice,
     queue: &RenderQueue,
