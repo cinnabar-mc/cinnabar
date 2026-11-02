@@ -1,10 +1,10 @@
 //! End-to-end: a real relay on loopback UDP and three clients exercising proximity.
 
-use cinnabar_voice::client::{ClientState, Incoming, VoiceClient};
-use cinnabar_voice::codec::{FRAME_SAMPLES, FrameCodec, TestCodec};
-use cinnabar_voice::proto::Position;
-use cinnabar_voice::relay::{RelayConfig, run_udp};
-use cinnabar_voice::room::RoomCode;
+use client_voice::client::{ClientState, Incoming, VoiceClient};
+use client_voice::codec::{FRAME_SAMPLES, FrameCodec, TestCodec};
+use client_voice::proto::Position;
+use client_voice::relay::{RelayConfig, run_udp};
+use client_voice::room::RoomCode;
 use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};

@@ -111,7 +111,8 @@ impl FrameCodec for AdpcmCodec {
         let mut out = Vec::with_capacity(ENCODED_LEN);
         out.extend_from_slice(&(narrow[0]).to_le_bytes());
         out.push(state.index as u8);
-        for pair in narrow.chunks_exact(2) {
+        let (pairs, _) = narrow.as_chunks::<2>();
+        for pair in pairs {
             let low = state.encode(pair[0]);
             let high = state.encode(pair[1]);
             out.push(low | (high << 4));
@@ -159,7 +160,9 @@ impl FrameCodec for AdpcmCodec {
 
 /// 48 kHz to 16 kHz by averaging each group of three samples (a crude but cheap low-pass).
 fn decimate(pcm: &[i16]) -> Vec<i16> {
-    pcm.chunks_exact(DECIMATION)
+    pcm.as_chunks::<DECIMATION>()
+        .0
+        .iter()
         .map(|group| (group.iter().map(|&s| i32::from(s)).sum::<i32>() / DECIMATION as i32) as i16)
         .collect()
 }

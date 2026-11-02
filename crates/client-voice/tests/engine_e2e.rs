@@ -1,8 +1,8 @@
 //! Two real sessions over loopback UDP with fake audio devices: Alice hosts and talks,
 //! Bob joins with the room code and must hear her, positioned in stereo.
 
-use cinnabar_voice::engine::{AudioIo, Status, VoiceHandle};
-use cinnabar_voice::proto::Position;
+use client_voice::engine::{AudioIo, Status, VoiceHandle};
+use client_voice::proto::Position;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -178,7 +178,7 @@ fn joining_with_a_bad_or_wrong_code_fails_cleanly() {
     assert!(bob.join_room("not a code").is_err());
 
     // A well-formed code that points at nothing: the session reports failure, not a hang.
-    let code = cinnabar_voice::room::RoomCode::new("127.0.0.1:9".parse().unwrap(), 1).encode();
+    let code = client_voice::room::RoomCode::new("127.0.0.1:9".parse().unwrap(), 1).encode();
     bob.join_room(&code).unwrap();
     wait_until("connecting", || bob.snapshot().status == Status::Connecting);
     // The session retries for 10 s before reporting failure.
