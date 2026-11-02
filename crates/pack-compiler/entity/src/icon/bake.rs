@@ -513,6 +513,7 @@ mod block_entity_tests {
                 16,
                 [130, 60, 20, 255],
             ),
+            ("textures/blocks/planks_oak", 16, 16, [160, 120, 70, 255]),
             ("textures/blocks/lectern_base", 16, 16, [150, 90, 40, 255]),
             ("textures/blocks/lectern_sides", 16, 16, [130, 70, 30, 255]),
             ("textures/blocks/lectern_top", 16, 16, [180, 110, 60, 255]),

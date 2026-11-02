@@ -103,6 +103,7 @@ mod tests {
             "minecraft:furnace",
             "minecraft:stone",
             "minecraft:barrel",
+            "minecraft:lectern",
             "custom:chest",
         ] {
             assert!(!is_entity_drawn_name(name), "{name}");
