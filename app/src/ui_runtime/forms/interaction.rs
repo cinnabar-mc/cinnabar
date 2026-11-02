@@ -119,6 +119,43 @@ pub(crate) fn drive_server_form_input(
     }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    // Buttons are reset every owned frame, so a physical release never surfaces
+    // as `just_released`; raw messages carry the edges instead. They are read before any frame
+    // the form doesn't own returns, so edges a screen above it took never wait for the form.
+    let mut pointer = engine_input::PointerButtons {
+        pressed: mouse.just_pressed(MouseButton::Left),
+        released: mouse.just_released(MouseButton::Left),
+        held: false,
+    };
+    let mut pointer_edges = Vec::new();
+    if let Some(messages) = button_messages.as_deref() {
+        for input in button_cursor.read(messages) {
+            if input.button == MouseButton::Left {
+                let down = input.state == ButtonState::Pressed;
+                pointer_edges.push(down);
+                if down {
+                    pointer.pressed = true;
+                } else {
+                    pointer.released = true;
+                }
+            }
+        }
+    }
+    if pointer_edges.is_empty() {
+        if pointer.pressed {
+            pointer_edges.push(true);
+        }
+        if pointer.released {
+            pointer_edges.push(false);
+        }
+        if pointer_edges.is_empty() {
+            *held |= mouse.pressed(MouseButton::Left);
+        }
+    }
+    for down in &pointer_edges {
+        *held = *down;
+    }
+    pointer.held = *held;
     let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if frame.top() == Scene::ResourcePackLoading {
         // Keep the loading cover authoritative while the replacement pack is being published.
@@ -155,42 +192,6 @@ pub(crate) fn drive_server_form_input(
         *owned_last_frame = false;
         return;
     }
-    // Buttons are reset every owned frame, so a physical release never surfaces
-    // as `just_released`; raw messages carry the edges instead.
-    let mut pointer = engine_input::PointerButtons {
-        pressed: mouse.just_pressed(MouseButton::Left),
-        released: mouse.just_released(MouseButton::Left),
-        held: false,
-    };
-    let mut pointer_edges = Vec::new();
-    if let Some(messages) = button_messages.as_deref() {
-        for input in button_cursor.read(messages) {
-            if input.button == MouseButton::Left {
-                let down = input.state == ButtonState::Pressed;
-                pointer_edges.push(down);
-                if down {
-                    pointer.pressed = true;
-                } else {
-                    pointer.released = true;
-                }
-            }
-        }
-    }
-    if pointer_edges.is_empty() {
-        if pointer.pressed {
-            pointer_edges.push(true);
-        }
-        if pointer.released {
-            pointer_edges.push(false);
-        }
-        if pointer_edges.is_empty() {
-            *held |= mouse.pressed(MouseButton::Left);
-        }
-    }
-    for down in &pointer_edges {
-        *held = *down;
-    }
-    pointer.held = *held;
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
