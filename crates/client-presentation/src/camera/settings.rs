@@ -27,6 +27,8 @@ pub struct CameraSettingsAuthority {
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
+    /// A developer-scripted camera is rendering the scene from outside the body.
+    scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
 }
@@ -141,6 +143,7 @@ impl Default for CameraSettingsAuthority {
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
+            scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
         }
@@ -227,13 +230,15 @@ impl CameraSettingsAuthority {
         self.horizontal_fov_degrees
     }
 
-    /// A rig or held freelook presents third-person-back so the local body renders and the viewmodel hides.
+    /// A rig, held freelook or scripted camera presents third-person-back so the local body renders and
+    /// the viewmodel hides.
     /// While the death view is on, first person also presents third-person-back so the body's death
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
         if self.presented_view.is_some()
             || self.rig.is_some()
+            || self.scripted_view
             || self.freelook
             || (self.death_rotation.is_some()
                 && matches!(self.perspective, PerspectiveMode::FirstPerson))
@@ -345,6 +350,12 @@ impl CameraSettingsAuthority {
         } else {
             self.feel.damage_bob
         }
+    }
+
+    /// Marks a developer-scripted camera as active, so the local body renders in its shots; clearing
+    /// restores the player's own perspective.
+    pub fn set_scripted_view(&mut self, active: bool) {
+        self.scripted_view = active;
     }
 
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.

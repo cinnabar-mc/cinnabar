@@ -39,6 +39,31 @@ fn realtime_routes_follow_real_time_across_a_clamped_game_frame() {
     assert_eq!(app.world().resource::<ScriptedCamera>().elapsed, 2.);
 }
 
+#[test]
+fn scripted_camera_shows_the_local_body_until_released() {
+    let path = CameraPath {
+        keyframes: vec![frame(0., 0.), frame(1., 8.)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, _) = app(path);
+    let perspective = |app: &App| {
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective()
+    };
+    assert_eq!(
+        perspective(&app),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
+    release(app.world_mut()).unwrap();
+    assert_eq!(
+        perspective(&app),
+        semantic_input::PerspectiveMode::FirstPerson
+    );
+}
+
 fn app(path: CameraPath) -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<Time>()
