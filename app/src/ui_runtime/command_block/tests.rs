@@ -118,11 +118,14 @@ fn a_server_form_over_the_editor_keeps_the_keys_from_it() {
     assert!(escape_survives_a_frame(runtime));
 }
 
-/// A command block screen holding only a command box filling the top left of the screen.
+/// A command block screen holding only a command box filling the top left of the screen, which
+/// Escape closes.
 const EDITOR_SCREEN: &[u8] = br#"{
     "namespace": "command_block",
     "command_block_screen": {
         "type": "screen",
+        "button_mappings": [{ "from_button_id": "button.menu_cancel",
+            "to_button_id": "button.menu_exit", "mapping_type": "global" }],
         "controls": [{ "command": {
             "type": "edit_box", "size": [200, 30], "anchor_from": "top_left", "anchor_to": "top_left",
             "text_box_name": "command_block.command_text", "text_control": "display",
@@ -274,4 +277,65 @@ fn a_modifier_applies_only_to_the_presses_made_while_it_was_down() {
     key_edge(&mut app, window, KeyCode::ControlLeft, None, true);
     app.update();
     assert_eq!(typed_command(&app), "a");
+}
+
+/// The typing app with the screens that run around the editor, in production order.
+fn app_among_other_screens() -> (App, Entity) {
+    use crate::ui_runtime::{
+        drive_chat_keyboard_input, drive_sign_editor, input_owner::decide_input_owner,
+    };
+    use bevy::prelude::IntoScheduleConfigs;
+    let (mut app, window) = app_typing_into_the_command_box();
+    app.add_message::<bevy::window::WindowEvent>()
+        .init_resource::<bevy::time::Time<bevy::time::Real>>()
+        .init_resource::<client_shell::ui_resources::FrameInputOwner>()
+        .add_systems(
+            Update,
+            (
+                decide_input_owner.before(drive_sign_editor),
+                drive_sign_editor.before(drive_command_block),
+                drive_chat_keyboard_input.after(drive_command_block),
+            ),
+        );
+    (app, window)
+}
+
+#[test]
+fn the_editor_keeps_typing_from_the_sign_beneath_it() {
+    let (mut app, window) = app_among_other_screens();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .sign_editor_mut()
+        .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    assert_eq!(type_a(&mut app, window), "a");
+    let runtime = app.world().resource::<UiRuntimeResource>();
+    let sign = runtime.sign_editor().active().expect("the sign stays open");
+    assert!(sign.text().is_empty());
+}
+
+#[test]
+fn escape_closing_the_editor_leaves_the_inventory_under_it_open() {
+    let (mut app, window) = app_among_other_screens();
+    app.world_mut()
+        .resource_scope::<UiRuntimeResource, _>(|world, mut runtime| {
+            let mut player = world.resource_mut::<client_state::PlayerRuntime>();
+            runtime.publish_inventory_authority(&mut player, protocol::InventoryAuthority::Server);
+            runtime
+                .publish_local_runtime_id(&mut player, 1, 42)
+                .unwrap();
+            runtime.toggle_inventory(&mut player, None);
+        });
+    app.update();
+    let is_up = |app: &App| {
+        let runtime = app.world().resource::<UiRuntimeResource>();
+        (runtime.command_block().is_open(), runtime.inventory_open())
+    };
+    assert_eq!(is_up(&app), (true, true));
+    key_edge(&mut app, window, KeyCode::Escape, None, true);
+    app.update();
+    assert_eq!(is_up(&app), (false, true));
 }

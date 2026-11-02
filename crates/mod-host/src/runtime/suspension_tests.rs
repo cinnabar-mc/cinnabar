@@ -110,25 +110,27 @@ fn guest_state_input_and_fuel_survive_different_yield_schedules() {
 #[test]
 fn output_waits_for_successful_post_return_and_its_trap_discards_every_write() {
     for trap in [false, true] {
-        let source =
-            crate::tests::fixture("i32.const 1 i32.const 4 i32.const 512 call $label", "Hello")
-                .replacen(
-                    "(func (export \"frame\")",
-                    &format!(
-                        r#"
+        let source = crate::tests::fixture(
+            "i32.const 1 i32.const 4 i32.const 512 call $label",
+            "Hello",
+        )
+        .replacen(
+            "(func (export \"frame\")",
+            &format!(
+                r#"
                 (func (export "post") (local $left i32)
                     i32.const 12000 local.set $left
                     (loop $work local.get $left i32.const 1 i32.sub local.tee $left br_if $work)
                     {})
                 (func (export "frame")"#,
-                        if trap { "unreachable" } else { "" }
-                    ),
-                    1,
-                )
-                .replace(
-                    "(canon lift (core func $run \"frame\"))",
-                    "(canon lift (core func $run \"frame\") (post-return (core func $run \"post\")))",
-                );
+                if trap { "unreachable" } else { "" }
+            ),
+            1,
+        )
+        .replace(
+            "(canon lift (core func $run \"frame\"))",
+            "(canon lift (core func $run \"frame\") (post-return (core func $run \"post\")))",
+        );
         let (mut instance, _ticker, budget) = scheduled(&source, 2_000_000);
         assert_eq!(
             instance.run_frame_slice().unwrap(),

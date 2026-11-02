@@ -213,7 +213,6 @@ pub struct CommandBlockEditor {
 }
 
 impl CommandBlockEditor {
-    #[must_use]
     /// Records the server's request at its ordered position, for the editor to open once nothing
     /// above it holds the screen.
     pub const fn request(&mut self, position: [i32; 3]) {
@@ -231,6 +230,7 @@ impl CommandBlockEditor {
         self.requested.take()
     }
 
+    #[must_use]
     pub const fn is_open(&self) -> bool {
         self.active.is_some()
     }

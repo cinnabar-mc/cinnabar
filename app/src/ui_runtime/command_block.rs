@@ -225,11 +225,11 @@ pub(crate) fn drive_command_block(
     }
     if !runtime.ui_focused(&player_runtime) {
         restore_gameplay_input_after_chat(
-                &mut cursor,
-                &mut sources.keys,
-                &mut sources.mouse,
-                &mut motion,
-            );
+            &mut cursor,
+            &mut sources.keys,
+            &mut sources.mouse,
+            &mut motion,
+        );
         *owned_last_frame = false;
     }
 }
