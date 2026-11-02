@@ -252,21 +252,39 @@ fn prewarm_materials() -> impl Iterator<Item = u32> {
         })
 }
 
+/// The camera state that selects each view's actor pipeline variants.
+type ActorViews<'w, 's> = Query<
+    'w,
+    's,
+    (
+        &'static bevy::render::camera::ExtractedCamera,
+        &'static Msaa,
+        Option<&'static render_scene::EnhancedRendering>,
+        bevy::prelude::Has<render_scene::shaderpack::ShaderPackRendering>,
+        bevy::prelude::Has<bevy::prelude::Camera3d>,
+    ),
+>;
+
 pub(super) fn prepare_actor_pipelines(
     cache: Res<PipelineCache>,
     mut pipeline: ResMut<ActorPipeline>,
     readiness: Res<render_scene::ActorPipelineReadiness>,
-    views: Query<(
-        &bevy::render::camera::ExtractedCamera,
-        &Msaa,
-        Option<&render_scene::EnhancedRendering>,
-    )>,
+    preflight: Option<Res<render_scene::SampleCountPreflight>>,
+    views: ActorViews,
 ) {
     let mut has_view = false;
     let mut ready = true;
-    for (camera, msaa, enhanced) in &views {
+    for (camera, msaa, enhanced, shader_pack, world_camera) in &views {
         has_view = true;
-        for msaa in crate::pipeline_warmup::sample_modes(*msaa) {
+        let requested = crate::pipeline_warmup::requested_sample_mode(
+            preflight
+                .as_ref()
+                .and_then(|preflight| preflight.requested()),
+            world_camera,
+            shader_pack,
+        );
+        let counts = std::iter::once(*msaa).chain(requested);
+        for msaa in counts.flat_map(crate::pipeline_warmup::sample_modes) {
             ready &= pipeline
                 .prewarm(&cache, msaa, camera.hdr, enhanced.is_some())
                 .is_some()
@@ -274,6 +292,13 @@ pub(super) fn prepare_actor_pipelines(
         }
     }
     readiness.publish(has_view && ready);
+}
+
+/// A sample-count switch waits on actor variants as it does on every other warm-up owner.
+impl crate::pipeline_warmup::PendingPipelines for render_scene::ActorPipelineReadiness {
+    fn pending(&self) -> bool {
+        !self.is_ready()
+    }
 }
 
 pub(super) fn actor_bind_group_layout() -> BindGroupLayoutDescriptor {

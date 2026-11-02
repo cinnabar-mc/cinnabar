@@ -832,6 +832,7 @@ pub struct Merged {
     /// Any active mod requesting an ordinary crosshair mining hold.
     pub block_mining: bool,
     pub block_mining_target: Option<mod_host::GameplayVector3>,
+    pub block_breaks: Vec<mod_host::GameplayBlockPosition>,
     pub jump_pulse: bool,
     pub jump_cancel: bool,
     /// Every mod's sprint and sneak intents combined; any mod holding one holds it.
@@ -869,6 +870,12 @@ impl Merged {
             merged.always_sprint |= modes.always_sprint;
         }
         let interaction = host.take_interaction();
+        self.block_breaks.extend(
+            interaction
+                .block_breaks
+                .into_iter()
+                .take(mod_api::MAX_BLOCK_BREAKS.saturating_sub(self.block_breaks.len())),
+        );
         self.attack_reach = self.attack_reach.or(interaction.attack_reach);
         self.attack_pulse |= interaction.attack_pulse;
         self.block_mining |= interaction.block_mining;
