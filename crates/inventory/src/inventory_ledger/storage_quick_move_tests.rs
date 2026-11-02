@@ -482,3 +482,22 @@ fn double_click_gather_includes_high_server_menu_slots() {
     assert_eq!(ledger.displayed_stack(0).unwrap().count, 20);
     assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
 }
+
+#[test]
+fn double_click_gather_skips_destinations_waiting_for_stack_identity() {
+    let mut ledger = chest(&[(0, stack(6, 11, 20))], stack(6, 0, 60));
+    ledger.apply(&InventoryEvent::Slot(protocol::InventorySlotEvent {
+        identity: protocol::SlotIdentity {
+            container: ContainerIdentity::window(protocol::UI_INVENTORY_WINDOW_ID),
+            slot: 0,
+        },
+        stack: stack(8, 50, 1),
+        storage_item: None,
+    }));
+    ledger
+        .begin_gather_to_storage(InventoryTarget::Player(0))
+        .unwrap();
+    assert_eq!(ledger.storage_stack(2).unwrap().count, 60);
+    assert_eq!(ledger.storage_stack(0).unwrap().count, 20);
+    assert_eq!(ledger.cursor_stack().unwrap().network_id, 8);
+}

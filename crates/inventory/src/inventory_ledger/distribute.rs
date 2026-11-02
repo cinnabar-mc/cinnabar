@@ -226,6 +226,9 @@ impl PlayerInventoryLedger {
             let Some(mut into) = self.view().get(*destination).cloned() else {
                 continue;
             };
+            if self.awaiting_identity(&into) {
+                continue;
+            }
             let OccupiedStackRelation::Compatible { capacity } =
                 self.merge_item_relation(&focus, &into)
             else {
@@ -235,7 +238,13 @@ impl PlayerInventoryLedger {
                 .placement_capacity(*destination, &focus.stack)
                 .map_or(capacity, |limit| limit.min(capacity));
             for (source, held, remaining) in &mut sources {
-                if *remaining == 0 || into.stack.count >= capacity {
+                if *remaining == 0
+                    || into.stack.count >= capacity
+                    || !matches!(
+                        self.occupied_stack_relation(held, &into),
+                        OccupiedStackRelation::Compatible { .. }
+                    )
+                {
                     continue;
                 }
                 let amount = (*remaining).min(capacity - into.stack.count);
