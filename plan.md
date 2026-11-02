@@ -1482,6 +1482,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  GPU validation and internal errors retain their driver description for the terminal report and
+  log the full error source before stopping. Injected handler regressions cover all four GPU error
+  categories; these diagnostics do not establish the cause of Android device-loss reports.
   Android exit reports retain the beginning and end of long logs so startup build and adapter
   context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
   shader and affected-device acceptance; diagnostic improvements do not close that gate.
