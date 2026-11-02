@@ -146,6 +146,11 @@ impl UiPresentationRuntime {
         self.screens.chat.settings.set_snapshot(snapshot);
     }
 
+    /// Borrows the persisted gameplay preferences even while the launcher menu is closed.
+    pub(in crate::ui_runtime::presentation) fn gameplay_settings(&self) -> &SettingsOptions {
+        self.screens.chat.settings.options()
+    }
+
     /// Opens or closes only the native chat settings popup, retaining the chat draft.
     pub fn set_chat_settings_open(&mut self, open: bool) {
         self.screens.chat.settings.set_open(open);

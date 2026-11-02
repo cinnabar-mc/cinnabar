@@ -876,6 +876,11 @@ visibility. Atlas text retains formatting and line slots, with guarded cell edge
 repacking before UV publication. Capacity repacks reuse unchanged line pixels; font
 and palette changes invalidate them. Rejected label bounds stay cached independently
 of shared text layouts. In-world visual qualification remains open.
+Video customization exposes persisted name-tag background opacity from 0–100%, with
+the existing opacity as its default. Text opacity is unchanged; explicit mod background
+colours retain precedence. Windows headless checks at 1280×720 and scale 1 cover
+0%, 25% and 100% output, slider input, settings re-entry and persistence; other
+platforms and display scales remain unverified.
 Name tag colours compose after Enhanced and shader-pack world effects with the scene's
 depth, and translucent plates use over-compositing for scene alpha. Coplanar shadows
 and glyphs share the anchor depth to avoid rounding speckle. Local cosmetic
