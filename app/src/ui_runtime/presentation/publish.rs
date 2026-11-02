@@ -326,7 +326,12 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    if hud_doll || runtime.emotes().is_open() {
+    presentation.begin_live_capture();
+    // A screen's live renderer draws the same animated actor as the HUD doll.
+    if hud_doll
+        || runtime.emotes().is_open()
+        || (presentation.live_renderer_shown() && !menu_visible)
+    {
         presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
         presentation.set_hud_glide(
             client_world

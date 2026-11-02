@@ -13,6 +13,8 @@ pub(super) struct ModelGeometry {
     pub(super) geometry: Option<ActorRigGeometry>,
     pub(super) transforms: Vec<Affine3A>,
     pub(super) texture_key: Option<String>,
+    /// A cosmetic anchored to the head turns with it in a screen's live renderer.
+    pub(super) follows_head: bool,
 }
 
 impl ModelGeometry {
@@ -90,11 +92,45 @@ pub(super) struct LivePlayer {
     pub(super) outer_y: f32,
     /// `[pitch, yaw]` of the gliding body in degrees, applied about the feet.
     pub(super) glide: Option<[f32; 2]>,
+    /// Whether this frame's publication captured the actor, so a screen may draw it.
+    pub(super) fresh: bool,
+    /// The head bone's posed frame, and the rotation of an unturned head, in model UI space.
+    head: Option<(Affine3A, Quat)>,
+    /// Which body bones follow the head.
+    pub(super) head_bones: Vec<bool>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
 }
 
+impl LivePlayer {
+    /// The transform that replaces the captured head orientation with `pitch` and `yaw` radians
+    /// about the head pivot, in the same space as the captured bone frames.
+    pub(super) fn head_turn(&self, pitch: f32, yaw: f32) -> Option<Affine3A> {
+        let (head, unturned) = self.head?;
+        let (_, rotation, pivot) = head.to_scale_rotation_translation();
+        // The preview rig's Y turn runs opposite glam's for the same angle.
+        let look = Quat::from_rotation_y(-yaw) * Quat::from_rotation_x(pitch) * unturned;
+        Some(
+            Affine3A::from_translation(pivot)
+                * Affine3A::from_quat(look * rotation.inverse())
+                * Affine3A::from_translation(-pivot),
+        )
+    }
+}
+
 impl UiPresentationRuntime {
+    /// Marks the next frame's actor capture as not yet taken; call before capturing.
+    pub fn begin_live_capture(&mut self) {
+        self.gui_models.live_player.fresh = false;
+    }
+
+    /// Whether a screen drew a live player renderer in the last published frame.
+    pub fn live_renderer_shown(&self) -> bool {
+        self.gui_models
+            .live_renderer_shown
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Shares the actor frame's evaluated motion without advancing a second animation clock.
     pub fn set_cosmetic_motion(
         &mut self,
@@ -151,6 +187,8 @@ impl UiPresentationRuntime {
         }
         live.emitters.clear();
         live.emitter_owner = None;
+        live.fresh = true;
+        live.head = None;
         live.parts = [None; 6];
         live.fire_size = None;
         live.body.geometry = None;
@@ -256,6 +294,17 @@ impl UiPresentationRuntime {
         }
         let frame = offset * actor_scale * basis * tilt;
         live.body.capture(geometry, &live.bones, frame);
+        let head_index = live.part_bindings[0].map(|(index, _)| index);
+        live.head = head_index.and_then(|index| {
+            let posed = frame * render_matrix(live.bones.get(index)?)?;
+            let (_, unturned, _) = frame.to_scale_rotation_translation();
+            Some((posed, unturned))
+        });
+        live.head_bones.clear();
+        if let Some(head) = head_index {
+            live.head_bones
+                .extend((0..live.bones.len()).map(|bone| local.bone_descends_from(bone, head)));
+        }
         live.hat_pose
             .retain(|item, _| self.menu_preview_model.cosmetics.contains(item));
         for &hat in &self.menu_preview_model.cosmetics {
@@ -291,13 +340,12 @@ impl UiPresentationRuntime {
                     live.emitters.push((hat, index, transform));
                 }
             }
-            live.hats
-                .entry(hat)
-                .or_insert_with(|| ModelGeometry {
-                    texture_key: Some(hat.texture_key()),
-                    ..Default::default()
-                })
-                .capture(&render_model::hats::rig(hat).geometry, &pose, frame);
+            let model = live.hats.entry(hat).or_insert_with(|| ModelGeometry {
+                texture_key: Some(hat.texture_key()),
+                ..Default::default()
+            });
+            model.capture(&render_model::hats::rig(hat).geometry, &pose, frame);
+            model.follows_head = live.head_bones.get(index).copied().unwrap_or(false);
         }
         if draw_cape && let Some(cape) = &self.gui_models.sources.cape {
             let bindings = if let Some(bindings) =

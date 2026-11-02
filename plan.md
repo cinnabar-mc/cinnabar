@@ -1006,8 +1006,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
-  The inventory's live player renderer still draws the static preview model turned toward
-  the pointer; native renders the animated actor there, so that remains incomplete.
+  A screen's live player renderer draws the same animated actor from its own palette, the
+  head subtree turned toward the pointer. It replaces the head's orientation rather than
+  re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
+  rotation still sees the world's; that remains incomplete. Rendered and hardware
+  acceptance of the second palette remain open.
   The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
   the local player has an effect, listing iconed effects in id order with potency and
   `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and

@@ -136,6 +136,9 @@ pub(super) struct GuiModels {
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
+    /// A screen's live renderer draws beside the HUD doll with its own head turn.
+    pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
+    live_renderer_shown: std::sync::atomic::AtomicBool,
     cosmetics: cosmetic_previews::Previews,
     pub(super) particles: cosmetic_particles::PreviewParticles,
     pub(super) wearing_elytra: bool,
@@ -162,6 +165,18 @@ pub struct PreparedGuiModels {
 }
 
 impl GuiModels {
+    /// The retained model of a doll: one for the HUD and one for an open screen.
+    pub(super) fn doll_model(
+        &self,
+        view: player_preview::PreviewView,
+    ) -> &std::sync::Mutex<hud_model::HudModel> {
+        if view == player_preview::PreviewView::Hud {
+            &self.hud_model
+        } else {
+            &self.screen_model
+        }
+    }
+
     /// Clears selected hand models when their equipment catalog changes.
     pub(super) fn clear_selected_hands(&mut self) {
         self.selected_held = [None, None];
@@ -507,6 +522,7 @@ impl UiPresentationRuntime {
     }
 
     /// Admits player geometry against the actual frame, measuring coalescing only near batch limits.
+    /// Publishes whether a screen showed a live renderer, so the next frame can capture for it.
     /// `hud` holds the nodes the HUD painted, whose doll keeps its own pose.
     pub(super) fn apply_gui_models_in(
         &self,
@@ -516,6 +532,9 @@ impl UiPresentationRuntime {
         effects: TextEffects<'_>,
         hud: std::ops::Range<usize>,
     ) {
+        self.gui_models
+            .live_renderer_shown
+            .store(false, std::sync::atomic::Ordering::Relaxed);
         if !self.gui_models.enabled {
             return;
         }
@@ -587,7 +606,14 @@ impl UiPresentationRuntime {
         {
             return;
         }
-        if view == player_preview::PreviewView::Hud
+        let live_renderer = matches!(view, player_preview::PreviewView::Live { .. });
+        if live_renderer {
+            self.gui_models
+                .live_renderer_shown
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if (view == player_preview::PreviewView::Hud
+            || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
             && self.gui_models.live_player.body.geometry.is_some()
         {
@@ -597,7 +623,7 @@ impl UiPresentationRuntime {
                 .filter(|(index, node)| is_preview(*index, node.visual()))
                 .count();
             let held = self.preview_held_models([true; 2]);
-            let player = self.hud_player_mesh(held, |cache, mask, indices, batches| {
+            let player = self.live_player_mesh(view, held, |cache, mask, indices, batches| {
                 let prospective = ui::UiTree::check_visual_budget_with_mesh(
                     nodes
                         .iter()
@@ -638,6 +664,12 @@ impl UiPresentationRuntime {
                 }
             });
             if let Some(player) = player {
+                let mut model = self
+                    .gui_models
+                    .doll_model(view)
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                model.clear_scopes();
                 for (index, node) in nodes.iter_mut().enumerate() {
                     if !targets.shows(index, node.visual()) {
                         continue;
@@ -653,6 +685,7 @@ impl UiPresentationRuntime {
                         Some(Arc::clone(&player))
                     };
                     if let Some(mesh) = mesh {
+                        model.add_scope(node.id().get());
                         *node = node
                             .clone()
                             .with_visual(UiVisual::TintedMesh { mesh, color });
