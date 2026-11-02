@@ -33,6 +33,7 @@ pub enum Scene {
     /// Client-owned cover while an in-session global resource-pack replacement publishes.
     ResourcePackLoading,
     SignEditor,
+    CommandBlock,
     ServerForm,
     /// A script form shown through data-driven UI.
     DataDriven,
@@ -53,6 +54,7 @@ impl Scene {
             | Self::MobEffects
             | Self::ResourcePackLoading
             | Self::SignEditor
+            | Self::CommandBlock
             | Self::ServerForm
             | Self::DataDriven
             | Self::ServerSettingsForm
@@ -79,12 +81,13 @@ impl Scene {
             Self::MobEffects => 7,
             Self::Loading => 8,
             Self::SignEditor => 9,
-            Self::ServerForm => 10,
-            Self::DataDriven => 11,
-            Self::Menu(_) => 12,
-            Self::ServerSettingsForm => 13,
-            Self::Credits => 14,
-            Self::ResourcePackLoading => 15,
+            Self::CommandBlock => 10,
+            Self::ServerForm => 11,
+            Self::DataDriven => 12,
+            Self::Menu(_) => 13,
+            Self::ServerSettingsForm => 14,
+            Self::Credits => 15,
+            Self::ResourcePackLoading => 16,
         }
     }
 
@@ -300,6 +303,17 @@ impl UiRuntime {
             .and_then(|reference| self.screen_settings.get(reference))
             .unwrap_or_default()
             .is_showing_menu
+    }
+
+    /// Whether the command block editor, open or asked for earlier in the server's order, counts
+    /// as a menu, by the same rule as a container.
+    pub(super) fn command_block_shows_menu(&self) -> bool {
+        (self.command_block().is_open() || self.command_block().requested())
+            && self
+                .screen_settings
+                .get(ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN)
+                .unwrap_or_default()
+                .is_showing_menu
     }
 
     pub fn note_player_hurt(&mut self) {

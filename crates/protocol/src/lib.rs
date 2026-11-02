@@ -82,7 +82,9 @@ pub use blob_cache::{
     MAX_CLIENT_BLOB_RECONSTRUCTED_BYTES, MAX_CLIENT_BLOB_RECOVERY_READY_EVENTS,
     MAX_CLIENT_BLOB_STAGED_BYTES_PER_TRANSACTION, WeakClientBlobCache, client_blob_hash,
 };
-pub use block_edit::{map_info_request_packet, sign_edit_packet};
+pub use block_edit::{
+    CommandBlockFields, command_block_update_packet, map_info_request_packet, sign_edit_packet,
+};
 pub use boss::boss_registration_response;
 pub use camera::{
     CameraAimAssistAction, CameraAimAssistActorPriority, CameraAimAssistCategory,
@@ -150,30 +152,25 @@ pub use inventory::{
     repeated_container_open_warning_packet, validate_item_nbt_size,
 };
 pub use inventory::{
-    CraftingRules, FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
-    furnace_options_packet,
-};
-pub use inventory::{
-    CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem, MAX_CREATIVE_GROUPS,
-    MAX_CREATIVE_ITEMS,
+    CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
+    FurnaceKind, FurnaceLayout, FurnaceOptions, FurnaceOptionsEvent, FurnaceTab,
+    MAX_CREATIVE_GROUPS, MAX_CREATIVE_ITEMS, furnace_options_packet,
 };
 pub use inventory::{
     EnchantOption, EnchantOptionsEvent, MAX_ENCHANT_OPTIONS, MAX_GENERIC_STORAGE_SLOTS, OpenCells,
     UI_SLOT_COUNT, WINDOW_TYPE_ANVIL, WINDOW_TYPE_BEACON, WINDOW_TYPE_BLAST_FURNACE,
-    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER,
-    WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER, WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE,
-    WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER, WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN,
-    WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE, WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER,
-    WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment, is_chest_like_name, is_open_window_name,
-    is_result_preview_name, open_cell_request, open_name_first_cell, ui_slot_container_name,
-    ui_slot_for_name, ui_slot_request_container,
+    WINDOW_TYPE_BREWING_STAND, WINDOW_TYPE_CARTOGRAPHY, WINDOW_TYPE_COMMAND_BLOCK,
+    WINDOW_TYPE_CONTAINER, WINDOW_TYPE_CRAFTER, WINDOW_TYPE_DISPENSER, WINDOW_TYPE_DROPPER,
+    WINDOW_TYPE_ENCHANTMENT, WINDOW_TYPE_FURNACE, WINDOW_TYPE_GRINDSTONE, WINDOW_TYPE_HOPPER,
+    WINDOW_TYPE_HORSE, WINDOW_TYPE_LECTERN, WINDOW_TYPE_LOOM, WINDOW_TYPE_SMITHING_TABLE,
+    WINDOW_TYPE_SMOKER, WINDOW_TYPE_STONECUTTER, WINDOW_TYPE_WORKBENCH, WindowKind, WindowSegment,
+    is_chest_like_name, is_open_window_name, is_result_preview_name, open_cell_request,
+    open_name_first_cell, ui_slot_container_name, ui_slot_for_name, ui_slot_request_container,
 };
 pub use inventory::{
-    IngredientObservation, MAX_RECIPE_OBSERVATIONS, RecipeObservation, RecipeObservations,
-};
-pub use inventory::{
-    InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab, MineBlockRequest,
-    MineBlockRequestError, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
+    IngredientObservation, InventoryLayout, InventoryOptions, InventoryRightTab, InventoryTab,
+    MAX_RECIPE_OBSERVATIONS, MineBlockRequest, MineBlockRequestError, RecipeObservation,
+    RecipeObservations, RecipeRegistryError, RecipeRegistrySnapshot, inventory_options_packet,
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
@@ -267,14 +264,15 @@ pub use world::{
     LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_BIOME_DEFINITIONS, MAX_BIOME_NAME_BYTES,
     MAX_DIMENSION_DEFINITIONS, MapDataEvent, MovePlayerEvent, MovePlayerMode,
     MovementCorrectionSubject, MovementEffectEvent, MovementEffectKind, NETHER_DIMENSION_ID,
-    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, OpenSignEvent, PLAYER_NETWORK_OFFSET, PlayerGameMode,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic, SubChunkEntryEvent,
-    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
-    WeatherChannel, WeatherUpdateEvent, WorldBootstrap, WorldClockDefinition, WorldClockState,
-    WorldClockUpdateEvent, WorldEnvironmentBootstrap, WorldEvent, WorldPacketError,
-    WorldSpawnEvent, WorldWireError, air_network_id, block_name_sort_key, block_state_network_hash,
-    into_world_event, request_sub_chunk_column, request_sub_chunks, vanilla_dimension_range,
+    OVERWORLD_CLOCK_ID, OVERWORLD_CLOCK_NAME, OpenCommandBlockEvent, OpenSignEvent,
+    PLAYER_NETWORK_OFFSET, PlayerGameMode, PlayerMovementCorrectionEvent, PublisherUpdateEvent,
+    RespawnEvent, STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkDiagnostic,
+    SubChunkEntryEvent, SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable,
+    SyncedBlockUpdateEvent, WeatherChannel, WeatherUpdateEvent, WorldBootstrap,
+    WorldClockDefinition, WorldClockState, WorldClockUpdateEvent, WorldEnvironmentBootstrap,
+    WorldEvent, WorldPacketError, WorldSpawnEvent, WorldWireError, air_network_id,
+    block_name_sort_key, block_state_network_hash, into_world_event, request_sub_chunk_column,
+    request_sub_chunks, vanilla_dimension_range,
 };
 
 mod movement_transport;

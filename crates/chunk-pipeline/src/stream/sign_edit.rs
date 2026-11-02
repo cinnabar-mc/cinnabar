@@ -1,4 +1,4 @@
-//! Presentation access to authoritative sign-edit requests.
+//! Presentation access to authoritative sign and command block edit requests.
 
 use client_world::SignEditRequest;
 use client_world::ingestion::OpenSignEvent;

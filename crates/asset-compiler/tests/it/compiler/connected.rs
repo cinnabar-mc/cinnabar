@@ -300,6 +300,52 @@ fn compiler_emits_all_sixteen_exact_pane_connection_templates() {
     }));
 }
 
+/// The heights of a template's flat rails, split into those that show from both sides and not.
+fn rail_heights(quads: &[ModelQuad]) -> [Vec<i16>; 2] {
+    let mut heights = [Vec::new(), Vec::new()];
+    for quad in quads {
+        let y = quad.positions[0][1];
+        if quad.positions.iter().all(|position| position[1] == y) {
+            let one_sided = quad.flags & MODEL_QUAD_FLAG_TWO_SIDED == 0;
+            heights[usize::from(one_sided)].push(y);
+        }
+    }
+    heights
+}
+
+#[test]
+fn bar_rails_show_from_both_sides_without_touching_a_stacked_neighbour() {
+    let directory = tempfile::tempdir().expect("create bars fixture");
+    write_connected_model_pack(directory.path());
+    let records = [
+        model_record(0, 72_000, "minecraft:glass_pane", "{}", ModelFamily::Pane),
+        model_record(1, 72_001, "minecraft:iron_bars", "{}", ModelFamily::Pane),
+    ];
+    let compiled = compile_pack(directory.path(), &records).expect("compile bars");
+    for mask in 0_u32..16 {
+        let rails_per_face = mask.count_ones() as usize + 1;
+        let [two_sided, one_sided] = rail_heights(template_quads(
+            &compiled,
+            compiled.visuals[1].model_template + mask,
+        ));
+        assert!(one_sided.is_empty(), "bars mask={mask:#06b}");
+        for height in [1, 255] {
+            let count = two_sided.iter().filter(|y| **y == height).count();
+            assert_eq!(count, rails_per_face, "bars mask={mask:#06b} y={height}");
+        }
+
+        let [two_sided, one_sided] = rail_heights(template_quads(
+            &compiled,
+            compiled.visuals[0].model_template + mask,
+        ));
+        assert!(two_sided.is_empty(), "pane mask={mask:#06b}");
+        for height in [0, 256] {
+            let count = one_sided.iter().filter(|y| **y == height).count();
+            assert_eq!(count, rails_per_face, "pane mask={mask:#06b} y={height}");
+        }
+    }
+}
+
 /// The quads of a pane template that stand the full height of the block.
 fn pane_walls(quads: &[ModelQuad]) -> Vec<&ModelQuad> {
     quads
@@ -348,7 +394,7 @@ fn iron_bars_draw_one_plane_per_arm_and_keep_their_rail_on_the_edge_art() {
     let edge = compiled.visuals[1].faces[BlockFace::Up as usize];
     let rails = run
         .iter()
-        .filter(|quad| quad.positions.iter().all(|position| position[1] == 256))
+        .filter(|quad| quad.positions.iter().all(|position| position[1] == 255))
         .collect::<Vec<_>>();
     assert_eq!(rails.len(), 3, "two arms and the centre");
     for rail in rails {

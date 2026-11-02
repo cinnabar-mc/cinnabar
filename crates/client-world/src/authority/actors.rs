@@ -462,6 +462,11 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub fn actor_bone_descends_from(&self, runtime_id: u64, bone: usize, ancestor: usize) -> bool {
+        self.actors
+            .actor_bone_descends_from(runtime_id, bone, ancestor)
+    }
     /// Full-body controller layers paired with the actor's UI pose.
     pub fn actor_ui_layers(
         &self,
