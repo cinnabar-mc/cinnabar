@@ -56,6 +56,14 @@ pub(super) fn handle_menu_cancel(
     true
 }
 
+/// Transport and aim facts that decide whether a Use press opens the held book.
+#[derive(bevy::ecs::system::SystemParam)]
+pub(crate) struct HeldBookUse<'w> {
+    movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
+    network: Option<Res<'w, NetworkHandle<PackApplication>>>,
+    press_target: crate::block_use::UsePressTarget<'w>,
+}
+
 /// In-world inventory keys: Q drops one item from the selected hotbar cell
 /// (Control+Q the whole stack) and a right-click with a book in hand opens it unless an
 /// interactive block in front takes the press.
@@ -75,11 +83,7 @@ pub(crate) fn drive_world_inventory_keys(
     emote_input: Option<Res<client_state::ScreenInputConsumed>>,
     swing: DropSwing,
     touch: Option<Res<crate::semantic_controls::SemanticTouchTargets>>,
-    book_transport: (
-        Option<Res<client_interaction::movement::MovementTicker>>,
-        Option<Res<NetworkHandle<PackApplication>>>,
-        crate::block_use::UsePressTarget,
-    ),
+    book: HeldBookUse,
 ) {
     if emote_input.is_some_and(|consumed| consumed.0) {
         return;
@@ -103,7 +107,11 @@ pub(crate) fn drive_world_inventory_keys(
     {
         return;
     }
-    let (movement, network, press_target) = book_transport;
+    let HeldBookUse {
+        movement,
+        network,
+        press_target,
+    } = book;
     // An interactive block in front takes the press, as a lectern does to place the book.
     let block_takes_use = movement
         .as_deref()
