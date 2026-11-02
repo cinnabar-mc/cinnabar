@@ -278,12 +278,10 @@ fn invalid(detail: impl Into<Box<str>>) -> AssetError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ItemVisualRoute {
     Compiled(ItemVisualId),
-    /// Explicit fail-visible marker for a stack whose wire descriptor
-    /// retained block runtime identity but which resolved to no compiled
-    /// item visual. Presentation must not silently draw such a stack
-    /// through a flat sprite route; the retained id is carried verbatim and
-    /// is never mapped through names or filenames. The dedicated block-item
-    /// renderer remains separate work.
+    /// A stack whose wire descriptor retained a block runtime identity but
+    /// which resolved to no compiled item visual. The retained id is carried
+    /// verbatim and is never mapped through names or filenames; presentation
+    /// holds the block it names.
     RetainedBlock {
         block_runtime_id: i32,
     },

@@ -242,6 +242,18 @@ impl EquipmentRuntime {
         self.blocks = blocks.clone();
     }
 
+    /// The prepared carried visual a held stack draws. A retained stack draws the state it names,
+    /// or, when that state has no prepared art (a turned log), its item's own block.
+    pub(super) fn held_block_visual(&self, kind: HeldKind) -> Option<u32> {
+        match kind {
+            HeldKind::Block(visual) => Some(visual),
+            HeldKind::RetainedBlock { state, item } => state
+                .filter(|state| self.blocks.source.sheets.contains_key(state))
+                .or(item),
+            HeldKind::Sprite | HeldKind::Other => None,
+        }
+    }
+
     /// Resolves a block's sheet and location from the same generation as its model.
     pub(super) fn block_placement(
         &self,
