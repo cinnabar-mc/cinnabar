@@ -89,6 +89,15 @@ public final class DiagnosticsFixture {
         String tail = StartupDiagnostics.logTail(log);
         if (!tail.endsWith("end-marker") || tail.length() >= input.length())
             throw new AssertionError("log tail lost its end or was not bounded");
+        String header = "fixture session build=abc123 adapter=fixture\\n";
+        Files.write(log.toPath(), (header + input).getBytes(StandardCharsets.UTF_8));
+        String context = StartupDiagnostics.logContext(log);
+        if (!context.contains(header) || !context.endsWith("end-marker")
+                || context.getBytes(StandardCharsets.UTF_8).length > 2 * StartupDiagnostics.LOG_TAIL_BYTES + 200)
+            throw new AssertionError("startup context or bounded tail lost");
+        Files.write(log.toPath(), "short log".getBytes(StandardCharsets.UTF_8));
+        if (!"short log".equals(StartupDiagnostics.logContext(log)))
+            throw new AssertionError("short logs were duplicated");
         String records = "2026-10-24T10:00:00.001Z ERROR cursor: unavailable\\n"
                 + "2026-10-24T10:00:00.002Z ERROR cursor: unavailable\\n"
                 + "2026-10-24T10:00:00.003Z ERROR cursor: unavailable\\n"
@@ -109,6 +118,9 @@ public final class DiagnosticsFixture {
         tail = StartupDiagnostics.logTail(log);
         if (tail.getBytes(StandardCharsets.UTF_8).length > StartupDiagnostics.LOG_TAIL_BYTES || tail.contains("\\ufffd")
                 || !tail.endsWith("end-marker")) throw new AssertionError("UTF-8 tail was damaged");
+        context = StartupDiagnostics.logContext(log);
+        if (context.contains("\\ufffd") || !context.endsWith("end-marker"))
+            throw new AssertionError("UTF-8 startup context was damaged");
         Files.write(log.toPath(), "same\\nsame\\nother\\nsame".getBytes(StandardCharsets.UTF_8));
         if (!"same (repeated 2 times)\\nother\\nsame".equals(StartupDiagnostics.logTail(log)))
             throw new AssertionError("untimestamped records or final line lost");

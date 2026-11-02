@@ -1464,6 +1464,9 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
   transfer/reconnect, input/UI, audio, memory or hardware-performance acceptance matrices.
+  Android exit reports retain the beginning and end of long logs so startup build and adapter
+  context survives a busy session. Qualcomm compiler startup faults still lack a reduced failing
+  shader and affected-device acceptance; diagnostic improvements do not close that gate.
   Built-in shaders avoid forwarding matrix parameters between functions to prevent an Adreno
   Vulkan compiler crash. Startup is confirmed on an affected Adreno 660 device; broader Android
   rendering acceptance remains incomplete. Carrier texture pages hold at most 1,024 layers to fit
