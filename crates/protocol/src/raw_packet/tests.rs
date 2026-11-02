@@ -123,18 +123,14 @@ fn batch_bodies_split_in_order_within_their_bounds() {
             max: 8
         }))
     ));
+}
 
-    let one = entry(0x02, 0, 0, &[]);
-    let at_limit = joined(&vec![one.clone(); MAX_RAW_BATCH_PACKETS]);
-    assert_eq!(
-        decode_batch_body(at_limit, usize::MAX).unwrap().len(),
-        MAX_RAW_BATCH_PACKETS
-    );
-    let over_limit = joined(&vec![one; MAX_RAW_BATCH_PACKETS + 1]);
-    assert!(matches!(
-        decode_batch_body(over_limit, usize::MAX),
-        Err(SessionError(SessionFailure::TooManyPackets { .. }))
-    ));
+/// A batch holds as many entries as its bytes carry; Bedrock bounds a batch by its payload,
+/// not by an entry count, so 1,601 well-formed entries decode whole.
+#[test]
+fn batch_bodies_hold_more_than_1600_entries() {
+    let batch = joined(&vec![entry(0x02, 0, 0, &[]); 1_601]);
+    assert_eq!(decode_batch_body(batch, usize::MAX).unwrap().len(), 1_601);
 }
 
 #[test]

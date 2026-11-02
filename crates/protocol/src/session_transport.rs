@@ -11,7 +11,7 @@ use crate::codec::SessionFailure;
 use crate::packet_relay::PacketRelay;
 use crate::packet_relay::{BatchWriter, RelayLink, put_entry};
 use crate::packet_tap::{PacketBody, PacketDirection, PacketOutcome, PacketRecordId, PacketTap};
-use crate::raw_packet::{MAX_RAW_BATCH_PACKETS, RawPacket, decode_batch_body};
+use crate::raw_packet::{RawPacket, decode_batch_body};
 use crate::session_wire::{CoreMessage, SessionDisconnect, SessionTransfer};
 use crate::{Packet, ProtocolError, SessionError};
 use bridge::{BridgeError, FrameQueue, FramedReader};
@@ -129,7 +129,7 @@ impl<R: bridge::FrameRead> SessionTransport<R> {
             writer: BatchWriter::direct(frames),
             relay: None,
             prefer_injected: false,
-            startup: startup_batches(startup).into(),
+            startup: startup_batches(startup, MAX_SESSION_BATCH_BYTES).into(),
             received: VecDeque::new(),
             ahead: VecDeque::new(),
             ahead_bytes: 0,
@@ -539,18 +539,16 @@ fn batch_frame_observed(
 }
 
 /// Groups the startup packets, which may span many upstream batches, into batch bodies that each
-/// stay within the per-batch packet and byte bounds; a packet larger than the byte bound keeps a
-/// body of its own, which is refused as it would be from the server.
-fn startup_batches(packets: &[Bytes]) -> Vec<Bytes> {
+/// stay within `max_bytes`; a packet larger than the bound keeps a body of its own, which is
+/// refused as it would be from the server.
+fn startup_batches(packets: &[Bytes], max_bytes: usize) -> Vec<Bytes> {
     let mut batches = Vec::new();
     let mut batch = BytesMut::new();
     let mut count = 0;
     for packet in packets {
         let length = u32::try_from(packet.len()).expect("a frame bounds its packets");
         let entry = varuint32_len(length) + packet.len();
-        if count != 0
-            && (count == MAX_RAW_BATCH_PACKETS || batch.len() + entry > MAX_SESSION_BATCH_BYTES)
-        {
+        if count != 0 && batch.len() + entry > max_bytes {
             batches.push(std::mem::take(&mut batch).freeze());
             count = 0;
         }

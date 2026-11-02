@@ -12,9 +12,6 @@ use crate::packet::GameHeader;
 use crate::packet_tap::PacketRecordId;
 use crate::{Packet, SessionError};
 
-/// Most packets one batch may hold.
-pub(crate) const MAX_RAW_BATCH_PACKETS: usize = 1_600;
-
 /// One batch entry, `[length][header][body]`, whose body stays a slice of the received batch.
 #[derive(Debug, Clone)]
 pub(crate) struct RawPacket {
@@ -98,8 +95,8 @@ impl RawPacket {
 }
 
 /// Splits a batch body, its length-prefixed entries without the `0xfe` marker, into raw packets
-/// sharing its bytes. Bodies over `max_bytes` or holding more than [`MAX_RAW_BATCH_PACKETS`]
-/// entries are refused.
+/// sharing its bytes. A body over `max_bytes` is refused; the body's own length bounds the
+/// entries, as Bedrock bounds a batch by its payload rather than by an entry count.
 pub(crate) fn decode_batch_body(
     body: Bytes,
     max_bytes: usize,
@@ -114,7 +111,7 @@ pub(crate) fn decode_batch_body(
     let backing_len = body.len();
     let mut offset = 0;
     let mut packets = Vec::new();
-    for frame in wire::Frames::new(body.clone(), MAX_RAW_BATCH_PACKETS) {
+    for frame in wire::Frames::new(body.clone(), usize::MAX) {
         let frame = frame.map_err(|error| framing_failure(&body[offset..], error))?;
         offset += frame.frame().len();
         packets.push(raw_packet(frame, backing_len)?);
@@ -126,7 +123,7 @@ pub(crate) fn decode_batch_body(
 #[cfg(test)]
 pub(crate) fn decode_packet_raw(cursor: &mut Bytes) -> Result<RawPacket, SessionError> {
     let backing_len = cursor.len();
-    let frame = wire::Frames::new(cursor.clone(), 1)
+    let frame = wire::Frames::new(cursor.clone(), usize::MAX)
         .next()
         .unwrap_or(Err(wire::DecodeError::UnexpectedEof {
             needed: 1,
@@ -154,9 +151,6 @@ pub(crate) fn decode_batch(
 /// Maps a framing failure of the entry starting at `rest`: a declared length past the input is
 /// a truncated entry, while a cut-short or overlong length or header varint is malformed.
 fn framing_failure(rest: &[u8], error: wire::DecodeError) -> SessionError {
-    if let wire::DecodeError::TooManyFrames { limit } = error {
-        return SessionFailure::TooManyPackets { max: limit }.into();
-    }
     let mut reader = wire::Reader::new(rest);
     match reader.read_var_u32() {
         Ok(declared) if declared as usize > reader.remaining() => SessionFailure::TruncatedEntry {
