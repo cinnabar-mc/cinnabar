@@ -13,7 +13,7 @@ use crate::ui::{
 /// Buckets bind independently; page count and byte limits bound their residency.
 pub const MAX_UI_TEXTURE_BUCKETS: usize = MAX_UI_TEXTURE_LAYERS as usize;
 /// Replaceable pages after static UI: models, session glyphs, server UI, local font and particles.
-pub const MAX_UI_DYNAMIC_PAGES: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const MAX_UI_DYNAMIC_PAGES: usize = UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 /// Side length shared by general dynamic UI pages outside original-resolution model slots.
 pub const UI_DYNAMIC_PAGE_SIDE: u32 = 256;
 /// Fixed dynamic slot carrying the original player skin, not a projected thumbnail.
@@ -34,6 +34,13 @@ pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 /// Recoverable per-stack shield artwork follows the other fixed dynamic producers.
 pub const UI_SHIELD_PAGE_OFFSET: usize = UI_PARTICLE_PAGE_OFFSET + 1;
 pub const MAX_UI_SHIELD_PAGES: usize = 8;
+/// Session art of the worn armor and held items, apart from the model atlas that base items
+/// can fill. Four armor slots and two hands each get a whole page.
+pub const UI_PACK_EQUIPMENT_PAGE_OFFSET: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const MAX_UI_PACK_EQUIPMENT_PAGES: usize = 6;
+/// Shield artwork and pack equipment: whole model-atlas pages that resize within their capacity.
+const UI_SESSION_MODEL_PAGES: std::ops::Range<usize> =
+    UI_SHIELD_PAGE_OFFSET..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES;
 pub const UI_LOCAL_FONT_PAGE_SIDE: u32 = 512;
 /// Dense local icon fonts use coverage texels, keeping the ordinary RGBA page's byte budget.
 pub const UI_LOCAL_ICON_FONT_PAGE_SIDE: u32 = UI_LOCAL_FONT_PAGE_SIDE * 2;
@@ -60,7 +67,7 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
     + MAX_UI_NATIVE_SHEET_BYTES
-    + MAX_UI_SHIELD_PAGES
+    + (MAX_UI_SHIELD_PAGES + MAX_UI_PACK_EQUIPMENT_PAGES)
         * (UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
             - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
         * UiTextureFormat::Rgba8.bytes_per_texel()
@@ -599,7 +606,7 @@ fn fixed_budget_bytes(pages: &[UiTexturePage], dynamic_start: usize) -> usize {
 /// Original sources can resize within reserved capacity without changing logical slots.
 fn is_resizable_slot(offset: usize) -> bool {
     offset == UI_LOCAL_FONT_PAGE_OFFSET
-        || (UI_SHIELD_PAGE_OFFSET..UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES).contains(&offset)
+        || UI_SESSION_MODEL_PAGES.contains(&offset)
         || offset == UI_PARTICLE_PAGE_OFFSET
         || (UI_PLAYER_SKIN_PAGE_OFFSET..=UI_SESSION_ICON_PAGE_OFFSET).contains(&offset)
         || (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
@@ -630,7 +637,7 @@ fn valid_dynamic_dimensions(
     if [width, height] == [UI_DYNAMIC_PAGE_SIDE; 2] {
         return true;
     }
-    if (UI_SHIELD_PAGE_OFFSET..UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES).contains(&offset) {
+    if UI_SESSION_MODEL_PAGES.contains(&offset) {
         return [width, height] == [UI_MODEL_ATLAS_SIDE; 2];
     }
     if (UI_SESSION_GLYPH_PAGE_OFFSET..UI_SESSION_GLYPH_PAGE_OFFSET + UI_SESSION_GLYPH_PAGES)
@@ -672,6 +679,21 @@ mod tests {
         assert_eq!(left.repeat_content(), Some([0, 0, 1, 2]));
         for bounds in [[0, 0, 3, 2], [2, 0, 1, 2], [0, 1, 2, 1]] {
             assert!(page.clone().with_repeat_content(bounds).is_err());
+        }
+    }
+
+    /// Pack equipment takes whole model-atlas pages, resizing within the native growth budget.
+    #[test]
+    fn pack_equipment_slots_hold_model_atlas_pages() {
+        for offset in UI_PACK_EQUIPMENT_PAGE_OFFSET
+            ..UI_PACK_EQUIPMENT_PAGE_OFFSET + MAX_UI_PACK_EQUIPMENT_PAGES
+        {
+            assert!(valid_dynamic_dimensions(
+                offset,
+                [UI_MODEL_ATLAS_SIDE; 2],
+                UiTextureFormat::Rgba8
+            ));
+            assert!(is_resizable_slot(offset));
         }
     }
 

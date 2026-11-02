@@ -1,4 +1,4 @@
-//! Atlas pressure must retain prepared geometry without requesting unsupported artwork.
+//! Missing pack art must retain prepared geometry without requesting unsupported artwork.
 use super::*;
 
 #[test]
@@ -39,14 +39,12 @@ fn selection_consumers_unavailable_preview_artwork_reuses_prepared_geometry() {
         rig: world.authority().actor_rig(1).unwrap(),
         input: Default::default(),
     };
-    let side = render_model::UI_MODEL_ATLAS_SIDE;
-    let page =
-        render_model::UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into())
-            .unwrap();
-    ui.gui_models.sources.pages = vec![page; super::super::super::MODEL_PAGES];
-    ui.gui_models.sources.required_pages = ui.gui_models.sources.pages.len();
     ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
-    assert!(ui.gui_models.pack_equipment.pages.is_empty());
+    // Pack art that found no page keeps its texture without a region.
+    ui.gui_models.pack_equipment.pages.clear();
+    ui.gui_models.pack_equipment.regions.clear();
+    ui.gui_models.clear_selected_hands();
+    ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     let fallback = ui.preview_held_models([true; 2])[0].clone().unwrap();
     assert!(
         fallback
@@ -58,8 +56,6 @@ fn selection_consumers_unavailable_preview_artwork_reuses_prepared_geometry() {
     let (_, unavailable) = test_alloc::measure(|| {
         ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     });
-    ui.gui_models.sources.pages.clear();
-    ui.gui_models.sources.required_pages = 0;
     ui.place_pack_armor();
     ui.set_player_preview_gear_with_owner([None; 4], Some((item, 0)), context);
     assert_model(&ui, &pack, 0, "mapped");
