@@ -3,6 +3,7 @@
 use super::{CameraSettingsAuthority, FlyCamera};
 use bevy::{
     anti_alias::smaa::Smaa,
+    camera::Hdr,
     core_pipeline::core_3d::CORE_3D_DEPTH_FORMAT,
     prelude::*,
     render::{
@@ -105,6 +106,7 @@ type AntiAliasedCamera<'a> = (
     Option<&'a Smaa>,
     Has<render_scene::shaderpack::ShaderPackRendering>,
     Option<&'a Camera>,
+    Has<Hdr>,
     Has<render_scene::EnhancedRendering>,
 );
 
@@ -122,13 +124,13 @@ pub fn apply_camera_antialiasing(
 ) {
     let vanilla = support.msaa(settings.anti_aliasing_samples());
     let mut waiting = None;
-    for (entity, mut msaa, smaa, shader_pack, camera, enhanced) in &mut cameras {
+    for (entity, mut msaa, smaa, shader_pack, camera, hdr, enhanced) in &mut cameras {
         let desired = if shader_pack { Msaa::Off } else { vanilla };
         if *msaa != desired {
             let drawing = camera.is_some_and(|camera| camera.is_active);
             let request = render_scene::SampleCountRequest {
                 samples: desired,
-                hdr: camera.is_some_and(|camera| camera.hdr),
+                hdr,
                 enhanced,
             };
             let compiled = preflight
@@ -332,11 +334,11 @@ mod tests {
                 hdr: false,
                 enhanced: false,
             }));
-        app.world_mut().get_mut::<Camera>(camera).unwrap().hdr = true;
+        app.world_mut().entity_mut(camera).insert(Hdr);
         app.update();
         assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
 
-        app.world_mut().get_mut::<Camera>(camera).unwrap().hdr = false;
+        app.world_mut().entity_mut(camera).remove::<Hdr>();
         app.world_mut()
             .entity_mut(camera)
             .insert(render_scene::EnhancedRendering);
