@@ -777,6 +777,9 @@ lookup across the passing list.
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
   Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Held stacks whose wire descriptor names a block state with an aux value that has no compiled
+  visual hold that state; a state with no prepared art, such as a turned log or a facing stairs,
+  holds its item's base block, which remains an incomplete approximation of native's exact state.
   Framed, dropped and held items try session block sheets, session icons, startup carried
   geometry and startup sprites in order, continuing when construction, extrusion or device
   atlas and mesh admission fails. Selection and upload share the same physical budgets.
