@@ -28,8 +28,9 @@ struct Fixture {
 }
 
 impl Fixture {
-    /// Compiles a pack that lists only dirt, optionally defining the `missing_tile` texture key.
-    fn compile(define_missing_tile: bool) -> Self {
+    /// Compiles a pack that lists dirt, and stone when `list_stone`, optionally defining the
+    /// `missing_tile` texture key.
+    fn compile(define_missing_tile: bool, list_stone: bool) -> Self {
         let target: Value =
             serde_json::from_slice(include_bytes!("../../../../../assets/bedrock-target.json"))
                 .unwrap();
@@ -51,9 +52,13 @@ impl Fixture {
         .collect();
         let directory = tempfile::tempdir().unwrap();
         fs::create_dir_all(directory.path().join("textures/blocks")).unwrap();
+        let mut blocks = json!({"dirt": {"textures": "dirt"}});
+        if list_stone {
+            blocks["stone"] = json!({"textures": "dirt"});
+        }
         fs::write(
             directory.path().join("blocks.json"),
-            serde_json::to_vec(&json!({"dirt": {"textures": "dirt"}})).unwrap(),
+            serde_json::to_vec(&blocks).unwrap(),
         )
         .unwrap();
         let mut texture_data = json!({"dirt": {"textures": "textures/blocks/dirt"}});
@@ -122,19 +127,20 @@ impl Fixture {
 
 #[test]
 fn a_block_known_only_by_hash_draws_the_missing_tile_on_every_face() {
-    let fixture = Fixture::compile(true);
+    // Every named block has its own texture, so only the hash-only block needs the missing tile.
+    let fixture = Fixture::compile(true, true);
     fixture.assert_draws_the_missing_tile(&fixture.hash_only);
 }
 
 #[test]
 fn a_built_in_block_missing_from_blocks_json_draws_the_missing_tile_on_every_face() {
-    let fixture = Fixture::compile(true);
+    let fixture = Fixture::compile(true, false);
     fixture.assert_draws_the_missing_tile(&fixture.unlisted_named);
 }
 
 #[test]
 fn a_pack_without_the_missing_tile_keeps_the_diagnostic_texture() {
-    let fixture = Fixture::compile(false);
+    let fixture = Fixture::compile(false, false);
     for record in [&fixture.hash_only, &fixture.unlisted_named] {
         let visual = fixture.compiled.visuals[record.sequential_id as usize];
         assert_eq!(visual.faces, [DIAGNOSTIC_MATERIAL; 6]);
@@ -143,7 +149,7 @@ fn a_pack_without_the_missing_tile_keeps_the_diagnostic_texture() {
 
 #[test]
 fn a_custom_block_missing_from_blocks_json_keeps_the_diagnostic_texture() {
-    let fixture = Fixture::compile(true);
+    let fixture = Fixture::compile(true, false);
     let mut custom = fixture.unlisted_named.clone();
     custom.name = "test:custom".into();
     let key = resolve_texture_key(&fixture.pack.blocks, &custom, BlockFace::Up);

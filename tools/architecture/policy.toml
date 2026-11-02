@@ -1481,6 +1481,11 @@ path = "crates/java-resource-pack/src/translate.rs"
 literal = "turtle_scute"
 reason = "Java 1.21.2+ equipment texture file name renamed to the Bedrock turtle armour layer, not an item identifier."
 
+[[identifier_literal_exceptions]]
+path = "crates/pack-compiler/input/src/pack/block.rs"
+literal = "missing_tile"
+reason = "terrain_texture.json key that native BlockGraphics uses for blocks without graphics, not a block identifier."
+
 [identifier_literals]
 owners = [
     "crates/asset-compiler/src/registry_policy/",
