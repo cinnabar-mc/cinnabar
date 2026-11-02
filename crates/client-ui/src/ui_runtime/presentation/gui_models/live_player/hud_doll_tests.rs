@@ -217,3 +217,25 @@ fn the_live_renderer_keeps_the_menu_model_without_a_fresh_capture() {
     assert!(!mesh.is_skinned());
     assert!(presentation.live_renderer_shown());
 }
+
+/// A non-uniformly scaled model shears its rotated head, which the turn never decomposes.
+#[test]
+fn the_head_turn_holds_under_non_uniform_model_scale() {
+    let facing = Affine3A::from_scale(Vec3::new(-1.0, 1.0, -1.0));
+    let frame = Affine3A::from_scale(Vec3::new(2.0, 1.0, 1.0)) * facing;
+    let pivot = Vec3::new(0.0, 24.0, 0.0);
+    let rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_4);
+    let live = LivePlayer {
+        head: Some(CapturedHead {
+            frame,
+            facing: Mat3::from(facing.matrix3),
+            pivot,
+            rotation,
+        }),
+        ..Default::default()
+    };
+    let posed = frame * Affine3A::from_rotation_translation(rotation, pivot);
+    let turned = live.head_turn(0.0, 0.0).unwrap() * posed;
+    let ahead = frame * Affine3A::from_translation(pivot);
+    assert!(turned.abs_diff_eq(ahead, 1e-4), "{turned:?} != {ahead:?}");
+}

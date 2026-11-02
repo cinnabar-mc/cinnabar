@@ -1,7 +1,7 @@
 //! The HUD uses the same geometry and evaluated bones as the world player.
 
 use super::super::UiPresentationRuntime;
-use glam::{Affine3A, Quat, Vec3, Vec4};
+use glam::{Affine3A, Mat3, Quat, Vec3, Vec4};
 #[cfg(any(test, feature = "test-support"))]
 use render_model::ActorVertex;
 use render_model::{ActorRigGeometry, EntityRigId, RenderBoneTransform};
@@ -94,31 +94,41 @@ pub(super) struct LivePlayer {
     pub(super) glide: Option<[f32; 2]>,
     /// Whether this frame's publication captured the actor, so a screen may draw it.
     pub(super) fresh: bool,
-    /// The head bone's posed frame, and the rotation of an unturned head, in model UI space.
-    head: Option<(Affine3A, Quat)>,
+    /// The captured head bone, from which a live renderer turns it.
+    head: Option<CapturedHead>,
     /// Which body bones follow the head.
     pub(super) head_bones: Vec<bool>,
     pub(super) overlay_color: [f32; 4],
     pub(super) fire: super::fire::FirePlayback,
 }
 
+/// The head bone in model space, kept apart from the model frame so that a frame's
+/// non-uniform scale never has to be decomposed.
+#[derive(Clone, Copy)]
+struct CapturedHead {
+    /// Model space to model UI space, as applied to every captured bone.
+    frame: Affine3A,
+    /// The frame's rotation alone: the body's facing and glide tilt.
+    facing: Mat3,
+    pivot: Vec3,
+    rotation: Quat,
+}
+
 impl LivePlayer {
     /// The transform that replaces the captured head orientation with `pitch` and `yaw` radians
     /// about the head pivot, in the same space as the captured bone frames.
     pub(super) fn head_turn(&self, pitch: f32, yaw: f32) -> Option<Affine3A> {
-        let (head, unturned) = self.head?;
-        let (_, rotation, pivot) = head.to_scale_rotation_translation();
-        // A head an animation scales to nothing has no orientation to replace.
-        if !rotation.is_finite() || !unturned.is_finite() {
-            return None;
-        }
-        // The preview rig's Y turn runs opposite glam's for the same angle.
-        let look = Quat::from_rotation_y(-yaw) * Quat::from_rotation_x(pitch) * unturned;
-        Some(
-            Affine3A::from_translation(pivot)
-                * Affine3A::from_quat(look * rotation.inverse())
-                * Affine3A::from_translation(-pivot),
-        )
+        let head = self.head?;
+        // The preview rig's Y turn runs opposite glam's for the same angle. The look is given
+        // in UI space and brought into the body's own space.
+        let look = head.facing.transpose()
+            * Mat3::from_rotation_y(-yaw)
+            * Mat3::from_rotation_x(pitch)
+            * head.facing;
+        let turn = Affine3A::from_translation(head.pivot)
+            * Affine3A::from_mat3(look * Mat3::from_quat(head.rotation.inverse()))
+            * Affine3A::from_translation(-head.pivot);
+        Some(head.frame * turn * head.frame.inverse())
     }
 }
 
@@ -300,10 +310,21 @@ impl UiPresentationRuntime {
         live.body.capture(geometry, &live.bones, frame);
         let head_index = live.part_bindings[0].map(|(index, _)| index);
         live.head = head_index.and_then(|index| {
-            let posed = frame * render_matrix(live.bones.get(index)?)?;
-            let (_, unturned, _) = frame.to_scale_rotation_translation();
-            // A collapsed head cannot be decomposed into a rotation to replace.
-            (posed.matrix3.determinant().abs() > f32::EPSILON).then_some((posed, unturned))
+            let bone = live.bones.get(index)?;
+            let rotation = Vec4::from_array(bone.rotation)
+                .try_normalize()
+                .map(Quat::from_vec4)?;
+            // A model scaled to nothing has no frame to turn within.
+            (frame.matrix3.determinant().abs() > f32::EPSILON).then_some(CapturedHead {
+                frame,
+                facing: Mat3::from((basis * tilt).matrix3),
+                pivot: Vec3::new(
+                    bone.translation_scale[0],
+                    bone.translation_scale[1],
+                    bone.translation_scale[2],
+                ),
+                rotation,
+            })
         });
         live.head_bones.clear();
         if let Some(head) = head_index {
