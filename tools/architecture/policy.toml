@@ -49,6 +49,10 @@ ownership_record = "THIRD_PARTY_NOTICES.md"
 path = "crates/render-model/src/hats/"
 ownership_record = "THIRD_PARTY_NOTICES.md"
 
+[[owned_artifacts]]
+path = "tools/localserver/testdata/player-preview-layers/textures/"
+ownership_record = "tools/localserver/testdata/player-preview-layers/README.md"
+
 # Generated metadata owned by assets, rather than runtime pack content.
 [[owned_artifacts]]
 path = "crates/assets/data/entity-facts-v2225.bin"

@@ -113,7 +113,9 @@ fn colored_pixels(frame: &render_model::UiRenderInput) -> Vec<(usize, usize)> {
     let pixels = super::super::super::forms::snapshot::rasterize(frame);
     pixels
         .as_raw()
-        .chunks_exact(4)
+        .as_chunks::<4>()
+        .0
+        .iter()
         .enumerate()
         .filter_map(|(i, pixel)| {
             (pixel[0] < 70 && pixel[1] > 150 && pixel[2] > 120 && pixel[3] > 0)
