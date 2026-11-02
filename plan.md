@@ -1510,9 +1510,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
-  tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
-  time because a Mali-G57 tombstone showed the driver compiler faulting while two threads compile
-  pipelines. Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
+  tombstone shows two threads compiling pipelines while one aborts in the driver compiler.
+  Mali, PowerVR Rogue and PowerVR BXM-8-256 Vulkan devices now serialize shader-module and
+  pipeline creation through one device lock. PowerVR phone confirmation remains open.
+  Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
   r51p0 offline compiler faults on the model and transparent terrain vertex programs because
   bool struct members merge across returns. Those flags are now `u32`, and a test keeps
   terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
