@@ -30,7 +30,7 @@ impl FakeIo {
     fn levels(&self) -> (f32, f32) {
         let played = self.played.lock().unwrap();
         let (mut l, mut r, mut n) = (0f64, 0f64, 0f64);
-        for pair in played.chunks_exact(2) {
+        for pair in played.as_chunks::<2>().0 {
             l += f64::from(pair[0]).abs();
             r += f64::from(pair[1]).abs();
             n += 1.0;
