@@ -198,6 +198,9 @@ pub fn paired_item_fits(
     view: LocalViewPose,
 ) -> bool {
     let mode = stream.network_id_mode();
+    let Some(build_height) = build_height(stream) else {
+        return false;
+    };
     let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
     gameplay::block_use::paired_item_fits(
         collisions.block_facts(mode, block),
@@ -205,6 +208,7 @@ pub fn paired_item_fits(
         observed.target.face,
         gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
         surroundings,
+        build_height,
         |cell| {
             let block = world.primary_runtime_id(cell).ok()?;
             Some(collisions.block_facts(mode, block))
@@ -239,9 +243,7 @@ pub fn predicted_placement(
     view: LocalViewPose,
 ) -> Option<gameplay::block_use::PredictedPlacement> {
     let mode = stream.network_id_mode();
-    let range = stream
-        .authority()
-        .dimension_range(stream.current_dimension())?;
+    let build_height = build_height(stream)?;
     let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
     gameplay::block_use::predicted_placement(
         collisions,
@@ -257,10 +259,17 @@ pub fn predicted_placement(
                 pitch: -pitch.to_degrees(),
             },
             surroundings,
-            build_height: range.base_sub_chunk_y * 16
-                ..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16,
+            build_height,
         },
     )
+}
+
+/// The block heights of the current dimension, or `None` before its range is known.
+fn build_height(stream: &chunk_pipeline::WorldStream) -> Option<std::ops::Range<i32>> {
+    let range = stream
+        .authority()
+        .dimension_range(stream.current_dimension())?;
+    Some(range.base_sub_chunk_y * 16..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16)
 }
 /// Resolves an item block through the production gameplay boundary.
 pub fn held_block_store_id(stream: &chunk_pipeline::WorldStream, item_block: i32) -> Option<u32> {

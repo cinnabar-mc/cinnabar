@@ -24,8 +24,9 @@ pub fn paired_item_block(
     (fact.traits.contains(T::DOOR) || fact.family == ModelFamily::Bed).then_some(block)
 }
 
-/// Whether a click has room for `placed`, the block of a door or bed item. `read` returns the
-/// facts of a cell, and `None` when unreadable; this refuses the use rather than guess.
+/// Whether a click has room for `placed`, the block of a door or bed item, with every cell
+/// inside `build_height`. `read` returns the facts of a cell, and `None` when unreadable; this
+/// refuses the use rather than guess.
 ///
 /// Follows the cell choices of native `DoorItem::_useOn` and `BedItem::_tryUseOn`. Facts here
 /// do not settle every support rule, so any non-empty support is accepted; the server's result
@@ -36,10 +37,11 @@ pub fn paired_item_fits(
     face: u8,
     yaw: f32,
     surroundings: &UseSurroundings,
+    build_height: std::ops::Range<i32>,
     read: impl Fn([i32; 3]) -> Option<BlockFact>,
 ) -> bool {
     let (foot, free) = surroundings.destination(clicked, face);
-    if !free {
+    if !free || !build_height.contains(&foot[1]) {
         return false;
     }
     let replaceable = |cell| read(cell).is_some_and(|fact| fact.traits.contains(T::REPLACEABLE));
@@ -54,8 +56,10 @@ pub fn paired_item_fits(
     };
     if placed.traits.contains(T::DOOR) {
         // A door goes on the top face, unless the clicked block is itself replaced.
+        let upper = placement_cell(foot, 1);
         return (face == 1 || foot == clicked)
-            && replaceable(placement_cell(foot, 1))
+            && build_height.contains(&upper[1])
+            && replaceable(upper)
             && supported(foot);
     }
     let Some(quadrant) = yaw_quadrant(yaw) else {
@@ -103,6 +107,8 @@ mod tests {
         )))
     }
 
+    const BUILD_HEIGHT: std::ops::Range<i32> = -64..320;
+
     fn fits(block: &str, yaw: f32, cells: &[([i32; 3], &str)]) -> bool {
         paired_item_fits(
             block_fact(block),
@@ -110,6 +116,7 @@ mod tests {
             1,
             yaw,
             &surroundings("minecraft:stone", "minecraft:air"),
+            BUILD_HEIGHT,
             |cell| world(cells, cell),
         )
     }
@@ -125,6 +132,25 @@ mod tests {
     }
 
     #[test]
+    fn a_door_needs_both_halves_inside_the_build_height() {
+        assert!(fits("minecraft:wooden_door", 0.0, &[]));
+        let top = |build_height| {
+            paired_item_fits(
+                block_fact("minecraft:wooden_door"),
+                [0, 0, 0],
+                1,
+                0.0,
+                &surroundings("minecraft:stone", "minecraft:air"),
+                build_height,
+                |cell| world(&[], cell),
+            )
+        };
+        assert!(top(-64..3));
+        assert!(!top(-64..2));
+        assert!(!top(-64..1));
+    }
+
+    #[test]
     fn a_door_on_a_side_face_needs_a_replaceable_clicked_block() {
         let side = |clicked| {
             paired_item_fits(
@@ -133,6 +159,7 @@ mod tests {
                 5,
                 0.0,
                 &surroundings(clicked, "minecraft:air"),
+                BUILD_HEIGHT,
                 |cell| world(&[], cell),
             )
         };
@@ -171,6 +198,7 @@ mod tests {
             1,
             0.0,
             &surroundings("minecraft:stone", "minecraft:stone"),
+            BUILD_HEIGHT,
             |cell| world(&[], cell),
         ));
     }

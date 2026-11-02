@@ -401,7 +401,9 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    if plan.local_use == LocalUse::Place {
+    // Door and bed placement keeps only the server's sound: the cell it plays at is unverified,
+    // and a local cue at another cell would not pair with it.
+    if plan.local_use == LocalUse::Place && plan.paired.is_none() {
         // A seed sounds at the block it was used on, where the server voices its copy too.
         let position = if plan.planted.is_some() {
             observed.target.position
@@ -412,7 +414,7 @@ pub(crate) fn advance(
             .audio_cues
             .write(client_audio::audio::LocalBlockCue::Place {
                 position,
-                block_runtime_id: plan.planted.or(plan.paired).unwrap_or_else(|| {
+                block_runtime_id: plan.planted.unwrap_or_else(|| {
                     stream.resolve_block_network_id(u32::from_ne_bytes(
                         observed.selection.item.block_runtime_id().to_ne_bytes(),
                     ))
