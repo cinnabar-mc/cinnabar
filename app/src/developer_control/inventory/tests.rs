@@ -332,21 +332,20 @@ fn a_focused_overlay_edit_box_gives_way_to_slot_clicks() {
     let overlay = "ui/overlay.json".to_owned();
     let mut data = screen::Modal::default();
     let dpi = ui::DpiScale::new(1.0).unwrap();
-    let mut redraw =
-        |presentation: &mut UiPresentationRuntime, data: &screen::Modal, focus: bool| {
-            let focus = focus.then(|| (1, "focus_test.search".to_owned()));
-            presentation.set_mod_screens(Some(ModScreensInput {
-                id: "focus_test",
-                files: &files,
-                overlay: Some(&overlay),
-                view: None,
-                focus: focus.as_ref(),
-                data,
-            }));
-            presentation
-                .build(&player, &ui, 0, [1920, 1080], dpi)
-                .unwrap();
-        };
+    let redraw = |presentation: &mut UiPresentationRuntime, data: &screen::Modal, focus: bool| {
+        let focus = focus.then(|| (1, "focus_test.search".to_owned()));
+        presentation.set_mod_screens(Some(ModScreensInput {
+            id: "focus_test",
+            files: &files,
+            overlay: Some(&overlay),
+            view: None,
+            focus: focus.as_ref(),
+            data,
+        }));
+        presentation
+            .build(&player, &ui, 0, [1920, 1080], dpi)
+            .unwrap();
+    };
     redraw(&mut presentation, &data, false);
     let gui = presentation.mod_ui().mod_screen_layout().unwrap().gui;
     data.set_value(

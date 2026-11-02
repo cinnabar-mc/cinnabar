@@ -271,6 +271,14 @@ fn cell_hit(
     screens::slot_at(&screens::screen_slots(screen), local).map(|slot| slot.hit)
 }
 
+/// An engine frame's virtual (GUI) point in window-logical px.
+fn engine_logical_point(frame: &ui_engine::frame::EngineFrame, gui: [f32; 2]) -> [f32; 2] {
+    [
+        frame.origin[0] + gui[0] * frame.scale,
+        frame.origin[1] + gui[1] * frame.scale,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::screens::SLOT_SIZE;
@@ -455,12 +463,4 @@ mod tests {
             Some(InventoryCellHit::Player(9))
         );
     }
-}
-
-/// An engine frame's virtual (GUI) point in window-logical px.
-fn engine_logical_point(frame: &ui_engine::frame::EngineFrame, gui: [f32; 2]) -> [f32; 2] {
-    [
-        frame.origin[0] + gui[0] * frame.scale,
-        frame.origin[1] + gui[1] * frame.scale,
-    ]
 }
