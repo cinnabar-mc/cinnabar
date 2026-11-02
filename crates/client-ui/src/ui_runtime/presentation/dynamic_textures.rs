@@ -215,11 +215,6 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 .sources
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
-                .or_else(|| {
-                    let index = (offset - super::gui_models::MODEL_PAGE)
-                        .checked_sub(runtime.gui_models.sources.pages.len())?;
-                    runtime.gui_models.pack_equipment.pages.get(index)
-                })
         } else {
             None
         };
@@ -280,6 +275,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
     let shield_pages = runtime.gui_models.shield_icons.pages();
     dynamic.extend((0..render_model::MAX_UI_SHIELD_PAGES).map(|index| {
         shield_pages
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    let pack_pages = &runtime.gui_models.pack_equipment.pages;
+    dynamic.extend((0..render_model::MAX_UI_PACK_EQUIPMENT_PAGES).map(|index| {
+        pack_pages
             .get(index)
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())

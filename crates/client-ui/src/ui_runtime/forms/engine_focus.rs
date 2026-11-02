@@ -5,7 +5,7 @@ use json_ui::{FocusDirection, FocusMove, HitKind, HitRegion, RectOut};
 
 use semantic_input::KeyboardKey;
 
-use crate::ui_runtime::UiRuntime;
+use super::values::FormEngineState;
 use ui_engine::frame::EngineFrame;
 
 /// The focus direction an arrow key moves.
@@ -21,26 +21,24 @@ pub fn direction_of(key: KeyboardKey) -> Option<FocusDirection> {
 
 /// Move focus toward a `direction` the dispatcher left unconsumed; a control
 /// claiming the direction already received it as `button.menu_*`.
-pub fn step(runtime: &mut UiRuntime, frame: &EngineFrame, direction: FocusDirection) {
-    let view = &runtime.server_forms().engine().view;
+pub fn step(engine: &mut FormEngineState, frame: &EngineFrame, direction: FocusDirection) {
     if let FocusMove::Moved(key) =
-        json_ui::navigate(&frame.hits, view, direction, screen(&frame.hits))
+        json_ui::navigate(&frame.hits, &engine.view, direction, screen(&frame.hits))
     {
-        focus(runtime, frame, key);
+        focus(engine, frame, key);
     }
 }
 
 /// Tab: the next focusable control in document order.
-pub fn tab(runtime: &mut UiRuntime, frame: &EngineFrame) {
-    let focused = runtime.server_forms().engine().view.focused.clone();
-    if let Some(next) = json_ui::next_in_order(&frame.hits, focused.as_deref(), false) {
-        focus(runtime, frame, next.key.clone());
+pub fn tab(engine: &mut FormEngineState, frame: &EngineFrame) {
+    let focused = engine.view.focused.as_deref();
+    if let Some(next) = json_ui::next_in_order(&frame.hits, focused, false) {
+        focus(engine, frame, next.key.clone());
     }
 }
 
 /// Focus `key`, showing its hover look and keeping it inside its scroll view.
-fn focus(runtime: &mut UiRuntime, frame: &EngineFrame, key: String) {
-    let engine = runtime.server_forms_mut().engine_mut();
+fn focus(engine: &mut FormEngineState, frame: &EngineFrame, key: String) {
     json_ui::set_focus(&mut engine.view, &frame.hits, Some(key.clone()));
     engine.view.hovered = Some(key.clone());
     let Some(region) = frame.hits.iter().find(|region| region.key == key) else {
@@ -131,7 +129,11 @@ mod tests {
                 ..Default::default()
             },
         );
-        focus(&mut runtime, &frame, "scroll/button".into());
+        focus(
+            runtime.server_forms_mut().engine_mut(),
+            &frame,
+            "scroll/button".into(),
+        );
         assert_eq!(runtime.server_forms().engine().view.scroll["scroll"], 70.0);
     }
 }

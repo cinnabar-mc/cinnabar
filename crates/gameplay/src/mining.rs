@@ -110,6 +110,9 @@ pub struct FrozenMiningTarget {
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueuedMiningInteraction {
     pub creative_destroy: Option<crate::survival_mining::CreativeDestroyBlock>,
+    pub requested_breaks: bool,
+    pub requested_destroys: Vec<protocol::BlockUseRequest>,
+    pub requested_creative_destroys: Vec<crate::survival_mining::CreativeDestroyBlock>,
     pub interactions: PlayerAuthInputInteractions,
     pub mining_request: Option<protocol::MineBlockRequest>,
 }
@@ -117,6 +120,9 @@ pub struct QueuedMiningInteraction {
 impl QueuedMiningInteraction {
     /// Moves a carried item interaction to the replayed position of the tick that carries it.
     pub(crate) fn replay_at(&mut self, player_position: [f32; 3]) {
+        for request in &mut self.requested_destroys {
+            request.player_position = player_position;
+        }
         if let Some(
             protocol::BlockItemInteraction::Use(request)
             | protocol::BlockItemInteraction::Destroy(request),

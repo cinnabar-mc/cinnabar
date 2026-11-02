@@ -26,6 +26,7 @@ pub mod inventory_actions;
 pub mod inventory_drag;
 pub mod inventory_ingress;
 
+pub mod command_block;
 mod food;
 mod furnace_options;
 mod inventory_options;
@@ -301,6 +302,14 @@ impl UiRuntime {
 
     pub fn sign_editor_mut(&mut self) -> &mut sign_editor::SignEditor {
         &mut self.session.sign_editor
+    }
+
+    pub const fn command_block(&self) -> &command_block::CommandBlockEditor {
+        &self.session.command_block
+    }
+
+    pub fn command_block_mut(&mut self) -> &mut command_block::CommandBlockEditor {
+        &mut self.session.command_block
     }
 
     pub const fn server_forms(&self) -> &ServerFormStore {

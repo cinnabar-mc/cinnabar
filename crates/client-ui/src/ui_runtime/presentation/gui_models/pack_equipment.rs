@@ -1,5 +1,6 @@
 //! Shares session armor texels between inventory previews and the HUD paper doll.
-//! Only selected equipment consumes bounded GUI pages; unused definitions cannot exhaust them.
+//! Only selected equipment consumes its reserved GUI pages, so neither unused definitions nor
+//! base item models can exhaust them.
 
 use {super::*, ui::IconRef};
 
@@ -90,8 +91,8 @@ impl UiPresentationRuntime {
         }
     }
 
-    /// Places the worn pack textures after the model pages that precede them, at full
-    /// resolution where the bounded atlas allows. Call whenever those pages change.
+    /// Places the worn pack textures on their reserved pages, at full resolution where a page
+    /// holds them.
     pub(super) fn place_pack_armor(&mut self) {
         let pack = &mut self.gui_models.pack_equipment;
         pack.pages.clear();
@@ -127,20 +128,10 @@ impl UiPresentationRuntime {
                     })
                     .then_with(|| left.identifier.cmp(&right.identifier))
             });
-            let first = self.textures.dynamic_start() + MODEL_PAGE;
-            let available =
-                |models: &GuiModels| MODEL_PAGES.saturating_sub(models.sources.pages.len());
-            let mut placed = place(&textures, available(&self.gui_models), false);
-            if placed.regions.len() < textures.len()
-                && self.gui_models.discard_optional_models(first)
-            {
-                if let Err(error) = self.install_gui_fire() {
-                    tracing::warn!(%error, "actor flames exceed the GUI texture budget");
-                }
-                placed = place(&textures, available(&self.gui_models), false);
-            }
+            let limit = render_model::MAX_UI_PACK_EQUIPMENT_PAGES;
+            let mut placed = place(&textures, limit, false);
             if placed.regions.len() < textures.len() {
-                placed = place(&textures, available(&self.gui_models), true);
+                placed = place(&textures, limit, true);
             }
             for texture in &textures {
                 match placed.regions.get(texture.identifier.as_ref()) {
@@ -159,7 +150,8 @@ impl UiPresentationRuntime {
                     Some(_) => {}
                 }
             }
-            let start = (first + self.gui_models.sources.pages.len()) as u16;
+            let start = (self.textures.dynamic_start()
+                + render_model::UI_PACK_EQUIPMENT_PAGE_OFFSET) as u16;
             let pack = &mut self.gui_models.pack_equipment;
             pack.pages = placed.pages;
             pack.regions = placed

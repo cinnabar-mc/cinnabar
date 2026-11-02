@@ -290,6 +290,16 @@ impl UiPresentationRuntime {
                             now_millis,
                         )?;
                     }
+                    Scene::CommandBlock => {
+                        self.append_command_block(
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content_width,
+                            content_height,
+                        )?;
+                    }
                     Scene::ServerForm | Scene::ServerSettingsForm => {
                         self.append_server_form(
                             runtime,
@@ -413,7 +423,10 @@ impl UiPresentationRuntime {
                 &nodes,
                 frame,
                 (viewport, render_viewport),
-                (effects, &self.gui_models.hud_model),
+                (
+                    effects,
+                    (&self.gui_models.hud_model, &self.gui_models.screen_model),
+                ),
             )
             .inspect_err(|_| self.last_frame = None)?;
             if redrawn.is_none() {
@@ -445,12 +458,14 @@ impl UiPresentationRuntime {
             let draw =
                 RetainedDraw::build(&nodes, viewport, UiScale::default(), safe_area, effects)
                     .map_err(UiPresentationError::Tree)?;
-            let models = self
-                .gui_models
-                .hud_model
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .poses(&draw, &nodes, dpi_scale.get(), physical_size);
+            let models = super::gui_models::hud_model::model_poses(
+                &self.gui_models.hud_model,
+                &self.gui_models.screen_model,
+                &draw,
+                &nodes,
+                dpi_scale.get(),
+                physical_size,
+            );
             let input = render_adapter::adapt_ui_draw_list_with_models(
                 draw.draw_list(),
                 Arc::clone(&self.textures),
@@ -520,9 +535,12 @@ fn redraw_changed(
     nodes: &[UiNode],
     frame: ([u32; 2], f32, SafeArea),
     (viewport, render_viewport): (UiRect, UiRenderViewport),
-    (effects, models): (
+    (effects, (hud_model, screen_model)): (
         TextEffects<'_>,
-        &std::sync::Mutex<super::gui_models::hud_model::HudModel>,
+        (
+            &std::sync::Mutex<super::gui_models::hud_model::HudModel>,
+            &std::sync::Mutex<super::gui_models::hud_model::HudModel>,
+        ),
     ),
 ) -> Result<Option<Redraw>, UiPresentationError> {
     let (Some(last), Some(previous)) = (last, previous) else {
@@ -541,15 +559,14 @@ fn redraw_changed(
     ) else {
         return Ok(None);
     };
-    let model_poses = models
-        .lock()
-        .unwrap_or_else(|error| error.into_inner())
-        .poses(
-            &last.draw,
-            nodes,
-            render_viewport.dpi_scale.get(),
-            render_viewport.physical_size,
-        );
+    let model_poses = super::gui_models::hud_model::model_poses(
+        hud_model,
+        screen_model,
+        &last.draw,
+        nodes,
+        render_viewport.dpi_scale.get(),
+        render_viewport.physical_size,
+    );
     let input = if update.rebuilt {
         Redrawn::Rebuilt(
             render_adapter::adapt_ui_draw_list_with_models(

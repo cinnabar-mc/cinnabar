@@ -422,6 +422,26 @@ mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still
 
 Types: [`vector3`](gameplay.md#type-vector3).
 
+<a id="break-blocks"></a>
+
+### `break-blocks`
+
+```wit
+record block-position { x: s32, y: s32, z: s32 }
+break-blocks: func(positions: list<block-position>) -> result<_, string>;
+```
+
+Requires interaction, terrain and focused gameplay. Requests explicit loaded blocks together
+on the next available movement tick, using the current held item and negotiated destruction
+protocol. Requests commit after a successful callback; duplicate positions are coalesced.
+The SDK constants `MAX_BLOCK_BREAKS` and `MAX_BLOCK_BREAK_DISTANCE` bound each frame's list
+and its distance from the eye. Requests waiting for a carrier are bounded by the same list
+limit and clear on focus loss or world changes. A full pending list keeps its earlier entries.
+
+This explicit mod override bypasses local mining progress, reach and obstruction. Game-mode
+edit permissions and server validation still apply. Local prediction does not guarantee the
+server accepts destruction. It changes neither the camera nor physical input.
+
 <a id="set-packet-delay"></a>
 
 ### `set-packet-delay`
