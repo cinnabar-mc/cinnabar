@@ -5,12 +5,16 @@ use render_scene::{PipelineWarmupReadiness, SampleCountPreflight};
 
 use std::collections::HashSet;
 
+#[path = "pipeline_warmup/progress.rs"]
+mod progress;
+use progress::{WarmupCounts, WarmupProgress};
+
 #[cfg(test)]
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
         App, BevyError, Camera3d, Has, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp,
-        SystemSet, error,
+        SystemSet, error, info,
     },
     render::{
         Extract, ExtractSchedule, Render, RenderApp, RenderSystems,
@@ -19,7 +23,6 @@ use bevy::{
         },
         view::ViewTarget,
     },
-    shader::ShaderCacheError,
 };
 
 /// The view properties our built-in pipeline keys depend on.
@@ -269,12 +272,21 @@ fn publish_readiness(
     shared: Res<PipelineWarmupReadiness>,
     preflight: Res<SampleCountPreflight>,
     admission: Option<Res<render_scene::startup_work::WorldWorkAdmission>>,
+    mut progress: Local<WarmupProgress>,
 ) {
     let ready = registered_pipelines_ready(&cache, &mut registry);
     shared.set_ready(ready);
     // Owners only queue variants once world work is admitted; before that, an empty set proves nothing.
     let admitted = render_scene::startup_work::world_work_allowed(admission);
     preflight.publish_ready(registry.requested.filter(|_| ready && admitted));
+    if progress.wants_counts(ready) {
+        let counts = WarmupCounts::read(&cache, &registry.ids, registry.pending);
+        let workers =
+            bevy::tasks::AsyncComputeTaskPool::try_get().map_or(0, |pool| pool.thread_num());
+        if let Some(line) = progress.observe(&counts, workers, web_time::Instant::now()) {
+            info!("{line}");
+        }
+    }
 }
 
 /// Shader loads keep loading held; terminal compile errors are logged once and stop blocking.
@@ -288,20 +300,14 @@ fn registered_pipelines_ready(cache: &PipelineCache, registry: &mut WarmupRegist
     } = registry;
     let mut ready = !views.is_empty() && !*pending;
     for &id in ids.iter() {
-        ready &= match cache.get_render_pipeline_state(id) {
-            CachedPipelineState::Ok(_) => true,
-            CachedPipelineState::Err(
-                ShaderCacheError::ShaderNotLoaded(_)
-                | ShaderCacheError::ShaderImportNotYetAvailable,
-            ) => false,
-            CachedPipelineState::Err(error) => {
-                if failed.insert(id) {
-                    error!("pipeline prewarm {id:?}: {error}");
-                }
-                true
-            }
-            _ => false,
-        };
+        let state = cache.get_render_pipeline_state(id);
+        if let CachedPipelineState::Err(error) = state
+            && !progress::retryable(error)
+            && failed.insert(id)
+        {
+            error!("pipeline prewarm {id:?}: {error}");
+        }
+        ready &= progress::settled(state);
     }
     ready
 }
