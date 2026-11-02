@@ -46,13 +46,14 @@ pub fn paired_item_fits(
     }
     let replaceable = |cell| read(cell).is_some_and(|fact| fact.traits.contains(T::REPLACEABLE));
     let supported = |cell: [i32; 3]| {
-        read([cell[0], cell[1] - 1, cell[2]]).is_some_and(|fact| {
-            !fact.traits.contains(T::AIR)
-                && !matches!(
-                    fact.support,
-                    SupportKind::Air | SupportKind::Water | SupportKind::Lava
-                )
-        })
+        build_height.contains(&(cell[1] - 1))
+            && read([cell[0], cell[1] - 1, cell[2]]).is_some_and(|fact| {
+                !fact.traits.contains(T::AIR)
+                    && !matches!(
+                        fact.support,
+                        SupportKind::Air | SupportKind::Water | SupportKind::Lava
+                    )
+            })
     };
     if placed.traits.contains(T::DOOR) {
         // A door goes on the top face, unless the clicked block is itself replaced.
@@ -70,10 +71,12 @@ pub fn paired_item_fits(
     replaceable(head)
         && supported(foot)
         && supported(head)
-        && !(-BED_COLUMN_REACH..=BED_COLUMN_REACH).any(|offset| {
-            read([foot[0], foot[1] + offset, foot[2]])
-                .is_some_and(|fact| fact.family == ModelFamily::Bed)
-        })
+        && !(-BED_COLUMN_REACH..=BED_COLUMN_REACH)
+            .map(|offset| foot[1] + offset)
+            .filter(|y| build_height.contains(y))
+            .any(|y| {
+                read([foot[0], y, foot[2]]).is_some_and(|fact| fact.family == ModelFamily::Bed)
+            })
 }
 
 #[cfg(test)]
@@ -188,6 +191,25 @@ mod tests {
             assert!(!fits("minecraft:bed", 0.0, &[([0, y, 0], "minecraft:bed")]));
         }
         assert!(fits("minecraft:bed", 0.0, &[([0, 5, 0], "minecraft:bed")]));
+    }
+
+    #[test]
+    fn a_bed_reads_no_cell_outside_the_build_height() {
+        let outside = std::cell::Cell::new(false);
+        let build_height = 0..2;
+        assert!(paired_item_fits(
+            block_fact("minecraft:bed"),
+            [0, 0, 0],
+            1,
+            0.0,
+            &surroundings("minecraft:stone", "minecraft:air"),
+            build_height.clone(),
+            |cell| {
+                outside.set(outside.get() || !build_height.contains(&cell[1]));
+                world(&[], cell)
+            },
+        ));
+        assert!(!outside.get());
     }
 
     #[test]
