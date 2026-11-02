@@ -20,7 +20,7 @@ use client_ui::ui_runtime::{
 };
 
 /// The scene on top now, with the menu as this point in the frame sees it.
-fn top_scene(
+pub(crate) fn top_scene(
     runtime: &UiRuntime,
     player: &player_state::PlayerState,
     menu: Option<&MenuRuntime>,
