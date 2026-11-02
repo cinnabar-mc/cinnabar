@@ -93,18 +93,24 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
             let pose = batch
                 .isolated_depth_scope
                 .and_then(|scope| input.models.iter().find(|pose| pose.scope == scope));
-            let corners: [UiRenderVertex; 3] = std::array::from_fn(|corner| {
+            let projected: [_; 3] = std::array::from_fn(|corner| {
                 render_model::project_ui_model_vertex(
                     input.vertices[triangle[corner] as usize],
                     pose,
                 )
                 .expect("validated model palette")
             });
+            let corners = projected.map(|projection| projection.vertex);
+            let model = input.vertices[triangle[0] as usize].style_flags
+                & render_api::UI_STYLE_MODEL_VERTEX
+                != 0;
             let [du, dv] = offset(triangle[0] as usize);
             fill(
                 &mut image,
                 corners,
-                |[u, v], color, overlay, coverage, x, y| {
+                Some(projected.map(|projection| projection.repeat_bounds.unwrap_or([0.; 4]))),
+                projected[0].cull_back_faces,
+                |[u, v], color, overlay, bounds, coverage, x, y| {
                     if x < scissor.x
                         || y < scissor.y
                         || x >= scissor.x + scissor.width
@@ -142,7 +148,7 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                     let uv = if repeated {
                         render_api::ui_repeat::decode_uv(
                             [u, v],
-                            [overlay[0] + du, overlay[1] + dv, overlay[2], overlay[3]],
+                            [bounds[0] + du, bounds[1] + dv, bounds[2], bounds[3]],
                             flags,
                             page.dimensions(),
                             page.repeat_content(),
@@ -173,6 +179,17 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                     let mut rgba = premultiply(std::array::from_fn(|channel| {
                         (u16::from(texel[channel]) * u16::from(color[channel]) / 255) as u8
                     }));
+                    if (!repeated || model)
+                        && corners[0].style_flags
+                            & (render_model::UI_STYLE_PARTICLE
+                                | render_api::UI_STYLE_SPRITE_COLOR_MASK)
+                            == 0
+                    {
+                        for channel in 0..3 {
+                            rgba[channel] = rgba[channel] * (1. - overlay[3])
+                                + overlay[channel] * rgba[3] * overlay[3];
+                        }
+                    }
                     if corners[0].style_flags & render_api::UI_STYLE_RGB_COVERAGE != 0 {
                         rgba[3] *= f32::from(texel[0].max(texel[1]).max(texel[2])) / 255.0;
                     }
@@ -241,9 +258,12 @@ fn premultiply(color: [u8; 4]) -> [f32; 4] {
 fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
-    shade: impl Fn([f32; 2], [u8; 4], [f32; 4], f32, u32, u32) -> Option<[f32; 4]>,
+    repeat_bounds: Option<[[f32; 4]; 3]>,
+    cull_back_faces: bool,
+    shade: impl Fn([f32; 2], [u8; 4], [f32; 4], [f32; 4], f32, u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
+    let mut repeat_bounds = repeat_bounds.unwrap_or([[0.; 4]; 3]);
     for corner in &mut corners {
         corner.position = corner
             .position
@@ -251,11 +271,16 @@ fn fill(
     }
     let [a, b, c] = corners.map(|corner| corner.position);
     let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // Physical UI Y points down; a counterclockwise clip-space front points clockwise here.
+    if cull_back_faces && area > 0. {
+        return;
+    }
     if area.abs() < f32::EPSILON {
         return;
     }
     if area < 0.0 {
         corners.swap(1, 2);
+        repeat_bounds.swap(1, 2);
         area = -area;
     }
     let [a, b, c] = corners.map(|corner| corner.position);
@@ -297,7 +322,12 @@ fn fill(
             let coverage = wa * corners[0].model_light
                 + wb * corners[1].model_light
                 + wc * corners[2].model_light;
-            let Some(source) = shade(uv, color, overlay, coverage, x, y) else {
+            let bounds = std::array::from_fn(|channel| {
+                wa * repeat_bounds[0][channel]
+                    + wb * repeat_bounds[1][channel]
+                    + wc * repeat_bounds[2][channel]
+            });
+            let Some(source) = shade(uv, color, overlay, bounds, coverage, x, y) else {
                 continue;
             };
             let target = image.get_pixel_mut(x, y);
@@ -482,7 +512,9 @@ mod tests {
             fill(
                 &mut image,
                 [vertex(0., 0.), vertex(2., 0.), vertex(0., 2.)],
-                |_, _, _, _, _, _| Some(premultiply(source)),
+                None,
+                false,
+                |_, _, _, _, _, _, _| Some(premultiply(source)),
                 true,
             );
             assert_eq!(image.get_pixel(0, 0).0, expected);
@@ -505,7 +537,9 @@ mod tests {
                 fill(
                     &mut image,
                     triangle.map(|index| quad[index]),
-                    |_, color, _, _, _, _| Some(premultiply(color)),
+                    None,
+                    false,
+                    |_, color, _, _, _, _, _| Some(premultiply(color)),
                     false,
                 );
             }

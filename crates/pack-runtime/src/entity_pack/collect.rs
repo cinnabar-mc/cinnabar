@@ -69,6 +69,14 @@ impl References {
 
     /// Extracts the definition families named by one actor description.
     fn read_description(&mut self, description: &Value) {
+        self.textures.extend(
+            description["textures"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(_, value)| value.as_str())
+                .filter_map(declared_texture_stem),
+        );
         for entry in description["render_controllers"]
             .as_array()
             .into_iter()
@@ -290,6 +298,23 @@ fn texture_file(
         }
     }
     None
+}
+
+/// Declared entity images may live anywhere inside the pack's resource root.
+fn declared_texture_stem(path: &str) -> Option<String> {
+    let stem = path
+        .strip_suffix(".png")
+        .or_else(|| path.strip_suffix(".tga"))
+        .unwrap_or(path);
+    (!stem.is_empty()
+        && !stem.contains(['\\', ':', '\0'])
+        && stem
+            .split('/')
+            .all(|part| !part.is_empty() && !matches!(part, "." | ".."))
+        && Path::new(stem)
+            .components()
+            .all(|part| matches!(part, Component::Normal(_))))
+    .then(|| stem.to_owned())
 }
 
 /// JSON with comments and duplicate keys resolved (the last key wins), re-serialised.

@@ -189,6 +189,7 @@ impl HudModel {
                 normal: rows.map(|row| [row[0], row[1], row[2], 0.0]),
                 overlay,
                 uv_rect: icon.uv.map(f32::from),
+                uv_transform: [0., 0., 1., 1.],
                 styles: [0; 4],
                 uv_cross: [0.; 4],
                 tint: {
@@ -509,10 +510,8 @@ impl HudModel {
         bones.clear();
         bones.extend_from_slice(&self.palette);
         for bone in &mut bones {
-            bone.tint = [0, 1, 2, 3].map(|channel| {
-                let source = (bone.tint[channel] * 255.).round() as u16;
-                f32::from((source * u16::from(color[channel]) / 255) as u8) / 255.
-            });
+            bone.tint =
+                [0, 1, 2, 3].map(|channel| bone.tint[channel] * (f32::from(color[channel]) / 255.));
             bone.screen = (placement * Mat4::from_cols_array_2d(&bone.screen)).to_cols_array_2d();
         }
         // Every palette is small; the frame pool retains its allocation across publications.
@@ -551,6 +550,9 @@ impl HudModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Places each skinned control with the palette of the doll model that drew it.
 pub(in crate::ui_runtime::presentation) fn model_poses(
@@ -809,6 +811,59 @@ impl UiPresentationRuntime {
                     .and_then(|key| self.menu_artwork_icon(key))
             {
                 model(model_source, icon, &|_| model_source.follows_head)?;
+            }
+        }
+        // Controller geometry keeps the player's projection; expanded bounds affect coverage,
+        // never the model scale or the control's ancestor clip.
+        if in_hud
+            && matches!(
+                view,
+                PreviewView::Doll { .. } | PreviewView::DollLook { .. }
+            )
+        {
+            for (model, layer, icon) in &self.gui_models.player_layers.layers {
+                let Some(geometry) = model.geometry.as_ref() else {
+                    continue;
+                };
+                let start = cache.bones.len();
+                cache.layer(
+                    &geometry.vertices,
+                    model
+                        .transforms
+                        .iter()
+                        .map(|frame| screen * Mat4::from(*frame)),
+                    model.transforms.iter().map(|frame| {
+                        if layer.ignore_lighting {
+                            Mat3::ZERO
+                        } else {
+                            normal_frame(light * Mat3::from(frame.matrix3), true)
+                        }
+                    }),
+                    *icon,
+                    None,
+                    layer.overlay,
+                )?;
+                let state = layer.material_state.unwrap_or_default();
+                for bone in &mut cache.bones[start..] {
+                    bone.set_backface_culling(state.cull);
+                    bone.uv_transform = layer.uv_anim;
+                    bone.styles[1] = 1;
+                    bone.tint = layer.color;
+                    for channel in &mut bone.tint[..3] {
+                        *channel *= layer.light_color_multiplier;
+                    }
+                }
+                let material = (
+                    ui::UiBlendMode::Alpha,
+                    !state.depth_always,
+                    state.depth_write,
+                    state
+                        .alpha_test
+                        .then_some(assets::ENTITY_ALPHA_TEST_THRESHOLD),
+                );
+                let index = cache.cursor - 1;
+                cache.dirty |= cache.sources[index].material != material;
+                cache.sources[index].material = material;
             }
         }
         for slot in 0..4 {
