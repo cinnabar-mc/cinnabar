@@ -1,8 +1,8 @@
 use super::*;
 use crate::ui_runtime::{
-    data_driven::drive_data_driven_input, drive_chat_ui_actions, drive_server_form_input,
-    drive_sign_editor, emotes::drive_emote_input, input_owner::decide_input_owner,
-    mob_effects::drive_mob_effect_screen_input,
+    data_driven::drive_data_driven_input, drive_chat_ui_actions, drive_command_block,
+    drive_server_form_input, drive_sign_editor, emotes::drive_emote_input,
+    input_owner::decide_input_owner, mob_effects::drive_mob_effect_screen_input,
 };
 
 /// Every screen reads the frame's input only after the frame's owner is decided.
@@ -19,6 +19,7 @@ fn production_schedule_decides_the_input_owner_before_any_screen_reads() {
     let decide = system_node(graph, decide_input_owner, "decide_input_owner");
     for reader in [
         system_node(graph, drive_sign_editor, "drive_sign_editor"),
+        system_node(graph, drive_command_block, "drive_command_block"),
         system_node(graph, drive_server_form_input, "drive_server_form_input"),
         system_node(graph, drive_data_driven_input, "drive_data_driven_input"),
         system_node(graph, drive_emote_input, "drive_emote_input"),

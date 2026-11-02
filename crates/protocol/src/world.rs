@@ -68,11 +68,12 @@ pub use self::events::{
     ChangeDimensionEvent, ChunkResyncEvent, DaylightCycleUpdateEvent, DimensionRange,
     GameRulesEvent, LevelChunkEvent, LevelChunkMode, MAP_IMAGE_SIDE, MAX_ACTOR_PROPERTY_SYNC_BYTES,
     MapDataEvent, MovePlayerEvent, MovePlayerMode, MovementCorrectionSubject, MovementEffectEvent,
-    MovementEffectKind, NETHER_DIMENSION_ID, OpenSignEvent, PLAYER_NETWORK_OFFSET,
-    PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent, STANDING_PLAYER_EYE_HEIGHT,
-    SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent, SubChunkReplyAdmissionEvent,
-    SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent, WeatherChannel,
-    WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id, vanilla_dimension_range,
+    MovementEffectKind, NETHER_DIMENSION_ID, OpenCommandBlockEvent, OpenSignEvent,
+    PLAYER_NETWORK_OFFSET, PlayerMovementCorrectionEvent, PublisherUpdateEvent, RespawnEvent,
+    STANDING_PLAYER_EYE_HEIGHT, SetTimeEvent, SubChunkBatchEvent, SubChunkEntryEvent,
+    SubChunkReplyAdmissionEvent, SubChunkResult, SubChunkUnavailable, SyncedBlockUpdateEvent,
+    WeatherChannel, WeatherUpdateEvent, WorldEvent, WorldSpawnEvent, air_network_id,
+    vanilla_dimension_range,
 };
 pub use self::game_mode::PlayerGameMode;
 use self::game_rules::{
@@ -458,7 +459,10 @@ world_packets! {
     },
     PlayerHotbar(packet) => WorldEvent::Inventory(normalize_hotbar(packet)?),
     ItemStackResponse(packet) => WorldEvent::Inventory(normalize_response(packet)?),
-    ContainerOpen(packet) => WorldEvent::Inventory(normalize_container_open(packet)?),
+    ContainerOpen(packet) => match block_side::normalize_open_command_block(&packet, current_dimension) {
+        Some(event) => WorldEvent::OpenCommandBlock(event),
+        None => WorldEvent::Inventory(normalize_container_open(packet)?),
+    },
     UpdateTrade(packet) => {
         let Some(event) = crate::inventory::normalize_trade(&packet) else { return Ok(None); };
         WorldEvent::Inventory(crate::InventoryEvent::Trade(event))
