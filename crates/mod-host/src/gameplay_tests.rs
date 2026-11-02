@@ -724,3 +724,52 @@ fn block_target_reads_require_terrain_and_current_gameplay() {
     state.snapshot = None;
     assert_eq!(state.read_block_target().unwrap(), Ok(None));
 }
+
+#[test]
+fn explicit_block_breaks_are_bounded_granted_and_transactional() {
+    let point = crate::GameplayBlockPosition { x: 1, y: 64, z: 0 };
+    for (interaction, terrain) in [(false, true), (true, false)] {
+        let mut denied = state(ModGrants {
+            interaction,
+            terrain,
+            ..Default::default()
+        });
+        assert!(denied.break_blocks(vec![point]).unwrap().is_err());
+    }
+    let mut state = state(ModGrants {
+        interaction: true,
+        terrain: true,
+        ..Default::default()
+    });
+    assert!(state.break_blocks(vec![point]).unwrap().is_err());
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.break_blocks(vec![point, point]).unwrap().unwrap();
+    assert!(state.controls.interaction.block_breaks.is_empty());
+    assert!(
+        state
+            .break_blocks(vec![point; mod_api::MAX_BLOCK_BREAKS])
+            .unwrap()
+            .is_err()
+    );
+    assert!(
+        state
+            .break_blocks(vec![crate::GameplayBlockPosition {
+                x: i32::MAX,
+                ..point
+            }])
+            .unwrap()
+            .is_err()
+    );
+    state.controls.commit();
+    assert_eq!(state.controls.interaction.block_breaks, vec![point]);
+    state.controls.begin_frame();
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    state.break_blocks(vec![point]).unwrap().unwrap();
+    state.controls.rollback();
+    state.controls.commit();
+    assert!(state.controls.interaction.block_breaks.is_empty());
+    state.controls.frame.panel_open = true;
+    assert!(state.break_blocks(vec![point]).unwrap().is_err());
+}
