@@ -107,6 +107,33 @@ struct LightmapUniform {
 }
 @group(1) @binding(0) var<uniform> world_lightmap: LightmapUniform;
 
+struct PointLightUniform {
+    enabled: vec4<f32>,
+    color: vec4<f32>,
+    sources: array<vec4<f32>, 8>,
+    strengths: array<vec4<f32>, 2>,
+}
+@group(1) @binding(2) var<uniform> world_point_light: PointLightUniform;
+
+// Returns the brightest smooth block-light level contributed by any source.
+fn point_light_block_level(position: vec3<f32>) -> f32 {
+    if (world_point_light.enabled.x < 0.5) { return 0.0; }
+    var result = 0.0;
+    for (var source_index = 0u; source_index < 8u; source_index += 1u) {
+        let source = world_point_light.sources[source_index];
+        let radius = source.w;
+        let intensity = world_point_light.strengths[source_index / 4u][source_index % 4u];
+        if (radius <= 0.0 || intensity <= 0.0) { continue; }
+        let to_light = source.xyz - position;
+        let distance_squared = dot(to_light, to_light);
+        if (distance_squared >= radius * radius) { continue; }
+        let distance_to_light = sqrt(max(distance_squared, 0.0));
+        let falloff = clamp(1.0 - distance_to_light / radius, 0.0, 1.0);
+        result = max(result, intensity * falloff * 15.0);
+    }
+    return result;
+}
+
 // Both nibbles address the same environment table in every ordinary world pass.
 fn light_colour(sample: u32) -> vec3<f32> {
     return world_lightmap.raw[sample & 255u].rgb;
@@ -140,6 +167,56 @@ fn terrain_light_colour(levels: vec2<f32>) -> vec3<f32> {
     );
 }
 
+fn point_light_tinted_extra(base: vec3<f32>, dynamic: vec3<f32>) -> vec3<f32> {
+    let extra = max(dynamic - base, vec3(0.0));
+    let tint_gamma = tint_to_gamma(vec4(world_point_light.color.rgb, 1.0)).rgb;
+    return clamp(base + extra * tint_gamma, vec3(0.0), vec3(1.0));
+}
+
+// Adds dynamic block light through the vanilla lightmap response. Existing sky
+// light and authored surface colors are preserved rather than directionally shaded.
+fn point_lit_terrain_light_colour(levels: vec2<f32>, position: vec3<f32>) -> vec3<f32> {
+    let block_level = max(levels.x, point_light_block_level(position));
+    if (block_level <= levels.x) { return terrain_light_colour(levels); }
+    let base = terrain_light_colour(levels);
+    let dynamic = terrain_light_colour(vec2(block_level, levels.y));
+    return point_light_tinted_extra(base, dynamic);
+}
+
+// The first-person hand uses the raw table; interpolate only its new block-light range.
+fn point_lit_raw_light_colour(levels: vec2<f32>, position: vec3<f32>) -> vec3<f32> {
+    let block_level = max(levels.x, point_light_block_level(position));
+    let block = u32(levels.x);
+    let sky = u32(levels.y);
+    let base = light_colour(block | (sky << 4u));
+    if (block_level <= levels.x) { return base; }
+    let lower = u32(floor(block_level));
+    let upper = min(lower + 1u, 15u);
+    let dynamic = mix(
+        light_colour(lower | (sky << 4u)),
+        light_colour(upper | (sky << 4u)),
+        fract(block_level),
+    );
+    return point_light_tinted_extra(base, dynamic);
+}
+
+// The Java-style hand path uses the byte-quantized table at integer light levels.
+fn point_lit_native_light_colour(levels: vec2<f32>, position: vec3<f32>) -> vec3<f32> {
+    let block_level = max(levels.x, point_light_block_level(position));
+    let block = u32(levels.x);
+    let sky = u32(levels.y);
+    let base = native_light_texel(block | (sky << 4u));
+    if (block_level <= levels.x) { return base; }
+    let lower = u32(floor(block_level));
+    let upper = min(lower + 1u, 15u);
+    let dynamic = mix(
+        native_light_texel(lower | (sky << 4u)),
+        native_light_texel(upper | (sky << 4u)),
+        fract(block_level),
+    );
+    return point_light_tinted_extra(base, dynamic);
+}
+
 // Actor constants use (sky, block)/16, without a half-texel bias.
 // Vanilla clamps 16*uv-.5 then interpolates the byte table in gamma.
 // Our shared table is transposed: block in the low nibble, sky in the high.
@@ -153,6 +230,23 @@ fn actor_light_colour(sample: u32) -> vec3<f32> {
         mix(native_light_texel(previous_block | (sky << 4u)), native_light_texel(block | (sky << 4u)), 0.5),
         0.5,
     );
+}
+
+// Dropped items keep actor-table sampling while gaining a fractional dynamic block level.
+fn point_lit_actor_light_colour(sample: u32, position: vec3<f32>) -> vec3<f32> {
+    let block = sample & 15u;
+    let sky = (sample >> 4u) & 15u;
+    let block_level = max(f32(block), point_light_block_level(position));
+    let base = actor_light_colour(sample);
+    if (block_level <= f32(block)) { return base; }
+    let lower = u32(floor(block_level));
+    let upper = min(lower + 1u, 15u);
+    let dynamic = mix(
+        actor_light_colour(lower | (sky << 4u)),
+        actor_light_colour(upper | (sky << 4u)),
+        fract(block_level),
+    );
+    return point_light_tinted_extra(base, dynamic);
 }
 
 // Ordinary Fancy Actor/Entity materials shade posed world normals in the

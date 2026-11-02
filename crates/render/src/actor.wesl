@@ -1,7 +1,7 @@
 import bevy_render::view::View;
 import render::actor_rig::{BoneMatrix, transform_point, posed_point, posed_normal, placed_point, placed_normal};
 import render::glint::glint_layer_uvs;
-import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, tint_to_gamma, tint_to_linear};
+import render::lighting::{actor_lighting, actor_distance_fog, actor_light_colour, point_lit_actor_light_colour, tint_to_gamma, tint_to_linear};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array_region};
 
@@ -377,7 +377,13 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     // shading preserves its interpolation and the explicit zero/unlit override.
     let overlay = select(input.overlay, vec4(0.0), material == ACTOR_MATERIAL_DISSOLVE_COLOR);
     let native_lighting = select(input.native_lighting, input.back_native_lighting, !front && input.material_parameters.y != 0u);
-    let lighting = select(native_lighting, mix(vec3(1.0), native_lighting, color.a), emissive);
+    var point_lit_native_lighting = native_lighting;
+    if ((input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u) {
+        let vanilla_light = actor_light_colour(input.light);
+        let dynamic_light = point_lit_actor_light_colour(input.light, input.world_position);
+        point_lit_native_lighting *= dynamic_light / max(vanilla_light, vec3(0.0001));
+    }
+    let lighting = select(point_lit_native_lighting, mix(vec3(1.0), point_lit_native_lighting, color.a), emissive);
     var lit_gamma = mix(color.rgb, overlay.rgb, overlay.a) * lighting;
     var legacy_foil = vec3(0.0);
     var legacy_alpha = color.a;
@@ -394,7 +400,7 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
         } else {
             foil_tex = glint_layers(uv, input.uv.zw, offsets, glint_scale, item_extent, legacy);
         }
-        let foil_light = select(vec3(1.0), actor_light_colour(input.light), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
+        let foil_light = select(vec3(1.0), point_lit_actor_light_colour(input.light, input.world_position), (input.light & ACTOR_LIGHT_WORLD_FLAG) != 0u);
         let foil = foil_tex * GLINT_TINT_RGB * strength * foil_light;
         if (worn_legacy) {
             legacy_foil = foil * foil;
