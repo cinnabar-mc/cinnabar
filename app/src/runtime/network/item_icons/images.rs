@@ -45,6 +45,7 @@ fn resolve_key_with_carrier(
             .filter_map(|(metadata, path)| {
                 let mut texture = decode(view, path, &carrier)?;
                 texture.retain_first_strip_frame();
+                texture.downscale_to_max(128);
                 if texture.rgba8.len() > remaining_bytes {
                     return None;
                 }
@@ -67,6 +68,7 @@ fn resolve_key_with_carrier(
     ] {
         if let Some(mut texture) = decode(view, &path, &carrier) {
             texture.retain_first_strip_frame();
+            texture.downscale_to_max(128);
             if texture.rgba8.len() <= remaining_bytes {
                 return Ok(vec![(0, texture)]);
             }

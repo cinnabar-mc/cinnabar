@@ -362,10 +362,10 @@ fn contains_thirdperson_hand_branch(value: &Value) -> bool {
 /// Custom resource packs identify player armor by the vanilla player armor geometry family.
 fn player_armor_slot(geometry: &str) -> Option<ArmorSlot> {
     Some(match geometry {
-        "geometry.player.armor.helmet" => ArmorSlot::Helmet,
-        "geometry.player.armor.chestplate" => ArmorSlot::Chestplate,
-        "geometry.player.armor.leggings" => ArmorSlot::Leggings,
-        "geometry.player.armor.boots" => ArmorSlot::Boots,
+        "geometry.player.armor.helmet" | "geometry.humanoid.armor.helmet" => ArmorSlot::Helmet,
+        "geometry.player.armor.chestplate" | "geometry.humanoid.armor.chestplate" => ArmorSlot::Chestplate,
+        "geometry.player.armor.leggings" | "geometry.humanoid.armor.leggings" => ArmorSlot::Leggings,
+        "geometry.player.armor.boots" | "geometry.humanoid.armor.boots" => ArmorSlot::Boots,
         _ => return None,
     })
 }

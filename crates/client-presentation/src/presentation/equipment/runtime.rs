@@ -95,6 +95,17 @@ pub(super) fn skull_kind(identifier: &str) -> Option<SkullKind> {
     SkullKind::from_block_identifier(identifier).filter(|kind| kind.packed_rig_index().is_some())
 }
 
+/// Maps generic humanoid armor geometries used by third-party attachables to the native player armor rig.
+pub(super) fn canonical_armor_geometry_identifier(identifier: &str) -> &str {
+    match identifier {
+        "geometry.humanoid.armor.helmet" => "geometry.player.armor.helmet",
+        "geometry.humanoid.armor.chestplate" => "geometry.player.armor.chestplate",
+        "geometry.humanoid.armor.leggings" => "geometry.player.armor.leggings",
+        "geometry.humanoid.armor.boots" => "geometry.player.armor.boots",
+        other => other,
+    }
+}
+
 /// Generated item meshes kept resident; further distinct items draw nothing.
 const MAX_ITEM_MESHES: usize = 512;
 
@@ -614,17 +625,20 @@ impl EquipmentRuntime {
         if let Some(entry) = self.armor_geometry.get(identifier) {
             return entry.clone();
         }
-        let entry = find_geometry_index(&self.assets, identifier).and_then(|index| {
-            Some(Arc::new(ArmorGeometry {
-                rig: equipment_rig_id(index),
-                names: geometry_bone_names(&self.assets, index as usize)?,
-                pivots: geometry_bone_pivots(&self.assets, index as usize)?,
-                binding_expressions: geometry_bone_binding_expressions(
-                    &self.assets,
-                    index as usize,
-                )?,
-            }))
-        });
+        let canonical = canonical_armor_geometry_identifier(identifier);
+        let entry = find_geometry_index(&self.assets, identifier)
+            .or_else(|| find_geometry_index(&self.assets, canonical))
+            .and_then(|index| {
+                Some(Arc::new(ArmorGeometry {
+                    rig: equipment_rig_id(index),
+                    names: geometry_bone_names(&self.assets, index as usize)?,
+                    pivots: geometry_bone_pivots(&self.assets, index as usize)?,
+                    binding_expressions: geometry_bone_binding_expressions(
+                        &self.assets,
+                        index as usize,
+                    )?,
+                }))
+            });
         self.armor_geometry.insert(identifier.into(), entry.clone());
         entry
     }

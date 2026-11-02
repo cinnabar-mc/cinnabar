@@ -49,6 +49,17 @@ impl StagedSessionIcons {
                 .entry(Box::from(icon.identifier.as_ref()))
                 .or_default()
                 .insert(icon.metadata, sprites.len());
+            let short = icon
+                .identifier
+                .rsplit_once(':')
+                .map_or(icon.identifier.as_ref(), |(_, name)| name);
+            if short != icon.identifier.as_ref() {
+                by_identifier
+                    .entry(Box::from(short))
+                    .or_default()
+                    .entry(icon.metadata)
+                    .or_insert(sprites.len());
+            }
             sprites.push(IconSprite {
                 width,
                 height,
@@ -195,7 +206,12 @@ impl EquipmentRuntime {
         &self,
         identifier: &str,
     ) -> Option<(usize, Placement, ActorArtworkLocation)> {
-        let sheet = *self.session.block_sheets.get(identifier)?;
+        let short = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
+        let sheet = *self
+            .session
+            .block_sheets
+            .get(identifier)
+            .or_else(|| self.session.block_sheets.get(short))?;
         let (placement, location) = self.session_placement(sheet)?;
         Some((sheet, placement, location))
     }
@@ -206,8 +222,14 @@ impl EquipmentRuntime {
         identifier: &str,
         metadata: u32,
     ) -> Option<(usize, Placement, ActorArtworkLocation)> {
-        let variants = self.session.by_identifier.get(identifier)?;
-        let index = *variants.get(&metadata).or_else(|| variants.get(&0))?;
+        let lookup = |id: &str| {
+            let variants = self.session.by_identifier.get(id)?;
+            variants.get(&metadata).or_else(|| variants.get(&0)).copied()
+        };
+        let index = lookup(identifier).or_else(|| {
+            let short = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
+            (short != identifier).then(|| lookup(short)).flatten()
+        })?;
         let (placement, location) = self.session_placement(index)?;
         Some((index, placement, location))
     }
