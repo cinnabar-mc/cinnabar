@@ -5,12 +5,16 @@ use render_scene::PipelineWarmupReadiness;
 
 use std::collections::HashSet;
 
+#[path = "pipeline_warmup/progress.rs"]
+mod progress;
+use progress::{WarmupCounts, WarmupProgress};
+
 #[cfg(test)]
 use bevy::prelude::{Handle, Mut, Shader, World, default};
 use bevy::{
     prelude::{
         App, BevyError, Has, Local, Msaa, Query, Res, ResMut, Resource, Result, SubApp, SystemSet,
-        error,
+        error, info,
     },
     render::{
         Render, RenderApp, RenderSystems,
@@ -228,9 +232,18 @@ fn publish_readiness(
     cache: Res<PipelineCache>,
     mut registry: ResMut<WarmupRegistry>,
     shared: Res<PipelineWarmupReadiness>,
+    mut progress: Local<WarmupProgress>,
 ) {
     let ready = registered_pipelines_ready(&cache, &mut registry);
     shared.set_ready(ready);
+    if progress.wants_counts(ready) {
+        let counts = WarmupCounts::read(&cache, &registry.ids, registry.pending);
+        let workers =
+            bevy::tasks::AsyncComputeTaskPool::try_get().map_or(0, |pool| pool.thread_num());
+        if let Some(line) = progress.observe(&counts, workers, web_time::Instant::now()) {
+            info!("{line}");
+        }
+    }
 }
 
 /// Shader loads keep loading held; terminal compile errors are logged once and stop blocking.
