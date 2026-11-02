@@ -56,32 +56,50 @@ fn suffixed_recipe_names_preserve_metadata_constraints() {
     }
 }
 
-/// Ambiguous suffixes and malformed identities cannot introduce craft authority.
+/// Bedrock's item-ID parser lets a suffix in `0..=255` replace the descriptor
+/// aux and keeps the descriptor aux for any other suffix.
 #[test]
-fn suffixed_recipe_names_reject_conflicts_and_invalid_descriptors() {
-    for (name, aux, key) in [
-        ("minecraft:white_wool:1", 0, "name"),
-        ("minecraft:white_wool:65536", 0, "name"),
-        ("minecraft:white_wool:-1", 0, "name"),
-        ("minecraft:white_wool:+0", 0, "name"),
-        ("minecraft:white_wool:color", 0, "name"),
-        ("minecraft:white_wool::0", 0, "name"),
-        ("minecraft:white_wool:", 0, "name"),
-        ("minecraft:planks:0", 0, "item_tag"),
+fn suffixed_recipe_names_resolve_aux_as_bedrock_does() {
+    for (name, aux, expected) in [
+        ("minecraft:white_wool:1", 0, 1),
+        ("minecraft:white_wool:255", 0, 255),
+        ("minecraft:white_wool:256", 3, 3),
+        ("minecraft:white_wool:65536", 3, 3),
+        ("minecraft:white_wool:-1", 3, 3),
+        ("minecraft:white_wool:color", 3, 3),
+        ("minecraft:white_wool::0", 3, 3),
+        ("minecraft:white_wool:", 3, 3),
+        ("minecraft:white_wool:2:9", 0, 2),
     ] {
-        let mut input = IngredientFixture::named(name, aux);
-        input.descriptor[0].0 = key.into();
         let catalog = catalog(vec![RecipeFixture::shapeless(
-            "test:invalid",
-            vec![input],
+            "test:suffix",
+            vec![IngredientFixture::named(name, aux)],
             vec![OutputFixture::new(421, 1)],
         )]);
-        assert_eq!(
-            catalog.crafting_recipes().count(),
-            0,
-            "admitted {key} {name} with aux {aux}"
-        );
+        for metadata in [0, 1, 2, 3, 255] {
+            let mut wool = item("minecraft:white_wool");
+            wool.as_mut().unwrap().metadata = metadata;
+            let result = match_crafting_grid(&catalog, 2, &[wool, None, None, None]);
+            assert_eq!(
+                matches!(result, CraftGridMatch::Unique(_)),
+                metadata == expected,
+                "{name} with aux {aux} against metadata {metadata}"
+            );
+        }
     }
+}
+
+/// Tags are not item IDs, so a metadata suffix leaves the tag unusable.
+#[test]
+fn suffixed_recipe_tags_are_not_admitted() {
+    let mut input = IngredientFixture::named("minecraft:planks:0", 0);
+    input.descriptor[0].0 = "item_tag".into();
+    let catalog = catalog(vec![RecipeFixture::shapeless(
+        "test:invalid",
+        vec![input],
+        vec![OutputFixture::new(421, 1)],
+    )]);
+    assert_eq!(catalog.crafting_recipes().count(), 0);
 }
 
 /// Encode an ingredient through the same descriptor grammar used on the wire.
