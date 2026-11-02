@@ -45,6 +45,7 @@ fn broken(harvest: bool) -> CallbackRes {
         snapshot: vec![loaded(ANCHOR, AIR, false, None)],
         network: None,
         inventory: None,
+        pose: None,
         containers: None,
         call: Call::Break {
             change: Change {

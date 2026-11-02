@@ -136,6 +136,15 @@
     ],
     "game_mode": "creative"
   },
+  "pose": {
+    "yaw": -90.5,
+    "pitch": 12.25,
+    "on_ground": true,
+    "sneaking": true,
+    "sprinting": false,
+    "swimming": false,
+    "gliding": false
+  },
   "containers": {
     "blocks": [
       {
