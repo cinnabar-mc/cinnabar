@@ -6,8 +6,8 @@
 //! use lives in `item_use`.
 
 use client_interaction::block_use::{
-    BlockUseRuntime, FramePick, held_block_store_id, predicted_placement, predicted_seed_planting,
-    predicted_toggle, verified_use_selection,
+    BlockUseRuntime, FramePick, held_block_store_id, paired_item_block, paired_item_fits,
+    predicted_placement, predicted_seed_planting, predicted_toggle, verified_use_selection,
 };
 
 use crate::runtime::network::resource_packs::PackApplication;

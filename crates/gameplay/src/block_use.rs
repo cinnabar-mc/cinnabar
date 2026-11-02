@@ -700,3 +700,6 @@ pub use pick::{BlockPick, PickResult};
 
 mod seed;
 pub use seed::seed_planting_cell;
+
+mod paired_item;
+pub use paired_item::{paired_item_block, paired_item_fits};

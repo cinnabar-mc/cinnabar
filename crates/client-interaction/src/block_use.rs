@@ -172,6 +172,46 @@ pub fn predicted_seed_planting(
     Some((cell, crop))
 }
 
+/// The block a selected door or bed item places, which vanilla items name without carrying
+/// a block of their own. Block items resolve through [`held_block_store_id`] instead.
+pub fn paired_item_block(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    item: &protocol::VerifiedNetworkItemStack,
+) -> Option<u32> {
+    if item.block_runtime_id() != 0 {
+        return None;
+    }
+    let identifier = stream.authority().item_identifier(item.network_id())?;
+    gameplay::block_use::paired_item_block(collisions, stream.network_id_mode(), &identifier)
+}
+
+/// Whether the observed click has room for the door or bed `block`, read through the caller's
+/// palette view and the same yaw placement prediction uses.
+pub fn paired_item_fits(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    block: u32,
+    observed: &FrozenBlockObservation,
+    surroundings: &UseSurroundings,
+    view: LocalViewPose,
+) -> bool {
+    let mode = stream.network_id_mode();
+    let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+    gameplay::block_use::paired_item_fits(
+        collisions.block_facts(mode, block),
+        observed.target.position,
+        observed.target.face,
+        gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
+        surroundings,
+        |cell| {
+            let block = world.primary_runtime_id(cell).ok()?;
+            Some(collisions.block_facts(mode, block))
+        },
+    )
+}
+
 /// Resolves switch prediction through the caller's observed palette view.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
@@ -193,7 +233,7 @@ pub fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
     world: &PaletteWorld<'_>,
-    item_block: i32,
+    held: u32,
     observed: &FrozenBlockObservation,
     surroundings: &UseSurroundings,
     view: LocalViewPose,
@@ -206,7 +246,7 @@ pub fn predicted_placement(
     gameplay::block_use::predicted_placement(
         collisions,
         mode,
-        held_block_store_id(stream, item_block)?,
+        held,
         world,
         &gameplay::block_use::PlacementContext {
             clicked: observed.target.position,
