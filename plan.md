@@ -1026,6 +1026,7 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   existing texture-layer and byte budgets. Declared pack-relative image paths and session
   player skins retain independent controller layers. Other entity material modes and menu-controller
   layer acceptance remain open.
+  Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   A screen's live player renderer draws the same animated actor from its own palette, the
   head subtree turned toward the pointer. It replaces the head's orientation rather than
   re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
