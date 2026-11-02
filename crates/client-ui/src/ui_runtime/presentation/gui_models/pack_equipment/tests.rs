@@ -103,6 +103,29 @@ fn previews_use_pack_armor_reuse_unchanged_pages_and_restore_base_on_removal() {
     assert!(presentation.gui_models.pack_equipment.regions.is_empty());
 }
 
+/// Base items can fill the whole model atlas, which must not cost the doll its pack armor.
+#[test]
+fn pack_armor_dresses_the_doll_when_base_models_fill_the_atlas() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let side = render_model::UI_MODEL_ATLAS_SIDE;
+    let page =
+        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
+    presentation.gui_models.enabled = true;
+    presentation.gui_models.sources.pages = vec![page; MODEL_PAGES];
+    presentation.gui_models.sources.required_pages = MODEL_PAGES;
+    let color = [77, 88, 99, 255];
+    presentation.set_preview_pack_equipment(Some(catalog(color)));
+    wear_chestplate(&mut presentation);
+
+    let icon = presentation.gui_models.pack_equipment.region(1).unwrap();
+    let page = &presentation.textures.pages()[usize::from(icon.page)];
+    let start =
+        (usize::from(icon.uv[1]) * page.dimensions()[0] as usize + usize::from(icon.uv[0])) * 4;
+    assert_eq!(&page.pixels()[start..start + 4], &color);
+    assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
+}
+
 #[test]
 fn preview_armour_keeps_base_art_when_the_pack_has_only_secondary_artwork() {
     let mut presentation =
@@ -134,7 +157,7 @@ fn preview_armour_keeps_base_art_when_the_pack_has_only_secondary_artwork() {
 }
 
 #[test]
-fn actor_flame_reclamation_keeps_session_armor_texels_addressable() {
+fn actor_flame_reclamation_leaves_session_armor_in_place() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let side = render_model::UI_MODEL_ATLAS_SIDE;
@@ -170,15 +193,16 @@ fn actor_flame_reclamation_keeps_session_armor_texels_addressable() {
     };
     presentation.set_gui_fire_texture(Some(&fire)).unwrap();
     let icon = presentation.gui_models.pack_equipment.region(1).unwrap();
-    assert_ne!(icon.page, previous);
+    assert_eq!(icon.page, previous);
     let page = &presentation.textures.pages()[usize::from(icon.page)];
-    let start = (usize::from(icon.uv[1]) * side as usize + usize::from(icon.uv[0])) * 4;
+    let start =
+        (usize::from(icon.uv[1]) * page.dimensions()[0] as usize + usize::from(icon.uv[0])) * 4;
     assert_eq!(&page.pixels()[start..start + 4], &color);
     assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);
 }
 
 #[test]
-fn review_session_armor_reclaims_optional_models_without_losing_flames() {
+fn session_armor_leaves_optional_models_and_flames_installed() {
     let mut presentation =
         UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
     let side = render_model::UI_MODEL_ATLAS_SIDE;
@@ -218,18 +242,15 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
     let color = [77, 88, 99, 255];
     presentation.set_preview_pack_equipment(Some(catalog(color)));
     wear_chestplate(&mut presentation);
+    assert!(presentation.gui_models.pack_equipment.region(1).is_some());
     assert!(
-        presentation.gui_models.pack_equipment.region(1).is_some(),
-        "optional icons must not disable session armor"
-    );
-    assert!(
-        !presentation
+        presentation
             .gui_models
             .sources
             .models
             .contains_key(&icon_key(optional))
     );
-    assert_eq!(presentation.gui_models.sources.pages.len(), 2);
+    assert_eq!(presentation.gui_models.sources.pages.len(), MODEL_PAGES);
     assert_eq!(presentation.gui_models.fire.frames.len(), 2);
     for (icon, expected) in [
         (presentation.gui_models.fire.frames[0], [11, 22, 33, 255]),
@@ -239,7 +260,8 @@ fn review_session_armor_reclaims_optional_models_without_losing_flames() {
         ),
     ] {
         let page = &presentation.textures.pages()[usize::from(icon.page)];
-        let start = (usize::from(icon.uv[1]) * side as usize + usize::from(icon.uv[0])) * 4;
+        let width = page.dimensions()[0] as usize;
+        let start = (usize::from(icon.uv[1]) * width + usize::from(icon.uv[0])) * 4;
         assert_eq!(&page.pixels()[start..start + 4], &expected);
     }
     assert!(presentation.textures.plan().bytes() <= render_model::MAX_UI_TEXTURE_BYTES);

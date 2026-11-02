@@ -650,6 +650,11 @@ impl Rig {
         }
     }
 
+    /// The head's pitch and its yaw relative to the body, in radians.
+    pub(super) fn head_look(&self) -> (f32, f32) {
+        (self.head_pitch, self.head_yaw)
+    }
+
     pub(super) fn project(&self, vertex: ActorVertex) -> ProjectedVertex {
         let mut local = vertex.position;
         if let Some(Some(transform)) = self.parts.get(vertex.part as usize) {

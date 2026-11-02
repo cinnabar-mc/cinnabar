@@ -310,3 +310,90 @@ fn directed_mining_preserves_actor_and_item_directed_attack_ownership() {
         );
     }
 }
+
+#[test]
+fn explicit_break_batch_removes_loaded_neighbors_together_and_only_once() {
+    let (mut world, _) = unpublished_attack_fixture(-30.0);
+    item_use_tests::hold_snowball(&mut world);
+    let scope = {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let stone = assets::read_registry_for_protocol(
+            assets::pinned_block_registry_bytes(),
+            assets::active_content_registry_protocol(),
+        )
+        .unwrap()
+        .iter()
+        .find(|r| r.name.as_ref() == "minecraft:stone")
+        .unwrap()
+        .sequential_id;
+        stream.predict_block([5, 2, 6], 0, stone);
+        (
+            stream.authority().actor_session_id(),
+            stream.current_dimension(),
+        )
+    };
+    world.insert_resource(ModInteraction {
+        block_breaks: vec![[4, 2, 6], [5, 2, 6]],
+        block_break_scope: Some(scope),
+        ..Default::default()
+    });
+    frame(&mut world, 102);
+    assert!(world.resource::<ModInteraction>().block_breaks.is_empty());
+    let client = world.resource::<crate::runtime::world::ClientWorld>();
+    let stream = client.stream.as_ref().unwrap();
+    let registries = world.resource::<PhysicsCollisionRegistries>();
+    let view = sim::PaletteWorld::new(
+        stream.collision_store(),
+        registries.registry(stream.network_id_mode()),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    assert!(view.is_air([4, 2, 6]).unwrap());
+    assert!(view.is_air([5, 2, 6]).unwrap());
+}
+
+#[test]
+fn explicit_break_batch_discards_stale_scope_focus_loss_and_denied_modes() {
+    for kind in 0..3 {
+        let (mut world, _) = unpublished_attack_fixture(-30.0);
+        item_use_tests::hold_snowball(&mut world);
+        let stream = world
+            .resource::<crate::runtime::world::ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap();
+        let mut scope = (
+            stream.authority().actor_session_id(),
+            stream.current_dimension(),
+        );
+        match kind {
+            0 => scope.0 += 1,
+            1 => {
+                let mut query = world.query::<&mut Window>();
+                query.single_mut(&mut world).unwrap().focused = false;
+            }
+            _ => world
+                .resource_mut::<client_state::PlayerRuntime>()
+                .facts
+                .publish_player_game_mode(PlayerGameMode::Spectator),
+        }
+        world.insert_resource(ModInteraction {
+            block_breaks: vec![[4, 2, 6]],
+            block_break_scope: Some(scope),
+            ..Default::default()
+        });
+        frame(&mut world, 102);
+        assert!(world.resource::<ModInteraction>().block_breaks.is_empty());
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_ref().unwrap();
+        let registries = world.resource::<PhysicsCollisionRegistries>();
+        let view = sim::PaletteWorld::new(
+            stream.collision_store(),
+            registries.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            Default::default(),
+        );
+        assert!(!view.is_air([4, 2, 6]).unwrap());
+    }
+}

@@ -382,6 +382,28 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Whether a local actor's bone is `ancestor` or one of its descendants in the rig.
+    pub fn bone_descends_from(&self, runtime_id: u64, bone: usize, ancestor: usize) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+        else {
+            return false;
+        };
+        // UI poses index the skin's skeleton when the skin brings its own geometry.
+        let bones = state.posed_bones();
+        let mut current = Some(bone);
+        for _ in 0..=bones.len() {
+            match current {
+                Some(index) if index == ancestor => return true,
+                Some(index) => current = bones.get(index).and_then(|bone| bone.parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
     /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
     pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
         let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;

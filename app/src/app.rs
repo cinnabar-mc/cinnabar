@@ -94,8 +94,8 @@ use {
         shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-            drive_world_inventory_keys, flush_server_form_network,
+            drive_command_block, drive_inventory_ui_actions, drive_server_form_input,
+            drive_sign_editor, drive_world_inventory_keys, flush_server_form_network,
             gameplay_touch::drive_gameplay_touch_targets,
             presentation::{
                 dials::advance_dials, drive_menu_panorama, observe_mount_jump_input,

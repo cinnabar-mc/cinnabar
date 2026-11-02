@@ -15,6 +15,7 @@ const SIZE: [u32; 2] = [800, 600];
 
 mod ordered;
 mod scrollbar;
+mod sign_over;
 
 #[test]
 fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {

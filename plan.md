@@ -988,6 +988,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
   rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
   cross-platform device acceptance remains incomplete.
+  Signs, command blocks, server forms, data-driven forms, emotes, mob effects, chat and inventories take keyboard
+  Signs, server forms, data-driven forms, emotes, mob effects, chat and inventories take keyboard
+  and pointer input as the frame's owner: the scene on top when the frame began, while it stays on
+  top. The architecture gate rejects a screen system that reads input without it. The reference
+  client delivers input to the top scene and scenes that always accept it, and it applies screen
+  pops in its stack update; where that update falls among a frame's input is unverified, so the
+  closing-frame fence is Cinnabar's choice. Launcher menu input, mod panels, consent and modal
+  input still use their own checks because they aren't routed through the scene owner yet. Touch and
+  gamepad device acceptance of the owner remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -1009,8 +1018,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.
-  The inventory's live player renderer still draws the static preview model turned toward
-  the pointer; native renders the animated actor there, so that remains incomplete.
+  A screen's live player renderer draws the same animated actor from its own palette, the
+  head subtree turned toward the pointer. It replaces the head's orientation rather than
+  re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
+  rotation still sees the world's; that remains incomplete. Rendered and hardware
+  acceptance of the second palette remain open.
   The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
   the local player has an effect, listing iconed effects in id order with potency and
   `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
@@ -1065,6 +1077,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   and result declarations. Advertised banner application recipes match current workbench inputs
   and preserve their output data. Patterned rendering, matched input/packet timing and broader
   crafting and container acceptance remain incomplete.
+  Shift-double-click transfers keep the cursor unchanged within one stack-request batch.
+  Transfers exceeding the wire action budget still need deferred multi-batch handling;
+  matched transfer timing and broad custom-container acceptance remain incomplete.
   Hover reports and actor use share the attack's game-mode actor cap.
   Actor rays use loaded collision defaults, authoritative dimensions and scale, and
   constructor pick radii. Attack, use and hover preserve the selected world intercept.
@@ -1140,6 +1155,13 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   NPC dialogue actions expose command/URL labels and pointer hit targets through
   their JSON-UI collection. Actor portraits, matched acceptance for larger action
   lists and touch/console behavior remain incomplete.
+  A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
+  its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
+  minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste
+  button (Ctrl+V pastes), Ctrl+A selecting its text, the profanity filter on shown text, the
+  unicode-to-ASCII command input map, moving focus to the box on maximize and the gamepad-only close-button layout
+  remain incomplete. Ctrl+V into an engine edit box is bounded by that box's capacity; whether
+  the native route from the clipboard to its edit box adds a lower limit was not read.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
   and remaining image admission and download-deadline parity remain incomplete.
   Data-driven UI (DDUI) data stores follow the server's replacements, path updates,
@@ -1608,6 +1630,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   the new regressions, live overrun recovery, suspension pacing and slow-device qualification
   remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
+- Granted interaction and terrain mods can submit bounded explicit block destruction batches.
+  The host resolves current loaded cells and held items, retains game-mode edit permissions,
+  and carries the batch through movement replay and cancellation. These explicit requests
+  bypass local mining time, reach and obstruction; server acceptance and live qualification
+  remain unverified.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;
   overflow can differ from native gates. Desktop routing regressions cover consumption,

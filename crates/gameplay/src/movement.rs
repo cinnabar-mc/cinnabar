@@ -31,6 +31,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod requested_breaks;
 mod respawn;
 pub mod session_blocks;
 mod speed_authority;
