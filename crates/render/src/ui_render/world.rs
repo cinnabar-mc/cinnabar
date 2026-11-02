@@ -9,7 +9,6 @@ pub(crate) type UiViewQuery = (
     &'static ExtractedCamera,
     Option<&'static ViewDepthStencilTexture>,
     Option<&'static MainPassResolutionOverride>,
-    Option<&'static crate::render_scale::RenderScaleOutput>,
 );
 
 /// Draws projected UI in authored order after world filtering.
@@ -35,7 +34,7 @@ pub(super) fn ui_world(
 pub(crate) fn draw_ui_view(
     view_entity: Entity,
     context: &mut RenderContext,
-    (target, scene_target, _, camera, depth, resolution_override, output): QueryItem<UiViewQuery>,
+    (target, scene_target, _, camera, depth, resolution_override): QueryItem<UiViewQuery>,
     world: &World,
     gpu: &UiGpu,
     batches: &[UiRenderBatch],
@@ -175,14 +174,10 @@ pub(crate) fn draw_ui_view(
                     .unwrap(),
                 &[],
             );
-            let extent = crate::render_bounds::extent(scene_target.color_view(false));
-            let scissor = match output {
-                Some(output) => {
-                    super::layer::scaled_scissor(batch.scissor, output.0.to_array(), extent)
-                }
-                None => crate::render_bounds::scissor(batch.scissor, extent),
-            };
-            let Some(scissor) = scissor else {
+            let Some(scissor) = crate::render_bounds::scissor(
+                batch.scissor,
+                crate::render_bounds::extent(scene_target.color_view(false)),
+            ) else {
                 continue;
             };
             pass.set_scissor_rect(scissor.x, scissor.y, scissor.width, scissor.height);

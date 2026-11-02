@@ -8,7 +8,6 @@ type HandViewQuery = (
     &'static ViewTarget,
     &'static crate::scene_target::SceneTarget,
     &'static Msaa,
-    Option<&'static crate::render_scale::RenderScaleOutput>,
 );
 
 /// Draws the accepted hand frame and records coverage only after encoding its draw.
@@ -18,7 +17,7 @@ pub(crate) fn hand_view(
     mut context: RenderContext,
 ) -> bevy::ecs::error::Result {
     let view_entity = query.entity();
-    let (owner, view, camera, target, scene_target, msaa, scaled) = query.into_inner();
+    let (owner, view, camera, target, scene_target, msaa) = query.into_inner();
     let context = &mut context;
     let (Some(gpu), Some(gate), Some(drawn), Some(cache)) = (
         world.get_resource::<HandGpu>(),
@@ -37,30 +36,17 @@ pub(crate) fn hand_view(
         ViewmodelCompletionGate::observe_stage(3, 3, Some(token));
         return Ok(());
     }
-    if camera.hdr != token.hdr || msaa.samples() != token.samples {
+    if camera.hdr != token.hdr
+        || msaa.samples() != token.samples
+        || view.viewport != UVec4::new(0, 0, token.viewport[0], token.viewport[1])
+    {
         ViewmodelCompletionGate::observe_stage(3, 4, Some(token));
         gate.reject(token);
         return Ok(());
     }
     let color = &scene_target.texture;
     let extent = color.size();
-    let main = target.main_texture().size();
-    let render_size = [extent.width, extent.height];
-    if hand_render_extent(
-        token,
-        view.viewport,
-        target
-            .out_texture()
-            .map(|output| crate::render_bounds::extent(output)),
-        scaled.map(|scaled| scaled.0.to_array()),
-        [main.width, main.height],
-    ) != Some(render_size)
-        || color.sample_count() != token.samples
-        || gpu
-            .depth
-            .as_ref()
-            .is_none_or(|depth| depth.size != render_size || depth.samples != token.samples)
-    {
+    if [extent.width, extent.height] != token.viewport || color.sample_count() != token.samples {
         ViewmodelCompletionGate::observe_stage(3, 5, Some(token));
         gate.reject(token);
         return Ok(());

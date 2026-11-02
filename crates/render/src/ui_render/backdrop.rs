@@ -7,7 +7,6 @@
 //! retained layers never hold scene pixels and a changing scene needs no layer redraw. Without
 //! backdrop batches no pass runs and no pyramid stays allocated.
 
-use super::target::{NativeUiTarget, UiTarget};
 use super::*;
 use bevy::render::{
     render_resource::{
@@ -294,12 +293,7 @@ pub(crate) fn prepare_ui_backdrops(
     mut pipeline: ResMut<UiBackdropPipeline>,
     cache: Res<PipelineCache>,
     device: Res<RenderDevice>,
-    views: Query<(
-        Entity,
-        &ViewTarget,
-        &bevy::render::camera::ExtractedCamera,
-        Option<&NativeUiTarget>,
-    )>,
+    views: Query<(Entity, &ViewTarget, &bevy::render::camera::ExtractedCamera)>,
     gpu: Option<Res<UiGpu>>,
 ) {
     let store = &mut *store;
@@ -353,16 +347,13 @@ pub(crate) fn prepare_ui_backdrops(
             &device,
             [&filter, &shapes],
             &sampler,
-            views
-                .iter()
-                .map(|(entity, target, _, native)| (entity, UiTarget::new(target, native))),
+            views.iter().map(|(entity, target, _)| (entity, target)),
         );
     }
     if !backdrops {
         return;
     }
-    for (entity, target, camera, native) in &views {
-        let target = UiTarget::new(target, native);
+    for (entity, target, camera) in &views {
         let size = target.main_texture().size();
         let scene = [size.width, size.height];
         if store
@@ -446,7 +437,6 @@ pub(super) struct BackdropDraw<'a> {
     pub(super) indices: &'a Buffer,
     pub(super) view: Entity,
     pub(super) viewport: Option<&'a bevy::camera::Viewport>,
-    pub(super) output_extent: Option<[u32; 2]>,
 }
 
 /// Blurs the scene once and draws `backdrops` over it into the next main texture. Returns false,
@@ -454,7 +444,7 @@ pub(super) struct BackdropDraw<'a> {
 pub(super) fn apply_backdrops(
     context: &mut RenderContext,
     draw: &BackdropDraw<'_>,
-    target: UiTarget<'_>,
+    target: &ViewTarget,
     backdrops: &[(usize, &UiRenderBatch, UiTextureLocation)],
 ) -> bool {
     let world = draw.world;
@@ -545,7 +535,6 @@ pub(super) fn apply_backdrops(
         draw.indices,
         draw.viewport,
         crate::render_bounds::extent(post.destination),
-        draw.output_extent,
         backdrops,
         None,
         None,
