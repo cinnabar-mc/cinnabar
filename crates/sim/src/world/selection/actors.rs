@@ -92,6 +92,23 @@ impl PaletteWorld<'_> {
         }
     }
 
+    /// Resolves a piston arm's collision boxes and the owner whose column versions them.
+    /// Native arm collision places the same three per-facing boxes as the arm's selection
+    /// at the owning piston's progress and adds nothing while that actor is absent.
+    pub(in crate::world) fn piston_arm_collision<'a>(
+        &self,
+        position: [i32; 3],
+        physics: &'a BlockPhysics,
+    ) -> Result<Option<([i32; 3], Cow<'a, [Aabb]>)>, WorldQueryError> {
+        if physics.selection_context != SelectionContext::PistonArm {
+            return Ok(None);
+        }
+        let Some(owner) = self.actor_selection_owner(position, physics)? else {
+            return Ok(None);
+        };
+        Ok(Some((owner, self.actor_selection(position, physics)?)))
+    }
+
     /// Counts unsupported actor geometry resolutions, including repeated ray halo visits.
     pub fn unsupported_actor_selection_count(&self) -> u32 {
         self.unsupported_actor_selections
