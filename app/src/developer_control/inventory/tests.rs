@@ -81,20 +81,20 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
 
     open_screen(&mut player, &mut ui, None).unwrap();
     assert!(ui.inventory_open());
-    assert_eq!(report(&player, &ui, None)["ready"], false);
+    assert_eq!(report(&player, &ui, None, true)["ready"], false);
     assert!(
         click_cell(&mut player, &mut ui, None, right(9))
             .unwrap_err()
             .starts_with("the client refused the click")
     );
     assert!(flush(&mut player, &mut ui) > 0, "the open request leaves");
-    assert_eq!(report(&player, &ui, None)["ready"], true);
+    assert_eq!(report(&player, &ui, None, true)["ready"], true);
     open_screen(&mut player, &mut ui, None).unwrap();
     assert!(ui.inventory_open(), "opening an open screen keeps it open");
 
     click_cell(&mut player, &mut ui, None, right(9)).unwrap();
     click_cell(&mut player, &mut ui, None, right(10)).unwrap();
-    let view = report(&player, &ui, None);
+    let view = report(&player, &ui, None, true);
     assert_eq!(view["screen"], "inventory");
     assert_eq!(view["cursor"]["identifier"], STONE);
     assert_eq!(count(&view["cursor"]), 15);
@@ -108,7 +108,7 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
 
     close_screen(&mut player, &mut ui).unwrap();
     assert!(!ui.inventory_open());
-    assert_eq!(report(&player, &ui, None)["open"], false);
+    assert_eq!(report(&player, &ui, None, true)["open"], false);
     assert_eq!(
         close_screen(&mut player, &mut ui).unwrap_err(),
         "no inventory screen is open"
@@ -195,4 +195,28 @@ fn cells_resolve_against_the_open_screen_layout() {
         );
     }
     assert_eq!(player.inventory.ledger().pending_request_count(), 0);
+}
+
+/// While a server form takes the player's input, the endpoint refuses to open the inventory,
+/// and an inventory opened beneath the form does not take clicks, as with the pointer.
+#[test]
+fn a_form_in_front_takes_the_inventory_input() {
+    let (mut player, mut ui) = player_with_stone();
+    let top = |player: &player_state::PlayerState, ui: &UiRuntime| {
+        crate::ui_runtime::input_owner::top_scene(ui, player, None)
+    };
+    assert_eq!(top(&player, &ui), Scene::Gameplay);
+    client_ui::test_support::pack_harness::admit_action_form(&mut ui, &mut player, "Form", &["OK"]);
+    assert_ne!(
+        top(&player, &ui),
+        Scene::Gameplay,
+        "open refuses under the form"
+    );
+    open_screen(&mut player, &mut ui, None).unwrap();
+    flush(&mut player, &mut ui);
+    assert_ne!(
+        top(&player, &ui),
+        Scene::Container,
+        "clicks refuse under the form"
+    );
 }

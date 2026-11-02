@@ -8,6 +8,7 @@ use client_ui::ui_runtime::{
     UiRuntime,
     inventory_drag::PointerAction,
     presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen, screens},
+    scene_stack::Scene,
 };
 use developer_control::{
     protocol::{ClickButton, Condition, InventoryClick, InventoryContainer},
@@ -23,13 +24,17 @@ use crate::runtime::world::ClientWorld;
 /// How long `inventory_open` waits for the screen to accept clicks.
 const OPEN_WAIT_MS: u64 = 5_000;
 
-/// Opens the player's inventory, replying once the screen accepts clicks.
+/// Opens the player's inventory, replying once the screen accepts clicks. Like the inventory
+/// key, it opens only from gameplay, never under another screen.
 pub(super) fn open(world: &mut World, reply: Reply) {
     let opened = with_inventory(world, |player, ui, world| {
         let stream = world
             .get_resource::<ClientWorld>()
             .and_then(|world| world.stream.as_ref())
             .ok_or("the player is not in a world")?;
+        if !ui.inventory_open() && foreground(world, player, ui) != Scene::Gameplay {
+            return Err(COVERED.into());
+        }
         open_screen(player, ui, Some(stream.authority().inventory_ui()))
     });
     match opened {
@@ -40,7 +45,12 @@ pub(super) fn open(world: &mut World, reply: Reply) {
 
 /// Closes the open screen as Escape does and reports the client's view right after.
 pub(super) fn close(world: &mut World) -> Result<Value, String> {
-    with_inventory(world, |player, ui, _| close_screen(player, ui))?;
+    with_inventory(world, |player, ui, world| {
+        if ui.inventory_open() && foreground(world, player, ui) != Scene::Container {
+            return Err(COVERED.into());
+        }
+        close_screen(player, ui)
+    })?;
     if let Some(mut focus) = world.get_resource_mut::<client_state::CursorFocus>() {
         focus.authorize_screen_return();
     }
@@ -50,6 +60,9 @@ pub(super) fn close(world: &mut World) -> Result<Value, String> {
 /// Clicks one cell and reports the predicted result.
 pub(super) fn click(world: &mut World, command: InventoryClick) -> Result<Value, String> {
     let request_id = with_inventory(world, |player, ui, world| {
+        if ui.inventory_open() && foreground(world, player, ui) != Scene::Container {
+            return Err(COVERED.into());
+        }
         click_cell(player, ui, presentation(world), command)
     })?;
     Ok(json!({ "request_id": request_id, "inventory": snapshot(world) }))
@@ -61,7 +74,12 @@ pub(super) fn snapshot(world: &World) -> Value {
         world.get_resource::<client_state::PlayerRuntime>(),
         world.get_resource::<UiRuntimeResource>(),
     ) {
-        (Some(player), Some(ui)) => report(player, ui, presentation(world)),
+        (Some(player), Some(ui)) => report(
+            player,
+            ui,
+            presentation(world),
+            foreground(world, player, ui) == Scene::Container,
+        ),
         _ => Value::Null,
     }
 }
@@ -82,12 +100,33 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
         Condition::InventoryReady if !ledger.screen_accepts_gestures() => {
             Err("the inventory screen is still opening".into())
         }
+        Condition::InventoryReady if foreground(world, player, ui) != Scene::Container => {
+            Err(COVERED.into())
+        }
         Condition::InventorySettled if ledger.pending_request_count() != 0 => Err(format!(
             "{} inventory requests are waiting for the server",
             ledger.pending_request_count()
         )),
-        _ => Ok(report(player, ui, presentation(world))),
+        _ => Ok(report(
+            player,
+            ui,
+            presentation(world),
+            foreground(world, player, ui) == Scene::Container,
+        )),
     }
+}
+
+/// Why a command refuses while another screen takes the player's input.
+const COVERED: &str = "another screen is in front of the inventory";
+
+/// The screen that takes the player's keyboard and pointer input now, as the input owner
+/// decides it for the inventory's own input path.
+fn foreground(world: &World, player: &player_state::PlayerState, ui: &UiRuntime) -> Scene {
+    crate::ui_runtime::input_owner::top_scene(
+        ui,
+        player,
+        world.get_resource::<client_shell::menu::MenuRuntime>(),
+    )
 }
 
 /// The drawn UI, when the presentation runtime exists.
@@ -273,6 +312,7 @@ fn report(
     player: &player_state::PlayerState,
     ui: &UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
+    foreground: bool,
 ) -> Value {
     let ledger = ui.inventory_ledger(player);
     let item = |stack: Option<&NetworkItemStack>| {
@@ -290,12 +330,17 @@ fn report(
     let open = ui.inventory_open();
     let screen = open.then(|| InventoryScreen::of_runtime(player, ui));
     let grid = ledger.crafting_grid();
-    // Report an output only where the screen draws one, including a creative player's
-    // personal crafting view.
+    // Report the crafting grid's output only where the screen draws that grid and its
+    // output, including a creative player's personal crafting view. A station's result
+    // (an anvil's, say) is not a crafting-grid output and is not reported here.
     let shows_output = screen.is_some_and(|screen| {
-        drawn_cells(screen, presentation)
+        let drawn = drawn_cells(screen, presentation);
+        drawn
             .iter()
             .any(|(hit, _)| *hit == InventoryCellHit::CraftOutput)
+            && drawn
+                .iter()
+                .any(|(hit, _)| matches!(hit, InventoryCellHit::Craft(_)))
     });
     let output = shows_output
         .then(|| ui_screens::inventory_capture::crafting_output(ledger, ui.crafting_match(player)))
@@ -309,7 +354,7 @@ fn report(
     };
     json!({
         "open": open,
-        "ready": open && ledger.screen_accepts_gestures(),
+        "ready": open && foreground && ledger.screen_accepts_gestures(),
         "screen": screen.map(screen_name),
         "window": ledger.window_kind().map(|kind| format!("{kind:?}")),
         "pending_requests": ledger.pending_request_count(),
