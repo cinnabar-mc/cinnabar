@@ -76,6 +76,12 @@ pub enum HeldKind {
     Sprite,
     /// A block item, by block visual id.
     Block(u32),
+    /// A stack whose wire descriptor names a block state but whose aux value has no compiled item
+    /// visual. `state` is the named state's visual and `item` the item's own block visual.
+    RetainedBlock {
+        state: Option<u32>,
+        item: Option<u32>,
+    },
     Other,
 }
 

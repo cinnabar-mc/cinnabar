@@ -614,7 +614,18 @@ fn overlay_face_sheet_tinted(
             None
         };
         material.flags &= !assets::MATERIAL_FLAG_TINT_MASK;
+        let rotated =
+            material.flags & assets::MATERIAL_FLAG_UV_MASK == assets::MATERIAL_FLAG_UV_ROTATE_180;
+        if rotated {
+            material.flags &= !assets::MATERIAL_FLAG_UV_MASK;
+        }
         let mut tile = overlay_face_tile(overlay, &material, base)?;
+        if rotated {
+            Arc::make_mut(&mut tile.rgba8)
+                .as_chunks_mut::<4>()
+                .0
+                .reverse();
+        }
         if let Some(color) = color {
             for pixel in Arc::make_mut(&mut tile.rgba8).as_chunks_mut::<4>().0 {
                 for axis in 0..3 {

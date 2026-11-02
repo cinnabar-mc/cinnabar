@@ -245,16 +245,16 @@ impl EquipmentRuntime {
                     {
                         return Some((rig, location, true, span));
                     }
-                    let HeldKind::Block(visual) = item.kind else {
-                        return None;
-                    };
+                    let visual = runtime.held_block_visual(item.kind)?;
                     let (index, placement, location) = runtime.block_placement(visual)?;
                     (index, MeshKey::Block(visual), placement, location)
                 }
                 ItemArtwork::StartupSprite => {
                     match item.kind {
                         HeldKind::Other => return None,
-                        HeldKind::Block(_) if !icon_fallback => return None,
+                        HeldKind::Block(_) | HeldKind::RetainedBlock { .. } if !icon_fallback => {
+                            return None;
+                        }
                         _ => {}
                     }
                     let (index, placement, location) = runtime.held_icon_parts(item)?;

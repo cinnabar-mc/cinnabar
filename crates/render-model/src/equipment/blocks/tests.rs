@@ -140,6 +140,32 @@ fn cube_sheets_preserve_blended_and_cutout_face_pixels() {
     }
 }
 
+/// Full cubes declared through the versioned geometry turn their bottom face's UVs, and that
+/// must reach a held cube's tile rather than cost the block its sheet.
+#[test]
+fn a_rotated_face_material_turns_its_held_tile() {
+    const MARK: [u8; 4] = [250, 10, 10, 255];
+    let side = usize::from(BLOCK_ITEM_FACE_SIDE);
+    let mut source = overlay(
+        BlockFlags::CUBE_GEOMETRY,
+        assets::MATERIAL_FLAG_UV_ROTATE_180,
+        16,
+    );
+    let mip = &mut source.textures[0].mips[0];
+    let mut pixels = mip.rgba8.to_vec();
+    let layer_one = 16 * 16 * 4;
+    pixels[layer_one..layer_one + 4].copy_from_slice(&MARK);
+    mip.rgba8 = pixels.into();
+    let sheet = overlay_sheet(&source, 0, None).expect("a rotated face keeps its held sheet");
+    let width = usize::from(sheet.width);
+    let pixel = |x: usize, y: usize| {
+        let start = (y * width + x) * 4;
+        <[u8; 4]>::try_from(&sheet.rgba8[start..start + 4]).unwrap()
+    };
+    assert_eq!(pixel(side - 1, side - 1), MARK);
+    assert_ne!(pixel(0, 0), MARK);
+}
+
 #[test]
 fn world_isotropy_preserves_carried_cube_face_pixels() {
     for flags in [

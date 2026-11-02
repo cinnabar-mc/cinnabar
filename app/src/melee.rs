@@ -16,6 +16,7 @@ use semantic_input::Action;
 pub(crate) mod crosshair;
 mod hover;
 pub(crate) mod ordered;
+mod requested_breaks;
 pub(crate) mod server_swings;
 use crosshair::resolve_crosshair;
 
@@ -90,7 +91,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     pub(crate) time: Res<'w, Time<Real>>,
     pub(crate) aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     pub(crate) camera: Res<'w, client_presentation::camera::ServerCameraView>,
-    pub(crate) mod_interaction: Option<Res<'w, ModInteraction>>,
+    pub(crate) mod_interaction: Option<ResMut<'w, ModInteraction>>,
     pub(crate) physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
@@ -467,6 +468,7 @@ fn maintain_attacks(
     if let Some(hit) = admitted.actor_attack {
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }
+    requested_breaks::apply(&player, &mut context, &mut movement, active);
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,
