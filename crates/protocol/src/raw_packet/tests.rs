@@ -123,17 +123,31 @@ fn batch_bodies_split_in_order_within_their_bounds() {
             max: 8
         }))
     ));
+}
 
-    let one = entry(0x02, 0, 0, &[]);
-    let at_limit = joined(&vec![one.clone(); MAX_RAW_BATCH_PACKETS]);
-    assert_eq!(
-        decode_batch_body(at_limit, usize::MAX).unwrap().len(),
-        MAX_RAW_BATCH_PACKETS
-    );
-    let over_limit = joined(&vec![one; MAX_RAW_BATCH_PACKETS + 1]);
+#[test]
+fn large_batches_still_validate_the_final_entry() {
+    let entries: Vec<_> = (0..4_096u32)
+        .map(|value| entry(PacketId::PlayStatus as u32, 0, 0, &value.to_be_bytes()))
+        .collect();
+    let batch = joined(&entries);
+    let decoded = decode_batch_body(batch.clone(), batch.len()).unwrap();
+    for (packet, expected) in decoded.iter().zip(&entries) {
+        assert_eq!(packet.inner_frame(), expected);
+    }
+    assert_eq!(decoded.len(), entries.len());
+
+    let mut truncated = batch.to_vec();
+    truncated.extend_from_slice(&[100, 2]);
     assert!(matches!(
-        decode_batch_body(over_limit, usize::MAX),
-        Err(SessionError(SessionFailure::TooManyPackets { .. }))
+        decode_batch_body(truncated.into(), usize::MAX),
+        Err(SessionError(SessionFailure::TruncatedEntry { .. }))
+    ));
+    let mut malformed = batch.to_vec();
+    malformed.push(0x80);
+    assert!(matches!(
+        decode_batch_body(malformed.into(), usize::MAX),
+        Err(SessionError(SessionFailure::MalformedEntry(_)))
     ));
 }
 
