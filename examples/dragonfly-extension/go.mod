@@ -61,6 +61,6 @@ replace github.com/cinnabar-mc/cinnabar/tools/localserver => ../../tools/localse
 
 replace github.com/df-mc/dragonfly => github.com/cinnabar-mc/dragonfly v0.0.0-20261028135505-5e4c2e16fb50
 
-replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261028172540-f8448d729edd
+replace github.com/sandertv/gophertunnel => github.com/hashimthearab/gophertunnel v1.25.3-0.20261102212832-5221ad4d4661
 
 replace github.com/sandertv/go-raknet => github.com/hashimthearab/go-raknet v1.15.1-0.20261011190141-6124f52657d4
