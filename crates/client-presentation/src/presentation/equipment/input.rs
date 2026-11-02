@@ -3,12 +3,17 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::ItemVisualRoute;
+use assets::facts::FISHING_ROD_IDENTIFIER;
 use chunk_pipeline::WorldStream;
 use client_world::{ActorArmorSnapshot, CanonicalItemStack};
 use protocol::ActorHandedness;
 
+use super::super::viewmodel::stack_block_visual_id;
 use super::runtime::{ActorEquipmentInput, HeldKind, WornItem};
 use client_ui::ui_runtime::UiRuntime;
+
+/// The vanilla `item_texture.json` cast texture is the second fishing-rod variant.
+const FISHING_ROD_CAST_METADATA: u32 = 1;
 
 impl ActorEquipmentInput {
     /// Carries owner identity and complete equipment into attachable queries while retaining timing.
@@ -30,11 +35,14 @@ pub(super) fn worn_item(
     item: &CanonicalItemStack,
     dye_rgb: Option<u32>,
     use_facts: client_world::EffectiveItemUse,
+    fishing_rod_cast: bool,
 ) -> Option<WornItem> {
     if item.identity.is_empty() {
         return None;
     }
     Some(WornItem {
+        map_id: item.map_id,
+        shield_pattern: item.shield_pattern.clone(),
         charged_projectile: item
             .charged_projectile
             .as_ref()
@@ -42,7 +50,12 @@ pub(super) fn worn_item(
         use_facts,
         grip: item.grip,
         identifier: item.identifier.clone()?,
-        metadata: item.identity.metadata,
+        metadata: if fishing_rod_cast && item.identifier.as_deref() == Some(FISHING_ROD_IDENTIFIER)
+        {
+            FISHING_ROD_CAST_METADATA
+        } else {
+            item.identity.metadata
+        },
         damage: item.damage,
         kind: match item.visual {
             ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
@@ -56,7 +69,37 @@ pub(super) fn worn_item(
     })
 }
 
-fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
+/// Like [`worn_item`], drawing a stack with a retained block as vanilla builds it: a descriptor
+/// with a block runtime id takes its block from the palette, whatever its aux value.
+fn stream_worn_item(
+    stream: &WorldStream,
+    item: &CanonicalItemStack,
+    dye_rgb: Option<u32>,
+    use_facts: client_world::EffectiveItemUse,
+    fishing_rod_cast: bool,
+) -> Option<WornItem> {
+    let mut worn = worn_item(item, dye_rgb, use_facts, fishing_rod_cast)?;
+    if let ItemVisualRoute::RetainedBlock { block_runtime_id } = item.visual {
+        worn.kind = retained_block_kind(stream, &worn.identifier, block_runtime_id);
+    }
+    Some(worn)
+}
+
+/// Holds a retained block as the state it names, keeping the item's own art for the states the
+/// carried art cannot draw. An item drawn flat at its base value stays flat.
+fn retained_block_kind(stream: &WorldStream, identifier: &str, block_runtime_id: i32) -> HeldKind {
+    let state = stack_block_visual_id(stream, stream.runtime_assets(), block_runtime_id);
+    match stream.authority().named_item_visual(identifier, 0) {
+        ItemVisualRoute::Compiled(_) => HeldKind::Sprite,
+        ItemVisualRoute::BlockItem(item) => HeldKind::RetainedBlock {
+            state,
+            item: Some(item.0),
+        },
+        _ => HeldKind::RetainedBlock { state, item: None },
+    }
+}
+
+fn armor_slots(stream: &WorldStream, armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
     let Some(armor) = armor else {
         return [None, None, None, None];
     };
@@ -66,22 +109,41 @@ fn armor_slots(armor: Option<&ActorArmorSnapshot>) -> [Option<WornItem>; 4] {
         &armor.leggings,
         &armor.boots,
     ]
-    .map(|piece| worn_item(&piece.item, piece.dye_rgb, Default::default()))
+    .map(|piece| {
+        stream_worn_item(
+            stream,
+            &piece.item,
+            piece.dye_rgb,
+            Default::default(),
+            false,
+        )
+    })
+}
+
+/// Selects cast artwork while the actor owns a tracked hook.
+fn fishing_rod_cast(stream: &WorldStream, runtime_id: u64) -> bool {
+    stream
+        .authority()
+        .actor(runtime_id)
+        .is_some_and(|actor| stream.authority().has_fishing_hook(actor.unique_id))
 }
 
 /// A remote actor's equipment from its replicated equipment and armor events.
 pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInput {
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let held = |hand| {
         stream
             .authority()
             .actor_equipment_in_hand(runtime_id, hand)
             .and_then(|equipment| {
-                worn_item(
+                stream_worn_item(
+                    stream,
                     &equipment.item,
                     None,
                     stream
                         .authority()
                         .item_use_profile(equipment.item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -90,7 +152,19 @@ pub fn remote_input(stream: &WorldStream, runtime_id: u64) -> ActorEquipmentInpu
         is_local_player: false,
         main: held(ActorHandedness::Right),
         off: held(ActorHandedness::Left),
-        armor: armor_slots(stream.authority().actor_armor(runtime_id)),
+        armor: armor_slots(stream, stream.authority().actor_armor(runtime_id)),
+        body: stream
+            .authority()
+            .actor_armor(runtime_id)
+            .and_then(|armor| {
+                stream_worn_item(
+                    stream,
+                    &armor.body.item,
+                    armor.body.dye_rgb,
+                    Default::default(),
+                    false,
+                )
+            }),
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -106,18 +180,21 @@ pub fn local_input(
     runtime_id: u64,
 ) -> ActorEquipmentInput {
     use inventory::inventory_ledger::InventoryTarget;
+    let fishing_rod_cast = fishing_rod_cast(stream, runtime_id);
     let actor = stream.authority().actor(runtime_id);
     let resolve = |stack: &protocol::NetworkItemStack, dye_rgb: Option<u32>| {
         stream
             .authority()
             .canonical_item_stack(stack)
             .and_then(|item| {
-                worn_item(
+                stream_worn_item(
+                    stream,
                     &item,
                     dye_rgb,
                     stream
                         .authority()
                         .item_use_profile(item.identity.network_id),
+                    fishing_rod_cast,
                 )
             })
     };
@@ -142,6 +219,7 @@ pub fn local_input(
             &armor.boots,
         ]
         .map(|stack| resolve(stack, protocol::item_custom_color(&stack.extra_data))),
+        body: None,
         sneaking: actor.is_some_and(|actor| actor.is_sneaking()),
         sleeping: actor.is_some_and(|actor| actor.is_sleeping()),
         java: None,
@@ -167,6 +245,8 @@ pub(super) fn canonical_fixture(
         visual: assets::ItemVisualRoute::Missing,
         grip: assets::item::grip::ItemGrip::Unresolved,
         use_animation: assets::item_use::ItemUseAnimation::None,
+        map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         charged_projectile_role: assets::item_use::ItemProjectileRole::None,
         damage: None,
@@ -213,6 +293,8 @@ mod tests {
     #[test]
     fn local_attachable_input_retains_other_hand_and_render_timing() {
         let item = |identifier: &str| WornItem {
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -249,6 +331,32 @@ mod tests {
         assert_eq!(input.frame_alpha, 0.75);
         assert_eq!(input.use_elapsed_ticks, Some(2));
     }
+
+    #[test]
+    fn fishing_rod_uses_cast_icon_metadata_only_with_a_live_hook() {
+        let rod = canonical_fixture(FISHING_ROD_IDENTIFIER, false, false);
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), false)
+                .unwrap()
+                .metadata,
+            0
+        );
+        assert_eq!(
+            worn_item(&rod, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            FISHING_ROD_CAST_METADATA
+        );
+
+        let other = canonical_fixture("minecraft:stick", false, false);
+        assert_eq!(
+            worn_item(&other, None, Default::default(), true)
+                .unwrap()
+                .metadata,
+            0
+        );
+    }
+
     #[test]
     fn worn_glint_combines_intrinsic_dispositions_and_enchantment_facts() {
         let mut item = CanonicalItemStack {
@@ -267,32 +375,249 @@ mod tests {
             },
             identifier: Some(std::sync::Arc::from("minecraft:enchanted_book")),
             visual: ItemVisualRoute::Missing,
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             damage: None,
             enchanted: false,
         };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Unresolved;
         assert!(
-            !worn_item(&item, None, Default::default())
+            !worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.enchanted = true;
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
         );
         item.glint = assets::item::glint::ItemGlint::Session { enabled: false };
         assert!(
-            worn_item(&item, None, Default::default())
+            worn_item(&item, None, Default::default(), false)
                 .unwrap()
                 .has_glint()
+        );
+    }
+}
+
+#[cfg(test)]
+mod body_tests {
+    use super::*;
+    use protocol::{
+        ActorEvent, ActorKind, ActorSpawnEvent, ArmorEquipmentEvent, NetworkItemStack, WorldEvent,
+    };
+    use std::sync::Arc;
+
+    #[test]
+    fn replicated_body_slot_survives_input_and_removal_without_populating_other_slots() {
+        let mut stream = WorldStream::new(protocol::WorldBootstrap {
+            local_player_unique_id: 1,
+            local_player_runtime_id: 1,
+            dimension: 0,
+            player_position: [0.0; 3],
+            world_spawn_position: [0; 3],
+            air_network_id: 0,
+            block_network_ids_are_hashes: false,
+        });
+        let entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == "minecraft:red_harness")
+            .unwrap()
+            .clone();
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry.clone()])
+        }));
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:happy_ghast".into(),
+                    },
+                    position: [0.0; 3],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                    links: Arc::from([]),
+                })),
+            )
+            .unwrap();
+        assert!(remote_input(&stream, 2).body.is_none());
+        for (sequence, equipped) in [(2, true), (3, false)] {
+            stream
+                .submit(
+                    sequence,
+                    WorldEvent::ArmorEquipment(Box::new(ArmorEquipmentEvent {
+                        actor_runtime_id: 2,
+                        helmet: Default::default(),
+                        chestplate: Default::default(),
+                        leggings: Default::default(),
+                        boots: Default::default(),
+                        body: if equipped {
+                            NetworkItemStack {
+                                network_id: entry.network_id,
+                                count: 1,
+                                ..Default::default()
+                            }
+                        } else {
+                            Default::default()
+                        },
+                    })),
+                )
+                .unwrap();
+            let input = remote_input(&stream, 2);
+            assert_eq!(
+                input.body.as_ref().map(|item| item.identifier.as_ref()),
+                equipped.then_some(entry.identifier.as_ref())
+            );
+            assert!(
+                input.main.is_none()
+                    && input.off.is_none()
+                    && input.armor.iter().all(Option::is_none)
+            );
+        }
+    }
+
+    /// A stream whose carrier knows one block item, whose registry holds it, and one spawned actor.
+    fn stream_with_block_item(identifier: &str, route: ItemVisualRoute) -> (WorldStream, i32) {
+        let mut compiled = assets::carriers::startup::test_carriers::synthetic_entity_assets(1);
+        compiled.block_visual_count = 8;
+        let source = assets::ItemVisualDefinition {
+            key: assets::ItemVisualKey {
+                identifier: identifier.into(),
+                metadata: 0,
+            },
+            source: 0,
+            route: match route {
+                ItemVisualRoute::BlockItem(visual) => {
+                    assets::ItemVisualDefinitionRoute::BlockItem {
+                        block_visual: visual,
+                    }
+                }
+                _ => assets::ItemVisualDefinitionRoute::Missing,
+            },
+            grip: assets::item::grip::ItemGrip::Unresolved,
+            glint: assets::item::glint::ItemGlint::Unresolved,
+            fuel: assets::item::fuel::ItemFuel::Unresolved,
+            armour: assets::item::armour::ItemArmour::Unresolved,
+            durability: assets::item::durability::ItemDurability::Unresolved,
+            first_person: assets::ItemDisplayTransform::identity(),
+            third_person: assets::ItemDisplayTransform::identity(),
+            dropped: assets::ItemDisplayTransform::identity(),
+        };
+        compiled.item_visuals = Box::new([source]);
+        let entities =
+            assets::RuntimeEntityAssets::from_compiled(compiled.with_unresolved_item_use())
+                .unwrap();
+        let mut stream = WorldStream::new_with_asset_sets(
+            protocol::WorldBootstrap {
+                local_player_unique_id: 1,
+                local_player_runtime_id: 1,
+                dimension: 0,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            Arc::new(assets::RuntimeAssets::diagnostic()),
+            Arc::new(entities),
+            [0.0; 3],
+            None,
+        );
+        let entry = protocol::vanilla_item_registry()
+            .iter()
+            .find(|entry| entry.identifier.as_ref() == identifier)
+            .unwrap()
+            .clone();
+        let network_id = entry.network_id;
+        assert!(stream.seed_item_registry(protocol::ItemRegistryEvent {
+            entries: Arc::from([entry])
+        }));
+        stream
+            .submit(
+                1,
+                WorldEvent::Actor(ActorEvent::Spawn(ActorSpawnEvent {
+                    dimension: 0,
+                    unique_id: 2,
+                    runtime_id: 2,
+                    kind: ActorKind::Entity {
+                        identifier: "minecraft:zombie".into(),
+                    },
+                    position: [0.0; 3],
+                    velocity: [0.0; 3],
+                    pitch: 0.0,
+                    yaw: 0.0,
+                    head_yaw: 0.0,
+                    body_yaw: 0.0,
+                    held_item: Default::default(),
+                    metadata: Arc::from([]),
+                    attributes: Arc::from([]),
+                    properties: Arc::from([]),
+                    links: Arc::from([]),
+                })),
+            )
+            .unwrap();
+        (stream, network_id)
+    }
+
+    /// Reads the held kind an actor's main hand gets from a wire stack.
+    fn held_kind(stream: &mut WorldStream, stack: NetworkItemStack) -> Option<HeldKind> {
+        stream
+            .submit(
+                2,
+                WorldEvent::Equipment(protocol::EquipmentEvent {
+                    actor_runtime_id: 2,
+                    stack,
+                    inventory_slot: 0,
+                    selected_slot: 0,
+                    window_id: 0,
+                    handedness: Some(ActorHandedness::Right),
+                }),
+            )
+            .unwrap();
+        remote_input(stream, 2).main.map(|item| item.kind)
+    }
+
+    /// Vanilla builds a stack with a block runtime id from that palette block, ignoring its aux
+    /// value, so a server sending blue terracotta with its old colour value still holds the block.
+    #[test]
+    fn legacy_aux_stack_with_a_retained_block_holds_that_block() {
+        let (mut stream, network_id) = stream_with_block_item(
+            "minecraft:blue_terracotta",
+            ItemVisualRoute::BlockItem(assets::BlockVisualId(5)),
+        );
+        let kind = held_kind(
+            &mut stream,
+            NetworkItemStack {
+                network_id,
+                metadata: 11,
+                count: 16,
+                block_runtime_id: 6,
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            kind,
+            Some(HeldKind::RetainedBlock {
+                state: Some(6),
+                item: Some(5),
+            })
         );
     }
 }

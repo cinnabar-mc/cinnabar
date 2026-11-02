@@ -28,6 +28,10 @@ impl UiPresentationRuntime {
         hud: Option<Arc<RuntimeHudCatalog>>,
         icons: Option<Arc<RuntimeIconCatalog>>,
     ) -> Result<Self, UiPresentationError> {
+        let font = {
+            let _span = tracing::info_span!("ui.mod_font").entered();
+            mod_ui::fonts::install(font).map_err(|_| UiPresentationError::InvalidFontTexture)?
+        };
         let (textures, solid_texture_page, hud_textures, icon_refs) =
             match (hud.as_deref(), icons.as_deref()) {
                 (Some(hud), None) => {
@@ -46,6 +50,7 @@ impl UiPresentationRuntime {
             obfuscation: ObfuscationGlyphs::from_catalog(&font),
             base_font: Arc::clone(&font),
             mod_panel_font: None,
+            local_player_identity: Default::default(),
             font,
             blank_dynamic_page: textures.pages()[textures.dynamic_start()].clone(),
             textures,
@@ -62,6 +67,7 @@ impl UiPresentationRuntime {
             last_input: None,
             last_frame: None,
             assembly_nodes: Vec::new(),
+            vertex_buffers: Default::default(),
             retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,
@@ -77,11 +83,17 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
+            inventory_preparation_revision: Default::default(),
             hud_cache: Default::default(),
+            hud_renderers: Default::default(),
+            mod_hud_bindings: Default::default(),
+            label_metrics: None,
+            hud_elements: Default::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_local_actor: None,
             nametag_atlas: nametag_atlas::NametagAtlas::default(),
+            nametag_bounds: Default::default(),
             primitive_text: primitive_shapes::PrimitiveTextRasterizer::default(),
             paper_doll: Default::default(),
             player_preview_page: None,
@@ -89,6 +101,7 @@ impl UiPresentationRuntime {
             player_preview_pose: None,
             player_preview_raster_pose: None,
             player_preview_view: player_preview::PreviewView::default(),
+            hud_preview_view: player_preview::PreviewView::Hud,
             menu_preview_model: player_preview::model::MenuPreviewModel::default(),
             menu_preview: player_preview::controller::MenuPreview::default(),
             player_preview_drawn: None,

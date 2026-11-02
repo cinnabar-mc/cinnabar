@@ -10,6 +10,75 @@ use {
 };
 
 impl MenuRuntime {
+    /// Records the accepted leave action once before the session controller consumes it.
+    pub(super) fn request_disconnect(&mut self) {
+        if !self.intents.disconnect {
+            bridge::leave_profile::LeaveProfile::begin();
+            self.intents.disconnect = true;
+        }
+    }
+
+    /// Invokes the enabled Apply action before leaving Global Resources.
+    pub(super) fn apply_global_resources_on_leave(&mut self) {
+        if self.scene() == Some(MenuScreen::Settings)
+            && self.settings_section()
+                == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack)
+            && self.global_resources.can_apply()
+        {
+            self.activate(MenuAction::GlobalResources(
+                launcher::global_resources::Action::Apply,
+            ));
+        }
+    }
+
+    /// Opens pause over gameplay when no other menu or connection screen is active.
+    pub fn open_pause(&mut self) {
+        if self.visible || self.is_connecting() {
+            return;
+        }
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Pause);
+        self.screen = MenuScreen::Pause;
+        self.focused = 0;
+        self.message = None;
+        self.visible = true;
+    }
+
+    /// The session is live: the menu gives way to the world.
+    pub fn show_world(&mut self) {
+        self.apply_global_resources_on_leave();
+        self.reset_death();
+        self.visible = false;
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Home);
+        self.screen = MenuScreen::Home;
+        self.message = None;
+        self.field = None;
+    }
+
+    pub fn show_connecting(&mut self) {
+        self.apply_global_resources_on_leave();
+        self.reset_death();
+        self.visible = true;
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Home);
+        self.history.push(MenuScreen::Play);
+        self.screen = MenuScreen::Play;
+        self.message = Some("Connecting…".to_owned());
+    }
+
+    pub fn show_home(&mut self) {
+        self.apply_global_resources_on_leave();
+        self.reset_death();
+        self.visible = true;
+        self.navigation_focus = NavigationFocus::default();
+        self.history.reset(MenuScreen::Home);
+        self.screen = MenuScreen::Home;
+        self.focused = 0;
+        self.field = None;
+        self.dialog = None;
+    }
+
     pub(super) fn remember_session_origin(&mut self) {
         if self.over_world() || self.is_connecting() || self.disconnect_message.is_some() {
             return;
@@ -87,6 +156,9 @@ impl MenuRuntime {
     /// Shows the history's top screen with fresh focus.
     pub(super) fn show_top(&mut self) {
         let screen = self.history.top().unwrap_or(MenuScreen::Home);
+        if screen != MenuScreen::Settings {
+            self.apply_global_resources_on_leave();
+        }
         self.close_realm_membership();
         if screen == MenuScreen::Death
             && self.screen != MenuScreen::Death
@@ -94,6 +166,9 @@ impl MenuRuntime {
             && self.death_presentation.controls_ready()
         {
             self.death_presentation.return_seconds = Some(0.0);
+        }
+        if screen != MenuScreen::Settings {
+            self.settings_query.set_text("");
         }
         self.screen = screen;
         self.navigation_focus.enter();
@@ -191,7 +266,12 @@ impl MenuRuntime {
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
-            self.intents.disconnect |= self.feeds.join.cancellable();
+            if self.feeds.join.cancellable() {
+                self.request_disconnect();
+            }
+            return;
+        }
+        if self.shader_options_back() {
             return;
         }
         match self.screen {
@@ -217,3 +297,6 @@ mod tests;
 
 #[cfg(test)]
 mod focus_tests;
+
+#[cfg(test)]
+mod global_resources_tests;

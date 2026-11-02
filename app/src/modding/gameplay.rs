@@ -10,17 +10,22 @@ use mod_host::{
     GameplayVector3, ModGrants,
 };
 
-use {crate::runtime::world::ClientWorld, client_state::SemanticInputSnapshot};
+use crate::runtime::{network::resource_packs::PackApplication, world::ClientWorld};
+use client_runtime::network::NetworkHandle;
+use client_state::SemanticInputSnapshot;
 
 #[derive(SystemParam)]
 pub(super) struct GameplayContext<'w> {
+    pub(super) native_input: Option<ResMut<'w, super::native_input::NativeInput>>,
+    pub(super) movement_override: Option<ResMut<'w, super::ModMovementInputActive>>,
+    pub(super) control_modes: Option<ResMut<'w, super::ModControlModes>>,
     pub(super) world: Option<Res<'w, ClientWorld>>,
     pub(super) view: Option<ResMut<'w, LocalViewPose>>,
     pub(super) input: Option<ResMut<'w, SemanticInputSnapshot>>,
     auto_fly: Option<Res<'w, AutoFly>>,
     server_camera: Option<Res<'w, ServerCameraView>>,
     time: Option<Res<'w, Time>>,
-    real_time: Option<Res<'w, Time<Real>>>,
+    pub(super) real_time: Option<Res<'w, Time<Real>>>,
     clock: Option<Res<'w, client_presentation::environment::WorldClock>>,
     pub(super) physics: Option<ResMut<'w, client_interaction::movement::LocalPhysicsController>>,
     pub(super) movement: Option<Res<'w, client_interaction::movement::MovementTicker>>,
@@ -34,9 +39,115 @@ pub(super) struct GameplayContext<'w> {
         Option<Res<'w, client_presentation::actor_publication::ActorFramePartialTick>>,
     pub(super) melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
     pub(super) session: Option<Res<'w, crate::session::SessionController>>,
+    network: Option<Res<'w, NetworkHandle<PackApplication>>>,
 }
 
+const _: () = assert!(mod_api::BEDROCK_TICKS_PER_SECOND == simulation_clock::TICKS_PER_SECOND);
+
 impl GameplayContext<'_> {
+    /// Borrows the connected core endpoint independently of who owns its directory.
+    pub(super) fn core_socket_directory(&self) -> Option<&std::path::Path> {
+        self.network.as_ref()?.core_socket_dir()
+    }
+
+    /// Reads the server world clock in this session: the absolute ticks the server set, advanced
+    /// at the native rate while its daylight cycle runs. Visual time overrides never enter it.
+    pub(super) fn world_time(
+        &self,
+        world: &mod_host::WorldObservation,
+    ) -> Option<mod_host::WorldTimeObservation> {
+        let clock = self.clock.as_deref()?;
+        if world.session == 0 || clock.session_generation() != world.session {
+            return None;
+        }
+        clock.server_time()?;
+        let time = client_presentation::environment::visual_world_time(
+            *clock,
+            self.time.as_ref()?.elapsed_secs_f64(),
+        )
+        .floor();
+        Some(mod_host::WorldTimeObservation {
+            session: world.session,
+            time: (time.is_finite() && time.abs() < i64::MAX as f64).then_some(time as i64)?,
+            daylight_cycle: clock.daylight_cycle_enabled(),
+        })
+    }
+
+    /// Native packet frames share the current input snapshot and connected-world fences. The
+    /// native camera fills in the look and real time since the previous frame.
+    pub(super) fn native_frame(
+        &self,
+        allowed: bool,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<mod_host::NativeFrame> {
+        let world = self.world.as_ref()?;
+        if world.dimension_transfer.active()
+            || world.respawn.input_held()
+            || self.clock.as_ref()?.session_generation() != ui.session_id()
+            || ui
+                .hud()
+                .health()
+                .is_some_and(|health| health.current() == 0)
+        {
+            return None;
+        }
+        let grants = ModGrants {
+            players: true,
+            camera: true,
+            ..Default::default()
+        };
+        let Some(snapshot) = self.snapshot(allowed, &grants) else {
+            let eye = self.view.as_ref()?.eye_translation().to_array();
+            return Some(mod_host::NativeFrame {
+                version: mod_api::native_frame::VERSION,
+                session: world.stream.as_ref()?.authority().actor_session_id(),
+                dimension: world.stream.as_ref()?.current_dimension(),
+                eye,
+                yaw: 0.0,
+                pitch: 0.0,
+                attack_held: false,
+                seconds: self
+                    .real_time
+                    .as_ref()
+                    .map_or(0.0, |time| time.delta_secs().min(1.0)),
+                look_delta: [0.0; 2],
+                move_axes: [0.0; 2],
+                ascend: false,
+                descend: false,
+                elapsed: 0.0,
+                players: Vec::new(),
+                suspended: true,
+            });
+        };
+        let input = self.input.as_deref();
+        Some(mod_host::NativeFrame {
+            version: mod_api::native_frame::VERSION,
+            session: snapshot.session,
+            dimension: snapshot.dimension,
+            eye: [snapshot.eye.x, snapshot.eye.y, snapshot.eye.z],
+            yaw: snapshot.yaw,
+            pitch: snapshot.pitch,
+            attack_held: snapshot.attack_held,
+            seconds: snapshot.frame_seconds,
+            look_delta: [0.0; 2],
+            move_axes: input.map_or([0.0; 2], |input| {
+                input.raw_movement().map(|axis| axis.clamp(-1.0, 1.0))
+            }),
+            ascend: input.is_some_and(|input| input.phase(semantic_input::Action::Jump).held),
+            descend: input.is_some_and(|input| input.phase(semantic_input::Action::Sneak).held),
+            elapsed: 0.0,
+            suspended: false,
+            players: snapshot
+                .players
+                .into_iter()
+                .map(|player| mod_api::native_frame::Player {
+                    runtime_id: player.runtime_id,
+                    feet: [player.position.x, player.position.y, player.position.z],
+                })
+                .collect(),
+        })
+    }
+
     /// Read-only current world identity and feet pose, independent of input capture.
     pub(super) fn world_observation(
         &self,
@@ -64,14 +175,8 @@ impl GameplayContext<'_> {
             dimension: authority.current_dimension(),
             position: (position.x, position.y, position.z),
             alive: ui.hud().health().is_none_or(|health| health.current() > 0),
+            runtime_id: authority.local_player_runtime_id(),
         })
-    }
-
-    /// Layout editing requires the same current connected world as player presentation.
-    pub(super) fn hud_editor_session(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<u64> {
-        self.world.as_ref()?.stream.as_ref()?;
-        let session = self.clock.as_ref()?.session_generation();
-        (session == ui.session_id()).then_some(session)
     }
 
     /// Local facts stay readable while a screen owns input, but never without a live session.
@@ -81,7 +186,7 @@ impl GameplayContext<'_> {
         player: &player_state::PlayerState,
         ui: &client_ui::ui_runtime::UiRuntime,
     ) -> Option<mod_host::PlayerStateSnapshot> {
-        if !enabled {
+        if !enabled || self.world.as_ref()?.dimension_transfer.active() {
             return None;
         }
         let authority = self.world.as_ref()?.stream.as_ref()?.authority();
@@ -96,7 +201,10 @@ impl GameplayContext<'_> {
     }
 
     /// Returns walking ownership independently of temporary server input permissions.
-    fn walking_scope(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<(u64, i32)> {
+    pub(super) fn walking_scope(
+        &self,
+        ui: &client_ui::ui_runtime::UiRuntime,
+    ) -> Option<(u64, i32)> {
         self.input.as_ref()?.snapshot()?;
         let world = self.world.as_ref()?;
         if world.dimension_transfer.active()
@@ -178,6 +286,12 @@ impl GameplayContext<'_> {
             jump_held: self.input.as_ref()?.snapshot()?.phases
                 [semantic_input::Action::Jump as usize]
                 .held,
+            sprint_held: self.input.as_ref()?.snapshot()?.phases
+                [semantic_input::Action::Sprint as usize]
+                .held,
+            sneak_held: self.input.as_ref()?.snapshot()?.phases
+                [semantic_input::Action::Sneak as usize]
+                .held,
             eligible: true,
             knockback_sequence: physics.knockback_sequence(),
         })
@@ -196,14 +310,7 @@ impl GameplayContext<'_> {
     /// No snapshot exists outside captured gameplay or without explicit grants.
     pub(super) fn snapshot(&self, allowed: bool, grants: &ModGrants) -> Option<GameplaySnapshot> {
         if !allowed
-            || !(grants.terrain
-                || grants.players
-                || grants.camera
-                || grants.item_use
-                || grants.movement
-                || grants.interaction
-                || grants.entities
-                || !grants.commands.is_empty())
+            || !grants.needs_gameplay()
             || self
                 .auto_fly
                 .as_ref()
@@ -215,8 +322,12 @@ impl GameplayContext<'_> {
         {
             return None;
         }
+        let world = self.world.as_ref()?;
+        if world.dimension_transfer.active() {
+            return None;
+        }
         let input = self.input.as_ref()?.snapshot()?;
-        let authority = self.world.as_ref()?.stream.as_ref()?.authority();
+        let authority = world.stream.as_ref()?.authority();
         let view = self.view.as_ref()?;
         let (yaw, pitch, _) = view.rotation().to_euler(EulerRot::YXZ);
         let eye = view.eye_translation();
@@ -256,6 +367,142 @@ impl GameplayContext<'_> {
         nearest_mobs(stream.authority().remote_actors(), eye)
     }
 
+    /// Captures the facts gameplay capabilities read: the last presented camera and the use
+    /// control while gameplay owns input, and the relayed feet position and the last presented
+    /// damage shake in a connected world.
+    pub(super) fn facts(
+        &self,
+        input_owned: bool,
+        ui: &client_ui::ui_runtime::UiRuntime,
+        camera: Option<&GlobalTransform>,
+        relayed: Option<[f32; 3]>,
+        damage_shake: Option<client_presentation::camera::actor_effects::DamageShake>,
+    ) -> mod_host::GameplayFacts {
+        if self
+            .world
+            .as_ref()
+            .is_some_and(|world| world.dimension_transfer.active())
+        {
+            return Default::default();
+        }
+        let camera = camera.filter(|_| input_owned).and_then(|camera| {
+            let (_, rotation, position) = camera.to_scale_rotation_translation();
+            let (yaw, pitch, _) = rotation.to_euler(EulerRot::YXZ);
+            (position.is_finite() && yaw.is_finite() && pitch.is_finite()).then(|| {
+                mod_host::GameplayCameraPose {
+                    position: vector(position),
+                    yaw,
+                    pitch,
+                }
+            })
+        });
+        mod_host::GameplayFacts {
+            movement_input: self
+                .input
+                .as_ref()
+                .filter(|_| input_owned)
+                .and_then(|input| {
+                    input
+                        .snapshot()
+                        .filter(|snapshot| !snapshot.authority_released)
+                        .map(|_| mod_host::GameplayMovementInput {
+                            right: input.movement()[0],
+                            forward: input.movement()[1],
+                            jump: input.phase(semantic_input::Action::Jump).held,
+                            sneak: input.phase(semantic_input::Action::Sneak).held,
+                            sprint: input.phase(semantic_input::Action::Sprint).held,
+                        })
+                }),
+            block_target: input_owned.then(|| self.block_target(ui)).flatten(),
+            attack_held: input_owned
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.phase(semantic_input::Action::Attack).held),
+            camera,
+            damage_shake: damage_shake
+                .map(|shake| mod_host::DamageShake {
+                    roll: shake.roll_degrees,
+                    pitch: shake.pitch_degrees,
+                })
+                .filter(|shake| shake.roll.is_finite() && shake.pitch.is_finite()),
+            relayed_position: relayed
+                .map(Vec3::from_array)
+                .filter(|position| position.is_finite())
+                .map(vector),
+            use_held: input_owned
+                && self
+                    .input
+                    .as_ref()
+                    .is_some_and(|input| input.phase(semantic_input::Action::Use).held),
+        }
+    }
+
+    /// Observes the current crosshair without applying any component mining request.
+    fn block_target(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<GameplayVector3> {
+        let stream = self.world.as_ref()?.stream.as_ref()?;
+        let player = self.player.as_ref()?;
+        let origin = self.origin.as_ref()?.outbound_ray()?;
+        if origin.session_generation().get() != self.clock.as_ref()?.session_generation()
+            || origin.actor_session_id() != stream.authority().actor_session_id()
+        {
+            return None;
+        }
+        let collisions = self.collisions.as_ref()?;
+        let selection = client_interaction::mining::hand_interaction_selection(player)?;
+        let mode = player.facts.player_game_mode();
+        let pick = crate::interaction_authority::pick_context(
+            stream,
+            collisions,
+            mode,
+            Some(selection.item.block_runtime_id()),
+        );
+        let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
+        let world = sim::PaletteWorld::new(
+            stream.collision_store(),
+            collisions.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            pick,
+        )
+        .with_cell_overlays(&overlay_ids);
+        let input_mode =
+            gameplay::mining::protocol_input_mode(self.input.as_ref()?.snapshot()?.input_mode);
+        let reach = if player.facts.game_mode_capabilities()?.creative_reach {
+            gameplay::mining::creative_reach(input_mode)
+        } else {
+            gameplay::mining::survival_reach(input_mode)
+        };
+        let widen = |p: Vec3| sim::Vec3::new(f64::from(p.x), f64::from(p.y), f64::from(p.z));
+        let hit = world
+            .block_interaction_ray_current(widen(origin.origin()), widen(origin.direction()), reach)
+            .ok()??;
+        let authority = stream.authority();
+        let actor = gameplay::melee::pick_actor_by(
+            authority.remote_actors(),
+            |actor| authority.pick_hit_boxes(actor),
+            ui.gameplay_hud().mount_unique_id(),
+            origin.origin().to_array(),
+            origin.direction().to_array(),
+            reach,
+        );
+        if !matches!(
+            gameplay::melee::classify_block_hit(
+                actor,
+                origin.origin().to_array(),
+                Some(&hit),
+                reach
+            ),
+            gameplay::melee::Crosshair::Block
+        ) {
+            return None;
+        }
+        Some(GameplayVector3 {
+            x: hit.block_pos[0] as f32 + 0.5,
+            y: hit.block_pos[1] as f32 + 0.5,
+            z: hit.block_pos[2] as f32 + 0.5,
+        })
+    }
+
     /// Called only for a successfully committed, once-consumed current-frame delta.
     pub(super) fn apply(&mut self, delta: CameraDelta) {
         if self.player.as_ref().is_some_and(|player| {
@@ -269,12 +516,6 @@ impl GameplayContext<'_> {
         if let Some(view) = self.view.as_mut() {
             apply_delta(view, delta);
         }
-    }
-
-    pub(super) fn pulse_attack(&mut self) -> bool {
-        self.input
-            .as_mut()
-            .is_some_and(|input| input.request_mod_attack_press())
     }
 }
 

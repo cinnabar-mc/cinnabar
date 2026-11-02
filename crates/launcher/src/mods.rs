@@ -28,6 +28,7 @@ pub enum Action {
     MoveDown(u64),
     Permission(u64, usize, bool),
     AllowRequested(u64),
+    GrantAll(u64),
     RevokeAll(u64),
     Customize(u64),
     ShowAllPermissions(u64),
@@ -36,6 +37,8 @@ pub enum Action {
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Permission {
+    /// Whether this capability applies to the component runtime.
+    pub applicable: bool,
     pub name: String,
     pub description: String,
     pub enabled: bool,
@@ -77,7 +80,7 @@ impl InstalledMod {
     pub fn requested_counts(&self) -> (usize, usize) {
         self.permissions
             .iter()
-            .filter(|permission| permission.requested == Some(true))
+            .filter(|permission| permission.applicable && permission.requested == Some(true))
             .fold((0, 0), |(allowed, total), permission| {
                 (
                     allowed + usize::from(permission.requested_allowed),
@@ -91,7 +94,9 @@ impl InstalledMod {
             .permissions
             .iter()
             .enumerate()
-            .filter(|(_, permission)| show_all || permission.requested == Some(true))
+            .filter(|(_, permission)| {
+                permission.applicable && (show_all || permission.requested == Some(true))
+            })
             .map(|(index, _)| index)
             .collect();
         indices.sort_by_key(|index| self.permissions[*index].requested != Some(true));
@@ -140,7 +145,7 @@ pub struct AvailableUpdate {
     pub release_url: String,
 }
 
-/// Directory contents and the ordered Active list, published off-frame by the app.
+/// Directory contents and the ordered Active list, published by the library service.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Library {
     /// Live update operations, retained through the runtime reload acknowledgement.
@@ -359,6 +364,7 @@ mod tests {
             .into_iter()
             .enumerate()
             .map(|(index, requested)| Permission {
+                applicable: true,
                 name: format!("Permission {index}"),
                 description: String::new(),
                 enabled: index < 2,
@@ -372,6 +378,10 @@ mod tests {
         assert_eq!(item.requested_counts(), (1, 2));
         assert_eq!(item.permissions[1].label(), "⚠ Permission 1");
         assert_eq!(item.permissions[0].label(), "Permission 0");
+        item.permissions[1].applicable = false;
+        assert_eq!(item.permission_order(true), [3, 0, 2]);
+        assert_eq!(item.permission_order(false), [3]);
+        assert_eq!(item.requested_counts(), (0, 1));
     }
 
     #[test]
@@ -392,6 +402,7 @@ mod tests {
     fn first_enable_keeps_empty_declaration_consent_until_an_explicit_choice() {
         let mut item = installed(1);
         item.permissions.push(Permission {
+            applicable: true,
             name: "HUD".into(),
             description: String::new(),
             enabled: false,

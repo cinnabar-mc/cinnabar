@@ -1,4 +1,4 @@
-//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.50.04).
+//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.60.04).
 use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
 use {
@@ -82,20 +82,6 @@ pub(super) fn draw(
     ];
     if let Some(icon) = featured {
         canvas.icon_ref_cover(icon, banner_bounds)?;
-    } else {
-        let banners = &crate::images::PROFILE_BANNERS;
-        let banner_index =
-            launcher::menu::profile_banner_index(&profile.xuid, banners.len()).unwrap_or_default();
-        if let Some(originals) = canvas.originals
-            && let Some(sprite) = originals.sprites.get(banners[banner_index])
-        {
-            let icon = IconRef {
-                page: originals.page + sprite.page,
-                uv: sprite.bounds,
-                glint: false,
-            };
-            canvas.icon_ref_cover(icon, banner_bounds)?;
-        }
     }
     if let Some(icon) = character {
         let model_width = canvas.r(14.8);
@@ -169,6 +155,7 @@ mod tests {
     fn wide_card_character_stays_beside_the_name_when_the_banner_widens() {
         let view = MenuView::new(true, "BugTest".into());
         let character = IconRef {
+            color_mask: None,
             page: 7,
             uv: [0, 0, 148, 196],
             glint: false,

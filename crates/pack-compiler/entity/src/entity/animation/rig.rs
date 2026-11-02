@@ -13,12 +13,14 @@ use super::{
     clip::read_json,
     controller::{ControllerKey, PendingController},
     environment::{
-        GeometrySelection, GeometrySelections, default_geometry, unique_geometry_indices,
+        GeometrySelection, GeometrySelections, default_geometry, unique_by_definition,
+        unique_geometry_indices,
     },
     roots,
 };
 
 pub(super) struct RigInputs<'a> {
+    pub animation_symbols: &'a BTreeMap<Box<str>, Option<u32>>,
     pub clip_indices: &'a ClipIndices,
     pub controllers: &'a [PendingController],
     pub geometry_selections: &'a GeometrySelections,
@@ -141,6 +143,8 @@ pub(super) fn compile_rigs(
     inputs: RigInputs<'_>,
     molang: &mut MolangCompiler,
 ) -> Result<(PendingRigPayload, Vec<Box<str>>), AssetError> {
+    let render_indices = unique_symbol_indices(&input, EntityAssetKind::RenderController)?;
+    let controller_symbols = unique_symbol_indices(&input, EntityAssetKind::AnimationController)?;
     let RigSources {
         root,
         payloads,
@@ -149,14 +153,12 @@ pub(super) fn compile_rigs(
         geometries,
     } = input;
     let RigInputs {
+        animation_symbols,
         clip_indices,
         controllers,
         geometry_selections,
     } = inputs;
-    let geometry_indices = unique_geometry_indices(geometries);
-    let render_indices = unique_symbol_indices(symbols, EntityAssetKind::RenderController);
-    let animation_symbols = unique_symbol_indices(symbols, EntityAssetKind::Animation);
-    let controller_symbols = unique_symbol_indices(symbols, EntityAssetKind::AnimationController);
+    let geometry_indices = unique_geometry_indices(geometries)?;
     let controller_names = controllers
         .iter()
         .map(|controller| {
@@ -255,7 +257,7 @@ pub(super) fn compile_rigs(
             }
             Some(Some(render_controller)) => *render_controller,
         };
-        let mut rejected = false;
+        let mut ambiguous_animation = false;
         let mut static_fallback = false;
         let mut geometry_candidates = vec![(geometry, None)];
         match geometry_selections.get(&(render_name.into(), entity_symbol as u32)) {
@@ -306,11 +308,11 @@ pub(super) fn compile_rigs(
                 let symbols = if is_controller {
                     &controller_symbols
                 } else {
-                    &animation_symbols
+                    animation_symbols
                 };
-                // Ambiguity rejects the rig even for an inactive alias a controller may reach.
+                // A conflicting alias can also be reached indirectly through a controller.
                 if symbols.get(target.as_ref()).is_some_and(Option::is_none) {
-                    rejected = true;
+                    ambiguous_animation = true;
                     continue;
                 }
                 if !is_root(name) {
@@ -360,24 +362,14 @@ pub(super) fn compile_rigs(
                 controllers: controller_bindings,
             });
         }
-        if rejected {
-            outcomes.push(reject(
-                if description
-                    .get("animations")
-                    .and_then(Value::as_object)
-                    .is_some_and(|animations| {
-                        animations.values().filter_map(Value::as_str).any(|target| {
-                            animation_symbols.get(target).is_some_and(Option::is_none)
-                                || controller_symbols.get(target).is_some_and(Option::is_none)
-                        })
-                    })
-                {
-                    RejectReason::AmbiguousAnimationReference
-                } else {
-                    RejectReason::MissingAnimationReference
-                },
-            ));
-            continue;
+        if ambiguous_animation {
+            // Keep the body, but never select an arbitrary duplicate or run a controller
+            // that could indirectly read it. This remains an incomplete rest-pose fallback.
+            for geometry in &mut pending_geometries {
+                geometry.animations.clear();
+                geometry.controllers.clear();
+            }
+            static_fallback = true;
         }
         static_fallback |= optional_condition
             .is_some_and(|expression| MolangCompiler::default().compile(expression).is_err());
@@ -386,7 +378,11 @@ pub(super) fn compile_rigs(
             outcomes.push(CompileReferenceOutcome::OptionalStaticFallback {
                 source: entity.source_index,
                 symbol: entity_symbol as u32,
-                reason: FallbackReason::UnsupportedOptionalExpression,
+                reason: if ambiguous_animation {
+                    FallbackReason::AmbiguousAnimationReference
+                } else {
+                    FallbackReason::UnsupportedOptionalExpression
+                },
             });
         }
         let rig_index = rigs.len() as u32;
@@ -399,7 +395,9 @@ pub(super) fn compile_rigs(
             entity_symbol: entity_symbol as u32,
             render_controller: Some(render_controller),
             geometries: pending_geometries,
-            fallback: if static_fallback {
+            // Empty animation bindings retain the rest pose while the ordinary schedule
+            // still evaluates authored scripts, scale and geometry selection.
+            fallback: if static_fallback && !ambiguous_animation {
                 EntityRigFallback::GeometryOnly
             } else {
                 EntityRigFallback::Skip
@@ -549,20 +547,30 @@ fn select_render_controller(value: Option<&Value>) -> Option<(&str, Option<&str>
     first
 }
 
-fn unique_symbol_indices(
-    symbols: &[EntityAssetSymbol],
+/// Indexes one named-map kind by identifier; only definitions that differ make it ambiguous.
+pub(super) fn unique_symbol_indices(
+    input: &RigSources<'_>,
     kind: EntityAssetKind,
-) -> BTreeMap<Box<str>, Option<u32>> {
-    let mut indices = BTreeMap::new();
-    for (index, symbol) in symbols
+) -> Result<BTreeMap<Box<str>, Option<u32>>, AssetError> {
+    let mut entries = Vec::new();
+    for (index, symbol) in input
+        .symbols
         .iter()
         .enumerate()
         .filter(|(_, symbol)| symbol.kind == kind)
     {
-        indices
-            .entry(symbol.identifier.clone())
-            .and_modify(|value| *value = None)
-            .or_insert(Some(index as u32));
+        let source = &input.sources[symbol.source_index as usize];
+        // Named-map families keep their map under the field their directory is named after.
+        let family = source.path.split('/').next().unwrap_or_default();
+        let definition = read_json(input.root, input.payloads, source)?
+            .get(family)
+            .and_then(|map| map.get(symbol.identifier.as_ref()));
+        entries.push((symbol.identifier.clone(), (index as u32, definition)));
     }
-    indices
+    Ok(
+        unique_by_definition(entries, |first, other| first.1 == other.1)
+            .into_iter()
+            .map(|(identifier, entry)| (identifier, entry.map(|(index, _)| index)))
+            .collect(),
+    )
 }

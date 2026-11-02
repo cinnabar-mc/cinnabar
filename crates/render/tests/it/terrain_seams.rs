@@ -222,7 +222,8 @@ fn mipmapped_pattern(gpu: &Gpu) -> wgpu::TextureView {
 struct Fixture {
     gpu: Gpu,
     materials: wgpu::Buffer,
-    asset_tables: wgpu::Buffer,
+    animations: wgpu::Buffer,
+    animation_frames: wgpu::Buffer,
     clock: wgpu::Buffer,
     records: wgpu::Buffer,
     tints: wgpu::Buffer,
@@ -257,10 +258,8 @@ impl Fixture {
         .replace("@group(1) @binding(0)", "@group(0) @binding(27)");
         Some(Self {
             materials: gpu.words(&[0, 0, u32::MAX, 0, 0, 0], storage),
-            asset_tables: gpu.words(
-                &gpu_snapshot::chunk_asset_table_words(&[], &[], &[]),
-                storage,
-            ),
+            animations: gpu.words(&[0; 8], storage),
+            animation_frames: gpu.words(&[0; 4], storage),
             clock: gpu.words(&[0; 4], wgpu::BufferUsages::UNIFORM),
             records: gpu.buffer(&[0.0], storage),
             tints: gpu.buffer(
@@ -303,7 +302,8 @@ impl Fixture {
                 material_shader::BIOME_QUERY_TABLES_BINDING,
                 self.query_tables.as_entire_binding(),
             ),
-            (9, self.asset_tables.as_entire_binding()),
+            (9, self.animations.as_entire_binding()),
+            (10, self.animation_frames.as_entire_binding()),
             (11, self.clock.as_entire_binding()),
             (13, streams.geometry.as_entire_binding()),
             (15, self.atmosphere.as_entire_binding()),

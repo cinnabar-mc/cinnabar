@@ -1,7 +1,7 @@
 //! Block-use classification, held-repeat state and ordered packet production.
 use crate::{interaction_authority::FrozenBlockObservation, movement::PhysicsCollisionRegistries};
 use assets::{
-    facts::{BlockFact, BlockProperty as P},
+    facts::{BlockFact, BlockProperty as P, ItemTraits},
     registry::{BlockTraits as T, ModelFamily},
 };
 use client_world::game_mode_capabilities::GameModeCapabilities;
@@ -227,12 +227,17 @@ impl LocalUse {
         }
     }
 
-    /// An actor use consumes the press only when the target offers an interaction;
-    /// otherwise the press falls through to item use after the interact transaction.
-    /// Players have no client-side interaction, so the server's interact text alone
-    /// decides; other actors' component interactions are not modelled and always interact.
-    pub const fn for_actor(target: &protocol::ActorKind, interact_text: bool) -> Self {
-        if interact_text || !matches!(target, protocol::ActorKind::Player { .. }) {
+    /// A verified absent offering falls through after the actor transaction. Unresolved
+    /// component or native state retains the conservative interaction behavior.
+    pub const fn for_actor(
+        target: &protocol::ActorKind,
+        interact_text: bool,
+        offered: assets::entity::offered_use::OfferedUse,
+    ) -> Self {
+        if interact_text
+            || (!matches!(target, protocol::ActorKind::Player { .. })
+                && !matches!(offered, assets::entity::offered_use::OfferedUse::Absent))
+        {
             Self::Interact
         } else {
             Self::Nothing
@@ -259,7 +264,6 @@ pub struct BlockUseRuntime {
     last_use: Option<Duration>,
     /// The last success was a block interaction.
     slow_repeat: bool,
-    last_attempt_tick: Option<u64>,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
     /// The latest press was resolved as a block interaction.
@@ -406,11 +410,11 @@ impl BlockUseRuntime {
         self.position_authority = Some(authority);
     }
 
-    /// The trigger due now, with the repeat's due time; at most one attempt per tick.
+    /// The trigger due now; each buffered pick may use an elapsed repeat deadline.
     pub fn due(
         &self,
         held: bool,
-        tick: u64,
+        _tick: u64,
         clock: RepeatClock,
     ) -> Option<(ItemUseTrigger, Duration)> {
         if self.waiting_for_authority {
@@ -419,7 +423,7 @@ impl BlockUseRuntime {
         if self.latched_press {
             return Some((ItemUseTrigger::PlayerInput, clock.now));
         }
-        if !held || self.last_attempt_tick == Some(tick) {
+        if !held {
             return None;
         }
         let interval = repeat_interval_millis(
@@ -455,7 +459,7 @@ impl BlockUseRuntime {
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
-    /// retries (and resends its transaction) on the next tick.
+    /// remains eligible for the next buffered pick.
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
@@ -466,7 +470,6 @@ impl BlockUseRuntime {
     ) {
         self.rejected_tick = None;
         self.latched_press = false;
-        self.last_attempt_tick = Some(tick);
         if trigger == ItemUseTrigger::PlayerInput {
             self.press_interacted = local_use == LocalUse::Interact;
             if self.press_interacted {
@@ -487,29 +490,103 @@ impl BlockUseRuntime {
     }
 }
 
-/// The state a switch use predicts for the clicked block.
+/// Allows failed crop attempts with empty hands, hoes and pickaxes. Other non-block
+/// uses need a predicted interaction or seed planting until their successful-use timing
+/// is modeled. Buckets refuse repeats.
+pub fn repeats_while_held(
+    item: &VerifiedNetworkItemStack,
+    bucket: bool,
+    local_use: LocalUse,
+    clicked: BlockFact,
+    traits: ItemTraits,
+) -> bool {
+    let passive_crop_use = clicked.family == ModelFamily::Crop
+        && (item.is_empty()
+            || traits.contains(ItemTraits::HOE)
+            || traits.contains(ItemTraits::PICKAXE));
+    item.block_runtime_id() != 0
+        || (!bucket && (local_use != LocalUse::Nothing || passive_crop_use))
+}
+
+/// The cell and state a switch use predicts within the observed world.
 pub fn predicted_toggle(
     collisions: &PhysicsCollisionRegistries,
-    stream: &impl crate::GameplayWorld,
+    mode: assets::NetworkIdMode,
+    world: &sim::PaletteWorld<'_>,
+    position: [i32; 3],
     clicked: u32,
-) -> Option<u32> {
-    let mode = stream.network_id_mode();
-    let states = toggled_states(
-        collisions.block_facts(mode, clicked),
-        collisions.block_canonical_state(mode, clicked)?,
-    )?;
-    collisions.block_state_runtime_id(
+) -> Option<([i32; 3], u32)> {
+    if world.primary_runtime_id(position).ok()? != clicked {
+        return None;
+    }
+    let fact = collisions.block_facts(mode, clicked);
+    if fact.family == ModelFamily::Door {
+        return predicted_door_toggle(collisions, mode, world, position, clicked);
+    }
+    let states = toggled_states(fact, collisions.block_canonical_state(mode, clicked)?)?;
+    let block = collisions.block_state_runtime_id(
         mode,
         assets::facts::BlockStateIdentity::Compiled(
             collisions.block_facts(mode, clicked).identity?,
         ),
         &states,
-    )
+    )?;
+    Some((position, block))
 }
 
-/// Trapdoors and levers flip `open_bit`; an
-/// unpressed button presses. Doors and fence gates also change their other
-/// half or facing, which is not modelled, so they wait for the server.
+/// Resolves both door cells and changes only the lower half's effective open state.
+fn predicted_door_toggle(
+    collisions: &PhysicsCollisionRegistries,
+    mode: assets::NetworkIdMode,
+    world: &sim::PaletteWorld<'_>,
+    position: [i32; 3],
+    clicked: u32,
+) -> Option<([i32; 3], u32)> {
+    let fact = collisions.block_facts(mode, clicked);
+    if !fact.traits.contains(T::TOGGLES_BY_HAND) {
+        return None;
+    }
+    let clicked_states =
+        serde_json::from_str(collisions.block_canonical_state(mode, clicked)?).ok()?;
+    let upper = toggle_bit(fact, &clicked_states, P::UpperBlockBit)?;
+    let mut neighbor = position;
+    neighbor[1] = neighbor[1].checked_add(if upper { -1 } else { 1 })?;
+    let partner = world.primary_runtime_id(neighbor).ok()?;
+    if collisions.block_facts(mode, partner).identity != fact.identity {
+        return None;
+    }
+    let (lower_position, lower) = if upper {
+        (neighbor, partner)
+    } else {
+        (position, clicked)
+    };
+    let mut states = serde_json::from_str(collisions.block_canonical_state(mode, lower)?).ok()?;
+    let open = toggle_bit(fact, &states, P::OpenBit)?;
+    crate::placement_state::set_bit(&mut states, P::OpenBit.name(), !open)?;
+    let block = collisions.block_state_runtime_id(
+        mode,
+        assets::facts::BlockStateIdentity::Compiled(fact.identity?),
+        &states,
+    )?;
+    Some((lower_position, block))
+}
+
+/// Reads a generated boolean domain without changing its canonical representation.
+fn toggle_bit(
+    fact: BlockFact,
+    states: &serde_json::Map<String, serde_json::Value>,
+    property: P,
+) -> Option<bool> {
+    crate::placement_state::valid_property(fact, states, property)?;
+    let value = crate::placement_state::value(states, property.name())?;
+    value
+        .as_bool()
+        .or_else(|| value.as_u64().map(|bit| bit != 0))
+}
+
+/// Trapdoors and levers flip `open_bit`; an unpressed button presses.
+/// Door use needs the paired world cells and is resolved by `predicted_toggle`.
+/// Fence gates still wait for the server's facing update.
 pub fn toggled_states(
     fact: BlockFact,
     canonical_state: &str,
@@ -617,3 +694,12 @@ mod packets;
 pub use packets::HeldPlacementInventory;
 
 mod stopping;
+
+mod pick;
+pub use pick::{BlockPick, PickResult};
+
+mod seed;
+pub use seed::seed_planting_cell;
+
+mod paired_item;
+pub use paired_item::{paired_item_block, paired_item_fits};

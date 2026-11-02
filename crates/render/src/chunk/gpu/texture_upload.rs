@@ -1,5 +1,4 @@
 //! Immutable carrier atlas creation and upload, shared by bootstrap and server replacements.
-use super::asset_tables::encode_asset_table_words;
 use super::bind_groups::{
     AnimationGpu, ChunkTextureUploadStats, MaterialGpu, PreparedChunkTextureAssets,
     chunk_sampler_descriptor, encode_model_template_words, gpu_texture_reference,
@@ -254,20 +253,14 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
     let animation_frame_bytes = animation_frame_words
         .len()
         .saturating_mul(std::mem::size_of::<u32>());
-    let Some(asset_table_words) = encode_asset_table_words(
-        bytemuck::cast_slice(&animation_words),
-        &animation_frame_words,
-        &model_template_words,
-    ) else {
-        bevy::log::error!("chunk asset table offsets exceed the GPU word range");
-        return None;
-    };
-    let asset_table_bytes = asset_table_words
+    let model_template_bytes = model_template_words
         .len()
         .saturating_mul(std::mem::size_of::<u32>());
     for (label, bytes) in [
         ("material", material_bytes),
-        ("animation and model", asset_table_bytes),
+        ("animation", animation_bytes),
+        ("animation frame", animation_frame_bytes),
+        ("model template", model_template_bytes),
     ] {
         if !storage_table_fits(
             bytes,
@@ -281,12 +274,37 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
     let material_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
         label: Some("global chunk materials"),
         contents: bytemuck::cast_slice(&material_words),
-        usage: BufferUsages::STORAGE,
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
-    let asset_table_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-        label: Some("global chunk animation and model tables"),
-        contents: bytemuck::cast_slice(&asset_table_words),
-        usage: BufferUsages::STORAGE,
+    let animation_sentinel = [AnimationGpu {
+        frame_start: 0,
+        frame_count: 1,
+        ticks_per_frame: 1,
+        flags: 0,
+    }];
+    let animation_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animations"),
+        contents: if animation_words.is_empty() {
+            bytemuck::cast_slice(&animation_sentinel)
+        } else {
+            bytemuck::cast_slice(&animation_words)
+        },
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    });
+    let animation_frame_sentinel = [TextureRef::DIAGNOSTIC.raw()];
+    let animation_frame_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk animation frames"),
+        contents: bytemuck::cast_slice(if animation_frame_words.is_empty() {
+            &animation_frame_sentinel
+        } else {
+            &animation_frame_words
+        }),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
+    });
+    let model_template_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("global chunk model templates"),
+        contents: bytemuck::cast_slice(&model_template_words),
+        usage: BufferUsages::STORAGE | BufferUsages::COPY_SRC,
     });
     let mut uploaded_bytes = 0u64;
     let mut textures = Vec::with_capacity(assets::MAX_TEXTURE_PAGES);
@@ -469,7 +487,9 @@ pub(in crate::chunk) fn build_chunk_texture_assets(
         authored_source: enhanced.cloned(),
         identity,
         material_buffer,
-        asset_table_buffer,
+        animation_buffer,
+        animation_frame_buffer,
+        model_template_buffer,
         _textures: textures.try_into().expect("every physical page uploads"),
         views: views
             .try_into()

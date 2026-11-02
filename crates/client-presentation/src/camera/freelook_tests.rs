@@ -383,3 +383,31 @@ fn view_scale_reduces_calibrated_mouse_look_and_restores_without_changing_sensit
         );
     }
 }
+
+/// A native view ending cannot discard a still-admitted user freelook heading.
+#[test]
+fn presented_view_release_preserves_only_admitted_held_user_freelook() {
+    let presented = super::PresentedView {
+        position: bevy::prelude::Vec3::new(1.0, 70.0, 2.0),
+        rotation: bevy::prelude::Quat::from_rotation_y(0.3),
+        capture_look: true,
+        capture_movement: false,
+    };
+    for (user_held, admitted) in [(true, true), (false, true), (true, false)] {
+        let mut settings = super::CameraSettingsAuthority::default();
+        let mut view = crate::local_player::LocalViewPose::default();
+        let body = view.camera_rotation();
+        settings.apply_presented_view(&mut view, Some(presented), false);
+        assert!(settings.captures_look());
+        settings.freelook = admitted;
+        let heading = bevy::prelude::Quat::from_rotation_y(0.8);
+        view.set_look_rotation(heading);
+        assert_eq!(view.rotation(), body, "captured look never turns the body");
+        settings.apply_presented_view(&mut view, None, user_held);
+        assert_eq!(
+            view.camera_rotation(),
+            if user_held && admitted { heading } else { body }
+        );
+        assert!(settings.presented_view().is_none());
+    }
+}

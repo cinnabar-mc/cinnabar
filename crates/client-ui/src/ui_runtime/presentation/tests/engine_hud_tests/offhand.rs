@@ -69,6 +69,8 @@ fn snapshot_offhand_hud() {
     let mut presentation =
         UiPresentationRuntime::with_hud_and_icons(pack_harness::font(), hud, icons).unwrap();
     presentation.enable_json_ui(carrier).unwrap();
+    // The frame's expected bounds sit beside Java's flush hotbar.
+    presentation.set_chat_settings_snapshot((Arc::new(java_hotbar_settings()), None));
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     player
@@ -77,15 +79,18 @@ fn snapshot_offhand_hud() {
     select_slot(&mut player, &mut runtime);
     full_stats(&mut player, &mut runtime, 1);
     runtime
-        .gameplay_hud
-        .apply_offhand_equipment(&protocol::EquipmentEvent {
-            actor_runtime_id: 1,
-            stack: item(1, 1),
-            inventory_slot: 0,
-            selected_slot: 0,
-            window_id: protocol::OFFHAND_WINDOW_ID as u8,
-            handedness: Some(protocol::ActorHandedness::Left),
-        });
+        .enqueue_inventory_event(
+            &mut player,
+            1,
+            8,
+            protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+                container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+                slots: vec![item(1, 1)].into(),
+                storage_item: NetworkItemStack::empty(),
+            }),
+        )
+        .unwrap();
+    runtime.drain_pending_inventory(&mut player);
     presentation.hud_frame_mut().offhand_icon = Some(
         presentation
             .item_icon("minecraft:arrow", 0)

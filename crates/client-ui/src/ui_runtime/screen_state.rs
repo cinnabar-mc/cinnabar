@@ -55,6 +55,10 @@ pub struct ScreenState {
     pub creative_expanded: std::collections::BTreeSet<u32>,
     /// Scroll offsets of the engine-drawn screen's scroll views, by view key.
     pub container_scroll: std::collections::BTreeMap<String, f64>,
+    /// The engine scroll view whose scrollbar thumb is being dragged, and its last pointer axis.
+    pub container_scroll_drag: Option<(String, f64)>,
+    /// Selected radio tabs of a server pack's storage screen, by group key.
+    pub storage_radios: std::collections::BTreeMap<u64, u16>,
     window: Option<u64>,
     creative_filter: std::sync::Arc<std::sync::Mutex<Option<CreativeFilterCache>>>,
 }
@@ -99,11 +103,6 @@ impl CrafterView {
 }
 
 impl ScreenState {
-    /// Drops all session-owned input and window preferences.
-    pub(super) fn reset_session(&mut self) {
-        *self = Self::default();
-    }
-
     /// Whether the retained input state belongs to this window generation.
     pub(super) fn observes_window(&self, generation: Option<u64>) -> bool {
         self.window == generation
@@ -130,6 +129,8 @@ impl ScreenState {
             self.mount_identifier = None;
             self.mount_equipment = assets::entity::mount::MountEquipment::Unresolved;
             self.container_scroll.clear();
+            self.container_scroll_drag = None;
+            self.storage_radios.clear();
             self.creative_expanded.clear();
         }
     }
@@ -140,6 +141,7 @@ impl ScreenState {
         self.creative_row = 0;
         self.book_page = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     /// Selects a UI category and resets the list position and search focus.
@@ -159,6 +161,7 @@ impl ScreenState {
         self.search_focused = tab == SEARCH_TAB;
         self.creative_row = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     /// Whether a text field owns the keyboard.
@@ -186,6 +189,7 @@ impl ScreenState {
         }
         self.creative_row = 0;
         self.container_scroll.clear();
+        self.container_scroll_drag = None;
     }
 
     pub fn backspace_text(&mut self) {
@@ -197,6 +201,7 @@ impl ScreenState {
             self.search.pop();
             self.creative_row = 0;
             self.container_scroll.clear();
+            self.container_scroll_drag = None;
         }
     }
 

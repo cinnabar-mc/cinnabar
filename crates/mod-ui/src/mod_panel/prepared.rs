@@ -1,12 +1,16 @@
 //! Local panel routes prepared before frame publication, with bounded retained route caches.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use json_ui::{Catalog, Context, ResolvedControl};
 use ui::mod_panel::{Panel, PanelBundle, Surface};
 use ui_engine::cached_screen::CachedScreen;
 
 use super::{SCREEN, template};
+
+#[cfg(test)]
+#[path = "prepared_cache_tests.rs"]
+mod cache_tests;
 
 /// The loaded component that owns a prepared panel catalog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -15,9 +19,45 @@ pub enum PanelUiOwner {
     Environment(usize),
     /// The independently registered component, including all of its replacements.
     Registration(u64),
+    /// A trusted packet mod instance belonging to one live network session.
+    PacketSession(u64),
 }
 
 impl crate::ModUi {
+    /// Publishes a worker-prepared panel as one update. Revisions preserve the active
+    /// owner's visibility and let the panel retain motion for the same authored screen.
+    /// Registration replacement still uses `set_prepared_panel_ui` to retire its old UI.
+    pub fn set_prepared_mod_panel(
+        &mut self,
+        owner: PanelUiOwner,
+        prepared: Arc<PreparedPanelUi>,
+        panel: &Panel,
+    ) -> Result<(), String> {
+        let route = prepared.route(panel);
+        if route.is_none() {
+            return Err("panel does not match its prepared catalog".into());
+        }
+        panel.validate_values()?;
+        if !self
+            .prepared_panel_ui
+            .get(&owner)
+            .is_some_and(|current| Arc::ptr_eq(&current.prepared, &prepared))
+        {
+            self.prepared_panel_ui
+                .insert(owner, PreparedOwner::new(prepared));
+        }
+        self.set_mod_panel(owner, Some(panel))?;
+        if let Some(current) = self.mod_panel.as_mut() {
+            current.prepared = route.clone();
+            if current.edit.is_none()
+                && let Some(route) = route
+            {
+                current.catalog = Some(Arc::clone(&route.catalog));
+            }
+        }
+        Ok(())
+    }
+
     /// Replaces or removes one owner's catalog without evicting another active owner's routes.
     pub fn set_prepared_panel_ui(
         &mut self,
@@ -36,7 +76,6 @@ impl crate::ModUi {
             .as_ref()
             .is_some_and(|panel| panel.owner == owner)
         {
-            self.cancel_mod_hud_editor();
             self.mod_panel = None;
         }
         if let Some(prepared) = prepared {
@@ -57,7 +96,7 @@ pub(crate) struct PreparedOwner {
 impl PreparedOwner {
     /// Derives every cache slot from the owner's immutable route list.
     fn new(prepared: Arc<PreparedPanelUi>) -> Self {
-        let screens = prepared.routes.iter().map(|_| None).collect();
+        let screens = prepared.catalog.routes.iter().map(|_| None).collect();
         Self { prepared, screens }
     }
 
@@ -75,10 +114,50 @@ impl PreparedOwner {
 
 /// Immutable catalogs and resolved roots prepared on the local component loading worker.
 pub struct PreparedPanelUi {
+    catalog: Arc<PreparedCatalog>,
+}
+
+/// Resolved route data shared across fresh publishers without sharing rendered owner state.
+struct PreparedCatalog {
+    bundle: Arc<PanelBundle>,
     routes: Vec<Arc<PreparedRoute>>,
 }
 
-pub(super) struct PreparedRoute {
+/// Keeps prepared immutable catalogs reusable only while a presenter still owns them.
+fn catalogs() -> &'static Mutex<Vec<Weak<PreparedCatalog>>> {
+    static CATALOGS: OnceLock<Mutex<Vec<Weak<PreparedCatalog>>>> = OnceLock::new();
+    CATALOGS.get_or_init(Mutex::default)
+}
+
+/// Compares every admitted field; adding a bundle field requires updating this identity.
+fn same_bundle(a: &PanelBundle, b: &PanelBundle) -> bool {
+    let PanelBundle {
+        panel: a_panel,
+        surfaces: a_surfaces,
+        control_schemas: a_schemas,
+    } = a;
+    let PanelBundle {
+        panel: b_panel,
+        surfaces: b_surfaces,
+        control_schemas: b_schemas,
+    } = b;
+    a_panel == b_panel && a_surfaces == b_surfaces && a_schemas == b_schemas
+}
+
+/// Reclaims unloaded entries and finds an identical previously validated catalog.
+fn cached(
+    catalogs: &mut Vec<Weak<PreparedCatalog>>,
+    bundle: &PanelBundle,
+) -> Option<Arc<PreparedCatalog>> {
+    catalogs.retain(|catalog| catalog.strong_count() != 0);
+    catalogs
+        .iter()
+        .filter_map(Weak::upgrade)
+        .find(|catalog| same_bundle(&catalog.bundle, bundle))
+}
+
+/// A validated static screen route, reusable across scalar-only updates.
+pub struct PreparedRoute {
     /// Position in the owning generation's immutable route list.
     index: usize,
     panel: Panel,
@@ -89,26 +168,27 @@ pub(super) struct PreparedRoute {
 impl PreparedPanelUi {
     /// Checks and prepares every bounded route once, outside the renderer's frame path.
     pub fn prepare(bundle: Arc<PanelBundle>) -> Result<Arc<Self>, String> {
+        if let Some(prepared) = cached(
+            &mut catalogs().lock().expect("prepared panel catalogs"),
+            &bundle,
+        ) {
+            return Ok(Arc::new(Self { catalog: prepared }));
+        }
         bundle.validate()?;
         let mut panels: Vec<Panel> = bundle
             .surfaces
             .keys()
             .map(|id| bundle.route_panel(id).expect("validated route"))
             .collect();
-        if let Some(surface) = &bundle.panel.surface
-            && !panels.iter().any(|panel| {
-                template::same_template(panel, &bundle.panel)
-                    && panel
-                        .surface
-                        .as_ref()
-                        .is_some_and(|source| same_document(source, surface))
-            })
-        {
+        if !panels.iter().any(|panel| {
+            template::same_template(panel, &bundle.panel)
+                && same_document(&panel.surface, &bundle.panel.surface)
+        }) {
             panels.push(bundle.panel.clone());
         }
         let mut routes = Vec::with_capacity(panels.len());
         for panel in panels {
-            let (catalog, _) = template::catalog(&panel, [0.0; 2], 0, 0, 1, None)?;
+            let catalog = template::catalog(&panel, [0.0; 2], None)?;
             let catalog = Arc::new(catalog);
             let resolution = json_ui::resolve(&catalog, SCREEN, &Context::default());
             if !resolution.diagnostics.is_empty() {
@@ -122,21 +202,23 @@ impl PreparedPanelUi {
                 tree,
             }));
         }
-        Ok(Arc::new(Self { routes }))
+        let mut catalogs = catalogs().lock().expect("prepared panel catalogs");
+        if let Some(prepared) = cached(&mut catalogs, &bundle) {
+            return Ok(Arc::new(Self { catalog: prepared }));
+        }
+        let prepared = Arc::new(PreparedCatalog { bundle, routes });
+        catalogs.push(Arc::downgrade(&prepared));
+        Ok(Arc::new(Self { catalog: prepared }))
     }
 
     /// Matches only the exact validated source and its original control action schema.
-    pub(super) fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
-        let source = panel.surface.as_ref()?;
-        self.routes
+    pub fn route(&self, panel: &Panel) -> Option<Arc<PreparedRoute>> {
+        self.catalog
+            .routes
             .iter()
             .find(|route| {
                 template::same_template(&route.panel, panel)
-                    && route
-                        .panel
-                        .surface
-                        .as_ref()
-                        .is_some_and(|original| same_document(original, source))
+                    && same_document(&route.panel.surface, &panel.surface)
             })
             .cloned()
     }
@@ -151,13 +233,8 @@ impl PreparedRoute {
             Context::default(),
             Arc::clone(&self.tree),
         );
-        if let Some(surface) = &self.panel.surface {
-            for name in surface.collections.keys() {
-                screen.virtualize_clipped_grid(
-                    name,
-                    ui::mod_panel::SurfaceCollection::INITIAL_WINDOW,
-                );
-            }
+        for name in self.panel.surface.collections.keys() {
+            screen.virtualize_clipped_grid(name, ui::mod_panel::SurfaceCollection::INITIAL_WINDOW);
         }
         screen
     }

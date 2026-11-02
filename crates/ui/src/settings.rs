@@ -1,8 +1,16 @@
 use render_api::{FrameRateLimit, VrrPreference};
 use semantic_input::{ControlSettings, PerspectiveMode};
 
+#[path = "settings/view_bobbing.rs"]
+mod view_bobbing;
+pub use view_bobbing::ViewBobbing;
+
 pub const CURRENT_SETTINGS_SCHEMA: u32 = 2;
 pub const DEFAULT_OUTLINE_SELECTION: bool = true;
+/// Server-pack held models are enabled until the player chooses item icons.
+pub const DEFAULT_SHOW_CUSTOM_ITEM_MODELS: bool = true;
+/// Other players' catalog cosmetics are visible until the player opts out.
+pub const DEFAULT_SHOW_OTHER_PLAYER_COSMETICS: bool = true;
 /// Default and slider bounds for the field-of-view option, in degrees.
 pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
@@ -10,6 +18,16 @@ pub const MAX_FOV_DEGREES: i32 = 130;
 
 /// Desktop vanilla starts with two coverage samples per pixel.
 pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Lowest supported world-rendering resolution relative to the output.
+pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
+/// Native world-rendering resolution relative to the output.
+pub const MAX_RENDER_SCALE_PERCENT: u8 = 100;
+/// RCAS sharpening is enabled when reconstructing a reduced world image.
+pub const DEFAULT_RENDER_SCALE_SHARPEN: bool = true;
+/// FSR1 RCAS sharpness in stops, where zero is strongest and each stop halves strength.
+pub const FSR_SHARPNESS_STOPS: f32 = 0.2;
+/// Native world resolution remains the default; menus and the HUD stay at output resolution.
+pub const DEFAULT_RENDER_SCALE_PERCENT: u8 = MAX_RENDER_SCALE_PERCENT;
 #[path = "settings/render_distance.rs"]
 mod render_distance;
 pub use render_distance::{
@@ -171,31 +189,43 @@ impl Default for UserSettings {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct VideoSettings {
     pub horizontal_fov_degrees: f32,
     pub fullscreen: bool,
     pub frame_rate_limit: FrameRateLimit,
-    pub vsync: bool,
+    pub vsync: render_api::VsyncMode,
     pub vrr: VrrPreference,
     pub anti_aliasing_samples: u32,
+    /// World resolution relative to the output; menus and the HUD stay at output resolution.
+    pub render_scale_percent: u8,
+    /// Applies RCAS sharpening after FSR1 world upscaling.
+    pub render_scale_sharpen: bool,
     pub motion_blur: MotionBlurQuality,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
+    pub chunk_occlusion_culling: bool,
     pub brightness: f32,
     pub render_mode: RenderMode,
+    /// File or folder name of the selected Java shader pack inside the shader-pack
+    /// directory; drawn only while `render_mode` is [`RenderMode::ShaderPack`].
+    pub shader_pack: Option<String>,
     /// Scales speed-driven FOV changes, `0..=1`.
     pub fov_effects_scale: f32,
     /// Scales portal and nausea distortion, `0..=1`.
     pub distortion_scale: f32,
-    pub view_bobbing: bool,
+    pub view_bobbing: ViewBobbing,
     pub cinematic_camera: bool,
     pub camera_shake: bool,
     pub outline_selection: bool,
     pub damage_bob: f32,
     /// Java Edition 1.7 player animations instead of vanilla Bedrock's.
     pub java_animations: bool,
+    /// Draws server-pack custom held-item models instead of their ordinary item icons.
+    pub show_custom_item_models: bool,
+    /// Draws other players' catalog cosmetics and their effects.
+    pub show_other_player_cosmetics: bool,
     /// Preserves Bedrock skybox placement; disabling it centers the cube.
     pub native_skybox_offset: bool,
     /// When to draw cached terrain past the render distance.
@@ -209,24 +239,30 @@ impl Default for VideoSettings {
         Self {
             horizontal_fov_degrees: DEFAULT_FOV_DEGREES as f32,
             fullscreen: false,
-            frame_rate_limit: FrameRateLimit::Unlimited,
-            vsync: true,
+            frame_rate_limit: FrameRateLimit::default(),
+            vsync: render_api::VsyncMode::DEFAULT,
             vrr: VrrPreference::Automatic,
             anti_aliasing_samples: DEFAULT_ANTI_ALIASING_SAMPLES,
+            render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
+            render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
             motion_blur: MotionBlurQuality::default(),
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
             render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,
+            chunk_occlusion_culling: render_api::DEFAULT_CHUNK_OCCLUSION_CULLING,
             brightness: 0.5,
             render_mode: RenderMode::Vanilla,
+            shader_pack: None,
             fov_effects_scale: 1.0,
             distortion_scale: 1.0,
-            view_bobbing: true,
+            view_bobbing: ViewBobbing::default(),
             cinematic_camera: false,
             camera_shake: true,
             outline_selection: DEFAULT_OUTLINE_SELECTION,
             damage_bob: 1.0,
             java_animations: false,
+            show_custom_item_models: DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
+            show_other_player_cosmetics: DEFAULT_SHOW_OTHER_PLAYER_COSMETICS,
             native_skybox_offset: assets::DEFAULT_NATIVE_SKYBOX_OFFSET,
             // Far terrain has no setting while it is disabled.
             far_terrain: render_api::far_terrain::FarTerrainMode::Off,
@@ -246,38 +282,44 @@ pub struct GameplaySettings {
     pub toggle_sneak: bool,
 }
 
-/// World rendering path. `Enhanced` is an opt-in custom look that never counts
-/// toward vanilla parity.
+/// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never
+/// count toward vanilla parity.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Hash)]
 pub enum RenderMode {
     #[default]
     Vanilla,
     Enhanced,
+    /// The selected Java (OptiFine/Iris) shader pack.
+    ShaderPack,
 }
 
 impl RenderMode {
+    /// Every mode, in settings order.
+    pub const ALL: [Self; 3] = [Self::Vanilla, Self::Enhanced, Self::ShaderPack];
+
     #[must_use]
     /// Stable persisted spelling of this mode.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Vanilla => "vanilla",
             Self::Enhanced => "enhanced",
+            Self::ShaderPack => "shaderpack",
         }
     }
 
     /// Case-insensitive inverse of [`Self::as_str`].
     #[must_use]
     pub fn parse(value: &str) -> Option<Self> {
-        [Self::Vanilla, Self::Enhanced]
+        Self::ALL
             .into_iter()
             .find(|mode| value.trim().eq_ignore_ascii_case(mode.as_str()))
     }
 
     #[must_use]
-    /// Switch between the two supported modes.
+    /// The Enhanced switch: Enhanced turns it off to Vanilla; any other mode turns it on.
     pub const fn toggled(self) -> Self {
         match self {
-            Self::Vanilla => Self::Enhanced,
+            Self::Vanilla | Self::ShaderPack => Self::Enhanced,
             Self::Enhanced => Self::Vanilla,
         }
     }
@@ -303,11 +345,18 @@ mod tests {
     #[test]
     fn render_mode_defaults_to_vanilla_and_round_trips_its_text() {
         assert_eq!(RenderMode::default(), RenderMode::Vanilla);
-        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
+        for mode in RenderMode::ALL {
             assert_eq!(RenderMode::parse(mode.as_str()), Some(mode));
+        }
+        for mode in [RenderMode::Vanilla, RenderMode::Enhanced] {
             assert_eq!(mode.toggled().toggled(), mode);
         }
+        assert_eq!(RenderMode::ShaderPack.toggled(), RenderMode::Enhanced);
         assert_eq!(RenderMode::parse(" ENHANCED "), Some(RenderMode::Enhanced));
+        assert_eq!(
+            RenderMode::parse("ShaderPack"),
+            Some(RenderMode::ShaderPack)
+        );
         assert_eq!(RenderMode::parse("shaders"), None);
     }
 }

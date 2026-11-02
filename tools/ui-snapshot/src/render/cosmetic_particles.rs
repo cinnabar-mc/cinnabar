@@ -25,6 +25,7 @@ pub(super) fn png(
             (
                 index,
                 Page {
+                    repeat_content: None,
                     width,
                     height,
                     rgba: Arc::from(page.pixels()),
@@ -35,6 +36,7 @@ pub(super) fn png(
     pages.insert(
         0,
         Page {
+            repeat_content: None,
             width: 1,
             height: 1,
             rgba: Arc::from([255; 4]),
@@ -53,7 +55,8 @@ pub(super) fn png(
     for batch in mesh.batches() {
         for triangle in mesh.indices()
             [batch.index_range.start as usize..batch.index_range.end as usize]
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
         {
             let vertices = triangle
                 .iter()

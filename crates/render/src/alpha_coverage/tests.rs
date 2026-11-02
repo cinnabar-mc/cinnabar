@@ -9,6 +9,8 @@ mod grid_tests;
 mod leaf_mip_tests;
 #[path = "minification_tests.rs"]
 mod minification_tests;
+#[path = "model_edge_tests.rs"]
+mod model_edge_tests;
 
 #[test]
 fn alpha_to_coverage_is_limited_to_multisampled_cutout_color_passes() {

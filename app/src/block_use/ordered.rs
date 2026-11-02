@@ -14,7 +14,6 @@ pub(crate) fn press(
     movement: Res<MovementTicker>,
 ) -> bool {
     let pressed = input.edge.pressed;
-    let attacking = input.edge.buttons.held(Action::Attack);
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.synchronize(movement.interaction_authority_identity());
     if pressed {
@@ -22,11 +21,11 @@ pub(crate) fn press(
     }
     let resolved = (|| {
         if (runtime.stopping() || runtime.last_success_destination().is_some())
-            && !stop_block_use(&mut runtime, &context, pressed && !attacking)
+            && !stop_block_use(&mut runtime, &context, pressed)
         {
             return false;
         }
-        if !pressed || attacking || context.melee.blocks_use_at(now) {
+        if !pressed || context.melee.blocks_use_at(now) {
             return true;
         }
         if !movement.accepts_block_interactions()
@@ -40,10 +39,8 @@ pub(crate) fn press(
         };
         runtime.selection_changed(&selection);
         runtime.observe_use(input.edge.buttons.held(Action::Use), true, false, true);
-        let (Some(state), Some(pick)) = (
-            movement.build_action_state(),
-            runtime.pick(movement.interaction_authority_identity()),
-        ) else {
+        let (Some(state), Some(pick)) = (movement.build_action_state(), runtime.pick(&movement))
+        else {
             return false;
         };
         let game_mode = player.facts.player_game_mode();
@@ -75,7 +72,7 @@ pub(crate) fn press(
             mode,
             clock.survival,
             input.context.identity,
-            movement.interaction_authority_identity().1,
+            movement.position_authority_identity().1,
             &runtime,
             Some(pick),
             ItemUseTrigger::PlayerInput,

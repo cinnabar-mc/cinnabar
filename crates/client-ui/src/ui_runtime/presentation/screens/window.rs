@@ -46,7 +46,7 @@ fn craft(slot_index: u8, x: f32, y: f32) -> PlacedSlot {
     slot(InventoryCellHit::Craft(slot_index), x, y)
 }
 
-fn storage(index: u8, x: f32, y: f32) -> PlacedSlot {
+fn storage(index: u16, x: f32, y: f32) -> PlacedSlot {
     slot(InventoryCellHit::Storage(index), x, y)
 }
 
@@ -73,7 +73,7 @@ pub fn window_layout(kind: WindowKind, cells: usize) -> Option<WindowLayout> {
         (0..count)
             .map(|index| {
                 storage(
-                    first + index as u8,
+                    u16::from(first) + index as u16,
                     x + (index % columns) as f32 * SLOT_SIZE,
                     y + (index / columns) as f32 * SLOT_SIZE,
                 )
@@ -81,7 +81,10 @@ pub fn window_layout(kind: WindowKind, cells: usize) -> Option<WindowLayout> {
             .collect()
     };
     Some(match kind {
-        WindowKind::Storage | WindowKind::Workbench | WindowKind::Lectern => return None,
+        WindowKind::Storage
+        | WindowKind::Workbench
+        | WindowKind::Lectern
+        | WindowKind::Trade { .. } => return None,
         WindowKind::Dispenser | WindowKind::Dropper => WindowLayout {
             title_centered: true,
             ..standard(grid(0, 9, 3, 62.0, 17.0))

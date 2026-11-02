@@ -3,10 +3,10 @@
 ## Concurrent builds
 
 Bound concurrent Cargo builds to the machine's available CPU, memory, and disk.
-Use the configured shared build limiter when available and never hold a build lock
-while waiting for another. Set `CARGO_BUILD_JOBS` explicitly when several worktrees
-are active. Prefer `cargo check -p <crate>` and avoid release builds unless the task
-requires performance measurements. Local builds do not use sccache.
+Use the build limiter your setup provides, if any, and never hold one build lock while
+waiting for another. Set `CARGO_BUILD_JOBS` explicitly when several worktrees are active. Prefer
+`cargo check -p <crate>` and avoid release builds unless the task requires performance
+measurements. Local builds do not use sccache.
 
 `.cargo/config.toml` gives each worktree its own Cargo `build-dir` under
 `$CARGO_HOME/build/cinnabar`, keyed by workspace path; `target` keeps only final artifacts. Never
@@ -59,7 +59,8 @@ hourly. Fix failing scheduled checks promptly.
 CI and packaging use `.github/actions/build-cache`. Rust caches keep workspace
 libraries, build-script outputs and fingerprints as well as dependencies, but not
 linked test and bin executables, their debug info or examples; Cargo relinks those.
-The save step logs the kept and left-out sizes by directory. The action hashes tracked inputs and restores
+Jobs that save pass `cargo-messages`, the JSON messages of their builds, so units those
+builds no longer use are left out; a failed build keeps every unit. The save step logs the kept and left-out sizes by directory. The action hashes tracked inputs and restores
 old file and directory timestamps only for identical tracked contents and
 permissions, so fresh checkouts do not force recompilation. Changed inputs get
 fresh timestamps after restoration. A source change

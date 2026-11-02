@@ -1,8 +1,8 @@
 //! Per-frame HUD observation and publication.
 use std::sync::Arc;
 
-use crate::runtime::network::resource_packs::PackApplication;
-use bevy::prelude::{Local, Transform, Vec3};
+use crate::runtime::network::{PackReload, resource_packs::PackApplication};
+use bevy::prelude::{Local, Projection, Transform};
 use client_runtime::network::NetworkHandle;
 use inventory::inventory_ledger::PlayerInventorySlot;
 use {super::*, client_presentation::camera::CameraSettingsAuthority};
@@ -14,6 +14,7 @@ mod commit;
 mod cooldowns;
 mod loading;
 mod menu_icons;
+mod roster;
 use client_ui::ui_runtime::presentation::{
     ItemIconFrames, PendingUiPublication, PreviewCapture, capture_hud_frame, nametags,
     player_preview,
@@ -48,12 +49,13 @@ pub(crate) struct PublishExtras<'w, 's> {
     options: Res<'w, crate::browser_input::BrowserOptions>,
     #[cfg(target_arch = "wasm32")]
     skin: Res<'w, client_shell::player_skin::LocalPlayerSkin>,
-    hand_rig: Res<'w, client_presentation::actor_publication::ActorFrameState>,
+    hand_rig: ResMut<'w, client_presentation::actor_publication::ActorFrameState>,
     collisions: Option<Res<'w, client_interaction::movement::PhysicsCollisionRegistries>>,
     profiler: Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     actor_pipelines: Option<Res<'w, render_scene::ActorPipelineReadiness>>,
     warmed_pipelines: Option<Res<'w, render_scene::PipelineWarmupReadiness>>,
     server_camera: Option<Res<'w, client_presentation::camera::ServerCameraView>>,
+    picked_actor: Option<Res<'w, crate::block_selection::CrosshairActor>>,
     nametag_cache: Local<'s, nametags::NametagTextCache>,
     fatal_error: ResMut<'w, crate::runtime::shutdown::FatalError>,
     actor_partial: Res<'w, client_presentation::actor_publication::ActorFramePartialTick>,
@@ -62,6 +64,7 @@ pub(crate) struct PublishExtras<'w, 's> {
     clock: Res<'w, client_presentation::environment::WorldClock>,
     weather: Res<'w, client_presentation::environment::WeatherState>,
     network: Res<'w, NetworkHandle<PackApplication>>,
+    pack_reload: Option<Res<'w, PackReload>>,
     glint_settings: Option<ResMut<'w, render_scene::UiGlintSettings>>,
     item_use: Res<'w, client_interaction::item_use::ItemUseRuntime>,
     melee: Res<'w, client_interaction::melee::MeleeRuntime>,
@@ -85,7 +88,7 @@ pub(crate) fn prepare_ui_runtime(
     mut client_world: ResMut<ClientWorld>,
     camera_settings: Res<CameraSettingsAuthority>,
     // The camera's Transform is this frame's; its GlobalTransform is propagated after Update.
-    cameras: Query<(&Camera, &Transform), With<Camera3d>>,
+    cameras: Query<(&Camera, &Transform, &Projection), With<Camera3d>>,
     time: Res<Time<Real>>,
     extras: PublishExtras,
     mut hand: crate::presentation::viewmodel::ViewmodelPublish,
@@ -98,12 +101,13 @@ pub(crate) fn prepare_ui_runtime(
         options,
         #[cfg(target_arch = "wasm32")]
         skin,
-        hand_rig,
+        mut hand_rig,
         collisions,
         profiler,
         actor_pipelines,
         warmed_pipelines,
         server_camera,
+        picked_actor,
         mut nametag_cache,
         mut fatal_error,
         actor_partial,
@@ -112,6 +116,7 @@ pub(crate) fn prepare_ui_runtime(
         clock,
         weather,
         network,
+        pack_reload,
         glint_settings,
         item_use,
         melee,
@@ -141,24 +146,22 @@ pub(crate) fn prepare_ui_runtime(
         .as_deref()
         .map(|profiler| profiler.time(render_scene::RuntimeStage::UiPreparation));
     prepared.0 = None;
-    let totem_style = presentation
-        .mod_ui()
-        .mod_actor_style()
-        .and_then(|style| style.totems.as_ref())
-        .cloned();
-    if let Some(stream) = client_world.stream.as_mut() {
-        stream.set_totem_tracking(totem_style.is_some());
-        runtime.player_roster.set_totem_annotations(
-            totem_style.as_ref(),
-            stream.authority().player_totem_activations(),
-        );
-    } else {
-        runtime
-            .player_roster
-            .set_totem_annotations(None, std::iter::empty());
-    }
+    runtime.set_resource_pack_loading(
+        pack_reload
+            .as_deref()
+            .is_some_and(PackReload::loading_screen),
+    );
+    let mod_presentation = std::sync::Arc::clone(presentation.mod_ui().mod_presentation());
+    runtime
+        .session
+        .player_roster
+        .set_annotations(roster::annotations(
+            &mod_presentation,
+            client_world.stream.as_ref(),
+        ));
     let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.advance_item_activation(now_millis);
+    runtime.advance_form_handoff(now_millis);
     runtime.set_toast_lifetime(settings_snapshot.0.toast_lifetime_millis());
     if let Some(mut glint_settings) = glint_settings {
         #[cfg(not(target_arch = "wasm32"))]
@@ -187,6 +190,21 @@ pub(crate) fn prepare_ui_runtime(
             return;
         }
     };
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let bottom =
+            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
+        let safe = platform_safe_area_insets();
+        presentation.set_safe_area(
+            SafeArea::new(
+                safe.left(),
+                safe.top(),
+                safe.right(),
+                safe.bottom().max(bottom),
+            )
+            .unwrap_or(safe),
+        );
+    }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();
     loading::prepare_loading(
@@ -216,7 +234,6 @@ pub(crate) fn prepare_ui_runtime(
     runtime.expire_gameplay_effects(now_millis);
     let stream = client_world.stream.as_ref();
     presentation.set_preview_cosmetics(&menu_skin.cosmetics);
-    presentation.set_cosmetic_motion(&hand_rig.cosmetic_motion());
     let preview_ready = presentation.set_menu_preview_skin(&menu_skin.standard_skin());
     let own_pixels = render_model::ActorSkinPixels {
         width: menu_skin.width,
@@ -226,14 +243,19 @@ pub(crate) fn prepare_ui_runtime(
     let skin = if menu_visible {
         player_preview::local_preview_skin(None, &own_pixels)
     } else {
-        player_preview::local_preview_skin(stream, &own_pixels)
+        player_preview::local_preview_skin(
+            stream.map(|stream| stream.authority().local_player_ui()),
+            &own_pixels,
+        )
     };
     let dressing_room =
         menu_visible && menu_scene == Some(launcher::menu::MenuScreen::DressingRoom);
     let pose = if dressing_room {
         player_preview::PlayerPreviewPose::default()
     } else {
-        player_preview::PlayerPreviewPose::of_local_player(stream)
+        player_preview::PlayerPreviewPose::of_local_player(
+            stream.map(|stream| stream.authority().local_player_ui()),
+        )
     };
     presentation.set_preview_equipment_assets(
         client_world.entity_assets.clone(),
@@ -248,6 +270,10 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    presentation.set_preview_player_layers(client_world.pack_entities.clone());
+    let settings = Arc::clone(&settings_snapshot.0);
+    let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
+    presentation.set_player_preview_custom_item_models(show_custom_item_models);
     // The model wears the local player's armor and held item.
     if dressing_room {
         presentation.set_player_preview_gear([None; 4], None);
@@ -255,7 +281,7 @@ pub(crate) fn prepare_ui_runtime(
         presentation.dress_player_preview(
             &player_runtime,
             &runtime,
-            stream,
+            stream.map(|stream| stream.authority().inventory_ui()),
             actor_animation::AttachableAnimationInput {
                 frame_alpha: actor_partial.0,
                 delta_seconds: Some(time.delta_secs()),
@@ -275,12 +301,13 @@ pub(crate) fn prepare_ui_runtime(
         .as_ref()
         .and_then(|stream| observe_paper_doll(stream, &runtime, &player_runtime, &physics));
     presentation.observe_paper_doll(now_millis, doll_state);
-    let settings = Arc::clone(&settings_snapshot.0);
-    let hud_doll = presentation.hud_frame_mut().paper_doll_visible
+    // The HUD doll keeps animating under an open screen, beside that screen's own doll.
+    let hud_doll = presentation
+        .hud_frame_mut()
+        .paper_doll_requested(player_runtime.facts.player_game_mode(), &settings)
         && settings.value(SettingId::HideHud) == 0
-        && settings.value(SettingId::HidePaperdoll) == 0
-        && !menu_visible
-        && !runtime.inventory_open();
+        && presentation.loading_stage().is_none()
+        && !menu_visible;
     let emote_preview = runtime
         .emotes()
         .playback()
@@ -300,9 +327,31 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    if hud_doll || runtime.emotes().is_open() {
+    presentation.begin_live_capture();
+    // A screen's live renderer draws the same animated actor as the HUD doll.
+    if hud_doll
+        || (presentation.has_preview_player_layers() && !menu_visible)
+        || runtime.emotes().is_open()
+        || (presentation.live_renderer_shown() && !menu_visible)
+    {
+        presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
+        presentation.set_hud_glide(
+            client_world
+                .stream
+                .as_ref()
+                .and_then(|stream| stream.authority().local_player_ui().actor())
+                .and_then(|actor| {
+                    client_presentation::presentation::actors::glide_rotation(
+                        actor,
+                        actor_partial.0,
+                    )
+                }),
+        );
         presentation.capture_hud_player_with_emote(
-            client_world.stream.as_ref(),
+            client_world
+                .stream
+                .as_ref()
+                .map(|stream| stream.authority().local_player_ui()),
             doll_state.is_some_and(|state| state.swimming),
             emote_preview,
         );
@@ -345,9 +394,19 @@ pub(crate) fn prepare_ui_runtime(
     client_ui::ui_runtime::presentation::forms::observe_station_block(
         &player_runtime,
         &mut runtime,
-        client_world.stream.as_ref(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         |position| {
             station_triggered(
+                client_world.stream.as_ref()?,
+                collisions.as_deref()?,
+                position,
+            )
+        },
+        |position| {
+            beacon_level(
                 client_world.stream.as_ref()?,
                 collisions.as_deref()?,
                 position,
@@ -370,7 +429,10 @@ pub(crate) fn prepare_ui_runtime(
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        client_world.stream.as_ref(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         camera_settings.perspective(),
         now_millis,
         icon_frames,
@@ -418,23 +480,21 @@ pub(crate) fn prepare_ui_runtime(
         );
     }
     runtime
+        .session
         .player_roster
         .set_show_badges(settings.value(SettingId::CinnabarBadges) != 0);
     let show_names = settings.value(SettingId::IngamePlayerNames) != 0;
-    let tag_style = presentation
-        .mod_ui()
-        .mod_actor_style()
-        .and_then(|style| style.nametags.as_ref());
-    let show_counter_self = totem_style
-        .as_ref()
-        .is_some_and(|style| style.show_self && style.show_nametag)
-        && client_world.stream.as_ref().is_some_and(|stream| {
-            let authority = stream.authority();
-            authority
-                .totem_activations(authority.local_player_runtime_id())
-                .is_some_and(|count| count != 0)
-        });
-    let show_self_tag = (tag_style.is_some_and(|style| style.show_self) || show_counter_self)
+    presentation.prepare_nametag_layout(&runtime);
+    let tag_style = mod_presentation.nametag_style.as_ref();
+    // An annotation on the local player shows its own tag, as other annotated players' tags do.
+    let annotated_self = client_world.stream.as_ref().is_some_and(|stream| {
+        mod_presentation
+            .nametag(stream.authority().local_player_runtime_id(), true)
+            .is_some()
+    });
+    let show_self_tag = (tag_style.is_some_and(|style| style.show_self)
+        || annotated_self
+        || settings.value(SettingId::F5SelfVisuals) != 0)
         && !tag_style.is_some_and(|style| style.hide_players)
         && !first_person;
     let names_with_hidden_hud = tag_style.is_some_and(|style| style.show_when_hud_hidden);
@@ -447,37 +507,51 @@ pub(crate) fn prepare_ui_runtime(
                     && settings.value(SettingId::HideHud) != 0
                     && !menu_visible)
         })
-        .zip(
-            cameras
-                .single()
-                .ok()
-                .map(|(_, transform)| GlobalTransform::from(*transform)),
-        )
-        .map(|(stream, transform)| {
+        .zip(cameras.single().ok().map(|(_, transform, projection)| {
+            (
+                GlobalTransform::from(*transform),
+                projection.get_clip_from_view(),
+            )
+        }))
+        .map(|(stream, (transform, clip_from_view))| {
             let authority = stream.authority();
-            let viewer_position = local_frame
-                .snapshot()
-                .map(|frame| frame.feet())
-                .or_else(|| {
-                    authority
-                        .actor(authority.local_player_runtime_id())
-                        .and_then(|actor| actor.interpolated_position(actor_partial.0))
-                        .map(Vec3::from_array)
-                })
-                .unwrap_or_else(|| transform.translation());
             let nametag_view = nametags::NametagView {
-                viewer_position,
                 camera_position: transform.translation(),
                 camera_forward: *transform.forward(),
+            };
+            let clip_from_world = clip_from_view * transform.to_matrix().inverse();
+            let rotation = transform.rotation();
+            let mut admit = |tag: &mut nametags::NametagAnchor| {
+                tag.set_cinnabar_badge(
+                    authority
+                        .actor_player_roster_identity(tag.runtime_id())
+                        .is_some_and(|(xuid, uuid)| {
+                            runtime.session.player_roster.has_badge(xuid, uuid)
+                        }),
+                );
+                tag.set_annotation(
+                    authority
+                        .actor(tag.runtime_id())
+                        .and_then(|actor| {
+                            mod_presentation.nametag(
+                                tag.runtime_id(),
+                                matches!(actor.kind, protocol::ActorKind::Player { .. }),
+                            )
+                        })
+                        .cloned(),
+                );
+
+                presentation.nametag_intersects_view(tag, clip_from_world, rotation)
             };
             let mut tags = nametags::project_nametags(
                 &mut nametag_cache,
                 runtime.scoreboards(),
-                stream,
+                stream.authority().nametag_ui(),
                 nametag_view,
-                picked_nametag_actor(stream, &transform, collisions.as_deref(), &player_runtime),
+                picked_actor.as_deref().and_then(|picked| picked.0),
                 actor_partial.0,
                 show_names && !tag_style.is_some_and(|style| style.hide_players),
+                &mut admit,
             );
             if tag_style.is_some_and(|style| style.hide_passengers) {
                 let authority = stream.authority();
@@ -499,49 +573,48 @@ pub(crate) fn prepare_ui_runtime(
                         !tag_style.is_some_and(|style| style.hide_passengers)
                             || authority.ridden_unique_id(actor.unique_id).is_none()
                     })
-                    && let Some(name) = authority
-                        .actor_name_tag(actor.unique_id)
-                        .or_else(|| authority.actor_display_name(actor.unique_id))
-                    && let Some(tag) = nametags::extract_nametag_at_feet(
+                    && let Some(name) = authority.actor_name_tag(actor.unique_id)
+                    && let Some(mut tag) = nametags::extract_nametag_at_feet(
                         actor,
-                        nametags::NametagView {
-                            viewer_position: visibility.feet(),
-                            ..nametag_view
-                        },
+                        nametag_view,
                         None,
                         name,
-                        runtime.scoreboards(),
+                        (!authority.remote_actors().any(|rider| {
+                            authority.ridden_unique_id(rider.unique_id) == Some(actor.unique_id)
+                        }))
+                        .then_some(runtime.scoreboards()),
                         visibility.feet(),
                     )
+                    && admit(&mut tag)
                 {
                     tags.push(tag);
                 }
             }
-            for tag in &mut tags {
-                tag.set_cinnabar_badge(
-                    authority
-                        .actor_player_roster_identity(tag.runtime_id())
-                        .is_some_and(|(xuid, uuid)| runtime.player_roster.has_badge(xuid, uuid)),
-                );
-                if totem_style.as_ref().is_some_and(|style| style.show_nametag)
-                    && let Some(actor) = authority.actor(tag.runtime_id())
-                    && let protocol::ActorKind::Player { uuid, .. } = &actor.kind
-                {
-                    tag.set_counter_annotation(
-                        runtime.player_roster.totem_annotation(uuid).cloned(),
-                    );
-                }
-            }
+
             tags
         })
         .unwrap_or_default();
+    let hud_camera = cameras.single().ok().map(|(_, transform, projection)| {
+        (projection.get_clip_from_view() * GlobalTransform::from(*transform).to_matrix().inverse())
+            .to_cols_array()
+    });
+    let actor_stream = client_world.stream.as_ref();
+    presentation
+        .mod_ui_mut()
+        .set_hud_projection(hud_camera, &|runtime_id| {
+            let actor = actor_stream?.authority().actor(runtime_id)?;
+            Some(mod_ui::ProjectedActor {
+                feet: actor.interpolated_position(actor_partial.0.clamp(0.0, 1.0))?,
+                player: matches!(actor.kind, protocol::ActorKind::Player { .. }),
+            })
+        });
     presentation.set_nametag_local_actor(
         client_world
             .stream
             .as_ref()
             .map(|stream| stream.authority().local_player_runtime_id()),
     );
-    presentation.set_nametag_anchors(nametags);
+    nametag_cache.recycle_anchors(presentation.set_nametag_anchors(nametags));
     presentation.set_chat_settings_snapshot(settings_snapshot);
     #[cfg(not(target_arch = "wasm32"))]
     let menu_view = menu_visible.then(|| {
@@ -557,8 +630,13 @@ pub(crate) fn prepare_ui_runtime(
     #[cfg(target_arch = "wasm32")]
     let menu_view = None;
     presentation.set_menu_view(menu_view);
-    presentation
-        .refresh_scoreboard_owner_names(runtime.scoreboards(), client_world.stream.as_ref());
+    presentation.refresh_scoreboard_owner_names(
+        runtime.scoreboards(),
+        client_world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().nametag_ui()),
+    );
     presentation.publish_scene_inputs(&mut runtime);
     prepared.0 = Some(PendingUiPublication {
         inventory: runtime.capture_presentation_inventory(&player_runtime),
@@ -621,45 +699,27 @@ fn station_triggered(
         .crafter_triggered
 }
 
-/// Captures nametag picking with gameplay's reach and collision policy before UI projection.
-fn picked_nametag_actor(
+/// Counts the beacon pyramid's layers of base blocks from the loaded world.
+fn beacon_level(
     stream: &chunk_pipeline::WorldStream,
-    camera_transform: &GlobalTransform,
-    collisions: Option<&client_interaction::movement::PhysicsCollisionRegistries>,
-    player: &client_state::PlayerRuntime,
-) -> Option<u64> {
-    let eye = camera_transform.translation();
-    let direction = *camera_transform.forward();
-    gameplay::melee::pick_actor(
-        stream.authority().remote_actors(),
-        None,
-        eye.to_array(),
-        direction.to_array(),
-        gameplay::mining::survival_reach(protocol::PlayerInputMode::Mouse),
-    )
-    .filter(|hit| {
-        let Some(collisions) = collisions else {
-            return true;
-        };
-        let world = sim::PaletteWorld::new(
-            stream.collision_store(),
-            collisions.registry(stream.network_id_mode()),
-            stream.current_dimension(),
-            crate::interaction_authority::pick_context(
-                stream,
-                collisions,
-                player.facts.player_game_mode(),
-                player.selected_stack().map(|item| item.block_runtime_id),
-            ),
-        );
-        let vector =
-            |v: bevy::math::Vec3| sim::Vec3::new(f64::from(v.x), f64::from(v.y), f64::from(v.z));
-        !matches!(
-            world.block_interaction_ray_current(vector(eye), vector(direction), hit.distance),
-            Ok(Some(_))
-        )
+    collisions: &client_interaction::movement::PhysicsCollisionRegistries,
+    position: [i32; 3],
+) -> Option<u8> {
+    let mode = stream.network_id_mode();
+    let world = sim::PaletteWorld::new(
+        stream.collision_store(),
+        collisions.registry(mode),
+        stream.current_dimension(),
+        Default::default(),
+    );
+    let states = assets::block_presentation_state::pinned_block_presentation_states();
+    // Unloaded terrain leaves the level unknown rather than reading as a broken pyramid.
+    client_ui::ui_runtime::presentation::forms::beacon_pyramid_level(position, |block| {
+        world
+            .primary_runtime_id(block)
+            .ok()
+            .map(|runtime_id| states.get(mode, runtime_id).beacon_base)
     })
-    .map(|hit| hit.runtime_id)
 }
 
 #[cfg(test)]

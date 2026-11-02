@@ -19,12 +19,22 @@ import (
 
 // hello identifies a reliable channel before any account or play operation.
 type hello struct {
-	Join       uint64   `json:"join,omitempty"`
-	Version    uint32   `json:"version"`
-	Channel    string   `json:"channel"`
-	Channels   []string `json:"channels,omitempty"`
-	Resume     string   `json:"resume,omitempty"`
-	Generation uint64   `json:"generation,omitempty"`
+	Join        uint64   `json:"join,omitempty"`
+	Version     uint32   `json:"version"`
+	Channel     string   `json:"channel"`
+	Channels    []string `json:"channels,omitempty"`
+	Resume      string   `json:"resume,omitempty"`
+	Generation  uint64   `json:"generation,omitempty"`
+	UserAgent   string   `json:"user_agent,omitempty"`
+	AppleMobile bool     `json:"apple_mobile,omitempty"`
+}
+
+// browserUserAgent prefers framed browser metadata when the transport omits HTTP user-agent headers.
+func (h hello) browserUserAgent(httpAgent string) string {
+	if h.UserAgent != "" {
+		return h.UserAgent
+	}
+	return httpAgent
 }
 
 type controlRequest struct {

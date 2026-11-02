@@ -12,16 +12,29 @@ pub struct TickInput {
     pub sprint_down: bool,
     /// Sneak control after the hold/toggle setting, before forced-pose admission.
     pub sneak_down: bool,
+    /// The sneak control is held while it acts as the toggle-sneak control:
+    /// always on a gamepad, otherwise under the toggle-sneak setting.
+    pub sneak_toggle_down: bool,
     /// Server sprint state applied before this tick admits local sprint input.
     pub server_sprinting: Option<bool>,
+    /// Server sneak state applied before this tick admits local sneak input.
+    pub server_sneaking: Option<bool>,
+    /// Locomotion mode this tick started with, after server flag writes, which
+    /// vanilla makes without a start or stop action.
+    pub server_mode: Option<sim::MovementMode>,
+    /// Independent pose flags this tick starts with, including server writes.
+    pub server_pose_flags: Option<super::PoseFlags>,
+    /// Riptide spin this tick started with, after server flag writes.
+    pub server_spinning: Option<bool>,
 }
 
-/// Button edges and server sprint updates wait for a completed tick.
+/// Button edges and server stance updates wait for a completed tick.
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct PendingInputEdges {
     jump: ActionPhase,
     sneak: ActionPhase,
     server_sprinting: Option<bool>,
+    server_sneaking: Option<bool>,
 }
 
 impl PendingInputEdges {
@@ -42,6 +55,7 @@ impl PendingInputEdges {
         self.sneak.pressed |= input.sneak.pressed;
         self.sneak.released |= input.sneak.released;
         self.server_sprinting = input.server_sprinting.or(self.server_sprinting);
+        self.server_sneaking = input.server_sneaking.or(self.server_sneaking);
     }
 
     /// Combines retained updates with the latest held requests for a simulation attempt.
@@ -51,6 +65,7 @@ impl PendingInputEdges {
         input.sneak.pressed = self.sneak.pressed;
         input.sneak.released = self.sneak.released;
         input.server_sprinting = self.server_sprinting;
+        input.server_sneaking = self.server_sneaking;
         input
     }
 }

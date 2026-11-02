@@ -6,13 +6,17 @@ fn block() -> CustomBlock {
     CustomBlock {
         name: "test:block".into(),
         tags: Arc::default(),
+        tags_complete: true,
         state_count: 2,
+        sound: None,
         collides: true,
         collision_boxes: None,
         selection: CustomSelection::Default,
         friction: None,
+        mining: Default::default(),
         state_physics_complete: false,
         state_physics: Arc::default(),
+        state_mining: Default::default(),
         player_interact: false,
         visual: Arc::new(CustomBlockVisuals {
             state_axes: Box::new([CustomStateAxis {

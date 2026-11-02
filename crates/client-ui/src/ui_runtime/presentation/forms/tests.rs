@@ -9,16 +9,18 @@ use ui_screens::test_support::{FixedText, NoTextures};
 
 pub use crate::test_support::{mini_carrier, mini_engine_presentation};
 
-/// A catalog parsed on another thread draws a server form exactly as an inline parse does.
+/// Complete presentation prepared on a worker draws forms exactly as inline preparation does.
 #[test]
 fn a_catalog_prepared_on_another_thread_draws_forms_like_an_inline_parse() {
     let mut player_runtime = player_state::PlayerState::new(1);
-    let prepared = std::thread::spawn(|| super::PreparedJsonUi::new(mini_carrier()))
-        .join()
-        .unwrap()
-        .unwrap();
-    let mut threaded = UiPresentationRuntime::new(fixture_font()).unwrap();
-    threaded.enable_prepared_json_ui(prepared).unwrap();
+    let mut threaded = std::thread::spawn(|| {
+        let prepared = super::PreparedJsonUi::new(mini_carrier()).unwrap();
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.enable_prepared_json_ui(prepared).unwrap();
+        presentation
+    })
+    .join()
+    .unwrap();
     let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B"]);
     let identity = runtime.server_forms().active().unwrap().identity;
     let hits = |presentation: &mut UiPresentationRuntime| {
@@ -443,6 +445,7 @@ fn path_and_url_button_images_resolve_like_vanilla() {
     );
     let mut presentation = mini_engine_presentation();
     let apple = IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 1, 1],
         glint: false,
@@ -811,7 +814,7 @@ fn oreui_texts(view: &launcher::menu::MenuView) -> Vec<String> {
     super::pack_harness::drawn_texts(&nodes)
 }
 
-// Generator labels survive every world view; the Docker prompt offers the alternate backend.
+// Generator labels survive every world view; the Docker prompt links to Docker.
 #[test]
 fn world_types_carry_the_owner_labels_everywhere_they_show() {
     use bridge::{Backend, GameMode, WorldState};
@@ -824,6 +827,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
     let mut runtime = launcher::menu::MenuView::new(true, "Steve".to_owned());
     runtime.screen = launcher::menu::MenuScreen::Play;
     let flat = World {
+        options: Default::default(),
         id: "0123456789abcdef".to_owned(),
         name: "Plains".to_owned(),
         game_mode: GameMode::Creative,
@@ -833,6 +837,7 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         seed: 1,
         created_unix: 1,
         last_played_unix: 1,
+        options_unavailable: false,
         size_bytes: 0,
     };
     let base = |menu: &WorldsMenu| {
@@ -875,28 +880,28 @@ fn world_types_carry_the_owner_labels_everywhere_they_show() {
         runtime: "none".to_owned(),
         reason: None,
     };
-    menu.apply(Event::Prefs(
-        Prefs::default(),
-        WorldStatus {
-            state: WorldState::Idle,
-            world_id: None,
-            backend: None,
-            paused: false,
-            pause_supported: true,
-            error: None,
-            setup: Some(setup),
-            backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
-            max_players: None,
-        },
-    ));
+    let no_docker = WorldStatus {
+        state: WorldState::Idle,
+        world_id: None,
+        backend: None,
+        paused: false,
+        pause_supported: true,
+        error: None,
+        setup: Some(setup),
+        backend_unavailable_reason: Some(UnavailableReason::DockerMissing),
+        max_players: None,
+    };
+    menu.apply(Event::Prefs(Prefs::default(), no_docker.clone()));
     menu.update(Input::BeginCreate);
     menu.update(Input::SetBackend(Backend::Bds));
     menu.update(Input::SubmitCreate);
+    menu.apply(Event::Prefs(Prefs::default(), no_docker));
     let dialog = oreui_texts(&base(&menu));
     assert!(
-        has(&dialog, &PromptButton::UseDragonfly.label()),
+        has(&dialog, &PromptButton::GetDocker.label()),
         "no-Docker dialog: {dialog:?}"
     );
+    assert!(!has(&dialog, &PromptButton::UseDragonfly.label()));
 }
 
 #[test]

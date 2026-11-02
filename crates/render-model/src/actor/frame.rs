@@ -20,8 +20,8 @@ use crate::{
     equipment_rig_id, geometry_from_geometry_index, geometry_from_runtime_assets,
     is_pack_equipment_rig_id, is_pack_rig_id, layer_geometries,
 };
-pub use catalog::ActorRigVertexSegments;
 use catalog::GeometryCatalog;
+pub use catalog::{ActorRigVertexSegments, share_identical_vertices};
 
 use super::{ActorArtworkLocation, ActorArtworkPageId, ActorCullView};
 
@@ -46,7 +46,8 @@ pub struct ActorRenderIdentity {
     pub session_id: u64,
     pub dimension: i32,
     pub runtime_id: u64,
-    pub spawn_revision: u64,
+    /// Render lifetime allocated independently of authority arrival revisions.
+    pub spawn_revision: std::num::NonZeroU64,
     pub ingress_sequence: u64,
     pub source_tick: Option<u64>,
     pub movement_revision: u64,
@@ -60,7 +61,6 @@ impl ActorRenderIdentity {
     pub const fn is_exact(self) -> bool {
         self.session_id != 0
             && self.runtime_id != 0
-            && self.spawn_revision != 0
             && self.ingress_sequence != 0
             && self.pose_generation.get() != 0
     }
@@ -456,6 +456,11 @@ impl ActorRigFrameBuilder {
         self.catalog.geometries.contains_key(&id)
     }
 
+    /// Borrows the currently registered, validated geometry for contact and attachment queries.
+    pub fn geometry(&self, id: EntityRigId) -> Option<&ActorRigGeometry> {
+        self.catalog.geometries.get(&id)
+    }
+
     #[must_use]
     pub const fn geometry_vertices(&self) -> &ActorRigVertexSegments {
         &self.catalog.vertices
@@ -802,6 +807,12 @@ pub fn actor_bounds_are_visible(
         return false;
     }
     let (low, high) = bounds.at(feet.to_array(), scale);
+    // A box containing the eye must survive even when its forward face is before the near plane.
+    if (0..3).all(|axis| {
+        low[axis] <= view.camera_position[axis] && view.camera_position[axis] <= high[axis]
+    }) {
+        return true;
+    }
     let corners: [Vec4; 8] = std::array::from_fn(|index| {
         let point = Vec3::from_array(std::array::from_fn(|axis| {
             if index & (1 << axis) == 0 {
@@ -888,6 +899,10 @@ mod build_tests;
 #[cfg(test)]
 #[path = "frame/material_tests.rs"]
 mod material_tests;
+
+#[cfg(test)]
+#[path = "frame/culling_tests.rs"]
+mod culling_tests;
 
 impl ActorMaterial {
     /// Shader kind and independently admitted raster states in the shared instance word.

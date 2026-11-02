@@ -1,5 +1,25 @@
 use super::*;
 
+#[cfg(target_os = "linux")]
+#[test]
+fn an_extracted_linux_install_launches_apprun_without_appimage_arguments() {
+    let root = tempfile::tempdir().unwrap();
+    let command = client_command(root.path());
+    assert_eq!(
+        command.get_program(),
+        root.path().join(crate::target::APP_RUN)
+    );
+    assert_eq!(command.get_args().count(), 0);
+    let image = root.path().join("client.AppImage");
+    fs::write(&image, "image").unwrap();
+    let command = client_command(&image);
+    assert_eq!(command.get_program(), image);
+    assert_eq!(
+        command.get_args().collect::<Vec<_>>(),
+        ["--appimage-extract-and-run"]
+    );
+}
+
 #[test]
 fn a_silent_start_stalls_after_the_timeout() {
     let directory = tempfile::tempdir().unwrap();
@@ -129,15 +149,7 @@ fn stopping_a_client_also_ends_the_setup_process_it_started() {
     // `cmd` waits on a long-running grandchild, as the client waits on its setup process.
     let mut command = Command::new("cmd");
     command.args(["/C", "ping -n 600 127.0.0.1 >NUL"]);
-    let result = Tree::spawn(&mut command);
-    if crate::privilege::normal_user(|| Ok(())).is_err() {
-        assert!(
-            result.is_err(),
-            "an elevated parent must never launch a tree"
-        );
-        return;
-    }
-    let tree = result.unwrap();
+    let tree = Tree::spawn(&mut command).unwrap();
     assert!(tree.job.is_some());
     // Returns only once the job, grandchild included, has no live process.
     tree.stop().unwrap();

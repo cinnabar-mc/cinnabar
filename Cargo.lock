@@ -20,7 +20,7 @@ checksum = "366ffbaa4442f4684d91e2cd7c5ea7c4ed8add41959a31447066e279e432b618"
 
 [[package]]
 name = "acceptance"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bevy",
@@ -118,10 +118,11 @@ dependencies = [
 
 [[package]]
 name = "actor-animation"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cosmetics",
+ "criterion",
  "protocol",
  "protocol-ids",
  "rayon",
@@ -129,6 +130,8 @@ dependencies = [
  "render-model",
  "sha2",
  "simulation-clock",
+ "test-alloc",
+ "test-time",
  "tracing",
  "world",
 ]
@@ -396,8 +399,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "arc-swap"
+version = "1.9.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+dependencies = [
+ "rustversion",
+]
+
+[[package]]
 name = "architecture"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cfg-expr",
@@ -451,11 +463,12 @@ dependencies = [
 
 [[package]]
 name = "asset-compiler"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
  "clap",
+ "flate2",
  "image",
  "pack-compile-input",
  "pack-compiler",
@@ -470,16 +483,18 @@ dependencies = [
  "tempfile",
  "tokio",
  "world",
+ "zip",
 ]
 
 [[package]]
 name = "assets"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "bitflags 2.13.0",
  "block-transform",
  "env-compat",
  "flate2",
+ "fontdue",
  "glam",
  "lewton",
  "png",
@@ -700,7 +715,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
-name = "bedrock-protocol-1-26-51"
+name = "bedrock-protocol-contract-1-26-60"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -711,7 +726,7 @@ dependencies = [
 
 [[package]]
 name = "bedrock-replay"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bridge",
@@ -732,8 +747,7 @@ dependencies = [
 [[package]]
 name = "bevy"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bd0e4ea5ec677698955f9f285221eab78606d8c27b57b889def199c16ce36e6"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_internal",
  "tracing",
@@ -742,8 +756,7 @@ dependencies = [
 [[package]]
 name = "bevy_a11y"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1070b9b7f087a5073be2da713367f29a831c85cd3391afcfc95bc0498125704"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "accesskit",
  "bevy_app",
@@ -755,8 +768,7 @@ dependencies = [
 [[package]]
 name = "bevy_android"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17fd56a4708085b36f8aa1a011e347f8bd9334f0343bb3d5d9c3742897968a55"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "android-activity",
 ]
@@ -764,8 +776,7 @@ dependencies = [
 [[package]]
 name = "bevy_anti_alias"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4df27fadf88e6ff72bf63a5e80e3921536eabfcde3196db347c31b6bbb39606"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -787,8 +798,7 @@ dependencies = [
 [[package]]
 name = "bevy_app"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2489da2972d57cccd19060d7faa44c4c4cfb296a657c84ee6ab8bde2b1c0115"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_derive",
  "bevy_ecs",
@@ -810,8 +820,7 @@ dependencies = [
 [[package]]
 name = "bevy_asset"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b88b3767a2c3f5a017b2febca08a670819ea2acb46846e4d8cd02980aeb0ed3e"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "async-broadcast",
  "async-channel",
@@ -853,8 +862,7 @@ dependencies = [
 [[package]]
 name = "bevy_asset_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "875b4fd236612744dbd61fb0a77ffde0aee37b8b780cf8a89caa308511c70646"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -865,8 +873,7 @@ dependencies = [
 [[package]]
 name = "bevy_camera"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f32c0d8436fb9373dc3b64fa30c3dec51d6a7cfda61de3c70fd1f62f8a903887"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -892,8 +899,7 @@ dependencies = [
 [[package]]
 name = "bevy_clipboard"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f0267b0beafd7e587a1b25b5ce14b271577f5fc1d8fd7828b2b66f0cf5dd649b"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "arboard",
  "bevy_app",
@@ -908,8 +914,7 @@ dependencies = [
 [[package]]
 name = "bevy_color"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0e57bfc1a0da1c018235fb98bb0e15ab61f1d0253122020ab6e1450e6cfbcf9"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_curve",
  "bevy_math",
@@ -925,8 +930,7 @@ dependencies = [
 [[package]]
 name = "bevy_core_pipeline"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4a077b301be4b373a4cb224c54988e1f8385ecf3ab9e60bd3727a65b3d6901a"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -955,8 +959,7 @@ dependencies = [
 [[package]]
 name = "bevy_curve"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21ae28ed95c1c8a1bfc8930471840ee5a4b99b6b31138b17598e7ee6f4291b64"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "approx",
  "bevy_math",
@@ -970,8 +973,7 @@ dependencies = [
 [[package]]
 name = "bevy_derive"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd59e9e600d792e60df17b4d52719b28c288bf047884ac89ad29d9c7a6592d2c"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -981,8 +983,7 @@ dependencies = [
 [[package]]
 name = "bevy_diagnostic"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f8851dc1b253b350bf941695457007e6e44ad4b8f075bf52a1ef202e6866b6a"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "atomic-waker",
  "bevy_app",
@@ -998,8 +999,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5541a1658c5029b39e3ec59c6ecb47ad0a6d85fa083312a5ee2a95d6982a926"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "arrayvec",
  "bevy_ecs_macros",
@@ -1028,8 +1028,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs_macro_logic"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5197fea7643d2733e8b6d81c3dfa99adad3a754cdfd159c00255cea157b795d7"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -1040,8 +1039,7 @@ dependencies = [
 [[package]]
 name = "bevy_ecs_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3dde5305169503c9101404bf8cf17e8351f56fccf5152b8e5d7d7c32dcf1c486"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_ecs_macro_logic",
  "bevy_macro_utils",
@@ -1053,8 +1051,7 @@ dependencies = [
 [[package]]
 name = "bevy_encase_derive"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4e4c4183c39ae8d00e53afeeab66aa71c41b08d82638149f9d485a2a62df569"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "encase_derive_impl",
@@ -1063,8 +1060,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "08e27fc07ef8e3ab7c217fed1b171d42c90f3b6e4f7f526ffa28f9006ac49aa4"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1081,8 +1077,7 @@ dependencies = [
 [[package]]
 name = "bevy_extract_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a5c67e8c55ef35c65295e8cb614eda169780e21e2748f6df470d3bff21849a3"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "proc-macro2",
@@ -1091,10 +1086,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "bevy_gilrs"
+version = "0.20.0"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
+dependencies = [
+ "bevy_app",
+ "bevy_ecs",
+ "bevy_input",
+ "bevy_platform",
+ "bevy_time",
+ "gilrs",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "bevy_gizmos"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfc92f635ec5eaef5733afee45e6a0452e8c65de42d818dc7269dc5265087689"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1118,8 +1127,7 @@ dependencies = [
 [[package]]
 name = "bevy_gizmos_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "501e72c4ac31caef17ef9e627dee212d2107b95402a891ec6f0fc4107dd0cdf4"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1129,8 +1137,7 @@ dependencies = [
 [[package]]
 name = "bevy_image"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb818dd8d705809d54adea08e346edce81a51ddbf06406ddf12a72ee467a3855"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1158,8 +1165,7 @@ dependencies = [
 [[package]]
 name = "bevy_input"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "261ca5cc8a0bf228bfe4e841570db18a3ab1d034ce089772b8ec49c163ae74ea"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1175,8 +1181,7 @@ dependencies = [
 [[package]]
 name = "bevy_input_focus"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83c81d369d0ab3ec17ba14bab1e07da7cacf3751a3104a93b1a3cd99d887887b"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_camera",
@@ -1192,8 +1197,7 @@ dependencies = [
 [[package]]
 name = "bevy_internal"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a4ed1cb58d1761426a077a8aff55e6a2e0cdfd19e411211d4b0217409330bb84"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_a11y",
  "bevy_android",
@@ -1209,6 +1213,7 @@ dependencies = [
  "bevy_diagnostic",
  "bevy_ecs",
  "bevy_extract",
+ "bevy_gilrs",
  "bevy_gizmos",
  "bevy_image",
  "bevy_input",
@@ -1236,8 +1241,7 @@ dependencies = [
 [[package]]
 name = "bevy_light"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "529d5ec7db637bbce7d016b2bfd0798362ad67118de8e9d37aaac24ecb3337cd"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1263,8 +1267,7 @@ dependencies = [
 [[package]]
 name = "bevy_log"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a87d5152292b0e581a589cffb6b7e83e0afe345279d4126545ce7b786bd8a47a"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "android_log-sys",
  "bevy_app",
@@ -1282,8 +1285,7 @@ dependencies = [
 [[package]]
 name = "bevy_macro_utils"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0d03a948df65138e30917d91237797d7e38763135ebacd0f28c891e1a3b2b52"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1294,8 +1296,7 @@ dependencies = [
 [[package]]
 name = "bevy_material"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5be7ee4b2f4764e8d58a59afb47a3ba8bae36f955f409f08c658cace2808ef40"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_asset",
  "bevy_derive",
@@ -1317,8 +1318,7 @@ dependencies = [
 [[package]]
 name = "bevy_material_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "70551fa201e1416ab44968631b7ce6320c194acfdb652a1971ec6882af122333"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1328,8 +1328,7 @@ dependencies = [
 [[package]]
 name = "bevy_math"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "598cbdcec4d0f0d966905996240ac76f77a644c583f95fb612d4f59f5f649038"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "approx",
  "bevy_reflect",
@@ -1345,8 +1344,7 @@ dependencies = [
 [[package]]
 name = "bevy_mesh"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09358ac9a3ede5855568c10eaba6bcf126bf86639e786fb21b413457ebec5f26"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1380,8 +1378,7 @@ checksum = "bff34eb29ff4b8a8688bc7299f14fb6b597461ca80fec03ed7d22939ab33e48f"
 [[package]]
 name = "bevy_pbr"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb760932d1e683e7c00011f5c99e4e1cc893646a3a7b7224da6daf9bfa94853d"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "arrayvec",
  "bevy_app",
@@ -1424,8 +1421,7 @@ dependencies = [
 [[package]]
 name = "bevy_platform"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "000bc467d1b344b6609fcf217a9b08d349d49c8e85dc4179fb7656f2b6e3db47"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bytemuck",
  "critical-section",
@@ -1447,8 +1443,7 @@ dependencies = [
 [[package]]
 name = "bevy_post_process"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d684c2ac93e94d9b7ba767ce02ea435ef244677a24746241726de2aa552ba1a4"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_asset",
@@ -1474,14 +1469,12 @@ dependencies = [
 [[package]]
 name = "bevy_ptr"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41935a00c02004753bd7ed5094754397800b3f673bf15553bb007b06216872d5"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 
 [[package]]
 name = "bevy_reflect"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "46eecc733575b873deedcc37639e36290092388657091b3321fa6e073e7818e6"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "assert_type_match",
  "bevy_platform",
@@ -1508,8 +1501,7 @@ dependencies = [
 [[package]]
 name = "bevy_reflect_derive"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfaa1e315676c625ed8d30ba8a671ebf917cad6355320295b9802a8cbc06853b"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "indexmap",
@@ -1522,8 +1514,7 @@ dependencies = [
 [[package]]
 name = "bevy_render"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5f438a921fd3ef82cc09ccf5e0cd8f1214dcae6286890f9d4acba0409d9a61a8"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "async-channel",
  "bevy_app",
@@ -1563,6 +1554,7 @@ dependencies = [
  "itertools 0.14.0",
  "js-sys",
  "nonmax",
+ "objc2 0.6.4",
  "offset-allocator",
  "profiling",
  "send_wrapper",
@@ -1581,8 +1573,7 @@ dependencies = [
 [[package]]
 name = "bevy_render_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "119ca6d445eba5c9976c658f29bac854094b27c27624aa92c4d9668c319618d0"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_extract_macros",
  "bevy_macro_utils",
@@ -1594,8 +1585,7 @@ dependencies = [
 [[package]]
 name = "bevy_shader"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2becafd54079da13835d6a42fc743e305d6270c27a91de613afe6e3f4b5de19"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_asset",
  "bevy_platform",
@@ -1611,8 +1601,7 @@ dependencies = [
 [[package]]
 name = "bevy_shape"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa8b6096ad1ec7dfe1af8e51d7cfa7de1a9e0a3bd02be58a061092c5e1ff1eb1"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "arrayvec",
  "bevy_math",
@@ -1627,8 +1616,7 @@ dependencies = [
 [[package]]
 name = "bevy_state"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09292e08e1eb34d2dd915630fb3c04ba75220c7819943c9f213d3a5f9a8be1e8"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1643,8 +1631,7 @@ dependencies = [
 [[package]]
 name = "bevy_state_macros"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fec1a8f6a253e39ddf7e447b1b9286caacb205ed8e619e6fb9a2e010d58dd04b"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_macro_utils",
  "quote",
@@ -1654,8 +1641,7 @@ dependencies = [
 [[package]]
 name = "bevy_tasks"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd8116f12dc50bde3758a72fba85e1f4c00e6c66d0ad58bdc46c0c0690829a8"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -1673,8 +1659,7 @@ dependencies = [
 [[package]]
 name = "bevy_time"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "13901174b792bb7848d8e088075f0009ea409b99179934c0d5bdd2b95622694e"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1688,8 +1673,7 @@ dependencies = [
 [[package]]
 name = "bevy_transform"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83379023d77a0739569a5bcb859eed652781a1b3271e94a86dfbb56fc5d067e0"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1706,8 +1690,7 @@ dependencies = [
 [[package]]
 name = "bevy_utils"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cbd58495039d4e63e6fcfef1242fecab33ffe62b4a5e010467e69e790879812"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "async-channel",
  "bevy_platform",
@@ -1719,8 +1702,7 @@ dependencies = [
 [[package]]
 name = "bevy_window"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc9a83f3cbaa04155b5dc9b247819c0e215aee754451a4324b82ddeb80dc53f1"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "bevy_app",
  "bevy_ecs",
@@ -1736,8 +1718,7 @@ dependencies = [
 [[package]]
 name = "bevy_winit"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ef0a5a55524e793ab13536ef244229fa66a4839fae6564df2aa4b3c13956a82"
+source = "git+https://github.com/cinnabar-mc/bevy?rev=e3a562a1c31399d6ab50fae50d463042e04a568b#e3a562a1c31399d6ab50fae50d463042e04a568b"
 dependencies = [
  "accesskit",
  "accesskit_winit",
@@ -1842,7 +1823,7 @@ dependencies = [
 
 [[package]]
 name = "block-transform"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "block2"
@@ -1877,20 +1858,26 @@ dependencies = [
 
 [[package]]
 name = "bootstrap-ui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
+ "block2 0.6.2",
  "fontdue",
  "gilrs",
  "image",
  "launcher",
  "launcher-host",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-game-controller",
+ "objc2-io-kit",
  "render-model",
  "semantic-input",
  "serde",
  "serde_json",
  "tempfile",
+ "test-time",
  "tokio",
  "tracing",
  "ui",
@@ -1918,7 +1905,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bytes",
@@ -2211,7 +2198,7 @@ dependencies = [
 
 [[package]]
 name = "chunk-pipeline"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2269,7 +2256,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "acceptance",
  "actor-animation",
@@ -2305,7 +2292,7 @@ dependencies = [
  "gameplay",
  "glam",
  "image",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "json-ui",
  "launcher",
  "launcher-host",
@@ -2337,7 +2324,6 @@ dependencies = [
  "render-api",
  "render-model",
  "render-scene",
- "reqwest",
  "resource-pack",
  "rich-presence",
  "rodio",
@@ -2347,6 +2333,7 @@ dependencies = [
  "serde_json",
  "server-experience",
  "sha2",
+ "shaderpack",
  "sim",
  "simulation-clock",
  "tempfile",
@@ -2359,7 +2346,6 @@ dependencies = [
  "ui",
  "ui-engine",
  "ui-screens",
- "update-installer",
  "update-manifest",
  "url",
  "uuid",
@@ -2375,7 +2361,7 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-android"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -2384,6 +2370,7 @@ dependencies = [
  "first-run",
  "jni 0.21.1",
  "launcher",
+ "launcher-host",
  "rodio",
  "serde",
  "serde_json",
@@ -2391,9 +2378,12 @@ dependencies = [
 
 [[package]]
 name = "cinnabar-cxb"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
+ "experience-runtime",
+ "experience-sdk",
+ "mod-host",
  "protocol",
  "ring",
  "serde",
@@ -2407,16 +2397,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "cinnabar-ios"
+version = "0.1.31"
+dependencies = [
+ "anyhow",
+ "cinnabar",
+ "diagnostics",
+ "launcher",
+ "serde",
+ "serde_json",
+ "shaderpack",
+]
+
+[[package]]
 name = "cinnabar-mcp"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "developer-control",
  "diagnostics",
  "image",
  "mcp-stdio",
+ "render-api",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "test-time",
+ "time",
 ]
 
 [[package]]
@@ -2488,7 +2495,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "client-audio"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2498,7 +2505,7 @@ dependencies = [
  "client-ui",
  "client-world",
  "crossbeam-queue",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "pack-json",
  "particles",
  "player-state",
@@ -2523,22 +2530,23 @@ dependencies = [
 
 [[package]]
 name = "client-extensions"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
+ "arc-swap",
  "assets",
  "bevy",
  "client-state",
  "client-ui",
  "client-world",
  "fontdue",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "mod-api",
  "mod-host",
  "mod-render",
+ "mod-ui",
  "player-state",
  "protocol",
- "render-api",
  "render-model",
  "serde",
  "serde_json",
@@ -2551,7 +2559,7 @@ dependencies = [
 
 [[package]]
 name = "client-interaction"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
@@ -2564,7 +2572,7 @@ dependencies = [
  "client-world",
  "diagnostics",
  "gameplay",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "player-state",
  "protocol",
  "protocol-ids",
@@ -2579,7 +2587,7 @@ dependencies = [
 
 [[package]]
 name = "client-presentation"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2592,7 +2600,7 @@ dependencies = [
  "diagnostics",
  "glam",
  "image",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "launcher",
  "meshing",
  "pack-compiler",
@@ -2603,7 +2611,6 @@ dependencies = [
  "render-api",
  "render-model",
  "render-scene",
- "resource-pack",
  "semantic-input",
  "serde",
  "serde_json",
@@ -2613,7 +2620,7 @@ dependencies = [
  "tempfile",
  "test-alloc",
  "test-time",
- "thiserror 2.0.18",
+ "tracing",
  "ui",
  "ui-engine",
  "world",
@@ -2622,7 +2629,7 @@ dependencies = [
 
 [[package]]
 name = "client-runtime"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "bevy",
@@ -2653,7 +2660,7 @@ dependencies = [
 
 [[package]]
 name = "client-session"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "bridge",
  "bytes",
@@ -2667,7 +2674,6 @@ dependencies = [
  "simulation-clock",
  "tempfile",
  "test-alloc",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -2678,11 +2684,12 @@ dependencies = [
 
 [[package]]
 name = "client-shell"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "ash",
  "assets",
  "bevy",
+ "block2 0.6.2",
  "bridge",
  "chunk-pipeline",
  "client-session",
@@ -2693,10 +2700,14 @@ dependencies = [
  "crossbeam-channel",
  "developer-control",
  "image",
+ "jni 0.21.1",
  "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
  "pack-runtime",
  "player-state",
@@ -2726,7 +2737,7 @@ dependencies = [
 
 [[package]]
 name = "client-state"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "bevy",
  "player-state",
@@ -2737,7 +2748,7 @@ dependencies = [
 
 [[package]]
 name = "client-ui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "anyhow",
@@ -2751,11 +2762,12 @@ dependencies = [
  "env-compat",
  "glam",
  "image",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "js-sys",
  "json-ui",
  "launcher",
  "launcher-host",
+ "mod-api",
  "mod-host",
  "mod-ui",
  "oreui",
@@ -2769,7 +2781,6 @@ dependencies = [
  "rayon",
  "render-api",
  "render-model",
- "reqwest",
  "resource-pack",
  "semantic-input",
  "serde",
@@ -2781,11 +2792,11 @@ dependencies = [
  "test-alloc",
  "test-time",
  "thiserror 2.0.18",
- "tokio",
  "tracing",
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
  "url",
  "uuid",
  "wasm-bindgen",
@@ -2797,13 +2808,13 @@ dependencies = [
 
 [[package]]
 name = "client-world"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
  "bytes",
  "hashbrown 0.16.1",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "protocol",
  "protocol-ids",
  "render-api",
@@ -3039,11 +3050,18 @@ dependencies = [
 
 [[package]]
 name = "cosmetics"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "serde",
  "serde_json",
  "sha2",
+]
+
+[[package]]
+name = "cosmic-mod"
+version = "0.1.0"
+dependencies = [
+ "experience-sdk",
 ]
 
 [[package]]
@@ -3266,7 +3284,7 @@ dependencies = [
 
 [[package]]
 name = "crash-monitor"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "bootstrap-ui",
  "bytes",
@@ -3289,7 +3307,6 @@ dependencies = [
  "tiny-skia",
  "tracing",
  "ui",
- "update-installer",
  "wgpu",
  "windows-sys 0.61.2",
  "winit",
@@ -3297,7 +3314,7 @@ dependencies = [
 
 [[package]]
 name = "crash-report"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "libc",
  "regex",
@@ -3544,7 +3561,7 @@ dependencies = [
 
 [[package]]
 name = "developer-control"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "crossbeam-channel",
  "mio",
@@ -3556,34 +3573,39 @@ dependencies = [
 
 [[package]]
 name = "devtool"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "cinnabar-cxb",
  "crash-report",
  "csv",
  "ctrlc",
  "diagnostics",
+ "libc",
  "minidump 0.27.0",
  "minidump-processor",
  "minidump-synth",
  "minidump-unwind",
  "quick-xml",
  "regex",
+ "render-api",
  "serde",
  "serde_json",
  "tempfile",
  "test-assembler",
+ "test-time",
  "thiserror 2.0.18",
  "tokio",
  "toml 0.9.12+spec-1.1.0",
  "wait-timeout",
  "wholesym",
+ "windows-sys 0.61.2",
  "workspace-declarations",
  "zip",
 ]
 
 [[package]]
 name = "diagnostics"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "android_log-sys",
  "assets",
@@ -3702,7 +3724,7 @@ checksum = "c9c272297e804878a2a4b707cfcfc6d2328b5bb936944613b4fdf2b9269afdfd"
 
 [[package]]
 name = "dist-local"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "same-file",
@@ -3747,6 +3769,13 @@ name = "dpi"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d8b14ccef22fc6f5a8f4d7d768562a182c04ce9a3b3157b91390b52ddfdf1a76"
+
+[[package]]
+name = "dragonfly-extension-client"
+version = "0.1.31"
+dependencies = [
+ "experience-sdk",
+]
 
 [[package]]
 name = "either"
@@ -3849,7 +3878,7 @@ dependencies = [
 
 [[package]]
 name = "env-compat"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "equivalent"
@@ -3924,17 +3953,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "experience-macros"
+version = "0.1.31"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.118",
+]
+
+[[package]]
 name = "experience-probe"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
 ]
 
 [[package]]
 name = "experience-runtime"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
+ "block-transform",
+ "experience-sdk",
  "serde",
  "serde_json",
  "sha2",
@@ -3948,17 +3988,35 @@ dependencies = [
 
 [[package]]
 name = "experience-sdk"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "anyhow",
+ "experience-macros",
+ "proc-macro2",
+ "quote",
  "serde",
  "serde_json",
+ "sha2",
+ "syn 2.0.118",
+ "tempfile",
  "toml 0.9.12+spec-1.1.0",
  "wit-bindgen",
+ "wit-bindgen-core",
+ "wit-bindgen-rust",
+]
+
+[[package]]
+name = "experience-space-client"
+version = "0.1.31"
+dependencies = [
+ "experience-sdk",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
 name = "experience-terminal-client"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
  "serde_json",
@@ -3978,14 +4036,13 @@ checksum = "2acce4a10f12dc2fb14a218589d4f1f62ef011b2d0cc4b3cb1bba8e94da14649"
 
 [[package]]
 name = "far-terrain"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "criterion",
  "crossbeam-channel",
  "flate2",
  "rayon",
- "render-api",
  "sha2",
  "tempfile",
  "test-time",
@@ -4030,13 +4087,12 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "first-run"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
  "bootstrap-ui",
  "diagnostics",
- "gilrs",
  "image",
  "launcher",
  "launcher-host",
@@ -4049,6 +4105,7 @@ dependencies = [
  "tempfile",
  "test-time",
  "tokio",
+ "tracing",
  "ui",
  "winit",
  "zip",
@@ -4282,14 +4339,14 @@ dependencies = [
 
 [[package]]
 name = "gameplay"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "actor-animation",
  "assets",
  "block-transform",
  "client-world",
  "env-compat",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "meshing",
  "player-state",
  "protocol",
@@ -4551,6 +4608,7 @@ dependencies = [
  "cfg-if",
  "crunchy",
  "num-traits",
+ "serde",
  "zerocopy",
 ]
 
@@ -4616,7 +4674,7 @@ checksum = "2304e00983f87ffb38b55b444b5e3b60a884b5d30c0fca7d82fe33449bbe55ea"
 
 [[package]]
 name = "hello-mod"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
@@ -4953,7 +5011,7 @@ dependencies = [
 
 [[package]]
 name = "inventory"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bytes",
@@ -4963,6 +5021,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "simulation-clock",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
 ]
@@ -5036,6 +5095,19 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "java-resource-pack"
+version = "0.1.31"
+dependencies = [
+ "image",
+ "pack-json",
+ "rayon",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "uuid",
+]
 
 [[package]]
 name = "jni"
@@ -5134,18 +5206,19 @@ dependencies = [
 
 [[package]]
 name = "json-ui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "pack-json",
  "serde",
  "serde_json",
+ "smallvec",
  "test-alloc",
  "thiserror 2.0.18",
 ]
 
 [[package]]
 name = "jsonui-editor"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -5162,7 +5235,7 @@ dependencies = [
 
 [[package]]
 name = "jsonui-mcp"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "image",
  "json-ui",
@@ -5209,7 +5282,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -5220,7 +5293,7 @@ dependencies = [
  "semantic-input",
  "serde",
  "serde_json",
- "sha2",
+ "shaderpack",
  "thiserror 2.0.18",
  "ui",
  "update-manifest",
@@ -5229,7 +5302,7 @@ dependencies = [
 
 [[package]]
 name = "launcher-host"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "async-io",
@@ -5241,11 +5314,14 @@ dependencies = [
  "ctrlc",
  "futures-lite",
  "getrandom 0.3.4",
+ "jni 0.21.1",
  "launcher",
  "libc",
  "memmap2",
  "minidumper",
+ "ndk-context",
  "protocol",
+ "render-api",
  "reqwest",
  "resource-pack",
  "rustix 1.1.4",
@@ -5259,6 +5335,7 @@ dependencies = [
  "time",
  "tokio",
  "tracing",
+ "ui",
  "update-installer",
  "update-manifest",
  "url",
@@ -5614,7 +5691,7 @@ checksum = "4facc753ae494aeb6e3c22f839b158aebd4f9270f55cd3c79906c45476c47ab4"
 
 [[package]]
 name = "mcp-stdio"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "serde_json",
 ]
@@ -5654,7 +5731,7 @@ dependencies = [
 
 [[package]]
 name = "meshing"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -5803,8 +5880,7 @@ dependencies = [
 [[package]]
 name = "minidump-writer"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f742d7445a9d4c63826d302dadbbcb607745560108e88b21c4014a9724d09dbe"
+source = "git+https://github.com/cinnabar-mc/minidump-writer?rev=389d34092fb3323f2253010615eda402212e534f#389d34092fb3323f2253010615eda402212e534f"
 dependencies = [
  "bitflags 2.13.0",
  "byteorder",
@@ -5874,14 +5950,29 @@ dependencies = [
 
 [[package]]
 name = "mod-api"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "serde",
+ "serde_json",
  "wit-bindgen",
 ]
 
 [[package]]
+name = "mod-docs"
+version = "0.1.31"
+dependencies = [
+ "anyhow",
+ "mod-api",
+ "mod-host",
+ "server-experience",
+ "tempfile",
+ "ui",
+ "wit-parser 0.247.0",
+]
+
+[[package]]
 name = "mod-host"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "assets",
@@ -5892,7 +5983,6 @@ dependencies = [
  "mod-api",
  "mod-render",
  "png",
- "render-api",
  "rustix 1.1.4",
  "serde",
  "serde_json",
@@ -5902,9 +5992,11 @@ dependencies = [
  "test-alloc",
  "test-time",
  "tokio",
+ "toml 0.9.12+spec-1.1.0",
  "tracing",
  "ui",
  "wasi-preview1-component-adapter-provider",
+ "wasm-encoder 0.247.0",
  "wasm-metadata",
  "wasmparser 0.247.0",
  "wasmtime",
@@ -5917,17 +6009,21 @@ dependencies = [
 
 [[package]]
 name = "mod-render"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "assets",
  "bytemuck",
+ "meshing",
  "mod-api",
  "naga",
+ "serde",
  "test-alloc",
+ "world",
 ]
 
 [[package]]
 name = "mod-ui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "glam",
@@ -5976,7 +6072,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -5992,7 +6088,9 @@ dependencies = [
  "naga-types",
  "num-traits",
  "once_cell",
+ "pp-rs 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rustc-hash 1.1.0",
+ "serde",
  "spirv",
  "thiserror 2.0.18",
  "unicode-ident",
@@ -6001,7 +6099,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -6375,8 +6473,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.0",
+ "block2 0.6.2",
  "objc2 0.6.4",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-game-controller"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1962c1882c5abcedb18e5f01acffeaad7b3cbd0a9d4cd8f5ca259ba8a64cb9a3"
+dependencies = [
+ "block2 0.6.2",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
 ]
 
 [[package]]
@@ -6386,7 +6496,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
 dependencies = [
  "bitflags 2.13.0",
+ "dispatch2",
  "libc",
+ "objc2 0.6.4",
  "objc2-core-foundation",
 ]
 
@@ -6667,7 +6779,7 @@ dependencies = [
 
 [[package]]
 name = "oreui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -6686,6 +6798,7 @@ dependencies = [
  "tracing",
  "ui",
  "ui-engine",
+ "update-manifest",
 ]
 
 [[package]]
@@ -6709,7 +6822,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compile-input"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -6722,7 +6835,7 @@ dependencies = [
 
 [[package]]
 name = "pack-compiler"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "cap-fs-ext",
@@ -6739,7 +6852,7 @@ dependencies = [
 
 [[package]]
 name = "pack-entity-compiler"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "image",
@@ -6756,11 +6869,9 @@ dependencies = [
 
 [[package]]
 name = "pack-font-compiler"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
- "cap-fs-ext",
- "cap-std",
  "fontdue",
  "freetype-sys",
  "image",
@@ -6773,7 +6884,7 @@ dependencies = [
 
 [[package]]
 name = "pack-json"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "serde",
  "serde_json",
@@ -6781,7 +6892,7 @@ dependencies = [
 
 [[package]]
 name = "pack-runtime"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -6801,6 +6912,7 @@ dependencies = [
  "sha2",
  "sim",
  "tempfile",
+ "test-alloc",
  "thiserror 2.0.18",
  "tracing",
  "zip",
@@ -6847,11 +6959,12 @@ dependencies = [
 
 [[package]]
 name = "particles"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bytemuck",
  "pack-json",
+ "protocol-ids",
  "render-model",
  "serde_json",
  "tracing",
@@ -6969,10 +7082,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "player-state"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "client-world",
- "inventory 0.1.22",
+ "inventory 0.1.31",
 ]
 
 [[package]]
@@ -7018,6 +7131,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "portal-view-mod"
+version = "0.1.31"
+dependencies = [
+ "mod-api",
+]
+
+[[package]]
 name = "postcard"
 version = "1.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7043,6 +7163,24 @@ name = "powerfmt"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439ee305def115ba05938db6eb1644ff94165c5ab5e9420d1c1bcedbba909391"
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb458bb7f6e250e6eb79d5026badc10a3ebb8f9a15d1fff0f13d17c71f4d6dee"
+dependencies = [
+ "unicode-xid",
+]
+
+[[package]]
+name = "pp-rs"
+version = "0.2.1"
+source = "git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6#949f1178cd660d3bcd1ec70181a10cf70e4b95b6"
+dependencies = [
+ "hashbrown 0.15.5",
+ "unicode-ident",
+]
 
 [[package]]
 name = "ppv-lite86"
@@ -7221,11 +7359,11 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "base64",
- "bedrock-protocol-1-26-51",
+ "bedrock-protocol-contract-1-26-60",
  "block-transform",
  "bridge",
  "bytes",
@@ -7252,7 +7390,7 @@ dependencies = [
 
 [[package]]
 name = "protocol-ids"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "pulley-interpreter"
@@ -7649,7 +7787,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "release-manifest"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "base64",
  "serde_json",
@@ -7661,12 +7799,13 @@ dependencies = [
 
 [[package]]
 name = "render"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bevy",
  "block-transform",
  "bytemuck",
+ "criterion",
  "env-compat",
  "far-terrain",
  "glam",
@@ -7681,12 +7820,16 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "pack-compiler",
  "particles",
+ "png",
  "rayon",
  "render-api",
  "render-model",
  "render-scene",
+ "serde",
  "serde_json",
  "sha2",
+ "shaderpack",
+ "spirv",
  "tempfile",
  "test-alloc",
  "test-time",
@@ -7700,11 +7843,11 @@ dependencies = [
 
 [[package]]
 name = "render-api"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "render-model"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -7730,14 +7873,14 @@ dependencies = [
 
 [[package]]
 name = "render-sample-mod"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
 
 [[package]]
 name = "render-scene"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bevy",
@@ -7812,9 +7955,11 @@ dependencies = [
 
 [[package]]
 name = "resource-pack"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "aes",
+ "image",
+ "java-resource-pack",
  "pack-json",
  "protocol",
  "rayon",
@@ -7830,7 +7975,7 @@ dependencies = [
 
 [[package]]
 name = "rich-presence"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "crossbeam-channel",
  "discord-presence",
@@ -8078,7 +8223,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "screen-probe-mod"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "experience-sdk",
  "mod-api",
@@ -8139,7 +8284,7 @@ dependencies = [
 
 [[package]]
 name = "semantic-input"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "semver"
@@ -8234,7 +8379,7 @@ dependencies = [
 
 [[package]]
 name = "server-experience"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "dav1d",
@@ -8277,10 +8422,33 @@ dependencies = [
 
 [[package]]
 name = "shaderpack"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "assets",
+ "ciborium",
+ "libc",
+ "naga",
+ "pp-rs 0.2.1 (git+https://github.com/cinnabar-mc/glslpp-rs?rev=949f1178cd660d3bcd1ec70181a10cf70e4b95b6)",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-time",
+ "windows-sys 0.61.2",
  "zip",
  "zip-footer",
+]
+
+[[package]]
+name = "shaderpack-worker"
+version = "0.1.31"
+dependencies = [
+ "naga",
+ "serde_json",
+ "shaderpack",
+ "tempfile",
+ "test-time",
+ "update-manifest",
 ]
 
 [[package]]
@@ -8316,7 +8484,7 @@ dependencies = [
 
 [[package]]
 name = "sim"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "block-transform",
@@ -8354,7 +8522,7 @@ checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
 name = "simulation-clock"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "slab"
@@ -8621,7 +8789,7 @@ dependencies = [
 
 [[package]]
 name = "test-alloc"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "test-assembler"
@@ -8634,7 +8802,7 @@ dependencies = [
 
 [[package]]
 name = "test-time"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "thiserror"
@@ -8701,7 +8869,7 @@ dependencies = [
 
 [[package]]
 name = "time-changer-mod"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "mod-api",
 ]
@@ -9186,7 +9354,7 @@ dependencies = [
 
 [[package]]
 name = "ui"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "criterion",
@@ -9202,14 +9370,13 @@ dependencies = [
 
 [[package]]
 name = "ui-engine"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "crossbeam-channel",
  "image",
  "json-ui",
  "pack-json",
- "rayon",
  "render-api",
  "render-model",
  "resource-pack",
@@ -9223,13 +9390,12 @@ dependencies = [
 
 [[package]]
 name = "ui-screens"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
- "bridge",
  "cosmetics",
  "image",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "json-ui",
  "launcher",
  "player-state",
@@ -9239,6 +9405,7 @@ dependencies = [
  "resource-pack",
  "semantic-input",
  "serde_json",
+ "sha2",
  "tracing",
  "ui",
  "ui-engine",
@@ -9247,28 +9414,32 @@ dependencies = [
 
 [[package]]
 name = "ui-snapshot"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
  "client-ui",
  "cosmetics",
  "image",
- "inventory 0.1.22",
+ "inventory 0.1.31",
  "json-ui",
  "jsonui-editor",
  "launcher",
+ "mod-ui",
  "oreui",
  "player-state",
  "protocol",
  "render-api",
  "render-model",
+ "resource-pack",
  "serde_json",
+ "shaderpack",
  "tempfile",
  "tracing-subscriber",
  "ui",
  "ui-engine",
  "ui-screens",
+ "update-manifest",
 ]
 
 [[package]]
@@ -9314,7 +9485,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "update-installer"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "anyhow",
  "rustix 1.1.4",
@@ -9328,7 +9499,7 @@ dependencies = [
 
 [[package]]
 name = "update-manifest"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "base64",
  "ring",
@@ -10052,7 +10223,7 @@ dependencies = [
 
 [[package]]
 name = "web-client"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "assets",
  "bridge",
@@ -10110,7 +10281,7 @@ dependencies = [
 
 [[package]]
 name = "web-transport"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "bridge",
  "bytes",
@@ -10183,7 +10354,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -10211,7 +10382,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -10244,7 +10415,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10252,7 +10423,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10260,7 +10431,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10268,7 +10439,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -10323,7 +10494,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10332,7 +10503,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=b9611d40466b1c86cda04099890ab157b1ae5035#b9611d40466b1c86cda04099890ab157b1ae5035"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=4741c39da699b31c1cae7aa53be8c62172593bec#4741c39da699b31c1cae7aa53be8c62172593bec"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",
@@ -11169,12 +11340,13 @@ dependencies = [
 
 [[package]]
 name = "workspace-declarations"
-version = "0.1.22"
+version = "0.1.31"
 
 [[package]]
 name = "world"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
+ "block-transform",
  "criterion",
  "hashbrown 0.16.1",
  "mimalloc",
@@ -11449,7 +11621,7 @@ dependencies = [
 
 [[package]]
 name = "zip-footer"
-version = "0.1.22"
+version = "0.1.31"
 dependencies = [
  "thiserror 2.0.18",
  "zip",

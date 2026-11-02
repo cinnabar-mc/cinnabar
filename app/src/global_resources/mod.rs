@@ -79,7 +79,8 @@ impl From<Overlay<'_>> for PublishedOverlay {
 ///
 /// The published snapshot is a function of the worker's snapshot and the reload overlay, so
 /// it is rebuilt only when either changes instead of being cloned every frame. Dropped world
-/// files go to the Worlds tab while it shows and every other drop imports as a pack.
+/// files go to the Worlds tab while it shows, the Shaders tab hands drops to the shader-pack
+/// import, and every other drop imports as a pack.
 fn drive(
     mut worker: ResMut<worker::Worker>,
     mut menu: ResMut<MenuRuntime>,
@@ -96,6 +97,9 @@ fn drive(
         }
     }
     let mut world_files = Vec::new();
+    if menu.takes_shader_pack_drops() {
+        drops.clear();
+    }
     for event in drops.read() {
         if let bevy::window::FileDragAndDrop::DroppedFile { path_buf, .. } = event {
             if is_world_archive(path_buf) {
@@ -148,8 +152,11 @@ fn drive(
                 worker.snapshot = snapshot;
                 snapshot_changed = true;
             }
-            worker::Event::Apply(stack, selection) => {
-                let revision = reload.request_globals(stack);
+            worker::Event::Apply(stack, selection, origin) => {
+                let revision = match origin {
+                    worker::ApplyOrigin::Startup => reload.request_globals_initial(stack),
+                    worker::ApplyOrigin::User => reload.request_globals(stack),
+                };
                 worker.awaiting = Some((revision, selection));
             }
         }

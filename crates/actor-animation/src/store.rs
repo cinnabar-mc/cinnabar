@@ -29,7 +29,7 @@ pub struct ActorAnimationStore {
 
 #[derive(Debug)]
 pub(super) struct PackCatalog {
-    /// Rig geometry bindings with artwork; a pack entity without any draws as vanilla does.
+    /// Rig geometry bindings with pack artwork; players may use session skin artwork instead.
     pub(super) artwork: std::collections::BTreeSet<u32>,
     pub(super) assets: Arc<RuntimeEntityAssets>,
     pub(super) layout: Arc<VariableLayout>,
@@ -49,16 +49,32 @@ pub(super) enum PoseStep {
 
 impl ActorAnimationStore {
     pub fn diagnostic() -> Self {
-        Self::new(None)
+        Self::with_catalog(None, Arc::default())
     }
 
-    pub fn with_assets(assets: Arc<RuntimeEntityAssets>) -> Self {
-        Self::new(Some(assets))
+    /// Starts independent actor state, reusing analysis when the caller supplies a prepared catalog.
+    pub fn with_assets(assets: impl Into<ActorAnimationCatalog>) -> Self {
+        let catalog = assets.into();
+        Self::with_catalog(Some(catalog.assets), catalog.layout)
     }
 
-    fn new(assets: Option<Arc<RuntimeEntityAssets>>) -> Self {
+    /// Shares base-carrier analysis without sharing actors, ticks, pack bindings or compiler state.
+    pub fn catalog(&self) -> Option<ActorAnimationCatalog> {
+        Some(ActorAnimationCatalog {
+            assets: Arc::clone(self.assets.as_ref()?),
+            layout: Arc::clone(&self.layout),
+        })
+    }
+
+    /// Starts independent actor state using this base catalog's existing immutable analysis.
+    pub fn restart(self) -> Self {
+        Self::with_catalog(self.assets, self.layout)
+    }
+
+    /// Creates fresh mutable state without repeating the supplied catalog's analysis.
+    fn with_catalog(assets: Option<Arc<RuntimeEntityAssets>>, layout: Arc<VariableLayout>) -> Self {
         let mut store = Self {
-            layout: Arc::new(assets.as_ref().map(VariableLayout::new).unwrap_or_default()),
+            layout,
             assets,
             pack: None,
             server_compiler: None,
@@ -82,10 +98,16 @@ impl ActorAnimationStore {
 
     /// Layers a server-pack entity catalog over the vanilla one for actors spawned afterwards.
     pub fn set_pack(&mut self, assets: Option<(Arc<RuntimeEntityAssets>, Vec<u32>)>) {
-        self.pack = assets.map(|(assets, artwork)| PackCatalog {
-            layout: Arc::new(VariableLayout::new(&assets)),
-            artwork: artwork.into_iter().collect(),
-            assets,
+        self.pack = assets.map(|(assets, artwork)| {
+            let mut layout = VariableLayout::new(&assets);
+            if let Some(vanilla) = &self.assets {
+                layout.plans.bind_attachments(vanilla);
+            }
+            PackCatalog {
+                layout: Arc::new(layout),
+                artwork: artwork.into_iter().collect(),
+                assets,
+            }
         });
     }
 
@@ -128,17 +150,19 @@ impl ActorAnimationStore {
             runtime_id: actor.runtime_id(),
             spawn_revision: actor.spawn_revision(),
         };
-        let from_pack = self.pack.as_ref().and_then(|pack| {
-            let mut state = resolve_rig(&pack.assets, &pack.layout, actor, self.completed_tick)?;
-            if !pack.artwork.contains(&state.rig.0) {
-                return None;
-            }
-            state.pack = true;
-            state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
-            Some(state)
-        });
-        let resolved =
-            from_pack.or_else(|| resolve_rig(&assets, &self.layout, actor, self.completed_tick));
+        let identifier = match actor.kind() {
+            ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
+            ActorKind::Entity { identifier } => identifier,
+        };
+        let resolved = self
+            .resolve_appearance(&assets, actor, identifier)
+            .or_else(|| {
+                let key = usize::from(actor.entity_fact().class_key).checked_sub(1)?;
+                let base = assets::facts::entity::EntityFacts::pinned()
+                    .records
+                    .get(key)?;
+                self.resolve_appearance(&assets, actor, &base.identifier)
+            });
         let Some(mut state) = resolved else {
             self.stats.unrigged_spawns = self.stats.unrigged_spawns.saturating_add(1);
             return;
@@ -157,6 +181,34 @@ impl ActorAnimationStore {
         self.runtime_to_lifetime
             .insert(actor.runtime_id(), lifetime);
         self.rigs.insert(lifetime, state);
+    }
+
+    /// Resolves one visual identity, giving authored server artwork priority over the base catalog.
+    fn resolve_appearance(
+        &self,
+        assets: &RuntimeEntityAssets,
+        actor: &dyn AnimatedActor,
+        identifier: &str,
+    ) -> Option<ActorRigState> {
+        let from_pack = self.pack.as_ref().and_then(|pack| {
+            let mut state = resolve_rig(
+                &pack.assets,
+                &pack.layout,
+                actor,
+                identifier,
+                self.completed_tick,
+            )?;
+            if !pack.artwork.contains(&state.rig.0)
+                && !matches!(actor.kind(), ActorKind::Player { .. })
+            {
+                return None;
+            }
+            state.pack = true;
+            state.rig = EntityRigId(assets::PACK_RIG_ID_BASE.checked_add(state.rig.0)?);
+            Some(state)
+        });
+        from_pack
+            .or_else(|| resolve_rig(assets, &self.layout, actor, identifier, self.completed_tick))
     }
 
     pub fn mark_reset(&mut self, runtime_id: u64) {
@@ -332,6 +384,53 @@ impl ActorAnimationStore {
         }
     }
 
+    /// Whether a local actor's bone is `ancestor` or one of its descendants in the rig.
+    pub fn bone_descends_from(&self, runtime_id: u64, bone: usize, ancestor: usize) -> bool {
+        let Some(state) = self
+            .runtime_to_lifetime
+            .get(&runtime_id)
+            .and_then(|lifetime| self.rigs.get(lifetime))
+        else {
+            return false;
+        };
+        // UI poses index the skin's skeleton when the skin brings its own geometry.
+        let bones = state.posed_bones();
+        let mut current = Some(bone);
+        for _ in 0..=bones.len() {
+            match current {
+                Some(index) if index == ancestor => return true,
+                Some(index) => current = bones.get(index).and_then(|bone| bone.parent),
+                None => return false,
+            }
+        }
+        false
+    }
+
+    /// Full-body controller output from the same UI evaluation as [`Self::ui_pose`].
+    pub fn ui_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        self.ui_pose(runtime_id)?;
+        let ui = state.ui_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+            head_rotation: None,
+        })
+    }
+
+    /// Completed controller layers for a paper doll drawn over the level view.
+    pub fn paper_doll_layers(&self, runtime_id: u64) -> Option<ActorRenderLayers<'_>> {
+        let state = self.rigs.get(self.runtime_to_lifetime.get(&runtime_id)?)?;
+        let ui = state.paper_doll_animation.as_ref()?;
+        Some(ActorRenderLayers {
+            render: std::borrow::Cow::Borrowed(&ui.render),
+            skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
+            held_item_scale: ui.held_item_scale,
+            head_rotation: None,
+        })
+    }
+
     pub fn snapshots(&self) -> impl Iterator<Item = ActorRigSnapshot<'_>> {
         self.rigs
             .iter()
@@ -386,6 +485,13 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            attachments: Some(
+                state
+                    .skin_skeleton()
+                    .map_or(&state.attachment_bindings, |skeleton| {
+                        &skeleton.prepared.attachments
+                    }),
+            ),
             bone_names: state.posed_bone_names(),
             skin_geometry: state
                 .skin_skeleton()
@@ -447,16 +553,14 @@ pub(super) fn model_scale(state: &ActorRigState, assets: &RuntimeEntityAssets) -
             .fold(1.0_f32, |largest, axis| largest.max(axis.abs()))
 }
 
+/// Binds a visual identity while evaluating queries against the unchanged live actor.
 fn resolve_rig(
     assets: &RuntimeEntityAssets,
     layout: &VariableLayout,
     actor: &dyn AnimatedActor,
+    identifier: &str,
     completed_tick: u64,
 ) -> Option<ActorRigState> {
-    let identifier = match actor.kind() {
-        ActorKind::Player { .. } => assets::facts::VanillaEntity::Player.identifier(),
-        ActorKind::Entity { identifier } => identifier,
-    };
     let entity_symbol = assets
         .symbol_candidates(EntityAssetKind::Entity, identifier)
         .first()?;

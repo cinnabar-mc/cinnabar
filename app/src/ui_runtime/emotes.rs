@@ -13,20 +13,23 @@ use bevy::{
     },
     prelude::*,
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, WindowEvent},
 };
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::EMOTE_SLOT_COUNT;
 use ui::{UiAction, UiPoint};
 use ui_screens::emote_screen::EmoteHit;
 
 use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
-use client_ui::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::{UiRuntime, scene_stack::Scene};
 use launcher::menu::settings_options::BindingId;
 use {
     crate::runtime::world::ClientWorld,
     client_shell::menu::{
         MenuRuntime,
-        settings_options::control_bindings::{binding_gamepad, binding_key, gamepad_button},
+        settings_options::control_bindings::{
+            binding_gamepad, binding_key, gamepad_button, menu_cancel_key, menu_cancel_mouse,
+        },
     },
     client_state::{PlayerRuntime, SemanticInputSnapshot},
 };
@@ -43,7 +46,8 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
-use client_state::EmoteInputConsumed;
+use super::input_owner::InputOwner;
+use client_state::ScreenInputConsumed;
 
 #[derive(SystemParam)]
 pub(crate) struct EmoteInput<'w, 's> {
@@ -63,7 +67,8 @@ pub(crate) struct EmoteInput<'w, 's> {
     runtime: ResMut<'w, UiRuntimeResource>,
     presentation: Option<ResMut<'w, UiPresentationResource>>,
     observed: Local<'s, ObservedEmotes>,
-    consumed: ResMut<'w, EmoteInputConsumed>,
+    consumed: ResMut<'w, ScreenInputConsumed>,
+    owner: InputOwner<'w>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
 }
@@ -119,11 +124,9 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             .is_some_and(|actor| actor.status.dead);
     let blocked = input.consent.as_ref().is_some_and(|consent| consent.0)
         || input.menu.as_ref().is_some_and(|menu| menu.is_visible())
-        || input.runtime.chat_focused()
-        || input.runtime.inventory_open()
-        || input.runtime.server_forms().owns_input()
-        || input.runtime.sign_editor().active().is_some()
-        || input.runtime.local_sleeping()
+        || input
+            .runtime
+            .screen_open_besides(&input.player, Some(Scene::Emote))
         || actor_unavailable;
     if blocked {
         input.observed.modifiers.reset_all();
@@ -133,6 +136,15 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }
+        return;
+    }
+    let frame = input
+        .owner
+        .frame(&input.runtime, &input.player, input.menu.as_deref());
+    // Another screen closed this frame: the keys that closed it aren't the wheel's.
+    if !frame.reads(|scene| matches!(scene, Scene::Gameplay | Scene::Emote)) {
+        input.keyboard.clear();
+        input.observed.modifiers.reset_all();
         return;
     }
     if input.driven.is_none()
@@ -145,8 +157,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         input.motion.delta = Vec2::ZERO;
         input.observed.pointer = None;
         input.consumed.0 = owned;
-        input.window.1.grab_mode = CursorGrabMode::None;
-        input.window.1.visible = true;
+        set_cursor_capture(&mut input.window.1, false);
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }
@@ -172,6 +183,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(held),
                 client_shell::physical_input::mouse_button_code(*button)
                     .map(semantic_input::PhysicalControl::MouseButton),
@@ -223,6 +235,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             && command_macros::command(
                 input.menu.as_deref(),
                 &input.runtime,
+                &input.player,
                 chat_modifiers::held_chord(&input.observed.modifiers),
                 client_shell::physical_input::keyboard_usage(event.key_code)
                     .map(semantic_input::PhysicalControl::KeyboardUsage),
@@ -248,7 +261,12 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_input_mode(json_ui::InputMode::Mouse);
         }
-        if event.key_code == KeyCode::KeyC {
+        if menu_cancel_key(input.menu.as_deref(), event.key_code) {
+            input
+                .runtime
+                .emotes_mut()
+                .handle_action(UiAction::Cancel, now);
+        } else if event.key_code == KeyCode::KeyC {
             input.runtime.emotes_mut().change_emotes();
         } else if event.key_code == KeyCode::Tab && input.runtime.emotes().is_choosing() {
             input.runtime.emotes_mut().next_catalog_page();
@@ -281,7 +299,21 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
             });
         }
         input.observed.pointer = pointer;
-        if input.mouse.just_pressed(MouseButton::Left) {
+        // A button that also toggled the wheel this frame does not cancel it again.
+        if menu_cancel_mouse(input.menu.as_deref(), &input.mouse).is_some_and(|button| {
+            !(mouse_toggled
+                && client_shell::menu::settings_options::control_bindings::binding_mouse_button(
+                    input.menu.as_deref(),
+                    BindingId::Emote,
+                    button,
+                ))
+        }) {
+            input
+                .runtime
+                .emotes_mut()
+                .handle_action(UiAction::Cancel, now);
+            dismissed |= !input.runtime.emotes().is_open();
+        } else if input.mouse.just_pressed(MouseButton::Left) {
             match hit {
                 Some(EmoteHit::Slot(slot)) => {
                     input.runtime.emotes_mut().activate_slot(slot, now);
@@ -342,17 +374,13 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         focus.authorize_screen_return();
     }
     if owned {
+        input.owner.claim(Scene::Emote);
         input.consumed.0 = true;
         input.observed.modifiers.reset_all();
         input.keys.reset_all();
         input.mouse.reset_all();
         input.motion.delta = Vec2::ZERO;
-        input.window.1.grab_mode = if input.runtime.emotes().is_open() {
-            CursorGrabMode::None
-        } else {
-            CursorGrabMode::Locked
-        };
-        input.window.1.visible = input.runtime.emotes().is_open();
+        set_cursor_capture(&mut input.window.1, !input.runtime.emotes().is_open());
     }
 }
 

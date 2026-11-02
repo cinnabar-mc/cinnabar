@@ -4,7 +4,7 @@ use sim::MovementEffects;
 
 use super::physics::MovementEffectSource;
 
-const TRACKED_EFFECT_COUNT: usize = 8;
+const TRACKED_EFFECT_COUNT: usize = 10;
 // Keeps every admitted Jump Boost impulse below sim's collision-query extent.
 // Levitation contracts a valid current velocity toward a target of at most
 // 51.25 blocks/tick at this bound, so it cannot poison the following tick.
@@ -21,6 +21,8 @@ enum TrackedEffect {
     ConduitPower,
     Weaving,
     Blindness,
+    Strength,
+    Weakness,
 }
 
 impl TrackedEffect {
@@ -34,6 +36,8 @@ impl TrackedEffect {
             Some(Effect::ConduitPower) => Some(Self::ConduitPower),
             Some(Effect::Weaving) => Some(Self::Weaving),
             Some(Effect::Blindness) => Some(Self::Blindness),
+            Some(Effect::Strength) => Some(Self::Strength),
+            Some(Effect::Weakness) => Some(Self::Weakness),
             _ => None,
         }
     }
@@ -48,6 +52,8 @@ impl TrackedEffect {
             Self::ConduitPower => 5,
             Self::Weaving => 6,
             Self::Blindness => 7,
+            Self::Strength => 8,
+            Self::Weakness => 9,
         }
     }
 
@@ -65,7 +71,7 @@ struct ActiveEffect {
     sequence: u64,
 }
 
-/// Server-predicted movement boosts the simulator reads.
+/// Movement boosts the simulator reads, from the server or a predicted rocket.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MovementBoost {
     Glide,
@@ -83,13 +89,6 @@ impl MovementBoost {
         }
     }
 
-    const fn index(self) -> usize {
-        match self {
-            Self::Glide => 0,
-            Self::Dolphin => 1,
-        }
-    }
-
     /// This boost's lane in the simulator's per-tick effects.
     pub fn flag(self, effects: &mut MovementEffects) -> &mut bool {
         match self {
@@ -99,7 +98,7 @@ impl MovementBoost {
     }
 }
 
-/// How long a server-predicted movement boost lasts from the next simulated tick.
+/// How long a server movement boost lasts from its first tick.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoostSpan {
     Ticks(u32),
@@ -116,27 +115,6 @@ impl BoostSpan {
             ticks => Self::Ticks(u32::try_from(ticks).unwrap_or(0).max(1)),
         }
     }
-
-    /// Whether the boost covers the `index`th tick after it starts, counting from one.
-    #[must_use]
-    pub fn covers(self, index: u64) -> bool {
-        match self {
-            Self::Ticks(ticks) => index <= u64::from(ticks),
-            Self::Unbounded => true,
-        }
-    }
-
-    /// The span left after `elapsed` ticks, if any.
-    #[must_use]
-    pub fn after(self, elapsed: u64) -> Option<Self> {
-        match self {
-            Self::Ticks(ticks) => u64::from(ticks)
-                .checked_sub(elapsed)
-                .filter(|left| *left > 0)
-                .map(|left| Self::Ticks(left as u32)),
-            Self::Unbounded => Some(Self::Unbounded),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -144,6 +122,14 @@ pub struct MiningEffects {
     pub haste: Option<i32>,
     pub mining_fatigue: Option<i32>,
     pub conduit_power: Option<i32>,
+}
+
+/// Effects the local attack sound reads: wire amplifiers and whether blindness is active.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MeleeEffects {
+    pub strength: Option<i32>,
+    pub weakness: Option<i32>,
+    pub blindness: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -159,13 +145,13 @@ pub struct MovementEffectDiagnostics {
 /// only when local fixed-step prediction successfully commits a tick. Packet
 /// ticks remain correlation metadata and deliberately do not schedule or
 /// expire an effect in the local prediction clock.
-/// Haste, Mining Fatigue, and Conduit Power are retained for destroy-rate prediction.
+/// Haste, Mining Fatigue, and Conduit Power are retained for destroy-rate prediction, and
+/// Strength and Weakness for the local attack sound.
 #[derive(Debug, Default)]
 pub struct LocalMovementEffectTimeline {
     session_generation: u64,
     last_sequence: Option<u64>,
     active: [Option<ActiveEffect>; TRACKED_EFFECT_COUNT],
-    boosts: [Option<BoostSpan>; 2],
     diagnostics: MovementEffectDiagnostics,
     recent_mining: [(MiningEffects, MiningEffects); super::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME],
     recent_tick_count: usize,
@@ -176,7 +162,6 @@ impl LocalMovementEffectTimeline {
         self.session_generation = session_generation;
         self.last_sequence = None;
         self.active = [None; TRACKED_EFFECT_COUNT];
-        self.boosts = [None; 2];
         self.diagnostics = MovementEffectDiagnostics::default();
         self.recent_tick_count = 0;
     }
@@ -231,27 +216,6 @@ impl LocalMovementEffectTimeline {
         }
     }
 
-    /// Replaces a boost the next simulated tick sees, after any rewind consumed part of it.
-    pub fn set_movement_boost(
-        &mut self,
-        session_generation: u64,
-        sequence: u64,
-        boost: MovementBoost,
-        remaining: Option<BoostSpan>,
-    ) {
-        if session_generation != self.session_generation
-            || self
-                .last_sequence
-                .is_some_and(|last_sequence| sequence <= last_sequence)
-        {
-            self.diagnostics.stale_or_wrong_session =
-                self.diagnostics.stale_or_wrong_session.saturating_add(1);
-            return;
-        }
-        self.last_sequence = Some(sequence);
-        self.boosts[boost.index()] = remaining;
-    }
-
     /// Wire amplifiers of the effects that scale destroy speed.
     pub fn mining_effects(&self) -> MiningEffects {
         let amplifier =
@@ -260,6 +224,17 @@ impl LocalMovementEffectTimeline {
             haste: amplifier(TrackedEffect::Haste),
             mining_fatigue: amplifier(TrackedEffect::MiningFatigue),
             conduit_power: amplifier(TrackedEffect::ConduitPower),
+        }
+    }
+
+    /// Current effects that change a local attack's damage or critical hit.
+    pub fn melee_effects(&self) -> MeleeEffects {
+        let amplifier =
+            |effect: TrackedEffect| self.active[effect.index()].map(|effect| effect.amplifier);
+        MeleeEffects {
+            strength: amplifier(TrackedEffect::Strength),
+            weakness: amplifier(TrackedEffect::Weakness),
+            blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
         }
     }
 
@@ -293,16 +268,14 @@ impl LocalMovementEffectTimeline {
             slow_falling: self.active[TrackedEffect::SlowFalling.index()].is_some(),
             weaving: self.active[TrackedEffect::Weaving.index()].is_some(),
             blindness: self.active[TrackedEffect::Blindness.index()].is_some(),
-            glide_boost: self.boosts[MovementBoost::Glide.index()].is_some(),
-            dolphin_boost: self.boosts[MovementBoost::Dolphin.index()].is_some(),
+            // The physics controller's boost timeline owns the boost lanes.
+            glide_boost: false,
+            dolphin_boost: false,
         }
     }
 
     fn consume_successful_tick(&mut self) {
         let before = self.mining_effects();
-        for boost in &mut self.boosts {
-            *boost = boost.and_then(|span| span.after(1));
-        }
         for active in &mut self.active {
             let Some(effect) = active else {
                 continue;
@@ -393,34 +366,6 @@ mod tests {
         assert!(timeline.snapshot().is_empty());
     }
 
-    /// A glide boost covers exactly its duration in ticks; zero still covers one tick.
-    #[test]
-    fn glide_boost_covers_its_duration_in_successful_ticks() {
-        for (duration, ticks) in [(3, 3), (0, 1), (-7, 1)] {
-            let mut timeline = LocalMovementEffectTimeline::default();
-            timeline.begin_session(1);
-            timeline.set_movement_boost(
-                1,
-                1,
-                MovementBoost::Glide,
-                Some(BoostSpan::from_wire(duration)),
-            );
-            for _ in 0..ticks {
-                assert!(timeline.snapshot().glide_boost, "{duration}");
-                timeline.commit_successful_tick();
-            }
-            assert!(!timeline.snapshot().glide_boost, "{duration}");
-        }
-        let mut timeline = LocalMovementEffectTimeline::default();
-        timeline.begin_session(1);
-        timeline.set_movement_boost(1, 1, MovementBoost::Dolphin, Some(BoostSpan::from_wire(-1)));
-        for _ in 0..100 {
-            timeline.commit_successful_tick();
-        }
-        assert!(timeline.snapshot().dolphin_boost);
-        assert!(!timeline.snapshot().glide_boost);
-    }
-
     #[test]
     fn weaving_uses_native_id_and_expires_after_successful_ticks() {
         let mut timeline = LocalMovementEffectTimeline::default();
@@ -443,5 +388,34 @@ mod tests {
         assert!(timeline.snapshot().weaving);
         timeline.commit_successful_tick();
         assert!(!timeline.snapshot().weaving);
+    }
+
+    #[test]
+    fn melee_effects_report_strength_and_weakness_amplifiers() {
+        let mut timeline = LocalMovementEffectTimeline::default();
+        timeline.begin_session(1);
+        let event = |effect: Effect, amplifier| ActorEffectEvent {
+            dimension: 0,
+            actor_runtime_id: 1,
+            action: ActorEffectAction::Add,
+            effect_id: effect.wire_value(),
+            amplifier,
+            particles: false,
+            ambient: false,
+            duration_ticks: -1,
+            tick: 0,
+        };
+        assert_eq!(timeline.melee_effects(), MeleeEffects::default());
+        timeline.apply(1, 1, event(Effect::Strength, 1));
+        timeline.apply(1, 2, event(Effect::Weakness, 0));
+        timeline.apply(1, 3, event(Effect::Blindness, 0));
+        assert_eq!(
+            timeline.melee_effects(),
+            MeleeEffects {
+                strength: Some(1),
+                weakness: Some(0),
+                blindness: true,
+            }
+        );
     }
 }

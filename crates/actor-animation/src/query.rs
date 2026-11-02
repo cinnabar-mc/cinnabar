@@ -7,7 +7,9 @@ use {
 };
 
 mod item_use;
+pub(super) use item_use::main_hand_elapsed_ticks;
 pub(super) mod potion;
+pub(super) mod tint;
 pub(super) mod wolf;
 
 #[cfg(test)]
@@ -238,6 +240,10 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         return variant;
     }
     match name.descriptor().handler {
+        // An actor with no limited life syncs a negative span, which reads as zero.
+        MolangQueryHandler::IntegerMetadata(key) if name == Q::LifeSpan => {
+            return metadata_number(actor, key).unwrap_or(0.0).max(0.0);
+        }
         MolangQueryHandler::IntegerMetadata(key) => {
             return metadata_number(actor, key).unwrap_or(0.0);
         }
@@ -324,10 +330,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         // 26.50 returns the signed actor shake counter as float.
         Q::ShakeTime => actor.shake_time() as f32,
         Q::HurtDirection => actor.hurt_direction().unwrap_or(0.0),
-        Q::IsCarryingBlock => truth(
-            metadata_number(actor, ActorDataKey::CarryBlockRuntimeID.wire_value()).unwrap_or(0.0)
-                != 0.0,
-        ),
+        Q::IsCarryingBlock => truth(carries_block(actor, context)),
         Q::MainHandItemUseDuration => item_use::remaining_ticks(evaluator),
         Q::MainHandItemMaxDuration => context.main_hand_max_use_ticks as f32,
         Q::ItemRemainingUseDuration => item_use::remaining(evaluator, arguments),
@@ -394,6 +397,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         Q::IsInLava => truth(actor.fluid().is_some_and(|(_, lava)| lava)),
         Q::ArmorTextureSlot => argument(0).map_or(0.0, |slot| armor_texture_slot(context, slot)),
         Q::ArmorColorSlot => armor_color_slot(context, argument(0), argument(1)),
+        Q::EquipmentCount => f32::from(context.equipment_count),
         Q::HasArmorSlot => truth(match arguments {
             [slot] => {
                 let slot = slot.number().floor();
@@ -403,6 +407,7 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
         }),
         Q::IsOnGround => truth(input.on_ground),
         Q::IsRiding => truth(input.is_riding),
+        Q::IsAttachedToEntity => truth(attached_to_entity(actor)),
         Q::IsMoving => truth(input.position_delta.iter().any(|axis| *axis != 0.0)),
         Q::IsAlive => truth(health(actor).is_none_or(|health| health > 0.0)),
         Q::Health => health(actor).unwrap_or(0.0),
@@ -473,6 +478,12 @@ pub(super) fn delta_time(context: &ActorTickContext) -> f32 {
 
 pub(super) fn is_arrow(actor: &dyn AnimatedActor) -> bool {
     actor.entity_fact().native_class == NativeEntityClass::Arrow
+}
+
+/// Arrows are not mobs, and the shulker post-AI step zeroes body yaw every tick, so neither
+/// model turns with its synced yaw.
+pub(super) fn has_zero_body_yaw(actor: &dyn AnimatedActor) -> bool {
+    is_arrow(actor) || super::shulker::is_shulker(actor)
 }
 
 fn worn_armor(context: &ActorTickContext, slot: f32) -> Option<&super::tick::WornArmor> {
@@ -602,6 +613,11 @@ fn texture_frame_index(actor: &dyn AnimatedActor) -> f32 {
         .unwrap_or(UPPER_BOUNDS.len()) as f32
 }
 
+/// A boosting rocket names the glider it follows; an unattached rocket leaves the default of -1.
+fn attached_to_entity(actor: &dyn AnimatedActor) -> bool {
+    matches!(actor.metadata().get(&ActorDataKey::CustomDisplay.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
+}
+
 pub(super) fn has_target(actor: &dyn AnimatedActor) -> bool {
     matches!(actor.metadata().get(&ActorDataKey::Target.wire_value()), Some(ActorMetadataValue::Long(id)) if *id != 0 && *id != -1)
 }
@@ -647,6 +663,18 @@ fn in_water(actor: &dyn AnimatedActor, input: &ActorTickInput) -> bool {
 
 fn health(actor: &dyn AnimatedActor) -> Option<f32> {
     actor.health().map(|health| health.current)
+}
+
+/// Reports a carried block other than air. The synced value is a block runtime id, and an
+/// empty-handed enderman reports the session's air id rather than zero.
+fn carries_block(actor: &dyn AnimatedActor, context: &ActorTickContext) -> bool {
+    let key = ActorDataKey::CarryBlockRuntimeID.wire_value();
+    let Some(ActorMetadataValue::Int(runtime_id)) = actor.metadata().get(&key) else {
+        return false;
+    };
+    context
+        .air_block_network_id
+        .is_some_and(|air| *runtime_id as u32 != air)
 }
 
 fn metadata_number(actor: &dyn AnimatedActor, key: u32) -> Option<f32> {

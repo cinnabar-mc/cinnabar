@@ -1,8 +1,13 @@
 //! Engine-independent inventory authority, prediction, crafting and commands.
+#[cfg(test)]
+#[global_allocator]
+static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
 mod anvil;
 mod crafting;
 mod crafting_authority;
 pub mod enchantments;
+mod grindstone;
 mod inventory_options;
 pub use inventory_options::{InventoryContext, InventoryController};
 mod furnace_options;
@@ -27,6 +32,7 @@ pub use crafting::{
 };
 pub use crafting_authority::CraftingPreview;
 pub use furnace_recipes::{FurnaceRecipeIter, FurnaceRecipes};
+pub use grindstone::{GrindstoneItem, GrindstoneOutcome, evaluate_grindstone};
 pub use ingress::{InventoryAuthorityEvent, InventoryIngressError, SequencedInventoryEvent};
 pub use inventory_ledger::{PlayerInventoryLedger, PlayerInventorySlot};
 pub use inventory_router::{

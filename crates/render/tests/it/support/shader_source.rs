@@ -174,11 +174,45 @@ fn compile(source: &str, definitions: &[&str], prune: bool) -> String {
     compile_prepared(&source, definitions, prune)
 }
 
+/// Composes a prepared root with pruning, resolving `modules` beside the production modules.
+pub fn composed_prepared_with(
+    source: &str,
+    definitions: &[&str],
+    modules: Vec<(&'static str, String)>,
+) -> String {
+    let source = compile_prepared_with(source, definitions, true, modules);
+    let module = naga::front::wgsl::parse_str(&source).expect("composed WGSL parses");
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("composed module validates");
+    source
+}
+
 /// Resolves imports while preserving the already prepared root module verbatim.
 fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
+    compile_prepared_with(source, definitions, prune, Vec::new())
+}
+
+fn compile_prepared_with(
+    source: &str,
+    definitions: &[&str],
+    prune: bool,
+    modules: Vec<(&'static str, String)>,
+) -> String {
     let mut resolver = wesl::resolver::VirtualResolver::new();
     for (path, source) in [
         ("bevy_render::view", VIEW.to_owned()),
+        (
+            "render::terrain_tables",
+            include_str!("../../../src/terrain_tables.wesl").to_owned(),
+        ),
+        (
+            "render::chunk_records",
+            material_shader::source(include_str!("../../../src/chunk_records.wesl")),
+        ),
         (
             "bevy_render::globals",
             "struct Globals { time: f32, delta_time: f32, frame_count: u32 }".to_owned(),
@@ -198,6 +232,10 @@ fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
         (
             "render::glint",
             material_shader::source(include_str!("../../../src/glint.wesl")),
+        ),
+        (
+            "render::actor_rig",
+            include_str!("../../../src/actor_rig.wesl").to_owned(),
         ),
         (
             "render::biome_tint",
@@ -233,7 +271,14 @@ fn compile_prepared(source: &str, definitions: &[&str], prune: bool) -> String {
             "render::model",
             material_shader::source(include_str!("../../../src/model.wesl")),
         ),
-    ] {
+        (
+            "render::chunk",
+            material_shader::source(include_str!("../../../src/chunk.wesl")),
+        ),
+    ]
+    .into_iter()
+    .chain(modules)
+    {
         resolver.add_module(path.parse().expect("module path"), source.into());
     }
     let root: wesl::syntax::ModulePath = "fixture::shader".parse().expect("root module path");

@@ -16,6 +16,7 @@ names! {
         ChestLargeChestScreen = "chest.large_chest_screen",
         ChestShulkerBoxScreen = "chest.shulker_box_screen",
         ChestSmallChestScreen = "chest.small_chest_screen",
+        CommandBlockCommandBlockScreen = "command_block.command_block_screen",
         CommonArtTitleImage = "common_art.title_image",
         CraftingCraftingScreen = "crafting.crafting_screen",
         CraftingInventoryScreen = "crafting.inventory_screen",
@@ -68,5 +69,7 @@ names! {
         StonecutterStonecutterScreen = "stonecutter.stonecutter_screen",
         ToastScreenToastScreen = "toast_screen.toast_screen",
         XblConsoleSigninXblConsoleSignin = "xbl_console_signin.xbl_console_signin",
+        TradeTradeScreen = "trade.trade_screen",
+        Trade2TradeScreen = "trade2.trade_screen",
     }
 }

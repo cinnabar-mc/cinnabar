@@ -8,6 +8,7 @@ use ui_engine::text_metrics::TextMetrics;
 /// A title fixture with a chosen aspect ratio.
 fn title(width: u16, height: u16) -> IconRef {
     IconRef {
+        color_mask: None,
         page: 18,
         uv: [0, 0, width, height],
         glint: false,
@@ -47,7 +48,12 @@ fn assert_fits(
     let mut view = view();
     if update_ready {
         view.updates.ready = Some(launcher::menu::updates::Ready {
-            version: launcher::PRODUCT_VERSION.into(),
+            release: update_manifest::build::Build {
+                version: launcher::PRODUCT_VERSION.into(),
+                number: 2,
+                channel: Some(update_manifest::channel::Channel::Beta),
+            },
+            switching: false,
             writable: true,
             protocol_required: false,
         });

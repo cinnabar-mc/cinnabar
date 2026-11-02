@@ -8,13 +8,17 @@ pub(crate) struct GeometryCheckpoint {
     motion_sampling: Option<Arc<render_frame::motion_sampling::MotionSampling>>,
     binding: usize,
     bones: Vec<RuntimeBone>,
+    composition: Arc<pose::Composition>,
     names: Vec<Box<str>>,
+    channels: Arc<pose::ChannelBindings>,
+    attachments: Arc<render_model::ActorAttachmentBindings>,
     controllers: Vec<ControllerState>,
     ui_pose: Option<Vec<BoneTransform>>,
     ui_animation: Option<hud::UiAnimationState>,
     previous: Vec<BoneTransform>,
     rest: Vec<BoneTransform>,
     current: Vec<BoneTransform>,
+    head_rotation: Option<HeadRotation>,
     reset: [bool; 2],
 }
 
@@ -32,13 +36,17 @@ impl GeometryCheckpoint {
             motion_sampling: state.motion_sampling.take(),
             binding: state.geometry_binding,
             bones: std::mem::take(&mut state.bones),
+            composition: Arc::clone(&state.composition),
             names: std::mem::take(&mut state.bone_names),
+            channels: Arc::clone(&state.channel_bindings),
+            attachments: Arc::clone(&state.attachment_bindings),
             controllers: std::mem::take(&mut state.controllers),
             ui_pose: state.ui_pose.take(),
             ui_animation: state.ui_animation.take(),
             previous: std::mem::take(&mut state.previous),
             rest: std::mem::take(&mut state.rest),
             current: std::mem::take(&mut state.current),
+            head_rotation: state.head_rotation,
             reset: [state.reset_pending, state.rest_reset_pending],
         }
     }
@@ -55,13 +63,17 @@ impl GeometryCheckpoint {
         state.motion_sampling = self.motion_sampling;
         state.geometry_binding = self.binding;
         state.bones = self.bones;
+        state.composition = self.composition;
         state.bone_names = self.names;
+        state.channel_bindings = self.channels;
+        state.attachment_bindings = self.attachments;
         state.controllers = self.controllers;
         state.ui_pose = self.ui_pose;
         state.ui_animation = self.ui_animation;
         state.previous = self.previous;
         state.rest = self.rest;
         state.current = self.current;
+        state.head_rotation = self.head_rotation;
         [state.reset_pending, state.rest_reset_pending] = self.reset;
     }
 }

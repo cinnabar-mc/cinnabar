@@ -22,6 +22,7 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
+            head_rotation: state.head_rotation,
         };
         let fallback = || {
             self.frame_fallbacks
@@ -34,7 +35,8 @@ impl ActorAnimationStore {
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor)
                 || frame.needs_rotation_sampling()
-                || frame.needs_walk_sampling())
+                || frame.needs_walk_sampling()
+                || frame.samples_local_walk(state))
                 && (!state.culled
                     || state.samples_camera_poses
                     || state.held_item_scale.is_some()
@@ -66,7 +68,8 @@ impl ActorAnimationStore {
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
-        let walk_changed = frame.needs_walk_sampling();
+        let local_walk = frame.samples_local_walk(state);
+        let walk_changed = frame.needs_walk_sampling() || local_walk;
         let motion_changed = swell_changed || rotation_changed || walk_changed;
         if !state.samples_render_frames && !swing_changed && !motion_changed {
             return Some(completed());
@@ -90,7 +93,21 @@ impl ActorAnimationStore {
             } else {
                 input
             };
-            if walk_changed {
+            if local_walk {
+                let mut input = state
+                    .java
+                    .local_body
+                    .sample_walk(
+                        input,
+                        &state.motion,
+                        state.java.motion.body_frame_alpha.unwrap_or(partial_tick),
+                    )
+                    .unwrap_or(input);
+                if query::actor_flag(actor, protocol_ids::ActorFlag::Baby.wire_value()) {
+                    input.move_speed *= tick::BABY_MOVE_SPEED_SCALE;
+                }
+                input
+            } else if walk_changed {
                 input.sample_walk(frame.previous_walk, current, partial_tick)
             } else {
                 input
@@ -130,7 +147,35 @@ impl ActorAnimationStore {
             stack: OperandStack::lease(),
             static_draw: None,
         };
-        let mut variables = ScratchVariables::copy_of(&frame.motion.variables);
+        let mut scratch = frame.cache.lock().unwrap();
+        let FrameSamplingCache {
+            variables: variable_scratch,
+            previous: previous_scratch,
+            current: current_scratch,
+            layers: layer_cache,
+            compositions,
+            retained,
+        } = &mut *scratch;
+        let retained = if cache::enabled()
+            && (!state.complete_spear_variables || layout.engine.spear.is_empty())
+        {
+            Some(retained.get_or_insert_with(|| retained::Sample::new(&evaluator, state, frame)))
+        } else {
+            None
+        };
+        let mut retained = retained;
+        if let Some(retained) = retained.as_mut()
+            && let Some(layers) = retained.get(
+                retained::Key::new(&evaluator, state, motion_changed, swing, sample_skin),
+                &evaluator,
+                &frame.motion.variables,
+                state,
+                &budget,
+            )
+        {
+            return Some(layers);
+        }
+        let mut variables = variable_scratch.lease(&frame.motion.variables);
         if let Some(swing) = swing {
             variables.set(layout.engine.attack_time, swing);
         }
@@ -184,6 +229,7 @@ impl ActorAnimationStore {
                     camera_resample.then_some(previous_context),
                     false,
                     &mut budget,
+                    previous_scratch,
                 ) else {
                     return Some(fallback());
                 };
@@ -194,6 +240,7 @@ impl ActorAnimationStore {
                     camera_resample.then_some(current_context),
                     true,
                     &mut budget,
+                    current_scratch,
                 ) else {
                     return Some(fallback());
                 };
@@ -256,11 +303,11 @@ impl ActorAnimationStore {
             return Some(fallback());
         }
         let mut sampled_local = if let Some((_, current)) = endpoints.as_mut() {
-            let Ok(local) = pose::sample_clips(
+            let Ok(local) = pose::sample_clips_reused(
                 &current.evaluator,
                 &mut current.variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 &current.clips,
                 &mut budget,
             ) else {
@@ -271,11 +318,11 @@ impl ActorAnimationStore {
             || body_swing_changed
             || motion_changed
         {
-            let Ok(local) = pose::sample_clips(
+            let Ok(local) = pose::sample_clips_reused(
                 &evaluator,
                 &mut variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
@@ -287,7 +334,7 @@ impl ActorAnimationStore {
         };
         let clips = endpoints
             .as_ref()
-            .map(|(_, current)| current.clips.as_slice())
+            .map(|(_, current)| current.clips.as_ref())
             .or(sampled_clips.as_deref())
             .unwrap_or(&frame.motion.clips);
         let sampled_motion_mask = (sampled_clips.is_some() || endpoints.is_some())
@@ -305,7 +352,7 @@ impl ActorAnimationStore {
                         .chain(
                             endpoints
                                 .as_ref()
-                                .map_or(&[][..], |(previous, _)| previous.clips.as_slice()),
+                                .map_or(&[][..], |(previous, _)| previous.clips.as_ref()),
                         )
                         .copied(),
                     None,
@@ -318,11 +365,11 @@ impl ActorAnimationStore {
             let Some(local) = sampled_local.as_mut() else {
                 return Some(fallback());
             };
-            let Ok(sampled_previous) = pose::sample_clips(
+            let Ok(sampled_previous) = pose::sample_clips_reused(
                 &previous.evaluator,
                 &mut previous.variables,
                 &state.bones,
-                &state.bone_names,
+                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
                 &previous.clips,
                 &mut budget,
             ) else {
@@ -334,19 +381,31 @@ impl ActorAnimationStore {
         };
         let motion_previous = match &sampled_previous_local {
             Some(local) => {
-                let Some(pose) = state.compose(local) else {
+                let Some(pose) =
+                    compositions.compose(None, true, state.posed_bones().len(), local, || {
+                        let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                        state.compose_into(local, &mut pose)?;
+                        Some(pose)
+                    })
+                else {
                     return Some(fallback());
                 };
-                Some(Arc::<[BoneTransform]>::from(pose))
+                Some(pose)
             }
             None => None,
         };
         let pose = match &sampled_local {
             Some(local) => {
-                let Some(pose) = state.compose(local) else {
+                let Some(pose) =
+                    compositions.compose(None, false, state.posed_bones().len(), local, || {
+                        let mut pose = vec![BoneTransform::default(); state.posed_bones().len()];
+                        state.compose_into(local, &mut pose)?;
+                        Some(pose)
+                    })
+                else {
                     return Some(fallback());
                 };
-                Some(Arc::<[BoneTransform]>::from(pose))
+                Some(pose)
             }
             None => None,
         };
@@ -366,9 +425,13 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         };
-        let Ok(Some(mut layers)) =
-            render::evaluate_render(&evaluator, &mut variables, render_rig, &mut budget)
-        else {
+        let Ok(Some(mut layers)) = render::evaluate_render_cached(
+            &evaluator,
+            &mut variables,
+            render_rig,
+            &mut budget,
+            Some(layer_cache),
+        ) else {
             return Some(fallback());
         };
         if state
@@ -392,11 +455,21 @@ impl ActorAnimationStore {
                 }
             }
         }
-        let clips = endpoints
-            .as_ref()
-            .map(|(_, current)| current.clips.as_slice())
-            .or(sampled_clips.as_deref())
-            .unwrap_or(&frame.motion.clips);
+        let (mut layer_endpoints, clips, previous_clips) = match endpoints.as_mut() {
+            Some((previous, current)) => (
+                Some((
+                    (&previous.evaluator, &mut *previous.variables),
+                    (&current.evaluator, &mut *current.variables),
+                )),
+                current.clips.as_ref(),
+                previous.clips.as_ref(),
+            ),
+            None => (
+                None,
+                sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
+                &[][..],
+            ),
+        };
         let mut sampled_geometries = BTreeMap::new();
         for (index, layer) in layers.iter_mut().enumerate() {
             layer.sampled_scale = sampled_scale;
@@ -439,10 +512,10 @@ impl ActorAnimationStore {
                     if let std::collections::btree_map::Entry::Vacant(entry) =
                         sampled_geometries.entry(geometry)
                     {
-                        let layer_endpoints = endpoints.as_ref();
                         let (layer_evaluator, layer_variables) = layer_endpoints
-                            .map_or((&evaluator, &variables), |(_, current)| {
-                                (&current.evaluator, &current.variables)
+                            .as_mut()
+                            .map_or((&evaluator, &mut *variables), |(_, current)| {
+                                (current.0, &mut *current.1)
                             });
                         let Ok(mut local) = render::sample_layer_local(
                             layer_evaluator,
@@ -467,21 +540,16 @@ impl ActorAnimationStore {
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,
-                                    clips
-                                        .iter()
-                                        .chain(layer_endpoints.map_or(&[][..], |(previous, _)| {
-                                            previous.clips.as_slice()
-                                        }))
-                                        .copied(),
+                                    clips.iter().chain(previous_clips).copied(),
                                     Some(geometry),
                                 )
                             });
-                        let previous_local = if let Some((previous, _)) = layer_endpoints {
+                        let previous_local = if let Some((previous, _)) = layer_endpoints.as_mut() {
                             let Ok(sampled_previous) = render::sample_layer_local(
-                                &previous.evaluator,
-                                &previous.variables,
+                                previous.0,
+                                &mut *previous.1,
                                 &state.layer_skeletons,
-                                &previous.clips,
+                                previous_clips,
                                 geometry,
                                 &mut budget,
                             ) else {
@@ -498,18 +566,27 @@ impl ActorAnimationStore {
                         } else {
                             None
                         };
-                        let Some(current) = pose::compose_pose(&skeleton.bones, &local)
-                            .map(Arc::<[BoneTransform]>::from)
-                        else {
+                        let Some(current) = compositions.compose(
+                            Some(geometry),
+                            false,
+                            skeleton.bones.len(),
+                            &local,
+                            || pose::compose_pose(&skeleton.bones, &local),
+                        ) else {
                             return Some(fallback());
                         };
                         let previous = match previous_local {
                             Some(local) => {
-                                let Some(previous) = pose::compose_pose(&skeleton.bones, &local)
-                                else {
+                                let Some(previous) = compositions.compose(
+                                    Some(geometry),
+                                    true,
+                                    skeleton.bones.len(),
+                                    &local,
+                                    || pose::compose_pose(&skeleton.bones, &local),
+                                ) else {
                                     return Some(fallback());
                                 };
-                                Arc::from(previous)
+                                previous
                             }
                             None => Arc::clone(&current),
                         };
@@ -557,12 +634,39 @@ impl ActorAnimationStore {
                 skin_layers::refresh(state, &evaluator, &variables, &layers, &mut budget)
             }
             _ => Ok(Cow::Borrowed(state.skin_layers.as_slice())),
+        };
+        // An unsampled body draws its tick pose, so the head keeps its tick angles too.
+        let head_rotation = state.head_rotation.map(|tick| {
+            sampled_local
+                .as_deref()
+                .and_then(|local| {
+                    HeadRotation::sampled(
+                        &state.bones,
+                        &state.bone_names,
+                        local,
+                        sampled_previous_local.as_deref(),
+                    )
+                })
+                .unwrap_or(tick)
+        });
+        let complete = skin.is_ok();
+        let skin = skin.unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
+        if complete && let Some(retained) = retained {
+            retained.store(
+                &layers,
+                match &skin {
+                    Cow::Owned(skin) => Some(skin.as_slice()),
+                    Cow::Borrowed(_) => None,
+                },
+                held_item_scale,
+                head_rotation,
+            );
         }
-        .unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
             skin,
             held_item_scale,
+            head_rotation,
         })
     }
 }

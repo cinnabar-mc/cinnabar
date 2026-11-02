@@ -18,6 +18,9 @@ pub(crate) struct TerrainCoverage {
     applied_target: Option<Arc<far_terrain::TerrainTarget>>,
     far_revision: u64,
     dirty: bool,
+    /// Set by a publication against a far target, which may hide allocations; cleared by
+    /// the first walk without one, which admits them all again.
+    hiding: bool,
 }
 
 impl TerrainCoverage {
@@ -119,13 +122,17 @@ pub(super) fn publish_terrain_coverage(
         (None, None) => true,
         _ => false,
     };
-    if let Some((revision, empty)) = coverage.source.as_ref().and_then(|source| {
-        source.changed_empty(if same_target {
-            coverage.source_revision
-        } else {
-            None
+    // Only a far target reads empty proofs. Without one, copying them on every receipt is
+    // O(loaded) waste; the next target is never `same_target`, so it replays them all.
+    if target.is_some()
+        && let Some((revision, empty)) = coverage.source.as_ref().and_then(|source| {
+            source.changed_empty(if same_target {
+                coverage.source_revision
+            } else {
+                None
+            })
         })
-    }) {
+    {
         coverage.state.replace_empty(empty);
         coverage.source_revision = Some(revision);
         coverage.dirty = true;
@@ -172,22 +179,28 @@ pub(super) fn publish_terrain_coverage(
         }
     }
     // Allocation components are the common input of opaque, unit, indirect, GPU-cull and
-    // transparent queues. Physical arena ownership and retirement remain unchanged.
-    for (&entity, allocation) in &arena.allocations {
-        if arena.pending_removals.contains(&entity) {
-            continue;
-        }
-        let admitted = target.is_none() || coverage.state.draws_near(allocation.gpu.key.chunk());
-        if admitted != allocations.contains(entity)
-            && let Ok(mut entity) = commands.get_entity(entity)
-        {
-            if admitted {
-                entity.insert(allocation.gpu.clone());
-            } else {
-                entity.remove::<GpuChunkAllocation>();
+    // transparent queues. Physical arena ownership and retirement remain unchanged. Upload
+    // gives every new allocation its component, so without a far target, once a walk has
+    // admitted whatever an earlier target hid, nothing needs admitting: the walk is skipped.
+    if target.is_some() || coverage.hiding {
+        for (&entity, allocation) in &arena.allocations {
+            if arena.pending_removals.contains(&entity) {
+                continue;
+            }
+            let admitted =
+                target.is_none() || coverage.state.draws_near(allocation.gpu.key.chunk());
+            if admitted != allocations.contains(entity)
+                && let Ok(mut entity) = commands.get_entity(entity)
+            {
+                if admitted {
+                    entity.insert(allocation.gpu.clone());
+                } else {
+                    entity.remove::<GpuChunkAllocation>();
+                }
             }
         }
     }
+    coverage.hiding = target.is_some();
     coverage.dirty = false;
     coverage.far_revision = far_revision;
     coverage.applied_target = scene.as_ref().and_then(|scene| scene.target.clone());

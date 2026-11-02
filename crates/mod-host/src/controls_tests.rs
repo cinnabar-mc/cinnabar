@@ -14,13 +14,26 @@ fn state(grants: ModGrants) -> State {
     State::new(grants, "{\"cps\":12}".into(), Default::default())
 }
 
+/// A minimal surface panel with the `controls` JSON array.
+fn panel_json(controls: &str) -> String {
+    format!(
+        r#"{{"controls":{controls},"surface":{}}}"#,
+        crate::tests::panel_surface("local")
+    )
+}
+
 fn panel() -> String {
-    r#"{"title":"Local controls","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]}"#.into()
+    panel_json(r#"[{"kind":"toggle","id":"enabled","label":"Enabled","value":false}]"#)
 }
 
 /// Publishes one bounded native text field through the same admission path as a guest.
 fn text_panel(state: &mut State) {
-    state.set_content(r#"{"title":"Text","toggle_key":"ShiftRight","dark":true,"controls":[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":1,"max_chars":8}]}"#.into()).unwrap().unwrap();
+    state
+        .set_content(panel_json(
+            r#"[{"kind":"text","id":"name","label":"Name","value":"Main","min_chars":1,"max_chars":8}]"#,
+        ))
+        .unwrap()
+        .unwrap();
     state.controls.commit();
 }
 
@@ -104,7 +117,7 @@ fn native_text_input_rejects_invalid_batches_transactionally() {
 #[test]
 fn native_text_input_survives_callback_deferral() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -146,6 +159,91 @@ fn native_text_input_survives_callback_deferral() {
     assert!(instance.is_active());
 }
 
+/// Only the mod whose open panel owns input reads the pointer and wheel; a non-finite pointer
+/// is rejected before any guest can read it.
+#[test]
+fn pointer_and_wheel_reach_only_an_open_panel() {
+    let engine = Engine::new(
+        wasmtime::Config::new()
+            .consume_fuel(true)
+            .async_support(true),
+    )
+    .unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+        None,
+    )
+    .unwrap();
+    for panel_open in [true, false] {
+        let controls = ControlFrame {
+            panel_open,
+            ..control_frame()
+        };
+        instance
+            .observe_frame(false, None, Vec::new(), None, None, controls)
+            .unwrap();
+        let read = instance.store.data_mut().read_controls().unwrap().unwrap();
+        let expected = if panel_open {
+            (Some((12.0, 34.0)), 1.0)
+        } else {
+            (None, 0.0)
+        };
+        assert_eq!((read.pointer, read.wheel), expected);
+    }
+    for (pointer, wheel) in [(Some((f32::NAN, 0.0)), 0.0), (None, f32::INFINITY)] {
+        let controls = ControlFrame {
+            pointer,
+            wheel,
+            ..control_frame()
+        };
+        assert!(
+            instance
+                .observe_frame(false, None, Vec::new(), None, None, controls)
+                .is_err()
+        );
+    }
+}
+
+#[test]
+fn panel_layout_reads_need_controls_authority_and_an_open_panel() {
+    let layout = ui::mod_hud::PanelLayout {
+        size: [600., 400.],
+        scale: 0.5,
+        offset: [0., 0.],
+    };
+    for controls in [true, false] {
+        let mut state = state(ModGrants {
+            controls,
+            ..Default::default()
+        });
+        state.set_content(panel()).unwrap().ok();
+        state.controls.commit();
+        state.controls.layout = Some(layout);
+        assert!(
+            state.read_layout().unwrap().is_none(),
+            "the panel is closed"
+        );
+        state.controls.open = true;
+        let read = state.read_layout().unwrap();
+        assert_eq!(
+            read.map(|read| (read.width, read.height, read.scale, read.offset)),
+            controls.then_some((600., 400., 0.5, (0., 0.)))
+        );
+    }
+}
+
 fn snapshot() -> GameplaySnapshot {
     GameplaySnapshot {
         session: 1,
@@ -172,6 +270,7 @@ fn optional_imports_deny_without_explicit_grants() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .unwrap()
@@ -227,6 +326,33 @@ fn panel_patch_obeys_transaction_boundaries() {
     assert!(state.controls.panel.is_none());
 }
 
+/// A panel patch naming `show_gameplay_hud` changes the retained flag until another patch
+/// changes it or new content replaces the panel.
+#[test]
+fn panel_patches_change_the_gameplay_hud_flag_until_new_content() {
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    let shown = |state: &State| state.controls.panel.as_ref().unwrap().show_gameplay_hud;
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state));
+    for (patch, expected) in [
+        (r#"{"show_gameplay_hud":true}"#, true),
+        (r#"{"controls":[{"id":"enabled","value":true}]}"#, true),
+        (r#"{"show_gameplay_hud":false}"#, false),
+        (r#"{"show_gameplay_hud":true}"#, true),
+    ] {
+        state.update_content(patch.into()).unwrap().unwrap();
+        state.controls.commit();
+        assert_eq!(shown(&state), expected, "{patch}");
+    }
+    state.set_content(panel()).unwrap().unwrap();
+    state.controls.commit();
+    assert!(!shown(&state), "new content replaces the flag");
+}
+
 /// A legacy replacement cannot select routes validated against a different control schema.
 #[test]
 fn registered_panel_routes_reject_a_replaced_schema() {
@@ -245,12 +371,7 @@ fn registered_panel_routes_reject_a_replaced_schema() {
         .unwrap()
         .unwrap();
     state.controls.commit();
-    state
-        .set_content(
-            r#"{"title":"Changed","toggle_key":"ShiftRight","dark":true,"controls":[]}"#.into(),
-        )
-        .unwrap()
-        .unwrap();
+    state.set_content(panel_json("[]")).unwrap().unwrap();
     state.controls.commit();
     assert!(state.update_content("{}".into()).unwrap().is_err());
     assert!(state.controls.panel.as_ref().unwrap().controls.is_empty());
@@ -265,6 +386,7 @@ fn control_frame() -> ControlFrame {
         panel_open: true,
         keys_pressed: vec!["ShiftLeft".into(), "KeyB".into(), "KeyA".into()],
         keys_held: vec!["KeyC".into(), "KeyB".into(), "ShiftLeft".into()],
+        keys_admitted: vec!["KeyB".into(), "ShiftLeft".into()],
         events: vec![
             crate::ControlEvent {
                 id: "enabled".into(),
@@ -275,6 +397,8 @@ fn control_frame() -> ControlFrame {
                 value: 3.0,
             },
         ],
+        pointer: Some((12.0, 34.0)),
+        wheel: 1.0,
     }
 }
 
@@ -289,6 +413,7 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()
@@ -299,18 +424,21 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyB".into(), "ShiftLeft".into(), "KeyB".into()]),
             keys_held: Some(vec!["ShiftLeft".into(), "KeyC".into(), "KeyZ".into()]),
+            keys_admitted: Some(vec!["ShiftLeft".into(), "KeyZ".into()]),
             events: false,
         })
         .unwrap()
         .unwrap();
     assert_eq!(selected.keys_pressed, ["ShiftLeft", "KeyB"]);
     assert_eq!(selected.keys_held, ["KeyC", "ShiftLeft"]);
+    assert_eq!(selected.keys_admitted, ["ShiftLeft"]);
     assert!(selected.events.is_empty());
     assert_eq!(
         selected,
         ControlFrame {
             keys_pressed: selected.keys_pressed.clone(),
             keys_held: selected.keys_held.clone(),
+            keys_admitted: selected.keys_admitted.clone(),
             events: Vec::new(),
             ..all.clone()
         }
@@ -321,11 +449,16 @@ fn selected_reads_preserve_full_read_equivalence_and_do_not_consume_observations
         .read_selected_controls(Selection {
             keys_pressed: Some(Vec::new()),
             keys_held: Some(Vec::new()),
+            keys_admitted: Some(Vec::new()),
             events: true,
         })
         .unwrap()
         .unwrap();
-    assert!(empty.keys_pressed.is_empty() && empty.keys_held.is_empty());
+    assert!(
+        empty.keys_pressed.is_empty()
+            && empty.keys_held.is_empty()
+            && empty.keys_admitted.is_empty()
+    );
     assert_eq!(empty.events, all.events);
 }
 
@@ -346,6 +479,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             let selection = Selection {
                 keys_pressed: pressed.then(|| names.clone()),
                 keys_held: (!pressed).then(|| names.clone()),
+                keys_admitted: Some(Vec::new()),
                 events: false,
             };
             assert!(state.read_selected_controls(selection).unwrap().is_err());
@@ -357,6 +491,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: Some(vec!["KeyA".into(); mod_api::MAX_CONTROL_KEYS]),
             keys_held: Some(vec!["x".repeat(mod_api::MAX_CONTROL_KEY_BYTES)]),
+            keys_admitted: Some(Vec::new()),
             events: false,
         })
         .unwrap()
@@ -373,6 +508,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
                 .read_selected_controls(Selection {
                     keys_pressed: None,
                     keys_held: Some(Vec::new()),
+                    keys_admitted: Some(Vec::new()),
                     events: false,
                 })
                 .unwrap()
@@ -384,6 +520,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
             .read_selected_controls(Selection {
                 keys_pressed: None,
                 keys_held: None,
+                keys_admitted: None,
                 events: true,
             })
             .is_err()
@@ -393,6 +530,7 @@ fn selected_reads_validate_each_name_list_and_share_the_callback_read_limit() {
         .read_selected_controls(Selection {
             keys_pressed: None,
             keys_held: None,
+            keys_admitted: None,
             events: true,
         })
         .unwrap()
@@ -458,7 +596,8 @@ fn interaction_requires_current_held_input_and_never_survives_frame() {
         state.controls.interaction,
         InteractionOutput {
             attack_reach: Some(5.0),
-            attack_pulse: true
+            attack_pulse: true,
+            ..Default::default()
         }
     );
     state.controls.begin_frame();
@@ -510,7 +649,7 @@ fn rejects_malformed_controls_and_bounded_import_spam() {
 #[test]
 fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -592,21 +731,261 @@ fn larger_panel_catalogs_do_not_increase_the_input_batch_limit() {
     assert!(validate_frame(&frame).is_err());
 }
 
+/// Live changes survive deferred callbacks, coalesce, and remain separate from legacy commits.
 #[test]
-fn opening_panel_is_granted_transactional_and_requires_content() {
-    use cinnabar::extension::panel::Host as _;
-    let mut state = State::new(ModGrants::default(), String::new(), Default::default());
-    assert!(state.set_open(true).unwrap().is_err());
-    state.grants.controls = true;
-    assert!(state.set_open(true).unwrap().is_err());
-    state.set_content(panel()).unwrap().unwrap();
-    assert!(state.set_open(true).unwrap().is_ok());
-    assert!(!state.controls.open);
-    state.controls.commit();
-    assert!(state.controls.open);
-    state.set_open(false).unwrap().unwrap();
-    assert!(state.controls.open);
-    state.controls.revoke();
-    state.controls.commit();
-    assert!(!state.controls.open);
+fn native_field_input_coalesces_and_retains_modifiers() {
+    use ui::mod_panel::{FieldEvent, FieldKey, FieldModifiers, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    if let ui::mod_panel::Control::Text {
+        live,
+        navigation_keys,
+        ..
+    } = &mut state.controls.panel.as_mut().unwrap().controls[0]
+    {
+        *live = true;
+        *navigation_keys = true;
+    }
+    let change = |value: &str| {
+        FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: value.into(),
+        })
+    };
+    super::queue_field_events(&mut state, vec![change("a")]).unwrap();
+    state.controls.begin_frame();
+    state.controls.begin_text_frame();
+    state.controls.finish_text_frame(true);
+    super::queue_field_events(
+        &mut state,
+        vec![
+            change("ab"),
+            FieldEvent::Key(FieldKey {
+                id: "name".into(),
+                key: "Enter".into(),
+                modifiers: FieldModifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            }),
+        ],
+    )
+    .unwrap();
+    state.controls.begin_frame();
+    assert!(state.read_field_events().unwrap().unwrap().is_empty());
+    state.controls.begin_text_frame();
+    let events = state.read_field_events().unwrap().unwrap();
+    assert_eq!(events.len(), 2);
+    assert!(
+        matches!(&events[0], cinnabar::extension::input::FieldEvent::Change(event) if event.value == "ab")
+    );
+    assert!(
+        matches!(&events[1], cinnabar::extension::input::FieldEvent::Key(event) if event.key == "Enter" && event.shift)
+    );
+    assert_eq!(state.read_field_events().unwrap().unwrap(), events);
+    assert!(state.read_text_events().unwrap().unwrap().is_empty());
+    state.controls.finish_text_frame(false);
+    assert!(state.controls.field_events.is_empty());
 }
+
+/// Invalid additive batches cannot update a valid earlier entry or bypass field bounds/flags.
+#[test]
+fn native_field_input_validation_is_transactional() {
+    use ui::mod_panel::{FieldEvent, FieldKey, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    let change = |value: &str| {
+        FieldEvent::Change(TextEvent {
+            id: "name".into(),
+            value: value.into(),
+        })
+    };
+    assert!(super::queue_field_events(&mut state, vec![change("a")]).is_err());
+    if let ui::mod_panel::Control::Text { live, .. } =
+        &mut state.controls.panel.as_mut().unwrap().controls[0]
+    {
+        *live = true;
+    }
+    for invalid in [
+        change("123456789"),
+        change("line\nbreak"),
+        FieldEvent::Key(FieldKey {
+            id: "name".into(),
+            key: "ArrowDown".into(),
+            modifiers: Default::default(),
+        }),
+    ] {
+        assert!(super::queue_field_events(&mut state, vec![change("okay"), invalid]).is_err());
+        assert!(state.controls.field_events.is_empty());
+        assert!(
+            matches!(&state.controls.panel.as_ref().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
+        );
+    }
+    super::queue_field_events(&mut state, vec![change("")]).unwrap();
+    assert!(
+        matches!(&state.controls.field_events[0], FieldEvent::Change(event) if event.value.is_empty())
+    );
+    assert!(
+        matches!(&state.controls.panel.as_ref().unwrap().controls[0], ui::mod_panel::Control::Text { value, .. } if value == "Main")
+    );
+    state.grants.controls = false;
+    assert!(state.read_field_events().unwrap().is_err());
+    state.controls.revoke();
+    assert!(state.controls.field_events.is_empty());
+}
+
+/// Deferred delivery never replays an old submission over the last admitted live value.
+#[test]
+fn native_field_input_deferred_submits_preserve_retained_values() {
+    use ui::mod_panel::{Control, FieldEvent, TextEvent};
+    let mut state = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    text_panel(&mut state);
+    if let Control::Text { live, .. } = &mut state.controls.panel.as_mut().unwrap().controls[0] {
+        *live = true;
+    }
+    let text = |value: &str| TextEvent {
+        id: "name".into(),
+        value: value.into(),
+    };
+    super::queue_field_events(
+        &mut state,
+        vec![
+            FieldEvent::Submit(text("a")),
+            FieldEvent::Change(text("ab")),
+        ],
+    )
+    .unwrap();
+    state.controls.begin_text_frame();
+    state.controls.finish_text_frame(true);
+    super::queue_field_events(&mut state, vec![FieldEvent::Change(text(""))]).unwrap();
+    assert!(
+        matches!(&state.controls.panel.as_ref().unwrap().controls[0],
+        Control::Text { value, .. } if value == "ab")
+    );
+    assert_eq!(
+        state.controls.field_events,
+        vec![FieldEvent::Submit(text("a")), FieldEvent::Change(text(""))]
+    );
+}
+
+/// Weather policy is granted, transactional, retained and revoked on failure.
+#[test]
+fn local_weather_policy_commits_and_revokes() {
+    use cinnabar::extension::environment::{Host as _, Weather};
+    let mut config = wasmtime::Config::new();
+    config.consume_fuel(true).async_support(true);
+    let engine = Engine::new(&config).unwrap();
+    let component = br#"(component
+        (core module $m (func (export "init")) (func (export "frame")))
+        (core instance $i (instantiate $m))
+        (func (export "init") (canon lift (core func $i "init")))
+        (func (export "frame") (canon lift (core func $i "frame"))))"#;
+    let mut instance = Instance::new(
+        &engine,
+        component,
+        ModGrants {
+            controls: true,
+            environment: true,
+            ..Default::default()
+        },
+        "{}".into(),
+        Default::default(),
+        None,
+    )
+    .unwrap();
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            let state = store.data_mut();
+            state.set_weather_override(Some(Weather::Rain))?.unwrap();
+            assert!(state.environment.weather_override.is_none());
+            Ok(())
+        })
+        .unwrap();
+    assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
+    instance.begin_frame();
+    instance
+        .run(FRAME_FUEL, commit_event, |_, _| Ok(()))
+        .unwrap();
+    assert!(matches!(instance.weather_override(), Some(Weather::Rain)));
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            store.data_mut().set_weather_override(None)?.unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert!(instance.weather_override().is_none());
+    instance
+        .run(FRAME_FUEL, commit_event, |_, store| {
+            store
+                .data_mut()
+                .set_weather_override(Some(Weather::Thunder))?
+                .unwrap();
+            Ok(())
+        })
+        .unwrap();
+    assert!(
+        instance
+            .run(FRAME_FUEL, commit_event, |_, store| {
+                store
+                    .data_mut()
+                    .set_weather_override(Some(Weather::Clear))?
+                    .unwrap();
+                anyhow::bail!("synthetic callback failure")
+            })
+            .is_err()
+    );
+    assert!(instance.weather_override().is_none());
+}
+
+/// Missing grants and exclusive ownership cannot replace a previously staged policy.
+#[test]
+fn weather_policy_admission_rejects_denied_writes() {
+    use cinnabar::extension::environment::{Host as _, Weather};
+    let mut denied = state(ModGrants::default());
+    assert!(
+        denied
+            .set_weather_override(Some(Weather::Clear))
+            .unwrap()
+            .is_err()
+    );
+    assert!(denied.environment.pending_weather.is_none());
+    let mut allowed = state(ModGrants {
+        environment: true,
+        ..Default::default()
+    });
+    allowed.exclusive.environment = true;
+    assert!(
+        allowed
+            .set_weather_override(Some(Weather::Rain))
+            .unwrap()
+            .is_err()
+    );
+    assert!(allowed.environment.pending_weather.is_none());
+}
+
+/// Native editor ownership is reported only with controls authority and only as supplied.
+#[test]
+fn native_editing_is_granted_and_reports_the_supplied_frame_state() {
+    let mut granted = state(ModGrants {
+        controls: true,
+        ..Default::default()
+    });
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(false));
+    granted.controls.native_editing = true;
+    assert_eq!(granted.read_native_editing().unwrap(), Ok(true));
+    let mut denied = state(ModGrants::default());
+    denied.controls.native_editing = true;
+    assert!(denied.read_native_editing().unwrap().is_err());
+}
+
+#[path = "controls_tests/panel_visibility.rs"]
+mod panel_visibility;

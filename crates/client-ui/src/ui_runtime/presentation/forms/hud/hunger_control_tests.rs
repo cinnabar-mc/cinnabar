@@ -44,7 +44,7 @@ fn engine() -> FormEngine {
         2,
         registry(),
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let mut png = Vec::new();
     image::RgbaImage::from_pixel(9, 9, image::Rgba([255, 0, 0, 255]))
@@ -127,6 +127,7 @@ fn draw_with_factory(
                 renderers: &mut [&mut HudRenderer {
                     hud: &paint,
                     hunger_update: Some(&advance_hunger),
+                    bounds: None,
                 }],
             },
             |env, root| {

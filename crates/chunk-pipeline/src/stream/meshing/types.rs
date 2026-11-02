@@ -1,4 +1,5 @@
 use super::super::*;
+use super::overlays::OverlayHosts;
 
 pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) rendering: ::meshing::MeshRenderSettings,
@@ -8,6 +9,11 @@ pub(in crate::stream) struct MeshSnapshot {
     pub(in crate::stream) column: Option<Arc<BTreeMap<i32, Arc<SubChunk>>>>,
     pub(in crate::stream) center_y: i32,
     pub(in crate::stream) light_halo: MeshLightHalo,
+    /// Java meshing for shader packs ([`WorldStream::set_java_meshing`]): every leaf cutout,
+    /// and no water faces toward these sorted water-filled network values.
+    pub(in crate::stream) java_meshing: Option<Arc<[u32]>>,
+    /// The sub-chunk's overlay hosts, whose block-state overlays the mesh draws.
+    pub(in crate::stream) overlays: OverlayHosts,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =
@@ -95,8 +101,10 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
         biome: &PackedBiomeRecord,
+        scratch: &mut ::meshing::MeshScratch,
     ) -> ChunkMesh {
-        ::meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        let overlays = self.overlays.resolve(&self.center);
+        ::meshing::mesh_sub_chunk_in_neighbourhood_with_scratch(
             &classifier,
             runtime_assets,
             network_id_mode,
@@ -105,7 +113,11 @@ impl MeshSnapshot {
             ::meshing::MeshOptions {
                 rendering: self.rendering,
                 split_tinted_faces: biome.uniform_tint_index().is_none(),
+                cutout_leaves: self.java_meshing.is_some(),
+                water_filled: self.java_meshing.as_deref().unwrap_or_default(),
+                overlays: &overlays,
             },
+            scratch,
         )
     }
 
@@ -121,6 +133,17 @@ impl MeshSnapshot {
 
 pub(in crate::stream) fn mesh_offset_index([x, y, z]: [i8; 3]) -> usize {
     (usize::from((x + 1) as u8) * 3 + usize::from((y + 1) as u8)) * 3 + usize::from((z + 1) as u8)
+}
+
+/// The owner that retains a mesh candidate until dispatch can examine it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(in crate::stream) enum MeshCandidateOrigin {
+    /// The candidate was removed from the ready heap.
+    Queued,
+    /// A camera, completion or transfer probe must retain an unexamined candidate.
+    Probe,
+    /// The FIFO already retains the retry, so no extra heap or wake record is needed.
+    Retry,
 }
 
 /// Mesh scheduler lanes: resident geometry, and removals for evicted or known-air keys.

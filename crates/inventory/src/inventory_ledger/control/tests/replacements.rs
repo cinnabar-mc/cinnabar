@@ -160,7 +160,7 @@ fn unsupported_replacement_preserves_storage_contents_and_pending_items() {
     assert_eq!(ledger.cursor_stack(), cursor.as_ref());
     assert_eq!(ledger.confirmed.storage_len(), contents.storage_len());
     for slot in 0..contents.storage_len() {
-        let cell = crate::inventory_ledger::Cell::Storage(slot as u8);
+        let cell = crate::inventory_ledger::Cell::Storage(slot as u16);
         assert_eq!(ledger.confirmed.get(cell), contents.get(cell));
     }
 }

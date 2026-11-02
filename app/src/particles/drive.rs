@@ -5,7 +5,7 @@ use assets::{NetworkIdMode, RuntimeIconCatalog};
 use bevy::camera::Projection;
 use bevy::prelude::{
     App, DetectChangesMut, Local, MessageReader, Query, Res, ResMut, Resource, Time, Transform,
-    Update, With,
+    Update, With, resource_exists,
 };
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
@@ -26,7 +26,9 @@ use super::actors::{
     route_actor_particles,
 };
 use super::{
-    ambient::AmbientParticles, cosmetics::CosmeticEmitters, tiles::block_tile,
+    ambient::AmbientParticles,
+    cosmetics::CosmeticEmitters,
+    tiles::{BlockTile, block_tile},
     world_adapter::StreamParticleWorld,
 };
 use {
@@ -47,6 +49,14 @@ mod snowball_tests;
 #[cfg(test)]
 #[path = "drive/totem_tests.rs"]
 mod totem_tests;
+
+#[cfg(test)]
+#[path = "drive/break_tests.rs"]
+mod break_tests;
+
+#[cfg(test)]
+#[path = "drive/crack_tests.rs"]
+mod crack_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -114,6 +124,7 @@ pub(crate) fn configure_particles(app: &mut App) {
     app.init_resource::<ParticleInbox>().add_systems(
         Update,
         drive_particles
+            .run_if(resource_exists::<PhysicsCollisionRegistries>)
             .after(client_presentation::camera::FlyCameraUpdateSet)
             .after(client_state::ClientFrameSet::ActorPreparation)
             // Cosmetic emitters follow the attachments this frame's actor finalization placed.
@@ -165,26 +176,75 @@ struct Routing<'a> {
     icons: Option<&'a RuntimeIconCatalog>,
 }
 
-fn spawn_block_break(
-    system: &mut ParticleSystem,
-    routing: &Routing<'_>,
-    runtime_id: i32,
-    block: [i32; 3],
-) {
-    if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id as u32, block) {
-        system.spawn_terrain(&block_break_request(
-            BLOCK_BREAK_EFFECT,
-            block,
-            found.tile,
-            found.tint,
-        ));
-    }
+/// Emits destruction particles using an already-resolved block tile.
+fn spawn_block_break(system: &mut ParticleSystem, block: [i32; 3], found: BlockTile) {
+    system.spawn_terrain(&block_break_request(
+        BLOCK_BREAK_EFFECT,
+        block,
+        found.tile,
+        found.tint,
+    ));
 }
 
+/// Records a break echo only after its texture has been resolved for rendering.
+///
+/// A local break can be predicted before the server's `LevelEventPacket` arrives. If its
+/// texture is unavailable, the local particle spawn is skipped and the packet must remain
+/// eligible to provide the authoritative effect.
+fn route_block_break(
+    system: &mut ParticleSystem,
+    routing: &Routing<'_>,
+    echoes: &mut client_audio::audio::EchoLedger,
+    origin: client_audio::audio::EchoOrigin,
+    runtime_id: i32,
+    block: [i32; 3],
+    now: f64,
+) {
+    let found = block_tile(routing.stream, routing.mode, runtime_id as u32, block);
+    if !admit_break_echo(echoes, origin, block, now, found.is_some()) {
+        return;
+    }
+    spawn_block_break(
+        system,
+        block,
+        found.expect("renderable break echo has a resolved block tile"),
+    );
+}
+
+/// Pairs only destruction effects that have a renderable texture with their server echo.
+fn admit_break_echo(
+    echoes: &mut client_audio::audio::EchoLedger,
+    origin: client_audio::audio::EchoOrigin,
+    block: [i32; 3],
+    now: f64,
+    renderable: bool,
+) -> bool {
+    renderable
+        && echoes.admit(
+            origin,
+            "break",
+            client_audio::audio::EchoSubject::Cell(block),
+            client_audio::audio::BLOCK_ECHO_SECONDS,
+            now,
+        )
+}
+
+/// Emits a local mining crack using the block currently in the world.
 fn spawn_crack(system: &mut ParticleSystem, routing: &Routing<'_>, block: [i32; 3], face: u8) {
     let Some(runtime_id) = routing.world.block_runtime_id(block) else {
         return;
     };
+    spawn_block_crack(system, routing, block, runtime_id, face);
+}
+
+/// Emits a crack for the supplied block identity, even if the world cell has since changed.
+fn spawn_block_crack(
+    system: &mut ParticleSystem,
+    routing: &Routing<'_>,
+    block: [i32; 3],
+    runtime_id: u32,
+    face: u8,
+) {
     if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id, block) {
         system.spawn_terrain(&block_crack_request(
             BLOCK_BREAK_EFFECT,
@@ -234,11 +294,16 @@ fn spawn_item_icon_by_id(
 fn route_level_event(
     system: &mut ParticleSystem,
     routing: &Routing<'_>,
-    event_id: i32,
-    position: [f32; 3],
-    data: i32,
+    break_echoes: &mut client_audio::audio::EchoLedger,
+    event: &protocol::LevelParticleEvent,
+    now: f64,
     sequence: u64,
 ) {
+    let protocol::LevelParticleEvent {
+        event_id,
+        position,
+        data,
+    } = *event;
     match classify_level_event(event_id, data) {
         Some(LevelParticle::DragonEggTeleport { displacement }) => {
             for request in dragon_egg_teleport_requests(position, displacement, sequence) {
@@ -252,7 +317,15 @@ fn route_level_event(
             system.spawn(&native_request(effect, position, spell_color));
         }
         Some(LevelParticle::BlockBreak { runtime_id }) => {
-            spawn_block_break(system, routing, runtime_id, floor_cell(position));
+            route_block_break(
+                system,
+                routing,
+                break_echoes,
+                client_audio::audio::EchoOrigin::Packet,
+                runtime_id,
+                floor_cell(position),
+                now,
+            );
         }
         Some(LevelParticle::Terrain { runtime_id }) => {
             let block = floor_cell(position);
@@ -266,8 +339,14 @@ fn route_level_event(
                 ));
             }
         }
-        Some(LevelParticle::BlockCrack { face, .. }) => {
-            spawn_crack(system, routing, floor_cell(position), face);
+        Some(LevelParticle::BlockCrack { runtime_id, face }) => {
+            spawn_block_crack(
+                system,
+                routing,
+                floor_cell(position),
+                runtime_id as u32,
+                face,
+            );
         }
         Some(LevelParticle::ItemIcon { network_id, aux }) => {
             spawn_item_icon_by_id(system, routing, network_id, aux, position);
@@ -464,6 +543,10 @@ type ParticleFrameContext<'w, 's> = (
     Option<Res<'w, render_scene::RuntimeStageProfiler>>,
     Option<Res<'w, client_presentation::actor_publication::CosmeticEmitterPlacements>>,
     Local<'s, CosmeticEmitters>,
+    Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
+    Local<'s, super::ground_effects::GroundEffects>,
+    Option<Res<'w, client_presentation::actor_publication::GroundEffectWearers>>,
+    Option<Res<'w, client_interaction::movement::MovementTicker>>,
 );
 
 #[allow(clippy::too_many_arguments)]
@@ -486,7 +569,16 @@ fn drive_particles(
     (mut block_cues, mut eating_cues, camera_settings, server_camera): ParticleCues<'_, '_>,
     mut break_echoes: Local<client_audio::audio::EchoLedger>,
     mut ambient: Local<AmbientParticles>,
-    (cave, profiler, cosmetic_placements, mut cosmetics): ParticleFrameContext<'_, '_>,
+    (
+        cave,
+        profiler,
+        cosmetic_placements,
+        mut cosmetics,
+        physics,
+        mut ground,
+        ground_wearers,
+        movement,
+    ): ParticleFrameContext<'_, '_>,
 ) {
     let (time, actor_alpha) = frame_time;
     // Timed inside the system: a span around it would also count systems ordered in between.
@@ -548,49 +640,37 @@ fn drive_particles(
         &mut system,
     );
 
-    // Vanilla emits local destruction effects before a server echo.
-    // The cue carries the destroyed id because the world already predicts air.
+    // Vanilla emits local destruction effects before a server echo. The cue carries the
+    // destroyed id because the world already predicts air; a missing local texture must not
+    // consume the server packet's echo slot.
     for cue in block_cues.read() {
         if let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
         } = *cue
-            && break_echoes.admit(
-                client_audio::audio::EchoOrigin::Client,
-                "break",
-                client_audio::audio::EchoSubject::Cell(position),
-                client_audio::audio::BLOCK_ECHO_SECONDS,
-                time.elapsed_secs_f64(),
-            )
         {
-            spawn_block_break(&mut system, &routing, block_runtime_id, position);
+            route_block_break(
+                &mut system,
+                &routing,
+                &mut break_echoes,
+                client_audio::audio::EchoOrigin::Client,
+                block_runtime_id,
+                position,
+                time.elapsed_secs_f64(),
+            );
         }
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {
             ParticleEvent::Level(level) => {
-                let breaking = matches!(
-                    classify_level_event(level.event_id, level.data),
-                    Some(LevelParticle::BlockBreak { .. })
+                route_level_event(
+                    &mut system,
+                    &routing,
+                    &mut break_echoes,
+                    level,
+                    time.elapsed_secs_f64(),
+                    committed.sequence,
                 );
-                if !breaking
-                    || break_echoes.admit(
-                        client_audio::audio::EchoOrigin::Packet,
-                        "break",
-                        client_audio::audio::EchoSubject::Cell(floor_cell(level.position)),
-                        client_audio::audio::BLOCK_ECHO_SECONDS,
-                        time.elapsed_secs_f64(),
-                    )
-                {
-                    route_level_event(
-                        &mut system,
-                        &routing,
-                        level.event_id,
-                        level.position,
-                        level.data,
-                        committed.sequence,
-                    );
-                }
             }
             ParticleEvent::Spawn(spawn) => spawn_spawn_packet(&mut system, stream, spawn),
             ParticleEvent::ActorCritical {
@@ -639,6 +719,20 @@ fn drive_particles(
             .as_deref()
             .map_or(&[], |placements| &placements.0),
     );
+    ground.drive(
+        &mut system,
+        physics
+            .as_deref()
+            .zip(movement.as_deref())
+            .map(|(physics, movement)| {
+                (physics, movement.interaction_authority_identity().1.get())
+            }),
+        &world,
+        stream,
+        ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
+        time.delta_secs(),
+        actor_alpha.as_ref().map_or(0.0, |alpha| alpha.0),
+    );
     let camera = crate::runtime::telemetry::camera_sub_chunk_key(
         stream.current_dimension(),
         bevy::math::Vec3::from_array(view.position),
@@ -660,6 +754,18 @@ fn drive_particles(
                 high,
             )
         },
+    );
+    cosmetics.retire_hidden(
+        &mut system,
+        cosmetic_placements
+            .as_deref()
+            .map_or(&[], |placements| &placements.0),
+        &view,
+    );
+    ground.retire_hidden(
+        &mut system,
+        ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
+        &view,
     );
     if changed {
         frame.set_changed();

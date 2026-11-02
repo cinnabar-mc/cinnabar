@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"time"
 
@@ -28,6 +29,7 @@ var (
 type Config struct {
 	Path         string
 	Writer       io.Writer
+	Logger       *slog.Logger
 	DeviceAuth   func(context.Context) (*oauth2.DeviceAuthResponse, error)
 	DeviceToken  func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
 	Refresh      func(*oauth2.Token, io.Writer) oauth2.TokenSource
@@ -69,18 +71,26 @@ func Run(ctx context.Context, config Config) error {
 	}
 	acquired := false
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
+		config.logStep("sign-in requesting device code")
 		token, err := (DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken}).Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
-			return emit(writer, event{
+			if err := emit(writer, event{
 				Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,
 				UserCode: response.UserCode,
-			})
+			}); err != nil {
+				return err
+			}
+			config.logStep("sign-in waiting for browser approval")
+			return nil
 		})
 		if err != nil {
 			return nil, err
 		}
+		config.logStep("sign-in approved in browser")
 		acquired = true
 		return token, nil
 	}
+	// This step waits for the saved account's lock, which a leftover core process can hold.
+	config.logStep("sign-in checking saved account")
 	source := config.CachedSource
 	if source == nil {
 		source = authcache.Source
@@ -102,18 +112,39 @@ func Run(ctx context.Context, config Config) error {
 		if errors.Is(ctx.Err(), context.Canceled) {
 			stage, message = "cancelled", "Sign-in was cancelled."
 		}
+		if config.Logger != nil {
+			config.Logger.Error("authentication failed", "stage", stage, "diagnostic", failureDiagnostic(err))
+		}
 		return fail(writer, stage, message)
 	}
 	method := "cached"
 	if acquired {
 		method = "device_code"
 	}
+	config.logStep("sign-in token ready")
 	if config.CompleteSignIn != nil {
+		config.logStep("sign-in completing Xbox sign-in")
 		if err := completeXboxSignIn(ctx, config, signedIn, writer); err != nil {
 			return err
 		}
 	}
 	return emit(writer, event{Version: 1, Kind: "authenticated", Method: method})
+}
+
+// logStep records how far sign-in has got, so a log from a stuck attempt shows what it waits on.
+func (c Config) logStep(step string) {
+	if c.Logger != nil {
+		c.Logger.Info(step)
+	}
+}
+
+// failureDiagnostic reports the credential-free reason sign-in failed.
+func failureDiagnostic(err error) string {
+	var device *deviceFailure
+	if errors.As(err, &device) {
+		return device.reason
+	}
+	return authcache.FailureDiagnostic(err)
 }
 
 func validatePrompt(response *oauth2.DeviceAuthResponse) error {

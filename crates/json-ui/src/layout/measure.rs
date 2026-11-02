@@ -74,7 +74,7 @@ pub(super) struct Children {
     pub(super) maximum: [f64; 2],
 }
 
-type PlaceMemo = Memo<(usize, u64, u64, u64), Placements>;
+type PlaceMemo = Memo<(usize, u64, u64, u64), ([u64; 4], Placements)>;
 
 /// Stable target addresses and visibility masks, shared with the emit pass.
 pub(super) type Targets = std::sync::Arc<[(usize, u8)]>;
@@ -223,6 +223,9 @@ pub struct MeasureCache {
     styles: Memo<usize, super::style::Style>,
     suppressed: HashSet<usize>,
     roles: super::scroll::RoleMemo,
+    /// The last update started over for a suppressed scroll bar panel, which its
+    /// layouts will likely suppress again.
+    restarted: bool,
     /// The root's address last layout; a moved root's entries go stale.
     root: usize,
     /// The last layout's placements and output, for splicing unchanged subtrees.
@@ -238,7 +241,14 @@ impl MeasureCache {
         }
     }
 
-    /// Controls the last layout placed rather than reused unchanged.
+    /// Whether a layout starting now records its placements: an update while a
+    /// scroll bar panel is suppressed starts the measurements over, records included.
+    pub(super) fn splices_next(&self) -> bool {
+        !self.restarted && self.suppressed.is_empty()
+    }
+
+    /// Controls the last layout placed rather than reused unchanged; a layout
+    /// that could not splice into the next records and reports none.
     pub fn placed(&self) -> usize {
         self.placements.placed_count()
     }
@@ -262,9 +272,14 @@ impl MeasureCache {
         // The root moves into the render call; its cached address differs from `tree`.
         dirty.insert(self.root);
         if !self.suppressed.is_empty() {
-            *self = Self::default();
+            *self = Self {
+                restarted: true,
+                ..Self::default()
+            };
             return;
         }
+        self.restarted = false;
+        self.placements.unpin();
         self.children.retain(|key, _| !dirty.contains(&key.0));
         self.natural.retain(|key, _| !dirty.contains(&key.0));
         self.sizes.retain(|key, _| !dirty.contains(&key.0));
@@ -273,7 +288,7 @@ impl MeasureCache {
         self.placed.retain(|key, _| !dirty.contains(&key.0));
         self.targets.retain(|key, _| !dirty.contains(&key.0));
         self.styles.retain(|key, _| !dirty.contains(key));
-        self.roles.clear();
+        self.roles.retain(|view, _| !dirty.contains(view));
         // Every change reaches the root, which the placements key apart from its address.
         self.placements.forget(super::reuse::ROOT, false);
         for address in dirty {
@@ -543,6 +558,7 @@ pub(super) fn placed_children<'a>(
     rect: Rect,
     env: &LayoutEnv,
     clip: Option<Rect>,
+    parent_transform: Option<crate::transform::Affine>,
 ) -> Vec<(&'a ResolvedControl, Rect)> {
     let key = (
         std::ptr::from_ref(parent).addr(),
@@ -550,6 +566,10 @@ pub(super) fn placed_children<'a>(
         rect.h.to_bits(),
         env.text.physical_pixel_size().to_bits(),
     );
+    let linear = parent_transform
+        .unwrap_or(crate::transform::Affine::IDENTITY)
+        .linear
+        .map(f64::to_bits);
     let shift = |(index, at): &(usize, Rect)| {
         let moved = Rect::new(at.x + rect.x, at.y + rect.y, at.w, at.h);
         (&parent.children[*index], moved)
@@ -557,7 +577,8 @@ pub(super) fn placed_children<'a>(
     let memoized = PLACED.with(|memo| {
         let memo = memo.borrow();
         memo.get(&key)
-            .map(|placed| placed.visible(clip, rect).iter().map(shift).collect())
+            .filter(|(cached, _)| *cached == linear)
+            .map(|(_, placed)| placed.visible(clip, rect).iter().map(shift).collect())
     });
     if let Some(placed) = memoized {
         return placed;
@@ -568,10 +589,10 @@ pub(super) fn placed_children<'a>(
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();
     let relative = Placements::new(relative, grid::is_grid(parent), |index, rect| {
-        super::subtree_bounds(&parent.children[index], rect, env)
+        super::bounds::subtree(&parent.children[index], rect, env, parent_transform)
     });
     let placed = relative.visible(clip, rect).iter().map(shift).collect();
-    PLACED.with(|memo| memo.borrow_mut().insert(key, relative));
+    PLACED.with(|memo| memo.borrow_mut().insert(key, (linear, relative)));
     placed
 }
 

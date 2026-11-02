@@ -1,6 +1,6 @@
 # Client registry generation
 
-The active protocol-2193 generator reads the palette, per-state collision boxes,
+The active protocol-2225 generator reads the palette, per-state collision boxes,
 light, friction and hardness from `protocolgen/generated/data`. Update its Go
 module pin to update those facts. Generation rejects a different game target,
 missing states or mismatched names. Registry and property catalogs must come
@@ -36,12 +36,15 @@ Historical encoders and the independent projection fixtures remain available.
 The block carrier also records `BlockTraits` and `SurvivalRule`. Ordered selectors
 in `registry-policy.json` own model families and native membership rules. The
 compiler rejects unknown members and selectors that match no pinned states.
-`facts-expansion-v2193.tsv` shows trait membership and provisional rules;
-`vocabulary-v2193.txt` combines the pinned identifier, property and tag domains.
+`facts-expansion-v2225.tsv` shows trait membership and provisional rules;
+`vocabulary-v2225.txt` combines the pinned identifier, property and tag domains.
 Runtime consumers read dense block facts and typed properties without matching names.
 
-Property domains and selected behavior-pack components are small derivatives of
-the hash-checked sample archive. Regenerate them before the schema and carriers:
+Property domains combine the hash-checked sample metadata with valid values in
+the pinned palette, including Education states omitted from the samples. Blocks
+whose states use fewer values than a shared property's domain get their own domain.
+Selected behavior-pack components come from the same archive. Regenerate these inputs
+before the schema and carriers; pass `--facts` to reuse an existing pinned export:
 
 ```sh
 python3 tools/registrygen/generate_block_inputs.py --archive <pinned-sample-archive>
@@ -55,7 +58,7 @@ compiled asset directory.
 
 The destroy-table generator reads hardness and provisional tool classifications
 from the same shared catalog. Missing tool evidence stays unresolved. Regenerate
-it with `go -C tools/registrygen run ./cmd/blockdestroy -out ../../crates/assets/data/block-destroy-v2193.tsv`.
+it with `go -C tools/registrygen run ./cmd/blockdestroy -out ../../crates/assets/data/block-destroy-v2225.tsv`.
 
 The active biome generator reads numeric IDs from the shared catalog and keeps
 only names in the local retail allowlist. Its source lock is recorded in the

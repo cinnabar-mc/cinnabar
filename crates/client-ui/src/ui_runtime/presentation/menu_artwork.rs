@@ -264,11 +264,37 @@ type DecodeKey = (String, u32, Option<[u8; 32]>);
 /// Decoded art by source and side, plus sources that failed (both bounded).
 #[derive(Default)]
 struct DecodeCache {
-    decoded: HashMap<DecodeKey, Arc<Artwork>>,
+    decoded: HashMap<DecodeKey, Cached>,
     failed: VecDeque<DecodeKey>,
+    /// Bumped by each `missing` call; art stamped with the current pass is drawn now.
+    pass: u64,
 }
 
-const MAX_DECODED: usize = 160;
+/// Decoded art and the last pass whose artwork set drew it.
+struct Cached {
+    art: Arc<Artwork>,
+    drawn: u64,
+}
+
+impl Cached {
+    /// Owned allocations and inline entry bytes charged to this cached image.
+    fn bytes(&self, key: &DecodeKey) -> usize {
+        // The Arc header holds two reference counts.
+        size_of::<(DecodeKey, Cached)>()
+            + 2 * size_of::<usize>()
+            + size_of::<Artwork>()
+            + key.0.capacity()
+            + self.art.pixels.capacity()
+    }
+}
+
+/// Provisional retention budget of four full art atlases, pending route-cycle captures.
+/// Art the current set draws stays even when it alone exceeds this.
+const RETAINED_DECODE_BYTES: usize = 4
+    * render_model::MAX_UI_ART_PAGES
+    * render_model::UI_ART_PAGE_SIDE as usize
+    * render_model::UI_ART_PAGE_SIDE as usize
+    * 4;
 const MAX_FAILED: usize = 256;
 /// Initial world previews and native decode batches, so visible rows fill early.
 const FIRST_BATCH: usize = 8;
@@ -285,7 +311,7 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
             let missing = cache.missing(&request.set);
             let mut decoded = 0;
             for batch in missing.chunks(FIRST_BATCH) {
-                cache.decode(batch, &request.set);
+                cache.decode(batch);
                 decoded += batch.len();
                 if !jobs.is_empty() {
                     continue 'request;
@@ -295,7 +321,6 @@ fn serve(jobs: &Receiver<Request>, done: &Sender<Packed>) {
                 }
             }
             let _ = done.send(pack(&request.set, &cache, request.id, true));
-            cache.trim(&request.set);
             break;
         }
     }
@@ -340,21 +365,54 @@ impl Source {
 }
 
 impl DecodeCache {
-    /// Lists pending decoding and rig preparation without doing work outside a decode slice.
-    fn missing(&self, set: &ArtworkSet) -> Vec<Source> {
-        sources(set)
+    /// Lists pending decoding and rig preparation without doing work outside a decode slice,
+    /// and protects `set`'s cached art before evicting idle entries, even on a cache hit.
+    fn missing(&mut self, set: &ArtworkSet) -> Vec<Source> {
+        self.pass += 1;
+        let missing = sources(set)
             .into_iter()
             .filter(|source| {
                 let key = source.key();
                 let needs_frame = matches!(source, Source::Item(item, _)
                     if render_model::hats::thumbnail::prepared_frame(*item).is_none());
-                needs_frame || (!self.decoded.contains_key(&key) && !self.failed.contains(&key))
+                let cached = self.decoded.get_mut(&key);
+                if let Some(cached) = cached {
+                    cached.drawn = self.pass;
+                    return needs_frame;
+                }
+                needs_frame || !self.failed.contains(&key)
             })
-            .collect()
+            .collect();
+        self.trim();
+        missing
+    }
+
+    /// Caches `art` as drawn now, superseding older bytes decoded for the same source and side.
+    fn insert(&mut self, key: DecodeKey, art: Artwork) {
+        self.decoded
+            .retain(|old, _| old.0 != key.0 || old.1 != key.1);
+        let cached = Cached {
+            art: Arc::new(art),
+            drawn: self.pass,
+        };
+        self.decoded.insert(key, cached);
+    }
+
+    /// Bytes charged to decoded entries, including spare pixel and key capacity.
+    fn retained_bytes(&self) -> usize {
+        self.decoded
+            .iter()
+            .map(|(key, cached)| cached.bytes(key))
+            .sum()
+    }
+
+    /// Decoded art for `key`.
+    fn get(&self, key: &DecodeKey) -> Option<&Artwork> {
+        self.decoded.get(key).map(|cached| cached.art.as_ref())
     }
 
     /// Prepares only this slice's rigs and decodes uncached images within the same slice.
-    fn decode(&mut self, batch: &[Source], set: &ArtworkSet) {
+    fn decode(&mut self, batch: &[Source]) {
         let results: Vec<_> = batch
             .iter()
             .filter_map(|source| {
@@ -379,17 +437,14 @@ impl DecodeCache {
             .collect();
         for (key, art) in results {
             match art {
-                Some((pixels, width, height)) => {
-                    let art = Artwork {
+                Some((pixels, width, height)) => self.insert(
+                    key,
+                    Artwork {
                         width,
                         height,
                         pixels,
-                    };
-                    // A replacement image supersedes the prior bytes at this path and size.
-                    self.decoded
-                        .retain(|old, _| old.0 != key.0 || old.1 != key.1);
-                    self.decoded.insert(key, Arc::new(art));
-                }
+                    },
+                ),
                 None => {
                     if self.failed.len() >= MAX_FAILED {
                         self.failed.pop_front();
@@ -399,16 +454,31 @@ impl DecodeCache {
             }
         }
         // Cancellation must not bypass eviction after a finished batch.
-        self.trim(set);
+        self.trim();
     }
 
-    /// Drops decoded art `set` no longer names once the cache outgrows its bound.
-    fn trim(&mut self, set: &ArtworkSet) {
-        if self.decoded.len() <= MAX_DECODED {
+    /// Evicts the least recently drawn art the current pass does not draw until the cache fits
+    /// `RETAINED_DECODE_BYTES`; an evicted source decodes again when a later set names it.
+    fn trim(&mut self) {
+        let mut retained = self.retained_bytes();
+        if retained <= RETAINED_DECODE_BYTES {
             return;
         }
-        let wanted: BTreeSet<_> = sources(set).iter().map(Source::key).collect();
-        self.decoded.retain(|key, _| wanted.contains(key));
+        let pass = self.pass;
+        let mut idle: Vec<_> = self
+            .decoded
+            .iter()
+            .filter(|(_, cached)| cached.drawn != pass)
+            .map(|(key, cached)| (cached.drawn, key.clone(), cached.bytes(key)))
+            .collect();
+        idle.sort_unstable_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+        for (_, key, bytes) in idle {
+            if retained <= RETAINED_DECODE_BYTES {
+                break;
+            }
+            self.decoded.remove(&key);
+            retained -= bytes;
+        }
     }
 }
 
@@ -500,8 +570,8 @@ pub(super) fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32,
     {
         return None;
     }
-    // Budget decoder output, RGBA32F conversion, the separable resize's
-    // intermediate and final buffers, and the RGBA8 result before allocating.
+    // Budget the costliest branch before allocating: decoder output, RGBA32F conversion, the
+    // separable resize's intermediate and final buffers, and the RGBA8 result.
     let pixels = u64::from(dimensions.0).checked_mul(u64::from(dimensions.1))?;
     let scale = f64::from(max_side) / f64::from(dimensions.0.max(dimensions.1));
     let fitted = |side: u32| {
@@ -530,13 +600,13 @@ pub(super) fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32,
     limits.max_image_height = Some(MAX_SOURCE_SIDE);
     limits.max_alloc = Some(MAX_DECODE_ALLOC);
     reader.limits(limits);
-    let image = reader.decode().ok()?.into_rgba32f();
+    let image = reader.decode().ok()?;
     if image.width() <= max_side && image.height() <= max_side {
-        let image = image::DynamicImage::ImageRgba32F(image).into_rgba8();
+        let image = fitted_rgba8(image);
         let (width, height) = image.dimensions();
         return Some((image.into_raw(), width, height));
     }
-    let mut premultiplied = image;
+    let mut premultiplied = image.into_rgba32f();
     for pixel in premultiplied.pixels_mut() {
         let alpha = pixel[3];
         pixel[0] *= alpha;
@@ -560,6 +630,16 @@ pub(super) fn decode_bytes(bytes: &[u8], max_side: u32) -> Option<(Vec<u8>, u32,
     }
     let image = image::DynamicImage::ImageRgba32F(resized).into_rgba8();
     Some((image.into_raw(), width, height))
+}
+
+/// RGBA8 of an image that needs no resize. 8-bit layouts convert directly, which matches the
+/// RGBA32F round trip exactly; deeper and float input keeps that round trip's rounding.
+fn fitted_rgba8(image: image::DynamicImage) -> image::RgbaImage {
+    use image::DynamicImage::{ImageLuma8, ImageLumaA8, ImageRgb8, ImageRgba8};
+    match image {
+        ImageLuma8(_) | ImageLumaA8(_) | ImageRgb8(_) | ImageRgba8(_) => image.into_rgba8(),
+        image => image::DynamicImage::ImageRgba32F(image.into_rgba32f()).into_rgba8(),
+    }
 }
 
 /// Every downloaded artwork path the menu view can draw.

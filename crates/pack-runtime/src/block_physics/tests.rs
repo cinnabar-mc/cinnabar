@@ -1,5 +1,237 @@
 use super::*;
-use protocol::{CustomBox, CustomSelection};
+use protocol::{CustomBox, CustomSelection, CustomStateValue};
+
+#[test]
+fn mining_only_states_do_not_consume_physics_reservation() {
+    let mut mining_only = slab();
+    Arc::make_mut(&mut mining_only.visual).permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut shape = slab();
+    Arc::make_mut(&mut shape.visual).permutations[0]
+        .physical
+        .friction = Some(0.2);
+    let mut blocks = CustomBlocks {
+        blocks: std::iter::repeat_n(mining_only, 64)
+            .chain([shape])
+            .collect(),
+        ..Default::default()
+    };
+    resolve_bounded(&mut blocks, 4);
+    crate::block_mining::resolve(&mut blocks);
+    for block in &blocks.blocks[..64] {
+        assert_eq!(block.mining_for_state(1).unwrap().seconds_to_destroy, 0.5);
+    }
+    let shape = blocks.blocks.last().unwrap();
+    assert!(shape.state_physics_complete);
+    assert_eq!(
+        shape.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
+        0.5,
+        "mining states must leave the shape reservation available"
+    );
+    assert_eq!(
+        shape.physics_for_state(3).selection,
+        CustomSelection::Disabled
+    );
+    assert_eq!(shape.physics_for_state(1).friction, Some(0.2));
+}
+
+#[test]
+fn mining_resolves_independently_of_the_physics_reservation() {
+    let mut block = slab();
+    Arc::make_mut(&mut block.visual).permutations[0]
+        .physical
+        .mining = Some(Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 0.5,
+        ..Default::default()
+    }));
+    for physics_budget in [0, 4] {
+        let mut blocks = CustomBlocks {
+            blocks: [block.clone()].into(),
+            ..Default::default()
+        };
+        resolve_bounded(&mut blocks, physics_budget);
+        crate::block_mining::resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert_eq!(block.state_physics_complete, physics_budget > 0);
+        assert_eq!(
+            block.physics_for_state(1).collision_boxes.as_ref().unwrap()[0].min[1],
+            if physics_budget > 0 { 0.5 } else { 0.0 }
+        );
+        assert_eq!(block.mining_for_state(1).unwrap().seconds_to_destroy, 0.5);
+    }
+}
+
+#[test]
+fn custom_mining_uncertainty_does_not_make_known_physics_incomplete() {
+    for condition in [
+        "loop(1, { t.x = 1; }); return t.x;",
+        "q.block_state('test:missing')",
+    ] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
+            condition: condition.into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                mining: Some(Arc::new(protocol::CustomBlockMining {
+                    seconds_to_destroy: -1.0,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        }]
+        .into();
+        for budget in [0, MAX_RESOLVED_PHYSICS_STATES] {
+            let mut blocks = CustomBlocks {
+                blocks: [block.clone()].into(),
+                ..Default::default()
+            };
+            resolve_bounded(&mut blocks, budget);
+            crate::block_mining::resolve(&mut blocks);
+            let block = &blocks.blocks[0];
+            assert!(
+                block.state_physics_complete,
+                "mining cannot invalidate physical completeness"
+            );
+            for state in 0..block.state_count {
+                assert_eq!(
+                    block.mining_for_state(state).unwrap().seconds_to_destroy,
+                    0.0
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn custom_mining_resolves_beside_incomplete_physics() {
+    let mut block = slab();
+    let visual = Arc::make_mut(&mut block.visual);
+    visual.components_incomplete = true;
+    visual.permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
+    let block = &blocks.blocks[0];
+    assert!(block.state_physics.is_empty());
+    assert!(!block.state_physics_complete);
+    for state in 0..block.state_count {
+        assert_eq!(
+            block.mining_for_state(state).unwrap().seconds_to_destroy,
+            0.5
+        );
+    }
+}
+
+#[test]
+fn custom_mining_permutations_replace_the_whole_component() {
+    let mut block = slab();
+    block.mining = Arc::new(protocol::CustomBlockMining {
+        seconds_to_destroy: 4.0,
+        ..Default::default()
+    });
+    let visuals = Arc::make_mut(&mut block.visual);
+    visuals.permutations = [protocol::CustomPermutation {
+        condition: "1".into(),
+        components: Default::default(),
+        physical: protocol::CustomPhysicalComponents {
+            mining: Some(Arc::new(protocol::CustomBlockMining {
+                seconds_to_destroy: 0.5,
+                ..Default::default()
+            })),
+            ..Default::default()
+        },
+    }]
+    .into();
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    crate::block_mining::resolve(&mut blocks);
+    for state in 0..blocks.blocks[0].state_count {
+        assert_eq!(
+            blocks.blocks[0]
+                .mining_for_state(state)
+                .unwrap()
+                .seconds_to_destroy,
+            0.5
+        );
+    }
+}
+
+#[test]
+fn custom_mining_unevaluated_conditions_read_as_zero() {
+    for condition in [
+        "loop(1, { t.x = 1; }); return t.x;",
+        "q.block_state('test:missing')",
+    ] {
+        let mut block = slab();
+        Arc::make_mut(&mut block.visual).permutations = [protocol::CustomPermutation {
+            condition: condition.into(),
+            components: Default::default(),
+            physical: protocol::CustomPhysicalComponents {
+                mining: Some(Arc::new(protocol::CustomBlockMining {
+                    seconds_to_destroy: -1.0,
+                    ..Default::default()
+                })),
+                ..Default::default()
+            },
+        }]
+        .into();
+        assert!(block.mining_for_state(0).is_none());
+        let mut blocks = CustomBlocks {
+            blocks: [block].into(),
+            ..Default::default()
+        };
+        resolve(&mut blocks);
+        crate::block_mining::resolve(&mut blocks);
+        assert!(blocks.blocks[0].state_physics_complete);
+        for state in 0..blocks.blocks[0].state_count {
+            let mining = blocks.blocks[0].mining_for_state(state).unwrap();
+            assert_eq!(mining.seconds_to_destroy, 0.0, "{condition} must not apply");
+        }
+    }
+}
+
+#[test]
+fn custom_mining_unrelated_physics_gaps_keep_the_base_component() {
+    let mut block = slab();
+    Arc::make_mut(&mut block.visual)
+        .permutations
+        .iter_mut()
+        .for_each(|permutation| permutation.condition = "q.unsupported()".into());
+    let mut blocks = CustomBlocks {
+        blocks: [block].into(),
+        ..Default::default()
+    };
+    resolve(&mut blocks);
+    assert!(!blocks.blocks[0].state_physics_complete);
+    assert!(blocks.blocks[0].mining_for_state(0).is_some());
+}
 
 fn text(value: &str) -> Vec<u8> {
     let mut encoded = vec![u8::try_from(value.len()).unwrap()];
@@ -509,11 +741,15 @@ fn connection_states_select_per_state_collision() {
         components: CustomVisualComponents::default(),
     };
     let block = CustomBlock {
+        mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
+        state_mining: Default::default(),
         player_interact: false,
         name: "test:fence".into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count: 16,
         collides: true,
         collision_boxes: Some(Arc::from([post])),
@@ -557,4 +793,58 @@ fn connection_states_select_per_state_collision() {
     let (_, collision, selection) = state_physics(&block, 1);
     assert_eq!(collision.as_deref(), Some([north].as_slice()));
     assert_eq!(selection, CustomSelection::Box(north));
+}
+
+// A disabling mining override past the permutation bound cannot be read, so mining stays
+// unknown instead of allowing an instant break; a huge truncated definition does no mining work.
+#[test]
+fn custom_mining_truncated_definitions_stay_unknown_without_evaluation() {
+    for properties in [0_u32, 16] {
+        let permutations: u32 = 1025;
+        let mut encoded = named(10, "");
+        encoded.extend(named(9, "properties"));
+        encoded.push(10);
+        encoded.extend(varint(properties << 1));
+        for index in 0..properties {
+            encoded.extend(named(8, "name"));
+            encoded.extend(text(&format!("test:bit{index}")));
+            encoded.extend(named(9, "enum"));
+            encoded.extend([1, 4, 0, 1]);
+            encoded.push(0);
+        }
+        encoded.extend(named(9, "permutations"));
+        encoded.push(10);
+        encoded.extend(varint(permutations << 1));
+        for index in 0..permutations {
+            encoded.extend(named(8, "condition"));
+            encoded.extend(text("1"));
+            if index + 1 == permutations {
+                encoded.extend(named(10, "components"));
+                encoded.extend(named(10, "minecraft:destructible_by_mining"));
+                encoded.extend(named(5, "value"));
+                encoded.extend((-1.0_f32).to_le_bytes());
+                encoded.extend([0, 0]);
+            }
+            encoded.push(0);
+        }
+        encoded.push(0);
+        let mut blocks = CustomBlocks::from_definitions([("test:many", encoded.as_slice())]);
+        assert_eq!(blocks.blocks[0].state_count, 1 << properties);
+        resolve(&mut blocks);
+        crate::block_mining::resolve(&mut blocks);
+        let block = &blocks.blocks[0];
+        assert!(block.state_mining.is_empty(), "no state is evaluated");
+        assert!(block.mining_for_state(0).is_none());
+    }
+}
+
+/// Encodes an unsigned network VarInt.
+fn varint(mut value: u32) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    while value >= 0x80 {
+        bytes.push((value as u8 & 0x7f) | 0x80);
+        value >>= 7;
+    }
+    bytes.push(value as u8);
+    bytes
 }

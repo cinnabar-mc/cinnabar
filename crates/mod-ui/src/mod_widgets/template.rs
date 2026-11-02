@@ -1,47 +1,12 @@
-use json_ui::{Catalog, DataSource, Scalar};
+use json_ui::{DataSource, Scalar};
 use serde_json::{Value, json};
-use ui::mod_hud::{Anchor, Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
+use ui::mod_hud::{Card, DEFAULT_ROW_HEIGHT, Hud, RowLayout};
 
 const HEADER: f64 = 18.;
 
 #[cfg(test)]
 mod tests;
 
-/// Rebuilds only when card geometry, row font or icon topology changes.
-pub(super) fn same_shape(a: &Hud, b: &Hud) -> bool {
-    super::world_labels::same_shape(&a.world_labels, &b.world_labels)
-        && a.cards.len() == b.cards.len()
-        && a.cards.iter().zip(&b.cards).all(|(left, right)| {
-            left.id == right.id
-                && left.scale == right.scale
-                && left.row_layout == right.row_layout
-                && left.width == right.width
-                && left.row_height == right.row_height
-                && left.icon_size == right.icon_size
-                && left.text_scale == right.text_scale
-                && left.shadow == right.shadow
-                && left.title.is_empty() == right.title.is_empty()
-                && left.compass.is_some() == right.compass.is_some()
-                && left.text_plate.is_some() == right.text_plate.is_some()
-                && left.text_plate.as_ref().map(|p| p.style.border_width)
-                    == right.text_plate.as_ref().map(|p| p.style.border_width)
-                && left.cells.len() == right.cells.len()
-                && left.cells.iter().zip(&right.cells).all(|(a, b)| {
-                    a.rect == b.rect
-                        && a.shadow == b.shadow
-                        && a.value.is_empty() == b.value.is_empty()
-                })
-                && left.rows.len() == right.rows.len()
-                && left.rows.iter().zip(&right.rows).all(|(a, b)| {
-                    a.effect_id == b.effect_id
-                        && a.localized == b.localized
-                        && a.item.is_some() == b.item.is_some()
-                        && a.progress.is_some() == b.progress.is_some()
-                        && (left.row_layout != RowLayout::IconRight
-                            || a.label.is_empty() == b.label.is_empty())
-                })
-        })
-}
 pub(super) fn named(name: &str, node: Value) -> Value {
     json!({name: node})
 }
@@ -63,9 +28,45 @@ fn center_on_row(label: &mut Value, center_y: f64) {
 }
 /// Shares card controls between gameplay publication and native previews.
 pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
-    if card.text_plate.is_some() {
-        *row_index += card.rows.len();
-        return super::text_plate::control(card, card_index);
+    let mut node = card_content(card, card_index, row_index);
+    if card.font != ui::mod_hud::CardFont::Native {
+        apply_font(&mut node, card.font.name());
+    }
+    node
+}
+
+/// Applies card typography to retained labels, including cells and measured text spans.
+fn apply_font(node: &mut Value, font: &str) {
+    match node {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str) == Some("label") {
+                object.insert("font_type".into(), json!(font));
+            }
+            for value in object.values_mut() {
+                apply_font(value, font);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                apply_font(value, font);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Builds card geometry before applying its selected typography.
+fn card_content(card: &Card, card_index: usize, row_index: &mut usize) -> Value {
+    if let Some(spec) = &card.crosshair {
+        return panel_for_card(
+            card_index,
+            dimensions(card),
+            vec![named(
+                "crosshair",
+                json!({"type":"custom","renderer":"cinnabar_crosshair_preview",
+                "size":dimensions(card),"anchor_from":"top_left","anchor_to":"top_left","crosshair":spec,"crosshair_scale":card.scale}),
+            )],
+        );
     }
     let k = f64::from(card.scale);
     let width = f64::from(card.width);
@@ -80,7 +81,7 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
             rounded(
                 size,
                 [0.; 2],
-                3. * k,
+                f64::from(card.background_radius) * k,
                 [0.045, 0.05, 0.065, card.background_opacity],
             ),
         ),
@@ -107,13 +108,6 @@ pub(in super::super) fn card(card: &Card, card_index: usize, row_index: &mut usi
     controls[0]["surface"]["bindings"] = json!([{ "binding_name":format!("#card_{card_index}_background"),"binding_name_override":"#color" }]);
     if card.title.is_empty() {
         controls.truncate(1);
-    }
-    if card.compass.is_some() {
-        controls.push(named(
-            "compass",
-            super::compass::control(card, card_index, header),
-        ));
-        return panel_for_card(card_index, size, controls);
     }
     if !card.cells.is_empty() {
         controls.extend(super::cells::controls(card, card_index, header));
@@ -305,83 +299,67 @@ fn grid(card: &Card, row_index: &mut usize, header: f64) -> Vec<Value> {
 fn grid_columns(card: &Card) -> usize {
     ((card.width / card.row_height).floor() as usize).max(1)
 }
-pub(super) fn catalog(hud: &Hud) -> Result<Catalog, String> {
-    let mut index = 0;
-    let mut controls: Vec<_> = hud
-        .cards
-        .iter()
-        .enumerate()
-        .map(|(n, c)| named(&c.id, card(c, n, &mut index)))
-        .collect();
-    controls.extend(
-        hud.world_labels
-            .iter()
-            .enumerate()
-            .map(|(n, label)| super::world_labels::control(n, label)),
-    );
-    let definition = json!({"namespace":"cinnabar_personal_hud","cards":{"type":"panel","size":["100%","100%"],"controls":controls}}).to_string();
-    Catalog::from_files([
-        ("ui/_global_variables.json", &b"{}"[..]),
-        (
-            "ui/_ui_defs.json",
-            &br#"{"ui_defs":["ui/personal_hud.json"]}"#[..],
-        ),
-        ("ui/personal_hud.json", definition.as_bytes()),
-    ])
-    .map_err(|error| error.to_string())
-}
 pub(in super::super) fn data(hud: &Hud, viewport: [f64; 2]) -> DataSource {
     let mut data = DataSource::new();
     let mut index = 0;
     for (n, card) in hud.cards.iter().enumerate() {
-        data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
-        data.set_global(
-            format!("#card_{n}_offset"),
-            Scalar::Json(json!(origin(card, viewport))),
-        );
-        data.set_global(
-            format!("#card_{n}_background"),
-            Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
-        );
-        super::cells::data(&mut data, card, n);
-        super::text_plate::data(&mut data, card, n, viewport);
-        super::compass::data(&mut data, card, n);
-        for row in &card.rows {
-            data.set_global(
-                format!("#row_{index}_label"),
-                Scalar::Text(row.label.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_value"),
-                Scalar::Text(row.value.clone()),
-            );
-            data.set_global(
-                format!("#row_{index}_color"),
-                Scalar::Json(json!(row.color)),
-            );
-            data.set_global(
-                format!("#row_{index}_progress"),
-                Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
-            );
-            data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
-            index += 1;
-        }
+        card_data(&mut data, card, n, index, viewport);
+        index += card.rows.len();
     }
     data
 }
 
+/// Writes one card's indexed bindings for both aggregate HUDs and isolated retained cards.
+pub(super) fn card_data(
+    data: &mut DataSource,
+    card: &Card,
+    n: usize,
+    mut index: usize,
+    viewport: [f64; 2],
+) {
+    data.set_global(
+        format!("#card_{n}_visible"),
+        Scalar::Bool(card.gameplay_visible()),
+    );
+    data.set_global(format!("#card_{n}_title"), Scalar::Text(card.title.clone()));
+    data.set_global(
+        format!("#card_{n}_offset"),
+        Scalar::Json(json!(origin(card, viewport))),
+    );
+    data.set_global(
+        format!("#card_{n}_background"),
+        Scalar::Json(json!([0.045, 0.05, 0.065, card.background_opacity])),
+    );
+    super::cells::data(data, card, n);
+    for row in &card.rows {
+        data.set_global(
+            format!("#row_{index}_label"),
+            Scalar::Text(row.label.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_value"),
+            Scalar::Text(row.value.clone()),
+        );
+        data.set_global(
+            format!("#row_{index}_color"),
+            Scalar::Json(json!(row.color)),
+        );
+        data.set_global(
+            format!("#row_{index}_progress"),
+            Scalar::Num(f64::from(row.progress.unwrap_or(0.))),
+        );
+        data.set_global(format!("#row_{index}_icon"), Scalar::Json(Value::Null));
+        index += 1;
+    }
+}
+
 /// Shared card geometry for gameplay publication and native layout editing.
 pub(in super::super) fn dimensions(card: &Card) -> [f64; 2] {
-    if card.text_plate.is_some() {
-        return super::text_plate::dimensions(card);
+    if let Some(size) = card.editor_size {
+        return size.map(|side| f64::from(side) * f64::from(card.scale));
     }
-    if card.compass.is_some() {
-        return [
-            f64::from(card.width * card.scale),
-            (if card.title.is_empty() { 0. } else { HEADER }
-                + f64::from(ui::mod_hud::COMPASS_HEIGHT))
-                * f64::from(card.scale),
-        ];
+    if card.crosshair.is_some() {
+        return [f64::from(card.width * card.scale); 2];
     }
     if card.row_layout == RowLayout::Grid {
         return [
@@ -418,12 +396,9 @@ pub(in super::super) fn origin(card: &Card, viewport: [f64; 2]) -> [f64; 2] {
     if let Some(position) = card.position {
         return std::array::from_fn(|axis| f64::from(position[axis]) * available[axis]);
     }
-    let edge = match card.anchor {
-        Anchor::TopLeft => [0., 0.],
-        Anchor::TopCenter => [(viewport[0] - size[0]) * 0.5, 0.],
-        Anchor::TopRight => [available[0], 0.],
-        Anchor::BottomLeft => [0., available[1]],
-        Anchor::BottomRight => available,
-    };
-    std::array::from_fn(|axis| edge[axis] + f64::from(card.offset[axis]))
+    if card.editor_size.is_some() {
+        card.anchor.origin_unclamped(card.offset, size, viewport)
+    } else {
+        card.anchor.origin(card.offset, size, viewport)
+    }
 }

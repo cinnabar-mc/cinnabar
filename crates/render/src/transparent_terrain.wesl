@@ -4,7 +4,7 @@
 // sorted refs or direct records as `liquid_record` selects; any other draw shades model draw
 // refs. Both paths run the liquid and model programs' own vertex and shading functions on their
 // own outputs, so the picture matches drawing each family through its own pipeline.
-import render::chunk_bindings::TRANSPARENT_WATER_DRAW_FLAG;
+import render::chunk_bindings::{TRANSPARENT_WATER_DRAW_FLAG, transparent_refs};
 import render::liquid::{VertexOutput as LiquidOutput, liquid_record, vertex_for_record, shade_liquid};
 import render::model::{VertexOutput as ModelOutput, model_vertex, shade_blend};
 
@@ -15,10 +15,16 @@ struct VertexOutput {
     @location(1) @interpolate(flat) textures: vec2<u32>,
     @location(2) @interpolate(flat) material_biome: vec2<u32>,
     @location(3) @interpolate(flat) frame_face: vec2<f32>,
+    // Vanilla shading reads neither family's biome lattice position, baked lightmap colour nor
+    // normal; distant water's many small triangles pay for every interpolant they carry.
+    @if(ENHANCED)
     @location(4) @interpolate(flat) local_position: vec3<f32>,
+    @if(ENHANCED)
     @location(5) @interpolate(flat) world_origin: vec3<f32>,
     @location(6) world_position: vec3<f32>,
+    @if(ENHANCED)
     @location(7) lighting: vec3<f32>,
+    @if(ENHANCED)
     @location(8) normal: vec3<f32>,
     @if(ENHANCED)
     @location(9) sky_ao: vec2<f32>,
@@ -39,17 +45,23 @@ fn vertex(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
+    return terrain_vertex(vertex_index, instance_index);
+}
+
+// Shared reconstruction also serves host-meshed retained geometry.
+fn terrain_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     var out: VertexOutput;
     if ((instance_index & TRANSPARENT_WATER_DRAW_FLAG) != 0u) {
         let record = liquid_record(instance_index & ~TRANSPARENT_WATER_DRAW_FLAG);
         let liquid = vertex_for_record(record, vertex_index);
         out.clip_position = liquid.clip_position;
         out.routing.x = 1u;
-        out.textures.x = liquid.textures.x;
-        out.textures.y = liquid.textures.y;
+        out.textures.x = liquid.current_texture;
+        out.textures.y = liquid.next_texture;
         out.frame_face.x = liquid.frame_blend;
         out.routing.y = liquid.two_sided;
         out.world_position = liquid.world_position;
+        @if(ENHANCED)
         out.lighting = liquid.lighting;
         @if(ENHANCED)
         out.normal = liquid.normal;
@@ -70,12 +82,14 @@ fn vertex(
     let model = model_vertex(vertex_index, instance_index);
     out.clip_position = model.clip_position;
     out.routing.x = 0u;
-    out.textures.x = model.textures.x;
-    out.textures.y = model.textures.y;
+    out.textures.x = model.current_texture;
+    out.textures.y = model.next_texture;
     out.frame_face.x = model.frame_blend;
     out.routing.y = model.visibility.y;
     out.world_position = model.world_position;
+    @if(ENHANCED)
     out.lighting = model.lighting;
+    @if(ENHANCED)
     out.normal = model.normal;
     @if(ENHANCED)
     out.sky_ao.x = model.sky_light;
@@ -89,21 +103,32 @@ fn vertex(
     out.tint_gamma = model.tint_gamma;
     out.model_uv = model.uv;
     out.material_biome.x = model.material_flags;
+    @if(ENHANCED)
     out.local_position = model.local_position;
     out.material_biome.y = model.biome_record;
     out.routing.w = model.visibility.x;
+    @if(ENHANCED)
     out.world_origin = model.world_origin;
     return out;
+}
+
+// Each sorted face keeps the ordinary liquid/model decoder and fragment shader.
+@if(MOD_BLOCKS)
+@vertex
+fn vertex_blocks(@builtin(vertex_index) corner: u32, @builtin(instance_index) face: u32) -> VertexOutput {
+    let reference = transparent_refs(face);
+    return terrain_vertex(reference.metadata_index + corner, reference.liquid_record_index);
 }
 
 fn liquid_output(in: VertexOutput) -> LiquidOutput {
     var liquid: LiquidOutput;
     liquid.clip_position = in.clip_position;
     liquid.uv = in.liquid_uv;
-    liquid.textures.x = in.textures.x;
-    liquid.textures.y = in.textures.y;
+    liquid.current_texture = in.textures.x;
+    liquid.next_texture = in.textures.y;
     liquid.frame_blend = in.frame_face.x;
     liquid.water_tint = in.water_tint;
+    @if(ENHANCED)
     liquid.lighting = in.lighting;
     @if(ENHANCED)
     liquid.sky_light = in.sky_ao.x;
@@ -126,14 +151,17 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     var model: ModelOutput;
     model.clip_position = in.clip_position;
     model.uv = in.model_uv;
-    model.textures.x = in.textures.x;
+    model.current_texture = in.textures.x;
+    @if(ENHANCED)
     model.normal = in.normal;
     model.material_flags = in.material_biome.x;
+    @if(ENHANCED)
     model.local_position = in.local_position;
     model.biome_record = in.material_biome.y;
-    model.textures.y = in.textures.y;
+    model.next_texture = in.textures.y;
     model.frame_blend = in.frame_face.x;
     model.visibility.x = in.routing.w;
+    @if(ENHANCED)
     model.lighting = in.lighting;
     @if(ENHANCED)
     model.sky_light = in.sky_ao.x;
@@ -147,6 +175,7 @@ fn model_output(in: VertexOutput) -> ModelOutput {
     model.native_ao_face = in.native_light_ao.z;
     @if(!ENHANCED)
     model.tint_gamma = in.tint_gamma;
+    @if(ENHANCED)
     model.world_origin = in.world_origin;
     model.visibility.y = in.routing.y;
     model.world_position = in.world_position;

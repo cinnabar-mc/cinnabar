@@ -24,6 +24,22 @@ fn empty_faces() -> EntityGeometryFaceUvs {
 }
 
 #[test]
+fn a_cube_without_faces_adds_no_vertices() {
+    let cube = EntityGeometryCube {
+        origin: [scalar(0.0); 3],
+        size: [8.0, 8.0, 8.0].map(scalar),
+        pivot: [scalar(0.0); 3],
+        rotation: [scalar(0.0); 3],
+        uv: EntityGeometryUv::Faces(empty_faces()),
+        inflate: scalar(0.0),
+        mirror: false,
+    };
+    let mut vertices = Vec::new();
+    append_entity_cube_vertices(&mut vertices, &cube, 0, (8, 8), false, 0.0).unwrap();
+    assert!(vertices.is_empty());
+}
+
+#[test]
 fn missing_per_face_uv_sizes_use_the_native_face_dimensions_without_rounding() {
     let face = Some(authored_face(None));
     let uv = EntityGeometryUv::Faces(EntityGeometryFaceUvs {

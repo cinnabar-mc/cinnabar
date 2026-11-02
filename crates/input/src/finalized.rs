@@ -3,12 +3,17 @@ use crate::{Action, ActionPhase, ActionSnapshot};
 
 /// The last action frame accepted by the semantic router.
 #[derive(Debug, Default, Clone)]
-pub struct FinalizedInput(Option<ActionSnapshot>);
+pub struct FinalizedInput(Option<ActionSnapshot>, bool);
 
 impl FinalizedInput {
     /// Retains a finalized router result for consumers.
     pub fn from_finalized(snapshot: ActionSnapshot) -> Self {
-        Self(Some(snapshot))
+        Self(Some(snapshot), false)
+    }
+
+    /// Whether the current movement buttons come from resolved mod controls.
+    pub fn movement_is_resolved(&self) -> bool {
+        self.1
     }
 
     /// Borrows the finalized action frame when one is available.
@@ -77,14 +82,82 @@ impl FinalizedInput {
         true
     }
 
+    /// Applies one generic action filter after semantic authority has been resolved.
+    /// Returns which requested attack and item-use repeats were admitted.
+    pub fn filter_actions(
+        &mut self,
+        state: &mut crate::action_filter::ActionFilterState,
+        owner: Option<u64>,
+        time_us: u64,
+        repeat: [bool; 2],
+        decide: impl FnMut(
+            &crate::action_filter::ActionFilterFrame,
+        ) -> Option<crate::action_filter::ActionVerdict>,
+    ) -> [bool; 2] {
+        if let Some(snapshot) = self.0.as_mut() {
+            state.filter(snapshot, owner, time_us, repeat, decide)
+        } else {
+            state.reset();
+            [false; 2]
+        }
+    }
+
     /// Publishes the router result for this frame.
     pub fn replace(&mut self, snapshot: ActionSnapshot) {
         self.0 = Some(snapshot);
+        self.1 = false;
     }
 
     /// Retires a frame that could not be finalized.
     pub fn clear(&mut self) {
         self.0 = None;
+        self.1 = false;
+    }
+}
+
+/// Retains only synthesized button ownership between finalized physical frames.
+#[derive(Default)]
+pub struct MovementOverlay {
+    held: [bool; 3],
+}
+
+impl MovementOverlay {
+    /// Overlays ordinary walking while retaining unrelated actions and physical releases.
+    /// The caller arbitrates focus, world identity and manual movement first.
+    pub fn apply(&mut self, input: &mut FinalizedInput, intent: Option<([f32; 2], [bool; 3])>) {
+        input.1 = intent.is_some();
+        if let (Some(snapshot), Some((axes, _))) = (input.0.as_mut(), intent) {
+            snapshot.movement = axes;
+            snapshot.raw_movement = axes;
+            snapshot.analogue_movement = axes;
+            snapshot.movement_buttons = crate::MovementButtons {
+                forward: axes[1] > 0.0,
+                backward: axes[1] < 0.0,
+                left: axes[0] < 0.0,
+                right: axes[0] > 0.0,
+            };
+        }
+        self.hold(input, intent.map_or([false; 3], |(_, held)| held));
+    }
+
+    /// Holds the jump, sneak and sprint actions as if their bindings were held, leaving
+    /// walking axes alone. A hold presses once when it starts and releases once when it ends,
+    /// unless a physical binding holds the action; without a frame the holds are dropped.
+    pub fn hold(&mut self, input: &mut FinalizedInput, held: [bool; 3]) {
+        let Some(snapshot) = input.0.as_mut() else {
+            self.held = [false; 3];
+            return;
+        };
+        for (index, action) in [Action::Jump, Action::Sneak, Action::Sprint]
+            .into_iter()
+            .enumerate()
+        {
+            let phase = &mut snapshot.phases[action as usize];
+            phase.pressed |= held[index] && !self.held[index] && !phase.held;
+            phase.released |= self.held[index] && !held[index] && !phase.held;
+            phase.held |= held[index];
+        }
+        self.held = held;
     }
 }
 
@@ -99,20 +172,24 @@ mod tests {
         raw_movement: [f32; 2],
         analogue_movement: [f32; 2],
     ) -> FinalizedInput {
-        FinalizedInput(Some(ActionSnapshot {
-            ordered: None,
-            frame_sequence: crate::identity::InputSequence::new(1),
-            authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
-            movement,
-            raw_movement,
-            analogue_movement,
-            movement_buttons: Default::default(),
-            look_delta: [0.0; 2],
-            input_mode: InputMode::GamePad,
-            phases: [ActionPhase::default(); Action::COUNT],
-            release_reasons: [None; Action::COUNT],
-            authority_released: false,
-        }))
+        FinalizedInput(
+            Some(ActionSnapshot {
+                ordered: None,
+                admitted_desktop: Vec::new(),
+                frame_sequence: crate::identity::InputSequence::new(1),
+                authority_generation: crate::identity::InputAuthorityGeneration::INITIAL,
+                movement,
+                raw_movement,
+                analogue_movement,
+                movement_buttons: Default::default(),
+                look_delta: [0.0; 2],
+                input_mode: InputMode::GamePad,
+                phases: [ActionPhase::default(); Action::COUNT],
+                release_reasons: [None; Action::COUNT],
+                authority_released: false,
+            }),
+            false,
+        )
     }
 
     #[test]
@@ -158,5 +235,64 @@ mod tests {
         assert_eq!(input.snapshot(), Some(&expected));
         assert!(!input.request_mod_attack_press());
         assert_eq!(input.snapshot(), Some(&expected));
+    }
+    #[test]
+    fn held_intents_add_to_physical_bindings_without_walking() {
+        let mut overlay = MovementOverlay::default();
+        let mut frame = snapshot_with_carriers([0.3, 0.0], [0.3, 0.0], [0.0; 2]);
+        overlay.hold(&mut frame, [false, true, true]);
+        assert_eq!(frame.movement(), [0.3, 0.0]);
+        assert!(!frame.movement_is_resolved());
+        for action in [Action::Sneak, Action::Sprint] {
+            assert!(frame.phase(action).pressed && frame.phase(action).held);
+        }
+        assert_eq!(frame.phase(Action::Jump), ActionPhase::default());
+        let sprinting = || {
+            let mut frame = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+            frame.0.as_mut().unwrap().phases[Action::Sprint as usize].held = true;
+            frame
+        };
+        let mut renewed = sprinting();
+        overlay.hold(&mut renewed, [false, true, true]);
+        assert!(renewed.phase(Action::Sneak).held && !renewed.phase(Action::Sneak).pressed);
+        let mut released = sprinting();
+        overlay.hold(&mut released, [false; 3]);
+        assert!(released.phase(Action::Sneak).released);
+        assert!(
+            !released.phase(Action::Sprint).released && released.phase(Action::Sprint).held,
+            "a physically held binding keeps the action held"
+        );
+        overlay.hold(&mut FinalizedInput::default(), [false, true, false]);
+        let mut next = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        overlay.hold(&mut next, [false; 3]);
+        assert!(
+            !next.phase(Action::Sneak).released,
+            "a frame without input drops the hold"
+        );
+    }
+
+    #[test]
+    fn mod_walking_uses_one_button_edge_and_releases_to_physical_input() {
+        let mut overlay = MovementOverlay::default();
+        let mut frame = snapshot_with_carriers([0.0; 2], [0.0; 2], [0.0; 2]);
+        frame.0.as_mut().unwrap().phases[Action::Attack as usize].held = true;
+        let physical = frame.clone();
+        overlay.apply(&mut frame, Some(([0.0, 1.0], [true, false, true])));
+        assert_eq!(frame.movement(), [0.0, 1.0]);
+        assert!(frame.phase(Action::Jump).pressed);
+        assert!(frame.phase(Action::Attack).held);
+        let mut second = physical.clone();
+        overlay.apply(&mut second, Some(([0.0, 1.0], [true, false, true])));
+        assert!(second.phase(Action::Jump).held);
+        assert!(!second.phase(Action::Jump).pressed);
+        let mut release = snapshot_with_carriers([0.5, 0.0], [0.5, 0.0], [0.5, 0.0]);
+        overlay.apply(&mut release, None);
+        assert_eq!(release.movement(), [0.5, 0.0]);
+        assert!(release.phase(Action::Jump).released);
+        assert!(release.phase(Action::Sprint).released);
+        assert!(!release.phase(Action::Jump).held);
+        let mut idle = physical;
+        overlay.apply(&mut idle, None);
+        assert!(!idle.phase(Action::Jump).released);
     }
 }

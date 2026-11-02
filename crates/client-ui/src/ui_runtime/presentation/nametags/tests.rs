@@ -1,18 +1,39 @@
+use super::style::style_scene;
 use super::*;
-mod counter;
+mod annotation;
+mod box_height;
+
+/// Builds annotation spans sharing one colour at one position.
+pub(super) fn spans(
+    texts: &[&str],
+    color: [f32; 4],
+    position: ui::mod_presentation::SpanPosition,
+) -> Arc<ui::mod_presentation::Spans> {
+    Arc::new(ui::mod_presentation::Spans {
+        spans: texts
+            .iter()
+            .map(|text| ui::mod_presentation::Span {
+                text: (*text).into(),
+                color,
+            })
+            .collect(),
+        position,
+    })
+}
 use protocol_ids::ActorFlag;
 
 mod badges;
+mod budget;
+mod frustum;
 mod opacity;
 mod own_tag;
 mod view_depth;
 mod visibility;
 
-/// Uses a camera at the origin looking along -Z, with independently supplied viewer feet.
-fn view(viewer_position: Vec3) -> NametagView {
+/// Uses the supplied camera position looking along -Z.
+fn view(camera_position: Vec3) -> NametagView {
     NametagView {
-        viewer_position,
-        camera_position: Vec3::ZERO,
+        camera_position,
         camera_forward: Vec3::NEG_Z,
     }
 }
@@ -68,15 +89,16 @@ fn actor_stream(
             head_yaw: 0.0,
             body_yaw: 0.0,
             held_item: Default::default(),
-            metadata: score
-                .as_ref()
-                .map(|score| protocol::ActorMetadata {
-                    key: METADATA_SCORE,
-                    value: ActorMetadataValue::String(Arc::clone(score)),
-                })
-                .into_iter()
-                .collect::<Vec<_>>()
-                .into(),
+            metadata: std::iter::once(protocol::ActorMetadata {
+                key: METADATA_ALWAYS_SHOW_NAMETAG,
+                value: ActorMetadataValue::Byte(1),
+            })
+            .chain(score.as_ref().map(|score| protocol::ActorMetadata {
+                key: METADATA_SCORE,
+                value: ActorMetadataValue::String(Arc::clone(score)),
+            }))
+            .collect::<Vec<_>>()
+            .into(),
             attributes: Arc::from([]),
             properties: Arc::from([]),
             links: Arc::from([]),
@@ -104,11 +126,12 @@ pub(in crate::ui_runtime::presentation) fn anchor(name: &str) -> NametagAnchor {
             .collect::<Vec<_>>()
             .into(),
         depth_tested: false,
+        sneaking: false,
         text_alpha: 1.0,
         view_depth: 5.0,
         camera_forward_y: 0.0,
         cinnabar_badge: false,
-        counter: None,
+        annotation: None,
     }
 }
 
@@ -122,7 +145,7 @@ fn scene(anchors: &[NametagAnchor]) -> NametagScene {
 fn scene_with_font(anchors: &[NametagAnchor], font: &RuntimeFontCatalog) -> NametagScene {
     build_nametag_scene(
         anchors,
-        1.0,
+        None,
         font,
         &mut TextLayoutCache::new(8, 1 << 20),
         &mut NametagAtlas::default(),
@@ -131,14 +154,20 @@ fn scene_with_font(anchors: &[NametagAnchor], font: &RuntimeFontCatalog) -> Name
 }
 
 #[test]
-fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
+fn metadata_scale_multiplies_only_the_box_height() {
     let mut actor = actor();
     actor.metadata.insert(38, ActorMetadataValue::Float(2.0));
-    assert_eq!(tag_height(&actor), 2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE);
     actor
         .metadata
         .insert(METADATA_HEIGHT, ActorMetadataValue::Float(3.6));
-    assert_eq!(tag_height(&actor), 2.0 * (3.6 + HEAD_CLEARANCE));
+    assert_eq!(tag_height(&actor), 2.0 * 3.6 + HEAD_CLEARANCE);
+    let player_kind = actor.kind.clone();
+    actor.kind = ActorKind::Entity {
+        identifier: "minecraft:zombie".into(),
+    };
+    assert_eq!(tag_height(&actor), 2.0 * 3.6 + HEAD_CLEARANCE);
+    actor.kind = player_kind;
     actor.metadata.insert(
         0,
         ActorMetadataValue::Flags(1 << ActorFlag::Sneaking.wire_value()),
@@ -146,12 +175,86 @@ fn metadata_scale_multiplies_the_box_height_and_the_head_clearance() {
     actor.metadata.remove(&METADATA_HEIGHT);
     assert_eq!(
         tag_height(&actor),
-        2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
+        2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE - SNEAK_PLAYER_Y_OFFSET
     );
 }
 
 #[test]
-fn near_zero_scale_floating_text_tags_sit_at_the_hosts_feet() {
+fn upright_players_follow_a_server_published_box_height() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    for (published, expected) in [
+        (None, DEFAULT_HEIGHT),
+        (Some(1.8), 1.8),
+        (Some(3.2), 3.2),
+        (Some(0.9), 0.9),
+    ] {
+        match published {
+            Some(height) => actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(height)),
+            None => actor.metadata.remove(&METADATA_HEIGHT),
+        };
+        let tag = extract_nametag_at_feet(&actor, view(Vec3::ZERO), None, "Npc".into(), None, feet)
+            .unwrap();
+        assert!(
+            (tag.position.y - (feet.y + expected + HEAD_CLEARANCE)).abs() < 1e-6,
+            "published height {published:?} placed the label at {}",
+            tag.position.y
+        );
+    }
+}
+
+#[test]
+fn player_collision_height_does_not_lower_java_labels_again_while_crouching() {
+    let mut actor = actor();
+    let feet = Vec3::new(0.0, 0.0, -5.0);
+    let boards = ui::ScoreboardStore::default();
+    for scale in [0.5, 1.0, 2.0] {
+        actor.metadata.insert(38, ActorMetadataValue::Float(scale));
+        for (sneaking, collision_height) in [(false, 1.8), (true, 1.5), (false, 1.8)] {
+            actor.metadata.insert(
+                0,
+                ActorMetadataValue::Flags(
+                    (1 << ActorFlag::ShowName.wire_value())
+                        | if sneaking {
+                            1 << ActorFlag::Sneaking.wire_value()
+                        } else {
+                            0
+                        },
+                ),
+            );
+            actor
+                .metadata
+                .insert(METADATA_HEIGHT, ActorMetadataValue::Float(collision_height));
+            let tag = extract_nametag_at_feet(
+                &actor,
+                view(Vec3::ZERO),
+                None,
+                "Player".into(),
+                Some(&boards),
+                feet,
+            )
+            .unwrap();
+            let rendered = scene(&[tag]);
+            let expected_anchor = feet.y + DEFAULT_HEIGHT * scale + HEAD_CLEARANCE
+                - if sneaking { SNEAK_PLAYER_Y_OFFSET } else { 0.0 };
+            for record in &rendered.records {
+                assert!(
+                    (record.anchor[1] - expected_anchor).abs() < 1e-6,
+                    "collision height {collision_height}, scale {scale}: {record:?}"
+                );
+                let corners = record.world_corners(glam::Quat::IDENTITY).unwrap();
+                let expected_top =
+                    expected_anchor - record.rect[1] * render_model::NAMETAG_BLOCKS_PER_FONT_PIXEL;
+                assert!((corners[0][1] - expected_top).abs() < 1e-6);
+            }
+        }
+    }
+}
+
+#[test]
+fn near_zero_scale_floating_text_tags_keep_the_clearance_above_the_minimum_box() {
     let mut actor = actor();
     actor.kind = ActorKind::Entity {
         identifier: "minecraft:falling_block".into(),
@@ -160,10 +263,22 @@ fn near_zero_scale_floating_text_tags_sit_at_the_hosts_feet() {
         .metadata
         .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
     for (height, scale, expected) in [
-        (0.98, 0.000_000_1, 0.0),
-        (0.98, 0.0, 0.0),
+        (
+            0.98,
+            0.000_000_1,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
+        (
+            0.98,
+            0.0,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
         // An empty published box is a size, not a missing one.
-        (0.0, 1.0, HEAD_CLEARANCE),
+        (
+            0.0,
+            1.0,
+            client_world::MIN_COLLISION_DIMENSION + HEAD_CLEARANCE,
+        ),
     ] {
         actor
             .metadata
@@ -235,62 +350,87 @@ fn sleeping_players_lower_the_label_with_the_body() {
 }
 
 #[test]
-fn java_distance_cutoffs_are_strict_and_server_caps_can_only_shorten_them() {
+fn server_distance_overrides_default_without_a_sneaking_cap() {
     let mut actor = actor();
-    for (sneaking, cutoff) in [(false, 64.0), (true, 32.0)] {
-        let flags = (1 << ActorFlag::ShowName.wire_value())
-            | if sneaking {
-                1 << ActorFlag::Sneaking.wire_value()
-            } else {
-                0
-            };
-        actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
-        actor
-            .metadata
-            .insert(METADATA_RENDER_DISTANCE, ActorMetadataValue::Float(128.0));
-        for (distance, expected) in [
-            (cutoff - 0.01, true),
-            (cutoff, false),
-            (cutoff + 0.01, false),
-        ] {
-            assert_eq!(
-                nametag_geometry(&actor, Vec3::new(distance, 0.0, 0.0), None, 1.0).is_some(),
-                expected
-            );
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
+    for sneaking in [false, true] {
+        actor.metadata.insert(
+            0,
+            ActorMetadataValue::Flags(u64::from(sneaking) << ActorFlag::Sneaking.wire_value()),
+        );
+        for (maximum, cutoff) in [(None, 64.0), (Some(128.0), 128.0), (Some(12.0), 12.0)] {
+            actor.metadata.remove(&METADATA_RENDER_DISTANCE);
+            if let Some(maximum) = maximum {
+                actor
+                    .metadata
+                    .insert(METADATA_RENDER_DISTANCE, ActorMetadataValue::Float(maximum));
+            }
+            for (distance, expected) in [
+                (cutoff - 0.01, true),
+                (cutoff, true),
+                (cutoff + 0.01, false),
+            ] {
+                assert_eq!(
+                    nametag_geometry(&actor, Vec3::X * distance, None, 1.0).is_some(),
+                    expected,
+                    "sneaking={sneaking}, maximum={maximum:?}, distance={distance}"
+                );
+            }
         }
-        actor
-            .metadata
-            .insert(METADATA_RENDER_DISTANCE, ActorMetadataValue::Float(12.0));
-        assert!(nametag_geometry(&actor, Vec3::new(11.99, 0.0, 0.0), None, 1.0).is_some());
-        assert!(nametag_geometry(&actor, Vec3::new(12.0, 0.0, 0.0), None, 1.0).is_none());
     }
 }
 
 #[test]
 fn player_visibility_honors_explicit_hides_and_always_show_overrides() {
     let mut actor = actor();
-    assert!(visible(&actor, None));
-    for (flags, expected) in [
-        (1 << ActorFlag::ShowName.wire_value(), true),
-        (0, false),
-        (1 << ACTOR_FLAG_ALWAYS_SHOW_NAME, true),
-        (
-            (1 << ActorFlag::ShowName.wire_value()) | (1 << ActorFlag::Invisible.wire_value()),
-            false,
-        ),
+    actor.metadata.remove(&METADATA_ALWAYS_SHOW_NAMETAG);
+    assert!(!visible(&actor, None));
+    for flags in [
+        0,
+        1 << ActorFlag::ShowName.wire_value(),
+        1 << ActorFlag::AlwaysShowName.wire_value(),
     ] {
         actor.metadata.insert(0, ActorMetadataValue::Flags(flags));
-        assert_eq!(visible(&actor, Some(actor.runtime_id)), expected);
+        assert!(!visible(&actor, None));
+        assert!(visible(&actor, Some(actor.runtime_id)));
+        actor
+            .metadata
+            .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(0));
+        assert!(!visible(&actor, None));
+        actor
+            .metadata
+            .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
+        assert!(visible(&actor, None));
+        actor.metadata.remove(&METADATA_ALWAYS_SHOW_NAMETAG);
     }
+    actor.metadata.insert(
+        0,
+        ActorMetadataValue::Flags(1 << ActorFlag::Invisible.wire_value()),
+    );
+    actor
+        .metadata
+        .insert(METADATA_ALWAYS_SHOW_NAMETAG, ActorMetadataValue::Byte(1));
+    assert!(!visible(&actor, Some(actor.runtime_id)));
 }
 
 #[test]
-fn projected_tags_hide_the_local_viewer_and_mounts_carrying_passengers() {
-    let mut stream = actor_stream(2, None, 1);
+fn projected_tags_keep_mount_names_and_hide_only_their_score() {
+    let mut stream = actor_stream(2, Some("7 wins".into()), 1);
     let mut cache = NametagTextCache::default();
     let boards = ui::ScoreboardStore::default();
     let project = |cache: &mut NametagTextCache, stream: &chunk_pipeline::WorldStream| {
-        project_nametags(cache, &boards, stream, view(Vec3::ZERO), None, 1.0, true)
+        project_nametags(
+            cache,
+            &boards,
+            stream.authority().nametag_ui(),
+            view(Vec3::ZERO),
+            None,
+            1.0,
+            true,
+            |_| true,
+        )
     };
     let tags = project(&mut cache, &stream);
     assert_eq!(
@@ -313,7 +453,9 @@ fn projected_tags_hide_the_local_viewer_and_mounts_carrying_passengers() {
         )
         .unwrap();
     stream.poll([0.0; 3], 0);
-    assert!(project(&mut cache, &stream).is_empty());
+    let tags = project(&mut cache, &stream);
+    assert_eq!(tags.len(), 1);
+    assert_eq!(tags[0].lines.as_ref(), [Arc::from("p")]);
 }
 
 #[test]
@@ -402,15 +544,16 @@ fn oversized_tags_render_a_prefix_within_the_scene_budget() {
 }
 
 #[test]
-fn oversized_tags_use_the_budget_left_by_earlier_tags() {
+fn nearest_tags_take_the_budget_before_farther_tags() {
     let mut first = anchor("AB");
     first.position.x = 1.0;
-    first.view_depth = 8.0;
+    first.view_depth = 2.0;
     let first_records = NAMETAG_RECORDS_PER_LINE;
     let remaining_lines = (MAX_NAMETAG_RECORDS - first_records) / NAMETAG_RECORDS_PER_LINE;
     let mut oversized = anchor(&"A\n".repeat(remaining_lines + 2));
     oversized.position.x = 2.0;
     oversized.depth_tested = true;
+    oversized.sneaking = true;
     let scene = scene(&[oversized, first]);
     assert_eq!(
         scene.records.len(),
@@ -439,6 +582,7 @@ fn sneaking_preserves_plate_opacity_and_selects_tested_glyphs() {
     let ordinary = scene(&[anchor("AB")]);
     let mut anchor = anchor("AB");
     anchor.depth_tested = true;
+    anchor.sneaking = true;
     anchor.text_alpha = DIM_TEXT_ALPHA;
     let scene = scene(&[anchor]);
     assert!(scene.records.iter().all(|record| record.depth_tested != 0));
@@ -460,6 +604,7 @@ fn ordinary_and_sneaking_labels_draw_together_back_to_front() {
     far.position.x = 8.0;
     let mut sneak = anchor("sneak");
     sneak.depth_tested = true;
+    sneak.sneaking = true;
     sneak.view_depth = 9.0;
     sneak.position.x = 9.0;
     let mut near = anchor("near");
@@ -487,6 +632,7 @@ fn ordinary_and_sneaking_labels_draw_together_back_to_front() {
 #[test]
 fn visibility_uses_the_picked_actor_not_screen_distance() {
     let mut actor = actor();
+    actor.metadata.remove(&METADATA_ALWAYS_SHOW_NAMETAG);
     actor.kind = ActorKind::Entity {
         identifier: "test:npc".into(),
     };
@@ -515,7 +661,7 @@ fn render_distance_uses_the_synced_value_and_skips_bad_optional_data() {
         actor
             .metadata
             .insert(METADATA_RENDER_DISTANCE, ActorMetadataValue::Float(value));
-        assert_eq!(render_distance(&actor), value.min(DEFAULT_RENDER_DISTANCE));
+        assert_eq!(render_distance(&actor), value);
     }
     actor.metadata.insert(
         METADATA_RENDER_DISTANCE,
@@ -531,12 +677,15 @@ fn synced_below_name_score_uses_the_native_ten_block_gate() {
         .metadata
         .insert(METADATA_SCORE, ActorMetadataValue::String("7 wins".into()));
     let boards = ui::ScoreboardStore::default();
-    assert_eq!(&*tag_text(&actor, "AB".into(), 99.0, &boards), "AB\n7 wins");
-    assert_eq!(&*tag_text(&actor, "AB".into(), 100.0, &boards), "AB");
+    assert_eq!(
+        &*tag_text(&actor, "AB".into(), 99.0, Some(&boards)),
+        "AB\n7 wins"
+    );
+    assert_eq!(&*tag_text(&actor, "AB".into(), 100.0, Some(&boards)), "AB");
     actor
         .metadata
         .insert(METADATA_SCORE, ActorMetadataValue::String("".into()));
-    assert_eq!(&*tag_text(&actor, "AB".into(), 99.0, &boards), "AB");
+    assert_eq!(&*tag_text(&actor, "AB".into(), 99.0, Some(&boards)), "AB");
 }
 
 #[test]
@@ -614,10 +763,12 @@ fn cosmetic_shadow_and_border_preserve_each_records_depth_selection_and_record_b
         ],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(
-        serde_json::json!({"scale":2.,"shadow":true,"border_color":[1.,1.,1.,1.]}),
-    )
-    .unwrap();
+    let style = ui::mod_presentation::NametagStyle {
+        scale: 2.,
+        shadow: true,
+        border_color: Some([1.; 4]),
+        ..Default::default()
+    };
     style_scene(&mut scene, &style, None);
     assert!(
         scene.records[..7]
@@ -649,19 +800,27 @@ fn own_tag_color_and_border_width_preserve_other_tags() {
     };
     let glyph = NametagRecord {
         anchor: [1., 2., 3.],
+        runtime_id: 11,
         color: [1., 1., 1., 0.125],
         ..Default::default()
     };
     let remote = NametagRecord {
         anchor: [4., 5., 6.],
+        runtime_id: 12,
         ..glyph
     };
     let mut scene = NametagScene {
         records: vec![plate, glyph, remote],
         ..Default::default()
     };
-    let style: ui::mod_hud::NametagStyle = serde_json::from_value(serde_json::json!({"border_width":3.,"border_color":[1.,1.,1.,1.],"text_color":[0.,1.,0.,1.],"own_text_color":[1.,0.,0.,1.]})).unwrap();
-    style_scene(&mut scene, &style, Some([1., 2., 3.]));
+    let style = ui::mod_presentation::NametagStyle {
+        border_width: 3.,
+        border_color: Some([1.; 4]),
+        text_color: Some([0., 1., 0., 1.]),
+        own_text_color: Some([1., 0., 0., 1.]),
+        ..Default::default()
+    };
+    style_scene(&mut scene, &style, Some(glyph.runtime_id));
     assert_eq!(scene.records[0].rect, [-5., -4., 5., -1.]);
     assert_eq!(scene.records[5].color, [1., 0., 0., 0.125]);
     assert_eq!(scene.records[6].color, [0., 1., 0., 0.125]);
@@ -729,11 +888,12 @@ fn projection_limits_extraction_to_the_nearest_tags_and_reuses_their_text() {
         project_nametags(
             cache,
             &boards,
-            &stream,
+            stream.authority().nametag_ui(),
             view(Vec3::new(0.0, 1.62, 5.0)),
             None,
             0.5,
             show_players,
+            |_| true,
         )
     };
     let (first, cold_allocations) = test_alloc::count(|| project(&mut cache, true));
@@ -769,7 +929,14 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     let eye = Vec3::new(0.0, 1.62, 5.0);
     let mut cache = NametagTextCache::default();
     let first = cache
-        .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)
+        .extract(
+            &actor,
+            view(eye),
+            None,
+            Arc::clone(&name),
+            Some(&boards),
+            0.5,
+        )
         .unwrap();
     actor.position[0] = 1.0;
     actor.metadata.insert(
@@ -781,7 +948,14 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     actor.metadata.insert(38, ActorMetadataValue::Float(2.0));
     let (moved, allocations) = test_alloc::count(|| {
         cache
-            .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)
+            .extract(
+                &actor,
+                view(eye),
+                None,
+                Arc::clone(&name),
+                Some(&boards),
+                0.5,
+            )
             .unwrap()
     });
     assert_eq!(allocations, 0);
@@ -789,7 +963,7 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     assert_ne!(first.position, moved.position);
     assert_eq!(
         moved.position.y,
-        2.0 * (DEFAULT_HEIGHT + HEAD_CLEARANCE) - SNEAK_PLAYER_Y_OFFSET
+        2.0 * DEFAULT_HEIGHT + HEAD_CLEARANCE - SNEAK_PLAYER_Y_OFFSET
     );
     assert!(moved.depth_tested);
     assert_eq!(moved.text_alpha, DIM_TEXT_ALPHA);
@@ -799,7 +973,14 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
     );
     assert!(
         cache
-            .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)
+            .extract(
+                &actor,
+                view(eye),
+                None,
+                Arc::clone(&name),
+                Some(&boards),
+                0.5
+            )
             .is_none()
     );
     actor.metadata.remove(&0);
@@ -807,7 +988,14 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
         .metadata
         .insert(METADATA_SCORE, ActorMetadataValue::String("8 wins".into()));
     let changed = cache
-        .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)
+        .extract(
+            &actor,
+            view(eye),
+            None,
+            Arc::clone(&name),
+            Some(&boards),
+            0.5,
+        )
         .unwrap();
     assert_eq!(changed.lines[1].as_ref(), "8 wins");
     let far = cache
@@ -816,13 +1004,13 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
             view(Vec3::new(0.0, 1.62, 20.0)),
             None,
             Arc::clone(&name),
-            &boards,
+            Some(&boards),
             0.5,
         )
         .unwrap();
     assert_eq!(far.lines.len(), 1);
     let renamed = cache
-        .extract(&actor, view(eye), None, "Other".into(), &boards, 0.5)
+        .extract(&actor, view(eye), None, "Other".into(), Some(&boards), 0.5)
         .unwrap();
     assert_eq!(renamed.lines[0].as_ref(), "Other");
     actor
@@ -830,7 +1018,7 @@ fn cached_text_refreshes_pose_visibility_name_score_and_score_distance() {
         .insert(METADATA_SCORE, ActorMetadataValue::String("".into()));
     assert_eq!(
         cache
-            .extract(&actor, view(eye), None, name, &boards, 0.5)
+            .extract(&actor, view(eye), None, name, Some(&boards), 0.5)
             .unwrap()
             .lines
             .len(),
@@ -873,14 +1061,21 @@ fn cached_below_name_scores_follow_scoreboard_updates_and_clears() {
             )
             .unwrap();
         let tag = cache
-            .extract(&actor, view(eye), None, Arc::clone(&name), &boards, 0.5)
+            .extract(
+                &actor,
+                view(eye),
+                None,
+                Arc::clone(&name),
+                Some(&boards),
+                0.5,
+            )
             .unwrap();
         assert_eq!(tag.lines[1].as_ref(), format!("{score} wins"));
     }
     boards.clear();
     assert_eq!(
         cache
-            .extract(&actor, view(eye), None, name, &boards, 0.5)
+            .extract(&actor, view(eye), None, name, Some(&boards), 0.5)
             .unwrap()
             .lines
             .len(),
@@ -985,6 +1180,7 @@ fn overlapping_cosmetic_keeps_ordinary_names_readable_but_hides_sneaking_names()
     for sneaking in [false, true] {
         let mut tag = anchor("Player\n7 wins");
         tag.depth_tested = sneaking;
+        tag.sneaking = sneaking;
         tag.text_alpha = if sneaking { DIM_TEXT_ALPHA } else { 1.0 };
         tag.set_cinnabar_badge(true);
         let scene = scene(&[tag]);

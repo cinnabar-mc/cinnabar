@@ -55,15 +55,20 @@ impl Gpu {
     /// device fits the surface, so the caller can fall back to another prompt.
     pub fn new(window: Arc<Window>, faces: &PanoramaFaces) -> Result<Self> {
         let size = window.inner_size();
-        let instance = wgpu::Instance::new(
-            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone())),
+        let mut descriptor =
+            wgpu::InstanceDescriptor::new_with_display_handle_from_env(Box::new(window.clone()));
+        descriptor.backends = bootstrap_backends(
+            launcher::graphics_backend::Platform::current(),
+            wgpu::Backends::from_env(),
         );
+        let instance = wgpu::Instance::new(descriptor);
         let surface = instance
             .create_surface(window.clone())
             .context("create window surface")?;
         let runtime = tokio::runtime::Builder::new_current_thread().build()?;
         let adapter = runtime
             .block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
                 compatible_surface: Some(&surface),
                 ..Default::default()
             }))
@@ -202,8 +207,18 @@ impl Gpu {
         }
     }
 
+    /// Registers completion of the already-submitted bootstrap frame, without another submit.
+    pub fn on_frame_complete(&self, callback: impl FnOnce() + Send + 'static) {
+        self.queue.on_submitted_work_done(callback);
+    }
+
+    /// Advances this independent window's completion callbacks without waiting on the GPU.
+    pub fn poll(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+
     /// Presents one frame; a lost or outdated surface is reconfigured and skipped.
-    pub fn draw(&mut self, view: &PanoramaView) -> Result<()> {
+    pub fn draw(&mut self, view: &PanoramaView) -> Result<bool> {
         let Some(frame) = acquire_frame(self.surface.get_current_texture(), |recreate| {
             if recreate {
                 self.surface = self
@@ -215,7 +230,7 @@ impl Gpu {
             Ok(())
         })?
         else {
-            return Ok(());
+            return Ok(false);
         };
         let bytes: Vec<u8> = view
             .shader_uniform()
@@ -255,8 +270,23 @@ impl Gpu {
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
-        Ok(())
+        Ok(true)
     }
+}
+
+/// Opens only the platform's preferred API unless the user explicitly overrides it.
+/// Initializing unused APIs can crash in a driver before adapter selection or dialog fallback.
+fn bootstrap_backends(
+    platform: launcher::graphics_backend::Platform,
+    override_backends: Option<wgpu::Backends>,
+) -> wgpu::Backends {
+    use launcher::graphics_backend::Backend;
+    override_backends.unwrap_or_else(|| match platform.backends()[0] {
+        Backend::Dx12 => wgpu::Backends::DX12,
+        Backend::Vulkan => wgpu::Backends::VULKAN,
+        Backend::Metal => wgpu::Backends::METAL,
+        Backend::Gl => wgpu::Backends::GL,
+    })
 }
 
 fn upload_faces(
@@ -430,6 +460,32 @@ fn acquire_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bootstrap_avoids_initializing_unused_windows_vulkan_drivers() {
+        use launcher::graphics_backend::Platform;
+        assert_eq!(
+            bootstrap_backends(Platform::Windows, None),
+            wgpu::Backends::DX12
+        );
+        assert_eq!(
+            bootstrap_backends(Platform::Linux, None),
+            wgpu::Backends::VULKAN
+        );
+        assert_eq!(
+            bootstrap_backends(Platform::Macos, None),
+            wgpu::Backends::METAL
+        );
+        for requested in [
+            wgpu::Backends::VULKAN,
+            wgpu::Backends::DX12 | wgpu::Backends::VULKAN,
+        ] {
+            assert_eq!(
+                bootstrap_backends(Platform::Windows, Some(requested)),
+                requested
+            );
+        }
+    }
 
     #[test]
     fn fatal_surface_failure_is_not_retried() {

@@ -2,6 +2,9 @@ use super::EquipmentRuntime;
 use bevy::prelude::{PerspectiveProjection, Projection, Transform, Vec3};
 use std::sync::Arc;
 
+#[path = "visibility_tests.rs"]
+mod visibility;
+
 /// Every actor the renderer can draw is animated: the guard-banded view admits a superset.
 #[test]
 fn the_animation_view_admits_everything_the_render_cull_draws() {
@@ -115,6 +118,11 @@ impl crate::observations::PhysicsObservation for JumpPhysics {
         self.1
     }
 
+    /// The fixture uses the current sneaking dimensions.
+    fn sneak_profile(&self) -> sim::SneakProfile {
+        sim::SneakProfile::Current
+    }
+
     fn fall_fly_ticks(&self) -> u32 {
         0
     }
@@ -164,6 +172,68 @@ fn local_feed_reads_view_bobbing_toggle() {
         .unwrap();
         assert_eq!(feed.view_bobbing, enabled);
         assert!(feed.first_person);
+    }
+}
+
+#[test]
+fn local_equipment_count_reads_raw_armor_container_occupancy() {
+    use protocol::{ContainerIdentity, InventoryContentEvent, InventoryEvent, NetworkItemStack};
+    let physics = JumpPhysics(
+        sim::PlayerState::new(sim::Vec3::ZERO),
+        sim::MovementMode::Walking,
+    );
+    let mut player = player_state::PlayerState::new(1);
+    let settings = crate::camera::CameraSettingsAuthority::default();
+    let view = crate::local_player::LocalViewPose::default();
+    let mut blocking = false;
+    for count in [0, 1, protocol::ARMOR_SLOTS, 0] {
+        let slots = (0..protocol::ARMOR_SLOTS)
+            .map(|slot| {
+                if slot < count {
+                    NetworkItemStack {
+                        network_id: 12_123,
+                        count: 1,
+                        ..Default::default()
+                    }
+                } else {
+                    NetworkItemStack::empty()
+                }
+            })
+            .collect::<Vec<_>>();
+        player
+            .inventory
+            .ledger_mut()
+            .apply(&InventoryEvent::Content(InventoryContentEvent {
+                container: ContainerIdentity::window(protocol::ARMOR_WINDOW_ID),
+                slots: slots.into(),
+                storage_item: NetworkItemStack::empty(),
+            }));
+        let feed = crate::actor_feed::prepare_local_player_feed(
+            &physics,
+            &view,
+            &settings,
+            &Default::default(),
+            &player,
+            false,
+            || client_world::LocalItemUse::Unpredicted,
+            &mut blocking,
+            [1; 16],
+            || {
+                protocol::PlayerSkin::Unavailable(
+                    protocol::PlayerSkinUnavailable::InvalidDimensions,
+                )
+            },
+            false,
+            (
+                actor_animation::ACTOR_SWING_TICKS,
+                actor_animation::ACTOR_SWING_TICKS,
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            feed.equipment_count, count,
+            "unresolved local armor must count without a drawable definition"
+        );
     }
 }
 
@@ -577,7 +647,7 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -605,14 +675,11 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         .iter()
         .zip(scene.frame().artwork_pages().pages())
     {
-        assert!(Arc::ptr_eq(
-            &worker.shared_pixels(),
-            &published.shared_pixels()
-        ));
+        assert!(worker.shared_pixels().ptr_eq(&published.shared_pixels()));
     }
     let again = prepared.pages_for(&startup, &pack).unwrap();
     for (first, next) in pages.pages().iter().zip(again.pages()) {
-        assert!(Arc::ptr_eq(&first.shared_pixels(), &next.shared_pixels()));
+        assert!(first.shared_pixels().ptr_eq(&next.shared_pixels()));
     }
 }
 
@@ -629,7 +696,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -641,7 +708,7 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
         &mut scene,
         &restored_resources,
         None,
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         None,
         None,
@@ -650,31 +717,52 @@ fn session_pack_glint_replaces_the_startup_glint_until_disconnect() {
     assert_eq!(glint(scene.frame().artwork_pages()), [1, 2, 3, 255]);
 }
 
-/// An active HitColor module cannot overwrite the Reach overlay on an undamaged target.
+/// Hurt colours apply only to actual damage; an undamaged actor shows its mod tint.
 #[test]
-fn reach_and_hurt_colors_follow_actual_damage_independently() {
-    let style = super::ActorPresentationStyle {
-        hurt_color: Some([1., 0., 0., 0.4]),
-        hurt_armor_color: Some([0.5, 0., 0., 0.4]),
-        attackable_color: Some([0., 1., 0., 0.3]),
-        attackable_actor: Some(7),
+fn tints_and_hurt_colors_follow_actual_damage_independently() {
+    let hurt = ui::mod_presentation::HurtOverlay {
+        body: Some([1., 0., 0., 0.4]),
+        armor: Some([0.5, 0., 0., 0.4]),
     };
+    let tint = Some([0., 1., 0., 0.3]);
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, false, false, true, true),
-        style.attackable_color
+        super::layers::cosmetic_overlay(&hurt, false, false, true, tint),
+        tint
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, true, false, true, true),
-        style.hurt_color
+        super::layers::cosmetic_overlay(&hurt, true, false, true, tint),
+        hurt.body
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, true, true, true, true),
-        style.hurt_armor_color
+        super::layers::cosmetic_overlay(&hurt, true, true, true, tint),
+        hurt.armor
     );
     assert_eq!(
-        super::layers::cosmetic_overlay(&style, false, false, true, false),
+        super::layers::cosmetic_overlay(&hurt, true, false, false, tint),
         None
     );
+    assert_eq!(
+        super::layers::cosmetic_overlay(&hurt, false, false, true, None),
+        None
+    );
+}
+
+/// Tints follow the runtime ID and the actor kind each mod's grants admitted.
+#[test]
+fn tints_apply_only_to_the_admitted_actor_kind() {
+    let output = ui::mod_presentation::ModPresentation {
+        tints: std::collections::BTreeMap::from([(1, [0., 1., 0., 0.5])]),
+        ..Default::default()
+    };
+    let entities_only = ui::mod_presentation::Presentation::merge([(
+        ui::mod_presentation::ActorGrants {
+            players: false,
+            entities: true,
+        },
+        &output,
+    )]);
+    assert_eq!(entities_only.tint(1, true), None);
+    assert_eq!(entities_only.tint(1, false), Some([0., 1., 0., 0.5]));
 }
 
 /// Final styling preserves submission order and pose storage without allocating.
@@ -723,11 +811,24 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
     let mut cape = batch.submissions[0].clone();
     cape.input.identity.layer = crate::presentation::cape::ACTOR_LAYER_CAPE;
     batch.submissions.extend([armor, cape]);
+    let hurt_color = [1.0, 0.0, 0.0, 0.5];
+    let hurt_armor_color = [0.0, 0.0, 1.0, 0.5];
+    let tint_color = [0.0, 1.0, 0.0, 0.5];
     let style = super::ActorPresentationStyle {
-        hurt_color: Some([1.0, 0.0, 0.0, 0.5]),
-        hurt_armor_color: Some([0.0, 0.0, 1.0, 0.5]),
-        attackable_actor: Some(1),
-        attackable_color: Some([0.0, 1.0, 0.0, 0.5]),
+        presentation: Arc::new(ui::mod_presentation::Presentation::merge([(
+            ui::mod_presentation::ActorGrants {
+                players: true,
+                entities: false,
+            },
+            &ui::mod_presentation::ModPresentation {
+                hurt_overlay: ui::mod_presentation::HurtOverlay {
+                    body: Some(hurt_color),
+                    armor: Some(hurt_armor_color),
+                },
+                tints: std::collections::BTreeMap::from([(1, tint_color)]),
+                ..Default::default()
+            },
+        )])),
     };
     let original = batch.submissions.clone();
     let (storage, capacity) = (batch.submissions.as_ptr(), batch.submissions.capacity());
@@ -758,9 +859,9 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
         );
         for (index, submission) in batch.submissions.iter().enumerate() {
             let color = if hurt {
-                [style.hurt_color, style.hurt_armor_color, None][index]
+                [Some(hurt_color), Some(hurt_armor_color), None][index]
             } else {
-                style.attackable_color
+                Some(tint_color)
             };
             let mut expected = original[index].clone();
             expected.overlay_rgba8 = color.map_or(0, render_model::pack_overlay_rgba8);
@@ -796,9 +897,9 @@ fn styling_reuses_layer_storage_and_distinguishes_damage_from_reach() {
                 armor.overlay_rgba8,
                 if allows_overlay {
                     render_model::pack_overlay_rgba8(if hurt {
-                        style.hurt_armor_color.unwrap()
+                        hurt_armor_color
                     } else {
-                        style.attackable_color.unwrap()
+                        tint_color
                     })
                 } else {
                     0
@@ -909,7 +1010,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         &mut scene,
         &resources,
         Some(&pack),
-        None,
+        super::SessionIconInput::Staged(None),
         &mut ready,
         Some(&mut equipment),
         None,
@@ -933,7 +1034,7 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 42,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 0,
@@ -961,6 +1062,8 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
     let input = crate::presentation::equipment::ActorEquipmentInput {
         main: Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:apple"),
@@ -978,5 +1081,93 @@ fn player_model_from_an_attachable_free_pack_keeps_held_items() {
         equipment.layers_for(&body, &input, None).len(),
         1,
         "the pack's player model must carry the held item"
+    );
+}
+
+/// Icons the pack worker placed publish the frame's pages and locations without copying pixels.
+#[test]
+fn worker_placed_session_icons_publish_without_restaging_pixels() {
+    use client_ui::ui_runtime::presentation::{SessionIcon, SessionIcons};
+    let (pack, startup) = equipment_pack_fixture();
+    let icon_bytes = 16 * 16 * 4;
+    let icons = Arc::new(SessionIcons {
+        icons: (0..64)
+            .map(|index| SessionIcon {
+                identifier: format!("fixture:item_{index}").into(),
+                metadata: 0,
+                width: 16,
+                height: 16,
+                rgba8: vec![index as u8; icon_bytes].into(),
+            })
+            .collect(),
+        ..Default::default()
+    });
+    let items = crate::session_assets::SessionItems {
+        components: Arc::default(),
+        icons: Some(Arc::clone(&icons)),
+    };
+    let prepared = crate::prepared_actor_artwork::PreparedActorArtwork::new(&startup, &pack)
+        .with_session_icons(Some(&icons));
+    let resources =
+        crate::prepared_actor_artwork::session_resources(&startup, Some(&pack), Some(&prepared));
+    let mut scene = render_scene::ActorRenderScene::default();
+    let mut ready = super::SessionGeometryReady::default();
+    let (expected, _, expected_locations) = super::apply_session_pack(
+        &mut scene,
+        &resources,
+        Some(&pack),
+        super::SessionIconInput::Staged(crate::presentation::equipment::StagedSessionIcons::stage(
+            Some(&items),
+        )),
+        &mut ready,
+        None,
+        None,
+    );
+    let copy = Arc::new(SessionIcons {
+        icons: icons
+            .icons
+            .iter()
+            .map(|icon| SessionIcon {
+                identifier: Arc::clone(&icon.identifier),
+                rgba8: icon.rgba8.clone(),
+                ..*icon
+            })
+            .collect(),
+        ..Default::default()
+    });
+    assert!(
+        crate::prepared_actor_artwork::session_icons(
+            &startup,
+            Some(&pack),
+            Some(&copy),
+            Some(&prepared)
+        )
+        .is_none(),
+        "placement is reused only for the exact icon snapshot"
+    );
+    let placed = crate::prepared_actor_artwork::session_icons(
+        &startup,
+        Some(&pack),
+        Some(&icons),
+        Some(&prepared),
+    )
+    .unwrap();
+    let ((published, staged, locations), allocated) = test_alloc::measure(|| {
+        super::apply_session_pack(
+            &mut scene,
+            &resources,
+            Some(&pack),
+            super::SessionIconInput::Placed(placed),
+            &mut ready,
+            None,
+            None,
+        )
+    });
+    assert!(staged.is_some());
+    assert_eq!(locations, expected_locations);
+    assert_eq!(published.unwrap().identity(), expected.unwrap().identity());
+    assert!(
+        allocated.bytes < icon_bytes * icons.icons.len(),
+        "the frame copied icon pixels: {allocated:?}"
     );
 }

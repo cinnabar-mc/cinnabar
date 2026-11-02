@@ -1,6 +1,15 @@
 //! Refreshes Bevy's private surface configuration when the requested frame latency changes.
 
-use std::num::NonZeroU32;
+use std::{
+    num::NonZeroU32,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
+};
+
+#[cfg(any(target_os = "windows", test))]
+pub(crate) mod adaptive;
 
 #[cfg(test)]
 use bevy::prelude::{Result, World};
@@ -19,29 +28,82 @@ use bevy::{
 #[cfg(test)]
 mod tests;
 
-/// The surface latency for this platform's presentation path; see [`frame_latency`].
+/// Initial surface latency: Windows waits for measured headroom; other delivery paths retain
+/// their platform default until feedback is available.
 #[must_use]
 pub fn frame_latency_for_vsync(vsync: bool) -> NonZeroU32 {
-    frame_latency(vsync, metal_display_link_delivery())
+    if cfg!(target_os = "windows") {
+        return NonZeroU32::new(2).expect("two is nonzero");
+    }
+    frame_latency(vsync, presentation_holds_a_drawable())
 }
 
-/// One queued frame with VSync, or two when a display link holds a prefetched drawable;
+/// Display timing and queue depth exchanged between the window owner and the renderer.
+#[derive(Clone, Debug)]
+pub(super) struct FrameLatencyFeedback {
+    pub(super) display: Arc<Mutex<render_model::DisplayTiming>>,
+    pub(super) latency: Arc<AtomicU32>,
+}
+
+impl Default for FrameLatencyFeedback {
+    fn default() -> Self {
+        Self {
+            display: Arc::default(),
+            latency: Arc::new(AtomicU32::new(if cfg!(target_os = "windows") {
+                2
+            } else {
+                0
+            })),
+        }
+    }
+}
+
+/// Uses adaptive feedback only where it cannot consume a drawable held by presentation.
+pub(super) fn selected_latency(vsync: bool, feedback: &FrameLatencyFeedback) -> NonZeroU32 {
+    resolve_latency(
+        vsync,
+        presentation_holds_a_drawable(),
+        feedback.latency.load(Ordering::Acquire),
+    )
+}
+
+/// Applies measured feedback while retaining the slot of a drawable held by presentation.
+fn resolve_latency(vsync: bool, held_drawable: bool, measured: u32) -> NonZeroU32 {
+    if vsync
+        && !held_drawable
+        && let Some(latency) = NonZeroU32::new(measured)
+    {
+        latency
+    } else if cfg!(target_os = "windows") {
+        NonZeroU32::new(2).expect("two is nonzero")
+    } else {
+        frame_latency(vsync, held_drawable)
+    }
+}
+
+/// One queued frame with VSync, or two when presentation holds a drawable beyond the queue;
 /// two without VSync to overlap CPU and GPU work.
-const fn frame_latency(vsync: bool, display_link: bool) -> NonZeroU32 {
-    if vsync && !display_link {
+const fn frame_latency(vsync: bool, held_drawable: bool) -> NonZeroU32 {
+    if vsync && !held_drawable {
         NonZeroU32::MIN
     } else {
         NonZeroU32::new(2).expect("two is nonzero")
     }
 }
 
-/// Whether the Metal backend delivers synchronized drawables through a display link.
-fn metal_display_link_delivery() -> bool {
+/// Whether synchronized presentation holds one drawable beyond the queued frame. A macOS display
+/// link prefetches one; iOS keeps each presented drawable until a later refresh, so with one
+/// queued frame (two drawables) an iPhone presents at half its refresh rate.
+fn presentation_holds_a_drawable() -> bool {
     #[cfg(target_os = "macos")]
     {
         wgpu::hal::metal::display_link_delivery_supported()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "ios")]
+    {
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     {
         false
     }
@@ -52,6 +114,8 @@ struct ChangedFrameLatency(bool);
 
 /// Installs extraction and surface invalidation before Bevy configures or acquires a frame.
 pub(super) fn install(render_app: &mut SubApp) {
+    #[cfg(target_os = "windows")]
+    adaptive::install(render_app);
     render_app
         .init_resource::<ChangedFrameLatency>()
         .add_systems(ExtractSchedule, extract_frame_latency)
@@ -93,9 +157,14 @@ fn recreate_surfaces(
     mut windows: Query<(Entity, &mut ExtractedWindow)>,
     mut attachments: ResMut<ViewTargetAttachments>,
     targets: Query<Entity, With<ViewTarget>>,
+    #[cfg(target_os = "windows")] adaptive: Option<ResMut<adaptive::AdaptiveFrameLatency>>,
 ) {
     if !std::mem::take(&mut changed.0) {
         return;
+    }
+    #[cfg(target_os = "windows")]
+    if let Some(mut adaptive) = adaptive {
+        adaptive.discard_current_frame();
     }
     for entity in &targets {
         commands.entity(entity).remove::<ViewTarget>();

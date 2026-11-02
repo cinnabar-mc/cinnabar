@@ -4,81 +4,75 @@ use super::*;
 /// Retargets animation deltas onto the cape's attachment, independent of the skin's rest markers.
 pub(super) fn cape_pose(
     cape: &CapeRig,
-    body_names: &[Box<str>],
+    bindings: &[crate::CapeBoneBinding],
     body_rest: &impl Fn(usize) -> Option<RenderBoneTransform>,
     body: &[RenderBoneTransform],
-) -> Arc<[RenderBoneTransform]> {
-    cape.bone_names
-        .iter()
-        .zip(&cape.pose_frames)
-        .map(|(name, frame)| {
-            let index = body_names
-                .iter()
-                .position(|candidate| candidate.eq_ignore_ascii_case(name));
-            let pose = index.and_then(|index| body.get(index).copied());
-            match pose {
-                Some(mut pose) => {
-                    let parent_index = if let Some(parent) = &frame.parent {
-                        let Some(index) = body_names
-                            .iter()
-                            .position(|name| name.eq_ignore_ascii_case(parent))
+    output: &mut Vec<RenderBoneTransform>,
+) {
+    output.clear();
+    output.extend(
+        cape.pose_frames
+            .iter()
+            .zip(bindings)
+            .map(|(frame, binding)| {
+                let index = binding.bone;
+                let pose = index.and_then(|index| body.get(index).copied());
+                match pose {
+                    Some(mut pose) => {
+                        if binding.needs_parent && binding.parent.is_none() {
+                            return pose;
+                        }
+                        let parent_index = binding.parent;
+                        let identity = RenderBoneTransform {
+                            rotation: Quat::IDENTITY.to_array(),
+                            translation_scale: [0.0, 0.0, 0.0, 1.0],
+                            axis_scale: crate::UNIT_AXIS_SCALE,
+                        };
+                        let Some(parent_pose) =
+                            parent_index.map_or(Some(&identity), |index| body.get(index))
                         else {
                             return pose;
                         };
-                        Some(index)
-                    } else {
-                        None
-                    };
-                    let identity = RenderBoneTransform {
-                        rotation: Quat::IDENTITY.to_array(),
-                        translation_scale: [0.0, 0.0, 0.0, 1.0],
-                        axis_scale: crate::UNIT_AXIS_SCALE,
-                    };
-                    let Some(parent_pose) =
-                        parent_index.map_or(Some(&identity), |index| body.get(index))
-                    else {
-                        return pose;
-                    };
-                    let parent = Quat::from_array(parent_pose.rotation);
-                    let mut local = parent.inverse() * Quat::from_array(pose.rotation);
-                    let rest = index.and_then(body_rest);
-                    let parent_rest = parent_index.map_or(Some(identity), body_rest);
-                    if let (Some(rest), Some(parent_rest)) = (rest, parent_rest) {
-                        let scale = total_scale(parent_pose);
-                        let rest_scale = total_scale(&parent_rest);
-                        if scale.abs().min_element() > f32::EPSILON
-                            && rest_scale.abs().min_element() > f32::EPSILON
-                        {
-                            let animated = parent.inverse()
-                                * (position(&pose) - position(parent_pose))
-                                / scale;
-                            let rest_parent = Quat::from_array(parent_rest.rotation);
-                            let origin = rest_parent.inverse()
-                                * (position(&rest) - position(&parent_rest))
-                                / rest_scale;
-                            let attached = position(parent_pose)
-                                + parent * ((frame.pivot_offset + animated - origin) * scale);
-                            pose.translation_scale[..3].copy_from_slice(&attached.to_array());
-                            let rest_local =
-                                rest_parent.inverse() * Quat::from_array(rest.rotation);
-                            local = rest_local.inverse() * local;
+                        let parent = Quat::from_array(parent_pose.rotation);
+                        let mut local = parent.inverse() * Quat::from_array(pose.rotation);
+                        let rest = index.and_then(body_rest);
+                        let parent_rest = parent_index.map_or(Some(identity), body_rest);
+                        if let (Some(rest), Some(parent_rest)) = (rest, parent_rest) {
+                            let scale = total_scale(parent_pose);
+                            let rest_scale = total_scale(&parent_rest);
+                            if scale.abs().min_element() > f32::EPSILON
+                                && rest_scale.abs().min_element() > f32::EPSILON
+                            {
+                                let animated = parent.inverse()
+                                    * (position(&pose) - position(parent_pose))
+                                    / scale;
+                                let rest_parent = Quat::from_array(parent_rest.rotation);
+                                let origin = rest_parent.inverse()
+                                    * (position(&rest) - position(&parent_rest))
+                                    / rest_scale;
+                                let attached = position(parent_pose)
+                                    + parent * ((frame.pivot_offset + animated - origin) * scale);
+                                pose.translation_scale[..3].copy_from_slice(&attached.to_array());
+                                let rest_local =
+                                    rest_parent.inverse() * Quat::from_array(rest.rotation);
+                                local = rest_local.inverse() * local;
+                            }
                         }
+                        let mut attached = frame.bind * local * frame.bind.inverse();
+                        if frame.is_cape {
+                            attached = bound_cape_rotation(attached);
+                        }
+                        pose.rotation = (parent * attached).to_array();
+                        pose
                     }
-                    let mut attached = frame.bind * local * frame.bind.inverse();
-                    if name.eq_ignore_ascii_case("cape") {
-                        attached = bound_cape_rotation(attached);
-                    }
-                    pose.rotation = (parent * attached).to_array();
-                    pose
+                    None => RenderBoneTransform {
+                        rotation: [0.0, 0.0, 0.0, 1.0],
+                        translation_scale: [0.0; 4],
+                        axis_scale: crate::UNIT_AXIS_SCALE,
+                    },
                 }
-                None => RenderBoneTransform {
-                    rotation: [0.0, 0.0, 0.0, 1.0],
-                    translation_scale: [0.0; 4],
-                    axis_scale: crate::UNIT_AXIS_SCALE,
-                },
-            }
-        })
-        .collect()
+            }),
+    );
 }
 
 /// Limits cape tilt in the parent's frame without changing an already hanging rotation.
@@ -117,19 +111,20 @@ fn total_scale(pose: &RenderBoneTransform) -> Vec3 {
 /// The cape pose with its cape bone placed by Java's cape stack instead of the body's pose.
 pub(super) fn java_cape_pose(
     cape: &CapeRig,
-    body_names: &[Box<str>],
+    bindings: &[crate::CapeBoneBinding],
     body_rest: &impl Fn(usize) -> Option<RenderBoneTransform>,
     body: &[RenderBoneTransform],
     input: &JavaCapeInput,
-) -> Arc<[RenderBoneTransform]> {
-    let mut pose = cape_pose(cape, body_names, body_rest, body).to_vec();
-    for ((name, bone), pivot) in cape
-        .bone_names
+    output: &mut Vec<RenderBoneTransform>,
+) {
+    cape_pose(cape, bindings, body_rest, body, output);
+    for ((frame, bone), pivot) in cape
+        .pose_frames
         .iter()
-        .zip(&mut pose)
+        .zip(output)
         .zip(cape.geometry.bone_pivots.iter())
     {
-        if name.eq_ignore_ascii_case("cape") {
+        if frame.is_cape {
             let (rotation, translation) = java_cape_bone(input, Vec3::from_array(*pivot));
             *bone = RenderBoneTransform {
                 rotation: rotation.to_array(),
@@ -138,5 +133,4 @@ pub(super) fn java_cape_pose(
             };
         }
     }
-    pose.into()
 }

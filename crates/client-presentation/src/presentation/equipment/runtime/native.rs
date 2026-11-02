@@ -2,7 +2,7 @@
 
 use actor_animation::AttachableAnimationInput;
 use assets::{EntityAssetKind, EquipmentBinding};
-use render_model::equipment::{ItemDisplay, attach_to_bone, held_sprite_display};
+use render_model::equipment::{ItemDisplay, attach_to_bone};
 
 use super::*;
 
@@ -235,7 +235,9 @@ pub(super) fn recognize(
 
 /// Only texture-mesh models without cubes sample a complete sprite instead of a UV atlas.
 fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
-    bones.iter().all(|bone| bone.cubes.is_empty())
+    bones
+        .iter()
+        .all(|bone| bone.cubes.is_empty() && !bone.has_polygons())
         && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
 }
 
@@ -248,6 +250,7 @@ fn full_texture_plane(
 
     if bones.iter().any(|bone| {
         !bone.texture_meshes.is_empty()
+            || bone.has_polygons()
             || bone.inflate.is_some_and(|inflate| inflate != Scalar::ZERO)
             || bone.mirror == Some(true)
             || bone.never_render == Some(true)
@@ -423,7 +426,23 @@ impl EquipmentRuntime {
     }
 
     /// Native offhand placement uses the selected image's aspect ratio.
+    #[cfg(test)]
     pub(super) fn native_sprite_dimensions(&self, item: &WornItem) -> Option<[u16; 2]> {
+        self.native_sprite_dimensions_with_use(
+            item,
+            AttachableAnimationInput {
+                off_hand: true,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Texel size of the native image selected for this use frame.
+    pub(super) fn native_sprite_dimensions_with_use(
+        &self,
+        item: &WornItem,
+        input: AttachableAnimationInput<'_>,
+    ) -> Option<[u16; 2]> {
         let artwork = *self
             .pack
             .as_ref()?
@@ -437,13 +456,7 @@ impl EquipmentRuntime {
             return Some([sprite.width, sprite.height]);
         }
         let kind = artwork.kind;
-        let frame = kind.frame(
-            item,
-            AttachableAnimationInput {
-                off_hand: true,
-                ..Default::default()
-            },
-        );
+        let frame = kind.frame(item, input);
         if let Some((texture, _)) = self.native_texture(item, kind.alias(frame)) {
             return Some([texture.width, texture.height]);
         }
@@ -476,20 +489,24 @@ impl EquipmentRuntime {
             bones.right_item
         };
         let Some(hand) = hand else { return };
-        let mut display = if java.is_some() {
+        let display = if java.is_some() {
             let grip = if item.identifier.as_ref() == assets::facts::VanillaItem::Bow.identifier() {
                 render_model::java_animation::JavaHeldItem::Bow
             } else {
                 render_model::java_animation::JavaHeldItem::Flat
             };
-            ItemDisplay::from_matrix(render_model::java_animation::third_person_item(
-                grip,
-                render_model::java_animation::JavaItemMesh::Sprite,
-            ))
+            let mut display =
+                ItemDisplay::from_matrix(render_model::java_animation::third_person_item(
+                    grip,
+                    render_model::java_animation::JavaItemMesh::Sprite,
+                ));
+            display.scale *= input.main_hand_scale();
+            display
         } else {
-            held_sprite_display(item.grip.upright().unwrap_or(false))
+            self.held_sprite_display(item, input.off_hand, input.main_hand_scale(), |runtime| {
+                runtime.held_mesh_dimensions(item, input)
+            })
         };
-        display.scale *= input.main_hand_scale();
         let (Some(previous), Some(current)) = (
             body.input.previous_bones.get(hand),
             body.input.current_bones.get(hand),

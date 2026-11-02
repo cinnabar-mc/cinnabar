@@ -60,9 +60,12 @@ impl ActorStore {
     }
 
     /// Rendered name tags use synced actor data, including overrides on players.
-    /// An explicitly empty tag hides it; a missing player tag uses its spawn name.
+    /// An empty tag hides it; a missing player tag uses its spawn name after appearance readiness.
     pub(crate) fn actor_name_tag(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
         let actor = self.snapshot_by_unique(unique_id)?;
+        if !self.appearance_ready(actor) {
+            return None;
+        }
         let name = match actor.metadata.get(&ActorDataKey::Name.wire_value()) {
             Some(ActorMetadataValue::String(name)) => std::sync::Arc::clone(name),
             _ => match &actor.kind {
@@ -71,6 +74,21 @@ impl ActorStore {
             },
         };
         (!name.is_empty()).then_some(name)
+    }
+
+    /// The name a container screen shows for an actor-backed container: the synced filtered
+    /// name when it is non-empty, otherwise the synced name tag. `None` when neither is set,
+    /// so the caller supplies its own default title.
+    pub(crate) fn actor_container_name(&self, unique_id: i64) -> Option<std::sync::Arc<str>> {
+        let actor = self.snapshot_by_unique(unique_id)?;
+        [ActorDataKey::FilteredName, ActorDataKey::Name]
+            .into_iter()
+            .find_map(|key| match actor.metadata.get(&key.wire_value()) {
+                Some(ActorMetadataValue::String(name)) if !name.is_empty() => {
+                    Some(std::sync::Arc::clone(name))
+                }
+                _ => None,
+            })
     }
 
     /// Every username on the retained authoritative player list, sorted for
@@ -197,6 +215,15 @@ impl ActorStore {
         self.items.canonicalize(stack)
     }
 
+    /// Resolves a named block-entity stack through the current compiled item routes.
+    pub(crate) fn named_item_visual(
+        &self,
+        identifier: &str,
+        metadata: u32,
+    ) -> assets::ItemVisualRoute {
+        self.items.resolve_visual(identifier, metadata, 0)
+    }
+
     /// Reads the current numeric registry's intrinsic shine disposition.
     pub(crate) fn item_glint(&self, network_id: i32) -> assets::item::glint::ItemGlint {
         self.items.item_glint(network_id)
@@ -261,12 +288,35 @@ impl ActorStore {
             partial_tick,
         )
     }
+    /// Full-body controller layers paired with the actor's UI pose.
+    pub(crate) fn actor_ui_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.ui_layers(runtime_id)
+    }
+    pub(crate) fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.paper_doll_layers(runtime_id)
+    }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(
         &self,
         runtime_id: u64,
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
+    }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub(crate) fn actor_bone_descends_from(
+        &self,
+        runtime_id: u64,
+        bone: usize,
+        ancestor: usize,
+    ) -> bool {
+        self.animation
+            .bone_descends_from(runtime_id, bone, ancestor)
     }
     pub(crate) fn actor_retargeted_pose(
         &self,

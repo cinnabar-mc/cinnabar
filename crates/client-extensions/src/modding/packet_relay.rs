@@ -17,6 +17,11 @@ use std::{
     time::Duration,
 };
 
+mod native_frame;
+
+pub use native_frame::FrameOutput;
+use native_frame::{FrameLink, NativeFrames};
+
 /// How long a starting session waits for the selected packet mod to finish compiling before
 /// it continues without it.
 pub const PACKET_MOD_READY_WAIT: Duration = mod_host::packet_mod::PACKET_MOD_LOAD_DEADLINE;
@@ -38,6 +43,8 @@ pub struct PacketModLoader {
 struct Inner {
     state: Mutex<LoaderState>,
     ready: Condvar,
+    native_frame: Mutex<std::sync::Weak<FrameLink>>,
+    panel_state: Mutex<std::sync::Weak<Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>>>,
 }
 
 #[derive(Default)]
@@ -49,6 +56,14 @@ struct LoaderState {
 }
 
 impl PacketModLoader {
+    /// Captures the selected source's grants without waiting for compilation.
+    pub fn selected_grants(&self) -> Option<ModGrants> {
+        self.state()
+            .selection
+            .as_ref()
+            .map(|selection| selection.grants.clone())
+    }
+
     /// Selects the packet mod later sessions use and compiles it on a background thread; `None`
     /// clears it. Selecting the current source again keeps its compiled code.
     /// Returns the displaced executable owner for off-thread retirement.
@@ -99,11 +114,19 @@ impl PacketModLoader {
     pub fn session_relay(&self) -> Option<Arc<dyn PacketRelay>> {
         let state = self.state();
         state.selection.as_ref()?;
-        Some(Arc::new(PacketModRelay::spawn(
-            self.clone(),
-            state.generation,
-            Arc::clone(&state.authority),
-        )))
+        let relay =
+            PacketModRelay::spawn(self.clone(), state.generation, Arc::clone(&state.authority));
+        *self
+            .inner
+            .native_frame
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&relay.native_frame);
+        *self
+            .inner
+            .panel_state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = Arc::downgrade(&relay.panel);
+        Some(Arc::new(relay))
     }
 
     /// Publishes an already compiled source snapshot; no file is reopened on the frame thread.
@@ -150,6 +173,41 @@ impl PacketModLoader {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
     }
+
+    /// Replaces obsolete native input and consumes a recent result without waiting for WASI.
+    pub fn native_frame(&self, frame: Option<mod_host::NativeFrame>) -> Option<FrameOutput> {
+        self.inner
+            .native_frame
+            .try_lock()
+            .ok()?
+            .upgrade()?
+            .exchange(frame)
+    }
+
+    /// Avoids building player observations when no capable live packet session exists.
+    pub fn native_frame_available(&self) -> bool {
+        self.inner
+            .native_frame
+            .try_lock()
+            .ok()
+            .and_then(|link| link.upgrade())
+            .is_some_and(|link| link.available())
+    }
+    /// Shares a live packet owner's grant-gated panel and raw-input mailbox.
+    pub fn panel(&self) -> Option<mod_host::packet_mod::panel::PanelHandle> {
+        let state = self.state();
+        if !state.authority.load(Ordering::Acquire) {
+            return None;
+        }
+        let panel = self
+            .inner
+            .panel_state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .upgrade()?;
+        let handle = panel.lock().unwrap_or_else(PoisonError::into_inner).clone();
+        handle.filter(|handle| handle.enabled())
+    }
 }
 
 /// One call the session makes, answered by the packet mod's thread.
@@ -170,25 +228,45 @@ enum Request {
         reply: SyncSender<RelayOutput>,
     },
     Stop,
+    NativeFrame,
 }
 
 /// A session's relay. The instance lives on its own thread, so WASI never runs on the session's
 /// async runtime and every call is serialized; a failed instance passes everything through.
 struct PacketModRelay {
     requests: Sender<Request>,
+    native_frame: Arc<FrameLink>,
+    panel: Arc<Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>>,
 }
 
 impl PacketModRelay {
     /// Starts the instance thread; it instantiates the packet mod when the session starts.
     fn spawn(loader: PacketModLoader, generation: u64, authority: Arc<AtomicBool>) -> Self {
         let (requests, receive) = mpsc::channel();
+        let frames = Arc::new(NativeFrames::new(Arc::clone(&authority)));
+        let native_frame = Arc::new(FrameLink::new(requests.clone(), Arc::clone(&frames)));
+        let panel = Arc::new(Mutex::new(None));
+        let worker_panel = Arc::clone(&panel);
         if let Err(error) = thread::Builder::new()
             .name("packet-mod".into())
-            .spawn(move || serve(&loader, receive, generation, &authority))
+            .spawn(move || {
+                serve(
+                    &loader,
+                    receive,
+                    generation,
+                    &authority,
+                    &frames,
+                    &worker_panel,
+                )
+            })
         {
             tracing::warn!(%error, "packet mod thread unavailable; packets pass through");
         }
-        Self { requests }
+        Self {
+            requests,
+            native_frame,
+            panel,
+        }
     }
 
     /// Sends one request and waits for its answer; a stopped thread answers with `fallback`.
@@ -255,6 +333,15 @@ impl PacketRelay for PacketModRelay {
     }
 
     fn stop(&self) {
+        self.native_frame.deactivate();
+        if let Some(panel) = self
+            .panel
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+        {
+            panel.deactivate();
+        }
         let _ = self.requests.send(Request::Stop);
     }
 }
@@ -265,12 +352,17 @@ fn serve(
     requests: Receiver<Request>,
     generation: u64,
     authority: &AtomicBool,
+    frames: &NativeFrames,
+    panel: &Mutex<Option<mod_host::packet_mod::panel::PanelHandle>>,
 ) {
     let mut instance: Option<PacketMod> = None;
+    let mut frame_epoch = None;
     for request in requests {
         if !authority.load(Ordering::Acquire)
             && let Some(mut old) = instance.take()
         {
+            frames.deactivate();
+
             old.stop();
         }
         match request {
@@ -289,6 +381,9 @@ fn serve(
                         .start(&identity, &client_data, &startup)
                         .unwrap_or_default()
                 });
+                frames.activate(instance.as_ref().is_some_and(PacketMod::has_native_frame));
+                *panel.lock().unwrap_or_else(PoisonError::into_inner) =
+                    instance.as_ref().and_then(PacketMod::panel);
                 let packs = packs
                     .into_iter()
                     .filter(|_| authority.load(Ordering::Acquire))
@@ -305,6 +400,7 @@ fn serve(
                 body,
                 reply,
             } => {
+                frames.fence_guest_state();
                 let replaced = instance.as_mut().and_then(|instance| {
                     if startup {
                         instance.on_startup_batch(&body)
@@ -314,9 +410,16 @@ fn serve(
                     .ok()
                     .flatten()
                 });
+                if instance
+                    .as_ref()
+                    .is_some_and(|instance| !instance.is_active())
+                {
+                    frames.deactivate();
+                }
                 let _ = reply.send(replaced.filter(|_| authority.load(Ordering::Acquire)));
             }
             Request::Tick { reply } => {
+                frames.fence_guest_state();
                 let output = instance
                     .as_mut()
                     .and_then(|instance| instance.tick().ok())
@@ -324,6 +427,12 @@ fn serve(
                         to_client: outbound.to_client,
                         to_server: outbound.to_server,
                     });
+                if instance
+                    .as_ref()
+                    .is_some_and(|instance| !instance.is_active())
+                {
+                    frames.deactivate();
+                }
                 let _ = reply.send(if authority.load(Ordering::Acquire) {
                     output
                 } else {
@@ -331,8 +440,30 @@ fn serve(
                 });
             }
             Request::Stop => break,
+            Request::NativeFrame => {
+                if let Some(input) = frames.take_input()
+                    && let Some(instance) = instance.as_mut()
+                {
+                    let output = input
+                        .dispatch(&mut frame_epoch, |frame| {
+                            let camera = instance.frame(frame)?;
+                            let drawing = instance.render_frame(frame)?;
+                            Ok::<_, anyhow::Error>((camera, drawing))
+                        })
+                        .ok()
+                        .unwrap_or_default();
+                    if instance.is_active() {
+                        frames.complete_drawing(&input, output.1);
+                        frames.complete(input, output.0);
+                    } else {
+                        frames.deactivate();
+                    }
+                }
+            }
         }
     }
+    frames.deactivate();
+
     if let Some(instance) = instance.as_mut() {
         instance.stop();
     }

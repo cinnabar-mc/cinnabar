@@ -57,6 +57,8 @@ pub(crate) type KeyMap<V> = HashMap<u64, V, BuildHasherDefault<Prehashed>>;
 /// screen and dropped when the screen changes.
 #[derive(Clone, Debug, Default)]
 pub struct BindState {
+    /// A smaller caller budget; absent keeps the shared resolved-tree maximum.
+    node_limit: Option<usize>,
     /// By layout-key hash.
     pub(super) controls: KeyMap<Retained>,
     /// Bag writes from widgets and components since the last bind.
@@ -74,11 +76,15 @@ pub struct BindState {
     pub(super) data: Option<std::sync::Arc<super::DataSource>>,
     /// Keys of the controls the last bind built rather than reused.
     pub(super) built: Vec<u64>,
+    /// Controls rebuilt over this state's lifetime, including preparation.
+    pub(super) rebuilt_total: usize,
     /// Whether the last bind's views reached a fixed point, so a view whose control and
     /// source both stand unchanged would observe what it last did.
     pub(super) views_settled: bool,
     /// View notifications the last bind ran.
     pub(super) views_run: usize,
+    /// View paths reused while notifications rebuild their source relationships.
+    pub(super) view_work: super::view::ViewWork,
     /// Collections whose large grids build only the cells around those layout shows.
     pub(super) virtual_grids: BTreeMap<String, GridPolicy>,
     /// The cells each virtualized grid builds, by its key; the rest bind as placeholders.
@@ -171,6 +177,42 @@ impl Retained {
 impl BindState {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Starts fresh lifetimes for changed preparation inputs, keeping unaffected controls,
+    /// grid windows and measurements for the first visible bind.
+    pub fn restart(&mut self, data: &super::DataSource) {
+        let changes = self
+            .data
+            .as_deref()
+            .and_then(|previous| super::reuse::changes(previous, data));
+        self.controls.clear();
+        self.published.clear();
+        if changes.is_none() {
+            self.views_settled = false;
+        }
+        if let Some(tree) = self.tree.as_deref_mut() {
+            super::reuse::restart(tree, changes.as_ref(), false);
+        }
+    }
+
+    /// Restricts materialized controls, including factory and grid expansions. Changing the
+    /// budget recreates binding state; declared virtualized collections remain configured.
+    pub fn with_node_limit(mut self, limit: usize) -> Self {
+        let limit = limit.clamp(1, crate::resolve::MAX_NODES);
+        if self.node_limit() != limit {
+            self = Self {
+                node_limit: Some(limit),
+                virtual_grids: std::mem::take(&mut self.virtual_grids),
+                ..Self::default()
+            };
+        }
+        self
+    }
+
+    /// The shared node allowance used by both creation and incremental subtree reuse.
+    pub fn node_limit(&self) -> usize {
+        self.node_limit.unwrap_or(crate::resolve::MAX_NODES)
     }
 
     /// Write `name` into the bag of the control at layout `key`, as a widget or
@@ -323,6 +365,16 @@ impl BindState {
     /// Controls the last bind built rather than carried over unchanged.
     pub fn rebuilt(&self) -> usize {
         self.built.len()
+    }
+
+    /// Counts all rebuilt controls, so callers can measure work across binds and cache hits.
+    pub fn rebuilt_total(&self) -> usize {
+        self.rebuilt_total
+    }
+
+    /// Whether the last incremental bind read these exact controller inputs.
+    pub fn input_matches(&self, data: &super::DataSource) -> bool {
+        self.data.as_deref() == Some(data)
     }
 
     /// View bindings the last bind ran rather than left standing.

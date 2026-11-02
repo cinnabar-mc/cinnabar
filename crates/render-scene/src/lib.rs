@@ -6,6 +6,7 @@ pub mod block_entity;
 pub mod chunk;
 pub mod cloud_config;
 pub mod cloud_visibility;
+pub mod device_memory;
 pub mod dropped_item;
 pub mod enhanced;
 pub mod entity_shadow;
@@ -33,8 +34,11 @@ pub mod runtime_profile_uploads;
 pub mod screen_fire;
 pub mod screen_overlay;
 pub mod screen_overlay_portal;
+pub mod shaderpack;
 pub mod skybox;
 pub mod startup_presentation;
+pub mod startup_timing;
+pub mod terrain_culling;
 pub mod terrain_publication;
 pub mod ui;
 pub mod ui_glint;
@@ -121,7 +125,7 @@ pub use nametag::NametagSceneResource;
 pub use panorama::PanoramaScene;
 pub use particles::{ParticleGpuFrame, ParticleSimulation, particle_view, update_particle_frame};
 pub use primitive_shapes::PrimitiveShapesScene;
-pub use readiness::PipelineWarmupReadiness;
+pub use readiness::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
@@ -133,6 +137,7 @@ pub use screen_overlay::{
     ScreenOverlayScene, ScreenOverlayTextures,
 };
 pub use skybox::SkyboxSettings;
+pub use terrain_culling::ChunkOcclusionCulling;
 pub use ui::{UiRenderSceneResource, UiRenderStatsResource};
 pub use ui_glint::{UiGlintSettings, UiItemGlintTexture};
 pub use viewmodel::{
@@ -158,3 +163,5 @@ pub use native_sunlight::AtmosphereViewInputs;
 #[cfg(test)]
 #[global_allocator]
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+pub mod startup_work;

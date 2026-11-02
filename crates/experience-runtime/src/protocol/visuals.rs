@@ -180,7 +180,8 @@ pub struct Permutation {
     pub rotation: Option<QuarterTurns>,
 }
 
-/// An item of the Experience; `icon` is absolute.
+/// An item of the Experience; `icon` is absolute. `listed` when the creative inventory lists it,
+/// as it does every item before server WIT 0.12.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ItemDef {
@@ -188,4 +189,5 @@ pub struct ItemDef {
     pub display_name: String,
     pub icon: String,
     pub max_stack: u8,
+    pub listed: bool,
 }

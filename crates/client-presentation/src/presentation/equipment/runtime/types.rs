@@ -2,8 +2,27 @@
 
 use std::sync::Arc;
 
-use render_model::EntityRigId;
+use super::{MAX_ITEM_MESHES, session};
 use render_model::{ActorArtworkLocation, ActorRigSubmission};
+use render_model::{EntityRigId, item_mesh_rig_id};
+
+/// Static item meshes follow the startup and session mesh ranges in one shared order.
+#[derive(Clone, Copy)]
+pub(super) enum ReservedItemMesh {
+    MapPaper,
+    MapImage,
+    ShieldSprite,
+}
+
+impl ReservedItemMesh {
+    /// Returns this static mesh's non-overlapping ID below player skin rigs.
+    pub(super) const fn rig(self) -> EntityRigId {
+        let index = (MAX_ITEM_MESHES + session::MAX_SESSION_MESHES) as u32 + self as u32;
+        let rig = item_mesh_rig_id(index);
+        assert!(rig.0 < render_model::skin_rig_id(0).0);
+        rig
+    }
+}
 
 /// Geometry namespace and resolved artwork page/layer identify each texture-derived mesh.
 pub(super) type AttachableMeshKey = (bool, u32, (u16, u32));
@@ -19,6 +38,10 @@ pub(super) struct JavaRasterFrame {
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
+    /// Image identity a held map samples, independent of its atlas icon variant.
+    pub map_id: Option<i64>,
+    /// Shield decoration shared with canonical inventory and actor equipment.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Loaded projectile admitted for this stack, independent of display metadata.
     pub charged_projectile: Option<assets::item_use::ItemProjectileRole>,
     /// Grip admitted by the numeric item registry, copied from the canonical stack.
@@ -53,6 +76,12 @@ pub enum HeldKind {
     Sprite,
     /// A block item, by block visual id.
     Block(u32),
+    /// A stack whose wire descriptor names a block state but whose aux value has no compiled item
+    /// visual. `state` is the named state's visual and `item` the item's own block visual.
+    RetainedBlock {
+        state: Option<u32>,
+        item: Option<u32>,
+    },
     Other,
 }
 
@@ -74,6 +103,8 @@ pub struct ActorEquipmentInput {
     pub off: Option<WornItem>,
     /// Helmet, chestplate, leggings, boots.
     pub armor: [Option<WornItem>; 4],
+    /// Equipment replicated in the separate body slot.
+    pub body: Option<WornItem>,
     pub sneaking: bool,
     pub sleeping: bool,
     /// Java 1.7 grips the main hand, when that mode poses this actor.
@@ -149,6 +180,7 @@ pub struct EquipmentAnimation<'a> {
     pub delta_seconds: f32,
 }
 
+#[derive(Clone, Eq, PartialEq)]
 pub(super) struct BodyBones {
     pub(super) names: Vec<Box<str>>,
     pub(super) right_arm: Option<usize>,
@@ -169,7 +201,7 @@ pub(super) struct WornRender {
     pub texture: Box<str>,
     pub geometry: Box<str>,
     pub layer: actor_animation::RenderTextureLayer,
-    pub pose: Vec<render_model::RenderBoneTransform>,
+    pub pose: Arc<[render_model::RenderBoneTransform]>,
 }
 
 impl EquipmentAnimation<'_> {

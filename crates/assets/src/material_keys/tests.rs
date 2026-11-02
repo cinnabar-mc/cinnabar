@@ -43,10 +43,12 @@ fn complete_sources_round_trip_with_variant_and_carried_binding_identity() {
             [BlockTextureSource { visual:2, name:"minecraft:fixture".into(), binding_name:"fixture".into(),
                 source_faces:[2,3,1,0,4,5], source_rotations:[false,false,true,true,true,true], cube_binding_eligible:true, carried_keys:std::array::from_fn(|_| Some("carried".into())),
                 carried_fallback_keys:std::array::from_fn(|_| Some("fixture".into())) }],
-        );
+        )
+        .with_raster_sizes([("textures/b.png".into(), [16, 32])]);
     let restored = MaterialKeys::from_json(&keys.to_json(3), 3).unwrap();
     assert_eq!(restored, keys);
     assert_eq!(restored.material_source(1).unwrap().variant, 1);
+    assert_eq!(restored.raster_size("textures/b.png"), Some([16, 32]));
     assert_eq!(
         restored.material_source(1).unwrap().raster.as_ref(),
         "textures/b.png"

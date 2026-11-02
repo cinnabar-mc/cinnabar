@@ -10,6 +10,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+mod tests;
+
 struct Prepared {
     registration: RegisteredHost,
     program: Arc<CompiledPacketMod>,
@@ -25,6 +28,7 @@ pub(crate) struct PacketMods {
     environment: Option<PacketModSelection>,
     environment_selected: bool,
     retired: Vec<Arc<CompiledPacketMod>>,
+    pub(super) panel: super::packet_panel::State,
 }
 
 /// Starts compilation for an explicitly selected developer packet mod before the first join.
@@ -42,6 +46,59 @@ pub(crate) fn from_environment() -> PacketMods {
 }
 
 impl PacketMods {
+    /// Captures the cache mode for enabled registration and developer-selected packet authority.
+    pub(crate) fn connection_cache(
+        cache: &client_runtime::blob_cache::ClientBlobCacheOwner,
+        packets: Option<&Self>,
+        active_grants: impl IntoIterator<Item = mod_host::ModGrants>,
+    ) -> client_runtime::blob_cache::ClientBlobCacheOwner {
+        let grants: Vec<_> = active_grants
+            .into_iter()
+            .chain(packets.and_then(|packets| packets.loader.selected_grants()))
+            .collect();
+        cache.for_session(mod_host::ModGrants::enables_upstream_client_cache(&grants))
+    }
+
+    /// Reads startup consent before the registration worker and direct connection are running.
+    pub(crate) fn startup_cache(
+        &self,
+        cache: &client_runtime::blob_cache::ClientBlobCacheOwner,
+        config: &Path,
+    ) -> client_runtime::blob_cache::ClientBlobCacheOwner {
+        Self::connection_cache(
+            cache,
+            Some(self),
+            super::registration::selection::registered(config)
+                .into_iter()
+                .filter(|registered| registered.entry.enabled)
+                .map(|registered| registered.entry.grants),
+        )
+    }
+
+    /// Whether snapshot construction is needed for this live packet session.
+    pub(super) fn native_frame_available(&self) -> bool {
+        self.loader.native_frame_available()
+    }
+
+    /// Exchanges native input and local effects without waiting for the packet worker.
+    pub(super) fn native_frame(
+        &self,
+        frame: Option<mod_host::NativeFrame>,
+    ) -> Option<client_extensions::modding::packet_relay::FrameOutput> {
+        self.loader.native_frame(frame)
+    }
+
+    /// Shares only grant-gated panel state, without entering guest code.
+    pub(super) fn panel_handle(&self) -> Option<mod_host::packet_mod::panel::PanelHandle> {
+        self.loader.panel()
+    }
+
+    /// Last explicit opening request from the live packet surface, while it remains open.
+    pub(super) fn panel_open_order(&self) -> Option<u64> {
+        let output = self.panel_handle()?.output();
+        output.open.then_some(output.open_order)
+    }
+
     /// Records a developer-selected source as the fallback when Settings selects no packet mod.
     pub(super) fn select_environment(&mut self, selection: PacketModSelection) {
         self.environment = Some(selection.clone());
@@ -52,8 +109,17 @@ impl PacketMods {
             self.environment_selected = true;
         }
     }
-    /// A session relay captures the current source and its revocable authority.
-    pub(crate) fn session_relay(&self) -> Option<Arc<dyn protocol::PacketRelay>> {
+    /// Captures revocable authority only when login was configured for complete chunk bodies.
+    pub(crate) fn session_relay(
+        &self,
+        upstream_client_cache: bool,
+    ) -> Option<Arc<dyn protocol::PacketRelay>> {
+        if upstream_client_cache {
+            if self.loader.selected_grants().is_some() {
+                bevy::log::warn!("Reconnect to start the packet mod with complete chunk data.");
+            }
+            return None;
+        }
         self.loader.session_relay()
     }
 

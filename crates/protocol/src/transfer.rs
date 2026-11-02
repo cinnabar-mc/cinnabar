@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets;
+use bedrock_protocol_1_26_60::packets;
 
 /// Longest retained transfer host, in bytes.
 ///
@@ -94,8 +94,8 @@ impl crate::ProtocolError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::packets::Transfer;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::packets::Transfer;
+    use bedrock_protocol_1_26_60::wire;
 
     fn transfer_data(address: &str, port: u16) -> packets::Packet {
         packets::Packet::Transfer(Transfer {

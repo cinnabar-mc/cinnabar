@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 
 use crate::{
     BiomeStorage, BlockEntityKey, BlockEntityNbt, DecodedBiomeColumn, SubChunk,
@@ -175,9 +178,54 @@ impl Chunk {
             .map(|(&key, value)| (key, Arc::clone(value)))
     }
 
+    /// The block entities of this column inside the sub-chunk `key`, found by one key range per
+    /// x column rather than by visiting the column's every block entity.
+    pub fn sub_chunk_block_entities(
+        &self,
+        key: SubChunkKey,
+    ) -> impl Iterator<Item = (BlockEntityKey, &Arc<BlockEntityNbt>)> + '_ {
+        let side = crate::SUB_CHUNK_SIDE as i32;
+        // Each block coordinate fits an i32, so a sub-chunk whose span does not holds nothing.
+        let span = |axis: i32| {
+            let low = axis.checked_mul(side)?;
+            Some((low, low.checked_add(side - 1)?))
+        };
+        let columns = span(key.x).zip(span(key.y));
+        columns
+            .into_iter()
+            .flat_map(move |((west, east), (bottom, top))| {
+                (west..=east).flat_map(move |x| {
+                    self.block_entities
+                        .range(
+                            BlockEntityKey::new(key.dimension, x, bottom, i32::MIN)
+                                ..=BlockEntityKey::new(key.dimension, x, top, i32::MAX),
+                        )
+                        .filter(move |(entity, _)| entity.sub_chunk() == key)
+                        .map(|(&entity, nbt)| (entity, nbt))
+                })
+            })
+    }
+
     /// Retains the immutable block entity index; any edit replaces it or detaches its weak
     /// references, so a held `Weak` shows whether the column's block entities changed.
     pub fn shared_block_entities(&self) -> Arc<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>> {
         Arc::clone(&self.block_entities)
+    }
+
+    /// Whether `index`, taken from [`Self::shared_sub_chunks`], still names this column's
+    /// section index, without touching reference counts: a held `Weak` keeps its allocation
+    /// alive, and every edit after it was taken moves the index to another allocation.
+    #[must_use]
+    pub fn holds_sub_chunks(&self, index: &Weak<BTreeMap<i32, Arc<SubChunk>>>) -> bool {
+        std::ptr::eq(index.as_ptr(), Arc::as_ptr(&self.sub_chunks))
+    }
+
+    /// [`Self::holds_sub_chunks`] for the index from [`Self::shared_block_entities`].
+    #[must_use]
+    pub fn holds_block_entities(
+        &self,
+        index: &Weak<BTreeMap<BlockEntityKey, Arc<BlockEntityNbt>>>,
+    ) -> bool {
+        std::ptr::eq(index.as_ptr(), Arc::as_ptr(&self.block_entities))
     }
 }

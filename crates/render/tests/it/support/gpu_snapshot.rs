@@ -11,9 +11,6 @@ use std::{
 };
 use wgpu::util::DeviceExt;
 
-#[path = "../../../src/chunk/gpu/asset_tables.rs"]
-mod asset_tables;
-
 pub const SNAPSHOT_SIDE: u32 = 256;
 /// Color retained by pixels where a fixture fragment is discarded.
 pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
@@ -22,16 +19,6 @@ pub const CLEAR_COLOR: wgpu::Color = wgpu::Color {
     b: 0.25,
     a: 1.0,
 };
-
-/// Packs immutable terrain tables with offsets relative to their shared word payload.
-pub(crate) fn chunk_asset_table_words(
-    animations: &[[u32; 4]],
-    frames: &[u32],
-    models: &[u32],
-) -> Vec<u32> {
-    asset_tables::encode_asset_table_words(animations, frames, models)
-        .expect("fixture tables fit the GPU word range")
-}
 
 pub struct Gpu {
     pub device: wgpu::Device,
@@ -65,6 +52,8 @@ pub struct RasterState {
     pub multisample: wgpu::MultisampleState,
     /// Optional per-draw polygon offsets, applied after clipping and rasterization.
     pub depth_biases: Vec<wgpu::DepthBiasState>,
+    /// Optional instance range for each draw; absent ranges draw the first instance.
+    pub instance_ranges: Vec<Range<u32>>,
 }
 
 pub struct DrawPipeline<'a> {
@@ -93,6 +82,7 @@ impl Default for RasterState {
             write_mask: wgpu::ColorWrites::ALL,
             multisample: Default::default(),
             depth_biases: Vec::new(),
+            instance_ranges: Vec::new(),
         }
     }
 }
@@ -153,15 +143,24 @@ impl Gpu {
     }
 
     /// As [`Self::for_fixture_with`], with the production renderer's raised `limits`.
-    #[allow(
-        clippy::print_stderr,
-        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
-    )]
     pub fn for_fixture_with_limits(
         name: &str,
         features: wgpu::Features,
         limits: wgpu::Limits,
     ) -> Option<Self> {
+        Self::for_fixture_with_adapter(name, features, limits).map(|(gpu, _)| gpu)
+    }
+
+    /// Retains format capabilities for fixtures checking all supported coverage patterns.
+    #[allow(
+        clippy::print_stderr,
+        reason = "names the missing GPU fixture when the test skips; test-exempt where render's unit tests include this file"
+    )]
+    pub fn for_fixture_with_adapter(
+        name: &str,
+        features: wgpu::Features,
+        limits: wgpu::Limits,
+    ) -> Option<(Self, wgpu::Adapter)> {
         let instance =
             wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
         let adapter = fixture_adapter(
@@ -174,22 +173,20 @@ impl Gpu {
         }
         let descriptor = wgpu::DeviceDescriptor {
             required_features: adapter.features() & features,
-            required_limits: wgpu::Limits {
-                max_inter_stage_shader_variables: limits
-                    .max_inter_stage_shader_variables
-                    .min(adapter.limits().max_inter_stage_shader_variables),
-                ..limits.using_resolution(adapter.limits())
-            },
+            required_limits: limits,
             ..Default::default()
         };
         let (device, queue) = finish(adapter.request_device(&descriptor))
             .unwrap_or_else(|error| panic!("{name}: GPU fixture device creation failed: {error}"));
         let backend = adapter.get_info().backend;
-        Some(Self {
-            device,
-            queue,
-            backend,
-        })
+        Some((
+            Self {
+                device,
+                queue,
+                backend,
+            },
+            adapter,
+        ))
     }
 
     /// Uploads raw storage words, such as packed quads, for a fixture.
@@ -200,6 +197,67 @@ impl Gpu {
                 contents: bytemuck::cast_slice(data),
                 usage,
             })
+    }
+
+    /// Executes a compute witness and reads its output binding as four-word records.
+    pub fn compute_readback(
+        &self,
+        source: &str,
+        bindings: &[wgpu::BindGroupEntry<'_>],
+        output_binding: u32,
+        records: usize,
+        invocations: u32,
+    ) -> Vec<[u32; 4]> {
+        let module = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: None,
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
+        let pipeline = self
+            .device
+            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: None,
+                layout: None,
+                module: &module,
+                entry_point: Some("witness"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+        let output = self.words(
+            &vec![0; records * 4],
+            wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+        );
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: None,
+            size: output.size(),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut entries = bindings.to_vec();
+        entries.push(wgpu::BindGroupEntry {
+            binding: output_binding,
+            resource: output.as_entire_binding(),
+        });
+        let group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &entries,
+        });
+        let mut encoder = self.device.create_command_encoder(&Default::default());
+        {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &group, &[]);
+            pass.dispatch_workgroups(invocations, 1, 1);
+        }
+        encoder.copy_buffer_to_buffer(&output, 0, &readback, 0, output.size());
+        self.queue.submit([encoder.finish()]);
+        readback.slice(..).map_async(wgpu::MapMode::Read, |_| {});
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        bytemuck::cast_slice(&readback.slice(..).get_mapped_range().unwrap()).to_vec()
     }
 
     /// Uploads the packed production uniform or vertex words used by a fixture.
@@ -529,7 +587,10 @@ impl Gpu {
             });
             pass.set_pipeline(&pipeline);
             pass.set_bind_group(0, &group, &[]);
-            pass.draw(draw.vertices.clone(), 0..1);
+            pass.draw(
+                draw.vertices.clone(),
+                state.instance_ranges.get(index).cloned().unwrap_or(0..1),
+            );
         }
         let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
             label: None,

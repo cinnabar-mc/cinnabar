@@ -1,5 +1,76 @@
 use super::*;
 
+/// Coalesced player changes publish before ordinary air outside the first routing batch.
+#[test]
+fn coalesced_urgent_air_precedes_ordinary_removals() {
+    let mut stream = lit_stream(1);
+    for x in 0..32 {
+        let key = SubChunkKey::new(1, x, 8, 0);
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let key = SubChunkKey::new(1, 100, 8, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(2));
+    stream.mark_dirty_exact(key, Instant::now());
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+    stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), true);
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+    assert!(matches!(stream.take_mesh_changes().as_slice(),
+        [WorldMeshChange::Remove { key: published, urgent: true, .. }] if *published == key));
+}
+
+/// Completed geometry-to-air revisions cannot accumulate obsolete ingress ownership.
+#[test]
+fn completed_air_drops_obsolete_geometry_ingress() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 8, 0);
+    for _ in 0..=MAX_PENDING_MESH_QUEUE_WORK_PER_POLL {
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        stream.mark_dirty_exact(key, Instant::now());
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_changed_light_mesh_dependents(key, [true; 6], Instant::now(), false);
+        stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
+        assert_eq!(stream.take_mesh_changes().len(), 1);
+        assert!(stream.mesh_jobs.pending.is_empty());
+    }
+    assert!(
+        stream.mesh_jobs.scan.len() + stream.mesh_jobs.startup_scan.len()
+            <= MAX_PENDING_MESH_QUEUE_WORK_PER_POLL
+    );
+}
+
+/// Ready air spends its allowance without first scanning a backlog of geometry dependencies.
+#[test]
+fn fresh_air_is_not_held_behind_geometry_scheduler_ingress() {
+    let mut stream = lit_stream(1);
+    for x in 100..100 + MAX_PENDING_MESH_QUEUE_WORK_PER_POLL as i32 {
+        let key = SubChunkKey::new(1, x, 0, 0);
+        resident(&mut stream, key, super::uniform_sub_chunk(2));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let air = (0..8)
+        .map(|x| SubChunkKey::new(1, x, 8, 0))
+        .collect::<Vec<_>>();
+    for &key in &air {
+        resident(&mut stream, key, super::uniform_sub_chunk(0));
+        stream.mark_dirty_exact(key, Instant::now());
+    }
+    let allowance =
+        render_api::PublicationAllowance::new(render_api::PublicationServiceConfig::DEFAULT);
+    allowance.begin_frame(1, 0, 0, air.len(), air.len());
+    stream.set_publication_allowance(allowance);
+
+    stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, air.len());
+
+    let removed = stream
+        .take_mesh_changes()
+        .into_iter()
+        .map(|change| change.key())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(removed, air.into_iter().collect());
+    assert!(stream.mesh_jobs.in_flight.is_empty());
+}
+
 fn resident(stream: &mut WorldStream, key: SubChunkKey, chunk: world::SubChunk) {
     stream.authority.commit_sub_chunk(key, chunk).unwrap();
     stream.sync_resident(key);
@@ -259,7 +330,7 @@ fn repeated_air_invalidations_without_credit_keep_one_removal() {
         removal_lane
             .ready
             .iter()
-            .chain(&removal_lane.deferred)
+            .chain(removal_lane.deferred.iter())
             .all(|candidate| candidate.key != key)
     );
     assert!(stream.pop_mesh_change().is_none());
@@ -366,7 +437,7 @@ fn air_geometry_flips_without_worker_capacity_keep_one_returned_record() {
         let lane = &stream.mesh_jobs.lanes[RESIDENT_MESH_LANE];
         lane.ready
             .iter()
-            .chain(&lane.deferred)
+            .chain(lane.deferred.iter())
             .filter(|candidate| candidate.key == flipping)
             .count()
     };
@@ -410,4 +481,26 @@ fn stale_air_returns_are_pruned_a_bounded_slice_per_dispatch() {
         stream.dispatch_mesh_jobs_with_limits([8.0; 3], 0, 1);
     }
     assert!(stream.air_requeued.is_empty());
+}
+
+/// Replacing an urgent removal while credit is exhausted must preserve the current removal.
+#[test]
+fn superseded_deferred_removal_cannot_replace_current_ready_revision() {
+    let mut stream = lit_stream(1);
+    let key = SubChunkKey::new(1, 0, 0, 0);
+    resident(&mut stream, key, super::uniform_sub_chunk(0));
+    let first = stream.mark_dirty_exact_with_priority(key, Instant::now(), true);
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 0), 0);
+    assert!(stream.pop_mesh_change().is_none());
+    let current = stream.mark_dirty_exact(key, Instant::now());
+    assert_ne!(first, current);
+    assert!(stream.mesh_jobs.pending[&key].urgent);
+
+    assert_eq!(stream.dispatch_mesh_jobs_with_limits([8.0; 3], 1, 1), 0);
+    assert!(matches!(
+        stream.pop_mesh_change(),
+        Some(WorldMeshChange::Remove { key: removed, generation, .. })
+            if removed == key && generation == current
+    ));
+    assert!(!stream.mesh_jobs.pending.contains_key(&key));
 }

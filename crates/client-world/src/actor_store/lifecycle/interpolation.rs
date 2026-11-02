@@ -4,7 +4,7 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl ActorStore {
-    /// Java torso ticks follow this local simulation identity rather than the remote actor clock.
+    /// Local torso and leg ticks follow this simulation identity rather than the remote actor clock.
     pub(crate) fn set_local_motion_authority(
         &mut self,
         runtime_id: u64,
@@ -14,7 +14,7 @@ impl ActorStore {
             .set_local_motion_authority(runtime_id, authority);
     }
 
-    /// Corrects only local torso motion after this frame's interaction admissions.
+    /// Corrects local torso and leg motion after this frame's interaction admissions.
     pub(crate) fn sync_local_swing_motion(
         &mut self,
         runtime_id: u64,
@@ -45,8 +45,7 @@ impl ActorStore {
         self.advance_interpolation(ticks, true);
     }
 
-    /// Predicts where this frame's `ticks` move each remote actor, for picks, without touching
-    /// the live actors whose per-tick animation advances later in the frame.
+    /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub(crate) fn predict_remote_motion(&mut self, ticks: u32) {
         self.picks_ahead = ticks > 0;
         if !self.picks_ahead {
@@ -58,36 +57,54 @@ impl ActorStore {
             self.actors
                 .iter()
                 .filter(|(runtime_id, _)| local != Some(**runtime_id))
-                .map(|(runtime_id, actor)| (*runtime_id, actor.motion_state())),
+                .map(|(runtime_id, actor)| movement_interpolation::PickState {
+                    runtime_id: *runtime_id,
+                    previous_yaw: actor.yaw,
+                    state: actor.motion_state(),
+                }),
         );
         self.pick_states
-            .sort_unstable_by_key(|(runtime_id, _)| *runtime_id);
+            .sort_unstable_by_key(|pick| pick.runtime_id);
         // The live loop's per-tick order: every actor's motion, then seating.
         for _ in 0..ticks {
-            for (_, state) in &mut self.pick_states {
-                state.tick();
+            for pick in &mut self.pick_states {
+                pick.previous_yaw = pick.state.pose.yaw;
+                pick.state.tick();
             }
+            self.hold_local_vehicle_pick();
             self.seat_pick_riders();
         }
     }
 
-    /// The predicted pose picks read this frame, or `None` when the live pose is current.
-    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<([f32; 3], f32)> {
+    /// The staged pose used to verify motion prediction before live actors advance.
+    #[cfg(test)]
+    pub(crate) fn pick_pose(&self, runtime_id: u64) -> Option<ActorPose> {
         if !self.picks_ahead {
             return None;
         }
-        self.pick_state(runtime_id)
-            .map(|state| (state.pose.position, state.pose.yaw))
+        self.pick_state(runtime_id).map(|state| state.pose)
     }
 
     pub(in crate::actor_store) fn pick_state(
         &self,
         runtime_id: u64,
     ) -> Option<&movement_interpolation::MotionState> {
+        self.pick(runtime_id).map(|pick| &pick.state)
+    }
+
+    /// Staged remote motion before this frame advances the live actors.
+    pub(in crate::actor_store) fn pick_ahead(
+        &self,
+        runtime_id: u64,
+    ) -> Option<&movement_interpolation::PickState> {
+        self.picks_ahead.then(|| self.pick(runtime_id)).flatten()
+    }
+
+    fn pick(&self, runtime_id: u64) -> Option<&movement_interpolation::PickState> {
         self.pick_states
-            .binary_search_by_key(&runtime_id, |(id, _)| *id)
+            .binary_search_by_key(&runtime_id, |pick| pick.runtime_id)
             .ok()
-            .map(|index| &self.pick_states[index].1)
+            .map(|index| &self.pick_states[index])
     }
 
     /// One tick of interpolated motion for every actor.
@@ -107,6 +124,9 @@ impl ActorStore {
             }
             actor.advance_creeper_swell();
             actor.status.tick();
+            actor.advance_loyalty_return();
+            actor.tick_boat_hurt();
+            actor.finish_player_death(self.world_default_game_mode);
             let using_item = actor.is_using_item();
             actor.status.advance_kinetic_hit(using_item);
         }
@@ -119,6 +139,10 @@ impl ActorStore {
             self.local_view_dirty = false;
         }
         self.prepare_appearances(ticks > 0);
+        if ticks > 0 {
+            // Vanilla applies queued riding links at its tick; a later spawn boards anew.
+            self.tick_links.clear();
+        }
         // The live actors now reach the positions picks were reading.
         self.picks_ahead = false;
         let prepare_frame = frame
@@ -136,6 +160,7 @@ impl ActorStore {
                     pending.tick();
                 }
                 self.step_motion();
+                self.show_local_vehicle_render();
                 self.seat_riders();
             }
             if !prepare_frame {
@@ -180,7 +205,9 @@ impl ActorStore {
             let local_view_bobbing = self.local_view_bobbing;
             let local_flying = self.local_flying;
             let world_game_mode = self.world_default_game_mode;
+            let air_block_network_id = self.air_block_network_id;
             let local_hands = self.local_hands.clone();
+            let local_equipment_count = self.local_equipment_count;
             let local_held_network_ids = self.local_held_network_ids;
             let local_item_use = self.local_item_use;
             let local_main_metadata = self.local_main_metadata;
@@ -190,6 +217,12 @@ impl ActorStore {
             let local_bedrock_swing_ticks = self.local_bedrock_swing_ticks;
             let local_java_swing_ticks = self.local_java_swing_ticks;
             let view = self.animation_view.as_ref();
+            // A locked seat turns its rider's body along the seat's facing.
+            let seat_facings: FastHashMap<i64, f32> = self
+                .rider_to_ridden
+                .keys()
+                .filter_map(|rider| Some((*rider, self.rider_view_lock(*rider, 1.0)?.facing())))
+                .collect();
             let context = |actor: &ActorSnapshot| {
                 let lifetime = ActorLifetimeId {
                     session_id,
@@ -272,6 +305,24 @@ impl ActorStore {
                     .get(&actor.unique_id)
                     .copied()
                     .unwrap_or_default();
+                let held_item_facts = [
+                    protocol::ActorHandedness::Right,
+                    protocol::ActorHandedness::Left,
+                ]
+                .map(|hand| {
+                    let network_id = if is_local {
+                        local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
+                    } else {
+                        items
+                            .get_in_hand(lifetime, hand)
+                            .map_or(0, |equipment| equipment.item.identity.network_id)
+                    };
+                    items.animation_fact(network_id)
+                });
+                // A declared use animation component overrides the item's native one.
+                let main_hand_use_animation = held_item_facts[0]
+                    .use_animation
+                    .or_else(|| main_hand_use.animation.fact());
                 actor_animation::ActorTickContext {
                     combat_visuals: render_api::DEFAULT_COMBAT_VISUALS,
                     appearance_pending: !self.ready_appearances.admits(
@@ -285,17 +336,11 @@ impl ActorStore {
                         ticks - 1
                     }),
                     is_riding: rider_to_ridden.contains_key(&actor.unique_id),
+                    seat_facing: seat_facings.get(&actor.unique_id).copied(),
                     hand_charged,
                     main_hand,
-                    held_item_facts: [protocol::ActorHandedness::Right, protocol::ActorHandedness::Left]
-                        .map(|hand| {
-                            let network_id = if is_local {
-                                local_held_network_ids[usize::from(hand == protocol::ActorHandedness::Left)]
-                            } else {
-                                items.get_in_hand(lifetime, hand).map_or(0, |equipment| equipment.item.identity.network_id)
-                            };
-                            items.animation_fact(network_id)
-                        }),
+                    held_item_facts,
+                    main_hand_use_animation,
                     main_hand_metadata,
                     held_variants: if is_local {
                         local_held_variants
@@ -349,6 +394,7 @@ impl ActorStore {
                     has_rider,
                     has_player_rider,
                     attachable: None,
+                    air_block_network_id,
                     is_local_first_person: local_first_person == Some(actor.runtime_id),
                     is_local_player: is_local,
                     view_bobbing: is_local.then_some(local_view_bobbing),
@@ -356,9 +402,11 @@ impl ActorStore {
                     is_flying: is_local && local_flying,
                     world_game_mode,
                     is_in_ui: false,
+                    is_paperdoll: false,
                     camera_rotation,
                     camera_position,
                     armor: worn_armor(items, items.armor(actor.runtime_id)),
+                    equipment_count: if is_local { local_equipment_count } else { items.armor(actor.runtime_id).map_or(0, |armor| armor.equipment_count()) },
                     properties: property_registry.for_kind(&actor.kind),
                     skin_geometry: match &actor.kind {
                         ActorKind::Player { uuid, .. } => players.get(uuid).or_else(|| unlisted.get(uuid)).and_then(|profile| {
@@ -408,15 +456,7 @@ fn worn_armor(
             dye_rgb: piece.dye_rgb,
         })
     };
-    snapshot.map_or_else(Default::default, |armor| {
-        [
-            piece(&armor.helmet),
-            piece(&armor.chestplate),
-            piece(&armor.leggings),
-            piece(&armor.boots),
-            piece(&armor.body),
-        ]
-    })
+    snapshot.map_or_else(Default::default, |armor| armor.pieces().map(piece))
 }
 
 /// Aggregates the rider flags used by each actor's animation context.

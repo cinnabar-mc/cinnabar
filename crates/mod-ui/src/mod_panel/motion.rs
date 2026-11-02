@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use json_ui::{DataSource, Scalar, ViewState};
 use serde_json::json;
-use ui::mod_panel::{Control, Panel, Theme};
+use ui::mod_panel::{Control, Panel};
 
-use super::{transitions::SurfaceTransitions, widgets::Palette};
+use super::transitions::SurfaceTransitions;
 
 const FEEDBACK_SECONDS: f64 = 0.10;
 const SCROLL_SECONDS: f64 = 0.14;
@@ -173,14 +173,8 @@ impl PanelMotion {
 
     /// Publishes generic native values and transitioned bindings without changing the retained
     /// document or schema.
-    pub(super) fn write(&self, panel: &Panel, data: &mut DataSource) {
+    pub(super) fn write(&self, data: &mut DataSource) {
         self.transitions.write(data);
-        let palette = Palette::for_panel(panel);
-        let mix = |from: [f64; 4], to: [f64; 4], progress: f64| {
-            std::array::from_fn::<_, 4, _>(|index| {
-                from[index] + (to[index] - from[index]) * progress
-            })
-        };
         for (index, tween) in &self.toggles {
             let progress = tween.sample(self.now);
             data.set_global(
@@ -194,19 +188,6 @@ impl PanelMotion {
             data.set_global(
                 format!("#row_{index}_knob_offset"),
                 Scalar::Json(json!([2.0 + 10.0 * progress, 2.0])),
-            );
-            data.set_global(
-                format!("#row_{index}_toggle_color"),
-                Scalar::Json(json!(mix(palette.raised, palette.accent, progress))),
-            );
-            let color = if panel.theme == Theme::Monochrome {
-                mix(palette.text, palette.background, progress)
-            } else {
-                [1.0; 4]
-            };
-            data.set_global(
-                format!("#row_{index}_knob_color"),
-                Scalar::Json(json!(color)),
             );
         }
         for (index, tween) in &self.hover {

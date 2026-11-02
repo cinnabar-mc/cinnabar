@@ -7,17 +7,30 @@
 use std::collections::VecDeque;
 
 use bevy::{
+    ecs::message::MessageCursor,
     input::{
         ButtonState,
         mouse::{MouseButton, MouseButtonInput},
         touch::{TouchInput, TouchPhase},
     },
     math::Vec2,
-    prelude::{DetectChangesMut, Entity, Local, MessageReader, MessageWriter, Query, Res, With},
+    prelude::{
+        DetectChangesMut, Entity, Local, MessageReader, Messages, Query, Res, ResMut, Resource,
+        With,
+    },
     window::{PrimaryWindow, Window},
 };
 use client_shell::{menu::MenuRuntime, ui_resources::UiRuntimeResource};
 use client_ui::ui_runtime::{UiRuntime, presentation::forms::scene_policy::MenuScene};
+
+/// Source of the pointer edge delivered to the active UI, including queued touch releases.
+#[derive(Resource, Default)]
+pub(crate) struct UiPointerSource(pub(crate) bool);
+
+/// Touch starts claimed by a pointer screen this frame, before its actions can close it.
+/// Gameplay skips these starts, so their later moves and release cannot capture a control.
+#[derive(Resource, Default)]
+pub(crate) struct UiTouchStarts(pub(crate) Vec<u64>);
 
 /// What one delivered step does to the emulated pointer's button.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,22 +120,42 @@ fn takes_touch_pointer(
 }
 
 /// Runs before Bevy's input systems, so the emitted button edge reaches `ButtonInput` this frame.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "The Bevy system receives pointer messages, ownership and window input state separately."
+)]
 pub(crate) fn emulate_ui_pointer(
     mut touch_input: MessageReader<TouchInput>,
-    mut buttons: MessageWriter<MouseButtonInput>,
+    mut buttons: ResMut<Messages<MouseButtonInput>>,
+    mut mouse_cursor: Local<MessageCursor<MouseButtonInput>>,
+    mut source: Option<ResMut<UiPointerSource>>,
+    mut claimed: ResMut<UiTouchStarts>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     ui: Option<Res<UiRuntimeResource>>,
     player: Option<Res<client_state::PlayerRuntime>>,
     menu: Option<Res<MenuRuntime>>,
+    presentation: Option<Res<client_shell::ui_resources::UiPresentationResource>>,
     mut pointer: Local<TouchPointer>,
 ) {
+    claimed.0.clear();
+    if mouse_cursor.read(&buttons).next().is_some()
+        && let Some(source) = source.as_deref_mut()
+    {
+        source.0 = false;
+    }
     let Ok((entity, mut window)) = windows.single_mut() else {
         return;
     };
+    // A personal mod panel, including one a mod button opened, is operated by pointer too.
     let pointer_screen = ui
         .zip(player)
-        .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()));
+        .is_some_and(|(ui, player)| takes_touch_pointer(&ui, &player, menu.as_deref()))
+        || presentation.is_some_and(|presentation| presentation.mod_ui().mod_panel_open());
     for input in touch_input.read() {
+        // Every finger landing on the screen belongs to it, including secondary fingers.
+        if pointer_screen && input.phase == TouchPhase::Started {
+            claimed.0.push(input.id);
+        }
         pointer.queue(pointer_screen, input.id, input.phase, input.position);
     }
     let (cursor, edge) = if pointer_screen {
@@ -131,6 +164,11 @@ pub(crate) fn emulate_ui_pointer(
         let edge = pointer.lose_screen();
         (edge.map(|_| None), edge)
     };
+    if (cursor.is_some() || edge.is_some())
+        && let Some(source) = source.as_deref_mut()
+    {
+        source.0 = true;
+    }
     if let Some(cursor) = cursor {
         // Bypassed so the window backend is not asked to warp a cursor touchscreens lack.
         window.bypass_change_detection().set_cursor_position(cursor);
@@ -146,6 +184,7 @@ pub(crate) fn emulate_ui_pointer(
             window: entity,
         });
     }
+    mouse_cursor.clear(&buttons);
 }
 
 #[cfg(test)]
@@ -160,6 +199,7 @@ mod tests {
     /// Creates a retained form whose ownership the pointer adapter must follow.
     fn form_runtime(settings: bool) -> UiRuntime {
         let mut runtime = UiRuntime::new(1);
+        runtime.server_forms_mut().select_settings_form(settings);
         runtime
             .apply(
                 &mut player_state::PlayerState::new(1),
@@ -203,6 +243,7 @@ mod tests {
             let mut app = App::new();
             app.add_message::<TouchInput>()
                 .add_message::<MouseButtonInput>()
+                .init_resource::<UiTouchStarts>()
                 .insert_resource(UiRuntimeResource(form_runtime(settings)))
                 .insert_resource(client_state::PlayerRuntime(player_state::PlayerState::new(
                     1,

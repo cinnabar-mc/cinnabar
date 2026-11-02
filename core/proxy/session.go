@@ -472,6 +472,14 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		return nil, fmt.Errorf("%w: client data: %v", errMalformedSession, err)
 	}
 	if claimed != nil {
+		switch claimed.OS {
+		case protocol.DeviceOSX, protocol.DeviceWin10, protocol.DeviceWin32, protocol.DeviceLinux:
+			clientData.PlatformType = login.PlatformTypeDesktop
+			clientData.MarkClaims("PlatformType")
+		case protocol.DeviceIOS:
+			clientData.PlatformType = login.PlatformTypeMobile
+			clientData.MarkClaims("PlatformType")
+		}
 		claimed.Apply(&clientData)
 	}
 	pinned := minecraft.DefaultProtocol

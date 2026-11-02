@@ -50,6 +50,8 @@ pub(crate) fn drive_menu_services(
     if let Some(account) = launcher_account.as_deref() {
         client_shell::menu::sync_cinnabar_players(account, &mut runtime.0);
     }
+    // This reusable core permits caching; each Connect narrows that capability using its
+    // session cache mode before the core advertises it upstream.
     menu.drive_account_services(
         &mut commands,
         client_blob_cache.enables_upstream_client_cache(),
@@ -61,7 +63,6 @@ pub(crate) fn drive_menu_services(
     );
 }
 
-use assets::audio_category::AudioCategory;
 use client_audio::audio::AudioSettings;
 /// Applies the saved sound values to the live mixer.
 pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<AudioSettings>>) {
@@ -70,10 +71,7 @@ pub(crate) fn sync_audio_settings(menu: &MenuRuntime, settings: Option<ResMut<Au
     };
     let (options, _) = menu.settings_snapshot();
     for option in launcher::menu::settings_options::volume_settings() {
-        if let Some(category) = option
-            .volume
-            .filter(|category| *category != AudioCategory::TextToSpeech)
-        {
+        if let Some(category) = option.volume {
             let volume = options.value(option.id) as f32 / 100.0;
             if settings.volume(category) != volume {
                 settings.set(category, volume);

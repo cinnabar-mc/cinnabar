@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_60::wire;
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixListener;
@@ -11,6 +11,49 @@ use crate::packet_tap::{PacketDirection, PacketOutcome};
 use crate::session_transport::tests::{RecordingTap, TapEvent};
 use crate::session_transport::{SessionTransport, batch_frame};
 use crate::{Packet, WorldEvent};
+
+/// Unsupported target-version features are validated and counted in both ingress lanes.
+#[tokio::test]
+async fn unsupported_target_packets_do_not_interrupt_world_events() {
+    use bedrock_protocol_1_26_60::packets::{
+        ClientboundMatchmakingState, ClientboundPlayAudioContent, ClientboundStonecutterSetRecipe,
+        ServerboundCursorItemDrag, ServerboundMatchmakingCancel, ServerboundRegisterAudioContent,
+        ServerboundStonecutterSetRecipe, SetPassengerOfBlock,
+    };
+    let packets = [
+        Packet::new(ClientboundMatchmakingState::default()),
+        Packet::new(ServerboundMatchmakingCancel::default()),
+        Packet::new(ClientboundStonecutterSetRecipe::default()),
+        Packet::new(ServerboundStonecutterSetRecipe::default()),
+        Packet::new(ServerboundCursorItemDrag::default()),
+        Packet::new(SetPassengerOfBlock::default()),
+        Packet::new(ServerboundRegisterAudioContent::default()),
+        Packet::new(ClientboundPlayAudioContent::default()),
+    ];
+    for cache in [None, Some(crate::ClientBlobCache::default())] {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();
+        let (reader, frames) = bridge::connect_session(dir.path()).await.unwrap();
+        let (_peer, _) = listener.accept().await.unwrap();
+        let mut initial: Vec<_> = packets
+            .iter()
+            .map(crate::session_transport::tests::packet_bytes)
+            .collect();
+        initial.push(crate::session_transport::tests::packet_bytes(&Packet::new(
+            SetTime {
+                time: wire::ZigZag32(17),
+            },
+        )));
+        let transport = SessionTransport::new(reader, frames, &initial);
+        let mut session = PlaySession::new(transport, cache, 1, false);
+        assert!(matches!(
+            session.recv_world_event(0).await.unwrap(),
+            WorldEvent::SetTime(_)
+        ));
+        assert_eq!(session.unused_packet_count(), packets.len() as u64);
+        assert_eq!(session.decode_error_count(), 0);
+    }
+}
 
 /// Play reports the malformed packet that ended the session, with its body, and nothing for
 /// the packets it accepted.
@@ -102,7 +145,7 @@ async fn accepted_packets_release_the_observers_batch_storage() {
 /// Cache validation reports the original rejected body before returning its recovery event.
 #[tokio::test]
 async fn cache_rejections_are_tapped_before_recovery() {
-    use bedrock_protocol_1_26_51::{packets::ClientCacheMissResponse, types::MissingBlobData};
+    use bedrock_protocol_1_26_60::{packets::ClientCacheMissResponse, types::MissingBlobData};
     let hash = crate::client_blob_hash(b"expected");
     let response = Packet::new(ClientCacheMissResponse {
         missing_blobs: vec![MissingBlobData {
@@ -172,7 +215,7 @@ async fn cache_rejections_are_tapped_before_recovery() {
 /// A rejected boundary keeps its evidence even when ingress continues to an ordinary event.
 #[tokio::test]
 async fn an_unusable_transfer_is_tapped_as_skipped() {
-    use bedrock_protocol_1_26_51::packets::Transfer;
+    use bedrock_protocol_1_26_60::packets::Transfer;
     for cache in [None, Some(crate::ClientBlobCache::default())] {
         let dir = tempfile::tempdir().unwrap();
         let listener = UnixListener::bind(bridge::session_endpoint_path(dir.path())).unwrap();

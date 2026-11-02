@@ -45,7 +45,7 @@ const LAYER_BYTES: usize = std::mem::size_of::<PrecipitationLayerRecord>();
 const PARAMS_BYTES: usize = std::mem::size_of::<WeatherParamsGpu>();
 const OCCLUSION_BYTES: usize = 2 * (OCCLUSION_SIDE * OCCLUSION_SIDE) as usize * 4;
 /// Fixed seed so the particle mesh is identical across runs.
-const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
+pub(crate) const PARTICLE_MESH_SEED: u64 = 0x5745_4154_4845_5231;
 
 /// Uniform read by `weather.wesl`: box forward offset plus sheet flag, then the grid origin.
 #[repr(C)]
@@ -65,6 +65,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
         crate::shader_safety::from_wesl
     );
     crate::transparent_phase::install(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .init_resource::<WeatherPipeline>()
         .add_render_command::<Transparent3d, DrawWeatherCommands>()
@@ -75,7 +76,7 @@ pub(crate) fn install_weather_render(app: &mut App) {
                 prepare_weather_records.in_set(RenderSystems::PrepareResources),
                 prepare_weather_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_weather
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -421,6 +422,10 @@ fn prepare_weather_bind_group(
     gpu.atmosphere_buffer_id = Some(atmosphere.buffer.id());
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a queue system's render-world inputs"
+)]
 fn queue_weather(
     pipeline_cache: Res<PipelineCache>,
     mut pipeline: ResMut<WeatherPipeline>,
@@ -435,12 +440,16 @@ fn queue_weather(
         &bevy::render::camera::ExtractedCamera,
         &Msaa,
     )>,
+    pack: render_scene::shaderpack::ShaderPackDrawnEffects,
 ) {
     if gpu.layer_count == 0 || gpu.max_particles == 0 || scene.layers.is_empty() {
         return;
     }
     let draw_function = draw_functions.read().id::<DrawWeatherCommands>();
     for (view_entity, main_entity, view, extracted_camera, msaa) in &views {
+        if pack.replaces(view_entity, |drawn| drawn.weather) {
+            continue;
+        }
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {
             continue;
         };

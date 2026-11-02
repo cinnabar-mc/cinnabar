@@ -73,6 +73,7 @@ pub(super) fn network_move(runtime_id: u64, y: f32, teleported: bool) -> ActorEv
         head_yaw: None,
         on_ground: Some(true),
         teleported,
+        force_local_move: false,
         player_mode: None,
         source_tick: None,
         interpolation: Default::default(),
@@ -90,6 +91,7 @@ pub(super) fn player_move(runtime_id: u64, x: f32, teleported: bool) -> ActorEve
         head_yaw: Some(0.0),
         on_ground: Some(true),
         teleported,
+        force_local_move: false,
         player_mode: Some(if teleported {
             protocol::MovePlayerMode::Teleport
         } else {
@@ -179,6 +181,7 @@ fn player_network_position_is_normalized_to_spawn_feet_space() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -248,11 +251,12 @@ fn sleeping_player_network_position_accepts_the_extended_sleeping_flag() {
     assert!((store.get(42).unwrap().position[1] - (64.2 - PLAYER_NETWORK_OFFSET)).abs() < 1e-5);
 }
 
+/// A boat's spawn position is its native origin, like movement; feet-origin moves are not.
 #[test]
-fn spawn_and_partial_positions_never_apply_network_offsets() {
+fn boat_spawns_apply_the_network_offset_and_feet_moves_do_not() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, entity_spawn(42, -7, "minecraft:boat", Arc::from([])));
-    assert_eq!(store.get(42).unwrap().position[1], 64.0);
+    assert_eq!(store.get(42).unwrap().position[1], 64.0 - 0.375);
 
     store.apply(
         1,
@@ -267,6 +271,7 @@ fn spawn_and_partial_positions_never_apply_network_offsets() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -286,6 +291,7 @@ fn absolute_network_positions_use_supported_entity_kind_offsets() {
         ("minecraft:tnt_minecart", 0.5),
         ("minecraft:command_block_minecart", 0.5),
         ("minecraft:boat", 0.375),
+        ("minecraft:chest_boat", 0.375),
     ];
 
     for (index, (identifier, offset)) in cases.into_iter().enumerate() {
@@ -377,6 +383,7 @@ fn feet_origin_y_is_not_shifted_like_a_network_position() {
             head_yaw: None,
             on_ground: Some(false),
             teleported: true,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -403,6 +410,7 @@ fn non_player_network_position_is_unchanged_without_entity_offset_metadata() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -429,6 +437,7 @@ fn player_network_teleport_snaps_to_feet_space() {
             head_yaw: None,
             on_ground: Some(true),
             teleported: true,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -446,6 +455,7 @@ fn player_network_teleport_snaps_to_feet_space() {
 fn remote_player_converges_to_received_position_in_three_ticks() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
 
     let actor = store.get(42).unwrap();
@@ -467,6 +477,7 @@ fn remote_player_converges_to_received_position_in_three_ticks() {
 fn new_target_restarts_three_ticks_from_current_smoothed_position() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 12.0, false));
@@ -481,6 +492,7 @@ fn new_target_restarts_three_ticks_from_current_smoothed_position() {
 fn multiple_packets_before_one_tick_use_only_the_latest_target() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.apply(1, 3, player_move(42, 12.0, false));
     store.advance_interpolation_ticks(1);
@@ -492,6 +504,7 @@ fn multiple_packets_before_one_tick_use_only_the_latest_target() {
 fn teleport_snaps_received_previous_and_current_positions() {
     let mut store = ActorStore::new(1, 0);
     store.apply(1, 1, player_spawn(42, -7, 0.0));
+    store.advance_interpolation_ticks(1);
     store.apply(1, 2, player_move(42, 9.0, false));
     store.advance_interpolation_ticks(1);
     store.apply(1, 3, player_move(42, 100.0, true));
@@ -541,6 +554,7 @@ fn actor_lifecycle_applies_fifo_patches_and_removes_by_unique_id() {
                 head_yaw: None,
                 on_ground: Some(true),
                 teleported: false,
+                force_local_move: false,
                 player_mode: None,
                 source_tick: None,
                 interpolation: Default::default(),
@@ -638,6 +652,7 @@ fn consecutive_teleport_packets_retain_distinct_movement_revisions() {
             head_yaw: None,
             on_ground: None,
             teleported: true,
+            force_local_move: false,
             player_mode: None,
             source_tick: None,
             interpolation: Default::default(),
@@ -924,6 +939,7 @@ fn remote_rotation_steps_the_short_way_across_the_wrap() {
             head_yaw: Some(yaw),
             on_ground: None,
             teleported: false,
+            force_local_move: false,
             player_mode: None,
             source_tick: Some(sequence),
             interpolation: Default::default(),
@@ -967,7 +983,7 @@ fn movement_flag_update_reads_both_flag_words_and_skips_absent_ones() {
     assert_eq!(crate::MovementFlagUpdate::from_metadata(&[unrelated]), None);
 }
 
-/// Remote MovePlayer Rotation turns without moving and Reset snaps without a lerp.
+/// Remote rotation preserves body yaw, and Reset snaps without a lerp.
 #[test]
 fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     let mut store = ActorStore::new(1, 0);
@@ -988,7 +1004,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
         turned.position, before,
         "rotation mode never moves the player"
     );
-    assert_eq!(turned.yaw, 90.0);
+    assert_eq!(turned.yaw, 0.0);
 
     store.apply_player_move(1, 3, 0, movement(protocol::MovePlayerMode::Reset, 30.0));
     let reset = store.get(42).unwrap();
@@ -999,7 +1015,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
 
-/// 1.26.50.26 samples 0.66 of the authoritative body height.
+/// 1.26.60.26 samples 0.66 of the authoritative body height.
 #[test]
 fn brightness_sample_uses_interpolated_feet_and_body_height() {
     for height in [0.25, 1.8, 3.6] {
@@ -1028,3 +1044,39 @@ fn brightness_sample_uses_interpolated_feet_and_body_height() {
 mod bounds;
 mod local_server_swings;
 mod player_list;
+
+#[test]
+fn always_show_name_tag_sentinel_preserves_the_previous_effective_value() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, player_spawn(7, 70, 0.0));
+    let key = ActorDataKey::AlwaysShowNameTag.wire_value();
+    for (index, (value, expected)) in [
+        (-1, None),
+        (1, Some(1)),
+        (-1, Some(1)),
+        (0, Some(0)),
+        (-1, Some(0)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        store.apply(
+            1,
+            index as u64 + 2,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([ActorMetadata {
+                    key,
+                    value: ActorMetadataValue::Byte(value),
+                }]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        assert_eq!(
+            store.snapshot_by_unique(70).unwrap().metadata.get(&key),
+            expected.map(ActorMetadataValue::Byte).as_ref()
+        );
+    }
+}

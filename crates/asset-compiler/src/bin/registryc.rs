@@ -1,3 +1,8 @@
+#![expect(
+    clippy::print_stdout,
+    reason = "registryc reports Java mapping coverage on stdout"
+)]
+
 //! Compiles exported library facts into the active client registry carriers.
 
 use asset_compiler::registry_policy::{self, Result};
@@ -14,6 +19,7 @@ enum Kind {
     BlockEntities,
     Events,
     Identities,
+    JavaMapping,
     Presentation,
     All,
 }
@@ -48,6 +54,32 @@ struct Args {
 /// Dispatches a compiler pass or regenerates every carrier for an exact byte comparison.
 fn main() -> Result<()> {
     let args = Args::parse();
+    if matches!(args.kind, Kind::JavaMapping) {
+        let summary =
+            registry_policy::java_mapping::write(&args.root, args.archive.as_deref(), &args.out)?;
+        println!(
+            "Mapped {} of {} block states ({} from a similar state) and {} of {} biomes to the {} Java Edition biomes, {} Java entity types to {} Bedrock entities and {} Java items to {} Bedrock items",
+            summary.mapped_states,
+            summary.states,
+            summary.approximate_states,
+            summary.mapped_biomes,
+            summary.biomes,
+            summary.java_biomes,
+            summary.entities,
+            summary.bedrock_entities,
+            summary.items,
+            summary.bedrock_items
+        );
+        if args.check {
+            let expected = args.root.join(assets::facts::java_mapping::SOURCE_PATH);
+            compare(&args.out, &expected)?;
+            compare(
+                &args.out.with_extension("sha256"),
+                &expected.with_extension("sha256"),
+            )?;
+        }
+        return Ok(());
+    }
     if matches!(args.kind, Kind::BlockEntities) {
         registry_policy::block_entities::write(
             &args.root,
@@ -130,7 +162,9 @@ fn main() -> Result<()> {
     }
     let facts = registry_policy::read_facts(required(&args.facts, "--facts")?)?;
     match args.kind {
-        Kind::Entities | Kind::Identities | Kind::Presentation => unreachable!(),
+        Kind::Entities | Kind::Identities | Kind::Presentation | Kind::JavaMapping => {
+            unreachable!()
+        }
         Kind::Blocks => registry_policy::blocks(
             &args.root,
             &facts,
@@ -181,10 +215,10 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         args.root.join("assets/bedrock-target.json"),
     )?)?;
     let block: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        args.root.join("assets/block-projection-v2193.json"),
+        args.root.join("assets/block-projection-v2225.json"),
     )?)?;
     let biome: serde_json::Value = serde_json::from_slice(&std::fs::read(
-        args.root.join("assets/biome-projection-v2193.json"),
+        args.root.join("assets/biome-projection-v2225.json"),
     )?)?;
     let artifact = |name: &str| -> Result<PathBuf> {
         Ok(PathBuf::from(
@@ -203,8 +237,8 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
         .to_string_lossy();
     let seed_path =
         physics_path.with_file_name(filename.replace("block-physics-", "block-physics-seed-"));
-    let block_manifest = PathBuf::from("assets/block-projection-v2193.json");
-    let biome_manifest = PathBuf::from("assets/biome-projection-v2193.json");
+    let block_manifest = PathBuf::from("assets/block-projection-v2225.json");
+    let biome_manifest = PathBuf::from("assets/biome-projection-v2225.json");
     registry_policy::blocks(
         &args.root,
         facts,
@@ -311,9 +345,9 @@ fn all(args: &Args, facts: &registry_policy::Facts) -> Result<()> {
             &PathBuf::from(registry_policy::events::GENERATED_PATH),
             &PathBuf::from(registry_policy::identities::GENERATED_PATH),
             &PathBuf::from(registry_policy::presentation::GENERATED_PATH),
-            &PathBuf::from("crates/assets/data/facts-expansion-v2193.tsv"),
+            &PathBuf::from("crates/assets/data/facts-expansion-v2225.tsv"),
             &PathBuf::from(assets::facts::BLOCK_PLACEMENT_SOURCE_PATH),
-            &PathBuf::from("crates/assets/data/vocabulary-v2193.txt"),
+            &PathBuf::from("crates/assets/data/vocabulary-v2225.txt"),
             &item_path,
             &item_expansion,
             &block_path,

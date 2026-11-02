@@ -7,6 +7,22 @@ use std::sync::Arc;
 
 const STEP: f32 = 1.0 / 120.0;
 const ITERATIONS: usize = 9;
+/// Small fabric separation from the actual skin or worn geometry, in model blocks.
+const CONTACT_MARGIN: f32 = 0.0125;
+const CONTACT_SEPARATION: f32 = 0.001;
+/// Head contacts leave the neck open so the first free fabric row can meet its pins.
+const HEAD_MARGIN: f32 = 0.018;
+/// Keep most vertical avatar travel while retaining a small jump/landing response.
+const VERTICAL_FOLLOW: f32 = 0.8;
+/// Follow part of a run or sudden stop so the remaining inertia forms a gentle trailing drape.
+const HORIZONTAL_FOLLOW: f32 = 0.4;
+/// Retain the original air resistance during steady travel.
+const WORLD_DRAG: f32 = 1.94;
+/// Extra settling opposes motion relative to the attachment rather than steady running speed.
+const SETTLING_DAMPING: f32 = 3.8 - WORLD_DRAG;
+
+mod fitting;
+use fitting::DepthFit;
 
 /// Previous and current tick endpoints with identically sampled fabric particles.
 pub type ClothPose = (Arc<[RenderBoneTransform]>, Arc<[RenderBoneTransform]>);
@@ -158,6 +174,7 @@ impl ClothRig {
 }
 
 /// A conservative animated body box in world coordinates; cloth cannot enter its interior.
+#[derive(Clone)]
 pub struct Collider {
     world: Mat4,
     inverse: Mat4,
@@ -177,9 +194,71 @@ pub fn placement(rows: [[f32; 4]; 3]) -> Mat4 {
 }
 
 impl Collider {
+    /// Uses the rendered bone's own geometry instead of assuming a standard armor thickness.
+    pub fn geometry(
+        name: &str,
+        geometry: &ActorRigGeometry,
+        index: usize,
+        bone: RenderBoneTransform,
+        actor: Mat4,
+    ) -> Option<Self> {
+        let (min, max) = geometry.bone_bounds(index)?;
+        let scale = Vec3::from_slice(&bone.axis_scale[..3]) * bone.translation_scale[3];
+        if scale.min_element() <= 1e-5 {
+            return None;
+        }
+        let world = actor
+            * Mat4::from_scale_rotation_translation(
+                scale,
+                Quat::from_array(bone.rotation),
+                Vec3::from_slice(&bone.translation_scale[..3]),
+            );
+        let margin = if name.eq_ignore_ascii_case("head") {
+            HEAD_MARGIN
+        } else {
+            CONTACT_MARGIN
+        };
+        Some(Self {
+            world,
+            inverse: world.inverse(),
+            min: Vec3::from_array(min) - Vec3::splat(margin),
+            max: Vec3::from_array(max) + Vec3::splat(margin),
+            back_only: name.split('.').next().is_some_and(|root| {
+                root.eq_ignore_ascii_case("body") || root.eq_ignore_ascii_case("jacket")
+            }),
+        })
+    }
+
+    /// Samples contacts with the renderer's endpoint interpolation, including rotating armor.
+    pub fn sampled_geometry(
+        name: &str,
+        geometry: &ActorRigGeometry,
+        index: usize,
+        bones: [RenderBoneTransform; 2],
+        actor: [[f32; 4]; 3],
+        alpha: f32,
+    ) -> Option<Self> {
+        let sampled =
+            crate::actor::sampled_bone_offset([0.0; 3], bones[0], bones[1], actor, alpha)?;
+        let world = Mat4::from_cols(
+            Vec3::from_array(sampled.basis[0]).extend(0.0),
+            Vec3::from_array(sampled.basis[1]).extend(0.0),
+            Vec3::from_array(sampled.basis[2]).extend(0.0),
+            Vec3::from_array(sampled.position).extend(1.0),
+        );
+        if world.determinant().abs() < 1e-8 {
+            return None;
+        }
+        let mut collider = Self::geometry(name, geometry, index, bones[1], Mat4::IDENTITY)?;
+        collider.world = world;
+        collider.inverse = world.inverse();
+        Some(collider)
+    }
+
     /// Build standard-avatar collision proxies from the evaluated head, body, arms and legs.
     pub fn biped(name: &str, bone: RenderBoneTransform, actor: Mat4) -> Option<Self> {
-        let (min, max, back_only) = match name.to_ascii_lowercase().as_str() {
+        let name = name.to_ascii_lowercase();
+        let (min, max, back_only) = match name.as_str() {
             "body" => ([-4.0, -12.0, -2.0], [4.0, 0.0, 2.0], true),
             "head" => ([-4.0, 0.0, -4.0], [4.0, 8.0, 4.0], false),
             "leftarm" | "rightarm" => ([-2.0, -10.0, -2.0], [2.0, 2.0, 2.0], false),
@@ -196,11 +275,16 @@ impl Collider {
                 Quat::from_array(bone.rotation),
                 Vec3::from_slice(&bone.translation_scale[..3]),
             );
+        let margin = if name == "head" {
+            HEAD_MARGIN
+        } else {
+            CONTACT_MARGIN
+        };
         Some(Self {
             world,
             inverse: world.inverse(),
-            min: Vec3::from_array(min) / 16.0 - Vec3::splat(0.018),
-            max: Vec3::from_array(max) / 16.0 + Vec3::splat(0.018),
+            min: Vec3::from_array(min) / 16.0 - Vec3::splat(margin),
+            max: Vec3::from_array(max) / 16.0 + Vec3::splat(margin),
             back_only,
         })
     }
@@ -229,9 +313,9 @@ impl Collider {
             }
         }
         local[axis] = if positive {
-            self.max[axis] + 0.001
+            self.max[axis] + CONTACT_SEPARATION
         } else {
-            self.min[axis] - 0.001
+            self.min[axis] - CONTACT_SEPARATION
         };
         *point = self.world.transform_point3(local);
     }
@@ -249,9 +333,29 @@ pub struct ClothState {
     previous_center: Option<Vec3>,
     last_pins: Vec<Vec3>,
     previous_scale: Option<Vec3>,
+    previous_frame: Option<Mat4>,
+    reanchor_pending: bool,
+    fitting: Option<DepthFit>,
+    fitted_actor: Option<[[f32; 4]; 3]>,
+    retain_fitting: bool,
 }
 
 impl ClothState {
+    /// Placement paired with the latest cloth pose; render its rigid and simulated bones together.
+    pub fn fitted_placement(&self) -> Option<[[f32; 4]; 3]> {
+        self.fitted_actor
+    }
+
+    /// Keeps the last drawn armor fit during one hidden-view update without freezing simulation.
+    pub fn retain_fitting(&mut self) {
+        self.retain_fitting = true;
+    }
+
+    /// Preserve the drape and velocity in attachment space when a view changes its body pose.
+    pub fn reanchor(&mut self) {
+        self.reanchor_pending = true;
+    }
+
     /// Deform only the declared fabric; preserve the item's fixed clasps and ordinary animations.
     /// Timing contains frame duration and tick interpolation; fabric uses identical render endpoints.
     pub fn pose(
@@ -262,26 +366,56 @@ impl ClothState {
         timing: (f32, f32),
         colliders: &[Collider],
     ) -> Option<ClothPose> {
+        self.fitted_actor = None;
         let model: &HatRig = rig(item);
         let cloth = model.cloth.as_ref()?;
         let (delta, alpha) = timing;
-        let world = placement(actor);
-        if !world.is_finite() || world.determinant().abs() < 1e-8 {
+        let original_world = placement(actor);
+        if !original_world.is_finite() || original_world.determinant().abs() < 1e-8 {
             self.previous_center = None;
             return None;
         }
-        let inverse = world.inverse();
-        let roots = [bases[0][cloth.source], bases[1][cloth.source]];
-        let root_scales =
-            roots.map(|root| Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3]);
-        if roots.iter().any(|root| !root.is_finite())
+        let original_roots = [bases[0][cloth.source], bases[1][cloth.source]];
+        let root_scales = original_roots
+            .map(|root| Vec3::from_slice(&root.axis_scale[..3]) * root.translation_scale[3]);
+        if original_roots.iter().any(|root| !root.is_finite())
             || root_scales.iter().any(|scale| scale.min_element() <= 1e-5)
         {
             self.previous_center = None;
             return None;
         }
+        let retain = std::mem::take(&mut self.retain_fitting);
+        let mut fitting = if retain && self.fitting.is_some() {
+            self.fitting
+        } else {
+            DepthFit::resolve(model, &bases, actor, alpha, colliders)
+        };
+        if let (Some(old), Some(new)) = (self.fitting, fitting)
+            && !old.differs(new)
+        {
+            // World-to-torso roundoff must not change the fit during ordinary movement.
+            fitting = Some(old);
+        }
+        if match (self.fitting, fitting) {
+            (Some(old), Some(new)) => old.differs(new),
+            (None, None) => false,
+            _ => true,
+        } {
+            self.reanchor_pending = true;
+        }
+        self.fitting = fitting;
+        let world = match fitting {
+            Some(fit) => fit.placement(model, &bases, actor, alpha)?,
+            None => original_world,
+        };
+        let rows = world.transpose().to_cols_array_2d();
+        let fitted_actor = [rows[0], rows[1], rows[2]];
+        self.fitted_actor = Some(fitted_actor);
+        let inverse = world.inverse();
+        let mut poses = bases.map(|base| base.to_vec());
+        let roots = original_roots;
         let sampled =
-            crate::actor::sampled_bone_offset([0.0; 3], roots[0], roots[1], actor, alpha)?;
+            crate::actor::sampled_bone_offset([0.0; 3], roots[0], roots[1], fitted_actor, alpha)?;
         let transform = Mat4::from_cols(
             Vec3::from_array(sampled.basis[0]).extend(0.0),
             Vec3::from_array(sampled.basis[1]).extend(0.0),
@@ -290,12 +424,12 @@ impl ClothState {
         );
         let scale = root_scales[0].lerp(root_scales[1], alpha.clamp(0.0, 1.0))
             * Vec3::new(
-                world.x_axis.length(),
-                world.y_axis.length(),
-                world.z_axis.length(),
+                original_world.x_axis.length(),
+                original_world.y_axis.length(),
+                original_world.z_axis.length(),
             );
         let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
-        let center = world.w_axis.truncate();
+        let center = original_world.w_axis.truncate();
         let reset = self.points.len() != cloth.rest.len()
             || self
                 .previous_scale
@@ -322,9 +456,38 @@ impl ClothState {
             self.constraints = cloth.constraints.clone();
             self.last_pins = pins.clone();
             self.accumulator = 0.0;
+        } else if let Some(previous) = self.previous_center {
+            if self.reanchor_pending
+                && let Some(old_frame) = self.previous_frame
+            {
+                // Rebase only the pose-space discontinuity; ordinary avatar travel still has inertia.
+                let pose_frame = Mat4::from_translation(previous - center) * transform;
+                let rebase = pose_frame * old_frame.inverse();
+                for point in self
+                    .points
+                    .iter_mut()
+                    .chain(&mut self.old)
+                    .chain(&mut self.last_pins)
+                {
+                    *point = rebase.transform_point3(*point);
+                }
+            }
+            // Move both Verlet endpoints together so following the avatar adds no artificial energy.
+            let carry = (center - previous)
+                * Vec3::new(HORIZONTAL_FOLLOW, VERTICAL_FOLLOW, HORIZONTAL_FOLLOW);
+            for point in self
+                .points
+                .iter_mut()
+                .chain(&mut self.old)
+                .chain(&mut self.last_pins)
+            {
+                *point += carry;
+            }
         }
         self.previous_center = Some(center);
         self.previous_scale = Some(scale);
+        self.previous_frame = (transform.determinant().abs() > 1e-8).then_some(transform);
+        self.reanchor_pending = false;
         for constraint in &mut self.constraints {
             constraint.length = transform
                 .transform_vector3(cloth.rest[constraint.b] - cloth.rest[constraint.a])
@@ -334,6 +497,15 @@ impl ClothState {
             delta.clamp(0.0, 0.05)
         } else {
             0.0
+        };
+        let anchor_velocity = if delta > 0.0 {
+            pins.iter()
+                .zip(&self.last_pins)
+                .map(|(a, b)| *a - *b)
+                .sum::<Vec3>()
+                / (pins.len() as f32 * delta)
+        } else {
+            Vec3::ZERO
         };
         self.accumulator += delta;
         let steps = (self.accumulator / STEP) as usize;
@@ -349,7 +521,8 @@ impl ClothState {
                 cloth,
                 &current_pins,
                 colliders,
-                world.transform_vector3(Vec3::Z) * 0.35,
+                original_world.transform_vector3(Vec3::Z) * 0.35,
+                anchor_velocity,
             );
             self.accumulator -= STEP;
         }
@@ -358,8 +531,20 @@ impl ClothState {
             self.old[i] = *pin;
         }
         self.last_pins = pins;
+        // A reveal or equipment change may draw before the next fixed simulation step.
+        for (point, old) in self
+            .points
+            .iter_mut()
+            .zip(&mut self.old)
+            .skip(cloth.columns + 1)
+        {
+            let before = *point;
+            for collider in colliders {
+                collider.project(point);
+            }
+            *old += *point - before;
+        }
         self.update_normals(cloth);
-        let mut poses = bases.map(|base| base.to_vec());
         for (i, point) in self.points.iter().enumerate() {
             let point = inverse.transform_point3(*point);
             let normal = inverse
@@ -396,7 +581,14 @@ impl ClothState {
     }
 
     /// Integrate gravity and normal airflow, then solve stretch, shear, bend and body contacts.
-    fn step(&mut self, cloth: &ClothRig, pins: &[Vec3], colliders: &[Collider], wind: Vec3) {
+    fn step(
+        &mut self,
+        cloth: &ClothRig,
+        pins: &[Vec3],
+        colliders: &[Collider],
+        wind: Vec3,
+        anchor_velocity: Vec3,
+    ) {
         self.seconds += STEP;
         self.update_normals(cloth);
         for (i, pin) in pins.iter().enumerate() {
@@ -409,17 +601,21 @@ impl ClothState {
             let v = (i / (cloth.columns + 1)) as f32 / cloth.rows as f32;
             let air = wind
                 + Vec3::new(
-                    0.14 * (self.seconds * 2.1 + v * 5.0).sin(),
-                    0.08 * (self.seconds * 3.7 + u * 4.0).sin(),
-                    0.18 * (self.seconds * 4.3 + u * 7.0 + v * 6.0).sin(),
+                    0.10 * (self.seconds * 2.1 + v * 5.0).sin(),
+                    0.04 * (self.seconds * 3.7 + u * 4.0).sin(),
+                    0.10 * (self.seconds * 4.3 + u * 7.0 + v * 6.0).sin(),
                 );
             let relative = air - velocity;
             let normal_speed = relative.dot(self.normals[i]);
-            let pressure = (0.8 * normal_speed * normal_speed.abs()).clamp(-28.0, 28.0);
+            let pressure = (0.6 * normal_speed * normal_speed.abs()).clamp(-14.0, 14.0);
             let acceleration =
                 Vec3::new(0.0, -9.81, 0.0) + self.normals[i] * pressure + relative * 0.16;
             let old = self.points[i];
-            self.points[i] = old + (old - self.old[i]) * 0.984 + acceleration * (STEP * STEP);
+            let anchor_step = anchor_velocity * STEP;
+            let relative_step = old - self.old[i] - anchor_step;
+            let damped_step = anchor_step + relative_step * (-SETTLING_DAMPING * STEP).exp();
+            self.points[i] =
+                old + damped_step * (-WORLD_DRAG * STEP).exp() + acceleration * (STEP * STEP);
             self.old[i] = old;
         }
         for constraint in &mut self.constraints {
@@ -454,274 +650,4 @@ impl ClothState {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{ActorRigSurface, ActorRigVertex, EntityRigId};
-
-    /// Admits a small synthetic fabric through the public asset contract.
-    fn admitted_fixture() -> Item {
-        use sha2::{Digest, Sha256};
-        let texture = include_bytes!("bunny_ears.png");
-        let image = image::load_from_memory(texture).unwrap();
-        let points: Vec<_> = (0..=2)
-            .flat_map(|y| (0..=2).map(move |x| [x as f32 * 5.0 - 5.0, 23.8 - y as f32 * 8.5, 3.2]))
-            .collect();
-        let mut polygons = Vec::new();
-        for y in 0..2 {
-            for x in 0..2 {
-                let a = y * 3 + x;
-                polygons.push([a, a + 3, a + 4, a + 1].map(|i| [i, 0, i]));
-            }
-        }
-        let geometry=serde_json::to_vec(&serde_json::json!({"format_version":"1.12.0", "minecraft:geometry":[{
-            "description":{"identifier":"geometry.fixture.cloth","texture_width":image.width(),"texture_height":image.height()},
-            "bones":[{"name":"body","pivot":[0,24,0]}, {"name":"fabric","parent":"body","pivot":[0,23.8,3.2],
-            "poly_mesh":{"normalized_uvs":true,"positions":points,"normals":[[0,0,1]],"uvs":vec![[0.0,0.0];9],"polys":polygons}}]
-        }]})).unwrap();
-        let animation = br#"{"cloth":{"bone":"fabric","columns":2,"rows":2}}"#;
-        let asset = |bytes: &[u8]| cosmetics::Asset {
-            url: "/fixture".into(),
-            sha256: format!("{:x}", Sha256::digest(bytes)),
-            bytes: bytes.len(),
-        };
-        let mut descriptor = crate::hats::fixture::bunny().descriptor().clone();
-        descriptor.id = "fixture:continuous_cloth".into();
-        descriptor.slot = "back".into();
-        descriptor.attachment_bone = "body".into();
-        descriptor.geometry_id = "geometry.fixture.cloth".into();
-        descriptor.assets = cosmetics::Assets {
-            geometry: asset(&geometry),
-            texture: asset(texture),
-            animation: Some(asset(animation)),
-        };
-        crate::hats::admit(descriptor, &geometry, texture, animation).unwrap()
-    }
-
-    #[test]
-    fn admitted_cloth_expands_all_pose_channels_and_runs_through_the_native_rig() {
-        let item = admitted_fixture();
-        let model = rig(item);
-        assert!(model.has_cloth());
-        let root = RenderBoneTransform {
-            rotation: Quat::IDENTITY.to_array(),
-            translation_scale: [0.0, 1.5, 0.0, 1.0],
-            axis_scale: UNIT_AXIS_SCALE,
-        };
-        let base = model.pose(root, super::super::Motion::default());
-        assert_eq!(base.len(), 11);
-        let mut state = ClothState::default();
-        for _ in 0..30 {
-            let (_, pose) = state
-                .pose(
-                    item,
-                    [base.clone(), base.clone()],
-                    [
-                        [1.0, 0.0, 0.0, 0.0],
-                        [0.0, 1.0, 0.0, 0.0],
-                        [0.0, 0.0, 1.0, 0.0],
-                    ],
-                    (1.0 / 20.0, 0.5),
-                    &[],
-                )
-                .unwrap();
-            assert!(pose.iter().all(|bone| bone.is_finite()));
-        }
-    }
-
-    #[test]
-    fn scaled_rest_lengths_and_frame_poses_preserve_attachment_endpoints() {
-        let item = admitted_fixture();
-        let model = rig(item);
-        let cloth = model.cloth.as_ref().unwrap();
-        let mut state = ClothState::default();
-        for scale in [Vec3::splat(0.5), Vec3::splat(2.0), Vec3::new(0.7, 1.3, 0.9)] {
-            let root = RenderBoneTransform {
-                rotation: Quat::IDENTITY.to_array(),
-                translation_scale: [0.0, 1.5, 0.0, 1.0],
-                axis_scale: [scale.x, scale.y, scale.z, 1.0],
-            };
-            let previous = model.pose(root, super::super::Motion::default());
-            let mut current = previous.to_vec();
-            for bone in &mut current {
-                bone.translation_scale[0] += 0.1;
-            }
-            let current: Arc<[RenderBoneTransform]> = current.into();
-            let actor = [
-                [1.2, 0.0, 0.0, 2.0],
-                [0.0, 0.8, 0.0, 0.0],
-                [0.0, 0.0, 1.1, 0.0],
-            ];
-            for frame in 0..120 {
-                let alpha = (frame % 3) as f32 * 0.4;
-                let (a, b) = state
-                    .pose(
-                        item,
-                        [previous.clone(), current.clone()],
-                        actor,
-                        (1.0 / 120.0, alpha),
-                        &[],
-                    )
-                    .unwrap();
-                assert_eq!(&a[..cloth.first], &previous[..cloth.first]);
-                assert_eq!(&b[..cloth.first], &current[..cloth.first]);
-                assert_eq!(&a[cloth.first..], &b[cloth.first..]);
-                let pivot = Vec3::from_array(model.geometry.bone_pivots[cloth.source]);
-                let mut offset = cloth.rest[0] - pivot;
-                offset.x *= 0.89;
-                let pin = crate::actor::sampled_bone_offset(
-                    offset.to_array(),
-                    previous[cloth.source],
-                    current[cloth.source],
-                    actor,
-                    alpha,
-                )
-                .unwrap();
-                assert!(state.points[0].abs_diff_eq(Vec3::from_array(pin.position), 1e-5));
-                for c in &state.constraints {
-                    let expected =
-                        ((cloth.rest[c.b] - cloth.rest[c.a]) * scale * Vec3::new(1.2, 0.8, 1.1))
-                            .length();
-                    assert!((c.length - expected).abs() < 1e-5);
-                }
-            }
-            let stretch = state
-                .constraints
-                .iter()
-                .filter(|c| c.compliance < 0.001)
-                .map(|c| state.points[c.a].distance(state.points[c.b]) / c.length - 1.0)
-                .fold(0.0_f32, f32::max);
-            assert!(
-                stretch < 0.12,
-                "scaled fabric lost its dimensions: {stretch}"
-            );
-        }
-    }
-
-    /// A rectangular fabric fixture whose neighbouring triangles repeat their shared corners.
-    fn fixture() -> (ClothRig, ActorRigGeometry) {
-        let (nx, ny) = (6, 12);
-        let points: Vec<_> = (0..=ny)
-            .flat_map(|y| {
-                (0..=nx).map(move |x| {
-                    [
-                        -0.3125 + x as f32 * 0.625 / nx as f32,
-                        1.4875 - y as f32 * 1.0625 / ny as f32,
-                        0.2,
-                    ]
-                })
-            })
-            .collect();
-        let mut vertices = Vec::new();
-        for y in 0..ny {
-            for x in 0..nx {
-                let a = y * (nx + 1) + x;
-                for index in [a, a + nx + 1, a + 1, a + 1, a + nx + 1, a + nx + 2] {
-                    vertices.push(ActorRigVertex {
-                        position: points[index],
-                        normal: [0.0, 0.0, 1.0],
-                        uv: [0.0; 2],
-                        back_uv: [0.0; 2],
-                        bone_index: 1,
-                        surface: ActorRigSurface::SINGLE_FACE,
-                        glint_origin: [0.0; 2],
-                    });
-                }
-            }
-        }
-        let mut geometry = ActorRigGeometry::new(
-            EntityRigId(0),
-            vertices,
-            vec![[0.0, 1.5, 0.0], [0.0, 1.4875, 0.2]],
-        )
-        .unwrap();
-        let cloth = ClothRig::build(
-            &Definition {
-                bone: "fabric".into(),
-                columns: nx,
-                rows: ny,
-            },
-            &["body", "fabric"],
-            &mut geometry,
-            &mut vec![None, Some(0)],
-        )
-        .unwrap();
-        (cloth, geometry)
-    }
-
-    #[test]
-    fn adjacent_triangles_share_the_same_simulated_particle() {
-        let (cloth, geometry) = fixture();
-        assert_eq!(cloth.rest.len(), 91);
-        for pair in geometry.vertices.as_chunks::<6>().0 {
-            assert_eq!(pair[1].bone_index, pair[4].bone_index);
-            assert_eq!(pair[2].bone_index, pair[3].bone_index);
-        }
-    }
-
-    #[test]
-    fn fabric_trails_motion_and_survives_run_stop_turn_jump() {
-        let (cloth, _) = fixture();
-        let mut state = ClothState {
-            points: cloth.rest.clone(),
-            old: cloth.rest.clone(),
-            normals: vec![Vec3::Z; cloth.rest.len()],
-            constraints: cloth.constraints.clone(),
-            ..Default::default()
-        };
-        let mut center = Vec3::ZERO;
-        let mut trail = 0.0_f32;
-        for frame in 0..1800 {
-            let t = frame as f32 * STEP;
-            let speed = if (1.0..5.0).contains(&t) { 5.6 } else { 0.0 };
-            center.z += speed * STEP;
-            let yaw = if t > 7.0 {
-                (t - 7.0).min(1.0) * std::f32::consts::PI
-            } else {
-                0.0
-            };
-            let rotation = Quat::from_rotation_y(yaw);
-            let jump = if (9.0..10.0).contains(&t) {
-                ((t - 9.0) * std::f32::consts::PI).sin() * 0.6
-            } else {
-                0.0
-            };
-            let pins: Vec<_> = cloth.rest[..=cloth.columns]
-                .iter()
-                .map(|p| center + rotation * (*p) + Vec3::Y * jump)
-                .collect();
-            state.step(&cloth, &pins, &[], Vec3::ZERO);
-            assert!(state.points.iter().all(|p| p.is_finite()));
-            assert_eq!(&state.points[..=cloth.columns], pins.as_slice());
-            if (3.0..5.0).contains(&t) {
-                trail = trail.max(pins[0].z - state.points.last().unwrap().z);
-            }
-        }
-        assert!(
-            trail > 0.25,
-            "moving attachments must leave the hem trailing: {trail}"
-        );
-        let max_stretch = cloth
-            .constraints
-            .iter()
-            .filter(|c| c.compliance < 0.001)
-            .map(|c| state.points[c.a].distance(state.points[c.b]) / c.length - 1.0)
-            .fold(0.0_f32, f32::max);
-        assert!(
-            max_stretch < 0.12,
-            "the settled fabric must retain its dimensions: {max_stretch}"
-        );
-    }
-
-    #[test]
-    fn torso_contact_exits_through_the_back_after_rotation() {
-        let bone = RenderBoneTransform {
-            rotation: Quat::from_rotation_y(1.2).to_array(),
-            translation_scale: [0.0, 1.5, 0.0, 1.0],
-            axis_scale: UNIT_AXIS_SCALE,
-        };
-        let collider = Collider::biped("body", bone, Mat4::IDENTITY).unwrap();
-        let mut point = collider.world.transform_point3(Vec3::new(0.0, -0.4, 0.0));
-        collider.project(&mut point);
-        assert!(collider.inverse.transform_point3(point).z > collider.max.z);
-    }
-}
+mod tests;

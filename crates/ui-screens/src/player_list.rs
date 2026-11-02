@@ -27,13 +27,24 @@ const BADGE_WIDTH: f64 = 9.0;
 const HEAD_WIDTH: f64 = 9.0;
 
 /// One roster entry as the tab list draws it; the badge belongs to this entry, not its name.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct RosterRow {
     pub name: Arc<str>,
     pub badged: bool,
-    pub annotation: Option<Arc<ui::mod_hud::CounterAnnotation>>,
+    /// Mod spans beside the name; spans placed above follow it, as a row has no line above.
+    pub annotation: Option<Arc<ui::mod_presentation::Spans>>,
     /// The admitted skin for this UUID; absent or unusable skins display Steve.
     pub skin: Option<render_api::StandardSkin>,
+}
+
+/// Inputs that invalidate the roster's prepared geometry and bindings.
+#[derive(Clone, Copy, PartialEq)]
+struct Geometry {
+    root: [f64; 2],
+    px: f32,
+    language: [usize; 3],
+    badge: bool,
+    top_inset: f32,
 }
 
 /// The roster screen over its own bundled catalog, rebound only when the rows change.
@@ -44,7 +55,7 @@ pub struct PlayerList {
     total: usize,
     data: Arc<DataSource>,
     dimensions: [usize; 2],
-    geometry: Option<([f64; 2], f32, [usize; 3], bool)>,
+    geometry: Option<Geometry>,
     context: Context,
     portraits: BTreeMap<String, render_model::UiTexturePage>,
     heads: Vec<String>,
@@ -125,7 +136,8 @@ impl PlayerList {
         [columns, rows]
     }
 
-    /// Binds names and independently tinted counter runs after the measured column width is known.
+    /// Binds names and independently tinted annotation spans after the measured column width
+    /// is known. Spans keep their width before the name when the column is narrow.
     fn bind_rows(&mut self, width: f64, text: &dyn json_ui::TextMeasure) {
         let [columns, rows] = self.dimensions;
         let cells = (0..rows).flat_map(|row| (0..columns).map(move |col| col * rows + row));
@@ -133,8 +145,8 @@ impl PlayerList {
             .map(|index| {
                 let row = self.rows.get(index);
                 let annotation = row.and_then(|row| row.annotation.as_deref());
-                let [name, prefix, count, space] = row.map_or([0.; 4], |row| row_widths(row, text));
-                let inner = (width
+                let widths = row.map(|row| row_widths(row, text)).unwrap_or_default();
+                let mut remaining = (width
                     - 8.
                     - HEAD_WIDTH
                     - if row.is_some_and(|row| row.badged) {
@@ -143,17 +155,20 @@ impl PlayerList {
                         0.
                     })
                 .max(0.);
-                let count = count.min(inner);
-                let prefix = prefix.min(inner - count);
-                let space = space.min(inner - count - prefix);
-                let name = name.min(inner - count - prefix - space);
-                let before = annotation.is_some_and(|annotation| annotation.before);
-                let name_x = 2. + HEAD_WIDTH + if before { prefix + count + space } else { 0. };
-                let prefix_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
-                let rgba = |color: [u8; 4]| {
-                    Scalar::Json(serde_json::json!(color.map(|v| f64::from(v) / 255.)))
-                };
-                CollectionItem::default()
+                let spans = widths.spans.map(|span| {
+                    let span = span.min(remaining);
+                    remaining -= span;
+                    span
+                });
+                let space = widths.space.min(remaining);
+                let name = widths.name.min(remaining - space);
+                let before = annotation.is_some_and(|annotation| {
+                    annotation.position == ui::mod_presentation::SpanPosition::Before
+                });
+                let spans_width: f64 = spans.iter().sum();
+                let name_x = 2. + HEAD_WIDTH + if before { spans_width + space } else { 0. };
+                let mut span_x = 2. + HEAD_WIDTH + if before { 0. } else { name + space };
+                let mut item = CollectionItem::default()
                     .with(
                         "#player_name",
                         Scalar::Text(row.map_or_else(String::new, |row| row.name.to_string())),
@@ -171,56 +186,76 @@ impl PlayerList {
                         "#name_offset",
                         Scalar::Json(serde_json::json!([name_x, 0.])),
                     )
-                    .with("#name_width", Scalar::Num(name))
-                    .with(
-                        "#counter_prefix",
-                        Scalar::Text(annotation.map_or_else(String::new, |v| v.prefix.to_string())),
-                    )
-                    .with(
-                        "#counter_value",
-                        Scalar::Text(annotation.map_or_else(String::new, |v| v.value.to_string())),
-                    )
-                    .with(
-                        "#prefix_offset",
-                        Scalar::Json(serde_json::json!([prefix_x, 0.])),
-                    )
-                    .with(
-                        "#value_offset",
-                        Scalar::Json(serde_json::json!([prefix_x + prefix, 0.])),
-                    )
-                    .with("#prefix_width", Scalar::Num(prefix))
-                    .with("#value_width", Scalar::Num(count))
-                    .with(
-                        "#prefix_color",
-                        rgba(annotation.map_or([255; 4], |v| v.prefix_color)),
-                    )
-                    .with(
-                        "#value_color",
-                        rgba(annotation.map_or([255; 4], |v| v.value_color)),
-                    )
+                    .with("#name_width", Scalar::Num(name));
+                for (slot, width) in spans.into_iter().enumerate() {
+                    let span = annotation.and_then(|annotation| annotation.spans.get(slot));
+                    let color = span.map_or([1.; 4], |span| span.color);
+                    item = item
+                        .with(
+                            format!("#span_{slot}_text"),
+                            Scalar::Text(
+                                span.map_or_else(String::new, |span| span.text.to_string()),
+                            ),
+                        )
+                        .with(
+                            format!("#span_{slot}_offset"),
+                            Scalar::Json(serde_json::json!([span_x, 0.])),
+                        )
+                        .with(format!("#span_{slot}_width"), Scalar::Num(width))
+                        .with(
+                            format!("#span_{slot}_color"),
+                            Scalar::Json(serde_json::json!(color.map(f64::from))),
+                        )
+                        .with(
+                            format!("#span_{slot}_alpha"),
+                            Scalar::Num(f64::from(color[3])),
+                        );
+                    span_x += width;
+                }
+                item
             })
             .collect();
         Arc::make_mut(&mut self.data).set_collection("online_players", entries);
     }
 }
 
-/// Shares actual font measurements between column sizing and clipped row placement.
-fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> [f64; 4] {
-    let name = text.extent(&row.name)[0];
-    row.annotation.as_ref().map_or([name, 0., 0., 0.], |value| {
-        [
-            name,
-            text.extent(&value.prefix)[0],
-            text.extent(&value.value)[0],
-            text.extent(" ")[0],
-        ]
-    })
+/// Measured widths of one row's name, each annotation span slot and the gap between them.
+#[derive(Default)]
+struct RowWidths {
+    name: f64,
+    spans: [f64; ui::mod_presentation::MAX_ANNOTATION_SPANS],
+    space: f64,
 }
+
+impl RowWidths {
+    /// The unclipped width of the whole row.
+    fn total(&self) -> f64 {
+        self.name + self.spans.iter().sum::<f64>() + self.space
+    }
+}
+
+/// Shares actual font measurements between column sizing and clipped row placement.
+fn row_widths(row: &RosterRow, text: &dyn json_ui::TextMeasure) -> RowWidths {
+    let mut widths = RowWidths {
+        name: text.extent(&row.name)[0],
+        ..Default::default()
+    };
+    if let Some(annotation) = &row.annotation {
+        for (width, span) in widths.spans.iter_mut().zip(&annotation.spans) {
+            *width = text.extent(&span.text)[0];
+        }
+        widths.space = text.extent(" ")[0];
+    }
+    widths
+}
+
+/// Atlas namespace owned by the roster's prepared portrait textures.
+pub const PORTRAIT_RASTER_NAMESPACE: &str = "client-raster:tab-head/";
 
 /// Equal portraits share one atlas allocation, including every Steve fallback row.
 fn portrait_key(image: &render_model::UiTexturePage) -> String {
     let [width, height] = image.dimensions();
-    let mut key = format!("client-raster:tab-head/{width}x{height}/");
+    let mut key = format!("{PORTRAIT_RASTER_NAMESPACE}{width}x{height}/");
     for byte in image.identity() {
         write!(key, "{byte:02x}").expect("writing into a String");
     }
@@ -234,28 +269,40 @@ impl Default for PlayerList {
 }
 
 impl PlayerList {
-    /// Paints the roster `players` over the frame, badging each row that carries one.
+    /// Paints the roster inside a clear vertical region in logical pixels.
     pub fn paint(
         &mut self,
         engine: &FormEngine,
         players: &[RosterRow],
         frame: &mut PaintFrame<'_>,
+        available_y: std::ops::Range<f32>,
     ) -> Result<(), PaintError> {
         let px = frame.metrics.scale.get() * FONT_DESIGN_PIXEL_TEXELS as f32;
         let language = frame.language;
-        let max_rows = ((f64::from(frame.content[1] / px) - 40.0) / ROW_HEIGHT)
+        let top_inset = available_y.start.clamp(0., frame.content[1]);
+        let bottom = available_y.end.clamp(top_inset, frame.content[1]);
+        let max_rows = ((f64::from((bottom - top_inset) / px) - 40.0) / ROW_HEIGHT)
             .floor()
             .clamp(1.0, MAX_ROWS as f64) as usize;
         let [columns, rows] = self.refresh(players, max_rows);
-        engine.textures.lock().set_client_rasters(&self.portraits);
+        engine
+            .textures
+            .lock()
+            .set_client_rasters(PORTRAIT_RASTER_NAMESPACE, &self.portraits);
         engine.draw(ScreenArt::default(), frame, |env, root| {
             let badge = self.rows.iter().any(|row| row.badged);
-            let geometry = (root, px, language, badge);
+            let geometry = Geometry {
+                root,
+                px,
+                language,
+                badge,
+                top_inset,
+            };
             if self.geometry != Some(geometry) {
                 let widest = self
                     .rows
                     .iter()
-                    .map(|row| row_widths(row, env.text).iter().sum())
+                    .map(|row| row_widths(row, env.text).total())
                     .fold(60.0, f64::max);
                 let badge_width = if badge { BADGE_WIDTH } else { 0.0 };
                 let width = (widest + 8.0 + HEAD_WIDTH + badge_width)
@@ -266,6 +313,7 @@ impl PlayerList {
                     .max(env.text.extent(&title)[0] + 4.0)
                     .min(root[0]);
                 self.context = Context::default()
+                    .with_var("top_inset", serde_json::json!(top_inset / px))
                     .with_var("row_height", serde_json::json!(ROW_HEIGHT))
                     .with_var("row_background_height", serde_json::json!(ROW_HEIGHT - 1.0))
                     .with_var("grid_top", serde_json::json!(ROW_HEIGHT + 3.0))

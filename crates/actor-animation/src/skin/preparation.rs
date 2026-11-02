@@ -15,22 +15,25 @@ pub(crate) struct PreparedSkin {
     pub(crate) geometry: Arc<SkinGeometry>,
     pub(crate) mesh: Option<render_model::ActorRigGeometry>,
     pub(crate) bones: Vec<RuntimeBone>,
+    pub(crate) composition: Option<super::super::pose::Composition>,
     pub(crate) names: Vec<Box<str>>,
+    pub(crate) attachments: Arc<render_model::ActorAttachmentBindings>,
     pub(crate) layers: Vec<skin_layers::SkinLayerSkeleton>,
     pub(crate) rest: Option<Arc<[BoneTransform]>>,
 }
 
 impl PreparedSkin {
-    /// Counts retained immutable vertex allocations against the existing actor catalog ceiling.
+    /// Counts retained immutable vertex and polygon allocations against the existing actor
+    /// catalog ceiling. Polygons count even when their mesh is too large to tessellate.
     pub(crate) fn mesh_bytes(&self) -> usize {
         self.mesh
             .as_ref()
             .map_or(0, |mesh| std::mem::size_of_val(mesh.vertices.as_ref()))
+            + self.geometry.poly_mesh_bytes()
             + self
                 .layers
                 .iter()
-                .filter_map(|layer| layer.mesh.as_ref())
-                .map(|mesh| std::mem::size_of_val(mesh.vertices.as_ref()))
+                .map(skin_layers::SkinLayerSkeleton::retained_bytes)
                 .sum::<usize>()
     }
 }
@@ -179,8 +182,12 @@ fn prepare(
                     mesh: render_model::skin_geometry(&geometry, render_model::DIAGNOSTIC_RIG_ID)
                         .ok(),
                     geometry: Arc::new(geometry),
+                    composition: super::super::pose::Composition::new(&bones),
                     bones,
                     layers: skin_layers::parse(source, &names),
+                    attachments: Arc::new(render_model::ActorAttachmentBindings::new(
+                        assets, &names,
+                    )),
                     names,
                     rest,
                 })),

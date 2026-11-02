@@ -1,6 +1,95 @@
 use super::{evaluation::MolangValue, pose::LocalDelta, query::QueryInputs, *};
 use protocol_ids::{ActorDataKey, ActorFlag};
 
+mod hud;
+mod life_span;
+
+#[test]
+fn player_session_artwork_does_not_require_a_pack_body_image() {
+    for player in [false, true] {
+        let identifier = if player {
+            "minecraft:player"
+        } else {
+            "minecraft:pig"
+        };
+        let actor = TestActor {
+            kind: if player {
+                ActorKind::Player {
+                    uuid: [0; 16],
+                    username: "Offline".into(),
+                }
+            } else {
+                ActorKind::Entity {
+                    identifier: identifier.into(),
+                }
+            },
+            ..TestActor::default()
+        };
+        let assets = test_support::counting_random_assets_for(identifier);
+        let mut store = ActorAnimationStore::with_assets(Arc::clone(&assets));
+        store.set_pack(Some((assets, Vec::new())));
+        store.insert(1, 0, &actor);
+        assert_eq!(
+            store.rigs.values().next().unwrap().pack,
+            player,
+            "session skins supply player body artwork; other actors keep their base fallback"
+        );
+    }
+}
+
+#[test]
+fn custom_identity_uses_its_admitted_builtin_appearance() {
+    let base = "minecraft:pig";
+    let actor = TestActor {
+        kind: ActorKind::Entity {
+            identifier: "fixture:ship".into(),
+        },
+        entity_fact_override: Some(assets::facts::entity::EntityFacts::pinned().get(base)),
+        ..TestActor::default()
+    };
+    let mut store =
+        ActorAnimationStore::with_assets(test_support::counting_random_assets_for(base));
+    store.insert(1, 0, &actor);
+    assert_eq!(
+        store.rigs.len(),
+        1,
+        "the declared built-in appearance has no rig"
+    );
+    assert!(
+        matches!(actor.kind(), ActorKind::Entity { identifier } if identifier.as_ref() == "fixture:ship")
+    );
+
+    store.set_pack(Some((
+        test_support::counting_random_assets_for("fixture:ship"),
+        vec![0],
+    )));
+    store.insert(1, 0, &actor);
+    assert!(
+        store.rigs.values().next().unwrap().pack,
+        "custom artwork lost priority over the base"
+    );
+    store.set_pack(Some((
+        test_support::counting_random_assets_for(base),
+        vec![0],
+    )));
+    store.insert(1, 0, &actor);
+    assert!(
+        store.rigs.values().next().unwrap().pack,
+        "the built-in appearance ignored the server pack"
+    );
+    store.set_pack(None);
+
+    let unknown = TestActor {
+        entity_fact_override: None,
+        ..actor.clone()
+    };
+    store.insert(1, 0, &unknown);
+    assert!(
+        store.rigs.is_empty(),
+        "unknown constructors borrowed unrelated artwork"
+    );
+}
+
 #[test]
 fn item_animation_interpolates_observations_before_rendering_and_wraps_the_swing() {
     let previous = ItemAnimationState {
@@ -248,6 +337,31 @@ fn head_target_yaw_is_relative_to_the_body_and_wrapped() {
     };
     assert!((read(&actor, &input, 0, "query.target_y_rotation") - 20.0).abs() < 1.0e-4);
     assert_eq!(read(&actor, &input, 0, "query.target_x_rotation"), 30.0);
+}
+
+// The vanilla rocket hides its body under this query while it boosts a glider.
+#[test]
+fn a_rocket_with_an_owner_reads_as_attached_to_an_entity() {
+    let rocket = |owner: Option<i64>| {
+        let key = ActorDataKey::CustomDisplay.wire_value();
+        actor_with_metadata(
+            owner
+                .map(|id| (key, ActorMetadataValue::Long(id)))
+                .into_iter()
+                .collect(),
+        )
+    };
+    let attached = |owner| {
+        read(
+            &rocket(owner),
+            &ActorTickInput::default(),
+            0,
+            "query.is_attached_to_entity",
+        )
+    };
+    assert_eq!(attached(Some(7)), 1.0);
+    assert_eq!(attached(Some(-1)), 0.0);
+    assert_eq!(attached(None), 0.0);
 }
 
 #[test]
@@ -1039,82 +1153,4 @@ fn arrow_target_yaw_uses_interpolated_absolute_rotation_not_the_latest_packet() 
     // The frame's interpolated sample owns the query, not the newest packet.
     input.yaw = 165.0;
     assert_eq!(read(&actor, &input, 0, "query.target_y_rotation"), 165.0);
-}
-
-#[test]
-fn hud_pose_advances_crawling_animation_independently_of_first_person() {
-    let root =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/assets/compiled");
-    let entries = match std::fs::read_dir(&root) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "skipping HUD pose test: missing entity fixture directory {}",
-                root.display()
-            );
-            return;
-        }
-        Err(error) => panic!("read entity fixture directory {}: {error}", root.display()),
-    };
-    let Some(path) = entries
-        .map(|entry| entry.expect("read entity fixture entry").path())
-        .find(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "mcbeent")
-        })
-    else {
-        eprintln!(
-            "skipping HUD pose test: missing entity fixture {}/*.mcbeent",
-            root.display()
-        );
-        return;
-    };
-    let bytes = match std::fs::read(&path) {
-        Ok(bytes) => bytes,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            eprintln!(
-                "skipping HUD pose test: missing entity fixture {}",
-                path.display()
-            );
-            return;
-        }
-        Err(error) => panic!("read entity fixture {}: {error}", path.display()),
-    };
-    let assets = Arc::new(RuntimeEntityAssets::decode(&bytes).unwrap());
-    let mut actor = actor_with_metadata(HashMap::from([(
-        ActorDataKey::FlagsTwo.wire_value(),
-        ActorMetadataValue::FlagsExtended(1 << (ActorFlag::Crawling.wire_value() - u64::BITS)),
-    )]));
-    actor.kind = ActorKind::Player {
-        uuid: [0; 16],
-        username: "Offline".into(),
-    };
-    let mut first = ActorAnimationStore::with_assets(Arc::clone(&assets));
-    let mut third = ActorAnimationStore::with_assets(assets);
-    first.insert(1, 0, &actor);
-    third.insert(1, 0, &actor);
-    let mut actors = HashMap::from([(actor.runtime_id, actor)]);
-    let mut previous_hud = None;
-    for tick in 0..4 {
-        // The pinned crawl clip advances from modified_distance_moved, so this
-        // fixture must move before comparing successive HUD keyframes.
-        actors.get_mut(&1).unwrap().position[0] = tick as f32 * 0.2;
-        first.advance_tick(&actors, None, Some(1), true, false, |_| ActorTickContext {
-            is_local_first_person: true,
-            ..Default::default()
-        });
-        third.advance_tick(&actors, None, Some(1), true, false, |_| {
-            ActorTickContext::default()
-        });
-        let hud = first.ui_pose(1).expect("full body pose");
-        assert_eq!(hud, third.ui_pose(1).unwrap(), "HUD tick {tick}");
-        if let Some(previous) = previous_hud {
-            assert_ne!(hud, previous, "the crawling keyframes must advance");
-        }
-        previous_hud = Some(hud.to_vec());
-    }
-    let hud = first.ui_pose(1).expect("full body pose");
-    assert!(!hud.is_empty());
-    assert_eq!(hud, third.ui_pose(1).unwrap());
-    assert_ne!(hud, first.get(1).unwrap().current);
 }

@@ -1,0 +1,32 @@
+{
+  "format_version": "1.10.0",
+  "minecraft:client_entity": {
+    "description": {
+      "identifier": "minecraft:player",
+      "materials": {
+        "default": "entity_alphablend"
+      },
+      "textures": {
+        "default": "textures/entity/preview_layers"
+      },
+      "geometry": {
+        "default": "geometry.preview_body",
+        "panel": "geometry.preview_panel"
+      },
+      "animations": {
+        "position": "animation.preview.position"
+      },
+      "scripts": {
+        "animate": [
+          "position"
+        ]
+      },
+      "render_controllers": [
+        "controller.render.preview.body",
+        {
+          "controller.render.preview.panel": "variable.is_paperdoll && !query.is_in_ui"
+        }
+      ]
+    }
+  }
+}

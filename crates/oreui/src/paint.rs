@@ -1,5 +1,5 @@
 //! The OreUI canvas: fills, one-texel edges, speculars and bevels, scaled text,
-//! and original sprites from the installed bundle.
+//! and shipped original sprites.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -14,6 +14,8 @@ mod reveal;
 mod selection_tests;
 mod sprites;
 mod typing;
+#[cfg(test)]
+mod wrap_tests;
 pub(super) use motion::Effects;
 pub(super) use motion::{EntranceScope, apply_entrance};
 
@@ -82,7 +84,7 @@ pub(super) struct Canvas<'a> {
     pub(super) transitions: Option<&'a mut super::transitions::Transitions>,
     pub(super) surface: super::motion::Surface,
     entrance_active: bool,
-    pub(super) slider_tracks: Vec<(u16, UiRect, Option<UiRect>)>,
+    pub(super) slider_tracks: Vec<(MenuAction, UiRect, Option<UiRect>)>,
     /// Scroll offsets by view key, as the last input left them.
     pub(super) offsets: HashMap<String, f32>,
     pub(super) scrolls: Vec<ScrollArea>,
@@ -212,7 +214,7 @@ impl<'a> Canvas<'a> {
     /// Drag endpoints retain their full geometry; only the rendered thumb captures a pointer.
     pub(super) fn slider_track(
         &mut self,
-        index: u16,
+        action: MenuAction,
         track: Bounds,
         thumb: Bounds,
     ) -> Result<(), PaintError> {
@@ -231,7 +233,7 @@ impl<'a> Canvas<'a> {
         } else {
             None
         };
-        self.slider_tracks.push((index, track, thumb));
+        self.slider_tracks.push((action, track, thumb));
         Ok(())
     }
 
@@ -409,7 +411,7 @@ impl<'a> Canvas<'a> {
         if value.is_empty() {
             return Ok(0.0);
         }
-        let layout = self.layout(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let layout = self.layout(value, layout_width(width, 1.0), style)?;
         self.place_text(layout, at, width, color, shadow)
     }
 
@@ -438,7 +440,7 @@ impl<'a> Canvas<'a> {
         if value.is_empty() {
             return Ok(0.0);
         }
-        let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let mut request = self.text_request(value, layout_width(width, 1.0), style)?;
         request.wrap.align = ui::TextLineAlign::Center;
         let layout = self.layouts.layout(request).map_err(PaintError::Text)?;
         self.place_text(layout, at, width, color, shadow)
@@ -452,7 +454,7 @@ impl<'a> Canvas<'a> {
         height: f32,
         style: Type,
     ) -> Result<Arc<ui::TextLayout>, PaintError> {
-        let mut request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let mut request = self.text_request(value, layout_width(width, 1.0), style)?;
         let pitch = (request.line_height_64 as f32 * request.scale.get()
             + request.wrap.line_padding_64 as f32)
             .max(1.0);
@@ -465,7 +467,8 @@ impl<'a> Canvas<'a> {
         self.layouts.layout(request).map_err(PaintError::Text)
     }
 
-    fn layout(
+    /// Wraps text to a width measured in 1/64 logical pixels.
+    pub(super) fn layout(
         &mut self,
         value: &str,
         width_64: u32,
@@ -588,7 +591,7 @@ impl<'a> Canvas<'a> {
         let request = self.text_request(value, MEASUREMENT_WIDTH_64, style)?;
         let layout = self
             .layouts
-            .single_line(request, (width.max(0.0) * 64.0) as u32)
+            .single_line(request, layout_width(width, 0.0))
             .map_err(PaintError::Text)?;
         Ok((!layout.glyphs().is_empty()).then_some(layout))
     }
@@ -617,7 +620,7 @@ impl<'a> Canvas<'a> {
     ) -> Result<f32, PaintError> {
         #[cfg(feature = "tracy")]
         let _text_span = tracing::info_span!("ui.text").entered();
-        let request = self.text_request(value, (width.max(1.0) * 64.0) as u32, style)?;
+        let request = self.text_request(value, layout_width(width, 1.0), style)?;
         let layout = self.layouts.layout(request).map_err(PaintError::Text)?;
         Ok(layout.size_64()[1] as f32 / 64.0)
     }
@@ -844,4 +847,10 @@ fn cover(mut icon: IconRef, bounds: Bounds) -> IconRef {
         icon.uv[3] -= crop;
     }
     icon
+}
+
+/// `width` in layout units, rounded up: a width derived from a measurement must not lose its last
+/// unit to float error, or a word that exactly fits wraps mid-word.
+fn layout_width(width: f32, min: f32) -> u32 {
+    (width.max(min) * 64.0).ceil() as u32
 }

@@ -1,4 +1,4 @@
-mod frame_latency;
+pub(crate) mod frame_latency;
 
 pub use frame_latency::frame_latency_for_vsync;
 
@@ -34,13 +34,19 @@ const CAPABILITIES_KNOWN: u16 = 1 << 8;
 /// Marks a published selection; the low bits hold its [`PresentModeKind`].
 const SELECTION_KNOWN: u8 = 1 << 7;
 
+/// The session's presentation request; `Auto` and `Vsync` differ only in remedy eligibility.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[repr(u8)]
 pub enum PresentModePreference {
+    /// VSync on, eligible for the affected-driver Immediate remedy.
     #[default]
     Auto = 0,
+    /// VSync on, pinned by a launch flag or evidence run.
     Vsync = 1,
+    /// VSync off: Immediate first.
     NoVsync = 2,
+    /// VSync off without tearing: Mailbox first.
+    TearFree = 3,
 }
 
 impl PresentModePreference {
@@ -48,6 +54,7 @@ impl PresentModePreference {
         match value {
             1 => Self::Vsync,
             2 => Self::NoVsync,
+            3 => Self::TearFree,
             _ => Self::Auto,
         }
     }
@@ -57,6 +64,7 @@ impl PresentModePreference {
         match self {
             Self::Auto | Self::Vsync => PresentationIntent::Synchronized,
             Self::NoVsync => PresentationIntent::LowLatency,
+            Self::TearFree => PresentationIntent::TearFree,
         }
     }
 }
@@ -86,6 +94,7 @@ pub struct PresentModePolicy {
     remedy: Arc<AtomicU8>,
     capabilities: Arc<AtomicU16>,
     selection: Arc<AtomicU8>,
+    frame_latency: frame_latency::FrameLatencyFeedback,
 }
 
 impl Default for PresentModePolicy {
@@ -102,6 +111,7 @@ impl PresentModePolicy {
             remedy: Arc::new(AtomicU8::new(PresentModeRemedy::KeepRequested as u8)),
             capabilities: Arc::default(),
             selection: Arc::default(),
+            frame_latency: frame_latency::FrameLatencyFeedback::default(),
         }
     }
 
@@ -151,6 +161,36 @@ impl PresentModePolicy {
             let index = usize::from(encoded & !SELECTION_KNOWN);
             PresentModeKind::ALL[index.min(PresentModeKind::ALL.len() - 1)]
         })
+    }
+
+    /// Shares actual display timing with the render world's queue policy.
+    pub fn publish_display_timing(&self, timing: render_model::DisplayTiming) {
+        *self
+            .frame_latency
+            .display
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = timing;
+    }
+
+    /// Publishes the render world's measured queue recommendation without changing VSync intent.
+    pub fn publish_frame_latency(&self, latency: std::num::NonZeroU32) {
+        let previous = self
+            .frame_latency
+            .latency
+            .swap(latency.get(), Ordering::AcqRel);
+        if previous != 0 && previous != latency.get() {
+            bevy::log::info!(
+                previous,
+                requested = latency.get(),
+                "surface frame latency changed"
+            );
+        }
+    }
+
+    /// Keeps the measured queue choice across main-world presentation updates.
+    #[must_use]
+    pub fn frame_latency_for_vsync(&self, vsync: bool) -> std::num::NonZeroU32 {
+        frame_latency::selected_latency(vsync, &self.frame_latency)
     }
 }
 

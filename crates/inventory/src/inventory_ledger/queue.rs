@@ -34,10 +34,14 @@ pub(super) struct PendingRequest {
     pub(super) timed_out: bool,
     /// Surfaces a timed-out request still needs a complete refresh of.
     pub(super) awaiting_refresh: Vec<CellSurface>,
+    /// Whether those surfaces still refuse gestures; a recovery window lifts this.
+    pub(super) refresh_gates: bool,
     pub(super) session_generation: u64,
     pub(super) storage_generation: Option<u64>,
     pub(super) personal_generation: Option<u64>,
     pub(super) storage_identity: Option<ContainerIdentity>,
+    /// The offer whose remaining use this purchase reserves until settlement.
+    pub(super) trade_purchase: Option<u32>,
     /// A split must end with distinct settled stack ids on surviving halves.
     pub(super) requires_distinct_stack_ids: bool,
     /// A merge whose capacity came from the session item registry.
@@ -152,6 +156,20 @@ impl PendingRequest {
         self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
     }
 
+    /// The request predicts a created result derived from its inputs and the item facts, so
+    /// it cannot be replayed once either changes before it is sent.
+    pub(super) fn predicts_derived_result(&self) -> bool {
+        self.groups.iter().any(|group| {
+            matches!(
+                group,
+                DeltaGroup::Set {
+                    cell: Cell::CreatedOutput,
+                    ..
+                }
+            )
+        })
+    }
+
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
         self.groups.iter().flat_map(DeltaGroup::touched)
     }
@@ -197,6 +215,7 @@ impl PlayerInventoryLedger {
             view
         });
         self.observe_furnace_cells();
+        self.observe_recipe_selection();
     }
 
     pub(super) fn ensure_queue_capacity(&self) -> Result<(), InventoryGestureError> {
@@ -329,9 +348,11 @@ impl PlayerInventoryLedger {
         let current = self.storage.as_ref();
         request.storage_generation.is_none_or(|generation| {
             current.is_some_and(|storage| storage.generation == generation)
-        }) && request
-            .storage_identity
-            .is_none_or(|expected| current.and_then(|storage| storage.identity) == Some(expected))
+        }) && request.storage_identity.is_none_or(|expected| {
+            current.is_some_and(|storage| {
+                storage.identity == Some(expected) || storage.superseded_identity == Some(expected)
+            })
+        })
     }
 
     pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
@@ -420,9 +441,7 @@ impl PlayerInventoryLedger {
                 }
                 self.require_rollback_recovery(cell);
             }
-            if self.confirmed.set(cell, backing) && !rejected && cell == Cell::Offhand {
-                self.offhand_written = true;
-            }
+            self.confirmed.set(cell, backing);
             if rejected
                 && to.is_none()
                 && let Some(previous) = self.queue.iter_mut().rev().find(|previous| {
@@ -496,17 +515,23 @@ impl PlayerInventoryLedger {
                 self.note_unrouted_container();
                 continue;
             }
+            let mut answered = [0usize; 256];
             for correction in container.slots.iter() {
-                let Some(cell) =
-                    self.retained_response_cell(&container.container, u16::from(correction.slot))
+                let turn = &mut answered[usize::from(correction.hotbar_slot)];
+                let nth = *turn;
+                *turn += 1;
+                let Some(requested) =
+                    self.response_cell(request, &container.container, correction.hotbar_slot, nth)
                 else {
                     self.note_unrouted_container();
                     continue;
                 };
-                let Some(requested) = self.retained_response_cell(
-                    &container.container,
-                    u16::from(correction.hotbar_slot),
-                ) else {
+                let cell = if correction.slot == correction.hotbar_slot {
+                    Some(requested)
+                } else {
+                    self.response_cell(request, &container.container, correction.slot, 0)
+                };
+                let Some(cell) = cell else {
                     self.note_unrouted_container();
                     continue;
                 };
@@ -523,6 +548,33 @@ impl PlayerInventoryLedger {
         if request.requires_distinct_stack_ids && !self.split_is_distinct(request) {
             self.recover_request(request);
         }
+    }
+
+    /// The cell a response's one-byte `slot` means. Cells past the one-byte range share that byte
+    /// with lower ones, so the `nth` entry naming it answers the `nth` storage cell its request
+    /// predicted with that byte, as `ItemStackNetManagerClient::_processResponseSlot` consumes one
+    /// prediction per entry. A slot with no such cell means its own number.
+    fn response_cell(
+        &self,
+        request: &PendingRequest,
+        container: &ContainerIdentity,
+        slot: u8,
+        nth: usize,
+    ) -> Option<Cell> {
+        let cell = self.retained_response_cell(container, u16::from(slot))?;
+        if !matches!(cell, Cell::Storage(_)) {
+            return Some(cell);
+        }
+        Some(
+            request
+                .predicted
+                .iter()
+                .filter(|prediction| {
+                    matches!(prediction.cell, Cell::Storage(high) if high as u8 == slot)
+                })
+                .nth(nth)
+                .map_or(cell, |prediction| prediction.cell),
+        )
     }
 
     /// Applies one accepted count/stack-id/overlay correction to server truth.
@@ -583,8 +635,16 @@ impl PlayerInventoryLedger {
             .find(|consumed| consumed.cell == requested);
         let count = u16::from(correction.count)
             .saturating_sub(consumed.map_or(0, |consumed| consumed.amount));
-        let mut held = prediction
-            .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
+        // A derived result is only the client's estimate, so a restatement after submission
+        // supersedes it; other predictions keep their exact snapshot.
+        let restated = prediction
+            .filter(|prediction| !prediction.current && request.predicts_derived_result())
+            .and_then(|_| self.confirmed.get(cell));
+        let mut held = restated
+            .or_else(|| {
+                prediction
+                    .and_then(|prediction| prediction.held.as_ref().or(prediction.before.as_ref()))
+            })
             .or_else(|| {
                 request
                     .mining
@@ -763,6 +823,7 @@ impl PlayerInventoryLedger {
                 && overdue(request)
             {
                 request.timed_out = true;
+                request.refresh_gates = true;
                 request.awaiting_refresh = request.touched().map(Cell::surface).collect();
                 request.awaiting_refresh.dedup();
                 changed = true;
@@ -797,7 +858,7 @@ impl PlayerInventoryLedger {
     pub(super) fn surface_awaiting_refresh(&self, surface: CellSurface) -> bool {
         self.queue
             .iter()
-            .any(|request| request.awaiting_refresh.contains(&surface))
+            .any(|request| request.refresh_gates && request.awaiting_refresh.contains(&surface))
     }
 
     /// Queues a mine-block prediction at its wire position: after every
@@ -834,10 +895,12 @@ impl PlayerInventoryLedger {
                 deadline_millis: None,
                 timed_out: false,
                 awaiting_refresh: Vec::new(),
+                refresh_gates: false,
                 session_generation: self.session_generation,
                 storage_generation: None,
                 personal_generation: None,
                 storage_identity: None,
+                trade_purchase: None,
                 requires_distinct_stack_ids: false,
                 registry_bound_merge: false,
                 quick_move_route: None,

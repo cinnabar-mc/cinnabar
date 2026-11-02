@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/df-mc/dragonfly/server"
+	"github.com/df-mc/dragonfly/server/customentry"
 	"github.com/df-mc/dragonfly/server/world"
 )
 
@@ -74,6 +74,8 @@ func visualExperience(dir, id string, controller bool) (Loaded, error) {
 		ID:          id + ":drive",
 		DisplayName: "Drive",
 		Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+		Drops:       DropsItself,
+		Item:        ItemListed,
 		States: []StateDef{
 			{Name: id + ":slot_0", Values: StateValues{Bool: true}},
 			{Name: id + ":slot_1", Values: StateValues{Bool: true}},
@@ -95,6 +97,8 @@ func visualExperience(dir, id string, controller bool) (Loaded, error) {
 			ID:          id + ":controller",
 			DisplayName: "Controller",
 			Mining:      Mining{Breakable: &Breakable{Hardness: 1}},
+			Drops:       DropsItself,
+			Item:        ItemListed,
 			States:      []StateDef{{Name: state, Values: StateValues{Choices: &[]string{"offline", "online"}}}},
 			Visual:      &Visual{Geometry: &offline, Materials: side},
 			Permutations: []Permutation{{
@@ -211,7 +215,7 @@ func TestVisualBlocksReachThePack(t *testing.T) {
 // over the states.
 func TestVisualBlockComponents(t *testing.T) {
 	drive, _ := registered(t).Lookup("visual:drive")
-	entry := server.CustomBlockEntry(drive, 1)
+	entry := customentry.Block(drive, 1)
 	props := entry.Properties
 	components := props["components"].(map[string]any)
 	geometry := components["minecraft:geometry"].(map[string]any)
@@ -251,7 +255,7 @@ func TestVisualBlockComponents(t *testing.T) {
 	}
 
 	controller, _ := registered(t).Lookup("visual:controller")
-	cprops := server.CustomBlockEntry(controller, 2).Properties
+	cprops := customentry.Block(controller, 2).Properties
 	perm := cprops["permutations"].([]map[string]any)[0]
 	pc := perm["components"].(map[string]any)
 	if g := pc["minecraft:geometry"].(map[string]any); g["identifier"] != "geometry.visual.controller_online" {

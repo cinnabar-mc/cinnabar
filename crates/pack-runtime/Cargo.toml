@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["tools/localserver/testdata/player-preview-layers"]
+
 [features]
 test-support = []
 
@@ -27,6 +30,7 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+test-alloc = { path = "../test-alloc" }
 resource-pack = { path = "../resource-pack", features = ["test-support"] }
 block-transform = { path = "../block-transform" }
 sim = { path = "../sim" }

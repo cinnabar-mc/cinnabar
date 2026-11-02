@@ -95,6 +95,7 @@ fn model() -> HudModel {
                 count: if index == 0 { 12 } else { 0 },
                 selected: index == 2,
                 durability: None,
+                ..Default::default()
             })
             .collect(),
         chat_visible: true,
@@ -152,6 +153,11 @@ fn catalog_for(dir: &Path) -> Catalog {
 }
 
 fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
+    render_in(model, java, &hud_context(&Context::desktop()))
+}
+
+/// The HUD screen under `context`, over the built-in pack when `java` is set.
+fn render_in(model: &HudModel, java: bool, context: &Context) -> Option<json_ui::ScreenRender> {
     let dir = pack()?;
     let mut catalog = catalog_for(&dir);
     if java {
@@ -173,7 +179,7 @@ fn render_full(model: &HudModel, java: bool) -> Option<json_ui::ScreenRender> {
     let render = render_screen(
         Reference::HudHudScreen.as_str(),
         &catalog,
-        &hud_context(&Context::desktop()),
+        context,
         &hud_data_source(model),
         [480.0, 270.0],
         &env,
@@ -276,7 +282,7 @@ fn vanilla_hud_draws_its_bound_surfaces() {
         "heart_renderer",
         "hunger_renderer",
         "armor_renderer",
-        "hotbar_renderer",
+        "hotbar_slots_renderer",
     ] {
         assert!(
             customs.contains(&renderer),
@@ -286,9 +292,9 @@ fn vanilla_hud_draws_its_bound_surfaces() {
     assert_eq!(
         customs
             .iter()
-            .filter(|name| **name == "hotbar_renderer")
+            .filter(|name| **name == "hotbar_slots_renderer")
             .count(),
-        9
+        1
     );
     let texts: Vec<&str> = nodes
         .iter()
@@ -360,9 +366,8 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
             return;
         };
         let name = text_node(&render.nodes, "Dirt");
-        let slots = custom(&render.nodes, "hotbar_renderer");
+        let slots = custom(&render.nodes, "hotbar_slots_renderer");
         let first = slots.first().expect("hotbar start");
-        let last = slots.last().expect("hotbar end");
         let hotbar_bottom = first.dest.y + first.dest.h;
         let root = descendant(&render.bound, "item_name_text").expect("spawned item-name root");
         let label = descendant(root, "item_text_label").expect("native item-name label");
@@ -380,9 +385,12 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
         let bottom = name.dest.y + name.dest.h;
         // Read the authored offset and padding; do not duplicate HUD constants.
         assert_eq!(bottom, hotbar_bottom + dy - padding);
+        let icons = custom(&render.nodes, "inventory_item_renderer");
+        let left = icons.first().expect("first item").dest;
+        let right = icons.last().expect("last item").dest;
         assert_eq!(
             name.dest.x + name.dest.w / 2.0,
-            (first.dest.x + last.dest.x + last.dest.w) / 2.0
+            (left.x + right.x + right.w) / 2.0
         );
         assert!(
             bottom < first.dest.y,
@@ -409,7 +417,7 @@ fn java_selected_item_name_keeps_spawned_root_offset_above_the_hotbar() {
     );
 }
 
-/// The built-in level label shares the survival status row and clears the XP bar.
+/// The built-in level label leaves room for the paint inset and clears the XP bar.
 #[test]
 fn built_in_level_aligns_with_health_and_hunger() {
     for level in [2, 27, 123] {
@@ -428,8 +436,10 @@ fn built_in_level_aligns_with_health_and_hunger() {
             .expect("visible level label");
         let hearts = custom(&nodes, "heart_renderer")[0];
         let hunger = custom(&nodes, "hunger_renderer")[0];
-        assert_eq!(label.dest.y, hearts.dest.y, "level is below the health row");
-        assert_eq!(label.dest.y, hunger.dest.y, "level is below the hunger row");
+        // The painter starts text one GUI pixel below the label's layout top.
+        let text_y = label.dest.y + 1.0;
+        assert_eq!(text_y, hearts.dest.y, "level is not aligned with health");
+        assert_eq!(text_y, hunger.dest.y, "level is not aligned with hunger");
         assert_eq!(label.dest.x + label.dest.w / 2.0, 240.0);
         let bar = named(&nodes, "empty_progress_bar")
             .into_iter()
@@ -451,10 +461,9 @@ fn java_pack_places_the_hud() {
     assert_eq!(at(custom(&nodes, "armor_renderer")[0]), [149.0, 231.0]);
     assert_eq!(at(custom(&nodes, "hunger_renderer")[0]), [330.0, 231.0]);
     // Hotbar cells from c-90 at H-22, the selection frame 1 px out.
-    let slots = custom(&nodes, "hotbar_renderer");
-    assert_eq!(slots.len(), 9);
+    let slots = custom(&nodes, "hotbar_slots_renderer");
+    assert_eq!(slots.len(), 1);
     assert_eq!(at(slots[0]), [150.0, 248.0]);
-    assert_eq!(at(slots[8]), [310.0, 248.0]);
     let selected = named(&nodes, "hotbar_slot_selected_image");
     assert_eq!(selected.len(), 1);
     assert_eq!(at(selected[0]), [188.0, 247.0]);
@@ -472,7 +481,11 @@ fn java_pack_places_the_hud() {
         .collect();
     assert_eq!(level.len(), 5);
     assert_eq!(level[4].dest.x + level[4].dest.w / 2.0, 240.0);
-    assert_eq!(level[4].dest.y, custom(&nodes, "heart_renderer")[0].dest.y);
+    // The layout box sits above the status row to leave room for the paint inset.
+    assert_eq!(
+        level[4].dest.y + 1.0,
+        custom(&nodes, "heart_renderer")[0].dest.y
+    );
     // Count text right-aligned in the cell: right edge at cell + 19, top at +12.
     let count = text_node(&nodes, "12");
     assert_eq!(count.dest.x + count.dest.w, 169.0);
@@ -513,6 +526,71 @@ fn java_pack_places_the_hud() {
         text_node(&nodes, "Alex").dest.x,
         text_node(&nodes, "Steve").dest.x
     );
+}
+
+// The Bedrock hotbar setting raises the built-in hotbar to vanilla's desktop height and lifts
+// everything stacked on it, and the chat, by the same distance.
+#[test]
+fn bedrock_hotbar_flag_raises_the_java_hud_to_the_vanilla_hotbar() {
+    let raised_context =
+        hud_context(&Context::desktop()).with_flag("cinnabar_bedrock_hotbar", true);
+    let (Some(vanilla), Some(flush), Some(raised)) = (
+        render_with(&model(), false),
+        render_with(&model(), true),
+        render_in(&model(), true, &raised_context),
+    ) else {
+        return;
+    };
+    let raised = raised.nodes.to_vec();
+    let slot_y = |nodes: &[DrawNode]| custom(nodes, "hotbar_slots_renderer")[0].dest.y;
+    assert_eq!(slot_y(&flush) + 22.0, 270.0, "Java's hotbar is flush");
+    assert_eq!(slot_y(&raised), slot_y(&vanilla), "vanilla's hotbar height");
+    let lift = slot_y(&flush) - slot_y(&raised);
+    assert!(lift > 0.0);
+    let lifted = |flush: &DrawNode, raised: &DrawNode| {
+        assert_eq!(
+            [raised.dest.x, raised.dest.y],
+            [flush.dest.x, flush.dest.y - lift],
+            "{}",
+            flush.key
+        );
+    };
+    for renderer in [
+        "hotbar_slots_renderer",
+        "heart_renderer",
+        "armor_renderer",
+        "hunger_renderer",
+        "inventory_item_renderer",
+    ] {
+        let (flush, raised) = (custom(&flush, renderer), custom(&raised, renderer));
+        assert_eq!(flush.len(), raised.len(), "{renderer}");
+        assert!(!flush.is_empty(), "{renderer}");
+        for (flush, raised) in flush.into_iter().zip(raised) {
+            lifted(flush, raised);
+        }
+    }
+    for name in ["hotbar_slot_selected_image", "empty_progress_bar"] {
+        let (flush, raised) = (named(&flush, name), named(&raised, name));
+        assert_eq!(flush.len(), raised.len(), "{name}");
+        for (flush, raised) in flush.into_iter().zip(raised) {
+            // The boss bar shares the progress bar template from the top of the screen.
+            if flush.dest.y > 200.0 {
+                lifted(flush, raised);
+            } else {
+                assert_eq!(flush.dest, raised.dest, "{}", flush.key);
+            }
+        }
+    }
+    for text in ["7", "12", "hello"] {
+        lifted(text_node(&flush, text), text_node(&raised, text));
+    }
+    for text in ["Title", "Sub", "bar", "Wither", "Kills"] {
+        assert_eq!(
+            text_node(&flush, text).dest,
+            text_node(&raised, text).dest,
+            "{text} keeps its place"
+        );
+    }
 }
 
 // The tip text rides its own `hud_tip_text` slot: it draws beside, not over, the

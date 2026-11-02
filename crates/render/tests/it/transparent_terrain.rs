@@ -126,10 +126,7 @@ impl Fixture {
             );
             templates.extend([1, 0]);
         }
-        let asset_tables = gpu.words(
-            &gpu_snapshot::chunk_asset_table_words(&[], &[], &templates),
-            storage,
-        );
+        let templates = gpu.words(&templates, storage);
         let empty = gpu.words(&[0; 64], storage);
         // Biome tint 0 is the fallback: a blue water tint at half opacity.
         let mut tint = [0.0_f32; 8 + assets::seasonal_foliage::SEASONAL_FOLIAGE_COUNT * 4];
@@ -137,6 +134,8 @@ impl Fixture {
         tint[7] = 0.5;
         let tints = gpu.buffer(&tint, storage);
         let query_tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
+        let animations = gpu.words(&[0; 8], storage);
+        let frames = gpu.words(&[0; 4], storage);
         let clock = gpu.words(&[0; 4], uniform);
         let frame = render_scene::AtmosphereFrame::default();
         let atmosphere = gpu.buffer(bytemuck::cast_slice(std::slice::from_ref(&frame)), uniform);
@@ -197,7 +196,9 @@ impl Fixture {
                     buffer(7, read),
                     buffer(8, read),
                     buffer(9, read),
+                    buffer(10, read),
                     buffer(11, wgpu::BufferBindingType::Uniform),
+                    buffer(12, read),
                     buffer(13, read),
                     buffer(14, read),
                     buffer(15, wgpu::BufferBindingType::Uniform),
@@ -226,8 +227,10 @@ impl Fixture {
             (6, wgpu::BindingResource::Sampler(&sampler)),
             (7, empty.as_entire_binding()),
             (8, tints.as_entire_binding()),
-            (9, asset_tables.as_entire_binding()),
+            (9, animations.as_entire_binding()),
+            (10, frames.as_entire_binding()),
             (11, clock.as_entire_binding()),
+            (12, templates.as_entire_binding()),
             (13, geometry.as_entire_binding()),
             (14, refs.as_entire_binding()),
             (15, atmosphere.as_entire_binding()),
@@ -457,13 +460,13 @@ fn mismatches(a: &[u8], b: &[u8]) -> usize {
 
 #[test]
 fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines() {
-    // Exercise the shared and dedicated programs with the Raspberry Pi's varying budget.
+    // Both programs' storage buffers together exceed the default per-stage limit, which the
+    // renderer raises to the shared layout's count.
     let Some(gpu) = Gpu::for_fixture_with_limits(
         "shared transparent pipeline",
         wgpu::Features::empty(),
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: render::required_vertex_storage_buffers(),
-            max_inter_stage_shader_variables: 15,
             ..Default::default()
         },
     ) else {
@@ -472,80 +475,88 @@ fn shared_transparent_pipeline_draws_water_and_models_like_their_own_pipelines()
     let fixture = Fixture::new(&gpu);
     let lightmap =
         |source: String| source.replace("@group(1) @binding(0)", "@group(0) @binding(27)");
-    let defs = ["NATIVE_GAMMA_BLEND"];
-    // Each family's own program, as its dedicated pipeline ran it before the merge.
-    let liquid = lightmap(format!(
-        "{}\n{LIQUID_REFERENCE}",
-        shader_source::standalone(include_str!("../../src/liquid.wesl"), &defs)
-    ));
-    let model = lightmap(format!(
-        "{}\n{MODEL_REFERENCE}",
-        shader_source::standalone(include_str!("../../src/model.wesl"), &defs)
-    ));
-    let shared = lightmap(shader_source::composed(
-        include_str!("../../src/transparent_terrain.wesl"),
-        &defs,
-    ));
-    let liquid = fixture.pipeline(
-        &gpu,
-        &liquid,
-        ("reference_vertex", "fragment"),
-        wgpu::FrontFace::Cw,
-    );
-    let model = fixture.pipeline(
-        &gpu,
-        &model,
-        ("reference_vertex", "fragment_blend"),
-        wgpu::FrontFace::Ccw,
-    );
-    let shared = fixture.pipeline(&gpu, &shared, ("vertex", "fragment"), wgpu::FrontFace::Ccw);
+    // Encoded blending for ordinary views, linear output for HDR views.
+    for defs in [&["NATIVE_GAMMA_BLEND"][..], &[]] {
+        // Each family's own program, as its dedicated pipeline ran it before the merge.
+        let liquid = lightmap(format!(
+            "{}\n{LIQUID_REFERENCE}",
+            shader_source::standalone(include_str!("../../src/liquid.wesl"), defs)
+        ));
+        let model = lightmap(format!(
+            "{}\n{MODEL_REFERENCE}",
+            shader_source::standalone(include_str!("../../src/model.wesl"), defs)
+        ));
+        let shared = lightmap(shader_source::composed(
+            include_str!("../../src/transparent_terrain.wesl"),
+            defs,
+        ));
+        let liquid = fixture.pipeline(
+            &gpu,
+            &liquid,
+            ("reference_vertex", "fragment"),
+            wgpu::FrontFace::Cw,
+        );
+        let model = fixture.pipeline(
+            &gpu,
+            &model,
+            ("reference_vertex", "fragment_blend"),
+            wgpu::FrontFace::Ccw,
+        );
+        let shared = fixture.pipeline(&gpu, &shared, ("vertex", "fragment"), wgpu::FrontFace::Ccw);
 
-    // Back to front: each block's model face, then the water face above it.
-    let order = [
-        Quad::Model(0),
-        Quad::Water(0),
-        Quad::Model(1),
-        Quad::Water(1),
-    ];
-    // A water record's sorted ref slot; refs list the records in reverse.
-    let slot = |record: u32| WATER_QUADS - 1 - record;
-    let expected = fixture.render(&gpu, &order, |quad| match quad {
-        Quad::Water(index) => (&liquid, 0, slot(index)),
-        Quad::Model(index) => (&model, 0, MODEL_INSTANCE_BASE + index),
-    });
-    let actual = fixture.render(&gpu, &order, |quad| match quad {
-        Quad::Water(index) => (&shared, 0, slot(index) | TRANSPARENT_WATER_DRAW_FLAG),
-        Quad::Model(index) => (&shared, 0, MODEL_INSTANCE_BASE + index),
-    });
-    // Direct water names its record at base vertex 0.
-    let direct = fixture.render(&gpu, &order, |quad| match quad {
-        Quad::Water(index) => (
-            &shared,
+        // Back to front: each block's model face, then the water face above it.
+        let order = [
+            Quad::Model(0),
+            Quad::Water(0),
+            Quad::Model(1),
+            Quad::Water(1),
+        ];
+        // A water record's sorted ref slot; refs list the records in reverse.
+        let slot = |record: u32| WATER_QUADS - 1 - record;
+        let expected = fixture.render(&gpu, &order, |quad| match quad {
+            Quad::Water(index) => (&liquid, 0, slot(index)),
+            Quad::Model(index) => (&model, 0, MODEL_INSTANCE_BASE + index),
+        });
+        let actual = fixture.render(&gpu, &order, |quad| match quad {
+            Quad::Water(index) => (&shared, 0, slot(index) | TRANSPARENT_WATER_DRAW_FLAG),
+            Quad::Model(index) => (&shared, 0, MODEL_INSTANCE_BASE + index),
+        });
+        // Direct water names its record at base vertex 0.
+        let direct = fixture.render(&gpu, &order, |quad| match quad {
+            Quad::Water(index) => (
+                &shared,
+                0,
+                index | TRANSPARENT_WATER_DRAW_FLAG | TRANSPARENT_WATER_RECORD_FLAG,
+            ),
+            Quad::Model(index) => (&shared, 0, MODEL_INSTANCE_BASE + index),
+        });
+        let models_only = fixture.render(&gpu, &order[..1], |_| (&model, 0, MODEL_INSTANCE_BASE));
+        if !defs.is_empty() {
+            gpu_snapshot::save("transparent_terrain_expected", &expected);
+            gpu_snapshot::save("transparent_terrain_actual", &actual);
+            gpu_snapshot::save("transparent_terrain_direct", &direct);
+        }
+        let background = &expected[..4];
+        assert!(
+            expected
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .any(|pixel| pixel != background),
+            "{defs:?}: the fixture draws something"
+        );
+        assert_ne!(
+            mismatches(&expected, &models_only),
             0,
-            index | TRANSPARENT_WATER_DRAW_FLAG | TRANSPARENT_WATER_RECORD_FLAG,
-        ),
-        Quad::Model(index) => (&shared, 0, MODEL_INSTANCE_BASE + index),
-    });
-    let models_only = fixture.render(&gpu, &order[..1], |_| (&model, 0, MODEL_INSTANCE_BASE));
-    gpu_snapshot::save("transparent_terrain_expected", &expected);
-    gpu_snapshot::save("transparent_terrain_actual", &actual);
-    gpu_snapshot::save("transparent_terrain_direct", &direct);
-    let background = &expected[..4];
-    assert!(
-        expected
-            .as_chunks::<4>()
-            .0
-            .iter()
-            .any(|pixel| pixel != background),
-        "the fixture draws something"
-    );
-    assert_ne!(
-        mismatches(&expected, &models_only),
-        0,
-        "water must blend over the models"
-    );
-    assert_eq!(mismatches(&expected, &actual), 0, "sorted refs");
-    assert_eq!(mismatches(&expected, &direct), 0, "direct records");
+            "{defs:?}: water must blend over the models"
+        );
+        assert_eq!(mismatches(&expected, &actual), 0, "{defs:?}: sorted refs");
+        assert_eq!(
+            mismatches(&expected, &direct),
+            0,
+            "{defs:?}: direct records"
+        );
+    }
 }
 
 const LIQUID_REFERENCE: &str = r#"
@@ -553,7 +564,7 @@ const LIQUID_REFERENCE: &str = r#"
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> VertexOutput {
-    return vertex_for_record(transparent_refs[instance_index].liquid_record_index, vertex_index);
+    return vertex_for_record(transparent_refs(instance_index).liquid_record_index, vertex_index);
 }
 "#;
 

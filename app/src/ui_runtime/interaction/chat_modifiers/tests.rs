@@ -7,6 +7,93 @@ use std::sync::{
 
 mod command_chat;
 mod focus;
+mod platform_back;
+
+/// UIKit supplies Return as text without a physical key; repeats must not submit it.
+#[test]
+fn uikit_return_sends_chat_once_and_ignores_repeats() {
+    let key = KeyCode::Unidentified(bevy::input::keyboard::NativeKeyCode::Unidentified);
+    for newline in ["\n", "\r"] {
+        let mut h = Harness::new();
+        h.press(KeyCode::KeyT, None);
+        h.press(key, Some("Hello 世界"));
+        h.release(key);
+        assert_eq!(h.text(), "Hello 世界");
+        h.app.world_mut().write_message(KeyboardInput {
+            key_code: key,
+            logical_key: Key::Character(newline.into()),
+            state: ButtonState::Pressed,
+            text: Some(newline.into()),
+            repeat: true,
+            window: h.window,
+        });
+        h.app.update();
+        let runtime = h.app.world().resource::<UiRuntimeResource>();
+        assert!(runtime.chat_focused());
+        assert!(runtime.pending_chat_sends().is_empty());
+        h.press(key, Some(newline));
+        h.release(key);
+        h.app.update();
+        let runtime = h.app.world().resource::<UiRuntimeResource>();
+        assert!(!runtime.chat_focused());
+        assert_eq!(runtime.pending_chat_sends().len(), 1);
+        assert_eq!(
+            runtime.pending_chat_sends()[0].message.as_ref(),
+            "Hello 世界"
+        );
+    }
+}
+
+#[test]
+fn mouse_back_closes_the_chat_popup_before_chat_and_consumes_its_press() {
+    use bevy::{input::mouse::MouseButtonInput, window::WindowEvent};
+    for ordered in [false, true] {
+        let mut h = Harness::new();
+        h.app
+            .add_message::<WindowEvent>()
+            .insert_resource(UiPresentationResource(
+                UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
+            ));
+        h.press(KeyCode::KeyT, None);
+        assert!(h.app.world().resource::<UiRuntimeResource>().chat_focused());
+        h.app
+            .world_mut()
+            .resource_mut::<UiPresentationResource>()
+            .set_chat_settings_open(true);
+        for popup in [true, false] {
+            h.app
+                .world_mut()
+                .resource_mut::<ButtonInput<MouseButton>>()
+                .press(MouseButton::Back);
+            if ordered {
+                h.app
+                    .world_mut()
+                    .write_message(WindowEvent::MouseButtonInput(MouseButtonInput {
+                        button: MouseButton::Back,
+                        state: ButtonState::Pressed,
+                        window: h.window,
+                    }));
+            }
+            h.app.update();
+            assert_eq!(
+                h.app.world().resource::<UiRuntimeResource>().chat_focused(),
+                popup
+            );
+            assert!(
+                !h.app
+                    .world()
+                    .resource::<UiPresentationResource>()
+                    .chat_settings_open()
+            );
+            assert!(
+                !h.app
+                    .world()
+                    .resource::<ButtonInput<MouseButton>>()
+                    .just_pressed(MouseButton::Back)
+            );
+        }
+    }
+}
 
 struct Harness {
     app: App,

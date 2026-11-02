@@ -1,3 +1,4 @@
+use client_shell::physical_input::set_cursor_capture;
 use launcher::menu::settings_options::BindingId;
 mod chat;
 mod chat_coordinates;
@@ -26,15 +27,18 @@ use bevy::{
         With,
     },
     time::Real,
-    window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window, WindowEvent},
+    window::{CursorOptions, PrimaryWindow, Window, WindowEvent},
 };
 
 use client_shell::menu::settings_options::control_bindings::{
     binding_gamepad, binding_key, binding_mouse, binding_mouse_button, hotbar_control_slots,
+    menu_cancel_button, menu_cancel_key, menu_cancel_mouse, menu_cancel_pressed,
 };
 use ui::{ChatEditor, PointerPhase, UiAction, UiPoint};
 
+use super::input_owner::InputOwner;
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
+use client_ui::ui_runtime::scene_stack::Scene;
 use client_ui::ui_runtime::{PlatformClipboard, UiRuntime};
 use ui_screens::container_actions::InventoryCellHit;
 
@@ -47,8 +51,8 @@ use client_ui::ui_runtime::interaction::{
     is_chat_edit_shortcut, paste_chat_shortcut,
 };
 use input_capture::{
-    ordered_pointer_presses, restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
-    suppress_gameplay_input_for_inventory,
+    discard_keyboard, ordered_pointer_presses, restore_gameplay_input_after_chat,
+    suppress_gameplay_input_for_chat, suppress_gameplay_input_for_inventory,
 };
 
 /// Dispatches inventory hotbar shortcuts bound to one physical press.
@@ -82,9 +86,12 @@ pub(crate) fn drive_inventory_ui_actions(
     mut runtime: ResMut<UiRuntimeResource>,
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
+    consent: Option<Res<client_state::ConsentInput>>,
+    owner: InputOwner,
 ) {
-    let input_available = driven.is_some()
-        || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    let input_available = !consent.is_some_and(|consent| consent.0)
+        && (driven.is_some()
+            || (window.focused && focus.as_ref().is_none_or(|focus| focus.available())));
     let notches: Vec<(f32, MouseScrollUnit)> = wheel_messages
         .as_deref()
         .map(|messages| {
@@ -95,30 +102,27 @@ pub(crate) fn drive_inventory_ui_actions(
         })
         .unwrap_or_default();
     // Button state is reset below while the inventory owns the pointer, so a later
-    // physical release no longer surfaces as `just_released`; read raw releases too.
-    let (mut raw_primary_release, mut raw_secondary_release) = (false, false);
+    // physical release no longer surfaces as `just_released`; read raw edges too.
+    let (mut primary_edge, mut secondary_edge) = (None, None);
     if let Some(messages) = mouse_messages.as_deref() {
         for input in release_cursor.read(messages) {
-            if input.state == ButtonState::Released {
-                match input.button {
-                    MouseButton::Left => raw_primary_release = true,
-                    MouseButton::Right => raw_secondary_release = true,
-                    _ => {}
-                }
+            match input.button {
+                MouseButton::Left => primary_edge = Some(input.state),
+                MouseButton::Right => secondary_edge = Some(input.state),
+                _ => {}
             }
         }
     }
     // Presses are this frame's only; modifiers stay held across frames.
     let (presses, shift, control) = runtime.inventory_keys_mut().take_frame();
-    if runtime.credits().owns_input() || runtime.server_forms().owns_input() {
-        runtime.screen_state_mut().container_close_armed = false;
-        return;
-    }
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !runtime.inventory_open()
         || !input_available
+        || !frame.reads(|scene| scene == Scene::Container)
     {
         runtime.screen_state_mut().container_close_armed = false;
+        runtime.screen_state_mut().container_scroll_drag = None;
         runtime.set_inventory_pointer_gui(None);
         runtime.screen_state_mut().hover = None;
         runtime.screen_state_mut().pointer.reset();
@@ -126,6 +130,14 @@ pub(crate) fn drive_inventory_ui_actions(
             runtime.screen_state_mut().book = None;
         }
         return;
+    }
+    // ButtonInput retains both edge flags for a release followed by a press.
+    // The last raw edge decides whether that new inventory gesture remains held.
+    if primary_edge == Some(ButtonState::Pressed) {
+        mouse_buttons.clear_just_released(MouseButton::Left);
+    }
+    if secondary_edge == Some(ButtonState::Pressed) {
+        mouse_buttons.clear_just_released(MouseButton::Right);
     }
     let now_millis = time.map_or(0, |time| {
         u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX)
@@ -137,7 +149,10 @@ pub(crate) fn drive_inventory_ui_actions(
         &presentation,
         menu.as_deref(),
         &mut mouse_buttons,
-        (raw_primary_release, raw_secondary_release),
+        (
+            primary_edge == Some(ButtonState::Released),
+            secondary_edge == Some(ButtonState::Released),
+        ),
         (presses, shift, control),
         &notches,
         focus.as_deref_mut(),
@@ -173,10 +188,19 @@ fn route_press(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
+    // Menu Cancel outranks a hotbar slot if a saved layout binds both to one button; remapping
+    // either in Controls leaves the button on one of them.
+    let cancel = menu_cancel_button(menu, button);
+    if cancel && inventory::handle_menu_cancel(player_runtime, runtime, presentation.as_deref()) {
+        return (PressRoute::Binding, true);
+    }
+    if cancel && chat::handle_menu_cancel(runtime, presentation) {
+        return (PressRoute::Binding, false);
+    }
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if binding_mouse_button(menu, BindingId::Inventory, button) {
-            runtime.toggle_inventory(player_runtime, authority);
+            runtime.toggle_inventory(player_runtime, authority.map(|world| world.inventory_ui()));
             return (PressRoute::Binding, true);
         }
         if !runtime.inventory_open() {
@@ -194,13 +218,16 @@ fn route_press(
 }
 
 /// Reserves vanilla container keys from mod declarations. While a mod view hides the
-/// container, only the inventory key and Escape stay reserved.
+/// container, only the inventory key, Escape and Menu Cancel stay reserved.
 pub(crate) fn inventory_consumes_key(
     menu: Option<&client_shell::menu::MenuRuntime>,
     key: KeyCode,
     view: bool,
 ) -> bool {
-    if binding_key(menu, BindingId::Inventory, key) || key == KeyCode::Escape {
+    if binding_key(menu, BindingId::Inventory, key)
+        || key == KeyCode::Escape
+        || menu_cancel_key(menu, key)
+    {
         return true;
     }
     !view
@@ -214,28 +241,6 @@ pub(crate) fn inventory_consumes_key(
                 key,
                 KeyCode::ArrowUp | KeyCode::ArrowDown | KeyCode::PageUp | KeyCode::PageDown
             ))
-}
-
-/// Drops keyboard input another owner handles while keeping inventory modifiers in step
-/// with the physical keys: observed edges still update them, and when input is unavailable
-/// (an unfocused window) every modifier counts as released.
-fn discard_keyboard(
-    runtime: &mut UiRuntime,
-    keyboard_messages: &mut MessageReader<KeyboardInput>,
-    input_available: bool,
-) {
-    let inventory_keys = runtime.inventory_keys_mut();
-    if input_available {
-        for input in keyboard_messages.read() {
-            inventory_keys.track_modifier(
-                keyboard_key(input.key_code),
-                input.state == ButtonState::Pressed,
-            );
-        }
-    } else {
-        keyboard_messages.clear();
-        inventory_keys.release_modifiers();
-    }
 }
 
 #[allow(
@@ -257,8 +262,8 @@ pub(crate) fn drive_chat_keyboard_input(
     mut presentation: Option<ResMut<UiPresentationResource>>,
     mut clipboard: Option<ResMut<client_shell::menu::MenuClipboard>>,
     mut modifiers: Local<ButtonInput<KeyCode>>,
-    (emote_input, driven, world): (
-        Option<Res<client_state::EmoteInputConsumed>>,
+    (owner, driven, world): (
+        InputOwner,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::runtime::world::ClientWorld>>,
     ),
@@ -270,10 +275,14 @@ pub(crate) fn drive_chat_keyboard_input(
     ),
 ) {
     // Only the window event stream keeps keyboard and pointer events in arrival order.
-    let pointer_presses = window_events
+    let mut pointer_presses = window_events
         .as_deref()
         .map(|events| ordered_pointer_presses(window_cursor.read(events)))
         .unwrap_or_default();
+    // Earlier screen owners consume Menu Cancel in button state before this stream is routed.
+    pointer_presses.retain(|(_, button)| {
+        !menu_cancel_button(menu.as_deref(), *button) || mouse_buttons.just_pressed(*button)
+    });
     let (window, mut cursor) = window.into_inner();
     let authority = world
         .as_deref()
@@ -281,7 +290,17 @@ pub(crate) fn drive_chat_keyboard_input(
         .map(|stream| stream.authority());
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.credits().owns_input() {
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if frame.top() == Scene::ResourcePackLoading {
+        modifiers.reset_all();
+        discard_keyboard(&mut runtime, &mut keyboard_messages, input_available);
+        keys.reset_all();
+        mouse_buttons.reset_all();
+        mouse_motion.delta = Vec2::ZERO;
+        set_cursor_capture(&mut cursor, false);
+        return;
+    }
+    if frame.top() == Scene::Credits {
         let now = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
         let finished = runtime.credits().active().is_some_and(|active| {
             presentation
@@ -292,6 +311,7 @@ pub(crate) fn drive_chat_keyboard_input(
         let had_active_credits = runtime.credits().active().is_some();
         if input_available {
             let cancel = keys.just_pressed(KeyCode::Escape)
+                || menu_cancel_pressed(menu.as_deref(), &keys, &mouse_buttons, false)
                 || gamepads
                     .iter()
                     .any(|pad| pad.just_pressed(GamepadButton::East));
@@ -333,8 +353,7 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     if !input_available {
@@ -343,17 +362,23 @@ pub(crate) fn drive_chat_keyboard_input(
         keys.reset_all();
         mouse_buttons.reset_all();
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
-    if runtime.sign_editor().is_open()
-        || runtime.server_forms().owns_input()
-        || runtime.emotes().is_open()
-        || emote_input.is_some_and(|consumed| consumed.0)
-        || presentation
-            .as_ref()
-            .is_some_and(|view| view.mod_ui().mod_panel_open())
+    // The scenes these keys are for, and the menu, which the branch below hands them to.
+    if !frame.reads(|scene| {
+        matches!(
+            scene,
+            Scene::Gameplay
+                | Scene::Bed
+                | Scene::Container
+                | Scene::Chat
+                | Scene::Loading
+                | Scene::Menu(_)
+        )
+    }) || presentation
+        .as_ref()
+        .is_some_and(|view| view.mod_ui().mod_panel_open())
     {
         modifiers.reset_all();
         discard_keyboard(&mut runtime, &mut keyboard_messages, true);
@@ -368,8 +393,7 @@ pub(crate) fn drive_chat_keyboard_input(
         // The menu system runs next and must see the original button state.
         // It consumes keyboard/pointer input after handling its own actions.
         mouse_motion.delta = Vec2::ZERO;
-        cursor.grab_mode = CursorGrabMode::None;
-        cursor.visible = true;
+        set_cursor_capture(&mut cursor, false);
         return;
     }
     let keyboard_events: Vec<_> = keyboard_messages.read().cloned().collect();
@@ -382,6 +406,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&keys),
                 button,
                 now_millis,
@@ -419,12 +444,40 @@ pub(crate) fn drive_chat_keyboard_input(
     let mod_view = presentation
         .as_deref()
         .is_some_and(|view| view.mod_ui().mod_view_shown());
+    // Platform Back is routed below at its place among this frame's keys.
+    let platform_back = keyboard_events
+        .iter()
+        .any(crate::ui_runtime::platform_back::is_platform_back);
+    if mouse_bindings
+        && !platform_back
+        && let Some(button) = menu_cancel_mouse(menu.as_deref(), &mouse_buttons)
+    {
+        let inventory_cancelled = inventory::handle_menu_cancel(
+            &mut player_runtime,
+            &mut runtime,
+            presentation.as_deref().map(|view| &view.0),
+        );
+        if inventory_cancelled
+            || chat::handle_menu_cancel(
+                &mut runtime,
+                presentation.as_deref_mut().map(|view| &mut view.0),
+            )
+        {
+            dismissed |= !runtime.ui_focused(&player_runtime);
+            inventory_ownership_changed |= inventory_cancelled;
+            consumed_gameplay = true;
+            mouse_buttons.clear_just_pressed(button);
+        }
+    }
     if !runtime.chat_focused() && (!runtime.screen_state().text_focused() || mod_view) && !mod_text
     {
         if (mouse_bindings && binding_mouse(menu.as_deref(), BindingId::Inventory, &mouse_buttons))
             || binding_gamepad(menu.as_deref(), BindingId::Inventory, &gamepads)
         {
-            runtime.toggle_inventory(&mut player_runtime, authority);
+            runtime.toggle_inventory(
+                &mut player_runtime,
+                authority.map(|world| world.inventory_ui()),
+            );
             dismissed |= !runtime.inventory_open();
             inventory_ownership_changed = true;
             consumed_gameplay = true;
@@ -454,6 +507,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
@@ -476,6 +530,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 PressRoute::Binding => {
                     // The binding's transition holds for every later input.
                     router.observe(runtime.inventory_open());
+                    dismissed |= !runtime.ui_focused(&player_runtime);
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {
@@ -506,11 +561,37 @@ pub(crate) fn drive_chat_keyboard_input(
         if input.state != ButtonState::Pressed {
             continue;
         }
+        if crate::ui_runtime::platform_back::is_platform_back(input) {
+            // Back cancels like a Menu Cancel press; a held key never cancels twice.
+            if !input.repeat {
+                let inventory_cancelled = inventory::handle_menu_cancel(
+                    &mut player_runtime,
+                    &mut runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                );
+                if inventory_cancelled
+                    || chat::handle_menu_cancel(
+                        &mut runtime,
+                        presentation.as_deref_mut().map(|view| &mut view.0),
+                    )
+                {
+                    dismissed |= !runtime.ui_focused(&player_runtime);
+                    inventory_ownership_changed |= inventory_cancelled;
+                    consumed_gameplay = true;
+                    mouse_buttons.clear_just_pressed(client_shell::physical_input::PLATFORM_BACK);
+                }
+            }
+            continue;
+        }
         if let Some(presentation) = presentation.as_deref_mut()
             && presentation.chat_link_confirmation_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape && !input.repeat {
+            // The popup has no text field, so a key-bound Menu Cancel dismisses it like Escape.
+            if !input.repeat
+                && (input.key_code == KeyCode::Escape
+                    || menu_cancel_key(menu.as_deref(), input.key_code))
+            {
                 presentation.cancel_chat_link();
             }
             continue;
@@ -519,7 +600,10 @@ pub(crate) fn drive_chat_keyboard_input(
             && presentation.chat_settings_open()
         {
             consumed_gameplay = true;
-            if input.key_code == KeyCode::Escape && !input.repeat {
+            if !input.repeat
+                && (input.key_code == KeyCode::Escape
+                    || menu_cancel_key(menu.as_deref(), input.key_code))
+            {
                 presentation.set_chat_settings_open(false);
             }
             continue;
@@ -560,16 +644,20 @@ pub(crate) fn drive_chat_keyboard_input(
                 // An OS repeat of a held key is not a new press, so it never toggles the screen.
                 key if input.repeat
                     && (key == KeyCode::Escape
+                        || menu_cancel_key(menu.as_deref(), key)
                         || binding_key(menu.as_deref(), BindingId::Inventory, key)) => {}
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                 }
                 // Escape returns from a player mod's view to the container, and the hidden
                 // screen's own keys do nothing under the view (`modding`).
                 KeyCode::Escape if mod_view => {}
                 _ if mod_view => {}
-                KeyCode::Escape => {
+                key if key == KeyCode::Escape || menu_cancel_key(menu.as_deref(), key) => {
                     runtime.close_inventory(&mut player_runtime);
                     inventory_ownership_changed = true;
                 }
@@ -579,10 +667,11 @@ pub(crate) fn drive_chat_keyboard_input(
             continue;
         }
         if runtime.local_sleeping() && !runtime.chat_focused() {
-            // The bed screen: Escape leaves the bed, T opens chat over it. Key repeats do nothing.
+            // The bed screen: Escape or Menu Cancel leaves the bed, T opens chat over it. Key
+            // repeats do nothing.
             match input.key_code {
                 _ if input.repeat => {}
-                KeyCode::Escape => {
+                key if key == KeyCode::Escape || menu_cancel_key(menu.as_deref(), key) => {
                     runtime.request_wake();
                     if let Some(focus) = focus.as_deref_mut() {
                         focus.authorize_screen_return();
@@ -606,6 +695,7 @@ pub(crate) fn drive_chat_keyboard_input(
             if command_macros::dispatch(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 keyboard_usage(input.key_code).map(semantic_input::PhysicalControl::KeyboardUsage),
                 now_millis,
@@ -616,7 +706,10 @@ pub(crate) fn drive_chat_keyboard_input(
             }
             match input.key_code {
                 key if binding_key(menu.as_deref(), BindingId::Inventory, key) => {
-                    runtime.toggle_inventory(&mut player_runtime, authority);
+                    runtime.toggle_inventory(
+                        &mut player_runtime,
+                        authority.map(|world| world.inventory_ui()),
+                    );
                     inventory_ownership_changed = true;
                     consumed_gameplay = true;
                 }
@@ -679,12 +772,15 @@ pub(crate) fn drive_chat_keyboard_input(
         }
         match input.key_code {
             // Repeats keep editing the draft, but only a fresh press cancels or sends it.
-            KeyCode::Escape | KeyCode::Enter | KeyCode::NumpadEnter if input.repeat => {}
+            KeyCode::Escape if input.repeat => {}
             KeyCode::Escape => {
                 runtime.close_chat();
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => {
+            _ if chat_modifiers::submit_key(input) => {
                 // Enter always sends; Tab completes.
+                if input.repeat {
+                    continue;
+                }
                 let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
                 if runtime.queue_chat_send(now_millis).is_ok() {
                     runtime.close_chat();
@@ -748,10 +844,12 @@ pub(crate) fn drive_chat_keyboard_input(
     if routes_presses {
         // The frame's last key changed the screen for every press after it.
         router.observe(runtime.inventory_open());
+        let mut deferred_inventory = Vec::new();
         while let Some(button) = router.next_rest() {
             if command_macros::dispatch_mouse(
                 menu.as_deref(),
                 &mut runtime,
+                &player_runtime,
                 chat_modifiers::held_chord(&modifiers),
                 button,
                 now_millis,
@@ -759,6 +857,27 @@ pub(crate) fn drive_chat_keyboard_input(
             ) {
                 mouse_buttons.clear_just_pressed(button);
                 continue;
+            }
+            if menu_cancel_button(menu.as_deref(), button)
+                && inventory::accepts_menu_cancel(
+                    &runtime,
+                    presentation.as_deref().map(|view| &view.0),
+                )
+            {
+                for earlier in deferred_inventory.drain(..) {
+                    inventory::apply_screen_presses(
+                        &[earlier],
+                        &mut player_runtime,
+                        &mut runtime,
+                        window,
+                        presentation.as_deref().map(|view| &view.0),
+                        menu.as_deref(),
+                        focus.as_deref_mut(),
+                        &time,
+                    );
+                    kept.retain(|candidate| *candidate != earlier);
+                    consumed.push(earlier);
+                }
             }
             let (route, toggled_inventory) = route_press(
                 button,
@@ -773,6 +892,7 @@ pub(crate) fn drive_chat_keyboard_input(
                 PressRoute::Binding => {
                     // The binding's transition holds for every later input.
                     router.observe(runtime.inventory_open());
+                    dismissed |= !runtime.ui_focused(&player_runtime);
                     consumed.push(button);
                     consumed_gameplay = true;
                     if toggled_inventory {
@@ -780,8 +900,8 @@ pub(crate) fn drive_chat_keyboard_input(
                         dismissed |= !runtime.inventory_open();
                     }
                 }
-                // A screen opened this frame takes its presses now; its opening suppresses the
-                // buttons.
+                // Newly opened screens act now; existing screens combine releases and presses
+                // in the inventory adapter unless a later Menu Cancel first flushes their presses.
                 PressRoute::Screen { opening } if opening > 0 => {
                     consumed.push(button);
                     inventory::apply_screen_presses(
@@ -795,8 +915,11 @@ pub(crate) fn drive_chat_keyboard_input(
                         &time,
                     );
                 }
-                // Gameplay, and the screen open all frame, read the edge later.
-                PressRoute::Gameplay | PressRoute::Screen { .. } => kept.push(button),
+                PressRoute::Screen { .. } => {
+                    deferred_inventory.push(button);
+                    kept.push(button);
+                }
+                PressRoute::Gameplay => kept.push(button),
             }
         }
         // A press a screen consumed cannot be replayed; gameplay presses keep their edge.

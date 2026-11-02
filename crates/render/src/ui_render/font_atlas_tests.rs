@@ -46,6 +46,7 @@ pub(super) fn input() -> UiRenderInput {
             overlay_color: [0.; 4],
         });
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [256; 2],
         safe_area: [0; 4],
@@ -239,7 +240,10 @@ fn raster(
         ..Default::default()
     });
     let viewport = gpu.buffer(&[256., 256., 0., 0.], BufferUsages::UNIFORM);
-    let format = gpu.words(&[u32::from(coverage), 0, 0, 0], BufferUsages::UNIFORM);
+    let format = gpu.words(
+        &render_model::ui_page_uniform::words(coverage),
+        BufferUsages::UNIFORM,
+    );
     let nearest = gpu.device.create_sampler(&SamplerDescriptor::default());
     let linear = gpu.device.create_sampler(&SamplerDescriptor {
         mag_filter: FilterMode::Linear,

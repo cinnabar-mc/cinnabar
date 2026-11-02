@@ -77,7 +77,7 @@ impl HeldTool {
 /// One block's destroy facts from the generated table.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockDestroyInfo {
-    /// Negative means indestructible.
+    /// Provisional hardness or a server's destroy value; negative means indestructible.
     pub hardness: f32,
     effective: u8,
     harvest_tools: u8,
@@ -90,6 +90,16 @@ impl BlockDestroyInfo {
     /// Projects admitted carrier facts into the existing destroy calculation.
     pub fn from_facts(facts: BlockDestroyFacts) -> Option<Self> {
         match facts {
+            BlockDestroyFacts::Custom {
+                seconds_to_destroy_bits,
+                effective_tools,
+            } => Some(Self {
+                hardness: f32::from_bits(seconds_to_destroy_bits),
+                effective: effective_tools,
+                harvest_tools: 0,
+                harvest: HarvestRequirement::Hand,
+                sword_speed: None,
+            }),
             BlockDestroyFacts::Unresolved => None,
             BlockDestroyFacts::ProvisionalIndestructible => Some(Self {
                 hardness: -1.0,
@@ -128,15 +138,35 @@ impl BlockDestroyInfo {
         }
     }
 
+    /// A component item harvests tool-only blocks exactly when one of its digger entries matches.
+    fn harvestable_by_component(&self, matched: bool) -> bool {
+        match self.harvest {
+            HarvestRequirement::Hand => true,
+            HarvestRequirement::Unresolved => false,
+            HarvestRequirement::Tool(_) => matched,
+        }
+    }
+
     fn harvests_with(&self, kind: ToolKind) -> bool {
         self.harvest_tools & kind.bit() != 0
     }
+}
+
+/// A server item's `minecraft:digger` result for the targeted block.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ComponentDigger {
+    /// The matched speed plus any Efficiency bonus, or 1 when no entry matched.
+    pub speed: f32,
+    /// Whether an entry matched, which also allows drops from tool-only blocks.
+    pub matched: bool,
 }
 
 /// Player state that scales destroy speed. Effect levels are wire amplifiers.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct DestroyConditions {
     pub tool: Option<HeldTool>,
+    /// Replaces vanilla tool speed and harvest rules for a component-defined item.
+    pub component_digger: Option<ComponentDigger>,
     pub efficiency_level: u8,
     pub haste_amplifier: Option<i32>,
     pub conduit_power_amplifier: Option<i32>,
@@ -164,8 +194,11 @@ pub fn destroy_progress_per_tick(
     if block.hardness == 0.0 {
         return Some(1.0);
     }
-    let mut speed = tool_speed(block, conditions.tool);
-    if speed > 1.0 && conditions.efficiency_level > 0 {
+    let mut speed = match conditions.component_digger {
+        Some(digger) => digger.speed,
+        None => tool_speed(block, conditions.tool),
+    };
+    if conditions.component_digger.is_none() && speed > 1.0 && conditions.efficiency_level > 0 {
         let level = f32::from(conditions.efficiency_level);
         speed += level * level + 1.0;
     }
@@ -200,11 +233,11 @@ pub fn destroy_progress_per_tick(
     if conditions.riding || (!conditions.on_ground && !conditions.flying) {
         speed /= 5.0;
     }
-    let divisor = if block.harvestable_with(conditions.tool) {
-        30.0
-    } else {
-        100.0
+    let harvestable = match conditions.component_digger {
+        Some(digger) => block.harvestable_by_component(digger.matched),
+        None => block.harvestable_with(conditions.tool),
     };
+    let divisor = if harvestable { 30.0 } else { 100.0 };
     let mut progress = speed / block.hardness / divisor;
     if let Some(level) = haste {
         progress = (f64::from(progress) * f64::from(1.2_f32).powf(f64::from(level))) as f32;

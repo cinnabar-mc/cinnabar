@@ -149,6 +149,7 @@ pub(crate) fn station_controls(
         WindowKind::Loom => loom_controls(source, data),
         WindowKind::Cartography => data.set_global("#is_none_mode", Scalar::Bool(true)),
         WindowKind::Crafter => crafter_controls(data, source, frame),
+        WindowKind::Trade { .. } => crate::trading::data(source, data),
         _ => {}
     }
 }
@@ -161,6 +162,7 @@ pub fn id_aux_icons(
     icon: impl Fn(&str) -> Option<IconRef>,
 ) -> Vec<(i64, IconRef)> {
     match source.player().inventory.ledger().window_kind() {
+        Some(WindowKind::Trade { .. }) => crate::trading::icons(frame),
         Some(WindowKind::Beacon) => beacon_payment_icons(icon),
         Some(WindowKind::Crafter) => frame
             .recipe_output
@@ -275,6 +277,9 @@ fn stone_key(index: usize) -> i64 {
 
 /// The station widget a hit region presses, for regions that are not item cells.
 pub(crate) fn widget_hit(screen: &str, region: &HitRegion) -> Option<Widget> {
+    if let Some(widget) = crate::trading::hit(screen, region) {
+        return Some(widget);
+    }
     let index = region.collection_index.unwrap_or(0);
     let collection = region.collection.as_deref();
     Some(match (screen, collection) {
@@ -521,7 +526,7 @@ fn loom_controls(source: &dyn ContainerSource, data: &mut DataSource) {
 /// Encodes the base, existing overlays and selected overlay in native UI order.
 fn banner_bindings(
     base: u8,
-    current: &[protocol::ItemBannerPattern],
+    current: &[render_api::BannerPattern],
     selected: Option<(&str, u8)>,
 ) -> (String, String) {
     let mut patterns = vec!["0".to_owned()];
@@ -616,6 +621,13 @@ pub(crate) fn decorate(
     empty: bool,
     item: CollectionItem,
 ) -> CollectionItem {
+    if let Some(valid) = crate::trading::slot_valid(source.player().inventory.ledger(), collection)
+    {
+        return item.with(
+            json_ui::vanilla::Binding::ItemValid.as_str(),
+            Scalar::Bool(valid),
+        );
+    }
     let crafter = source.player().inventory.ledger().window_kind() == Some(WindowKind::Crafter);
     match collection {
         // An empty crafter slot offers to disable itself.
@@ -656,6 +668,7 @@ mod banner_tests {
 
     static EXPANDED: BTreeSet<u32> = BTreeSet::new();
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
+    static RADIOS: BTreeMap<u64, u16> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
     pub(super) struct LoomSource {
@@ -764,6 +777,7 @@ mod banner_tests {
                 creative_expanded: &EXPANDED,
                 search: "",
                 container_scroll: &SCROLL,
+                storage_radios: &RADIOS,
                 text_focused: false,
                 book: None,
             },
@@ -830,6 +844,7 @@ mod banner_tests {
                     .contains(assets::facts::ContainerRoles::BEACON_PAYMENT)
             );
             Some(IconRef {
+                color_mask: None,
                 page: u16::try_from(record.network_id).unwrap(),
                 uv: [0, 0, 16, 16],
                 glint: false,
@@ -901,7 +916,7 @@ mod banner_tests {
 
     #[test]
     fn loom_result_preserves_existing_layers_and_adds_the_selected_pattern() {
-        let current = [protocol::ItemBannerPattern {
+        let current = [render_api::BannerPattern {
             pattern: "bs".into(),
             color: 1,
         }];

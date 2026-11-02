@@ -227,7 +227,7 @@ fn composed(
     let coverage = mask.create_view(&default());
     let scene_view = scene.create_view(&default());
     let sampler = &compositor.sampler;
-    let pyramid = Pyramid::new(&device, &queue, cache, sampler, &coverage, &view).unwrap();
+    let pyramid = Pyramid::new(&device, &queue, cache, sampler, &coverage, &view, None).unwrap();
     let blur = cache.get_render_pipeline(compositor.blur.unwrap()).unwrap();
     let composite = cache
         .get_render_pipeline(compositor.composite[&format])
@@ -245,7 +245,7 @@ fn composed(
         view_formats: &[],
     });
     let output_view = output.create_view(&default());
-    let mut style_gpu = StyleGpu::new(&device);
+    let mut style_gpu = StyleGpu::new(&device, None).unwrap();
     queue.profiled_write_buffer(
         &style_gpu.uniform,
         0,
@@ -318,18 +318,51 @@ fn outlines_and_halos_render_from_actor_coverage_in_ldr_and_hdr_targets() {
     let mask = actor_pixels(&gpu, true, 1);
     assert!(mask.as_chunks::<4>().0.iter().any(|pixel| pixel[0] == 255));
     let outline = MaskStyle {
+        fill: None,
         outline: [1.0, 0.6, 0.1, 1.0],
         outline_radius: 2.0,
         glow: [0.1, 0.6, 1.0, 0.0],
         glow_radius: 0.0,
     };
     let glow = MaskStyle {
+        fill: None,
         glow: [0.1, 0.6, 1.0, 1.0],
         glow_radius: 16.0,
         ..outline
     };
     let outlined = composed(&gpu, &before, &mask, outline, TextureFormat::Rgba8UnormSrgb);
     let glowing = composed(&gpu, &before, &mask, glow, TextureFormat::Rgba8UnormSrgb);
+    let filled = composed(
+        &gpu,
+        &before,
+        &mask,
+        MaskStyle {
+            fill: Some([0.1, 1., 0.2, 0.4]),
+            ..outline
+        },
+        TextureFormat::Rgba8UnormSrgb,
+    );
+    assert_ne!(filled, outlined);
+    for ((coverage, original), (outline_pixel, fill_pixel)) in mask
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(before.as_chunks::<4>().0.iter())
+        .zip(
+            outlined
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .zip(filled.as_chunks::<4>().0.iter()),
+        )
+    {
+        if coverage[0] == 255 {
+            assert_ne!(outline_pixel, fill_pixel);
+        }
+        if coverage[0] == 0 && outline_pixel == original {
+            assert_eq!(fill_pixel, original);
+        }
+    }
     assert_ne!(outlined, before);
     assert_ne!(glowing, outlined);
     let hdr = composed(&gpu, &before, &mask, glow, TextureFormat::Rgba16Float);

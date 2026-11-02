@@ -17,6 +17,14 @@ pub const DISCORD_INVITE_URL: &str = "https://discord.gg/MeEz7BEHcM";
 /// The packaged client version from the workspace manifest.
 pub const PRODUCT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Whether touch is this platform's primary input: Android and iOS show the on-screen gameplay
+/// controls and start menus in touch mode. A hardware keyboard, mouse or controller still works.
+pub const TOUCH_PRIMARY: bool = cfg!(any(target_os = "android", target_os = "ios"));
+
+/// Whether window setup must always request fullscreen, regardless of the saved preference.
+/// Android retains its existing window policy; its host controls the display size.
+pub const FULLSCREEN_ONLY: bool = cfg!(target_os = "ios");
+
 pub mod accounts;
 pub mod branding;
 pub mod download;
@@ -28,7 +36,9 @@ pub mod local_worlds;
 pub mod menu;
 pub mod minecraft_import;
 pub mod mods;
+pub mod shader_options;
 pub mod skin_import;
+pub mod startup;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_support;
 

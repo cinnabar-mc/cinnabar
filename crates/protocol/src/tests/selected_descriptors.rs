@@ -1,10 +1,9 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     enums::ContainerEnumName,
     packets,
     types::{InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData},
-    wire,
 };
 use protocol::{
     ActorUseAction, ActorUseRequest, BlockItemInteraction, BlockUseRequest, HeldItemRequest,
@@ -222,8 +221,10 @@ fn movement() -> PlayerAuthInputSnapshot {
         yaw: 180.0,
         head_yaw: 180.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        vehicle: None,
     }
 }
 
@@ -247,7 +248,7 @@ fn embedded_selection_omits_identity_and_preserves_contents() {
     }
 }
 
-/// Requires action identities and the legacy slot request to survive selected-item omission.
+/// Action items carry no stack network id; the legacy request and slot list name the change.
 fn assert_change(
     packet: protocol::Packet,
     from: &VerifiedNetworkItemStack,
@@ -261,7 +262,7 @@ fn assert_change(
     assert_eq!(slots.len(), 1);
     assert_eq!(
         slots[0].container_enum,
-        ContainerEnumName::Inventorycontainer
+        ContainerEnumName::InventoryContainer
     );
     assert_eq!(slots[0].slots.as_ref(), [2]);
     let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =
@@ -275,17 +276,14 @@ fn assert_change(
     assert_eq!(action.slot.0, 2);
     assert_contents(&action.from_item, from);
     assert_contents(&action.to_item, to);
-    assert_eq!(
-        action.from_item.net_id_variant,
-        Some(wire::ZigZag32(from.stack_network_id()))
-    );
-    assert_eq!(action.to_item.net_id_variant, Some(wire::ZigZag32(-6)));
+    assert_eq!(action.from_item.net_id_variant, None);
+    assert_eq!(action.to_item.net_id_variant, None);
     assert_contents(&transaction.item, from);
     assert_eq!(transaction.item.net_id_variant, None);
 }
 
 #[test]
-fn selected_omission_preserves_throw_and_placement_action_identities() {
+fn transaction_actions_omit_stack_ids_for_throws_and_placements() {
     for id in [57, -4] {
         let from = stack(id);
         let to = from.less_one(-6);

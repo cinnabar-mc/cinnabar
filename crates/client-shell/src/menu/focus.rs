@@ -19,6 +19,7 @@ pub(super) struct SettingsInput {
     pub(super) actions: Vec<MenuAction>,
     pub(super) geometry: SettingsFocusGeometry,
     pub(super) slider_drag: Option<u16>,
+    pub(super) shader_slider_drag: Option<(u32, u16, u16)>,
 }
 
 impl MenuRuntime {
@@ -41,6 +42,15 @@ impl MenuRuntime {
             self.settings_input.geometry.remember(action);
             self.retain_settings_slider_selection();
         }
+    }
+
+    /// Transfers editable-field ownership only after a settings slider captures input.
+    pub(super) fn capture_settings_slider(&mut self, index: u16) {
+        self.field = None;
+        self.focus_pointer(MenuAction::SettingsOption(
+            index,
+            self.settings_options.get(usize::from(index)),
+        ));
     }
 
     pub fn move_focus(&mut self, direction: i32) {
@@ -79,6 +89,7 @@ impl MenuRuntime {
                 .map(|option| option.kind)
             {
                 Some(SettingKind::Slider) => {
+                    self.field = None;
                     self.settings.slider_selected =
                         (self.settings.slider_selected != Some(index)).then_some(index);
                     return;
@@ -399,6 +410,10 @@ impl MenuRuntime {
                 MenuDialog::DeathQuit => {
                     vec![MenuAction::ConfirmDeathQuit, MenuAction::DismissDialog]
                 }
+                MenuDialog::RemoveShaderPack(index, revision) => vec![
+                    MenuAction::DismissDialog,
+                    MenuAction::ConfirmRemoveShaderPack(index, revision),
+                ],
                 MenuDialog::RemoveSaved(index) => vec![
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
@@ -631,13 +646,27 @@ impl MenuRuntime {
                 }
                 actions
             }
-            MenuScreen::Friends => vec![MenuAction::Navigate(MenuScreen::Home)],
+            MenuScreen::Friends => {
+                let query = self.friend_query.as_str().to_lowercase();
+                let mut actions = vec![
+                    MenuAction::SearchFriends,
+                    MenuAction::Navigate(MenuScreen::Home),
+                ];
+                actions.extend(
+                    self.friends
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, friend)| friend.gamertag.to_lowercase().contains(&query))
+                        .map(|(index, _)| MenuAction::PlayFriend(index)),
+                );
+                actions
+            }
             MenuScreen::Invite => self.invite_focus_actions(),
         }
     }
 }
 
-/// Dropdown radio rows are distinct controls; slider stops share one control.
+/// Radio choices are distinct controls; toggle values and slider stops share one control.
 pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
     match (a, b) {
         (MenuAction::SettingsOption(a, av), MenuAction::SettingsOption(b, bv)) if a == b => {
@@ -650,6 +679,14 @@ pub(super) fn same_control(a: MenuAction, b: MenuAction) -> bool {
                 )
         }
         (MenuAction::SettingsFullscreen(_), MenuAction::SettingsFullscreen(_)) => true,
+        (
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(a, _)),
+            MenuAction::WorldSettings(launcher::local_worlds::in_world::Action::Option(b, _)),
+        ) if a == b
+            && a.definition().control == launcher::local_worlds::options::Control::Toggle =>
+        {
+            true
+        }
         _ => a == b,
     }
 }

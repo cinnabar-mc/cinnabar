@@ -26,6 +26,7 @@ const SIZE: [u32; 2] = [1280, 720];
 /// `rotation` degrees, over a world backdrop that eases to `world` blur and 0.62 brightness.
 fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
     let mut panel = panel();
+    panel.motion = true;
     let mut bindings = BTreeMap::new();
     let mut transitions = BTreeMap::new();
     if let Some(blur) = world {
@@ -41,7 +42,7 @@ fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
             },
         );
     }
-    panel.surface = Some(Surface {
+    panel.surface = Surface {
         collections: Default::default(),
         screen: "extension.screen".into(),
         document: json!({"namespace":"extension","screen":{
@@ -55,7 +56,7 @@ fn glass_panel(world: Option<f64>, rotation: f64) -> Panel {
         .to_string(),
         bindings,
         transitions,
-    });
+    };
     panel
 }
 

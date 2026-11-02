@@ -12,6 +12,7 @@ use super::resource_packs::{PackApplication, session_runtime_assets};
 pub(crate) struct RegistryBase {
     assets: Arc<assets::RuntimeAssets>,
     collisions: PhysicsCollisionRegistries,
+    entity_assets: Option<Arc<assets::RuntimeEntityAssets>>,
 }
 
 impl std::fmt::Debug for RegistryBase {
@@ -37,7 +38,17 @@ impl RegistryBase {
         Self {
             assets: Arc::clone(assets),
             collisions: collisions.clone(),
+            entity_assets: None,
         }
+    }
+
+    /// Captures the base entity carrier for analysis on the same preparation worker.
+    pub(crate) fn with_entity_assets(
+        mut self,
+        assets: Option<Arc<assets::RuntimeEntityAssets>>,
+    ) -> Self {
+        self.entity_assets = assets;
+        self
     }
 
     /// Builds a join's block facts on its existing preparation worker, publishing nothing on cancel.
@@ -46,6 +57,7 @@ impl RegistryBase {
         generation: SessionGeneration,
         hashed: bool,
         custom: &protocol::CustomBlocks,
+        items: Option<&protocol::ItemRegistryEvent>,
         packs: &PackApplication,
         cancelled: &(dyn Fn() -> bool + Sync),
     ) -> Option<PreparedSessionRegistries> {
@@ -84,7 +96,17 @@ impl RegistryBase {
             overlay_ids.as_ref(),
             packs.block_overlay.as_ref(),
         );
+        let mining_filters = Arc::new(pack_runtime::CustomMiningFilters::new(custom));
+        let digger_filters = Arc::new(pack_runtime::DiggerFilters::new(
+            items
+                .into_iter()
+                .flat_map(|registry| registry.entries.iter()),
+        ));
+        let actor_catalog = self
+            .entity_assets
+            .map(actor_animation::ActorAnimationCatalog::new);
         (!cancelled()).then_some(PreparedSessionRegistries {
+            actor_catalog,
             generation,
             hashed,
             source_assets: self.assets,
@@ -93,6 +115,8 @@ impl RegistryBase {
             registration,
             identities,
             assets,
+            mining_filters,
+            digger_filters,
         })
     }
 }
@@ -108,6 +132,9 @@ pub(super) struct PreparedSessionRegistries {
     pub(super) registration: SessionBlockRegistration,
     pub(super) identities: client_world::PreparedBlockIdentities,
     pub(super) assets: Arc<assets::RuntimeAssets>,
+    pub(super) actor_catalog: Option<actor_animation::ActorAnimationCatalog>,
+    pub(super) mining_filters: Arc<pack_runtime::CustomMiningFilters>,
+    pub(super) digger_filters: Arc<pack_runtime::DiggerFilters>,
 }
 
 impl std::fmt::Debug for PreparedSessionRegistries {
@@ -123,6 +150,16 @@ impl std::fmt::Debug for PreparedSessionRegistries {
 }
 
 impl PreparedSessionRegistries {
+    /// Rejects prepared indices from a different base entity carrier allocation.
+    pub(super) fn matches_actor_assets(
+        &self,
+        assets: Option<&Arc<assets::RuntimeEntityAssets>>,
+    ) -> bool {
+        self.actor_catalog.as_ref().is_none_or(|catalog| {
+            assets.is_some_and(|assets| Arc::ptr_eq(catalog.assets(), assets))
+        })
+    }
+
     /// Rejects a late or mismatched result before any live session state is changed.
     pub(super) fn matches(
         &self,

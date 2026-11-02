@@ -84,6 +84,7 @@ pub(in crate::presentation::equipment) fn owner_rig<'a>(
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        attachments: None,
         bone_names: names,
         skin_geometry: None,
         skin_mesh: None,
@@ -104,6 +105,8 @@ fn held(identifier: &str) -> ActorEquipmentInput {
     ActorEquipmentInput {
         main: Some(WornItem {
             variant: Default::default(),
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::resolve_item_use(
                 &assets::item_use::diagnostic_profile(identifier),

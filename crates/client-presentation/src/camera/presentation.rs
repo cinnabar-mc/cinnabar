@@ -41,14 +41,12 @@ pub struct ScreenEffectFacts {
 /// First-person hand motion for the equipment lane, all in view space.
 #[derive(Resource, Debug, Clone, Copy, PartialEq)]
 pub struct FirstPersonHandMotion {
-    /// One sampled legacy Hurt × Bob matrix shared with the whole camera.
+    /// Sampled legacy Hurt × Bob for the hand; Minimal keeps its bob off the camera.
     pub legacy_effect: Option<Mat4>,
     pub bob: ViewEffect,
     pub hurt: Mat4,
     pub sway_pitch_radians: f32,
     pub sway_yaw_radians: f32,
-    /// World-space eye correction, independent of view bob and the gameplay origin.
-    pub eye_height_adjustment: f32,
 }
 
 impl Default for FirstPersonHandMotion {
@@ -59,7 +57,6 @@ impl Default for FirstPersonHandMotion {
             hurt: Mat4::IDENTITY,
             sway_pitch_radians: 0.0,
             sway_yaw_radians: 0.0,
-            eye_height_adjustment: 0.0,
         }
     }
 }
@@ -123,13 +120,11 @@ pub fn advance_presentation_state(
         .and_then(|physics| physics.state())
         .is_some_and(|state| state.on_ground);
     hurt.advance(dt);
-    hand.eye_height_adjustment = 0.0;
     let look = view.camera_look();
     let local_actor = client_world
         .as_ref()
         .and_then(|world| world.stream)
         .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
-    let sleeping = local_actor.is_some_and(|actor| actor.is_sleeping());
     let alive = local_actor.map_or_else(
         || {
             ui.and_then(|ui| ui.hud().health())
@@ -204,7 +199,6 @@ pub fn advance_presentation_state(
             velocity: vector(state.velocity),
             on_ground: state.on_ground,
             alive,
-            sneaking,
             riding: matches!(physics.mode(), sim::MovementMode::Riding),
             walks: !(matches!(
                 physics.mode(),
@@ -224,22 +218,7 @@ pub fn advance_presentation_state(
         };
     if settings.feel().java_animations {
         let alpha = physics.map_or(1.0, |physics| physics.tick_alpha());
-        if !sleeping
-            && physics.is_some_and(|physics| {
-                physics.state().is_some()
-                    && !matches!(
-                        physics.mode(),
-                        sim::MovementMode::Swimming
-                            | sim::MovementMode::Crawling
-                            | sim::MovementMode::Gliding
-                    )
-            })
-        {
-            let eye_height = view.eye_translation().y - view.feet_translation().y;
-            hand.eye_height_adjustment =
-                protocol::STANDING_PLAYER_EYE_HEIGHT - java.sneak_drop(alpha) - eye_height;
-        }
-        hand.bob = if settings.feel().view_bobbing {
+        hand.bob = if settings.feel().view_bobbing.hand_enabled() {
             java.bob(alpha)
         } else {
             ViewEffect::NONE
@@ -247,31 +226,27 @@ pub fn advance_presentation_state(
         hand.hurt = java.death_roll(alpha)
             * Mat4::from_quat(Quat::IDENTITY.slerp(
                 Quat::from_mat4(&java_hurt_roll(hurt.progress())),
-                settings.hurt_camera_style().intensity(),
+                settings.hurt_shake_intensity(),
             ));
         if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Modern {
             return;
         }
     }
     if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
-        // Java keeps poses and sneak eye height; legacy combat owns bob and hurt.
+        // Java keeps poses; legacy combat owns bob and hurt.
         hand.bob = ViewEffect::NONE;
         hand.hurt = Mat4::IDENTITY;
         return;
     }
-    hand.bob = if settings.feel().view_bobbing {
+    hand.bob = if settings.feel().view_bobbing.hand_enabled() {
         walk_bob_effect(bob.walk_distance(), bob.bob())
     } else {
         ViewEffect::NONE
     };
     let (yaw, _, _) = view.camera_rotation().to_euler(EulerRot::YXZ);
     hand.hurt = Mat4::from_quat(Quat::IDENTITY.slerp(
-        Quat::from_mat4(&if settings.hurt_camera_style().old_tilt() {
-            java_hurt_roll(hurt.progress())
-        } else {
-            hurt.view_matrix(yaw)
-        }),
-        settings.hurt_camera_style().intensity(),
+        Quat::from_mat4(&hurt.view_matrix(yaw)),
+        settings.hurt_shake_intensity(),
     ));
 }
 
@@ -401,14 +376,15 @@ pub fn apply_camera_presentation(
     time: Res<Time>,
     settings: Res<CameraSettingsAuthority>,
     instructions: Option<Res<ServerCameraInstructions>>,
-    hand: Res<FirstPersonHandMotion>,
     portal: Option<Res<PortalProgress>>,
     view: Res<LocalViewPose>,
+    session_generation: u64,
     client_world: Option<crate::observations::WorldObservation<'_>>,
     collisions: Option<&dyn crate::observations::CollisionLookup>,
     mut server: ResMut<ServerCameraView>,
     mut cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
 ) {
+    server.observe_session(session_generation);
     let Ok((mut transform, projection)) = cameras.single_mut() else {
         return;
     };
@@ -435,7 +411,10 @@ pub fn apply_camera_presentation(
         base_fov: settings.horizontal_fov_degrees(),
         actors: &actors,
     };
-    if let Some(instructions) = instructions.as_deref() {
+    if let Some(instructions) = instructions
+        .as_deref()
+        .filter(|instructions| instructions.session_generation() == Some(session_generation))
+    {
         server.observe_resets(instructions.resets());
         let seen = server.last_sequence();
         for entry in instructions.iter().filter(|entry| entry.sequence > seen) {
@@ -457,11 +436,6 @@ pub fn apply_camera_presentation(
         pose = server.collision_safe_pose(&context, pose, &world);
     }
     let mut changed = override_pose.is_some();
-
-    if override_pose.is_none() && hand.eye_height_adjustment != 0.0 {
-        pose.translation.y += hand.eye_height_adjustment;
-        changed = true;
-    }
 
     if override_pose.is_none()
         && let Some(rig) = settings.rig()
@@ -548,9 +522,9 @@ mod tests {
         time: Res<Time>,
         settings: Res<CameraSettingsAuthority>,
         instructions: Option<Res<ServerCameraInstructions>>,
-        hand: Res<FirstPersonHandMotion>,
         portal: Option<Res<PortalProgress>>,
         view: Res<LocalViewPose>,
+        clock: Res<crate::environment::WorldClock>,
         server: ResMut<ServerCameraView>,
         cameras: Query<(&mut Transform, Option<&mut bevy::prelude::Projection>), With<FlyCamera>>,
     ) {
@@ -558,9 +532,9 @@ mod tests {
             time,
             settings,
             instructions,
-            hand,
             portal,
             view,
+            clock.session_generation(),
             None,
             None,
             server,
@@ -576,10 +550,23 @@ mod tests {
             .init_resource::<FirstPersonHandMotion>()
             .init_resource::<VisionEffects>()
             .init_resource::<ServerCameraView>()
+            .init_resource::<crate::environment::WorldClock>()
             .add_systems(Update, present_camera);
         app.world_mut()
             .spawn((FlyCamera::default(), Transform::from_xyz(1.0, 2.0, 3.0)));
+        bind_camera_session(&mut app, 1);
         app
+    }
+
+    /// Replaces the live session independently of the retained instruction queue.
+    fn bind_camera_session(app: &mut App, session: u64) {
+        crate::environment::bind_session_generation(
+            &mut app
+                .world_mut()
+                .resource_mut::<crate::environment::WorldClock>(),
+            &mut crate::environment::WeatherState::default(),
+            session,
+        );
     }
 
     fn camera_transform(app: &mut App) -> Transform {
@@ -597,6 +584,99 @@ mod tests {
             camera_transform(&mut app),
             Transform::from_xyz(1.0, 2.0, 3.0)
         );
+    }
+
+    /// Presents one session's root camera preset before a lifecycle change.
+    fn camera_app_with_server_preset() -> App {
+        let mut app = camera_app();
+        let mut instructions = ServerCameraInstructions::default();
+        instructions.admit(
+            1,
+            0,
+            [client_world::CommittedCameraEvent {
+                sequence: 10,
+                event: CameraEvent::Presets(
+                    [protocol::CameraPreset {
+                        name: "minecraft:first_person".into(),
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+            }],
+        );
+        app.insert_resource(instructions);
+        app.update();
+        app
+    }
+
+    #[test]
+    fn a_new_session_cannot_activate_the_previous_servers_camera_presets() {
+        let mut app = camera_app_with_server_preset();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_some()
+        );
+
+        bind_camera_session(&mut app, 2);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_none()
+        );
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(2, 0, []);
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_none()
+        );
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(
+                2,
+                0,
+                [client_world::CommittedCameraEvent {
+                    sequence: 1,
+                    event: CameraEvent::Presets(
+                        [protocol::CameraPreset {
+                            name: "minecraft:first_person".into(),
+                            ..Default::default()
+                        }]
+                        .into(),
+                    ),
+                }],
+            );
+        app.update();
+        assert!(
+            app.world()
+                .resource::<ServerCameraView>()
+                .perspective_preset(PerspectiveMode::FirstPerson)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn dimension_changes_keep_the_current_sessions_camera_presets() {
+        let mut app = camera_app_with_server_preset();
+        app.world_mut()
+            .resource_mut::<ServerCameraInstructions>()
+            .admit(1, 1, []);
+        for _ in 0..2 {
+            app.update();
+            assert!(
+                app.world()
+                    .resource::<ServerCameraView>()
+                    .perspective_preset(PerspectiveMode::FirstPerson)
+                    .is_some()
+            );
+        }
     }
 
     #[test]
@@ -765,18 +845,5 @@ mod tests {
     fn hand_motion_defaults_to_identity() {
         let hand = FirstPersonHandMotion::default();
         assert_eq!(hand.hurt * hand.bob.matrix(), Mat4::IDENTITY);
-    }
-
-    /// The visual sneak correction moves the rendered eye without changing the gameplay ray.
-    #[test]
-    fn java_eye_height_adjustment_only_moves_the_presented_camera() {
-        let mut app = camera_app();
-        let view = *app.world().resource::<LocalViewPose>();
-        app.world_mut()
-            .resource_mut::<FirstPersonHandMotion>()
-            .eye_height_adjustment = 0.27;
-        app.update();
-        assert!((camera_transform(&mut app).translation.y - 2.27).abs() < 1e-6);
-        assert_eq!(*app.world().resource::<LocalViewPose>(), view);
     }
 }

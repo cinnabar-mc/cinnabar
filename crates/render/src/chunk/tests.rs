@@ -33,8 +33,9 @@ fn target_expectation(
     }
 }
 
-fn opaque_runtime_assets() -> &'static RuntimeAssets {
-    static ASSETS: OnceLock<RuntimeAssets> = OnceLock::new();
+/// Shared original opaque artwork for meshing and completed-frame rendering fixtures.
+pub(super) fn opaque_runtime_assets() -> &'static Arc<RuntimeAssets> {
+    static ASSETS: OnceLock<Arc<RuntimeAssets>> = OnceLock::new();
     ASSETS.get_or_init(|| {
         let compiled = CompiledAssets {
             visuals: vec![
@@ -101,7 +102,7 @@ fn opaque_runtime_assets() -> &'static RuntimeAssets {
             },
         };
         let blob = encode_blob(&compiled).expect("encode opaque plugin test assets");
-        RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets")
+        Arc::new(RuntimeAssets::decode(&blob).expect("decode opaque plugin test assets"))
     })
 }
 
@@ -131,7 +132,8 @@ fn committed_transparent_state(
     state
 }
 
-fn retirement_test_allocation() -> ArenaAllocation {
+/// Supplies one resident with cube, liquid, lighting, biome and origin addresses for retirement tests.
+pub(in crate::chunk) fn retirement_test_allocation() -> ArenaAllocation {
     ArenaAllocation {
         generation: 7,
         tint_identity: ChunkBiomeTintIdentity::new(2, 2),
@@ -181,6 +183,8 @@ mod gpu_arena;
 mod gpu_biome_ranges;
 #[path = "gpu/growth_tests.rs"]
 mod gpu_growth;
+#[path = "gpu/memory_tests.rs"]
+mod gpu_memory;
 #[path = "gpu/model_tests.rs"]
 mod gpu_models;
 #[path = "gpu/publication_tests.rs"]

@@ -1,4 +1,5 @@
-//! Device-bounded immutable artwork; publications retain textures with unchanged pixels.
+//! Slot-owned artwork uploads current demand first and prewarms unused pages, within a
+//! per-frame upload budget.
 use super::*;
 use std::{collections::hash_map::RandomState, sync::Arc};
 use {
@@ -8,12 +9,17 @@ use {
     },
 };
 
-#[path = "artwork_cache.rs"]
-mod cache;
+#[path = "artwork_source.rs"]
+mod source;
+#[path = "artwork_upload.rs"]
+mod upload;
+use crate::actor::gpu::ArtworkRawViews;
 use crate::gpu_allocation;
-use cache::{TextureCache, TextureKey};
+use source::TextureKey;
+use upload::{PendingPage, Progress, UPLOAD_BYTES_PER_FRAME};
 
-#[derive(Clone)]
+pub(super) const PAGES_PER_FRAME: usize = 4;
+
 pub(super) struct GpuArtworkPage {
     source: TextureKey,
     _texture: Texture,
@@ -21,6 +27,15 @@ pub(super) struct GpuArtworkPage {
     pub bind_group: Option<BindGroup>,
     pub color_mask: bool,
     pub multitexture: bool,
+    raw_views: ArtworkRawViews,
+}
+
+impl GpuArtworkPage {
+    /// The page's array texture, for single-layer raw views; `None` until it is recreated to
+    /// allow them.
+    pub fn raw_texture(&self) -> Option<&Texture> {
+        self.raw_views.0.then_some(&self._texture)
+    }
 }
 
 /// One immutable glint raster, replaced only when its pixels change.
@@ -29,6 +44,7 @@ pub(super) struct GpuGlint {
     pub texture: Option<(Texture, TextureView)>,
     source: Option<TextureKey>,
     bytes: usize,
+    raw_views: ArtworkRawViews,
 }
 
 impl GpuGlint {
@@ -40,6 +56,7 @@ impl GpuGlint {
         device: &RenderDevice,
         queue: &RenderQueue,
         label: &'static str,
+        raw_views: ArtworkRawViews,
     ) -> bool {
         let fallback = render_model::EquipmentRaster {
             width: 1,
@@ -51,7 +68,7 @@ impl GpuGlint {
             width: source.width,
             height: source.height,
             layers: 1,
-            rgba8: Arc::clone(&source.rgba8),
+            rgba8: Arc::clone(&source.rgba8).into(),
             color_mask: false,
             multitexture: false,
         };
@@ -61,12 +78,18 @@ impl GpuGlint {
             .filter(|key| key.shares_pixels_with(&page))
             .cloned()
             .unwrap_or_else(|| TextureKey::new(&page, hasher));
-        let changed = self.source.as_ref() != Some(&key);
+        let changed = self.source.as_ref() != Some(&key) || self.raw_views != raw_views;
         if !changed {
             return false;
         }
-        let Some(texture) = upload_or_reduce(device, queue, &page, label, self.texture.is_none())
-        else {
+        let Some(texture) = upload_or_reduce(
+            device,
+            queue,
+            &page,
+            label,
+            self.texture.is_none(),
+            raw_views,
+        ) else {
             return false;
         };
         let Some(view) = gpu_allocation::checked(device, "actor glint view", 0, || {
@@ -77,120 +100,305 @@ impl GpuGlint {
         self.bytes = (texture.width() as usize) * (texture.height() as usize) * 4;
         self.texture = Some((texture, view));
         self.source = Some(key);
+        self.raw_views = raw_views;
         changed
+    }
+
+    /// The glint texture for raw views; `None` until it is recreated to allow them.
+    pub fn raw_texture(&self) -> Option<&Texture> {
+        self.texture
+            .as_ref()
+            .filter(|_| self.raw_views.0)
+            .map(|(texture, _)| texture)
     }
 }
 
 #[derive(Default)]
 pub(super) struct GpuArtwork {
     identity: Option<([u8; 32], [u8; 32])>,
-    pub pages: Vec<GpuArtworkPage>,
+    pub pages: Vec<Option<GpuArtworkPage>>,
+    /// Replacements still writing rows; the slot's previous page draws until one completes.
+    pending: Vec<Option<PendingPage>>,
+    prewarm_cursor: usize,
     pub glint: GpuGlint,
     /// The held-item glint, sampled when an instance selects the item raster.
     pub item_glint: GpuGlint,
     source_hasher: RandomState,
+    /// Device limits reject the publication until its identity changes.
     rejected: bool,
+    /// A demanded page that could not allocate retries after a bounded backoff.
+    allocation: gpu_allocation::UploadRetry,
+    /// Completed textures released during this attempt, which can span several frames.
+    released: bool,
+    /// The raw-view setting pages and glints are created with.
+    raw_views: ArtworkRawViews,
 }
 
 impl GpuArtwork {
-    /// Keeps immutable textures across route changes and uploads only new pixel content.
+    /// Restarts pending uploads and recreates pages and glints when their view formats change.
+    /// Completed pages keep drawing natively until their replacements finish uploading.
+    pub fn set_raw_views(&mut self, raw_views: ArtworkRawViews) {
+        if self.raw_views != raw_views {
+            self.raw_views = raw_views;
+            self.identity = None;
+            self.pending.fill_with(|| None);
+        }
+    }
+
+    /// Uploads current demand first, then prewarms unused pages, writing at most one frame's
+    /// upload budget; a page binds once all of its rows are written.
+    pub fn prepare_demanded(
+        &mut self,
+        pages: &ActorArtworkPages,
+        demanded: &[ActorArtworkPageId],
+        device: &RenderDevice,
+        queue: &RenderQueue,
+    ) -> bool {
+        self.prepare_pages(
+            pages,
+            demanded.iter().copied(),
+            device,
+            queue,
+            UPLOAD_BYTES_PER_FRAME,
+        )
+    }
+
+    /// Exercises complete publication through the same path without a frame work budget.
+    #[cfg(test)]
     pub fn prepare(
         &mut self,
         pages: &ActorArtworkPages,
         device: &RenderDevice,
         queue: &RenderQueue,
     ) -> bool {
+        self.prepare_pages(
+            pages,
+            (1..=pages.pages.len()).map(|page| page as ActorArtworkPageId),
+            device,
+            queue,
+            usize::MAX,
+        )
+    }
+
+    /// Retains each slot independently; `budget` bounds the bytes written this call.
+    fn prepare_pages(
+        &mut self,
+        pages: &ActorArtworkPages,
+        demanded: impl Iterator<Item = ActorArtworkPageId>,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        budget: usize,
+    ) -> bool {
+        let raw_views = self.raw_views;
         let identity = (pages.identity, pages.entity_identity);
-        if self.identity == Some(identity) {
-            return !self.rejected;
-        }
-        self.identity = Some(identity);
-        self.rejected = false;
-        let limits = device.limits();
-        let actor_changed = self.glint.prepare(
-            pages.actor_glint.as_ref(),
-            &self.source_hasher,
-            device,
-            queue,
-            "immutable actor glint",
-        );
-        let item_changed = self.item_glint.prepare(
-            pages.item_glint.as_ref(),
-            &self.source_hasher,
-            device,
-            queue,
-            "immutable item glint",
-        );
-        if actor_changed || item_changed {
-            self.invalidate_bindings();
-        }
-        let bytes = pages.pages.iter().try_fold(
-            render_model::PLAYER_SKIN_BUDGET_BYTES + self.glint.bytes + self.item_glint.bytes,
-            |total, page| total.checked_add(page.rgba8.len()),
-        );
-        if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
-            || bytes.is_none_or(|bytes| bytes > MAX_ACTOR_GPU_PIXEL_BYTES)
-            || pages
+        let changed = self.identity != Some(identity);
+        if changed {
+            self.identity = Some(identity);
+            self.rejected = false;
+            self.allocation = gpu_allocation::UploadRetry::default();
+            self.released = self
                 .pages
                 .iter()
-                .any(|page| page.layers > limits.max_texture_array_layers)
-        {
-            self.pages.clear();
-            self.rejected = true;
-            bevy::log::warn!(
-                "neutral actor artwork exceeds device limits; generic artwork unavailable"
+                .skip(pages.pages.len())
+                .any(Option::is_some);
+            let actor_changed = self.glint.prepare(
+                pages.actor_glint.as_ref(),
+                &self.source_hasher,
+                device,
+                queue,
+                "immutable actor glint",
+                raw_views,
             );
+            let item_changed = self.item_glint.prepare(
+                pages.item_glint.as_ref(),
+                &self.source_hasher,
+                device,
+                queue,
+                "immutable item glint",
+                raw_views,
+            );
+            if actor_changed || item_changed {
+                self.invalidate_bindings();
+            }
+            let bytes = pages.pages.iter().try_fold(
+                render_model::PLAYER_SKIN_BUDGET_BYTES + self.glint.bytes + self.item_glint.bytes,
+                |total, page| total.checked_add(page.rgba8.len()),
+            );
+            if pages.pages.len() + 1 > MAX_ACTOR_TEXTURE_PAGES
+                || bytes.is_none_or(|bytes| bytes > MAX_ACTOR_GPU_PIXEL_BYTES)
+                || pages
+                    .pages
+                    .iter()
+                    .any(|page| page.layers > device.limits().max_texture_array_layers)
+            {
+                self.pages.clear();
+                self.pending.clear();
+                self.rejected = true;
+                bevy::log::warn!(
+                    "neutral actor artwork exceeds device limits; generic artwork unavailable"
+                );
+                return false;
+            }
+            self.pages.truncate(pages.pages.len());
+            self.pages.resize_with(pages.pages.len(), || None);
+            self.pending.truncate(pages.pages.len());
+            self.pending.resize_with(pages.pages.len(), || None);
+            self.prewarm_cursor = 0;
+            for (index, page) in pages.pages.iter().enumerate() {
+                if self.pages[index]
+                    .as_ref()
+                    .is_some_and(|gpu| !gpu.source.contains_layers(page.layers))
+                {
+                    self.pages[index] = None;
+                    self.released = true;
+                }
+                if let Some(gpu) = &mut self.pages[index]
+                    && (gpu.color_mask != page.color_mask || gpu.multitexture != page.multitexture)
+                {
+                    gpu.bind_group = None;
+                    gpu.color_mask = page.color_mask;
+                    gpu.multitexture = page.multitexture;
+                }
+                if let Some(pending) = &mut self.pending[index] {
+                    if !pending.source.shares_pixels_with(page) {
+                        let source = TextureKey::new(page, &self.source_hasher);
+                        if pending.source != source {
+                            self.pending[index] = None;
+                            continue;
+                        }
+                        pending.source = source;
+                    }
+                    pending.color_mask = page.color_mask;
+                    pending.multitexture = page.multitexture;
+                }
+            }
+        }
+        if self.rejected {
             return false;
         }
-        let old = std::mem::take(&mut self.pages);
-        let mut retained = TextureCache::new(old.clone());
-        let sources: Vec<_> = pages
-            .pages
-            .iter()
-            .map(|page| retained.key(page, &self.source_hasher))
-            .collect();
-        // Exact reuse and compatible replacement fallbacks are the only old pages still needed.
-        retained.retain(&sources);
-        let mut previous: Vec<_> = old
-            .into_iter()
-            .enumerate()
-            .map(|(index, gpu)| {
-                pages
-                    .pages
-                    .get(index)
-                    .filter(|page| gpu._texture.depth_or_array_layers() >= page.layers)
-                    .filter(|_| retained.get(&sources[index]).is_none())
-                    .map(|_| gpu)
-            })
-            .collect();
-        self.pages.reserve(pages.pages.len());
-        for (index, (page, source)) in pages.pages.iter().zip(sources).enumerate() {
-            let previous = previous.get_mut(index).and_then(Option::take);
-            let mut gpu = if let Some(mut gpu) = retained.get(&source) {
-                gpu.source = source;
-                gpu
-            } else if let Some(gpu) = allocate_page(device, queue, page, source, previous.is_none())
-            {
-                gpu
-            } else if let Some(previous) = previous {
-                previous
-            } else {
-                self.pages.clear();
-                self.rejected = true;
+        if self.allocation.failed() {
+            if !self.allocation.take_ready() {
                 return false;
-            };
-            if gpu.color_mask != page.color_mask || gpu.multitexture != page.multitexture {
-                gpu.bind_group = None;
-                gpu.color_mask = page.color_mask;
-                gpu.multitexture = page.multitexture;
             }
-            retained.insert(gpu.clone());
-            self.pages.push(gpu);
+            self.pages.resize_with(pages.pages.len(), || None);
+            self.pending.resize_with(pages.pages.len(), || None);
+            self.prewarm_cursor = 0;
         }
-        #[cfg(feature = "tracy")]
-        let _retire = bevy::log::info_span!("actor.artwork_retire").entered();
-        drop(retained);
+        let demanded: Vec<_> = demanded
+            .filter_map(|id| usize::from(id).checked_sub(1))
+            .filter(|&index| index < pages.pages.len())
+            .collect();
+        let pending: Vec<_> = self
+            .pending
+            .iter()
+            .enumerate()
+            .filter_map(|(index, page)| page.as_ref().map(|_| index))
+            .collect();
+        let mut prepared = 0;
+        let mut budget = budget;
+        let mut attempted = std::collections::HashSet::new();
+        let first_background = self.prewarm_cursor;
+        let requests = demanded
+            .iter()
+            .chain(&pending)
+            .map(|&index| (index, false))
+            .chain((first_background..pages.pages.len()).map(|index| (index, true)));
+        for (index, background) in requests {
+            let page = &pages.pages[index];
+            if self.page_is_current(index, page) || attempted.contains(&index) {
+                if background {
+                    self.prewarm_cursor = index + 1;
+                }
+                continue;
+            }
+            // Finish pending pages before allocating more speculative textures.
+            if background
+                && (prepared == PAGES_PER_FRAME || self.pending.iter().any(Option::is_some))
+            {
+                break;
+            }
+            if budget < usize::from(page.width) * 4 {
+                break;
+            }
+            if background {
+                prepared += 1;
+                self.prewarm_cursor = index + 1;
+            }
+            attempted.insert(index);
+            if !self.advance_page(index, page, device, queue, &mut budget)
+                && demanded.contains(&index)
+            {
+                // Keep completed pages; retirement can shorten only the first failed wait.
+                self.allocation.record(
+                    false,
+                    (self.released && !self.allocation.failed()).then_some(queue),
+                );
+                self.released = false;
+                return false;
+            }
+        }
+        if demanded
+            .iter()
+            .all(|&index| self.page_is_current(index, &pages.pages[index]))
+        {
+            if self.allocation.failed() {
+                self.allocation.record(true, None);
+            }
+            self.released = false;
+        }
         true
+    }
+
+    /// Reports whether a completed page has the current pixels and view formats.
+    fn page_is_current(&self, index: usize, source: &render_model::ActorTexturePage) -> bool {
+        self.page(index).is_some_and(|page| {
+            page.source.shares_pixels_with(source) && page.raw_views == self.raw_views
+        })
+    }
+
+    /// Advances one slot before allocating another; failures keep a compatible old page.
+    fn advance_page(
+        &mut self,
+        index: usize,
+        page: &render_model::ActorTexturePage,
+        device: &RenderDevice,
+        queue: &RenderQueue,
+        budget: &mut usize,
+    ) -> bool {
+        if self.pending[index].is_none() {
+            let source = TextureKey::new(page, &self.source_hasher);
+            if let Some(gpu) = &mut self.pages[index]
+                && gpu.source == source
+                && gpu.raw_views == self.raw_views
+            {
+                gpu.source = source;
+                return true;
+            }
+            self.pending[index] = upload::start_page(
+                device,
+                page,
+                source,
+                self.pages[index].is_none(),
+                self.raw_views,
+            );
+        }
+        let Some(pending) = self.pending[index].take() else {
+            return self.pages[index].is_some();
+        };
+        match upload::continue_page(device, queue, pending, budget) {
+            Progress::Done(page) => {
+                self.released |= self.pages[index].is_some();
+                self.pages[index] = Some(page);
+            }
+            Progress::Pending(pending) => self.pending[index] = Some(pending),
+            Progress::Failed => return self.pages[index].is_some(),
+        }
+        true
+    }
+
+    /// Returns a page once every row is written; demand still uploading draws nothing yet.
+    pub(super) fn page(&self, index: usize) -> Option<&GpuArtworkPage> {
+        self.pages.get(index).and_then(Option::as_ref)
     }
 
     /// Reports whether this page binds the exact immutable pixels supplied by the publication.
@@ -200,57 +408,32 @@ impl GpuArtwork {
         page: ActorArtworkPageId,
         source: &render_model::ActorTexturePage,
     ) -> bool {
-        self.pages
-            .get(usize::from(page) - 1)
+        self.page(usize::from(page) - 1)
             .is_some_and(|page| page.bind_group.is_some() && page.source.shares_pixels_with(source))
     }
 
     /// Buffer and glint replacements invalidate bindings without discarding page textures.
     pub fn invalidate_bindings(&mut self) {
-        for page in &mut self.pages {
+        for page in self.pages.iter_mut().flatten() {
             page.bind_group = None;
         }
     }
 }
 
-/// Publishes a page only after both its pixels and array view are usable.
-fn allocate_page(
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    page: &render_model::ActorTexturePage,
-    source: TextureKey,
-    reduce: bool,
-) -> Option<GpuArtworkPage> {
-    let texture = upload_or_reduce(device, queue, page, "immutable actor page", reduce)?;
-    let view = gpu_allocation::checked(device, "actor page view", 0, || {
-        texture.create_view(&TextureViewDescriptor {
-            dimension: Some(TextureViewDimension::D2Array),
-            ..default()
-        })
-    })?;
-    Some(GpuArtworkPage {
-        source,
-        _texture: texture,
-        view,
-        bind_group: None,
-        color_mask: page.color_mask,
-        multitexture: page.multitexture,
-    })
-}
-
-/// Retries fresh pages at half size until one texel remains; replacements retain their old page.
+/// Uploads a glint whole, retrying fresh ones at half size until one texel remains.
 fn upload_or_reduce(
     device: &RenderDevice,
     queue: &RenderQueue,
     page: &render_model::ActorTexturePage,
     label: &'static str,
     reduce: bool,
+    raw_views: ArtworkRawViews,
 ) -> Option<Texture> {
     let mut fitted = page
         .fit_within(device.limits().max_texture_dimension_2d)
         .into_owned();
     loop {
-        if let Some(texture) = upload_page(device, queue, &fitted, label) {
+        if let Some(texture) = upload_page(device, queue, &fitted, label, raw_views) {
             return Some(texture);
         }
         let side = u32::from(fitted.width.max(fitted.height));
@@ -267,6 +450,7 @@ fn upload_page(
     queue: &RenderQueue,
     page: &render_model::ActorTexturePage,
     label: &'static str,
+    raw_views: ArtworkRawViews,
 ) -> Option<Texture> {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!(
@@ -292,47 +476,68 @@ fn upload_page(
             dimension: TextureDimension::D2,
             format: TextureFormat::Rgba8UnormSrgb,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
+            view_formats: raw_views.view_formats(),
         })
     })?;
     #[cfg(test)]
     work_tests::record_upload(page.rgba8.len());
-    gpu_allocation::checked(device, "actor page upload", page.rgba8.len() as u64, || {
-        queue.profiled_write_texture(
-            TexelCopyTextureInfo {
-                texture: &texture,
-                mip_level: 0,
-                origin: default(),
-                aspect: default(),
-            },
-            &page.rgba8,
-            TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(size.width * 4),
-                rows_per_image: Some(size.height),
-            },
-            size,
-        )
-    })?;
+    // Each allocation holds whole layers; shared layers upload without being joined first.
+    let layer_bytes = (size.width * size.height * 4) as usize;
+    let mut first_layer = 0;
+    for part in page.rgba8.parts() {
+        let layers = (part.len() / layer_bytes.max(1)) as u32;
+        gpu_allocation::checked(device, "actor page upload", part.len() as u64, || {
+            queue.profiled_write_texture(
+                TexelCopyTextureInfo {
+                    texture: &texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d {
+                        x: 0,
+                        y: 0,
+                        z: first_layer,
+                    },
+                    aspect: default(),
+                },
+                part,
+                TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(size.width * 4),
+                    rows_per_image: Some(size.height),
+                },
+                Extent3d {
+                    depth_or_array_layers: layers,
+                    ..size
+                },
+            )
+        })?;
+        first_layer += layers;
+    }
     Some(texture)
 }
 
-/// Rebuilds `spans` in place, reusing its capacity across frames. Opaque instances share runs;
-/// sorted-pass instances retain individual sort positions.
+/// Reuses span storage for adjacent opaque instances with equal vertex counts, pages,
+/// materials and layers. Sorted-pass instances retain individual sort positions.
 pub(super) fn draw_spans(
     spans: &mut Vec<ActorDrawSpan>,
     pages: &[ActorArtworkPageId],
     instances: &[render_model::ActorGpuInstance],
     geometry: &[render_model::ActorRigGeometrySpan],
+    layers: impl IntoIterator<Item = u8>,
 ) {
     spans.clear();
-    let mut last_geometry = None;
-    for (index, (page, instance)) in pages.iter().copied().zip(instances).enumerate() {
+    let mut last_layer = None;
+    for (index, ((page, instance), layer)) in
+        pages.iter().copied().zip(instances).zip(layers).enumerate()
+    {
+        let vertex_count = geometry
+            .get(instance.geometry_id as usize)
+            .map_or(0, |span| span.vertex_count);
         if let Some(span) = spans.last_mut().filter(|span| {
             span.page == page
                 && !super::phase::sorted(instance.material)
-                && last_geometry == Some(instance.geometry_id)
+                && span.vertex_count == vertex_count
                 && span.material == instance.material
+                && last_layer == Some(layer)
         }) {
             span.count += 1;
         } else {
@@ -341,13 +546,48 @@ pub(super) fn draw_spans(
                 page,
                 first: index as u32,
                 count: 1,
-                vertex_count: geometry
-                    .get(instance.geometry_id as usize)
-                    .map_or(0, |span| span.vertex_count),
+                vertex_count,
             });
-            last_geometry = Some(instance.geometry_id);
+            last_layer = Some(layer);
         }
     }
+}
+
+/// Splits main-pass spans at coverage-only actors; mask preparation retains the complete spans.
+pub(super) fn visible_spans(
+    spans: &[ActorDrawSpan],
+    manifest: &[render_model::ActorDrawManifestEntry],
+    hidden: &[u64],
+    main_count: Option<u32>,
+) -> Vec<ActorDrawSpan> {
+    let mut visible = Vec::with_capacity(spans.len());
+    for span in spans {
+        let mut run = None;
+        for first in span.first..span.first + span.count {
+            if main_count.map_or_else(
+                || hidden.contains(&manifest[first as usize].identity.runtime_id),
+                |count| first >= count,
+            ) {
+                if let Some(first_run) = run.take() {
+                    visible.push(ActorDrawSpan {
+                        first: first_run,
+                        count: first - first_run,
+                        ..*span
+                    });
+                }
+            } else {
+                run.get_or_insert(first);
+            }
+        }
+        if let Some(first) = run {
+            visible.push(ActorDrawSpan {
+                first,
+                count: span.first + span.count - first,
+                ..*span
+            });
+        }
+    }
+    visible
 }
 
 #[cfg(test)]
@@ -374,6 +614,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(
             spans
@@ -405,6 +646,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(
             spans
@@ -459,7 +701,7 @@ mod tests {
                     session_id: 1,
                     dimension: 0,
                     runtime_id,
-                    spawn_revision: 1,
+                    spawn_revision: std::num::NonZeroU64::MIN,
                     ingress_sequence: 1,
                     source_tick: Some(1),
                     movement_revision: 1,
@@ -512,6 +754,7 @@ mod tests {
             &instance_pages,
             &frame.instances,
             &frame.geometry_spans,
+            frame.manifest.iter().map(|entry| entry.identity.layer),
         );
         assert_eq!(spans.len(), 2);
         assert_eq!((spans[0].page, spans[0].count), (low.page(), 1));
@@ -537,6 +780,7 @@ mod tests {
                 first_vertex: 0,
                 vertex_count: 36,
             }],
+            std::iter::repeat(0),
         );
         assert_eq!(spans.len(), 2);
         assert_eq!(
@@ -576,6 +820,7 @@ mod tests {
                 instance(0),
             ],
             &geometry,
+            std::iter::repeat(0),
         );
         let span = |page, first, count, vertex_count| ActorDrawSpan {
             material: 0,
@@ -616,7 +861,7 @@ mod tests {
         let mut gpu = GpuArtwork::default();
         assert!(gpu.prepare(&pages, &device, &queue));
         assert_eq!(gpu.pages.len(), 1);
-        assert!(gpu.pages[0].color_mask);
+        assert!(gpu.pages[0].as_ref().unwrap().color_mask);
     }
 
     #[test]
@@ -661,3 +906,11 @@ mod work_tests;
 #[cfg(test)]
 #[path = "artwork_allocation_tests.rs"]
 mod allocation_tests;
+
+#[cfg(test)]
+#[path = "artwork_ownership_tests.rs"]
+mod ownership_tests;
+
+#[cfg(test)]
+#[path = "artwork_upload_tests.rs"]
+mod upload_tests;

@@ -74,7 +74,9 @@ const (
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
 	// GameVersion: Game version reported by the client.
-	GameVersion = "1.26.50"
+	GameVersion = "1.26.60"
+	// BDSVersion: Dedicated server version used by integration fixtures.
+	BDSVersion = "1.26.60.6"
 	// DefaultBedrockPort: Default port for an addressed Bedrock server.
 	DefaultBedrockPort = 19132
 	// DefaultBedrockPortText: Text form of the default Bedrock server port.
@@ -174,7 +176,7 @@ const (
 	// MethodCinnabarLookup: Control method for a Cinnabar player lookup.
 	MethodCinnabarLookup = "cinnabar_lookup.v1"
 	// CinnabarAPIBaseURL: Cinnabar API origin; the package workflow reads it from this manifest.
-	CinnabarAPIBaseURL = "https://cinnabar-api.cinnabar-api.workers.dev"
+	CinnabarAPIBaseURL = "https://api.cinnabar.gg"
 	// CinnabarAPIMaxLookupXUIDs: Most XUIDs in one Cinnabar player lookup.
 	CinnabarAPIMaxLookupXUIDs = 128
 	// CinnabarAPICacheTTLMS: Fallback lifetime of a Cinnabar lookup answer.
@@ -249,6 +251,8 @@ const (
 	DisconnectKeyInvalidName = "disconnectionScreen.invalidName"
 	// DisconnectKeyDeviceClock: Core disconnect message: The sign-in token was rejected because this device's clock is behind.
 	DisconnectKeyDeviceClock = "cinnabar.disconnect.deviceClock"
+	// DisconnectKeyLocalWorldOffline: Core disconnect message: The local Bedrock Dedicated Server world cannot be reached without a network connection.
+	DisconnectKeyLocalWorldOffline = "cinnabar.disconnect.localWorldOffline"
 	// RelayRefusalResume: A safe relay refusal code; unrecognized codes use the generic refusal. ResumeRefused.
 	RelayRefusalResume = "resume_refused"
 	// RelayRefusalAdmission: A safe relay refusal code; unrecognized codes use the generic refusal. AdmissionRefused.
@@ -434,4 +438,4 @@ var InboxCategories = [...]string{"News", "Realms", "Invites", "Feedback"}
 var MessageEventTypes = [...]string{"Impression", "DeleteAllRead", "ReadAll", "Delete", "Click", "Dismiss", "ControlImpression"}
 
 // CoreDisconnectKeys: Every lang key the core sends as a whole disconnect message.
-var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock"}
+var CoreDisconnectKeys = [...]string{"disconnectionScreen.cantConnect", "disconnectionScreen.cantConnectToRealm", "disconnectionScreen.resourcePack", "disconnectionScreen.outdatedClient", "disconnectionScreen.outdatedServer", "disconnectionScreen.invalidSkin", "disconnectionScreen.invalidName", "cinnabar.disconnect.deviceClock", "cinnabar.disconnect.localWorldOffline"}

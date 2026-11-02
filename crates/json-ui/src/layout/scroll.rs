@@ -47,16 +47,29 @@ pub(super) fn swap(memo: &mut RoleMemo) {
 
 /// The first control named `name` breadth-first from `root`, itself included.
 fn breadth_first(root: &ResolvedControl, name: &str) -> Option<Vec<usize>> {
-    let mut queue = std::collections::VecDeque::from([(root, Vec::new())]);
-    while let Some((node, path)) = queue.pop_front() {
+    // Visited controls with their parent's entry and child index; the path is
+    // rebuilt only for the match.
+    let mut visited = vec![(root, 0, 0)];
+    let mut next = 0;
+    while let Some(&(node, _, _)) = visited.get(next) {
         if node.name == name {
+            let mut path = Vec::new();
+            let mut at = next;
+            while at != 0 {
+                let (_, parent, index) = visited[at];
+                path.push(index);
+                at = parent;
+            }
+            path.reverse();
             return Some(path);
         }
-        for (index, child) in node.children.iter().enumerate() {
-            let mut next = path.clone();
-            next.push(index);
-            queue.push_back((child, next));
-        }
+        visited.extend(
+            node.children
+                .iter()
+                .enumerate()
+                .map(|(index, child)| (child, next, index)),
+        );
+        next += 1;
     }
     None
 }
@@ -76,6 +89,38 @@ fn roles(view: &ResolvedControl) -> Roles {
     });
     ROLES.with(|memo| memo.borrow_mut().insert(address, found.clone()));
     found
+}
+
+/// Adds to `pinned` every control under `root` whose layout follows a scroll view's state:
+/// each control on the path from a view to a control it names in a role, and the whole
+/// subtree of a role that does not enclose the scrolled content (track, box, bar panel).
+/// Read from the tree alone, so neither culling nor scroll state can hide one.
+pub(super) fn pin(root: &ResolvedControl, pinned: &mut measure::Memo<usize, ()>) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.control_type.as_deref() == Some("scroll_view") {
+            let paths = roles(node);
+            let content = paths[CONTENT].as_deref();
+            for path in paths.iter().flatten() {
+                let mut at = Some(node);
+                for &index in path {
+                    at = at.and_then(|parent| parent.children.get(index));
+                    if let Some(control) = at {
+                        pinned.insert(address(control), ());
+                    }
+                }
+                let encloses_content = content.is_some_and(|content| content.starts_with(path));
+                if let Some(role) = at.filter(|_| !encloses_content) {
+                    let mut below = vec![role];
+                    while let Some(control) = below.pop() {
+                        pinned.insert(address(control), ());
+                        below.extend(&control.children);
+                    }
+                }
+            }
+        }
+        stack.extend(&node.children);
+    }
 }
 
 /// Forget only the moved root; descendant allocations remain stable.
@@ -102,7 +147,7 @@ fn locate<'a>(
     let mut parent = rect;
     for &index in path {
         let child = node.children.get(index)?;
-        let placed = measure::placed_children(node, at, env, None);
+        let placed = measure::placed_children(node, at, env, None, None);
         let (_, child_rect) = placed
             .into_iter()
             .find(|(placed, _)| std::ptr::eq(*placed, child))?;
@@ -131,9 +176,30 @@ fn box_axis(control: &ResolvedControl) -> Option<usize> {
     }
 }
 
+/// Resolves a named role with the same sibling and collection identities used by layout.
+fn role_key(view: &ResolvedControl, root_key: &str, path: &[usize]) -> String {
+    let mut node = view;
+    let mut key = root_key.to_owned();
+    for &index in path {
+        let mut siblings = super::SiblingKeys::default();
+        for sibling in &node.children[..index] {
+            siblings.of(sibling);
+        }
+        let child = &node.children[index];
+        key = super::child_key(&key, child, siblings.of(child));
+        node = child;
+    }
+    key
+}
+
 /// A live scroll view: its solved geometry, applied as its descendants are placed.
+#[derive(Debug)]
 pub(crate) struct ScrollFrame {
     pub key: String,
+    /// A hash of everything else in the frame, from [`Self::seal`].
+    applied: u64,
+    /// Every control the view names in a role, in `ROLE_KEYS` order.
+    roles: [Option<usize>; 5],
     content: Option<usize>,
     bar_box: Option<usize>,
     panel: Option<usize>,
@@ -175,13 +241,13 @@ impl ScrollFrame {
                 .as_ref()
                 .and_then(|path| locate(view, rect, path, env))
         };
-        let content = find(CONTENT);
-        let viewport = find(VIEWPORT);
-        let track = find(TRACK);
-        let bar_box = find(BOX);
-        let panel = find(PANEL);
+        let located: [_; 5] = std::array::from_fn(find);
+        let [viewport, content, track, bar_box, panel] =
+            [VIEWPORT, CONTENT, TRACK, BOX, PANEL].map(|role| located[role]);
         let mut frame = Self {
             key: key.to_owned(),
+            applied: 0,
+            roles: located.map(|role| role.map(|(control, _, _)| address(control))),
             content: content.map(|(control, _, _)| address(control)),
             bar_box: bar_box.map(|(control, _, _)| address(control)),
             panel: panel.map(|(control, _, _)| address(control)),
@@ -276,6 +342,10 @@ impl ScrollFrame {
             content_rect: Some(rect_of(content_rect)),
             track: track.map(|(_, rect, _)| rect_of(rect)),
             thumb: None,
+            thumb_key: paths[BOX].as_deref().map(|path| role_key(view, key, path)),
+            track_key: paths[TRACK]
+                .as_deref()
+                .map(|path| role_key(view, key, path)),
             speed: widgets::bound_number(view, "scroll_speed").unwrap_or(1.0),
             horizontal: axis == 0,
             box_drag: bar_box.map_or(Draggable::NotDraggable, |(control, _, _)| {
@@ -349,6 +419,27 @@ impl ScrollFrame {
             }
         }
         Adjusted::Kept
+    }
+
+    /// The controls this view names in each role, in `ROLE_KEYS` order.
+    pub(super) fn roles(&self) -> [Option<usize>; 5] {
+        self.roles
+    }
+
+    /// The frame with [`Self::applied`] set from every field it applies to descendants.
+    pub(super) fn seal(mut self) -> Self {
+        use std::hash::{Hash, Hasher};
+        self.applied = 0;
+        let mut hasher = std::hash::DefaultHasher::new();
+        format!("{self:?}").hash(&mut hasher);
+        self.applied = hasher.finish();
+        self
+    }
+
+    /// A hash of the whole solved frame (offset, extents, box placement and fade, bar
+    /// visibility, metrics), so placements under it match only under the same scroll state.
+    pub(super) fn applied(&self) -> u64 {
+        self.applied
     }
 
     /// The bar panel's address, when the view names one.

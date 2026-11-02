@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::GeneratorType;
-use bedrock_protocol_1_26_51::packets::DimensionData;
-use bedrock_protocol_1_26_51::types::SubChunkData;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::GeneratorType;
+use bedrock_protocol_1_26_60::packets::DimensionData;
+use bedrock_protocol_1_26_60::types::SubChunkData;
+use bedrock_protocol_1_26_60::wire;
 
 /// Vertical bounds advertised separately from StartGame.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -13,7 +13,8 @@ pub struct DimensionHeightDiagnostic {
     pub name: Arc<str>,
     pub dimension: i32,
     pub minimum_y: i32,
-    pub height_range: i32,
+    /// Exclusive maximum block Y advertised by the server.
+    pub maximum_y: i32,
     pub generator: i32,
 }
 
@@ -86,7 +87,7 @@ pub(super) fn normalize_dimension_data(packet: DimensionData) -> Vec<DimensionHe
             name: Arc::from(name.to_string_lossy()),
             dimension: definition.dimension_type.0,
             minimum_y: definition.minimum_y.0,
-            height_range: definition.height_range.0,
+            maximum_y: definition.height_range.0,
             generator: dimension_generator_id(definition.generator_type),
         })
         .collect()

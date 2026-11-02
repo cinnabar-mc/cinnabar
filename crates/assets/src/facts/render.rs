@@ -13,6 +13,7 @@ pub enum BlockRenderKind {
     HangingSign,
     Lantern,
     FlowerPot,
+    Hopper,
     BambooFence,
     BambooGate,
     NetherBrickFence,
@@ -36,6 +37,12 @@ pub enum BlockRenderKind {
     EndRod,
     Fire,
     Grindstone,
+    /// Stonecutter body and saw plane that turns with its cardinal direction.
+    Stonecutter,
+    /// Lectern stand that turns with its cardinal direction; the block entity draws the book.
+    Lectern,
+    /// Bell frame for each mounting and direction; the block entity draws the body.
+    Bell,
     Lever,
     LilyPad,
     PitcherCrop,
@@ -43,6 +50,24 @@ pub enum BlockRenderKind {
     Stem,
     TripwireHook,
     Barrel,
+    /// Unlit furnace-family cube whose front follows its cardinal direction.
+    Furnace,
+    /// Lit furnace-family cube; its pack front comes from the east face.
+    LitFurnace,
+    /// Horizontal face-directional cube that turns every face toward its direction.
+    FacingCube,
+    /// Observer cube whose authored faces and UVs turn with its facing.
+    Observer,
+    /// Dispenser or dropper cube whose front slot follows its facing.
+    Dispenser,
+    /// Crafter cube whose authored faces and UVs turn with its orientation.
+    Crafter,
+    /// Piston body whose top, bottom and side slots follow its head.
+    PistonBase,
+    /// Jigsaw cube whose authored faces and UVs turn with its facing and rotation.
+    Jigsaw,
+    /// Vault whose cutout shell turns with its direction and draws an inward interior.
+    Vault,
     CommandBlock,
     Composter,
     Cauldron,
@@ -70,6 +95,8 @@ pub enum BlockRenderKind {
     StainedGlass,
     CopperGrate,
     CandleCake,
+    /// One to four placed candles, each with its crossed wick.
+    Candle,
     Shelf,
     LightningRod,
     CopperBulb,
@@ -91,6 +118,7 @@ pub enum BlockRenderKind {
     Torchflower,
     AuthoredModel,
     GrassCross,
+    LeafLitter,
 }
 
 /// Cold identity admission for pack compilation; frame paths retain typed model handles.
@@ -98,7 +126,7 @@ pub fn block_render_fact(identifier: &str) -> BlockRenderFact {
     static KINDS: OnceLock<BTreeMap<&'static str, BlockRenderFact>> = OnceLock::new();
     KINDS
         .get_or_init(|| {
-            let mut rows = include_str!("../../data/facts-expansion-v2193.tsv").lines();
+            let mut rows = include_str!("../../data/facts-expansion-v2225.tsv").lines();
             assert_eq!(
                 rows.next(),
                 Some("identifier\ttraits\trules\tprovisional\trender")
@@ -178,10 +206,20 @@ pub struct BlockRenderRoute {
     pub model: bool,
     pub cutout: bool,
     pub priority_cutout: bool,
+    /// A dedicated rule draws every member, so the provisional envelope never applies.
     pub overrides_fallback: bool,
 }
 
 impl BlockRenderKind {
+    /// Unit cubes drawn on the transparent-cube path; the registry gives them no cube family.
+    pub const fn is_translucent_cube(self) -> bool {
+        use BlockRenderKind as R;
+        matches!(
+            self,
+            R::Ice | R::FrostedIce | R::Slime | R::Honey | R::TintedGlass | R::PowderSnow
+        )
+    }
+
     /// Gives each dedicated shape one route policy, independent of its identifier.
     pub const fn route(self) -> BlockRenderRoute {
         use BlockRenderKind as R;
@@ -190,14 +228,18 @@ impl BlockRenderKind {
             | R::RespawnAnchor
             | R::Shelf
             | R::SeaPickle
+            | R::Candle
             | R::BrewingStand
             | R::Campfire
+            | R::Hopper
             | R::Grindstone
+            | R::Stonecutter
             | R::TripwireHook
             | R::Lever
             | R::EndRod
             | R::LightningRod => (true, true, true, true),
-            R::GrassCross
+            R::LeafLitter
+            | R::GrassCross
             | R::Chain
             | R::Ladder
             | R::Seagrass
@@ -205,9 +247,17 @@ impl BlockRenderKind {
             | R::CoralFan
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
-            R::Crystal => (true, true, false, false),
-            R::CommandBlock => (true, false, false, true),
-            R::EndPortalFrame | R::Lantern => (true, true, true, false),
+            R::Crystal => (true, true, false, true),
+            R::CommandBlock
+            | R::Observer
+            | R::Dispenser
+            | R::Crafter
+            | R::PistonBase
+            | R::Jigsaw
+            | R::Lectern
+            | R::Bell => (true, false, false, true),
+            R::Vault => (true, true, false, true),
+            R::EndPortalFrame | R::Lantern => (true, true, true, true),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass
             | R::ClearGlass
@@ -223,15 +273,20 @@ impl BlockRenderKind {
             | R::NamedCube
             | R::CopperBulb
             | R::RedstoneBase
-            | R::CandleCake => (true, false, false, false),
-            R::Portal => (true, false, false, true),
+            | R::CandleCake
+            | R::Portal => (true, false, false, true),
             R::BubbleColumn
             | R::Barrel
+            | R::FacingCube
             | R::Composter
             | R::Cauldron
             | R::LiteralCube
-            | R::Invisible => (false, false, false, true),
+            | R::Invisible
+            | R::EnchantingTable
+            | R::EntityDrawn => (false, false, false, true),
             R::Ordinary
+            | R::Furnace
+            | R::LitFurnace
             | R::StandingSign
             | R::WallSign
             | R::HangingSign
@@ -252,13 +307,11 @@ impl BlockRenderKind {
             | R::BeeHousing
             | R::ResinClump
             | R::ChiseledBookshelf
-            | R::EnchantingTable
             | R::Roots
             | R::Grass
             | R::Mycelium
             | R::SelectorAliasCube
             | R::MineralCube
-            | R::EntityDrawn
             | R::Snow
             | R::BerryBush
             | R::DefaultRail

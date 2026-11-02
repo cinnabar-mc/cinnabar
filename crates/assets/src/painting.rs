@@ -110,12 +110,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn gallery_painting_sizes_match_the_runtime_catalog() {
+        let gallery: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../tools/localserver/painting_motives.json"
+        ))
+        .unwrap();
+        let expected: Vec<_> = PAINTING_MOTIVES
+            .iter()
+            .map(|motive| serde_json::json!({"title": motive.title, "size": motive.size}))
+            .collect();
+        assert_eq!(
+            gallery,
+            serde_json::Value::Array(expected),
+            "regenerate with cargo run -p assets --example export_painting_motives"
+        );
+    }
+
+    #[test]
     fn resource_pack_revision_requires_a_painting_catalog_audit() {
         use sha2::{Digest, Sha256};
         let audited_manifest = [
-            0xa3, 0xe0, 0xb4, 0xad, 0xac, 0x67, 0xc8, 0x53, 0x68, 0x18, 0xb1, 0x1b, 0xcc, 0xa6,
-            0xf3, 0xa8, 0x24, 0xcf, 0xd3, 0x84, 0xd7, 0x41, 0x51, 0x9b, 0x62, 0xa7, 0xb0, 0x33,
-            0xef, 0xe3, 0xa3, 0x85,
+            0x44, 0x83, 0xa5, 0x37, 0x77, 0x1d, 0xc1, 0x20, 0x49, 0x8f, 0xcd, 0xeb, 0x9a, 0xe2,
+            0xb1, 0xc7, 0x9b, 0xe5, 0x48, 0xfb, 0x7f, 0x60, 0x6f, 0x14, 0xdf, 0x29, 0xb3, 0xc7,
+            0x75, 0xb8, 0xa1, 0xc3,
         ];
         let manifest: serde_json::Value =
             serde_json::from_str(crate::VANILLA_SOURCE_MANIFEST).unwrap();

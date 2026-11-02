@@ -83,6 +83,16 @@ impl WorldClock {
         self.session_generation
     }
 
+    /// Returns the day of the server-authored clock, leaving missing or overflowed clocks unknown.
+    #[must_use]
+    pub fn world_day(self, elapsed_seconds: f64) -> Option<u64> {
+        self.server_time?;
+        self.server_time_anchor_seconds?;
+        let days =
+            (visual_world_time(self, elapsed_seconds) / f64::from(world::TICKS_PER_DAY)).floor();
+        (days.is_finite() && days >= 0. && days < u64::MAX as f64).then_some(days as u64)
+    }
+
     /// Returns the latest time anchor, before local clock advancement.
     #[must_use]
     pub const fn server_time(self) -> Option<f64> {
@@ -116,6 +126,13 @@ pub struct WeatherState {
 }
 
 impl WeatherState {
+    /// Copies bounded visual targets while retaining server identity and update metadata.
+    pub fn with_visual_weather(mut self, levels: [f32; 2]) -> Self {
+        self.rain_level = levels[0].clamp(0., 1.);
+        self.lightning_level = levels[1].clamp(0., 1.);
+        self
+    }
+
     /// Returns the transport session identity bound to this snapshot.
     #[must_use]
     pub const fn session_generation(self) -> u64 {
@@ -235,16 +252,20 @@ pub fn apply_environment_control(
             true
         }
         CommittedControlEvent::MovePlayer { .. }
+        | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
+        | CommittedControlEvent::VehicleMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::Respawn { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
+        | CommittedControlEvent::LocalGameMode { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }
+        | CommittedControlEvent::LocalDeath { .. }
         | CommittedControlEvent::LocalHurt { .. }
         | CommittedControlEvent::PlayerListChanged { .. }
         | CommittedControlEvent::ClientInputLocks { .. } => false,

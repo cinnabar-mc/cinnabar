@@ -75,6 +75,8 @@ pub struct ScreenView<'a> {
     pub search: &'a str,
     /// Scroll offsets of the screen's scroll views, by view key.
     pub container_scroll: &'a BTreeMap<String, f64>,
+    /// Selected radio tabs of a server pack's storage screen, by group key.
+    pub storage_radios: &'a BTreeMap<u64, u16>,
     /// Whether a text field owns the keyboard.
     pub text_focused: bool,
     /// The book, sign-off or lectern reader being shown.
@@ -120,8 +122,7 @@ pub struct ContainerFrame<'a> {
     /// UI-inventory slot icons and durabilities, by slot.
     pub ui_icons: &'a [Option<IconRef>],
     pub ui_durability: &'a [Option<f32>],
-    pub crafting_icons: &'a [Option<IconRef>; 9],
-    pub crafting_output: Option<&'a (Option<IconRef>, NetworkItemStack)>,
+    pub crafting: &'a crate::inventory_capture::CraftingFrame,
     pub armor_icons: &'a [Option<IconRef>; 4],
     pub armor_durability: &'a [Option<f32>; 4],
     pub offhand_icon: Option<IconRef>,

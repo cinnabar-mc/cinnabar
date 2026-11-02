@@ -20,8 +20,8 @@ use candidate::{Candidate, Runtime as CandidateRuntime};
 use client_shell::ui_resources::UiPresentationResource;
 use crossbeam_channel::{Receiver, Sender, TrySendError, bounded};
 use mod_host::{ModHost, SettingsSnapshot};
-pub(super) use schema::Entry;
-use schema::{Registration, VERSION};
+use schema::Registration;
+pub(super) use schema::{Entry, VERSION};
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -30,11 +30,13 @@ use std::{
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     thread::{self, JoinHandle},
+    time::Duration,
 };
 
 pub(super) const REGISTRATION_FILE: &str = "local-mod.json";
 pub(super) const STATUS_FILE: &str = "local-mod.status.json";
-const MAX_BYTES: usize = 64 * 1024;
+/// Room for every allowed entry with a long path and every grant serialized.
+const MAX_BYTES: usize = mod_api::MAX_LOADED_MODS * 4 * 1024;
 const MAX_REQUEST_BYTES: usize = 64;
 
 /// Runtime metadata belongs to one instance and moves with it during reordering.
@@ -66,10 +68,10 @@ pub(super) struct RegisteredHost {
 struct SourceSnapshot {
     registration: Entry,
     identity: [u8; 32],
-    component: Vec<u8>,
+    component: Arc<[u8]>,
     drawing: Option<super::admission::DrawingContext>,
-    font: Option<Vec<u8>>,
-    ui: Option<Vec<u8>>,
+    font: Option<Arc<[u8]>>,
+    ui: Option<Arc<[u8]>>,
     settings: SettingsSeed,
 }
 
@@ -89,8 +91,10 @@ impl SourceSnapshot {
         }
         match &self.drawing {
             Some(drawing) if !drawing.restartable() => false,
-            Some(drawing) if drawing.needs_restart() => true,
-            _ => admitted.drawing != self.drawing_policy(),
+            // An active guest has already rebound its dimension in place. Only the host's
+            // trust-boundary revocation requires another admission of unchanged bytes.
+            Some(drawing) => drawing.needs_restart(),
+            None => admitted.drawing.is_some(),
         }
     }
 
@@ -226,6 +230,7 @@ impl Candidate {
 }
 
 enum Message {
+    DrawingChanged,
     Acknowledge {
         generation: u64,
         request_id: String,
@@ -266,6 +271,19 @@ pub(crate) struct Watcher {
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::admission::DrawingContext>>>,
 }
 impl Watcher {
+    /// Captures enabled grants even while their programs are still being prepared.
+    pub(crate) fn active_grants(&self) -> Vec<mod_host::ModGrants> {
+        self.desired
+            .lock()
+            .expect("mod desired list")
+            .registration
+            .iter()
+            .flat_map(|registration| &registration.mods)
+            .filter(|entry| entry.enabled)
+            .map(|entry| entry.grants.clone())
+            .collect()
+    }
+
     /// Keeps new sessions pending until the observed mod selection has finished admission.
     pub(crate) fn preparing(&self) -> bool {
         if !self.alive.load(Ordering::Acquire) {
@@ -284,6 +302,14 @@ impl Watcher {
     }
     /// Starts bounded list observation and a separate admission/retirement worker.
     pub(super) fn start(directory: PathBuf) -> Result<Self, String> {
+        Self::start_with_poll_interval(directory, RELOAD_INTERVAL)
+    }
+
+    /// Keeps file observation periodic while authority changes and load results wake directly.
+    fn start_with_poll_interval(
+        directory: PathBuf,
+        poll_interval: Duration,
+    ) -> Result<Self, String> {
         let (send_updates, updates) = bounded(1);
         let (messages, receive_messages) = bounded(8);
         let (retired, receive_retired) = bounded(mod_api::MAX_LOADED_MODS * 2);
@@ -311,6 +337,7 @@ impl Watcher {
                     selection,
                     current,
                     fences,
+                    poll_interval,
                 );
                 life.store(false, Ordering::Release);
             })
@@ -347,21 +374,29 @@ impl Watcher {
     pub(super) fn remember_settings(&self, runtime: Option<&ModRuntime>) {
         self.remember_companions(runtime);
         let mut drawing = self.drawing.lock().expect("mod drawing fences");
-        drawing.clear();
+        let mut next_drawing = BTreeMap::new();
         let mut current = self.settings.lock().expect("mod settings snapshots");
         current.clear();
-        let Some(runtime) = runtime else { return };
-        for (index, metadata) in runtime.metadata.iter().enumerate() {
-            let Some(registered) = &metadata.registration else {
-                continue;
-            };
-            let host = runtime.hosts.host(index);
-            if let Some(context) = super::admission::DrawingContext::capture(host) {
-                drawing.insert(registered.entry.component.clone(), context);
+        if let Some(runtime) = runtime {
+            for (index, metadata) in runtime.metadata.iter().enumerate() {
+                let Some(registered) = &metadata.registration else {
+                    continue;
+                };
+                let host = runtime.hosts.host(index);
+                if let Some(context) = super::admission::DrawingContext::capture(host) {
+                    next_drawing.insert(registered.entry.component.clone(), context);
+                }
+                if let Some(snapshot) = SettingsSnapshot::capture(host) {
+                    current.insert(registered.entry.component.clone(), snapshot);
+                }
             }
-            if let Some(snapshot) = SettingsSnapshot::capture(host) {
-                current.insert(registered.entry.component.clone(), snapshot);
-            }
+        }
+        let changed = *drawing != next_drawing;
+        *drawing = next_drawing;
+        drop(current);
+        drop(drawing);
+        if changed {
+            self.send(Message::DrawingChanged);
         }
     }
     /// Publishes a single instance's trap without revoking any other mod.

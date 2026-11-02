@@ -13,12 +13,23 @@ pub(super) fn remaining_ticks(evaluator: &QueryInputs<'_>) -> f32 {
 
 /// Reads the caller-owned use clock and distinguishes inactive use from its first tick.
 fn elapsed_ticks(evaluator: &QueryInputs<'_>) -> Option<u32> {
-    if let Some(attachable) = evaluator.context.attachable {
-        attachable.use_elapsed_ticks
-    } else if let Some(elapsed) = evaluator.context.local_item_use_ticks {
-        evaluator.actor.is_using_item().then_some(elapsed)
-    } else if evaluator.input.item_use_ticks > 0 || evaluator.actor.is_using_item() {
-        Some(evaluator.input.item_use_ticks)
+    match evaluator.context.attachable {
+        Some(attachable) => attachable.use_elapsed_ticks,
+        None => main_hand_elapsed_ticks(evaluator.actor, evaluator.context, evaluator.input),
+    }
+}
+
+/// Ticks the actor has used its main-hand item, or `None` while it uses nothing. The local
+/// rig reads its own gameplay clock; remote actors count ticks of their using-item flag.
+pub(crate) fn main_hand_elapsed_ticks(
+    actor: &dyn AnimatedActor,
+    context: &ActorTickContext,
+    input: &ActorTickInput,
+) -> Option<u32> {
+    if let Some(elapsed) = context.local_item_use_ticks {
+        actor.is_using_item().then_some(elapsed)
+    } else if input.item_use_ticks > 0 || actor.is_using_item() {
+        Some(input.item_use_ticks)
     } else {
         None
     }

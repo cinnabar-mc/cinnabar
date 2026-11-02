@@ -54,7 +54,7 @@ pub struct PackEquipment {
     pub(super) catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     pub(super) native_items: BTreeMap<Box<str>, super::native::NativeArtwork>,
     pub(super) texture_locations: BTreeMap<Box<str>, TextureArtwork>,
-    armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
+    pub(super) armor_geometry: BTreeMap<Box<str>, Option<Arc<ArmorGeometry>>>,
     pub(super) attachables: actor_animation::AttachablesRuntime,
 }
 
@@ -308,6 +308,7 @@ impl EquipmentRuntime {
     /// Installs the session's pack layer, or removes it. `locations` parallel the catalog's
     /// textures (the pages `pack_rasters` produced).
     pub fn set_pack_layer(&mut self, layer: Option<PackEquipmentLayer>) {
+        self.clear_shield_patterns();
         // Startup texture meshes also depend on the replaced artwork layer.
         self.java_rasters.clear();
         self.free_meshes

@@ -169,6 +169,7 @@ fn death_immediate_respawn_finishes_the_backdrop_animation() {
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(ui::IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -325,6 +326,19 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
     }
 }
 
+/// No OreUI control on a screen declares a press sound, so none plays.
+#[test]
+fn oreui_controls_stay_silent() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Play;
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    assert!(!hits.is_empty());
+    for (action, _) in hits {
+        assert_eq!(presentation.menu_sound(action), None, "{action:?}");
+    }
+}
+
 #[test]
 fn add_server_dialog_owns_its_fields_and_blocks_background_controls() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -438,6 +452,33 @@ fn add_server_footer_stays_visible_and_keyboard_reveals_the_port() {
     }
 }
 
+/// The same focused field is revealed again when the keyboard changes the usable height.
+#[test]
+fn add_server_port_remains_visible_when_keyboard_shrinks_the_existing_viewport() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::AddServer;
+    view.field = Some(MenuField::Port);
+    view.focused_action = Some(MenuAction::AddPort);
+    for size in [
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+        [1280.0, 720.0],
+        [1280.0, 280.0],
+    ] {
+        let hits = append(&mut presentation, &view, size);
+        let port = hits
+            .iter()
+            .find(|(action, _)| *action == MenuAction::AddPort)
+            .unwrap()
+            .1;
+        assert!(
+            port.min().y() >= 0.0 && port.max().y() <= size[1],
+            "port clipped at {size:?}: {port:?}"
+        );
+    }
+}
+
 #[test]
 fn pause_offers_the_wardrobe_and_keeps_every_action_on_screen() {
     for size in [[1280.0, 720.0], [640.0, 320.0], [320.0, 560.0]] {
@@ -521,7 +562,7 @@ fn play_tabs_draw_the_installed_native_icons() {
     use oreui::images::{PLAY_TAB_ICONS, checkout_compiled_dir, load_optional_oreui_images};
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
         eprintln!(
-            "skipping play_tabs_draw_the_installed_native_icons: installed OreUI bundle unavailable"
+            "skipping play_tabs_draw_the_installed_native_icons: compiled OreUI artwork carrier unavailable"
         );
         return;
     };

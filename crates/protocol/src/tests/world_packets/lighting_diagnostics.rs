@@ -1,11 +1,11 @@
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     GeneratorType, HeightMapDataType as HeightmapType, SubChunkRequestResult as ResultType,
 };
-use bedrock_protocol_1_26_51::packets::{DimensionData, SubChunk};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets::{DimensionData, SubChunk};
+use bedrock_protocol_1_26_60::types::{
     DimensionDefinition, DimensionType, HeightmapData, SubChunkData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 use protocol::{SubChunkResult, WorldEvent, into_world_event};
 
 #[test]
@@ -13,9 +13,9 @@ fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
     let packet = SubChunk {
         sub_chunk_data: vec![
             SubChunkData {
-                sub_chunk_request_result: ResultType::Successallair,
+                sub_chunk_request_result: ResultType::SuccessAllAir,
                 height_map_data: HeightmapData {
-                    height_map_type: HeightmapType::Hasdata,
+                    height_map_type: HeightmapType::HasData,
                     subchunk_height_map: Some(std::array::from_fn(|row| {
                         if row == 0 {
                             vec![wire::I8(-12), wire::I8(7), wire::I8(22)]
@@ -23,7 +23,7 @@ fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
                             vec![]
                         }
                     })),
-                    render_height_map_type: HeightmapType::Allcopied,
+                    render_height_map_type: HeightmapType::AllCopied,
                     ..Default::default()
                 },
                 ..Default::default()
@@ -34,7 +34,7 @@ fn retains_sub_chunk_payload_presence_and_server_heightmap_facts() {
                 ..Default::default()
             },
             SubChunkData {
-                sub_chunk_request_result: ResultType::Indexoutofbounds,
+                sub_chunk_request_result: ResultType::IndexOutOfBounds,
                 height_map_data: HeightmapData {
                     height_map_type: HeightmapType::Unknown(231),
                     ..Default::default()
@@ -97,7 +97,7 @@ fn bounds_advertised_dimension_heights_without_rejecting_custom_ranges() {
     assert_eq!(heights[0].dimension, 0);
     assert_eq!(heights[0].name.as_ref(), "custom:0");
     assert_eq!(heights[0].minimum_y, -128);
-    assert_eq!(heights[0].height_range, 1024);
+    assert_eq!(heights[0].maximum_y, 1024);
     assert_eq!(heights.last().unwrap().dimension, 63);
 }
 
@@ -107,8 +107,8 @@ fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
         definitions: vec![(
             "minecraft:overworld".into(),
             DimensionDefinition {
-                minimum_y: wire::ZigZag32(0),
-                height_range: wire::ZigZag32(256),
+                minimum_y: wire::ZigZag32(-64),
+                height_range: wire::ZigZag32(320),
                 dimension_type: DimensionType(3),
                 generator_type: GeneratorType::Overworld,
                 ..Default::default()
@@ -123,7 +123,7 @@ fn retains_named_overworld_definition_with_a_distinct_numeric_type() {
     };
     assert_eq!(heights[0].name.as_ref(), "minecraft:overworld");
     assert_eq!(heights[0].dimension, 3);
-    assert_eq!(heights[0].minimum_y, 0);
-    assert_eq!(heights[0].height_range, 256);
+    assert_eq!(heights[0].minimum_y, -64);
+    assert_eq!(heights[0].maximum_y, 320);
     assert_eq!(heights[0].generator, 1);
 }

@@ -86,28 +86,38 @@ fn view_multipliers_leave_saved_settings_and_perspective_intact() {
     assert_eq!(settings.horizontal_fov_degrees(), 100.0);
 }
 
-/// Releasing a module uses current preferences, including edits made while its override was active.
+/// A suppressing tilt removes only the damage shake; release and reset follow current preferences.
 #[test]
-fn hurt_camera_override_releases_to_current_preferences_and_resets_with_the_view() {
+fn view_tilt_suppresses_damage_shake_until_released_or_reset() {
     let mut settings = CameraSettingsAuthority::default();
     let mut user = ui::UserSettings::default();
     user.video.damage_bob = 0.25;
     settings.replace(1, &user).unwrap();
-    settings.set_hurt_camera_style(render_api::HurtCameraStyle::new(2.0, true));
-    assert_eq!(settings.hurt_camera_style().intensity(), 2.0);
-    assert!(settings.hurt_camera_style().old_tilt());
+    let tilt = crate::camera::ViewTilt {
+        roll_degrees: 7.0,
+        pitch_degrees: -3.0,
+        suppress_hurt_shake: true,
+    };
+    settings.set_view_tilt(Some(tilt));
+    assert_eq!(settings.hurt_shake_intensity(), 0.0);
     user.video.damage_bob = 0.75;
     settings.replace(2, &user).unwrap();
-    assert_eq!(settings.hurt_camera_style().intensity(), 2.0);
     assert_eq!(settings.feel().damage_bob, 0.75);
-    settings.set_hurt_camera_style(None);
-    assert_eq!(settings.hurt_camera_style().intensity(), 0.75);
-    assert!(!settings.hurt_camera_style().old_tilt());
-    settings.set_hurt_camera_style(render_api::HurtCameraStyle::new(0.0, true));
-    assert_eq!(settings.hurt_camera_style().intensity(), 0.0);
+    settings.set_view_tilt(Some(crate::camera::ViewTilt {
+        suppress_hurt_shake: false,
+        ..tilt
+    }));
+    assert_eq!(settings.hurt_shake_intensity(), 0.75);
+    settings.set_view_tilt(Some(crate::camera::ViewTilt {
+        roll_degrees: f32::NAN,
+        ..tilt
+    }));
+    assert_eq!(settings.view_tilt(), None);
+    assert_eq!(settings.view_tilt_rotation(), Quat::IDENTITY);
+    settings.set_view_tilt(Some(tilt));
     settings.reset_perspective();
-    assert_eq!(settings.hurt_camera_style().intensity(), 0.75);
-    assert!(!settings.hurt_camera_style().old_tilt());
+    assert_eq!(settings.view_tilt(), None);
+    assert_eq!(settings.hurt_shake_intensity(), 0.75);
 }
 
 #[test]

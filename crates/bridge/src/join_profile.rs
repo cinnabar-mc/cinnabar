@@ -39,9 +39,18 @@ mod disabled {
     pub struct JoinProfile;
     /// Inert timed section when diagnostic instrumentation is not compiled.
     pub struct Stage;
+    /// Mirrors the enabled guard so callers end a section with `drop` in every build.
+    impl Drop for Stage {
+        fn drop(&mut self) {}
+    }
     /// Inert worker binding in shipping builds.
     pub struct Binding;
     impl JoinProfile {
+        /// Shipping builds retain no diagnostic completion timestamp.
+        pub fn completion(&self) -> Option<(&'static str, web_time::Instant)> {
+            None
+        }
+
         /// Starts a diagnostic attempt, or does nothing in a shipping build.
         pub fn begin() -> Self {
             Self

@@ -1,5 +1,11 @@
 //! Isolated camera-item routing tests; no optional installed carriers or native art.
 
+#[path = "map_mesh_tests.rs"]
+mod map_mesh_tests;
+
+#[path = "retained_block_tests.rs"]
+mod retained_block_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -22,13 +28,19 @@ mod held_model_residency_tests;
 mod held_block_entity_reload_tests;
 
 #[path = "block_reload_tests.rs"]
-mod block_reload_tests;
+pub(super) mod block_reload_tests;
 
 #[path = "texture_artwork_tests.rs"]
 mod texture_artwork_tests;
 
 #[path = "held_scale_tests.rs"]
 mod held_scale_tests;
+
+#[path = "third_person_hand_tests.rs"]
+mod third_person_hand_tests;
+
+#[path = "shield_tests.rs"]
+mod shield_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -267,7 +279,7 @@ fn block_fixture_with_visuals(
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 1,
@@ -293,6 +305,8 @@ fn block_fixture_with_visuals(
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
@@ -865,4 +879,103 @@ fn held_blocks_skip_the_hurt_overlay_in_both_views_and_hands() {
     assert_eq!(main.presentation.submission.overlay_rgba8, 0);
     assert_eq!(off.presentation.submission.overlay_rgba8, 0);
     assert_eq!(body.overlay_rgba8, 0x6600_00ff);
+}
+
+#[test]
+fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_pose() {
+    let (runtime, mut body, _) = block_fixture();
+    let assets = Arc::clone(&runtime.assets);
+    let bones = body_bones(vec!["rightItem".into()]);
+    let hidden = Arc::from([]);
+    let mut local = [actor_animation::BoneTransform {
+        rotation: [0.0, 0.0, 0.0, 1.0],
+        translation_scale: [0.0, 0.0, 0.0, 1.0],
+        axis_scale: [1.0; 3],
+    }];
+    let mut cache = placement_cache::PlacementCache::default();
+    let work = std::cell::Cell::new(0);
+    let mut sample = |body: &ActorRigSubmission, local: &[actor_animation::BoneTransform]| {
+        cache
+            .sample(
+                body,
+                (false, LAYER_MAIN_HAND),
+                1,
+                placement_cache::Inputs {
+                    assets: &assets,
+                    bones: &bones,
+                    owner_names: &bones.names,
+                    geometry: (0, 0),
+                    local,
+                    paired: true,
+                    hidden: &hidden,
+                    scale: [1.0; 3],
+                    alpha: None,
+                },
+                |endpoint, index| {
+                    work.set(work.get() + 1);
+                    modern::compose_parent(
+                        if endpoint == 0 {
+                            body.input.previous_bones[index]
+                        } else {
+                            body.input.current_bones[index]
+                        },
+                        local[index],
+                    )
+                },
+            )
+            .unwrap()
+    };
+    let first = sample(&body, &local);
+    work.set(0);
+    let allocated = test_alloc::thread_allocations();
+    let repeated = sample(&body, &local);
+    assert_eq!(work.get(), 0);
+    assert_eq!(test_alloc::thread_allocations() - allocated, 0);
+    assert!(Arc::ptr_eq(&first[0], &repeated[0]));
+    assert!(Arc::ptr_eq(&first[1], &repeated[1]));
+    Arc::make_mut(&mut body.input.current_bones)[0].translation_scale[0] += 1.0;
+    let moved = sample(&body, &local);
+    assert_eq!(work.replace(0), 2);
+    assert_ne!(moved[1], first[1]);
+    local[0].translation_scale[1] += 1.0;
+    let changed = sample(&body, &local);
+    assert_eq!(work.replace(0), 2);
+    assert_ne!(changed[1], moved[1]);
+    body.input.identity.spawn_revision = body.input.identity.spawn_revision.checked_add(1).unwrap();
+    sample(&body, &local);
+    assert_eq!(work.get(), 2);
+}
+
+#[test]
+fn attachment_placement_shared_endpoint_composes_once() {
+    let (runtime, body, _) = block_fixture();
+    let bones = body_bones(vec!["rightItem".into()]);
+    let local = [actor_animation::BoneTransform::default()];
+    let mut cache = placement_cache::PlacementCache::default();
+    let mut work = 0;
+    let poses = cache
+        .sample(
+            &body,
+            (true, 0),
+            1,
+            placement_cache::Inputs {
+                assets: &runtime.assets,
+                bones: &bones,
+                owner_names: &bones.names,
+                geometry: (0, 0),
+                local: &local,
+                hidden: &Arc::from([]),
+                scale: [1.0; 3],
+                alpha: None,
+                paired: false,
+            },
+            |endpoint, _| {
+                assert_eq!(endpoint, 0);
+                work += 1;
+                Some(body.input.current_bones[0])
+            },
+        )
+        .unwrap();
+    assert_eq!(work, 1);
+    assert!(Arc::ptr_eq(&poses[0], &poses[1]));
 }

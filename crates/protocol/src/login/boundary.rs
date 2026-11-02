@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::packets::PacketId;
+use bedrock_protocol_1_26_60::packets::PacketId;
 
 use super::{PlaySession, reset_cache_for_immediate_boundary};
 use crate::raw_packet::RawPacket;
@@ -47,6 +47,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
         let retained =
             self.retain_server_disconnect(&packet) || self.retain_server_transfer(&packet);
         if retained && let Some(resolver) = self.blob_cache.as_mut() {
+            self.blob_recovery = None;
             reset_cache_for_immediate_boundary(resolver, name)?;
             self.cache_status.lock().expect("cache status lock").reset();
         }
@@ -103,6 +104,7 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 PacketId::Disconnect
             }
         };
+        self.blob_recovery = None;
         if let Some(resolver) = self.blob_cache.as_mut() {
             reset_cache_for_immediate_boundary(resolver, name)?;
             self.cache_status.lock().expect("cache status lock").reset();
@@ -128,8 +130,8 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn draining_after_a_failed_write_retains_the_transfer_behind_unread_packets() {
-        use bedrock_protocol_1_26_51::packets::SetTime;
-        use bedrock_protocol_1_26_51::wire;
+        use bedrock_protocol_1_26_60::packets::SetTime;
+        use bedrock_protocol_1_26_60::wire;
 
         use crate::session_transport::SessionTransport;
         use crate::session_transport::tests::unix::write_frame;

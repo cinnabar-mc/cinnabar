@@ -93,8 +93,6 @@ pub struct HudFrame {
     pub viewmodel_pitch_degrees: f32,
     /// Presented name of the selected stack, resolved this frame.
     pub selected_item_name: Option<std::sync::Arc<str>>,
-    /// Exact declared food component of the currently selected authoritative stack.
-    pub selected_food: Option<protocol::FoodProperties>,
     /// Jump charge in `0.0..=1.0` while riding a jump-capable mount: the
     /// mount jump bar replaces the experience bar for the ride's duration.
     pub mount_jump: Option<f32>,
@@ -118,6 +116,19 @@ pub struct HudFrame {
     pub sleep: SleepTimeline,
     pub engine_containers: bool, // container screens draw through JSON-UI instead
     pub item_names: std::collections::HashMap<(i32, u32), std::sync::Arc<str>>, // tooltip names
+}
+
+impl HudFrame {
+    /// Shares the HUD binding's model visibility with capture, so hidden modes do no model work.
+    pub fn paper_doll_requested(
+        &self,
+        mode: Option<protocol::PlayerGameMode>,
+        settings: &launcher::menu::settings_options::SettingsOptions,
+    ) -> bool {
+        self.paper_doll_visible
+            && mode.is_none_or(protocol::PlayerGameMode::shows_hotbar)
+            && settings.value(launcher::menu::settings_options::SettingId::HidePaperdoll) == 0
+    }
 }
 
 /// Per-frame layout geometry derived from the Java GUI-scale rule. All

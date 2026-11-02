@@ -1,0 +1,793 @@
+use super::*;
+
+/// Requests full shader-pack limits without optional filtering features; skips unsupported adapters.
+#[allow(
+    clippy::print_stderr,
+    reason = "names the missing or unsupported GPU fixture when tests skip"
+)]
+fn gpu() -> Option<GpuContext> {
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => {
+            eprintln!("skipping shader pack resource fixtures: missing GPU adapter fixture");
+            return None;
+        }
+        Err(error) => panic!("resource fixture adapter: {error}"),
+    };
+    if let Err(reason) = crate::shaderpack::kernels::validate_device(&adapter.limits()) {
+        eprintln!(
+            "skipping shader pack resource fixtures: unsupported GPU adapter fixture: {reason}"
+        );
+        return None;
+    }
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("shader pack resource fixture"),
+        required_limits: adapter.limits(),
+        ..Default::default()
+    }))
+    .expect("resource fixture device");
+    Some(GpuContext {
+        device,
+        queue,
+        adapter,
+    })
+}
+
+#[test]
+fn pack_load_keeps_depth_copies_at_float32_without_filtering() {
+    let Some(gpu) = gpu() else { return };
+    assert!(
+        !gpu.device
+            .features()
+            .contains(wgpu::Features::FLOAT32_FILTERABLE)
+    );
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let loaded = crate::shaderpack::loader::build(
+        &pack,
+        "depth fixture",
+        "minecraft:overworld",
+        &Default::default(),
+        None,
+        &gpu,
+        &VanillaTextures::default(),
+        &Default::default(),
+    )
+    .unwrap_or_else(|error| panic!("depth fixture: {error}"));
+    assert_eq!(loaded.depth_format, TextureFormat::R32Float);
+}
+
+#[test]
+fn pack_load_returns_an_error_on_allocation_failure() {
+    let Some(gpu) = gpu() else { return };
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let _failure = crate::gpu_allocation::inject(|label, _| label == "shader pack load");
+    let result = crate::shaderpack::loader::build(
+        &pack,
+        "allocation fixture",
+        "minecraft:overworld",
+        &Default::default(),
+        None,
+        &gpu,
+        &VanillaTextures::default(),
+        &Default::default(),
+    );
+    let error = result
+        .err()
+        .expect("allocation failure must reject the pack");
+    assert!(error.contains("GPU memory"), "{error}");
+}
+
+#[test]
+fn unfilterable_float_mipmaps_create_valid_bindings_and_average_texels() {
+    let Some(gpu) = gpu() else { return };
+    assert!(!gpu.support().float32_filterable);
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+        (
+            "composite.vsh",
+            "#version 330 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
+        ),
+        (
+            "composite.fsh",
+            "#version 330 compatibility\n\
+         /* const int colortex1Format = R32F; */\n\
+         const bool colortex1MipmapEnabled = true;\n\
+         uniform sampler2D colortex1;\n\
+         void main() { gl_FragData[0] = texelFetch(colortex1, ivec2(0), 1); }",
+        ),
+    ]));
+    let translation = pack.translate(&Default::default());
+    for program in &translation.programs {
+        assert!(
+            program.is_ok(),
+            "mipmap translation: {:?}",
+            program.all_diagnostics().collect::<Vec<_>>()
+        );
+    }
+    let loaded = std::sync::Arc::new(
+        crate::shaderpack::loader::build(
+            &pack,
+            "mipmap fixture",
+            "minecraft:overworld",
+            &Default::default(),
+            None,
+            &gpu,
+            &VanillaTextures::default(),
+            &Default::default(),
+        )
+        .unwrap_or_else(|error| panic!("mipmap fixture: {error}")),
+    );
+    assert_eq!(loaded.buffer_formats[1], Some(TextureFormat::R32Float));
+    assert!(loaded.buffers.iter().any(|b| b.index == 1 && b.mipmapped));
+    let mut targets =
+        crate::shaderpack::targets::ViewTargets::new(&gpu.device, &loaded, [4; 2]).unwrap();
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let bindings =
+        crate::shaderpack::targets::ViewBindings::new(&gpu.device, &loaded, &mut targets);
+    let error = bevy::tasks::block_on(scope.pop());
+    assert!(error.is_none(), "mipmap bindings: {error:?}");
+    let buffer = targets.buffers[1].as_ref().unwrap();
+    let pixels: Vec<f32> = (0..16).map(|value| value as f32).collect();
+    gpu.queue.write_texture(
+        buffer.texture(0).as_image_copy(),
+        bytemuck::cast_slice(&pixels),
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(16),
+            rows_per_image: Some(4),
+        },
+        wgpu::Extent3d {
+            width: 4,
+            height: 4,
+            depth_or_array_layers: 1,
+        },
+    );
+    let (_, _, groups) = bindings.downsample[0]
+        .iter()
+        .find(|(index, side, _)| *index == 1 && *side == 0)
+        .unwrap();
+    assert_eq!(groups.len(), 2);
+    let (_, pipeline) = loaded
+        .host
+        .downsample
+        .iter()
+        .find(|(format, _)| *format == TextureFormat::R32Float)
+        .unwrap();
+    let mut encoder = gpu.device.create_command_encoder(&Default::default());
+    for (mip, group) in groups.iter().enumerate() {
+        let attachments = [Some(wgpu::RenderPassColorAttachment {
+            view: &buffer.levels[0][mip + 1],
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &attachments,
+            ..Default::default()
+        });
+        pass.set_pipeline(pipeline);
+        pass.set_bind_group(0, group, &[]);
+        pass.draw(0..3, 0..1);
+    }
+    gpu.queue.submit([encoder.finish()]);
+    let witness = crate::gpu_snapshot::Gpu {
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+        backend: gpu.adapter.get_info().backend,
+    };
+    let result = witness.compute_readback(
+        "@group(0) @binding(0) var image: texture_2d<f32>;
+         @group(0) @binding(1) var<storage, read_write> result: vec4<u32>;
+         @compute @workgroup_size(1) fn witness() {
+             result = bitcast<vec4<u32>>(textureLoad(image, vec2<i32>(0), 2));
+         }",
+        &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(&buffer.sampled[0]),
+        }],
+        1,
+        1,
+        1,
+    );
+    assert_eq!(f32::from_bits(result[0][0]), 7.5);
+}
+
+#[test]
+fn custom_image_samplers_use_placeholders_for_mismatched_view_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    for (sampler, coordinate) in [
+        ("sampler2DArray", "vec3(0.0)"),
+        ("samplerCube", "vec3(1.0, 0.0, 0.0)"),
+        ("samplerCubeArray", "vec4(1.0, 0.0, 0.0, 0.0)"),
+    ] {
+        let fragment = format!(
+            "#version 430 compatibility\nuniform {sampler} fixtureSampler;\n\
+             void main() {{ gl_FragData[0] = texture(fixtureSampler, {coordinate}); }}"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            (
+                "shaders.properties",
+                "image.fixture = fixtureSampler rgba rgba8 unsigned_byte false false 4 4\n",
+            ),
+            (
+                "composite.vsh",
+                "#version 430 compatibility\nvoid main() { gl_Position = gl_Vertex; }",
+            ),
+            ("composite.fsh", fragment.as_str()),
+        ]));
+        let loaded = std::sync::Arc::new(
+            crate::shaderpack::loader::build(
+                &pack,
+                "view dimension fixture",
+                "minecraft:overworld",
+                &Default::default(),
+                None,
+                &gpu,
+                &VanillaTextures::default(),
+                &Default::default(),
+            )
+            .unwrap_or_else(|error| panic!("{sampler}: {error}")),
+        );
+        let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let mut targets =
+            crate::shaderpack::targets::ViewTargets::new(&gpu.device, &loaded, [4; 2]).unwrap();
+        let _bindings =
+            crate::shaderpack::targets::ViewBindings::new(&gpu.device, &loaded, &mut targets);
+        let error = bevy::tasks::block_on(scope.pop());
+        assert!(error.is_none(), "{sampler} bindings: {error:?}");
+        assert!(matches!(
+            loaded.programs[0].textures.as_slice(),
+            [TextureSource::Constant { .. }]
+        ));
+    }
+}
+
+#[test]
+fn constant_shapes_compare_texture_views_instead_of_storage_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let mut constants = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let dimensions = [
+        TextureDimension::D2,
+        TextureDimension::D2Array,
+        TextureDimension::Cube,
+        TextureDimension::CubeArray,
+    ];
+    for dimension in dimensions {
+        let (index, _) = constants
+            .placeholder(TextureFormat::Rgba8Unorm, dimension, false)
+            .unwrap();
+        for requested in dimensions {
+            assert_eq!(
+                constants.has_shape(index, requested),
+                dimension == requested,
+                "{dimension:?} as {requested:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn custom_storage_images_reject_mismatched_dimensions() {
+    let Some(gpu) = gpu() else { return };
+    for (dimensions, declaration, coordinate, matches) in [
+        ("4 4", "image3D", "ivec3(0)", false),
+        ("4 4 4", "image2D", "ivec2(0)", false),
+        ("4", "image2D", "ivec2(0)", false),
+        ("4 4", "image2DArray", "ivec3(0)", false),
+        ("4", "image1D", "0", true),
+        ("4 4", "image2D", "ivec2(0)", true),
+        ("4 4 4", "image3D", "ivec3(0)", true),
+    ] {
+        let properties = format!(
+            "image.fixture = fixtureSampler rgba rgba8 unsigned_byte false false {dimensions}\n"
+        );
+        let compute = format!(
+            "#version 430\nlayout(local_size_x=1) in;\n\
+             layout(rgba8) uniform writeonly {declaration} fixture;\n\
+             void main() {{ imageStore(fixture, {coordinate}, vec4(1.0)); }}"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            ("shaders.properties", properties.as_str()),
+            ("composite.csh", compute.as_str()),
+        ]));
+        let translation = pack.translate(&Default::default());
+        let reflection = translation.programs[0]
+            .reflection
+            .as_ref()
+            .expect("storage image fixture");
+        let vanilla = VanillaTextures::default();
+        let mut constants =
+            ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let formats = image_formats(&translation.properties.images, &[reflection], gpu.support());
+        let result = bindings::resolve_bindings(
+            &mut constants,
+            ProgramGroup::Composite,
+            0,
+            reflection,
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &translation.properties.images,
+            &formats,
+        );
+        if matches {
+            assert_eq!(result.unwrap().images, [ImageSource::Image(0)]);
+        } else {
+            let error = result
+                .err()
+                .expect("mismatched storage dimensions must reject the pack");
+            assert!(error.contains("fixture"), "{error}");
+        }
+    }
+}
+
+/// Encodes two different rows so their upload order is observable.
+fn png() -> Vec<u8> {
+    let mut bytes = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 1, 2);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(&[255, 0, 0, 255, 0, 0, 255, 255])
+            .unwrap();
+    }
+    bytes
+}
+
+/// Keeps a binary PNG on disk while its pack lazily reads the texture.
+fn png_pack(properties: &str) -> (tempfile::TempDir, ShaderPack) {
+    let directory = tempfile::tempdir().unwrap();
+    let shaders = directory.path().join("shaders");
+    std::fs::create_dir(&shaders).unwrap();
+    std::fs::write(shaders.join("sample.png"), png()).unwrap();
+    std::fs::write(shaders.join("shaders.properties"), properties).unwrap();
+    let source = shaderpack::PackSource::open(directory.path()).unwrap();
+    (directory, ShaderPack::new(source))
+}
+
+#[test]
+fn decoded_png_rows_reach_the_texture_in_their_original_order() {
+    let Some(gpu) = gpu() else { return };
+    let (_directory, pack) = png_pack("");
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let texture = builder.decode_png("sample.png").unwrap();
+    assert_eq!(
+        read_rows(&gpu, &texture.view),
+        [[255, 0, 0, 255], [0, 0, 255, 255]]
+    );
+}
+
+/// Reads both RGBA8 rows through the texture interface used by pack samplers.
+fn read_rows(gpu: &GpuContext, view: &wgpu::TextureView) -> Vec<[u32; 4]> {
+    let witness = crate::gpu_snapshot::Gpu {
+        device: gpu.device.clone(),
+        queue: gpu.queue.clone(),
+        backend: gpu.adapter.get_info().backend,
+    };
+    witness.compute_readback(
+        "@group(0) @binding(0) var image: texture_2d<f32>;
+         @group(0) @binding(1) var<storage, read_write> rows: array<vec4<u32>>;
+         @compute @workgroup_size(1) fn witness(@builtin(global_invocation_id) id: vec3<u32>) {
+             rows[id.x] = vec4<u32>(round(textureLoad(image, vec2<i32>(0, i32(id.x)), 0) * 255.0));
+         }",
+        &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::TextureView(view),
+        }],
+        1,
+        2,
+        2,
+    )
+}
+
+#[test]
+fn custom_textures_match_both_spellings_of_buffer_aliases() {
+    let Some(gpu) = gpu() else { return };
+    for (property, sampler) in [
+        ("gcolor", "colortex0"),
+        ("gdepth", "colortex1"),
+        ("gnormal", "colortex2"),
+        ("composite", "colortex3"),
+        ("gaux1", "colortex4"),
+        ("gaux2", "colortex5"),
+        ("gaux3", "colortex6"),
+        ("gaux4", "colortex7"),
+        ("shadowcolor", "shadowcolor0"),
+        ("colortex4", "gaux1"),
+        ("shadowcolor0", "shadowcolor"),
+    ] {
+        // Reflection canonicalizes buffer aliases before resource binding.
+        let binding = shaderpack::canonical_sampler_name(sampler);
+        let properties = format!("texture.composite.{property} = sample.png\n");
+        let (_directory, pack) = png_pack(&properties);
+        let translation = pack.translate(&Default::default());
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        assert!(
+            builder
+                .custom("composite", &binding, TextureDimension::D2, 0)
+                .is_some(),
+            "{property} aliases {sampler}"
+        );
+        // A flip releases images bound to colour buffers, never to shadow buffers.
+        assert_eq!(
+            builder
+                .custom("composite", &binding, TextureDimension::D2, u32::MAX)
+                .is_none(),
+            !sampler.starts_with("shadowcolor"),
+            "{property} released as {sampler}"
+        );
+        assert!(
+            builder
+                .custom("deferred", &binding, TextureDimension::D2, 0)
+                .is_none()
+        );
+        assert!(
+            builder
+                .custom("composite", &binding, TextureDimension::D3, 0)
+                .is_none()
+        );
+    }
+}
+
+#[test]
+fn geometry_unit_zero_aliases_bind_the_custom_texture() {
+    let Some(gpu) = gpu() else { return };
+    for property in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let properties = format!("texture.gbuffers.{property} = sample.png\n");
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        for uniform in ["albedo", "tex", "texture", "gtexture", "u_MainSampler"] {
+            std::fs::write(
+                shaders.join("gbuffers_basic.fsh"),
+                format!(
+                    "#version 120\nuniform sampler2D {uniform}; void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)); }}"
+                ),
+            )
+            .unwrap();
+            let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+            let translation = pack.translate(&Default::default());
+            let program = translation
+                .programs
+                .iter()
+                .find(|program| program.program.name == "gbuffers_basic")
+                .unwrap();
+            assert!(program.is_ok(), "{property} overrides {uniform}");
+            let vanilla = VanillaTextures::default();
+            let mut builder =
+                ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+            let bindings = bindings::resolve_bindings(
+                &mut builder,
+                program.program.group,
+                program.released_overrides,
+                program.reflection.as_ref().unwrap(),
+                &[None; MAX_COLOR_BUFFERS as usize],
+                0,
+                TextureFormat::R32Float,
+                &[],
+                &[],
+            )
+            .unwrap();
+            let [TextureSource::Constant { index, .. }] = bindings.textures.as_slice() else {
+                panic!(
+                    "{property} must override {uniform}: {:?}",
+                    bindings.textures
+                );
+            };
+            assert_eq!(
+                read_rows(&gpu, &builder.constant(*index).view),
+                [[255, 0, 0, 255], [0, 0, 255, 255]],
+                "{property} overrides {uniform}"
+            );
+        }
+    }
+}
+
+#[test]
+fn raw_tex_keeps_gtexture_and_unbound_samplers_on_the_atlas() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["tex", "texture", "gtexture", "u_MainSampler"] {
+        let property = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let properties = format!(
+            "texture.gbuffers.{property} = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n"
+        );
+        let (directory, _pack) = png_pack(&properties);
+        let shaders = directory.path().join("shaders");
+        std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+        std::fs::write(
+            shaders.join("gbuffers_basic.vsh"),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        let atlas = if property == "gtexture" {
+            "albedo"
+        } else {
+            "gtexture"
+        };
+        std::fs::write(
+            shaders.join("gbuffers_basic.fsh"),
+            format!(
+                "#version 120\nuniform sampler2D {uniform}; uniform sampler2D {atlas};\n\
+                 void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D({atlas}, vec2(0.5)); }}"
+            ),
+        ).unwrap();
+        let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+        let translation = pack.translate(&Default::default());
+        let program = translation
+            .programs
+            .iter()
+            .find(|program| program.program.name == "gbuffers_basic")
+            .unwrap();
+        assert!(program.is_ok());
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.released_overrides,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings
+                .textures
+                .iter()
+                .filter(|source| matches!(source, TextureSource::Atlas(AtlasLayer::Color)))
+                .count(),
+            1,
+            "raw {uniform} must leave {atlas} on the atlas: {:?}",
+            bindings.textures
+        );
+        let constants: Vec<_> = bindings
+            .textures
+            .iter()
+            .filter_map(|source| match source {
+                TextureSource::Constant { index, .. } => Some(*index),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(constants.len(), 1);
+        assert_eq!(
+            read_rows(&gpu, &builder.constant(constants[0]).view),
+            [[0, 255, 0, 255], [255, 255, 0, 255]]
+        );
+    }
+}
+
+#[test]
+fn flips_release_cached_unit_zero_overrides_but_keep_exact_raw_bindings() {
+    let Some(gpu) = gpu() else { return };
+    let properties = "texture.composite.colortex0 = sample.png\n\
+        texture.composite.tex = lut.dat TEXTURE_2D RGBA8 1 2 RGBA UNSIGNED_BYTE\n";
+    let (directory, _) = png_pack(properties);
+    let shaders = directory.path().join("shaders");
+    std::fs::write(shaders.join("lut.dat"), [0, 255, 0, 255, 255, 255, 0, 255]).unwrap();
+    for name in ["composite", "composite1"] {
+        std::fs::write(
+            shaders.join(format!("{name}.vsh")),
+            "#version 120\nvoid main() { gl_Position = ftransform(); }",
+        )
+        .unwrap();
+        std::fs::write(
+            shaders.join(format!("{name}.fsh")),
+            "#version 120\nuniform sampler2D albedo; uniform sampler2D tex;\n\
+             void main() { gl_FragData[0] = texture2D(albedo, vec2(0.5)) + texture2D(tex, vec2(0.5)); }",
+        )
+        .unwrap();
+    }
+    let pack = ShaderPack::new(shaderpack::PackSource::open(directory.path()).unwrap());
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let mut formats = [None; MAX_COLOR_BUFFERS as usize];
+    formats[0] = Some(TextureFormat::Rgba8Unorm);
+    let mut raw_index = None;
+    for (name, released) in [("composite", 0), ("composite1", 1)] {
+        let program = translation
+            .programs
+            .iter()
+            .find(|p| p.program.name == name)
+            .unwrap();
+        assert!(program.is_ok(), "{name}");
+        assert_eq!(program.released_overrides, released);
+        let reflection = program.reflection.as_ref().unwrap();
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            released,
+            reflection,
+            &formats,
+            0,
+            TextureFormat::R32Float,
+            &[],
+            &[],
+        )
+        .unwrap();
+        for (texture, source) in reflection.textures.iter().zip(&bindings.textures) {
+            match texture.name.as_str() {
+                "colortex0" if released != 0 => assert_eq!(
+                    *source,
+                    TextureSource::Buffer {
+                        index: 0,
+                        format: TextureFormat::Rgba8Unorm
+                    }
+                ),
+                binding => {
+                    let TextureSource::Constant { index, .. } = *source else {
+                        panic!("{name}: {binding} must bind a custom texture: {source:?}");
+                    };
+                    let raw = binding == "texture.composite.tex";
+                    assert_eq!(
+                        read_rows(&gpu, &builder.constant(index).view),
+                        if raw {
+                            [[0, 255, 0, 255], [255, 255, 0, 255]]
+                        } else {
+                            [[255, 0, 0, 255], [0, 0, 255, 255]]
+                        }
+                    );
+                    if raw {
+                        assert_eq!(*raw_index.get_or_insert(index), index);
+                    }
+                }
+            }
+        }
+    }
+    assert!(raw_index.is_some());
+    assert_eq!(builder.out.textures.len(), 2);
+}
+
+#[test]
+fn depth_placeholders_bind_with_the_requested_array_or_cube_shape() {
+    let Some(gpu) = gpu() else { return };
+    let pack = ShaderPack::new(shaderpack::PackSource::from_files([] as [(&str, &str); 0]));
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default();
+    let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    for (dimension, view_dimension) in [
+        (
+            TextureDimension::D2Array,
+            wgpu::TextureViewDimension::D2Array,
+        ),
+        (TextureDimension::Cube, wgpu::TextureViewDimension::Cube),
+        (
+            TextureDimension::CubeArray,
+            wgpu::TextureViewDimension::CubeArray,
+        ),
+    ] {
+        let (index, _) = builder
+            .placeholder(TextureFormat::Depth32Float, dimension, false)
+            .unwrap();
+        let layout = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: None,
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let _ = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&builder.out.textures[index].view),
+            }],
+        });
+    }
+    builder.finish();
+    assert!(bevy::tasks::block_on(scope.pop()).is_none());
+}
+
+#[test]
+fn resource_texture_rows_keep_their_decoded_order() {
+    let Some(gpu) = gpu() else { return };
+    let (_directory, pack) = png_pack("");
+    let translation = pack.translate(&Default::default());
+    let vanilla = VanillaTextures::default().with(
+        "textures/environment/fixture.png",
+        vanilla::VanillaImage {
+            width: 1,
+            height: 2,
+            rgba8: std::sync::Arc::from([255, 0, 0, 255, 0, 0, 255, 255]),
+        },
+    );
+    let builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+    let texture = builder
+        .decode(&PackTexture::Resource(
+            "minecraft:textures/environment/fixture.png".into(),
+        ))
+        .unwrap();
+    assert_eq!(
+        read_rows(&gpu, &texture.view),
+        [[255, 0, 0, 255], [0, 0, 255, 255]]
+    );
+}
+
+#[test]
+fn explicit_image_samplers_do_not_replace_the_unit_zero_fallback() {
+    let Some(gpu) = gpu() else { return };
+    for uniform in ["texture", "gtexture", "tex", "u_MainSampler"] {
+        let normalized = if uniform == "texture" {
+            "gtexture"
+        } else {
+            uniform
+        };
+        let fragment = format!(
+            "#version 120\nuniform sampler2D {uniform}; uniform sampler2D albedo;\n\
+             void main() {{ gl_FragData[0] = texture2D({uniform}, vec2(0.5)) + texture2D(albedo, vec2(0.5)); }}"
+        );
+        let properties = format!(
+            "image.scratch = {normalized} rgba rgba8 unsigned_byte false false 4 4\n\
+             texture.gbuffers.{normalized} = lut.dat TEXTURE_2D RGBA8 1 1 RGBA UNSIGNED_BYTE\n"
+        );
+        let pack = ShaderPack::new(shaderpack::PackSource::from_files([
+            ("shaders.properties", properties.as_str()),
+            (
+                "gbuffers_basic.vsh",
+                "#version 120\nvoid main() { gl_Position = ftransform(); }",
+            ),
+            ("gbuffers_basic.fsh", fragment.as_str()),
+        ]));
+        let translation = pack.translate(&Default::default());
+        let program = &translation.programs[0];
+        assert!(program.is_ok(), "{uniform}");
+        let vanilla = VanillaTextures::default();
+        let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
+        let bindings = bindings::resolve_bindings(
+            &mut builder,
+            program.program.group,
+            program.released_overrides,
+            program.reflection.as_ref().unwrap(),
+            &[None; MAX_COLOR_BUFFERS as usize],
+            0,
+            TextureFormat::R32Float,
+            &translation.properties.images,
+            &[TextureFormat::Rgba8Unorm],
+        )
+        .unwrap();
+        assert_eq!(
+            bindings.textures,
+            [
+                TextureSource::Image {
+                    index: 0,
+                    format: TextureFormat::Rgba8Unorm
+                },
+                TextureSource::Atlas(AtlasLayer::Color),
+            ],
+            "{uniform}"
+        );
+    }
+}
