@@ -1140,8 +1140,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   A command block opens vanilla's JSON-UI editor from the server's `ContainerOpen`, loaded from
   its block and actor, and reports a `CommandBlockUpdate` when a changed screen closes. The
   minecart command block editor, command autocomplete (`IntellisenseHandler`), the paste
-  button (Ctrl+V pastes), the profanity filter on shown text, the unicode-to-ASCII command
-  input map, moving focus to the box on maximize and the gamepad-only close-button layout
+  button (Ctrl+V pastes), Ctrl+A selecting its text, the profanity filter on shown text, the
+  unicode-to-ASCII command input map, moving focus to the box on maximize and the gamepad-only close-button layout
   remain incomplete. Ctrl+V into an engine edit box is bounded by that box's capacity; whether
   the native route from the clipboard to its edit box adds a lower limit was not read.
   URL images use the UI texture-file allowance; aggregate encoded-image cache bounds
