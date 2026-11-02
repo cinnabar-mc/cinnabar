@@ -2089,8 +2089,10 @@ Discrete-GPU memory placement, pressure recovery and frame-pacing qualification 
 incomplete; the existing device-feature defaults are unchanged.
 
 Windows pauses raw mouse reports while a menu shows, since menus sample the cursor once per
-frame. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
-screens with a free cursor still receive every raw report.
+frame, and runs a pending frame ahead of queued input once pointer moves have held it back for
+1 ms. Frame pacing with an 8 kHz mouse remains unmeasured on Windows hardware, and in-world
+screens with a free cursor still receive every raw report. Raw reports in gameplay are still
+handled one message at a time and are not bounded the same way; buffered reads are unmeasured.
 
 Release qualification starts from a clean install and covers sign-in, a server,
 a Realm and a friend's world, survival movement/building/mining/containers/crafting,
