@@ -129,16 +129,13 @@ impl<'a> PaletteWorld<'a> {
                             .registry
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
-                        let mut shapes = self.block_collision_shapes(block, physics, query)?;
-                        if shapes.is_empty()
-                            && let Some((owner, arm)) = self.piston_arm_collision(block, physics)?
-                        {
+                        let shapes = self.block_collision_shapes(block, physics, query)?;
+                        if let Some(owner) = self.collision_actor_owner(block, physics)? {
                             let column =
                                 ChunkKey::new(self.dimension, owner[0] >> 4, owner[2] >> 4);
                             if !chunks.contains(&column) && !owner_columns.contains(&column) {
                                 owner_columns.push(column);
                             }
-                            shapes = arm;
                         }
                         if shapes.is_empty() {
                             // Powder snow has no shape of its own; a mover-aware

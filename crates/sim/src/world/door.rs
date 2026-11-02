@@ -1,6 +1,7 @@
 use std::{borrow::Cow, sync::Arc};
 
 use super::{Aabb, BlockPhysics, CollisionRegistry, PaletteWorld, Vec3, WorldQueryError};
+use assets::block_shapes::SelectionContext;
 
 /// Registry cardinal direction, in the native door direction order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,7 +69,8 @@ impl PaletteWorld<'_> {
         }
     }
 
-    /// Resolves a door's lower facing/open state and upper hinge at query time.
+    /// Resolves a door's lower facing/open state and upper hinge, or a piston arm's
+    /// actor-placed pieces, at query time.
     pub(super) fn block_collision_shapes<'a>(
         &self,
         position: [i32; 3],
@@ -76,6 +78,9 @@ impl PaletteWorld<'_> {
         query: Aabb,
     ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
         let Some(_) = &physics.door else {
+            if physics.selection_context == SelectionContext::PistonArm {
+                return self.piston_arm_collision(position, physics);
+            }
             return Ok(Cow::Borrowed(&physics.shapes));
         };
         let offset = Vec3::new(position[0] as f64, position[1] as f64, position[2] as f64);
