@@ -28,6 +28,11 @@ pub(crate) fn enabled(enhanced: bool, pack: bool) -> bool {
     (render_model::enhanced_rendering_enabled() && enhanced) || (pack)
 }
 
+/// Names stay out of world colour when this overlay or frame generation composes them.
+pub(crate) fn outside_world(enhanced: bool, pack: bool, generation: bool) -> bool {
+    enabled(enhanced, pack) || generation
+}
+
 /// Installs the label overlay before the HUD, after world post-processing and hands.
 pub(super) fn install_graph(world: &mut World) {
     if world.contains_resource::<Installed>() {
@@ -198,37 +203,14 @@ fn draw(
     if !enabled(enhanced, pack) {
         return Ok(());
     }
-    let Some(draw) = super::draw_function(world) else {
-        return Ok(());
-    };
-    let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transparent3d>>() else {
-        return Ok(());
-    };
-    let Some(phase) = phases.get(&view.retained_view_entity) else {
-        return Ok(());
-    };
-    let mut ranges =
-        crate::chunk::transparent::gamma_pass::contiguous_ranges(phase.items.values(), |item| {
-            item.draw_function() == draw
-        })
-        .filter_map(|(range, tag)| tag.then_some(range))
-        .peekable();
-    if ranges.peek().is_none() {
-        return Ok(());
-    }
-    let viewport = match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
-    {
-        Some(viewport) => match crate::render_bounds::viewport(
-            &viewport,
-            crate::render_bounds::extent(&overlay.view),
-        ) {
-            Some(viewport) => Some(viewport),
-            None => return Ok(()),
-        },
-        None => None,
-    };
-    {
-        let attachments = [Some(RenderPassColorAttachment {
+    if !encode_labels(
+        world,
+        entity,
+        camera,
+        resolution,
+        view,
+        depth,
+        RenderPassColorAttachment {
             view: &overlay.view,
             depth_slice: None,
             resolve_target: None,
@@ -236,24 +218,10 @@ fn draw(
                 load: LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 store: StoreOp::Store,
             },
-        })];
-        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
-            label: Some("nametags after world post-processing"),
-            color_attachments: &attachments,
-            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
-            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
-                world,
-                render_scene::RuntimeStage::GpuUi,
-            ),
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        if let Some(viewport) = &viewport {
-            pass.set_camera_viewport(viewport);
-        }
-        for range in ranges {
-            phase.render_range(&mut pass, world, entity, range)?;
-        }
+        },
+        &mut context,
+    )? {
+        return Ok(());
     }
     let post = target.post_process_write();
     let device = world.resource::<RenderDevice>().wgpu_device();
@@ -310,4 +278,68 @@ fn draw(
     pass.set_bind_group(0, binding, &[]);
     pass.draw(0..3, 0..1);
     Ok(())
+}
+
+/// Encodes the current label records into an independent colour layer using original world depth.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn encode_labels(
+    world: &World,
+    entity: Entity,
+    camera: &ExtractedCamera,
+    resolution: Option<&MainPassResolutionOverride>,
+    view: &ExtractedView,
+    depth: &ViewDepthStencilTexture,
+    attachment: RenderPassColorAttachment<'_>,
+    context: &mut RenderContext,
+) -> Result<bool> {
+    let Some(draw) = super::draw_function(world) else {
+        return Ok(false);
+    };
+    let Some(phases) = world.get_resource::<ViewSortedRenderPhases<Transparent3d>>() else {
+        return Ok(false);
+    };
+    let Some(phase) = phases.get(&view.retained_view_entity) else {
+        return Ok(false);
+    };
+    let mut ranges =
+        crate::chunk::transparent::gamma_pass::contiguous_ranges(phase.items.values(), |item| {
+            item.draw_function() == draw
+        })
+        .filter_map(|(range, tag)| tag.then_some(range))
+        .peekable();
+    if ranges.peek().is_none() {
+        return Ok(false);
+    }
+    let viewport = match Viewport::from_viewport_and_override(camera.viewport.as_ref(), resolution)
+    {
+        Some(viewport) => match crate::render_bounds::viewport(
+            &viewport,
+            crate::render_bounds::extent(attachment.view),
+        ) {
+            Some(viewport) => Some(viewport),
+            None => return Ok(false),
+        },
+        None => None,
+    };
+    {
+        let attachments = [Some(attachment)];
+        let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
+            label: Some("nametags after world post-processing"),
+            color_attachments: &attachments,
+            depth_stencil_attachment: Some(depth.get_attachment(StoreOp::Store)),
+            timestamp_writes: crate::gpu_timing::render_pass_timestamps(
+                world,
+                render_scene::RuntimeStage::GpuUi,
+            ),
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        if let Some(viewport) = &viewport {
+            pass.set_camera_viewport(viewport);
+        }
+        for range in ranges {
+            phase.render_range(&mut pass, world, entity, range)?;
+        }
+    }
+    Ok(true)
 }

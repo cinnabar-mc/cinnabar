@@ -4,7 +4,7 @@ use bevy::prelude::IntoScheduleConfigs;
 mod frame_time;
 #[cfg(any(target_os = "macos", test))]
 mod gpu;
-mod wait;
+pub(crate) mod wait;
 
 use std::{
     sync::{Arc, Mutex, PoisonError},

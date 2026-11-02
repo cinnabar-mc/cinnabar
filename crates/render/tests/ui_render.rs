@@ -53,6 +53,13 @@ mod shader_safety;
     unused_imports,
     reason = "schedule labels are consumed by other render owners"
 )]
+#[cfg_attr(
+    feature = "frame-generation",
+    allow(
+        dead_code,
+        reason = "native-target hooks serve the library's frame generation"
+    )
+)]
 pub mod ui_render;
 #[path = "../src/upload_staging.rs"]
 #[allow(dead_code, reason = "the UI fixture installs only the frame pool")]
@@ -69,6 +76,46 @@ mod screen_overlay_render {
         _: &mut bevy::render::renderer::RenderContext,
         _: &bevy::prelude::World,
     ) {
+    }
+}
+
+// Surface interpolation has separate library GPU fixtures. These UI-only fixtures must
+// never silently accept an active interpolation view without its actual presenter.
+#[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+mod frame_generation {
+    pub(crate) mod runtime {
+        use crate::ui_render::{composite::UiLayerTexture, target::UiTarget};
+        use bevy::{
+            prelude::*,
+            render::{
+                render_resource::{BindGroupLayout, RenderPipeline},
+                renderer::RenderContext,
+            },
+        };
+
+        /// Confirms the isolated UI fixture has no active interpolation view to capture.
+        pub(crate) fn begin_ui(
+            world: &World,
+            entity: Entity,
+            _: &mut RenderContext,
+            _: UiTarget<'_>,
+        ) {
+            assert!(
+                world
+                    .get::<render_scene::frame_generation::FrameGenerationActive>(entity)
+                    .is_none()
+            );
+        }
+        /// Real-frame output remains owned by the standalone UI fixture's ordinary surface.
+        pub(crate) fn capture_real(
+            world: &World,
+            entity: Entity,
+            context: &mut RenderContext,
+            target: UiTarget<'_>,
+            _: Option<(&UiLayerTexture, &RenderPipeline, &BindGroupLayout)>,
+        ) {
+            begin_ui(world, entity, context, target);
+        }
     }
 }
 

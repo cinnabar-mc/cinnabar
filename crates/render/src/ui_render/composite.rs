@@ -750,6 +750,40 @@ fn encode_composite(
     pass.draw(0..3, 0..1);
 }
 
+/// Captures the same final alpha layer into an owned image before the surface is reused.
+#[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+pub(crate) fn encode_external(
+    context: &mut RenderContext,
+    world: &World,
+    target: UiTarget<'_>,
+    layer: &UiLayerTexture,
+    pipeline: &RenderPipeline,
+    layout: &BindGroupLayout,
+    destination: &wgpu::TextureView,
+) {
+    encode_composite(
+        context,
+        world,
+        CompositeSources {
+            layer,
+            scene: target.main_texture_view(),
+            target,
+        },
+        RenderPassColorAttachment {
+            view: destination,
+            depth_slice: None,
+            resolve_target: None,
+            ops: Operations {
+                load: LoadOp::Clear(default()),
+                store: StoreOp::Store,
+            },
+        },
+        None,
+        pipeline,
+        layout,
+    );
+}
+
 /// Attachments and native composition state needed by the final per-view presentation pass.
 type UiPresentQuery = (
     &'static ViewTarget,
@@ -779,6 +813,40 @@ pub(crate) fn ui_present(
         .and_then(|gpu| gpu.composite_pipelines.get(&entity).copied())
         .zip(world.get_resource::<PipelineCache>())
         .zip(world.get_resource::<UiCompositePipeline>());
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    {
+        let deferred = layer.filter(|layer| layer.present.load(Ordering::Relaxed));
+        let final_layer = deferred.and_then(|layer| {
+            resources
+                .as_ref()
+                .and_then(|((pipelines, cache), composite)| {
+                    cache.get_render_pipeline(pipelines.main).map(|pipeline| {
+                        (
+                            layer,
+                            pipeline,
+                            cache.get_bind_group_layout(&composite.layout),
+                        )
+                    })
+                })
+        });
+        if deferred.is_none() {
+            crate::frame_generation::runtime::capture_real(
+                world,
+                entity,
+                &mut context,
+                target,
+                None,
+            );
+        } else if let Some((layer, pipeline, layout)) = final_layer {
+            crate::frame_generation::runtime::capture_real(
+                world,
+                entity,
+                &mut context,
+                target,
+                Some((layer, pipeline, &layout)),
+            );
+        }
+    }
     if let Some(layer) = layer.filter(|layer| layer.present.load(Ordering::Relaxed))
         && let Some(((pipelines, cache), composite_pipeline)) = resources
     {
@@ -841,7 +909,7 @@ type UiOutputQuery = (
 );
 
 /// Qualifies content only after direct output or a successfully encoded ordinary output blit.
-fn observe_ui_output(
+pub(crate) fn observe_ui_output(
     view: bevy::render::renderer::ViewQuery<UiOutputQuery>,
     cache: Res<PipelineCache>,
     blit: Res<bevy::core_pipeline::blit::BlitPipeline>,

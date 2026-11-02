@@ -269,6 +269,10 @@ fn whole(b: &wgpu::Buffer) -> wgpu::BindingResource<'_> {
 /// `setupDeviceDepthToViewSpaceDepthParams` for inverted, finite depth, in blocks
 /// (`viewSpaceToMetersFactor` 1).
 fn device_to_view(near: f32, far: f32, fov_y: f32, aspect: f32) -> [f32; 4] {
+    if far == f32::INFINITY {
+        let tangent = (0.5 * fov_y).tan();
+        return [0.0, near, aspect * tangent, tangent];
+    }
     let (f_min, f_max) = (near.max(far), near.min(far));
     let q = f_max / (f_min - f_max);
     let cot_half_fov = (0.5 * fov_y).cos() / (0.5 * fov_y).sin();

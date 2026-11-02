@@ -72,7 +72,7 @@ assets = { path = "../crates/assets" }
 chunk-pipeline = { path = "../crates/chunk-pipeline" }
 client-world = { path = "../crates/client-world" }
 protocol = { path = "../crates/protocol" }
-render = { path = "../crates/render" }
+render = { path = "../crates/render", features = ["frame-generation"] }
 render-api = { path = "../crates/render-api" }
 render-model = { path = "../crates/render-model" }
 semantic-input = { path = "../crates/input" }

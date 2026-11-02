@@ -202,6 +202,8 @@ pub struct VideoSettings {
     /// Applies RCAS sharpening after FSR1 world upscaling.
     pub render_scale_sharpen: bool,
     pub motion_blur: MotionBlurQuality,
+    /// Inserts presentation-only world images while keeping simulation on real frames.
+    pub frame_generation: bool,
     pub smaa_mode: SmaaMode,
     pub ui_scale: f32,
     pub render_distance_chunks: u8,
@@ -246,6 +248,7 @@ impl Default for VideoSettings {
             render_scale_percent: DEFAULT_RENDER_SCALE_PERCENT,
             render_scale_sharpen: DEFAULT_RENDER_SCALE_SHARPEN,
             motion_blur: MotionBlurQuality::default(),
+            frame_generation: render_api::frame_generation::DEFAULT_FRAME_GENERATION,
             smaa_mode: DEFAULT_SMAA_MODE,
             ui_scale: 1.0,
             render_distance_chunks: MIN_RENDER_DISTANCE_CHUNKS,

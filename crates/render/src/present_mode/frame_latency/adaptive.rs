@@ -75,6 +75,13 @@ impl AdaptiveFrameLatency {
         self.cpu.fill(None);
     }
 
+    /// A presenter that holds frames to its own deadlines makes neither this frame's work nor
+    /// the next acquisition interval evidence of missed refreshes.
+    pub(crate) fn exclude_paced_frame(&mut self) {
+        self.started = None;
+        self.last_acquired = None;
+    }
+
     /// Retains coarse feeding work on the caller's clock, excluding acquisition waits.
     fn finish(&mut self, now: Instant) {
         let Some(started) = self.started.take() else {

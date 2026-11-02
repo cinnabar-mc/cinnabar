@@ -54,6 +54,7 @@ impl Plugin for StartupPresentationPlugin {
                 Render,
                 capture_surface
                     .in_set(RenderSystems::Render)
+                    .in_set(SurfaceCaptured)
                     .before(render_system),
             )
             .add_systems(
@@ -62,6 +63,10 @@ impl Plugin for StartupPresentationPlugin {
             );
     }
 }
+
+/// Startup confirmation has chosen the surface whose ordinary presentation it observes.
+#[derive(bevy::prelude::SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SurfaceCaptured;
 
 /// The surface generation belonging to this extracted frame, even if main has advanced.
 #[derive(Default, Resource)]
@@ -77,8 +82,9 @@ fn extract_surface_epoch(
 }
 
 #[derive(Default, Resource)]
-struct PresentationProbe {
-    surface: Option<Entity>,
+pub(crate) struct PresentationProbe {
+    /// The primary surface whose ordinary presentation this frame must observe.
+    pub(crate) surface: Option<Entity>,
     submitted: u8,
     content_submitted: Option<u64>,
     mode_submitted: Option<u64>,

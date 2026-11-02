@@ -453,6 +453,8 @@ fn queue_nametags(
     let functions = draw_functions.read();
     // Preserve complete back-to-front labels and their individual passes after world alpha.
     // At this magnitude one float ULP is 64; 128 avoids losing the batch ordering.
+    // Frame generation's label layer reuses the ordinary encoded-blend key: it admits only
+    // SDR views without Enhanced rendering or packs.
     for (view_entity, main_entity, view, extracted_camera, msaa, enhanced, pack) in &views {
         let overlay = overlay::enabled(enhanced.is_some(), pack.is_some());
         let Some(phase) = phases.get_mut(&view.retained_view_entity) else {

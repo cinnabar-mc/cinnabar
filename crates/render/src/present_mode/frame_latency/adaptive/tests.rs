@@ -256,3 +256,34 @@ fn latency_cadence_counts_only_the_depth_the_surface_has_adopted() {
         );
     }
 }
+
+/// Frame generation acquires once per paced pair; those intervals must not raise the depth.
+#[test]
+fn paced_frame_generation_pairs_do_not_count_as_missed_refreshes() {
+    let (mut app, _) = fixture();
+    let policy = app.world().resource::<PresentModePolicy>().clone();
+    let mut adaptive = app.world_mut().resource_mut::<AdaptiveFrameLatency>();
+    for frame in 1..=121 {
+        let at = Duration::from_micros(frame * 16_667);
+        let index = frame as usize % adaptive.cpu.len();
+        adaptive.cpu[index] = Some(FrameWorkSample {
+            frame,
+            at,
+            render: Duration::from_millis(4),
+            gpu: Duration::ZERO,
+        });
+        let now = adaptive.epoch + at;
+        adaptive.record_gpu(frame, Some(Duration::from_millis(5)), now, &policy);
+    }
+    assert_eq!(policy.frame_latency.latency.load(Ordering::Acquire), 1);
+    let mut now = adaptive.epoch + Duration::from_secs(3);
+    for frame in 122..=160 {
+        now += Duration::from_millis(33);
+        adaptive.frame = frame;
+        adaptive.started = Some(now);
+        adaptive.record_acquisition(now, Some(std::num::NonZeroU32::MIN), &policy);
+        adaptive.exclude_paced_frame();
+        adaptive.finish(now + Duration::from_millis(30));
+        assert_eq!(policy.frame_latency.latency.load(Ordering::Acquire), 1);
+    }
+}

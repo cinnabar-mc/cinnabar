@@ -6,14 +6,18 @@ a current implementation audit; check the owning code and later entries before
 calling work unstarted. Test files listed below establish existing coverage, not
 a fresh passing run or full gate acceptance.
 
-## Frame interpolation backend
+## Frame generation
 
-The optional `render/frame-generation` build feature contains optical flow and
-camera/depth interpolation for native-sized SDR world colour. It remains absent
-from production rendering and Video settings. Synthetic GPU fixtures cover block
-motion, camera motion, cut detection, explicit history resets, invalid inputs and
-depth at 10% resolution. No composition, presented-frame pacing, measured latency,
-hardware performance or in-world visual gate closes from these backend fixtures.
+The native opt-in Video setting is off by default. Runtime preparation, clean-world
+interpolation, independent current hand/name layers, native UI replay and surface
+presentation are implemented. Pure tests cover the paced interval, midpoint
+deadlines, bypasses and missed-deadline backoff; synthetic GPU fixtures cover native
+composition order, current foreground, MSAA, reduced world depth and infinite-far
+projection. A production-scene fixture keeps names out of interpolated colour and
+depth with and without SMAA and MSAA. Settings fixtures cover save, reload and reset. These establish implementation contracts, not scanout evidence.
+Hardware GPU cost, added input-to-photon latency, actual midpoint presentation
+with vsync on/off on Vulkan/DX12/Metal and in-world particle/translucency artifact
+acceptance remain open. Follow the hardware recipe in the runtime README.
 
 ## Browser host composition
 

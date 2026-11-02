@@ -6,6 +6,8 @@
 
 mod interpolation;
 mod optical_flow;
+#[cfg(feature = "frame-generation")]
+pub mod runtime;
 
 use glam::Mat4;
 use interpolation::{Inputs, Interpolation};
@@ -74,7 +76,7 @@ pub struct FrameGenerationInput<'a> {
     pub jitter: [f32; 2],
     /// Positive near clip distance in blocks.
     pub near: f32,
-    /// Finite far clip distance, greater than `near`, in blocks.
+    /// Far clip distance in blocks, or positive infinity for an infinite reverse-Z projection.
     pub far: f32,
     /// Vertical field of view in radians, between zero and pi.
     pub fov_y: f32,
@@ -119,7 +121,7 @@ impl FrameGenerationInput<'_> {
             || determinant.abs() <= f32::EPSILON
             || !self.jitter.into_iter().all(f32::is_finite)
             || !self.near.is_finite()
-            || !self.far.is_finite()
+            || self.far.is_nan()
             || self.near <= 0.0
             || self.far <= self.near
             || !self.fov_y.is_finite()

@@ -18,6 +18,8 @@ pub(crate) mod aim_assist;
 pub(crate) mod aim_highlight;
 mod facts;
 mod focus;
+#[cfg(not(target_arch = "wasm32"))]
+mod frame_generation;
 mod presentation;
 mod render_scale;
 
@@ -130,6 +132,10 @@ impl Plugin for FlyCameraPlugin {
                     .after(resolve_camera_pose)
                     .in_set(ClientFrameSet::Camera),
                 motion_blur::apply_camera_motion_blur
+                    .after(ClientFrameSet::Camera)
+                    .before(ClientFrameSet::Interaction),
+                #[cfg(not(target_arch = "wasm32"))]
+                frame_generation::publish
                     .after(ClientFrameSet::Camera)
                     .before(ClientFrameSet::Interaction),
             ),

@@ -463,6 +463,8 @@ pub(crate) fn ui_overlay(
         UiTarget::new(target, Some(native)).is_native() && native.seed(world, context, target)
     });
     let target = UiTarget::new(target, native);
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    crate::frame_generation::runtime::begin_ui(world, view_entity, context, target);
     let output_extent = if target.is_native() {
         None
     } else {
