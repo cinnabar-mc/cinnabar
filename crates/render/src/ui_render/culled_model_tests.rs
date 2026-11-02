@@ -111,8 +111,10 @@ fn culled_box_uv_planes_match_front_artwork_at_every_texture_phase() {
             images.push(read_pixels(&app, &image));
         }
         let mismatches: Vec<_> = images[0]
-            .chunks_exact(4)
-            .zip(images[1].chunks_exact(4))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .zip(images[1].as_chunks::<4>().0.iter())
             .enumerate()
             .filter(|(_, (front, box_pixel))| front != box_pixel)
             .take(4)
