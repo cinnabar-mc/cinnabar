@@ -49,11 +49,15 @@ pub(super) fn prepare(
         // A full-size retry may fit once in-flight frames retire the released atlas.
         install(gpu, device, queue, !released);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, released.then_some(queue));
+        if !uploaded {
+            gpu.atlas.retry.record(false, released.then_some(queue));
+        }
     } else if gpu.atlas.retry.take_ready() {
         install(gpu, device, queue, true);
         let uploaded = gpu.texture.is_some();
-        gpu.atlas.retry.record(uploaded, None);
+        if !uploaded {
+            gpu.atlas.retry.record(false, None);
+        }
     }
     if let Some(texture) = &gpu.texture
         && frame.patch_seq != gpu.uploaded_seq
@@ -90,10 +94,15 @@ pub(super) fn prepare(
             gpu.texture = None;
             gpu.texture_view = None;
             gpu.bind_group = None;
-            gpu.atlas.retry.record(false, Some(queue));
+            let released = (!gpu.atlas.retry.failed()).then_some(queue);
+            gpu.atlas.retry.record(false, released);
             return;
         }
         gpu.uploaded_seq = frame.patch_seq;
+    }
+    if gpu.texture.is_some() {
+        // The base and its patches form one attempt; only their combined success clears backoff.
+        gpu.atlas.retry.record(true, None);
     }
 }
 
