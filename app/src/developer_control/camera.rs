@@ -114,7 +114,7 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     Ok(json!({ "released": true }))
 }
 
-/// Shows the local body while the scripted camera films it from outside, like a camera rig.
+/// Draws the local body while the scripted camera films it from outside; the perspective is unchanged.
 fn set_scripted_view(world: &mut World, active: bool) {
     if let Some(mut settings) =
         world.get_resource_mut::<client_presentation::camera::CameraSettingsAuthority>()

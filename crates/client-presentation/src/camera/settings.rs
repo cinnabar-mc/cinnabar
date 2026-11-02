@@ -230,15 +230,13 @@ impl CameraSettingsAuthority {
         self.horizontal_fov_degrees
     }
 
-    /// A rig, held freelook or scripted camera presents third-person-back so the local body renders and
-    /// the viewmodel hides.
+    /// A rig or held freelook presents third-person-back so the local body renders and the viewmodel hides.
     /// While the death view is on, first person also presents third-person-back so the body's death
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
         if self.presented_view.is_some()
             || self.rig.is_some()
-            || self.scripted_view
             || self.freelook
             || (self.death_rotation.is_some()
                 && matches!(self.perspective, PerspectiveMode::FirstPerson))
@@ -246,6 +244,17 @@ impl CameraSettingsAuthority {
             PerspectiveMode::ThirdPersonBack
         } else {
             self.perspective
+        }
+    }
+
+    /// The perspective the local body is drawn for: `perspective`, except that a scripted camera filming
+    /// from outside the body draws it as third-person-back. Only drawing reads this; anything a server
+    /// can observe, such as aim-assist activation, keeps reading `perspective`.
+    #[must_use]
+    pub fn rendered_perspective(&self) -> PerspectiveMode {
+        match self.perspective() {
+            PerspectiveMode::FirstPerson if self.scripted_view => PerspectiveMode::ThirdPersonBack,
+            perspective => perspective,
         }
     }
 
@@ -352,8 +361,8 @@ impl CameraSettingsAuthority {
         }
     }
 
-    /// Marks a developer-scripted camera as active, so the local body renders in its shots; clearing
-    /// restores the player's own perspective.
+    /// Marks a developer-scripted camera as active, so the local body is drawn in its shots without
+    /// changing the player's perspective; clearing stops drawing it.
     pub fn set_scripted_view(&mut self, active: bool) {
         self.scripted_view = active;
     }
