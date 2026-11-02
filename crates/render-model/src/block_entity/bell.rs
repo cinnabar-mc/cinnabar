@@ -17,8 +17,7 @@ const PIVOT_HEIGHT: f32 = 0.75;
 const SWING_TICKS_PER_GAME_TICK: u32 = 2;
 const SWING_END_TICK: u32 = 50;
 const GAME_TICKS_PER_SECOND: f32 = 20.0;
-/// The body's box about its pivot, and the lip below it. Native boxes are authored with -Y as
-/// up, which [`emit`] restores with a half turn about Z.
+/// The body's box about its pivot, and the lip below it, authored with -Y as up.
 const BODY: BoxSpec = BoxSpec::new([-3.0, -1.0, -3.0], [6.0, 7.0, 6.0], [0.0, 0.0]);
 const LIP: BoxSpec = BoxSpec::new([-4.0, 6.0, -4.0], [8.0, 2.0, 8.0], [0.0, 13.0]);
 
@@ -102,10 +101,9 @@ pub(super) fn emit(
     let pivot = Vec3::from_array(block.map(|axis| axis as f32)) + Vec3::new(0.5, height, 0.5);
     let matrix = Mat4::from_translation(pivot)
         * swing_matrix(model.ring_direction, model.seconds_since_ring)
-        * Mat4::from_scale(Vec3::splat(1.0 / 16.0))
-        * Mat4::from_rotation_z(PI);
+        * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
     for part in [BODY, LIP] {
-        builder.cuboid(Layer::Solid, &texture, matrix, part, WHITE);
+        builder.legacy_cuboid(Layer::Solid, &texture, matrix, part, WHITE);
     }
 }
 
@@ -179,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn the_crown_and_rim_read_the_opposite_ends_of_their_unwraps() {
+    fn the_crown_and_rim_read_and_shade_as_their_drawn_sides() {
         let atlas = atlas();
         let mut builder = MeshBuilder::new(atlas.size());
         emit(
@@ -192,17 +190,27 @@ mod tests {
                 seconds_since_ring: f32::INFINITY,
             },
         );
-        // Each quad is two triangles; the crown is the one lying flat at the body's top.
-        let crown: Vec<_> = builder
-            .solid
-            .chunks(6)
-            .filter(|quad| {
-                quad.iter()
-                    .all(|vertex| (vertex.position[1] - 13.0 / 16.0).abs() < 1.0e-4)
-            })
-            .flatten()
-            .collect();
+        // Each quad is two triangles; the crown lies flat at the body's top, the rim's
+        // underside at the lip's bottom.
+        let flat_at = |pixels: f32| -> Vec<_> {
+            builder
+                .solid
+                .chunks(6)
+                .filter(|quad| {
+                    quad.iter()
+                        .all(|vertex| (vertex.position[1] - pixels / 16.0).abs() < 1.0e-4)
+                })
+                .flatten()
+                .collect()
+        };
+        let crown = flat_at(13.0);
+        let underside = flat_at(4.0);
         assert_eq!(crown.len(), 6, "one crown quad");
+        assert_eq!(underside.len(), 6, "one rim underside quad");
+        assert!(
+            crown[0].color[0] > underside[0].color[0],
+            "the crown takes the top shade and the underside the bottom shade"
+        );
         let min_u = crown
             .iter()
             .map(|vertex| vertex.uv[0] * atlas.size()[0] as f32)
