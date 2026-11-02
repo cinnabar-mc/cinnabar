@@ -71,16 +71,7 @@ impl UiModelBone {
         vertex.model_light = normal.try_normalize().map_or(vertex.model_light, |normal| {
             render_api::fancy_actor_shade(normal.to_array(), 0.0)
         });
-        vertex.overlay_color = if self.styles[1] != 0 {
-            [
-                self.uv_rect[0],
-                self.uv_rect[1],
-                self.uv_rect[2] - self.uv_rect[0],
-                self.uv_rect[3] - self.uv_rect[1],
-            ]
-        } else {
-            self.overlay
-        };
+        vertex.overlay_color = self.overlay;
         vertex.style_flags = (vertex.style_flags
             | self.styles[0]
             | if self.styles[1] != 0 {
@@ -91,6 +82,13 @@ impl UiModelBone {
             & !render_api::UI_STYLE_MODEL_VERTEX;
         vertex
     }
+}
+
+/// Resolved shading and sampling data keep controller colors independent of source bounds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct UiModelProjection {
+    pub vertex: UiRenderVertex,
+    pub repeat_bounds: Option<[f32; 4]>,
 }
 
 /// A control's ordered depth scope owns its palette and conservative physical-pixel coverage.
@@ -113,18 +111,30 @@ pub fn ui_model_instance(models: &[UiModelPose], scope: Option<u32>, layer: u32)
     layer
 }
 
-/// Uses the same palette lookup as a GPU model draw; ordinary vertices pass through unchanged.
+/// Resolves shading and source bounds through the same palette lookup as a GPU model draw.
 pub fn project_ui_model_vertex(
     vertex: UiRenderVertex,
     pose: Option<&UiModelPose>,
-) -> Option<UiRenderVertex> {
+) -> Option<UiModelProjection> {
     if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX == 0 {
-        return Some(vertex);
+        let repeated = vertex.style_flags & u32::from(render_api::ui_repeat::UI_STYLE_REPEAT) != 0;
+        return Some(UiModelProjection {
+            vertex,
+            repeat_bounds: repeated.then_some(vertex.overlay_color),
+        });
     }
-    pose?
-        .bones
-        .get((vertex.clip_w as usize).checked_sub(1)?)
-        .map(|bone| bone.project(vertex))
+    let bone = pose?.bones.get((vertex.clip_w as usize).checked_sub(1)?)?;
+    Some(UiModelProjection {
+        vertex: bone.project(vertex),
+        repeat_bounds: (bone.styles[1] != 0).then(|| {
+            [
+                bone.uv_rect[0],
+                bone.uv_rect[1],
+                bone.uv_rect[2] - bone.uv_rect[0],
+                bone.uv_rect[3] - bone.uv_rect[1],
+            ]
+        }),
+    })
 }
 
 #[cfg(test)]

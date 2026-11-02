@@ -618,7 +618,7 @@ fn parse_source(
         )?;
         return Ok(());
     }
-    if relative_path.starts_with("attachables/") {
+    if relative_path.starts_with("attachables/") && relative_path.ends_with(".json") {
         let value = parse_unique_json(absolute_path, bytes)?;
         attachable::validate_source(&value)?;
         return parse_entity(

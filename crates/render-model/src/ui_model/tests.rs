@@ -161,6 +161,7 @@ fn repeated_model_uvs_keep_tile_coordinates_until_fragment_sampling() {
     bone.uv_rect = [12., 8., 44., 16.];
     bone.uv_transform = [0.25, 0., 2., 1.];
     bone.styles[1] = 1;
+    bone.overlay = [0.8, 0.1, 0.2, 0.5];
     let mut vertex = input().vertices[0];
     vertex.uv = [0., 0.5];
     let first = bone.project(vertex);
@@ -168,12 +169,34 @@ fn repeated_model_uvs_keep_tile_coordinates_until_fragment_sampling() {
     let last = bone.project(vertex);
     assert_eq!(first.uv, [0.25, 0.5]);
     assert_eq!(last.uv, [2.25, 0.5]);
-    assert_eq!(first.overlay_color, [12., 8., 32., 8.]);
+    assert_eq!(first.overlay_color, bone.overlay);
+    let pose = UiModelPose {
+        scope: 7,
+        bones: Arc::from([bone]),
+        bounds: UiScissor::new(0, 0, 64, 64),
+    };
+    let projected = project_ui_model_vertex(vertex, Some(&pose)).unwrap();
+    assert_eq!(projected.vertex.overlay_color, bone.overlay);
+    assert_eq!(projected.repeat_bounds, Some([12., 8., 32., 8.]));
     let middle = [(first.uv[0] + last.uv[0]) / 2., 0.5];
     assert_eq!(
-        render_api::ui_repeat::source_uv(middle, first.overlay_color, first.style_flags as u16),
+        render_api::ui_repeat::source_uv(
+            middle,
+            projected.repeat_bounds.unwrap(),
+            first.style_flags as u16
+        ),
         [20., 12.]
     );
+}
+
+#[test]
+fn ordinary_repeated_regions_retain_their_source_metadata() {
+    let mut vertex = input().vertices[0];
+    vertex.style_flags = u32::from(render_api::ui_repeat::UI_STYLE_REPEAT);
+    vertex.overlay_color = [12., 8., 32., 8.];
+    let projected = project_ui_model_vertex(vertex, None).unwrap();
+    assert_eq!(projected.repeat_bounds, Some(vertex.overlay_color));
+    assert_eq!(projected.vertex, vertex);
 }
 
 #[test]

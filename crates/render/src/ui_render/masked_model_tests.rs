@@ -1,7 +1,10 @@
 use crate::render_test_support::scene_raster::{
     FixturePipelines, SIDE, app_with_effects, fixture_pipeline, frame, read_pixels, renderer,
 };
-use bevy::render::{RenderApp, renderer::RenderDevice};
+use bevy::{
+    color::Srgba,
+    render::{RenderApp, renderer::RenderDevice},
+};
 use render_model::{
     UI_BLEND_ALPHA, UiModelBone, UiModelPose, UiRenderBatch, UiRenderInput, UiRenderVertex,
     UiScissor, UiTextureCatalog, UiTexturePage,
@@ -95,6 +98,7 @@ fn transparent_model_parts_occlude_later_color_without_painting_the_background()
     let stats = app.world().resource::<UiRenderStatsResource>().clone();
     let at = |bytes: &[u8], x: usize| bytes[(32 * SIDE as usize + x) * 4..][..4].to_vec();
     let mut centers = std::collections::BTreeSet::new();
+    let mut artwork = Vec::new();
     for (index, phase) in [0., 0.25, 0.5, 0.75].into_iter().enumerate() {
         input.revision = index as u64 + 1;
         let mut animated = bone;
@@ -125,8 +129,46 @@ fn transparent_model_parts_occlude_later_color_without_painting_the_background()
             "the opening retains artwork at phase {phase}"
         );
         assert!(
-            centers.insert(center),
+            centers.insert(center.clone()),
             "each quarter phase samples distinct source artwork"
+        );
+        artwork.push(center);
+    }
+    for (index, phase) in [0., 0.25, 0.5, 0.75].into_iter().enumerate() {
+        input.revision += 1;
+        let mut animated = bone;
+        animated.uv_transform[0] = phase;
+        animated.overlay = [0.8, 0.1, 0.2, 0.5];
+        Arc::make_mut(&mut input.models)[0].bones = Arc::from([animated; 2]);
+        app.world_mut()
+            .resource_mut::<UiRenderSceneResource>()
+            .publish(input.clone(), &stats)
+            .unwrap();
+        for _ in 0..8 {
+            frame(&mut app);
+        }
+        let pixels = read_pixels(&app, &image);
+        for x in [12, 52] {
+            assert_eq!(
+                at(&pixels, x),
+                at(&background, x),
+                "a tinted mask keeps zero alpha"
+            );
+        }
+        let center = at(&pixels, 32);
+        for channel in 0..3 {
+            let source = Srgba::gamma_function_inverse(f32::from(artwork[index][channel]) / 255.);
+            let mixed = source * (1. - animated.overlay[3])
+                + animated.overlay[channel] * animated.overlay[3];
+            let expected = (Srgba::gamma_function(mixed) * 255.).round() as i16;
+            assert!(
+                (i16::from(center[channel]) - expected).abs() <= 1,
+                "controller overlay survives repeated UVs at phase {phase}, channel {channel}: {center:?}"
+            );
+        }
+        assert_eq!(
+            center[3], artwork[index][3],
+            "overlay does not change source alpha"
         );
     }
 }

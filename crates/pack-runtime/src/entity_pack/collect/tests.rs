@@ -793,6 +793,7 @@ fn declared_entity_images_use_pack_relative_paths_with_base_definitions() {
         "artwork/ui/stripes",
         "models/ui/stripes",
         "models/entity/stripes",
+        "attachables/ui/stripes",
     ] {
         let image_file = format!("{image}.png");
         let mut entity: serde_json::Value =

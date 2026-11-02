@@ -104,3 +104,49 @@ fn repeated_snapshot_page_halos_filter_without_duplicate_translucent_coverage() 
         }
     }
 }
+
+#[test]
+fn repeated_controller_overlay_keeps_source_phase_and_alpha_in_snapshots() {
+    let red = [160, 20, 30, 255];
+    let blue = [30, 60, 240, 255];
+    let page = UiTexturePage::owned([2, 2], [red, blue].repeat(2).concat().into()).unwrap();
+    let mut input = input(vec![page], 3., UI_STYLE_REPEAT);
+    let bone = render_model::UiModelBone {
+        screen: glam::Mat4::IDENTITY.to_cols_array_2d(),
+        normal: [[0.; 4]; 3],
+        overlay: [0.; 4],
+        uv_rect: [0., 0., 2., 2.],
+        uv_transform: [0., 0., 1., 1.],
+        uv_cross: [0.; 4],
+        tint: [1.; 4],
+        styles: [0, 1, 0, 0],
+    };
+    for vertex in Arc::make_mut(&mut input.vertices) {
+        vertex.style_flags |= render_api::UI_STYLE_MODEL_VERTEX;
+        vertex.overlay_color = [0.; 4];
+    }
+    Arc::make_mut(&mut input.batches)[0].isolated_depth_scope = Some(1);
+    input.models = Arc::from([render_model::UiModelPose {
+        scope: 1,
+        bones: Arc::from([bone]),
+        bounds: UiScissor::new(0, 0, 6, 2),
+    }]);
+    let original = rasterize(&input);
+    Arc::make_mut(&mut Arc::make_mut(&mut input.models)[0].bones)[0].overlay = [1., 0., 0., 0.5];
+    let tinted = rasterize(&input);
+    for x in 0..6 {
+        let source = if x % 2 == 0 { red } else { blue };
+        assert_eq!(original.get_pixel(x, 0).0, source, "source repeat at {x}");
+        let expected = [
+            (f32::from(source[0]) * 0.5 + 127.5).round() as u8,
+            (f32::from(source[1]) * 0.5).round() as u8,
+            (f32::from(source[2]) * 0.5).round() as u8,
+            source[3],
+        ];
+        assert_eq!(
+            tinted.get_pixel(x, 0).0,
+            expected,
+            "independent overlay at {x}"
+        );
+    }
+}

@@ -38,7 +38,7 @@ UI_SHADOW_DECODER
 
 // Sample the shared decoder's source coordinates with the requested filter.
 fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
-    let bounds = vec4<f32>(input.overlay_color.xy + input.atlas_offset, input.overlay_color.zw);
+    let bounds = vec4<f32>(input.repeat_bounds.xy + input.atlas_offset, input.repeat_bounds.zw);
     var page = PageRegion(vec4<f32>(0.0), vec4<f32>(0.0));
     if (input.style_flags & STYLE_REPEAT_PAGE) != 0u {
         page = ui_page_format.regions[input.texture_page];
@@ -87,6 +87,7 @@ struct UiVertexOutput {
     @location(5) model_light: f32,
     @location(6) overlay_color: vec4<f32>,
     @location(7) @interpolate(flat) atlas_offset: vec2<f32>,
+    @location(8) repeat_bounds: vec4<f32>,
 };
 
 @vertex
@@ -104,6 +105,7 @@ fn ui_vertex(
     var point = position;
     var light = model_light;
     var overlay = overlay_color;
+    var repeat_bounds = overlay_color;
     var model_uv = uv;
     var model_color = color;
     var model_styles = style_flags;
@@ -123,7 +125,7 @@ fn ui_vertex(
         model_styles |= bone.styles.x;
         if bone.styles.y != 0u {
             model_uv = source_uv;
-            overlay = vec4<f32>(bone.uv_rect.xy, bone.uv_rect.zw - bone.uv_rect.xy);
+            repeat_bounds = vec4<f32>(bone.uv_rect.xy, bone.uv_rect.zw - bone.uv_rect.xy);
             model_styles |= STYLE_REPEAT_X | STYLE_REPEAT_Y;
         }
     }
@@ -143,6 +145,7 @@ fn ui_vertex(
     output.alpha_cutoff = alpha_cutoff;
     output.model_light = light;
     output.overlay_color = overlay;
+    output.repeat_bounds = repeat_bounds;
     return output;
 }
 
@@ -282,7 +285,8 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         sample = vec4<f32>(mix(sample.rgb, sample.rgb * input.overlay_color.rgb, sample.a), 1.0);
     }
     // Particle vertices carry sprite bounds in the overlay field.
-    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || repeated || sprite_mask);
+    let model = (input.style_flags & UI_STYLE_MODEL_VERTEX) != 0u;
+    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || sprite_mask || (repeated && !model));
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.
