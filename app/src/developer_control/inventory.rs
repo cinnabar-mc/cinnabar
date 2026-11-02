@@ -3,11 +3,11 @@
 //! view of its items. Clicks are predicted and queued locally; nothing waits for the server.
 
 use bevy::prelude::*;
-use client_shell::ui_resources::UiRuntimeResource;
+use client_shell::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::{
     UiRuntime,
     inventory_drag::PointerAction,
-    presentation::{inventory_pointer::InventoryScreen, screens},
+    presentation::{UiPresentationRuntime, inventory_pointer::InventoryScreen, screens},
 };
 use developer_control::{
     protocol::{ClickButton, Condition, InventoryClick, InventoryContainer},
@@ -49,7 +49,12 @@ pub(super) fn close(world: &mut World) -> Result<Value, String> {
 
 /// Clicks one cell and reports the predicted result.
 pub(super) fn click(world: &mut World, command: InventoryClick) -> Result<Value, String> {
-    let request_id = with_inventory(world, |player, ui, _| click_cell(player, ui, command))?;
+    let request_id = with_inventory(world, |player, ui, world| {
+        let presentation = world
+            .get_resource::<UiPresentationResource>()
+            .map(|view| &view.0);
+        click_cell(player, ui, presentation, command)
+    })?;
     Ok(json!({ "request_id": request_id, "inventory": snapshot(world) }))
 }
 
@@ -120,19 +125,27 @@ fn open_screen(
     }
 }
 
-/// Closes the open screen as Escape does, returning held and crafting-grid items.
+/// Closes the open screen as Escape does, returning held and crafting-grid items. An open
+/// book editor saves its edits first and stays open when the save is refused.
 fn close_screen(player: &mut player_state::PlayerState, ui: &mut UiRuntime) -> Result<(), String> {
     if !ui.inventory_open() {
         return Err("no inventory screen is open".into());
+    }
+    if !ui.commit_book(false) {
+        return Err("the book could not be saved, so it stays open".into());
     }
     ui.close_inventory(player);
     Ok(())
 }
 
 /// Runs the pointer action a plain, right or Shift click on the addressed cell produces.
+/// An engine-drawn screen is checked against the cells its active layout draws, and a
+/// Shift-click takes the same layout-dependent route a pointer press there does; the
+/// fallback renderer's fixed cell layout is used only when it draws the screen.
 fn click_cell(
     player: &mut player_state::PlayerState,
     ui: &mut UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
     command: InventoryClick,
 ) -> Result<i32, String> {
     if !ui.inventory_open() {
@@ -140,20 +153,36 @@ fn click_cell(
     }
     ui.observe_inventory_window(player);
     let screen = InventoryScreen::of_runtime(player, ui);
-    let hit = cell_hit(ui.inventory_ledger(player), command.container, command.slot)
-        .filter(|hit| {
-            screens::screen_slots(screen)
+    let target = cell_hit(ui.inventory_ledger(player), command.container, command.slot);
+    let drawn: Vec<(InventoryCellHit, Option<[f32; 2]>)> =
+        match presentation.filter(|view| view.engine_container_frame().is_some()) {
+            Some(view) => view
+                .engine_container_cells()
+                .into_iter()
+                .map(|(hit, point)| (hit, Some(point)))
+                .collect(),
+            None => screens::screen_slots(screen)
                 .iter()
-                .any(|placed| placed.hit == *hit)
-        })
-        .ok_or_else(|| missing_cell(screen, command))?;
-    let action = match (command.shift, command.button) {
-        (true, _) => PointerAction::QuickMove(hit),
-        (false, ClickButton::Left) => PointerAction::Click(hit),
-        (false, ClickButton::Right) => PointerAction::SecondaryClick(hit),
+                .map(|placed| (placed.hit, None))
+                .collect(),
+        };
+    let (hit, point) = target
+        .and_then(|hit| drawn.iter().find(|(cell, _)| *cell == hit).copied())
+        .ok_or_else(|| missing_cell(screen, command, drawn.iter().map(|(cell, _)| *cell)))?;
+    // A Shift-click on a creative-layout hotbar slot deletes its stack, as with the pointer.
+    let destroys = command.shift
+        && point.is_some_and(|point| {
+            presentation.is_some_and(|view| view.inventory_auto_place_destroys(point))
+        });
+    let result = match (command.shift, command.button) {
+        (true, _) if destroys => ui.destroy_on_auto_place(player, hit),
+        (true, _) => ui.try_pointer_action(player, PointerAction::QuickMove(hit)),
+        (false, ClickButton::Left) => ui.try_pointer_action(player, PointerAction::Click(hit)),
+        (false, ClickButton::Right) => {
+            ui.try_pointer_action(player, PointerAction::SecondaryClick(hit))
+        }
     };
-    ui.try_pointer_action(player, action)
-        .map_err(|error| format!("the client refused the click: {error}"))
+    result.map_err(|error| format!("the client refused the click: {error}"))
 }
 
 /// The cell `slot` of `container` addresses; whether the open screen shows it is checked
@@ -196,10 +225,13 @@ const fn container_of(hit: InventoryCellHit) -> Option<InventoryContainer> {
 }
 
 /// Explains a click on a cell the open screen does not show, with the cells it does.
-fn missing_cell(screen: InventoryScreen, command: InventoryClick) -> String {
-    let available = screens::screen_slots(screen)
-        .iter()
-        .filter(|placed| container_of(placed.hit) == Some(command.container))
+fn missing_cell(
+    screen: InventoryScreen,
+    command: InventoryClick,
+    drawn: impl Iterator<Item = InventoryCellHit>,
+) -> String {
+    let available = drawn
+        .filter(|hit| container_of(*hit) == Some(command.container))
         .count();
     format!(
         "{} slot {} is not on the open {} screen, which has {available} such slots",

@@ -202,3 +202,28 @@ fn screen_gestures_follow_open_admission_and_storage_close() {
     ledger.request_storage_close();
     assert!(!ledger.screen_accepts_gestures());
 }
+
+/// A window with its own cells waits for their contents before admitting clicks, while a
+/// window whose cells live in the UI inventory admits them as soon as it opens.
+#[test]
+fn storage_gestures_wait_for_window_contents() {
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(3),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    assert!(!ledger.screen_accepts_gestures());
+    open_chest(&mut ledger, 3);
+    assert!(ledger.screen_accepts_gestures());
+
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(4),
+        window_type: protocol::WINDOW_TYPE_WORKBENCH,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.screen_accepts_gestures());
+}

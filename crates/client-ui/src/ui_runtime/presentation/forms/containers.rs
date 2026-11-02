@@ -573,6 +573,16 @@ impl UiPresentationRuntime {
         layout.hit(frame, gui)
     }
 
+    /// The cells the engine-drawn container screen shows, each with a point a press there
+    /// reaches; empty when the fallback renderer draws the screen.
+    pub fn engine_container_cells(&self) -> Vec<(InventoryCellHit, [f32; 2])> {
+        self.projections
+            .container
+            .as_ref()
+            .map(|(frame, layout)| layout.cells(frame))
+            .unwrap_or_default()
+    }
+
     /// The press sound the pack declares on the enabled container-screen control under a point.
     pub fn engine_container_press_sound(&self, gui: [f32; 2]) -> Option<&json_ui::ControlSound> {
         let (frame, _) = self.projections.container.as_ref()?;

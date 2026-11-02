@@ -125,6 +125,32 @@ impl ScreenLayout {
     }
 }
 
+impl ScreenLayout {
+    /// Every ledger cell or control this layout drew in `frame`, once each, with a point
+    /// where a press reaches it (virtual px equal GUI px). It inverts [`Self::hit`], so a
+    /// caller that names a cell takes the same path as a pointer press on it.
+    pub fn cells(self, frame: &EngineFrame) -> Vec<(InventoryCellHit, [f32; 2])> {
+        let mut cells: Vec<(InventoryCellHit, [f32; 2])> = Vec::new();
+        for region in frame.hits.iter() {
+            let left = region.rect.x.max(region.clip.x);
+            let top = region.rect.y.max(region.clip.y);
+            let right = (region.rect.x + region.rect.w).min(region.clip.x + region.clip.w);
+            let bottom = (region.rect.y + region.rect.h).min(region.clip.y + region.clip.h);
+            if right <= left || bottom <= top {
+                continue;
+            }
+            #[allow(clippy::cast_possible_truncation, reason = "GUI coordinates are small")]
+            let point = [((left + right) / 2.0) as f32, ((top + bottom) / 2.0) as f32];
+            if let Some(hit) = self.hit(frame, point)
+                && !cells.iter().any(|(known, _)| *known == hit)
+            {
+                cells.push((hit, point));
+            }
+        }
+        cells
+    }
+}
+
 /// The player inventory slot that row `index` of the `inventory_items` or `hotbar_items` rows
 /// shows; `None` for any other collection.
 pub fn player_cell(collection: &str, index: usize) -> Option<InventoryCellHit> {

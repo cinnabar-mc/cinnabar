@@ -75,7 +75,7 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
     let (mut player, mut ui) = player_with_stone();
     let right = |slot| click(InventoryContainer::Inventory, slot, ClickButton::Right);
     assert_eq!(
-        click_cell(&mut player, &mut ui, right(9)).unwrap_err(),
+        click_cell(&mut player, &mut ui, None, right(9)).unwrap_err(),
         "no inventory screen is open; send inventory_open first"
     );
 
@@ -83,7 +83,7 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
     assert!(ui.inventory_open());
     assert_eq!(report(&player, &ui)["ready"], false);
     assert!(
-        click_cell(&mut player, &mut ui, right(9))
+        click_cell(&mut player, &mut ui, None, right(9))
             .unwrap_err()
             .starts_with("the client refused the click")
     );
@@ -92,8 +92,8 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
     open_screen(&mut player, &mut ui, None).unwrap();
     assert!(ui.inventory_open(), "opening an open screen keeps it open");
 
-    click_cell(&mut player, &mut ui, right(9)).unwrap();
-    click_cell(&mut player, &mut ui, right(10)).unwrap();
+    click_cell(&mut player, &mut ui, None, right(9)).unwrap();
+    click_cell(&mut player, &mut ui, None, right(10)).unwrap();
     let view = report(&player, &ui);
     assert_eq!(view["screen"], "inventory");
     assert_eq!(view["cursor"]["identifier"], STONE);
@@ -190,7 +190,7 @@ fn cells_resolve_against_the_open_screen_layout() {
         ),
     ] {
         assert_eq!(
-            click_cell(&mut player, &mut ui, left(container, slot)).unwrap_err(),
+            click_cell(&mut player, &mut ui, None, left(container, slot)).unwrap_err(),
             error
         );
     }
