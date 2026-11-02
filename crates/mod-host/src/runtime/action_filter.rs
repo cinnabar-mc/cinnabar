@@ -44,6 +44,7 @@ impl Instance {
             );
             Ok(())
         });
+        let timing = self.callback_timing();
         let result = self.exports.filter(&mut self.store, frame).and_then(|v| {
             anyhow::ensure!(
                 v.accepted.len() == count,
@@ -51,6 +52,7 @@ impl Instance {
             );
             Ok(v)
         });
+        self.charge_callback_time(timing);
         self.store.call_hook(|_, _| Ok(()));
         self.last_fuel = FILTER_FUEL - self.store.get_fuel().unwrap_or(0).min(FILTER_FUEL);
         if result.is_err() {
