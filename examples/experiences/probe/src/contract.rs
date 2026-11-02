@@ -346,6 +346,6 @@ pub(crate) fn game_mode(ctx: &Callback) -> String {
 }
 
 /// A world error's name, or `ok` for any success.
-fn refusal<T>(result: Result<T, WorldError>) -> &'static str {
+pub(crate) fn refusal<T>(result: Result<T, WorldError>) -> &'static str {
     result.map_or_else(|error| error.name(), |_| "ok")
 }
