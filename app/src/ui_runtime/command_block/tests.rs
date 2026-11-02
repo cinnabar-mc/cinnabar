@@ -139,7 +139,8 @@ const EDITOR_SCREEN: &[u8] = br#"{
 }"#;
 
 /// The editor drawn from [`EDITOR_SCREEN`], with its command box selected by a click.
-fn app_typing_into_the_command_box() -> (App, Entity) {
+/// An app showing the editor with the cursor over its command box, not yet clicked.
+fn app_pointing_at_the_command_box() -> (App, Entity) {
     let player = player_state::PlayerState::new(1);
     let runtime = runtime_with_editor();
     let mut presentation = mini_engine_presentation();
@@ -184,15 +185,27 @@ fn app_typing_into_the_command_box() -> (App, Entity) {
         .single_mut(app.world_mut())
         .unwrap()
         .set_cursor_position(Some(center));
+    (app, window)
+}
+
+/// Presses the left button in one frame and releases it in the next, clearing each frame's edges
+/// as the input plugin does.
+fn click(app: &mut App) {
     let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
     mouse.press(MouseButton::Left);
     app.update();
     let mut mouse = app.world_mut().resource_mut::<ButtonInput<MouseButton>>();
+    mouse.clear();
     mouse.release(MouseButton::Left);
     app.update();
     app.world_mut()
         .resource_mut::<ButtonInput<MouseButton>>()
         .clear();
+}
+
+fn app_typing_into_the_command_box() -> (App, Entity) {
+    let (mut app, window) = app_pointing_at_the_command_box();
+    click(&mut app);
     assert_eq!(typed_command(&app), "");
     (app, window)
 }
@@ -298,6 +311,34 @@ fn app_among_other_screens() -> (App, Entity) {
             ),
         );
     (app, window)
+}
+
+/// A request replacing the open editor keeps the click of that frame from the new block, which
+/// the frame retained from the old block's controls would otherwise deliver.
+#[test]
+fn a_replaced_editor_ignores_the_click_of_the_frame_that_replaced_it() {
+    let (mut app, window) = app_pointing_at_the_command_box();
+    app.world_mut()
+        .resource_mut::<crate::runtime::world::ClientWorld>()
+        .stream = Some(chunk_pipeline::WorldStream::new(protocol::WorldBootstrap {
+        dimension: 0,
+        local_player_runtime_id: 1,
+        local_player_unique_id: 1,
+        player_position: [0.0, 64.0, 0.0],
+        world_spawn_position: [0, 64, 0],
+        air_network_id: protocol_ids::SEQUENTIAL_AIR_NETWORK_ID,
+        block_network_ids_are_hashes: false,
+    }));
+    app.update();
+    app.world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .command_block_mut()
+        .request([5, -60, 0]);
+    click(&mut app);
+    let runtime = app.world().resource::<UiRuntimeResource>();
+    assert!(!runtime.command_block().requested());
+    assert!(runtime.command_block().is_open());
+    assert_eq!(type_a(&mut app, window), "");
 }
 
 #[test]

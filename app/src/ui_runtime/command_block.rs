@@ -104,6 +104,7 @@ pub(crate) fn drive_command_block(
         *owned_last_frame = false;
         return;
     }
+    let mut opened = false;
     if let Some(stream) = client_world.stream.as_mut()
         && let Some(position @ [x, y, z]) = runtime.command_block_mut().take_request()
     {
@@ -128,9 +129,11 @@ pub(crate) fn drive_command_block(
             CommandBlockEdit::load(position, mode_of_block(name), conditional, &actor, |key| {
                 translator.lookup(key)
             });
-        // The events of the frame that opened the editor belong to the game.
+        // The events of the frame that opened the editor belong to the game, and a click held in
+        // the button state must not reach this block through a replaced editor's retained frame.
         sources.clear();
         runtime.command_block_mut().open(edit);
+        opened = true;
     }
     if !runtime.command_block().is_open() {
         sources.clear();
@@ -164,6 +167,7 @@ pub(crate) fn drive_command_block(
     }
     let frame = presentation.command_block_frame().cloned();
     if input_available
+        && !opened
         && owned.reads(|scene| scene == Scene::CommandBlock)
         && let Some(frame) = frame
     {
