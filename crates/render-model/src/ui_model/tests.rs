@@ -202,10 +202,13 @@ fn selected_model_texture_pages_grow_and_release_within_catalog_budgets() {
     dynamic.push(selected.clone());
     let extended = catalog.replace_dynamic(dynamic).unwrap();
     assert_eq!(extended.pages().last(), Some(&selected));
+    assert_ne!(extended.identity(), catalog.identity());
+    assert_eq!(extended.static_identity(), catalog.static_identity());
     let released = extended
         .replace_dynamic(extended.pages()[1..fixed + 1].to_vec())
         .unwrap();
     assert_eq!(released.pages().len(), catalog.pages().len());
+    assert_eq!(released.static_identity(), catalog.static_identity());
     assert!(
         released.replace_dynamic(Vec::new()).is_err(),
         "selected ownership cannot remove the fixed producers"

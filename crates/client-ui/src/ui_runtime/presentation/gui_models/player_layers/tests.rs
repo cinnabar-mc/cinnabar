@@ -224,3 +224,43 @@ fn camera_uv_changes_update_painted_texels_without_changing_geometry() {
         "camera yaw must update the sampled texture phase"
     );
 }
+
+#[test]
+fn selected_controller_pages_publish_after_an_existing_complete_ui_catalog() {
+    let pack = pack();
+    let mut stream = super::super::live_player::tests::player_stream(
+        Arc::clone(&pack.assets),
+        Arc::clone(&pack.assets),
+    );
+    stream.advance_actor_interpolation_ticks(1);
+    let mut ui = presentation(false);
+    let mut scene = render_model::UiRenderScene::default();
+    let stats = render_model::UiRenderStats::default();
+    frame(&mut ui, &stream);
+    let before = frame(&mut ui, &stream);
+    let original = before.textures.clone();
+    scene.publish(before, &stats).unwrap();
+    ui.set_preview_player_layers(Some(pack));
+    let selected = frame(&mut ui, &stream);
+    assert!(selected.textures.pages().len() > original.pages().len());
+    assert_ne!(selected.textures.identity(), original.identity());
+    scene.publish(selected.clone(), &stats).expect(
+        "selected controller art must not invalidate the already admitted fixed UI catalog",
+    );
+    assert_eq!(
+        selected.textures.static_identity(),
+        original.static_identity()
+    );
+    assert!(!colored_pixels(&selected).is_empty());
+    ui.set_preview_player_layers(None);
+    let removed = frame(&mut ui, &stream);
+    scene
+        .publish(removed.clone(), &stats)
+        .expect("releasing selected controller art must preserve the fixed catalog");
+    assert_eq!(removed.textures.pages().len(), original.pages().len());
+    assert_eq!(
+        removed.textures.static_identity(),
+        original.static_identity()
+    );
+    assert!(colored_pixels(&removed).is_empty());
+}

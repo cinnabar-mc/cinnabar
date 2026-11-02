@@ -522,7 +522,12 @@ impl UiTextureCatalog {
         static_pages.update((dynamic_start as u64).to_le_bytes());
         // Reserved logical slots keep their identity when model or session icon pages resize.
         all.update((pages.len() as u64).to_le_bytes());
-        static_pages.update((pages.len() as u64).to_le_bytes());
+        // Selected sources may enter and leave after admission. Their count belongs to the
+        // full catalog identity; the fixed identity describes only the retained producers.
+        let fixed_pages = pages
+            .len()
+            .min(dynamic_start + UI_SELECTED_MODEL_PAGE_OFFSET);
+        static_pages.update((fixed_pages as u64).to_le_bytes());
         for (index, page) in pages.iter().enumerate() {
             for side in page.dimensions {
                 all.update(side.to_le_bytes());
