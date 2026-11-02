@@ -87,6 +87,8 @@ pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by 180 degrees.
+pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;

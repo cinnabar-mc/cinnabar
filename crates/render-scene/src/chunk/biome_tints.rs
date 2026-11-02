@@ -1,7 +1,7 @@
 use crate::chunk::*;
 
 pub const MATERIAL_UV_ROTATE_90: u32 = 1;
-pub const MATERIAL_UV_ROTATE_180: u32 = 2;
+pub const MATERIAL_UV_ROTATE_180: u32 = assets::MATERIAL_FLAG_UV_ROTATE_180;
 pub const MATERIAL_UV_ROTATE_270: u32 = 3;
 pub const MATERIAL_UV_REFLECT_U: u32 = 1 << 2;
 pub const MATERIAL_UV_REFLECT_V: u32 = 1 << 3;
