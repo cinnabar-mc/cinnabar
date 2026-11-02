@@ -26,6 +26,8 @@ fn pump(motion: &Motion, preempt: bool) -> Pumped {
     let mut elapsed = motion.report_interval;
     let mut reports_taken = 0;
     let mut turn = PaintTurn::new();
+    // Motion starts just after a frame finished.
+    turn.frame_finished(start);
     let mut pumped = Pumped {
         frames: 0,
         moves_ahead_of_paint: 0,
