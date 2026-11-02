@@ -216,6 +216,14 @@ pub(crate) fn drive_server_form_input(
     }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
+    // Raw edges are read before any frame the form doesn't own returns, so edges a screen above
+    // it took never wait for the form.
+    let (pointer, pointer_edges) = read_pointer_edges(
+        &mouse,
+        button_messages.as_deref(),
+        &mut button_cursor,
+        &mut held,
+    );
     let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     if frame.top() == Scene::ResourcePackLoading {
         // Keep the loading cover authoritative while the replacement pack is being published.
@@ -252,12 +260,6 @@ pub(crate) fn drive_server_form_input(
         *owned_last_frame = false;
         return;
     }
-    let (pointer, pointer_edges) = read_pointer_edges(
-        &mouse,
-        button_messages.as_deref(),
-        &mut button_cursor,
-        &mut held,
-    );
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
