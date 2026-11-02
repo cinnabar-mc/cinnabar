@@ -87,6 +87,7 @@ fn start_with_clock(world: &mut World, path: CameraPath, realtime: bool) -> Resu
     {
         view.reanchor_camera();
     }
+    set_scripted_view(world, true);
     world.insert_resource(ScriptedCamera {
         path,
         started: None,
@@ -109,7 +110,17 @@ pub(super) fn release(world: &mut World) -> Result<Value, String> {
     if scripted.hid_hand {
         set_hand_hidden(world, false);
     }
+    set_scripted_view(world, false);
     Ok(json!({ "released": true }))
+}
+
+/// Draws the local body while the scripted camera films it from outside; the perspective is unchanged.
+fn set_scripted_view(world: &mut World, active: bool) {
+    if let Some(mut settings) =
+        world.get_resource_mut::<client_presentation::camera::CameraSettingsAuthority>()
+    {
+        settings.set_scripted_view(active);
+    }
 }
 
 /// Never saved: the override lives only in this process's settings snapshot.

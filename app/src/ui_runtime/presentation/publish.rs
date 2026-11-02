@@ -364,7 +364,7 @@ pub(crate) fn prepare_ui_runtime(
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.perspective(),
+        Some(&*camera_settings),
         server_camera.as_deref(),
     );
     let java_held_item = camera_settings.feel().java_animations
@@ -433,7 +433,7 @@ pub(crate) fn prepare_ui_runtime(
             .stream
             .as_ref()
             .map(|stream| stream.authority().inventory_ui()),
-        camera_settings.perspective(),
+        camera_settings.rendered_perspective(),
         now_millis,
         icon_frames,
     );
