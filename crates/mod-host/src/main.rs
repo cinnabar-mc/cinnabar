@@ -16,6 +16,9 @@ fn main() -> Result<()> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
         [command] if command == "server-helper" => mod_host::helper::serve_developer()?,
+        [command] if command == mod_host::helper::restricted::RESTRICTED_COMMAND => {
+            mod_host::helper::serve_restricted()?
+        }
         [command, source, output] if command == "pack" => {
             packing::pack(source, output, None)?;
         }

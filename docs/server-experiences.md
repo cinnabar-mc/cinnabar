@@ -7,7 +7,8 @@ A client part is optional code offered by a server. Build a paired mod with
 
 Execution currently requires `CINNABAR_DEV_SERVER_EXPERIENCES=1`. Production
 restricted launch is unavailable: consent alone does not enable production
-execution. Developer helpers are separate processes, without an OS sandbox.
+execution. Developer helpers are separate processes, without an OS sandbox; the
+[restricted helper](#restricted-helper-linux) is not yet used by the client.
 
 ## Delivery and consent
 
@@ -150,6 +151,66 @@ For full UI fixture code, see
 [`terminal-client`](../examples/experiences/terminal-client).
 The source-driven paired builder generates channels and assets; authoring modal
 manifest entries uses the low-level bundle path below.
+
+## Restricted helper (Linux)
+
+`Helper::spawn_restricted` starts `mod-host restricted-server-helper` contained; other platforms
+refuse it. The parent first creates a cgroup for the helper, under a random name, below the
+nearest ancestor of its own cgroup that delegates the memory and pids controllers to its user, as
+a systemd user session does. It sets `memory.max` to 1.5 GiB and `memory.swap.max` to 0, so every
+page the helper is charged for, shared memory files included, counts and none can spill to swap,
+and `pids.max` to 8 tasks, so threads cannot exhaust the user's task budget. Where the cpu
+controller is delegated too, `cpu.max` holds the helper to one core; where it is not, the launch
+goes ahead and the helper's CPU time is unbounded, limited only by the callback deadline. Without
+the memory and pids controllers the launch fails closed with that reason. The client holds a lock
+on the cgroup's directory while it is in use and removes the cgroup once the helper is reaped. A
+later launch clears cgroups whose client is gone (unlocked, with their limits set): it kills any
+helper still in one through `cgroup.kill`, which also catches a helper that somehow outlived its
+death signal, and removes the cgroup once empty.
+
+Between `fork` and `exec` the child joins that cgroup; the parent clears the environment, starts
+it in `/`, has `exec` close every descriptor but the three stdio pipes (marking each close-on-exec,
+so a later failed step still reaches `spawn`; where `close_range` cannot, every descriptor up to
+the hard limit), sets `PR_SET_NO_NEW_PRIVS`, makes the child undumpable and killed with its parent
+(refusing to run if that parent died first), and sets resource limits: 1 GiB of private writable
+memory and of file size (`RLIMIT_DATA`, `RLIMIT_FSIZE`) under the cgroup's limit, 64 descriptors,
+and no core files, locked memory, message queues, queued signals or real-time priority. Because `exec` makes an
+ordinary program dumpable again, the helper first makes itself undumpable once more.
+
+Before reading the component, the helper audits that it runs a single thread (Landlock covers only
+the calling thread and those it starts), holds no other descriptor (listing `/proc/self/fd`, so
+one numbered above the new limit cannot escape, and failing without it), no environment, those
+limits and its cgroup's memory and task limits. It then denies itself everything else: a Landlock ruleset
+that handles every right the kernel knows and grants none (no file or directory can be opened;
+TCP bind and connect on ABI 4, signals and abstract sockets outside itself on ABI 6, and any right
+a later ABI adds, since each right is probed from the running kernel), and a seccomp filter, on
+every thread, failing with `EPERM` program execution, process creation (threads remain), every
+socket call, tracing and cross-process memory, signals to any process but the helper itself (on
+every kernel: `kill`, `tgkill` and queued signals only to its own process id, no `tkill`, process
+descriptors or I/O signal owners, so signal isolation does not depend on Landlock's ABI 6 scope,
+which stays as a second layer), other processes' resource limits, priorities and scheduling,
+changes to any file's mode, owner, times, extended attributes, inode flags or length (by path,
+which Landlock does not cover, or by descriptor), System V IPC and POSIX message queues,
+namespaces, mounts and their listings, BPF, performance counters, keys, io_uring, modules,
+quotas, the x86-64 local descriptor table and administration calls, and the `prctl` options that
+would drop its death signal, make it dumpable, name a tracer or adopt orphans. Every call
+numbered above the newest one reviewed (`listns`) fails with `ENOSYS`, so calls a later kernel
+adds stay closed until reviewed; a foreign architecture or x32 call kills it. A helper that cannot lock down exits before reading the
+component, and a kernel without Landlock refuses. The component compiles after the lockdown, so
+the compiler is contained too, under the same limits and the parent's callback deadline.
+`crates/mod-host/tests/restricted_faults.rs` injects each forbidden operation into a contained
+child, and `tests/helper.rs` runs a real component restricted; both skip, naming what is missing,
+on a kernel without Landlock or without delegated memory and pids controllers.
+
+Known gap: the helper can still learn metadata the lockdown does not hide. Path-based `stat`,
+`statx`, `access` and `readlink` report whether files exist and their sizes, owners and times
+(Landlock does not cover reading metadata), `inotify` watches can observe activity on paths, and
+`get_robust_list` reads the robust futex list address of another process of the user, which can
+reveal its memory layout. None of these reads file contents or changes anything.
+
+Production stays unavailable: macOS and Windows have no restricted launch, the Linux launch has
+not had the independent security review the gate requires, and the client does not call it.
+Wasmtime and native decoders remain attack surfaces.
 
 ## Bundles and low-level tooling
 

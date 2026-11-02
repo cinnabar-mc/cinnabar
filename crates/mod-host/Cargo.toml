@@ -64,6 +64,8 @@ rustix = { version = "=1.1.4", features = ["fs"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 rustix = { version = "=1.1.4", features = ["mm"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 toml = "0.9"
