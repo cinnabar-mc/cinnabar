@@ -97,6 +97,7 @@ pub(crate) fn configure_world(app: &mut App) {
         (
             crate::item_use::adopt_server_item_use,
             advance_local_physics,
+            crate::movement::record_simulation_tick,
         )
             .chain()
             .in_set(LocalPlayerFrameSet::Physics)

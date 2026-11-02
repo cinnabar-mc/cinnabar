@@ -157,13 +157,10 @@ impl PaletteWorld<'_> {
         Some((shape, *piston, *expanding))
     }
 
-    /// Reads a finite piston progress value already validated during NBT ingestion.
+    /// The client progress of the piston actor at `position` after this world's tick.
     fn piston_progress(&self, position: [i32; 3]) -> Option<f32> {
         let actor = self.selection_actor(position)?;
-        match actor.shape_actor() {
-            ShapeActor::Piston { progress_bits } => Some(f32::from_bits(*progress_bits)),
-            _ => None,
-        }
+        Some(actor.piston_motion()?.step_at(self.tick()).progress)
     }
 }
 

@@ -8,35 +8,32 @@ fn decode(root: NbtCompound) -> BlockEntityNbt {
         .0
 }
 
-/// Builds a typed piston snapshot with the supplied progress tag.
-fn piston(progress: NbtValue) -> NbtCompound {
+/// Builds a piston arm actor snapshot with the supplied state and progress tags.
+fn piston(state: Option<NbtValue>) -> NbtCompound {
     let mut root = NbtCompound::default();
     root.insert("id", NbtValue::String("PistonArm".into()));
-    root.insert("Progress", progress);
+    root.insert("Progress", NbtValue::Float(0.5));
+    if let Some(state) = state {
+        root.insert("State", state);
+    }
     root
 }
 
 #[test]
-fn piston_progress_requires_a_finite_typed_float() {
-    let nbt = decode(piston(NbtValue::Float(0.5)));
-    assert_eq!(
-        nbt.shape_actor(),
-        &ShapeActor::Piston {
-            progress_bits: 0.5_f32.to_bits()
-        }
-    );
-    for value in [-0.1, 1.1, f32::NAN, f32::INFINITY] {
-        assert_eq!(
-            decode(piston(NbtValue::Float(value))).shape_actor(),
-            &ShapeActor::None
-        );
-    }
-    assert_eq!(
-        decode(piston(NbtValue::Int(1))).shape_actor(),
-        &ShapeActor::Piston {
-            progress_bits: 0.0_f32.to_bits()
-        }
-    );
+fn piston_actors_take_only_a_typed_state_byte() {
+    let state = |root| match decode(root).shape_actor() {
+        ShapeActor::Piston { motion } => motion.state(),
+        other => panic!("not a piston actor: {other:?}"),
+    };
+    assert_eq!(state(piston(Some(NbtValue::Byte(3)))), 3);
+    assert_eq!(state(piston(Some(NbtValue::Int(3)))), 0);
+    assert_eq!(state(piston(None)), 0);
+    let progress = decode(piston(Some(NbtValue::Byte(2))))
+        .piston_motion()
+        .unwrap()
+        .step_at(0)
+        .progress;
+    assert_eq!(progress, 0.0, "the reported progress is ignored");
 }
 
 #[test]

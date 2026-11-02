@@ -308,7 +308,7 @@ fn piston_arm_selection_requires_a_loaded_owner_column() {
     assert!(matches!(selection(&store), Some(TerrainShape::Known(_))));
 }
 
-/// Arm collision follows the owning piston's progress and records the owner's column.
+/// Arm collision follows the owning piston's client progress and records the owner's column.
 #[test]
 fn piston_arm_collision_follows_owner_progress() {
     use assets::block_shapes::{
@@ -351,15 +351,19 @@ fn piston_arm_collision_follows_owner_progress() {
         collision: true,
         selection: false,
     };
-    for (progress, shift) in [(1.0_f32, 0.0), (0.5, -0.5)] {
+    // Expanding for two ticks extends the arm; retracting for one draws it half a block in.
+    for (state, ticks, shift) in [(1_i8, 2, 0.0), (3, 1, -0.5)] {
         let mut root = NbtCompound::default();
         root.insert("id", NbtValue::String("PistonArm".into()));
-        root.insert("Progress", NbtValue::Float(progress));
+        root.insert("State", NbtValue::Byte(state));
         let actor = BlockEntityNbt::decode_prefix(&root.encode_root().unwrap())
             .unwrap()
             .0;
         store
             .commit_block_entity_update(BlockEntityKey::new(0, 15, 0, 0), actor)
+            .unwrap();
+        store
+            .set_simulation_tick(store.simulation_tick() + ticks)
             .unwrap();
         let world = PaletteWorld::new(&store, &registry, 0, Default::default());
         let sample = TerrainSampler::default()

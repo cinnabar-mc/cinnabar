@@ -217,10 +217,17 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   draw their inward-facing cutout interior. Piston bodies draw their three-quarter body with
   native per-face UV turns, and their head plate, rod and sleeve follow `PistonArm` actor
   progress or rest retracted without actor data. Arm collision places the same three pieces
-  at the last reported progress and adds none without actor data. Native piston actors
-  advance progress half a block per tick and push colliding entities; the simulation does
-  neither, so moving arms collide at stale progress until the next update. Camera collision
-  against arms and collision of blocks a piston pushes are unverified. Blocks a piston pushes (`MovingBlock`
+  at the arm's client progress and adds none without actor data. As the native client does,
+  the simulation ignores the reported `Progress`: each arm actor starts retracted, moves half
+  a block per simulated tick toward its reported `State`, and pushes the local player out of
+  the arm's cube on every tick it moves; prediction replay keeps each tick's progress. Arm
+  rendering still follows the reported progress and wall time. A local BDS 1.26.61.1 keeps a
+  player standing on an extending upward arm inside its head and corrects the lifted client
+  back down once; whether the vanilla client draws the same correction is unverified. The
+  client tick order of arm
+  updates against the player's move, pushes while immobile or riding, chunk-resend actor
+  lifetime, camera collision against arms, and collision and pushes of blocks a piston moves
+  are unverified. Blocks a piston pushes (`MovingBlock`
   rendering) are incomplete. The body's up and down faces keep their own UV table, not yet
   reconciled with the shared flips for cropped spans. Native-server captures remain.
 - [ ] Close chiseled-bookshelf native-gallery acceptance with two consecutive exact
