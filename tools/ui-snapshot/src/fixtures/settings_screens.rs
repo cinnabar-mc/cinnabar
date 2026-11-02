@@ -57,6 +57,50 @@ pub(super) const SEARCH_STATES: &[State] = &[
     },
 ];
 
+/// Restored terrain controls with the default, an explicit enabled choice and its near radius.
+pub(super) const FAR_TERRAIN_STATES: &[State] = &[
+    State {
+        name: "settings-video-far-terrain-off",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_far_terrain(render_api::far_terrain::FarTerrainMode::Off, false),
+    },
+    State {
+        name: "settings-video-far-terrain-on",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_far_terrain(render_api::far_terrain::FarTerrainMode::On, false),
+    },
+    State {
+        name: "settings-video-full-detail",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_far_terrain(render_api::far_terrain::FarTerrainMode::On, true),
+    },
+];
+
+/// Focuses the selected terrain control using only anonymous, in-memory settings.
+fn settings_far_terrain(
+    mode: render_api::far_terrain::FarTerrainMode,
+    full_detail: bool,
+) -> Fixture {
+    let mut view = settings(SettingSection::Video.definition().name);
+    let options = Arc::make_mut(&mut view.settings_options);
+    options.set(SettingId::FarTerrain.index(), mode.index());
+    let (id, value) = if full_detail {
+        let id = SettingId::FullDetailDistance;
+        options.set(
+            id.index(),
+            render_api::far_terrain::MIN_FULL_DETAIL_CHUNKS as i32,
+        );
+        (id, options.value(id))
+    } else {
+        (SettingId::FarTerrain, mode.index())
+    };
+    view.focused_action = Some(MenuAction::SettingsOption(id.index() as u16, value));
+    Fixture::Menu(Box::new(view))
+}
+
 /// Settings' Game section while the host plays their own local world, with cheats off and on.
 pub(super) const WORLD_STATES: &[State] = &[
     State {

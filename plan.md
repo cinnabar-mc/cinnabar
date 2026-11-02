@@ -423,9 +423,10 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Meshing workers finalize shared geometry streams; main-world publication and render
   extraction retain those allocations through upload and retirement.
   Matched-output hardware preparation and streaming qualification remain open.
-  Far terrain remains disabled in Video settings. Coarsening retains overlapping
+  Far Terrain and Full-Detail Distance are selectable in Video settings, with far
+  terrain Off by default and retired saved values ignored. Coarsening retains overlapping
   fallback tiles until their replacement covers every known column, and its near
-  mask follows changes to the outer view distance. Restoration, smooth transitions,
+  mask follows changes to the outer view distance. Smooth transitions,
   owner-approved captures and on/off hardware profiling at 32+ chunks remain incomplete.
 - [ ] Close mesh-neighbour readiness acceptance with slow-delivery and seam coverage.
   Distinguish eligible horizontal columns from the provisional full-neighbour/quiet-time
