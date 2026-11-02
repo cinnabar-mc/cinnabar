@@ -162,6 +162,7 @@ fn repeated_model_uvs_keep_tile_coordinates_until_fragment_sampling() {
     bone.uv_transform = [0.25, 0., 2., 1.];
     bone.styles[1] = 1;
     bone.overlay = [0.8, 0.1, 0.2, 0.5];
+    bone.set_backface_culling(true);
     let mut vertex = input().vertices[0];
     vertex.uv = [0., 0.5];
     let first = bone.project(vertex);
@@ -178,6 +179,7 @@ fn repeated_model_uvs_keep_tile_coordinates_until_fragment_sampling() {
     let projected = project_ui_model_vertex(vertex, Some(&pose)).unwrap();
     assert_eq!(projected.vertex.overlay_color, bone.overlay);
     assert_eq!(projected.repeat_bounds, Some([12., 8., 32., 8.]));
+    assert!(projected.cull_back_faces);
     let middle = [(first.uv[0] + last.uv[0]) / 2., 0.5];
     assert_eq!(
         render_api::ui_repeat::source_uv(
@@ -197,6 +199,7 @@ fn ordinary_repeated_regions_retain_their_source_metadata() {
     let projected = project_ui_model_vertex(vertex, None).unwrap();
     assert_eq!(projected.repeat_bounds, Some(vertex.overlay_color));
     assert_eq!(projected.vertex, vertex);
+    assert!(!projected.cull_back_faces);
 }
 
 #[test]

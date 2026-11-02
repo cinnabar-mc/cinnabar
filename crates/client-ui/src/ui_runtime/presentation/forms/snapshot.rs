@@ -109,6 +109,7 @@ fn rasterize_offsets(input: &UiRenderInput, offset: impl Fn(usize) -> [f32; 2]) 
                 &mut image,
                 corners,
                 Some(projected.map(|projection| projection.repeat_bounds.unwrap_or([0.; 4]))),
+                projected[0].cull_back_faces,
                 |[u, v], color, overlay, bounds, coverage, x, y| {
                     if x < scissor.x
                         || y < scissor.y
@@ -258,6 +259,7 @@ fn fill(
     image: &mut RgbaImage,
     mut corners: [UiRenderVertex; 3],
     repeat_bounds: Option<[[f32; 4]; 3]>,
+    cull_back_faces: bool,
     shade: impl Fn([f32; 2], [u8; 4], [f32; 4], [f32; 4], f32, u32, u32) -> Option<[f32; 4]>,
     invert: bool,
 ) {
@@ -269,6 +271,10 @@ fn fill(
     }
     let [a, b, c] = corners.map(|corner| corner.position);
     let mut area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    // Physical UI Y points down; a counterclockwise clip-space front points clockwise here.
+    if cull_back_faces && area > 0. {
+        return;
+    }
     if area.abs() < f32::EPSILON {
         return;
     }
@@ -507,6 +513,7 @@ mod tests {
                 &mut image,
                 [vertex(0., 0.), vertex(2., 0.), vertex(0., 2.)],
                 None,
+                false,
                 |_, _, _, _, _, _, _| Some(premultiply(source)),
                 true,
             );
@@ -531,6 +538,7 @@ mod tests {
                     &mut image,
                     triangle.map(|index| quad[index]),
                     None,
+                    false,
                     |_, color, _, _, _, _, _| Some(premultiply(color)),
                     false,
                 );

@@ -843,7 +843,9 @@ impl UiPresentationRuntime {
                     None,
                     layer.overlay,
                 )?;
+                let state = layer.material_state.unwrap_or_default();
                 for bone in &mut cache.bones[start..] {
+                    bone.set_backface_culling(state.cull);
                     bone.uv_transform = layer.uv_anim;
                     bone.styles[1] = 1;
                     bone.tint = layer.color;
@@ -851,7 +853,6 @@ impl UiPresentationRuntime {
                         *channel *= layer.light_color_multiplier;
                     }
                 }
-                let state = layer.material_state.unwrap_or_default();
                 let material = (
                     ui::UiBlendMode::Alpha,
                     !state.depth_always,

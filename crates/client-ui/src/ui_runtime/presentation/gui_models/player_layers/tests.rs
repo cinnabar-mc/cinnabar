@@ -189,6 +189,55 @@ fn removing_the_pack_clears_controller_artwork_and_geometry() {
 }
 
 #[test]
+fn authored_material_culling_reaches_the_retained_controller_palette() {
+    for cull in [false, true] {
+        let mut source = files();
+        let entity = source
+            .iter_mut()
+            .find(|(path, _)| path.as_ref() == "entity/player.json")
+            .unwrap();
+        let mut description: serde_json::Value = serde_json::from_slice(&entity.1).unwrap();
+        description["minecraft:client_entity"]["description"]["materials"]["default"] =
+            serde_json::json!("fixture_preview");
+        entity.1 = serde_json::to_vec(&description).unwrap();
+        source.push(("materials/preview.material".into(),serde_json::to_vec(&serde_json::json!({"materials":{
+            "fixture_preview:entity_alphablend": {"+states": if cull {vec![]} else {vec!["DisableCulling"]}}
+        }})).unwrap()));
+        let compiled = pack_entity_compiler::compile_actor_pack(source)
+            .unwrap()
+            .unwrap();
+        let pack = Arc::new(assets::SessionEntityPack {
+            assets: Arc::new(
+                assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap(),
+            ),
+            textures: compiled.textures.into(),
+            bindings: compiled.bindings.into(),
+            equipment: None,
+        });
+        let mut stream = super::super::live_player::tests::player_stream(
+            Arc::clone(&pack.assets),
+            Arc::clone(&pack.assets),
+        );
+        stream.advance_actor_interpolation_ticks(1);
+        let local = stream.authority().local_player_ui();
+        let layers = local.paper_doll_layers().unwrap();
+        assert_eq!(layers.render[0].material_state.unwrap().cull, cull);
+        let mut ui = presentation(false);
+        ui.set_preview_player_layers(Some(pack));
+        frame(&mut ui, &stream);
+        let rendered = frame(&mut ui, &stream);
+        let bones: Vec<_> = rendered
+            .models
+            .iter()
+            .flat_map(|pose| pose.bones.iter())
+            .filter(|bone| bone.uv_transform[2] == 2.)
+            .collect();
+        assert!(!bones.is_empty());
+        assert!(bones.iter().all(|bone| bone.backface_culling() == cull));
+    }
+}
+
+#[test]
 fn camera_uv_changes_update_painted_texels_without_changing_geometry() {
     let pack = pack();
     let mut stream = super::super::live_player::tests::player_stream(

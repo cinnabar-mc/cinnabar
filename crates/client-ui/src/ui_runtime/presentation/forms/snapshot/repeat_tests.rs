@@ -150,3 +150,85 @@ fn repeated_controller_overlay_keeps_source_phase_and_alpha_in_snapshots() {
         );
     }
 }
+
+#[test]
+fn culled_box_uv_snapshots_match_front_artwork_and_keep_two_sided_materials() {
+    use render_model::actor::fixture::{
+        BOX_TEXTURE_SIZE, box_uv_geometry, box_uv_pixels, mask_screen,
+    };
+    let image = |front_only, cull, phase| {
+        let geometry = box_uv_geometry(front_only);
+        let vertices: Vec<_> = geometry
+            .vertices
+            .iter()
+            .map(|vertex| UiRenderVertex {
+                position: [vertex.position[0], vertex.position[1]],
+                clip_z: vertex.position[2],
+                clip_w: 1.,
+                uv: vertex.uv,
+                color: [255; 4],
+                style_flags: render_api::UI_STYLE_MODEL_VERTEX,
+                alpha_cutoff: -1.,
+                model_light: 1.,
+                overlay_color: [0.; 4],
+            })
+            .collect();
+        let count = vertices.len() as u32;
+        let mut bone = render_model::UiModelBone {
+            screen: (glam::Mat4::from_cols_array_2d(&mask_screen())
+                * glam::Mat4::from_scale(glam::Vec3::new(-1., 1., 1.)))
+            .to_cols_array_2d(),
+            normal: [[0.; 4]; 3],
+            overlay: [0.; 4],
+            uv_rect: [
+                0.,
+                0.,
+                BOX_TEXTURE_SIZE[0] as f32,
+                BOX_TEXTURE_SIZE[1] as f32,
+            ],
+            uv_transform: [phase, 0., 1., 1.],
+            uv_cross: [0.; 4],
+            tint: [1.; 4],
+            styles: [0, 1, 0, 0],
+        };
+        bone.set_backface_culling(cull);
+        rasterize(&UiRenderInput {
+            revision: 1,
+            viewport_size: [64; 2],
+            safe_area: [0; 4],
+            vertices: vertices.into(),
+            indices: (0..count).collect(),
+            batches: Arc::from([UiRenderBatch::new(
+                0,
+                UiScissor::new(0, 0, 64, 64),
+                0,
+                count,
+                render_model::UI_BLEND_ALPHA,
+            )
+            .with_isolated_depth_scope(Some(1))]),
+            models: Arc::from([render_model::UiModelPose {
+                scope: 1,
+                bones: Arc::from([bone]),
+                bounds: UiScissor::new(0, 0, 64, 64),
+            }]),
+            textures: Arc::new(
+                UiTextureCatalog::new(
+                    vec![UiTexturePage::owned(BOX_TEXTURE_SIZE, box_uv_pixels()).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+        })
+    };
+    let mut two_sided_differences = 0;
+    for phase in [0., 0.25, 0.5, 0.75] {
+        let front = image(true, false, phase);
+        assert_eq!(
+            image(false, true, phase),
+            front,
+            "culled snapshot phase {phase}"
+        );
+        two_sided_differences += usize::from(image(false, false, phase) != front);
+    }
+    assert!(two_sided_differences >= 2);
+}

@@ -24,11 +24,21 @@ pub struct UiModelBone {
     /// Cross-axis terms retain the texture orientation of an effect triangle.
     pub uv_cross: [f32; 4],
     pub tint: [f32; 4],
-    /// Vertex style mask, source-UV repeat flag, and two reserved words.
+    /// Vertex style mask, source-UV repeat flag, backface-cull flag, and a reserved word.
     pub styles: [u32; 4],
 }
 
 impl UiModelBone {
+    /// Chooses whether this material rejects triangles facing away from the UI view.
+    pub fn set_backface_culling(&mut self, enabled: bool) {
+        self.styles[2] = u32::from(enabled);
+    }
+
+    /// Whether triangles facing away from this model's view are rejected.
+    pub fn backface_culling(&self) -> bool {
+        self.styles[2] != 0
+    }
+
     /// Checks the floating payload without interpreting the trailing style bits as floats.
     pub fn is_finite(&self) -> bool {
         const FLOAT_WORDS: usize =
@@ -89,6 +99,7 @@ impl UiModelBone {
 pub struct UiModelProjection {
     pub vertex: UiRenderVertex,
     pub repeat_bounds: Option<[f32; 4]>,
+    pub cull_back_faces: bool,
 }
 
 /// A control's ordered depth scope owns its palette and conservative physical-pixel coverage.
@@ -121,11 +132,13 @@ pub fn project_ui_model_vertex(
         return Some(UiModelProjection {
             vertex,
             repeat_bounds: repeated.then_some(vertex.overlay_color),
+            cull_back_faces: false,
         });
     }
     let bone = pose?.bones.get((vertex.clip_w as usize).checked_sub(1)?)?;
     Some(UiModelProjection {
         vertex: bone.project(vertex),
+        cull_back_faces: bone.backface_culling(),
         repeat_bounds: (bone.styles[1] != 0).then(|| {
             [
                 bone.uv_rect[0],
