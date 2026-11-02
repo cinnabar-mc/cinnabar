@@ -386,12 +386,20 @@ fn a_requested_sample_count_compiles_before_the_camera_switches_to_it() {
 
     app.world_mut()
         .resource_mut::<render_scene::SampleCountPreflight>()
-        .request(Some(Msaa::Sample4));
+        .request(Some(render_scene::SampleCountRequest {
+            samples: Msaa::Sample4,
+            hdr: false,
+            enhanced: false,
+        }));
     test_time::eventually("requested sample count compiles", || {
         app.update();
         app.world()
             .resource::<render_scene::SampleCountPreflight>()
-            .is_ready(Msaa::Sample4)
+            .is_ready(render_scene::SampleCountRequest {
+                samples: Msaa::Sample4,
+                hdr: false,
+                enhanced: false,
+            })
     });
     let prepared = created(&app);
     assert!(

@@ -105,6 +105,7 @@ type AntiAliasedCamera<'a> = (
     Option<&'a Smaa>,
     Has<render_scene::shaderpack::ShaderPackRendering>,
     Option<&'a Camera>,
+    Has<render_scene::EnhancedRendering>,
 );
 
 /// Updates world-camera coverage and spatial smoothing only when their settings change;
@@ -121,18 +122,23 @@ pub fn apply_camera_antialiasing(
 ) {
     let vanilla = support.msaa(settings.anti_aliasing_samples());
     let mut waiting = None;
-    for (entity, mut msaa, smaa, shader_pack, camera) in &mut cameras {
+    for (entity, mut msaa, smaa, shader_pack, camera, enhanced) in &mut cameras {
         let desired = if shader_pack { Msaa::Off } else { vanilla };
         if *msaa != desired {
             let drawing = camera.is_some_and(|camera| camera.is_active);
+            let request = render_scene::SampleCountRequest {
+                samples: desired,
+                hdr: camera.is_some_and(|camera| camera.hdr),
+                enhanced,
+            };
             let compiled = preflight
                 .as_ref()
-                .is_none_or(|preflight| preflight.is_ready(desired));
+                .is_none_or(|preflight| preflight.is_ready(request));
             // Shader packs replace the vanilla passes, so they switch at once.
             if !drawing || shader_pack || compiled {
                 *msaa = desired;
             } else {
-                waiting = Some(desired);
+                waiting = Some(request);
             }
         }
         match (settings.smaa_mode(), smaa.is_some()) {
@@ -282,9 +288,16 @@ mod tests {
         }
         assert_eq!(*app.world().get::<Msaa>(hidden).unwrap(), Msaa::Sample8);
         let preflight = app.world().resource::<render_scene::SampleCountPreflight>();
-        assert_eq!(preflight.requested(), Some(Msaa::Sample8));
+        assert_eq!(
+            preflight.requested().map(|request| request.samples),
+            Some(Msaa::Sample8)
+        );
 
-        preflight.publish_ready(Some(Msaa::Sample8));
+        preflight.publish_ready(Some(render_scene::SampleCountRequest {
+            samples: Msaa::Sample8,
+            hdr: false,
+            enhanced: false,
+        }));
         app.update();
         assert_eq!(*app.world().get::<Msaa>(drawing).unwrap(), Msaa::Sample8);
         let preflight = app.world().resource::<render_scene::SampleCountPreflight>();
@@ -314,8 +327,19 @@ mod tests {
         app.update();
         app.world()
             .resource::<render_scene::SampleCountPreflight>()
-            .publish_ready(Some(Msaa::Sample8));
+            .publish_ready(Some(render_scene::SampleCountRequest {
+                samples: Msaa::Sample8,
+                hdr: false,
+                enhanced: false,
+            }));
         app.world_mut().get_mut::<Camera>(camera).unwrap().hdr = true;
+        app.update();
+        assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
+
+        app.world_mut().get_mut::<Camera>(camera).unwrap().hdr = false;
+        app.world_mut()
+            .entity_mut(camera)
+            .insert(render_scene::EnhancedRendering);
         app.update();
         assert_eq!(*app.world().get::<Msaa>(camera).unwrap(), Msaa::Off);
     }
