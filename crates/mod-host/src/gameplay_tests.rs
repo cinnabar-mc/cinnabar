@@ -764,6 +764,8 @@ fn explicit_block_breaks_are_bounded_granted_and_transactional() {
     state.controls.commit();
     assert_eq!(state.controls.interaction.block_breaks, vec![point]);
     state.controls.begin_frame();
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
     state.break_blocks(vec![point]).unwrap().unwrap();
     state.controls.rollback();
     state.controls.commit();
