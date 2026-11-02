@@ -50,14 +50,14 @@ pub(crate) struct MobEffectInput<'w, 's> {
     modifiers: Local<'s, ButtonInput<KeyCode>>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     consumed: ResMut<'w, client_state::ScreenInputConsumed>,
+    owner: super::input_owner::InputOwner<'w>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
 }
 
 /// Runs after the emote wheel, which clears [`client_state::ScreenInputConsumed`] each frame,
 /// and before chat, inventory and menu input see the frame. Its gates follow the wheel's in the
-/// same order: another owner closes the screen; unavailable desktop input, then a frame the
-/// wheel consumed, is drained without acting on it; then macros take precedence over the
-/// binding.
+/// same order: another owner closes the screen; unavailable desktop input, then a frame another
+/// screen owned, is drained without acting on it; then macros take precedence over the binding.
 pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
     let pointer_presses = if let Some(events) = input.window_events.as_deref() {
         ordered_pointer_presses(input.window_cursor.read(events))
@@ -101,7 +101,10 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         set_cursor_capture(&mut input.window.1, false);
         return;
     }
-    if input.consumed.0 {
+    let frame = input
+        .owner
+        .frame(&input.runtime, &input.player, input.menu.as_deref());
+    if !frame.reads(|scene| matches!(scene, Scene::Gameplay | Scene::MobEffects)) {
         input.modifiers.reset_all();
         return;
     }
@@ -173,6 +176,7 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         focus.authorize_screen_return();
     }
     if owned {
+        input.owner.claim(Scene::MobEffects);
         input.consumed.0 = true;
         input.modifiers.reset_all();
         input.keys.reset_all();

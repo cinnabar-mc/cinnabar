@@ -66,6 +66,28 @@ impl Scene {
         }
     }
 
+    /// This scene's place in the stack, bottom first, which [`UiRuntime::scenes`] visits in order.
+    pub const fn layer(self) -> u8 {
+        match self {
+            Self::Gameplay => 0,
+            Self::Crosshair => 1,
+            Self::Hud => 2,
+            Self::Bed => 3,
+            Self::Container => 4,
+            Self::Chat => 5,
+            Self::Emote => 6,
+            Self::MobEffects => 7,
+            Self::Loading => 8,
+            Self::SignEditor => 9,
+            Self::ServerForm => 10,
+            Self::DataDriven => 11,
+            Self::Menu(_) => 12,
+            Self::ServerSettingsForm => 13,
+            Self::Credits => 14,
+            Self::ResourcePackLoading => 15,
+        }
+    }
+
     /// Whether both draw one vanilla screen (menu tabs share theirs).
     fn same_screen(self, other: Self) -> bool {
         use launcher::menu::menu_reference;
@@ -194,6 +216,23 @@ impl UiRuntime {
             .rev()
             .take_while(|scene| scene.key != Scene::Gameplay)
             .all(|scene| !scene.settings.absorbs_input)
+    }
+
+    /// The scene that takes keyboard and pointer input: the top of the stack. Gameplay stands for
+    /// its overlays, and for a stack with nothing up.
+    pub fn input_scene(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        host: SceneHost,
+    ) -> Scene {
+        let mut top = Scene::Gameplay;
+        self.visit_scenes_in(
+            player_runtime,
+            host,
+            &ScreenSettingsTable::default(),
+            |scene, _| top = scene,
+        );
+        top
     }
 
     /// Whether a screen other than `own` is up over the world, whatever its pack input policy:
