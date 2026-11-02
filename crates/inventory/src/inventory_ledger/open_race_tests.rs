@@ -182,3 +182,23 @@ fn a_personal_open_replaces_storage_while_storage_keeps_the_active_personal_guar
     assert!(ledger.pending_batch().unwrap().is_none());
     assert!(ledger.begin_click(0).is_ok());
 }
+
+/// A personal screen admits clicks once its open leaves transport; a storage window admits
+/// them while it is open and stops once its close starts.
+#[test]
+fn screen_gestures_follow_open_admission_and_storage_close() {
+    let mut ledger = ledger_with_slot_zero();
+    assert!(!ledger.screen_accepts_gestures());
+    assert!(ledger.request_personal_open(42));
+    assert!(!ledger.screen_accepts_gestures());
+    assert!(ledger.mark_transport_enqueued(10));
+    assert!(ledger.screen_accepts_gestures());
+    ledger.request_personal_close();
+    assert!(!ledger.screen_accepts_gestures());
+
+    let mut ledger = ledger_with_slot_zero();
+    open_chest(&mut ledger, 3);
+    assert!(ledger.screen_accepts_gestures());
+    ledger.request_storage_close();
+    assert!(!ledger.screen_accepts_gestures());
+}
