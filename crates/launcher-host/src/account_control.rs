@@ -3,8 +3,8 @@
 use launcher::menu::{
     auth::AuthState,
     view::{
-        JoinStage, MenuFriendCard, MenuHome, MenuProfile, MenuRealmCard, MenuServerCard, PingInfo,
-        ServerDetails, ServerTrustPrompt,
+        JoinStage, MenuFriendCard, MenuHome, MenuLanCard, MenuProfile, MenuRealmCard,
+        MenuServerCard, PingInfo, ServerDetails, ServerTrustPrompt,
     },
 };
 
@@ -33,6 +33,12 @@ pub trait AccountControl {
     fn realms(&mut self) -> Option<Vec<MenuRealmCard>>;
     /// `friends_list.v1`: friend worlds, or `None` while unavailable.
     fn friends(&mut self) -> Option<Vec<MenuFriendCard>>;
+    /// Browses the local network through `lan_worlds.v1` only while the Worlds tab shows.
+    fn set_lan_worlds_visible(&mut self, _visible: bool) {}
+    /// The latest `lan_worlds.v1` list, delivered once per change.
+    fn lan_worlds(&mut self) -> Option<Vec<MenuLanCard>> {
+        None
+    }
     /// `sign_out.v1`; `true` once the core accepted it.
     fn sign_out(&mut self) -> bool;
     /// The next pending account event, if any.

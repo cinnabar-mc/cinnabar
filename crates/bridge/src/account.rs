@@ -369,6 +369,22 @@ struct FriendsBody {
 }
 
 #[derive(Deserialize)]
+struct LanWorldsBody {
+    snapshot: u64,
+    worlds: Vec<crate::contract::LanWorld>,
+    /// The offset of the following page, absent on the last one.
+    #[serde(default)]
+    next: Option<usize>,
+}
+
+/// Asks for a later page of one `lan_worlds.v1` listing.
+#[derive(Serialize)]
+struct LanWorldsPage {
+    snapshot: u64,
+    offset: usize,
+}
+
+#[derive(Deserialize)]
 struct PeopleBody {
     friends: Vec<Person>,
 }
@@ -444,6 +460,33 @@ pub async fn list_friends(socket_dir: &Path) -> Result<Vec<Friend>, BridgeError>
     let body: FriendsBody =
         call::<_, ()>(socket_dir, crate::contract::METHOD_FRIENDS_LIST, None).await?;
     Ok(body.friends)
+}
+
+/// Lists the worlds found on the local network, reading every page of one listing; it needs no
+/// account.
+pub async fn list_lan_worlds(
+    socket_dir: &Path,
+) -> Result<Vec<crate::contract::LanWorld>, BridgeError> {
+    let mut page: LanWorldsBody =
+        call::<_, ()>(socket_dir, crate::contract::METHOD_LAN_WORLDS, None).await?;
+    let mut worlds = std::mem::take(&mut page.worlds);
+    while let Some(offset) = page.next.filter(|offset| *offset == worlds.len()) {
+        let request = LanWorldsPage {
+            snapshot: page.snapshot,
+            offset,
+        };
+        page = call(
+            socket_dir,
+            crate::contract::METHOD_LAN_WORLDS,
+            Some(&request),
+        )
+        .await?;
+        if page.worlds.is_empty() {
+            break;
+        }
+        worlds.append(&mut page.worlds);
+    }
+    Ok(worlds)
 }
 
 /// Lists the account's Xbox friends, online first.
@@ -612,6 +655,79 @@ mod tests {
             gathering.expect("encode"),
             serde_json::json!({"kind":"gathering","value":"e"})
         );
+        let lan = serde_json::to_value(ConnectTarget::Lan("12345".into()));
+        assert_eq!(
+            lan.expect("encode"),
+            serde_json::json!({"kind":"lan","value":"12345"})
+        );
+    }
+
+    /// Every page of one listing is read, the later ones by snapshot and offset.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn lan_worlds_read_every_page_of_one_listing() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = crate::control_endpoint_path(directory.path());
+        std::fs::create_dir_all(endpoint.parent().unwrap()).unwrap();
+        let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
+        let world = |address: &str| {
+            serde_json::to_value(crate::contract::LanWorld {
+                address: address.into(),
+                ..Default::default()
+            })
+            .unwrap()
+        };
+        let pages = [
+            serde_json::json!({"schema_version": 1, "snapshot": 7, "worlds": [world("lan/1")], "next": 1}),
+            serde_json::json!({"schema_version": 1, "snapshot": 7, "worlds": [world("lan/2")]}),
+        ];
+        let core = tokio::spawn(async move {
+            let mut params = Vec::new();
+            for page in pages {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let length = stream.read_u32().await.unwrap();
+                let mut request = vec![0; length as usize];
+                stream.read_exact(&mut request).await.unwrap();
+                let request: serde_json::Value = serde_json::from_slice(&request).unwrap();
+                params.push(request["params"].clone());
+                let reply = serde_json::to_vec(&serde_json::json!({
+                    "jsonrpc": crate::contract::JSON_RPC_VERSION, "id": request["id"], "result": page,
+                }))
+                .unwrap();
+                stream.write_u32(reply.len() as u32).await.unwrap();
+                stream.write_all(&reply).await.unwrap();
+            }
+            params
+        });
+        let worlds = list_lan_worlds(directory.path()).await.unwrap();
+        let addresses: Vec<_> = worlds.iter().map(|world| world.address.as_str()).collect();
+        assert_eq!(addresses, ["lan/1", "lan/2"]);
+        let params = core.await.unwrap();
+        assert!(params[0].is_null());
+        assert_eq!(params[1], serde_json::json!({"snapshot": 7, "offset": 1}));
+    }
+
+    /// The core's `lan_worlds.v1` rows decode from the fixture its Go test encodes.
+    #[test]
+    fn lan_worlds_decode_the_shared_fixture() {
+        let body: LanWorldsBody =
+            serde_json::from_str(include_str!("../data/lan-worlds.json")).expect("decode fixture");
+        assert_eq!((body.snapshot, body.next), (1, None));
+        assert_eq!(body.worlds.len(), 2);
+        let (nethernet, raknet) = (&body.worlds[0], &body.worlds[1]);
+        assert_eq!(nethernet.address, "lan/12345");
+        assert_eq!(nethernet.transport, "nethernet");
+        assert_eq!(nethernet.level_name, "LAN World");
+        assert_eq!(nethernet.server_name, "Host");
+        assert_eq!(nethernet.game_mode, "Creative");
+        assert_eq!((nethernet.players, nethernet.max_players), (1, 8));
+        assert!(!nethernet.hardcore);
+        assert_eq!(raknet.address, "lan/raknet/192.168.1.20:19132");
+        assert_eq!(raknet.transport, "raknet");
+        assert!(raknet.hardcore);
+        assert_eq!(raknet.version, "1.26.60");
     }
 
     #[test]

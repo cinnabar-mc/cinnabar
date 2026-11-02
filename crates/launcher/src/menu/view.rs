@@ -88,6 +88,9 @@ pub const EXPERIENCE_ADDRESS_PREFIX: &str = bridge::contract::GATHERING_TARGET_P
 /// Marks an address as the friend world hosted by this XUID.
 pub const FRIEND_ADDRESS_PREFIX: &str = bridge::contract::FRIEND_TARGET_PREFIX;
 
+/// Marks an address as the NetherNet LAN world with this network ID.
+pub const LAN_ADDRESS_PREFIX: &str = bridge::contract::LAN_TARGET_PREFIX;
+
 /// Whether the server at `address` can be pinged; an experience has no server until joined.
 pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
@@ -406,6 +409,21 @@ pub struct MenuFriendCard {
     pub max_members: u32,
 }
 
+/// One world found on the local network.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct MenuLanCard {
+    pub level_name: String,
+    /// The host's name, usually its player name.
+    pub server_name: String,
+    /// The advertised game mode, such as Survival.
+    pub game_mode: String,
+    pub hardcore: bool,
+    /// The player count line, such as `1/8 players`.
+    pub players: String,
+    /// What joins it: a `LAN_ADDRESS_PREFIX` network ID over NetherNet, else `host:port`.
+    pub address: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct MenuView {
     /// Verified update notice and the available release-channel choices.
@@ -477,6 +495,8 @@ pub struct MenuView {
     pub featured: MenuList<MenuServerCard>,
     pub realms: MenuList<MenuRealmCard>,
     pub friends: MenuList<MenuFriendCard>,
+    /// Worlds on the local network, listed after friends' worlds.
+    pub lan_worlds: MenuList<MenuLanCard>,
     pub featured_icon: Option<IconRef>,
     pub realm_icon: Option<IconRef>,
     pub friend_icon: Option<IconRef>,
@@ -754,6 +774,7 @@ impl MenuView {
             featured: MenuList::default(),
             realms: MenuList::default(),
             friends: MenuList::default(),
+            lan_worlds: MenuList::default(),
             featured_icon: None,
             realm_icon: None,
             friend_icon: None,

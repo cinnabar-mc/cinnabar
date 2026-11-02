@@ -84,6 +84,7 @@ impl MenuRuntime {
             friends.retain(|friend| seen.insert((friend.xuid.clone(), friend.world_name.clone())));
             self.friends.replace(friends);
         }
+        self.sync_lan_worlds(control);
         if let Some(featured) = control.featured() {
             let selected = self
                 .feeds

@@ -7,6 +7,8 @@ import (
 
 	"github.com/hashimthearab/rust-mcbe/core/catalog"
 	"github.com/hashimthearab/rust-mcbe/core/control"
+	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
+	"github.com/hashimthearab/rust-mcbe/core/lanworlds"
 	"github.com/hashimthearab/rust-mcbe/core/launcher"
 	"github.com/hashimthearab/rust-mcbe/core/proxy"
 )
@@ -52,7 +54,15 @@ func classify(err error, sentinels *[]sentinelPair) error {
 }
 
 // launcherControl serves the control plane's account, catalog and screen methods.
-type launcherControl struct{ *launcher.Service }
+type launcherControl struct {
+	*launcher.Service
+	lan *lanworlds.Service
+}
+
+// LANWorlds lists the worlds found on the local network; it needs no account.
+func (s launcherControl) LANWorlds(context.Context) ([]bridgecontract.LANWorld, error) {
+	return s.lan.Worlds()
+}
 
 func (s launcherControl) Realms(ctx context.Context) ([]control.Realm, error) {
 	realms, err := s.Service.Realms(ctx)

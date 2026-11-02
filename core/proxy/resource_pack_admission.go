@@ -497,6 +497,14 @@ func newPreparedConnections(upstreamAddress string, account *authcache.Account, 
 				}
 			}
 			network := connections.hopNetwork(target, address)
+			if lan, ok := network.(minecraft.NetherNet); ok && target.lanFallback && strings.EqualFold(address, target.address) {
+				observed := &lanAuthNetwork{NetherNet: lan}
+				upstream, err := dialMinecraftUpstream(ctx, observed, address, dial)
+				if err != nil {
+					err = &localBDSLoginError{err: err, beforeTransport: !observed.started.Load()}
+				}
+				return upstream, err
+			}
 			if local, ok := network.(localNetherNetNetwork); ok && target.keylessFallback && strings.EqualFold(address, target.address) {
 				observed := &localBDSAuthNetwork{localNetherNetNetwork: local}
 				upstream, err := dialMinecraftUpstream(ctx, observed, address, dial)
@@ -662,7 +670,7 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 		}
 		upstream, err = connections.dialTarget(dialCtx, target, dialer)
 		var localFailure *localBDSLoginError
-		if !target.keylessFallback || tokenSource == nil || dialCtx.Err() != nil ||
+		if !(target.keylessFallback || target.lanFallback) || tokenSource == nil || dialCtx.Err() != nil ||
 			!errors.As(err, &localFailure) || !localFailure.admitsOfflineRetry() {
 			break
 		}
@@ -672,8 +680,9 @@ func (connections *preparedConnections) connect(ctx context.Context, downstream 
 			err = errors.Join(err, cleanupErr)
 			break
 		}
-		// This is the launcher-owned offline server, not an external server refusing
-		// authentication. Keep account-backed player data whenever it can validate it.
+		// This is the launcher-owned offline server, or a LAN host that admits self-signed login,
+		// not an external server refusing authentication. Keep account-backed player data whenever
+		// it can validate it.
 		reason := "server_verification_keys_unavailable"
 		if localFailure.beforeTransport {
 			reason = "account_services_unavailable"

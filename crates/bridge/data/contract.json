@@ -47,6 +47,7 @@
     {"rust_name": "REALM_TARGET_PREFIX", "go_name": "RealmTargetPrefix", "value": "realm_id/", "rust_type": "str", "doc": "Prefix for a Realm id target."},
     {"rust_name": "REALM_CODE_PREFIX", "go_name": "RealmCodePrefix", "value": "realm/", "rust_type": "str", "doc": "Prefix for a Realm invitation code target."},
     {"rust_name": "FRIEND_TARGET_PREFIX", "go_name": "FriendTargetPrefix", "value": "friend_xuid/", "rust_type": "str", "doc": "Prefix for a friend world target."},
+    {"rust_name": "LAN_TARGET_PREFIX", "go_name": "LANTargetPrefix", "value": "lan/", "rust_type": "str", "doc": "Prefix for a LAN world target, followed by its NetherNet network ID or `raknet/` and its host:port."},
     {"rust_name": "GATHERING_TARGET_PREFIX", "go_name": "GatheringTargetPrefix", "value": "gathering/", "rust_type": "str", "doc": "Prefix for an experience target."},
     {"rust_name": "NETHERNET_TARGET_PREFIX", "go_name": "NetherNetTargetPrefix", "value": "nethernet/", "rust_type": "str", "doc": "Prefix for a NetherNet signaling target."},
     {"rust_name": "NETHERNET_SIGNALING_JSONRPC", "go_name": "NetherNetSignalingJSONRPC", "value": "jsonrpc", "rust_type": "str", "doc": "NetherNet JSON-RPC signaling selector."},
@@ -73,6 +74,7 @@
     {"rust_name": "METHOD_PRESENCE", "go_name": "MethodPresence", "value": "presence.v1", "rust_type": "str", "doc": "Control method for presence."},
     {"rust_name": "METHOD_LOCAL_WORLD", "go_name": "MethodLocalWorld", "value": "local_world.v1", "rust_type": "str", "doc": "Control method for local world."},
     {"rust_name": "METHOD_WORLD_INVITE", "go_name": "MethodWorldInvite", "value": "world_invite.v1", "rust_type": "str", "doc": "Control method for world invite."},
+    {"rust_name": "METHOD_LAN_WORLDS", "go_name": "MethodLANWorlds", "value": "lan_worlds.v1", "rust_type": "str", "doc": "Control method for LAN worlds."},
     {"rust_name": "RPC_PARSE_ERROR", "go_name": "RPCParseError", "value": -32700, "rust_type": "i64", "doc": "Control error code for parse error."},
     {"rust_name": "RPC_INVALID_REQUEST", "go_name": "RPCInvalidRequest", "value": -32600, "rust_type": "i64", "doc": "Control error code for invalid request."},
     {"rust_name": "RPC_METHOD_NOT_FOUND", "go_name": "RPCMethodNotFound", "value": -32601, "rust_type": "i64", "doc": "Control error code for method not found."},
@@ -282,7 +284,8 @@
         {"rust_name": "RakNet", "go_name": "TargetRakNet", "value": "raknet", "doc": "A `host:port` server."},
         {"rust_name": "Realm", "go_name": "TargetRealm", "value": "realm", "doc": "A Realm id from the Realm target (`realm_id/<id>` \u2192 `<id>`)."},
         {"rust_name": "Friend", "go_name": "TargetFriend", "value": "friend", "doc": "A friend's XUID from the friend XUID."},
-        {"rust_name": "Gathering", "go_name": "TargetGathering", "value": "gathering", "doc": "A featured experience's ID, from a `gathering/<id>` featured server address."}
+        {"rust_name": "Gathering", "go_name": "TargetGathering", "value": "gathering", "doc": "A featured experience's ID, from a `gathering/<id>` featured server address."},
+        {"rust_name": "Lan", "go_name": "TargetLAN", "value": "lan", "doc": "A LAN world, from a `lan/<network id>` or `lan/raknet/<host:port>` address."}
       ]
     },
     {
@@ -527,6 +530,76 @@
           "type": "strings",
           "default": true,
           "doc": "Paid grants supplied by the account API database."
+        }
+      ]
+    },
+    {
+      "rust_name": "LanWorld",
+      "go_name": "LANWorld",
+      "doc": "One world found on the local network, as the Worlds tab lists it.",
+      "derive": [
+        "Clone",
+        "Debug",
+        "Default",
+        "Deserialize",
+        "Eq",
+        "PartialEq",
+        "Serialize"
+      ],
+      "fields": [
+        {
+          "name": "address",
+          "go_name": "Address",
+          "type": "string",
+          "doc": "Menu address that joins it: `lan/<network id>` over NetherNet, `lan/raknet/<host:port>` over RakNet."
+        },
+        {
+          "name": "transport",
+          "go_name": "Transport",
+          "type": "string",
+          "doc": "`nethernet` or `raknet`, the transport that found it."
+        },
+        {
+          "name": "level_name",
+          "go_name": "LevelName",
+          "type": "string",
+          "doc": "World name."
+        },
+        {
+          "name": "server_name",
+          "go_name": "ServerName",
+          "type": "string",
+          "doc": "Host's name, usually its player name."
+        },
+        {
+          "name": "game_mode",
+          "go_name": "GameMode",
+          "type": "string",
+          "doc": "Advertised game mode, such as Survival."
+        },
+        {
+          "name": "hardcore",
+          "go_name": "Hardcore",
+          "type": "bool",
+          "doc": "Whether the world is hardcore."
+        },
+        {
+          "name": "players",
+          "go_name": "Players",
+          "type": "u32",
+          "doc": "Players in the world."
+        },
+        {
+          "name": "max_players",
+          "go_name": "MaxPlayers",
+          "type": "u32",
+          "doc": "Player limit."
+        },
+        {
+          "name": "version",
+          "go_name": "Version",
+          "type": "string",
+          "doc": "Game version the host advertises."
         }
       ]
     }

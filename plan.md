@@ -1256,6 +1256,11 @@ menu frame. Uploaded panorama faces remain ready during gameplay while their CPU
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
 retirement. Regression coverage fences immediate reconnect attempts; displayed-frame and
 reference-hardware leave latency remain unqualified.
+The Worlds tab lists LAN worlds after friends' worlds while it shows: NetherNet discovery
+and RakNet pings to loopback and each interface's broadcast address, NetherNet rows first,
+expiring after 5 s and 10 s. Rows join over the transport that found them. The tab's vanilla
+placement and row labels, the RakNet IPv6 targets, the hardcore flag of RakNet pongs, own-server
+and cross-list deduplication, and live acceptance against vanilla hosts remain open.
 Core transfer/disconnect terminals can abandon unfinished join preparation; ordinary
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.

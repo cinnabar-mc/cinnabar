@@ -140,6 +140,9 @@ pub const REALM_CODE_PREFIX: &str = "realm/";
 /// Prefix for a friend world target.
 pub const FRIEND_TARGET_PREFIX: &str = "friend_xuid/";
 
+/// Prefix for a LAN world target, followed by its NetherNet network ID or `raknet/` and its host:port.
+pub const LAN_TARGET_PREFIX: &str = "lan/";
+
 /// Prefix for an experience target.
 pub const GATHERING_TARGET_PREFIX: &str = "gathering/";
 
@@ -217,6 +220,9 @@ pub const METHOD_LOCAL_WORLD: &str = "local_world.v1";
 
 /// Control method for world invite.
 pub const METHOD_WORLD_INVITE: &str = "world_invite.v1";
+
+/// Control method for LAN worlds.
+pub const METHOD_LAN_WORLDS: &str = "lan_worlds.v1";
 
 /// Control error code for parse error.
 pub const RPC_PARSE_ERROR: i64 = -32700;
@@ -546,6 +552,9 @@ pub enum ConnectTarget {
     /// A featured experience's ID, from a `gathering/<id>` featured server address.
     #[serde(rename = "gathering")]
     Gathering(String),
+    /// A LAN world, from a `lan/<network id>` or `lan/raknet/<host:port>` address.
+    #[serde(rename = "lan")]
+    Lan(String),
 }
 
 /// Sign-in state of the core.
@@ -664,4 +673,27 @@ pub struct CinnabarPlayerUpdates {
     /// Paid grants supplied by the account API database.
     #[serde(default)]
     pub owned_cosmetics: Vec<String>,
+}
+
+/// One world found on the local network, as the Worlds tab lists it.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct LanWorld {
+    /// Menu address that joins it: `lan/<network id>` over NetherNet, `lan/raknet/<host:port>` over RakNet.
+    pub address: String,
+    /// `nethernet` or `raknet`, the transport that found it.
+    pub transport: String,
+    /// World name.
+    pub level_name: String,
+    /// Host's name, usually its player name.
+    pub server_name: String,
+    /// Advertised game mode, such as Survival.
+    pub game_mode: String,
+    /// Whether the world is hardcore.
+    pub hardcore: bool,
+    /// Players in the world.
+    pub players: u32,
+    /// Player limit.
+    pub max_players: u32,
+    /// Game version the host advertises.
+    pub version: String,
 }

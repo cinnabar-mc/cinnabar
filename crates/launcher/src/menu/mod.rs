@@ -32,10 +32,10 @@ pub use profile::{
 };
 pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
-    FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
-    LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
-    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt, pingable,
+    FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LAN_ADDRESS_PREFIX,
+    LiveEventCard, LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome,
+    MenuLanCard, MenuProfile, MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer,
+    ServerDetails, ServerTrustPrompt, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -153,6 +153,7 @@ pub enum MenuAction {
     /// Opens or advances Realm membership through an invite link or code.
     RealmMembership(realm_membership::Action),
     PlayFriend(usize),
+    PlayLan(usize),
     ToggleFavorite(usize),
     RemoveSavedDialog(usize),
     ConfirmRemoveSaved(usize),

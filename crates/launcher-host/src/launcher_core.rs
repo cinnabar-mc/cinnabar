@@ -181,9 +181,10 @@ pub fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::Join
         _ if local_world => JoinKind::Local,
         ConnectTarget::Realm(_) => JoinKind::Realm,
         // Friend worlds and experiences use the external-server title until vanilla's is confirmed.
-        ConnectTarget::RakNet(_) | ConnectTarget::Friend(_) | ConnectTarget::Gathering(_) => {
-            JoinKind::External
-        }
+        ConnectTarget::RakNet(_)
+        | ConnectTarget::Friend(_)
+        | ConnectTarget::Gathering(_)
+        | ConnectTarget::Lan(_) => JoinKind::External,
     }
 }
 
@@ -199,6 +200,9 @@ pub fn target_for(address: &str) -> ConnectTarget {
     }
     if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
         return ConnectTarget::Friend(xuid.to_owned());
+    }
+    if let Some(id) = address.strip_prefix(launcher::menu::LAN_ADDRESS_PREFIX) {
+        return ConnectTarget::Lan(id.to_owned());
     }
     let has_port = address.rsplit_once(':').is_some_and(|(host, port)| {
         port.parse::<u16>().is_ok() && (host.ends_with(']') || !host.contains(':'))
@@ -334,6 +338,10 @@ mod tests {
         assert_eq!(
             target_for(&format!("{}2535", bridge::contract::FRIEND_TARGET_PREFIX)),
             ConnectTarget::Friend("2535".into())
+        );
+        assert_eq!(
+            target_for(&format!("{}12345", launcher::menu::LAN_ADDRESS_PREFIX)),
+            ConnectTarget::Lan("12345".into())
         );
         assert_eq!(
             target_for("play.example.net:19133"),
