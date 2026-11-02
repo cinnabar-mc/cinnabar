@@ -1,6 +1,9 @@
 use super::{LocalFormAction, engine_input};
-use crate::ui_runtime::interaction::input_capture::{
-    restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+use crate::ui_runtime::{
+    input_owner::InputOwner,
+    interaction::input_capture::{
+        restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
+    },
 };
 use bevy::{
     ecs::message::{MessageCursor, Messages},
@@ -27,6 +30,7 @@ use client_shell::{
     physical_input::{keyboard_key, scroll_unit},
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
+use client_ui::ui_runtime::scene_stack::Scene;
 use semantic_input::KeyboardKey;
 
 /// Stick deflection that counts as a directional press (needs native measurement).
@@ -79,12 +83,13 @@ fn gamepad_keys<'a>(
 
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub(crate) fn drive_server_form_input(
-    (player_runtime, window, mut focus, driven, pointer_source): (
+    (player_runtime, window, mut focus, driven, pointer_source, owner): (
         bevy::prelude::Res<client_state::PlayerRuntime>,
         Single<(&Window, &mut CursorOptions), With<PrimaryWindow>>,
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
         Option<Res<crate::ui_runtime::touch_pointer::UiPointerSource>>,
+        InputOwner,
     ),
     mut keys: ResMut<ButtonInput<KeyCode>>,
     mut mouse: ResMut<ButtonInput<MouseButton>>,
@@ -114,37 +119,9 @@ pub(crate) fn drive_server_form_input(
     }
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    if runtime.resource_pack_loading() {
-        // Keep the loading cover authoritative while the replacement pack is being published.
-        // In particular, do not let a held edge answer the form behind it.
-        wheel.clear();
-        keyboard.clear();
-        *held = false;
-        *stick = [false; 4];
-        *owned_last_frame = false;
-        runtime
-            .server_forms_mut()
-            .engine_mut()
-            .cancel_pointer_input();
-        suppress_gameplay_input_for_chat(
-            &player_runtime,
-            &runtime,
-            &mut cursor,
-            &mut keys,
-            &mut mouse,
-            &mut motion,
-        );
-        return;
-    }
-    if runtime.credits().owns_input() {
-        wheel.clear();
-        keyboard.clear();
-        *held = false;
-        *owned_last_frame = false;
-        return;
-    }
     // Buttons are reset every owned frame, so a physical release never surfaces
-    // as `just_released`; raw messages carry the edges instead.
+    // as `just_released`; raw messages carry the edges instead. They are read before any frame
+    // the form doesn't own returns, so edges a screen above it took never wait for the form.
     let mut pointer = engine_input::PointerButtons {
         pressed: mouse.just_pressed(MouseButton::Left),
         released: mouse.just_released(MouseButton::Left),
@@ -179,6 +156,42 @@ pub(crate) fn drive_server_form_input(
         *held = *down;
     }
     pointer.held = *held;
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if frame.top() == Scene::ResourcePackLoading {
+        // Keep the loading cover authoritative while the replacement pack is being published.
+        // In particular, do not let a held edge answer the form behind it.
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *stick = [false; 4];
+        *owned_last_frame = false;
+        runtime
+            .server_forms_mut()
+            .engine_mut()
+            .cancel_pointer_input();
+        suppress_gameplay_input_for_chat(
+            &player_runtime,
+            &runtime,
+            &mut cursor,
+            &mut keys,
+            &mut mouse,
+            &mut motion,
+        );
+        return;
+    }
+    // A menu over a form answers it busy below; any other screen over it just keeps the input.
+    let form_scene = if runtime.server_forms().settings_form_active() {
+        Scene::ServerSettingsForm
+    } else {
+        Scene::ServerForm
+    };
+    if frame.covers(form_scene) && !matches!(frame.top(), Scene::Menu(_)) {
+        wheel.clear();
+        keyboard.clear();
+        *held = false;
+        *owned_last_frame = false;
+        return;
+    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         && !runtime.server_forms().settings_form_active()
     {
@@ -220,7 +233,7 @@ pub(crate) fn drive_server_form_input(
         return;
     }
     *owned_last_frame = true;
-    if !input_available {
+    if !input_available || !frame.reads(|scene| scene == form_scene) {
         wheel.clear();
         keyboard.clear();
         *held = false;

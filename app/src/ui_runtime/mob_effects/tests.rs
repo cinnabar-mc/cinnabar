@@ -49,11 +49,13 @@ impl Harness {
             .init_resource::<ButtonInput<MouseButton>>()
             .init_resource::<AccumulatedMouseMotion>()
             .init_resource::<ScreenInputConsumed>()
+            .init_resource::<client_shell::ui_resources::FrameInputOwner>()
             .insert_resource(UiRuntimeResource(runtime))
             .insert_resource(player)
             .add_systems(
                 Update,
                 (
+                    crate::ui_runtime::input_owner::decide_input_owner,
                     crate::ui_runtime::emotes::drive_emote_input,
                     drive_mob_effect_screen_input,
                     crate::ui_runtime::interaction::drive_chat_keyboard_input,
@@ -216,6 +218,35 @@ fn a_mouse_remap_opens_and_closes_the_screen_instead_of_z() {
             .reset_all();
         h.app.update();
     }
+}
+
+/// A sign editor's closing frame, standing in for any screen's: its keys are not the game's.
+#[test]
+fn the_frame_a_screen_closes_does_not_open_the_screen() {
+    use crate::ui_runtime::{emotes::drive_emote_input, input_owner::decide_input_owner};
+    fn close_sign(mut runtime: ResMut<UiRuntimeResource>) {
+        runtime.sign_editor_mut().close();
+    }
+    let mut h = Harness::new(true);
+    h.app.add_systems(
+        Update,
+        close_sign
+            .after(decide_input_owner)
+            .before(drive_emote_input),
+    );
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .sign_editor_mut()
+        .open(client_ui::ui_runtime::sign_editor::SignEdit::new(
+            [0, 64, 0],
+            true,
+            Default::default(),
+        ));
+    h.press(KeyCode::KeyZ);
+    assert!(!h.runtime().mob_effect_screen().is_open());
+    h.press(KeyCode::KeyZ);
+    assert!(h.runtime().mob_effect_screen().is_open());
 }
 
 #[test]

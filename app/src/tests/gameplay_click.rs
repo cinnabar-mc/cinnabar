@@ -40,6 +40,7 @@ pub(crate) fn gameplay_app(menu_visible: bool) -> App {
     configure_client_frame_schedule(&mut app);
     // The production RawInput/SemanticSample/UiAuthority/SemanticFinalize registrations.
     app.add_message::<bevy::input::mouse::MouseWheel>()
+        .init_resource::<client_shell::ui_resources::FrameInputOwner>()
         .add_systems(
             Update,
             (drive_gameplay_touch_targets, collect_raw_input)
@@ -53,6 +54,7 @@ pub(crate) fn gameplay_app(menu_visible: bool) -> App {
         .add_systems(
             Update,
             (
+                crate::ui_runtime::input_owner::decide_input_owner,
                 drive_sign_editor,
                 drive_server_form_input,
                 crate::ui_runtime::emotes::drive_emote_input,
