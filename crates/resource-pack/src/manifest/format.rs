@@ -114,12 +114,13 @@ impl Layout {
 
 /// Selects the layout from the manifest's source text and parsed value; `None` is unsupported.
 pub(crate) fn layout(source: &[u8], root: &Value) -> Option<Layout> {
-    let version = match raw_format_version(source) {
-        Some(raw) => semantic_format_version(raw)?,
-        // Without a raw format version the legacy parser runs. It reads the parsed value, so a
-        // missing key selects format 0, while a key the raw scan cannot see, such as one written
-        // with escapes, still selects its format.
-        None => return legacy_layout(root),
+    let version = match (raw_format_version(source), &root["format_version"]) {
+        (Some(raw), _) => semantic_format_version(raw)?,
+        // Without a format version the legacy parser reads format 0.
+        (None, Value::Null) => return Some(Layout::Legacy0),
+        // A key the raw scan cannot see, such as one written with escapes, is read from the
+        // parsed value, as the client re-serializes it before reading the version.
+        (None, value) => semantic_format_version(serde_json::to_string(value).ok()?.as_bytes())?,
     };
     if version.below([0, 0, 0]) {
         return None;
@@ -245,15 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn an_escaped_format_version_key_selects_its_legacy_format() {
-        // The raw scan only matches the key's literal text, so the legacy parser reads it from the
-        // parsed value instead.
+    fn an_escaped_format_version_key_selects_its_format_from_the_parsed_value() {
+        // The raw scan only matches the key's literal text, so the version comes from the parsed
+        // value instead.
         for (format, expected) in [
             ("2", Some(Layout::Legacy)),
             ("1", Some(Layout::Legacy)),
             ("0", Some(Layout::Legacy0)),
             (r#""2""#, Some(Layout::Legacy0)),
-            ("3", None),
+            ("3", Some(Layout::Current)),
+            ("[3, 0, 0]", Some(Layout::Current)),
+            ("4", None),
         ] {
             let text = format!(r#"{{"\u0066ormat_version": {format}, "header": {{}}}}"#);
             assert_eq!(
