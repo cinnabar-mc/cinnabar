@@ -279,7 +279,8 @@ pub(super) fn prepare_actor_pipelines(
         let requested = crate::pipeline_warmup::requested_sample_mode(
             preflight
                 .as_ref()
-                .and_then(|preflight| preflight.requested()),
+                .and_then(|preflight| preflight.requested())
+                .and_then(|request| request.for_view(camera.hdr, enhanced.is_some())),
             world_camera,
             shader_pack,
         );

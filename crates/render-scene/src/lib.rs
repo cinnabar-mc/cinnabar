@@ -125,7 +125,7 @@ pub use nametag::NametagSceneResource;
 pub use panorama::PanoramaScene;
 pub use particles::{ParticleGpuFrame, ParticleSimulation, particle_view, update_particle_frame};
 pub use primitive_shapes::PrimitiveShapesScene;
-pub use readiness::{PipelineWarmupReadiness, SampleCountPreflight};
+pub use readiness::{PipelineWarmupReadiness, SampleCountPreflight, SampleCountRequest};
 pub use runtime_profile::{
     RuntimeStage, RuntimeStageProfileSnapshot, RuntimeStageProfiler, RuntimeStageSample,
     RuntimeStageSpans, begin_stage_span, end_stage_span,
