@@ -376,3 +376,15 @@ fn a_focused_overlay_edit_box_gives_way_to_slot_clicks() {
         "the slot click moved focus away from the edit box"
     );
 }
+
+/// A server experience's consent prompt blocks the player's inventory input, so the endpoint
+/// refuses inventory commands while it is up.
+#[test]
+fn a_consent_prompt_holds_the_inventory_input() {
+    let mut world = World::new();
+    assert!(!presentation_holds_input(&world));
+    world.insert_resource(client_state::ConsentInput(false));
+    assert!(!presentation_holds_input(&world));
+    world.insert_resource(client_state::ConsentInput(true));
+    assert!(presentation_holds_input(&world));
+}

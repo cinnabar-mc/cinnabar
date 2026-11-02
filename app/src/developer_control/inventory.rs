@@ -163,11 +163,16 @@ fn escape_reaches_inventory(
         && crate::ui_runtime::interaction::inventory::accepts_menu_cancel(ui, presentation(world))
 }
 
-/// Whether a drawn surface outside the scene stack holds the player's input: a player mod's
-/// panel or a client-part modal, which the ordinary input paths also check.
+/// Whether something outside the scene stack holds the player's input: a server experience's
+/// consent prompt, a player mod's panel or a client-part modal, which the ordinary input
+/// paths also check.
 fn presentation_holds_input(world: &World) -> bool {
-    presentation(world)
-        .is_some_and(|view| view.mod_ui().mod_panel_open() || view.mod_ui().experience_modal_open())
+    world
+        .get_resource::<client_state::ConsentInput>()
+        .is_some_and(|consent| consent.0)
+        || presentation(world).is_some_and(|view| {
+            view.mod_ui().mod_panel_open() || view.mod_ui().experience_modal_open()
+        })
 }
 
 /// Why a command refuses while another screen takes the player's input.
