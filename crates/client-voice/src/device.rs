@@ -8,7 +8,7 @@
 use crate::codec::SAMPLE_RATE;
 use crate::engine::AudioIo;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{FromSample, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
@@ -281,7 +281,7 @@ where
         config,
         move |data: &mut [T], _| {
             let mut queue = lock(&source);
-            let mut pop = |queue: &mut VecDeque<i16>| -> (f32, f32) {
+            let pop = |queue: &mut VecDeque<i16>| -> (f32, f32) {
                 match (queue.pop_front(), queue.pop_front()) {
                     (Some(l), Some(r)) => (f32::from(l) / 32768.0, f32::from(r) / 32768.0),
                     _ => (0.0, 0.0),
