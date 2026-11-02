@@ -140,6 +140,27 @@ impl IconBlocks {
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
+        if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Lectern
+        {
+            // The stand turns its reading surface toward the viewer, like the placed south pose.
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    candidate.name == record.name
+                        && state[BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                            == "south"
+                        && state[BlockProperty::PoweredBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
         let crafter = record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier();
         if crafter
             || assets::facts::block_render_fact(&record.name).kind
@@ -624,3 +645,7 @@ mod lightning_rod_tests;
 #[cfg(test)]
 #[path = "blocks/button_tests.rs"]
 mod button_tests;
+
+#[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;

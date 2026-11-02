@@ -17,6 +17,9 @@ mod leaf_metadata;
 pub use facing_cube::facing_cube_face;
 
 /// A source texture key and the pillar UV transform needed for the face.
+/// The terrain texture a built-in block draws when the active packs' `blocks.json` omits it.
+pub const MISSING_TILE_TEXTURE_KEY: &str = "missing_tile";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextureKey {
     /// `None` selects the diagnostic material.
@@ -281,7 +284,13 @@ pub fn resolve_texture_key(
         legacy_resource_pack_block_alias(block_name).unwrap_or(block_name)
     };
     let Some(entry) = blocks.entries.get(resource_pack_name) else {
-        return TextureKey::diagnostic();
+        return if record.name.starts_with("minecraft:")
+            || record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME
+        {
+            TextureKey::resolved(MISSING_TILE_TEXTURE_KEY, false)
+        } else {
+            TextureKey::diagnostic()
+        };
     };
 
     match &entry.textures {

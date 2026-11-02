@@ -22,3 +22,36 @@ fn repeat_page_table_matches_the_shader_uniform_layout() {
     assert_eq!(u64::from(members[1].offset), offset(0));
     assert_eq!(words(false).len() * size_of::<u32>(), BYTE_SIZE as usize);
 }
+
+#[test]
+fn model_palette_matches_the_shader_storage_layout() {
+    let text = super::shader::source(include_str!("../ui.wgsl"));
+    let module = naga::front::wgsl::parse_str(&text).expect("UI shader parses");
+    naga::valid::Validator::new(
+        naga::valid::ValidationFlags::all(),
+        naga::valid::Capabilities::all(),
+    )
+    .validate(&module)
+    .expect("UI shader validates");
+    let (_, layout) = module
+        .types
+        .iter()
+        .find(|(_, ty)| ty.name.as_deref() == Some("UiModelBone"))
+        .unwrap();
+    let naga::TypeInner::Struct { members, span } = &layout.inner else {
+        panic!("model palette is a storage struct")
+    };
+    assert_eq!(*span as usize, size_of::<render_model::UiModelBone>());
+    assert_eq!(
+        members
+            .iter()
+            .find(|member| member.name.as_deref() == Some("uv_transform"))
+            .unwrap()
+            .offset as usize,
+        std::mem::offset_of!(render_model::UiModelBone, uv_transform)
+    );
+    assert_eq!(
+        members.last().unwrap().offset as usize,
+        std::mem::offset_of!(render_model::UiModelBone, styles)
+    );
+}

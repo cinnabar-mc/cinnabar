@@ -39,6 +39,8 @@ pub enum BlockRenderKind {
     Grindstone,
     /// Stonecutter body and saw plane that turns with its cardinal direction.
     Stonecutter,
+    /// Lectern stand that turns with its cardinal direction; the block entity draws the book.
+    Lectern,
     /// Bell frame for each mounting and direction; the block entity draws the body.
     Bell,
     Lever,
@@ -252,6 +254,7 @@ impl BlockRenderKind {
             | R::Crafter
             | R::PistonBase
             | R::Jigsaw
+            | R::Lectern
             | R::Bell => (true, false, false, true),
             R::Vault => (true, true, false, true),
             R::EndPortalFrame | R::Lantern => (true, true, true, true),

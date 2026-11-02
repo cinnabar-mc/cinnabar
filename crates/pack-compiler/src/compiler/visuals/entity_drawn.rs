@@ -102,6 +102,7 @@ mod tests {
             "minecraft:furnace",
             "minecraft:stone",
             "minecraft:barrel",
+            "minecraft:lectern",
             "minecraft:bell",
             "custom:chest",
         ] {

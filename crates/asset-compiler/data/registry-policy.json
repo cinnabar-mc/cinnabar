@@ -3288,6 +3288,14 @@
       ]
     },
     {
+      "id": "render-lectern",
+      "fact": "render:Lectern",
+      "status": "provisional",
+      "members": [
+        "minecraft:lectern"
+      ]
+    },
+    {
       "id": "render-bell",
       "fact": "render:Bell",
       "status": "provisional",

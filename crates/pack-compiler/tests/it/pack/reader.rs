@@ -1,4 +1,4 @@
-use pack_compile_input::{read_pack, resolve_texture_key};
+use pack_compile_input::{pack::MISSING_TILE_TEXTURE_KEY, read_pack, resolve_texture_key};
 use {
     super::support::*,
     assets::{AssetError, BlockFace},
@@ -134,11 +134,10 @@ fn pack_reader_skips_untextured_and_carried_only_block_entries() {
     let pack = read_pack(directory.path()).expect("untextured entries are valid");
 
     for name in ["minecraft:air", "minecraft:light_block"] {
-        assert!(
-            resolve_texture_key(&pack.blocks, &record(name, "{}"), BlockFace::Up)
-                .key
-                .is_none(),
-            "{name} must resolve to the diagnostic texture"
+        assert_key(
+            resolve_texture_key(&pack.blocks, &record(name, "{}"), BlockFace::Up),
+            MISSING_TILE_TEXTURE_KEY,
+            false,
         );
     }
     assert_key(
@@ -153,7 +152,7 @@ fn pack_reader_skips_untextured_and_carried_only_block_entries() {
 }
 
 #[test]
-fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic() {
+fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_use_the_missing_tile() {
     let directory = tempfile::tempdir().expect("create fixture");
     write_pack(
         directory.path(),
@@ -208,11 +207,10 @@ fn explicit_legacy_block_aliases_preserve_face_keys_and_unknowns_stay_diagnostic
 
     let invisible = record("minecraft:invisible_bedrock", "null");
     for face in BlockFace::ALL {
-        assert!(
-            resolve_texture_key(&pack.blocks, &invisible, face)
-                .key
-                .is_none(),
-            "unlisted blocks must not acquire a legacy alias"
+        assert_key(
+            resolve_texture_key(&pack.blocks, &invisible, face),
+            MISSING_TILE_TEXTURE_KEY,
+            false,
         );
     }
 }

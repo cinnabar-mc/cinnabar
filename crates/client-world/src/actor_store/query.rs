@@ -295,6 +295,12 @@ impl ActorStore {
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.animation.ui_layers(runtime_id)
     }
+    pub(crate) fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.paper_doll_layers(runtime_id)
+    }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(
         &self,

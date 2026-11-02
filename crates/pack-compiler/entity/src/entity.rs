@@ -618,7 +618,7 @@ fn parse_source(
         )?;
         return Ok(());
     }
-    if relative_path.starts_with("attachables/") {
+    if relative_path.starts_with("attachables/") && relative_path.ends_with(".json") {
         let value = parse_unique_json(absolute_path, bytes)?;
         attachable::validate_source(&value)?;
         return parse_entity(
@@ -637,20 +637,20 @@ fn parse_source(
             .map(|_| ())
             .ok_or_else(|| invalid("entity material definitions must be an object"));
     }
+    if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
+        let identifier = relative_path
+            .strip_suffix(".png")
+            .or_else(|| relative_path.strip_suffix(".tga"))
+            .ok_or_else(|| invalid("texture source lacks a canonical raster extension"))?;
+        return insert_symbol(
+            symbols,
+            EntityAssetKind::Texture,
+            identifier,
+            relative_path,
+            Box::new([]),
+        );
+    }
     if relative_path.starts_with("textures/") {
-        if relative_path.ends_with(".png") || relative_path.ends_with(".tga") {
-            let identifier = relative_path
-                .strip_suffix(".png")
-                .or_else(|| relative_path.strip_suffix(".tga"))
-                .ok_or_else(|| invalid("texture source lacks a canonical raster extension"))?;
-            return insert_symbol(
-                symbols,
-                EntityAssetKind::Texture,
-                identifier,
-                relative_path,
-                Box::new([]),
-            );
-        }
         let value = parse_unique_json(absolute_path, bytes)?;
         validate_root_fields(
             &value,
