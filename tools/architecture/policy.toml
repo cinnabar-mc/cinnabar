@@ -2273,6 +2273,11 @@ literal = "jungle"
 reason = "Value in the retained legacy sapling_type state domain."
 
 [[identifier_literal_exceptions]]
+path = "crates/pack-compiler/src/compiler/visuals/bell.rs"
+literal = "hanging"
+reason = "Value in the pinned bell attachment state domain."
+
+[[identifier_literal_exceptions]]
 path = "crates/pack-compiler/src/compiler/visuals/grindstone.rs"
 literal = "hanging"
 reason = "Value in the pinned grindstone attachment state domain."
