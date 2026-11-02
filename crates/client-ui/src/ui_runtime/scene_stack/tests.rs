@@ -585,6 +585,7 @@ fn a_form_over_a_container_ends_the_drag_in_flight() {
         shift: false,
         holding: true,
         hit: Some(hit),
+        hit_stack: None,
         now_millis: 0,
     };
     let mut player_runtime = player_state::PlayerState::new(1);
