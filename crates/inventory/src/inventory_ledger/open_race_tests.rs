@@ -40,6 +40,8 @@ fn superseded_personal_open_rolls_back_unsent_moves_and_recovers_admitted_moves(
         );
         assert!(ledger.cursor_stack().is_none());
         assert_eq!(ledger.resync_required(), admitted);
+        // A surface still awaiting recovery refuses clicks, so the screen is not ready.
+        assert_eq!(ledger.screen_accepts_gestures(), !admitted);
         assert_eq!(ledger.storage_stack(0), Some(&stack(23, 3)));
     }
 }

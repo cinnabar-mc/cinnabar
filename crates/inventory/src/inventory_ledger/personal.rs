@@ -44,12 +44,14 @@ impl PlayerInventoryLedger {
         self.controls.storage.desired_open
     }
 
-    /// Whether the open screen admits cell gestures now: a server window is open, not
-    /// closing, and its own cells (if it has any) are bound to their contents; or the
-    /// personal open request has left transport.
+    /// Whether the open screen admits cell gestures now: no cell surface awaits recovery from
+    /// a superseded request, and either a server window is open, not closing, with its own
+    /// cells (if it has any) bound to their contents, or the personal open request has left
+    /// transport.
     #[must_use]
     pub fn screen_accepts_gestures(&self) -> bool {
         self.authority.is_some()
+            && !self.resync_required()
             && match &self.storage {
                 Some(storage) => {
                     !storage.closing
