@@ -17,7 +17,8 @@ const PIVOT_HEIGHT: f32 = 0.75;
 const SWING_TICKS_PER_GAME_TICK: u32 = 2;
 const SWING_END_TICK: u32 = 50;
 const GAME_TICKS_PER_SECOND: f32 = 20.0;
-/// The body's box about its pivot, and the lip below it, authored with -Y as up.
+/// The body's box about its pivot, and the lip below it, as legacy cubes with Y negated (see
+/// [`MeshBuilder::legacy_cuboid`]).
 const BODY: BoxSpec = BoxSpec::new([-3.0, -1.0, -3.0], [6.0, 7.0, 6.0], [0.0, 0.0]);
 const LIP: BoxSpec = BoxSpec::new([-4.0, 6.0, -4.0], [8.0, 2.0, 8.0], [0.0, 13.0]);
 
@@ -219,6 +220,42 @@ mod tests {
             (min_u - 12.0).abs() < 1.0e-3,
             "the crown reads the box's down region, starting at u 12, got {min_u}"
         );
+    }
+
+    #[test]
+    fn the_body_sides_start_their_art_at_the_rim() {
+        let atlas = atlas();
+        let mut builder = MeshBuilder::new(atlas.size());
+        emit(
+            &mut builder,
+            &atlas,
+            [0; 3],
+            &BellModel {
+                attachment: BellAttachment::Hanging,
+                ring_direction: 0,
+                seconds_since_ring: f32::INFINITY,
+            },
+        );
+        // A body side spans the body's full height, 6 to 13 pixels; its art covers rows 6 to 13.
+        let sides: Vec<_> = builder
+            .solid
+            .chunks(6)
+            .filter(|quad| {
+                let (low, high) = quad
+                    .iter()
+                    .fold((f32::MAX, f32::MIN), |(low, high), vertex| {
+                        let y = vertex.position[1] * 16.0;
+                        (low.min(y), high.max(y))
+                    });
+                (low - 6.0).abs() < 1.0e-3 && (high - 13.0).abs() < 1.0e-3
+            })
+            .collect();
+        assert_eq!(sides.len(), 4, "four body sides");
+        for vertex in sides.into_iter().flatten() {
+            let y = vertex.position[1] * 16.0;
+            let v = vertex.uv[1] * atlas.size()[1] as f32;
+            assert!((v - y).abs() < 1.0e-3, "row {v} drawn at height {y}");
+        }
     }
 
     #[test]

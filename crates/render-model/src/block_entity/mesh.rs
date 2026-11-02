@@ -150,8 +150,11 @@ impl MeshBuilder {
         self.box_faces(layer, texture, model, spec.faces(), tint, BOX_SHADES);
     }
 
-    /// Emits a box authored in the legacy native layout, where -Y is up. The box is drawn under
-    /// a half turn about Z, and its top and bottom shades follow those faces to where they land.
+    /// Emits a legacy native cube, given with its Y range negated. Native legacy cubes start
+    /// each side's art at the box's lowest Y and put the unwrap's first top-strip cell on that
+    /// low face, while [`BoxSpec::faces`] starts both at the highest Y; drawing the negated box
+    /// under a half turn about Z reproduces the native placement. The top and bottom shades
+    /// follow those faces to where they land.
     pub fn legacy_cuboid(
         &mut self,
         layer: Layer,
