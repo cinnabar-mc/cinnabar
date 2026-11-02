@@ -97,14 +97,37 @@ impl UiPresentationRuntime {
             return self.engine_container_hit(gui);
         }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
-        let hit = cell_hit(gui, geometry, screen)?;
-        if matches!((screen, hit),
+        cell_hit(gui, geometry, screen).filter(|hit| self.fallback_cell_permitted(screen, *hit))
+    }
+
+    /// The cells the open screen lets a pointer press. An engine-drawn screen lists the cells
+    /// its active layout draws, each with a GUI point that presses it; the fallback renderer
+    /// lists its fixed cells without points, minus those its pointer refuses.
+    pub fn inventory_screen_cells(
+        &self,
+        screen: InventoryScreen,
+    ) -> Vec<(InventoryCellHit, Option<[f32; 2]>)> {
+        if self.engine_container_frame().is_some() {
+            return self
+                .engine_container_cells()
+                .into_iter()
+                .map(|(hit, point)| (hit, Some(point)))
+                .collect();
+        }
+        screens::screen_slots(screen)
+            .iter()
+            .map(|placed| placed.hit)
+            .filter(|hit| self.fallback_cell_permitted(screen, *hit))
+            .map(|hit| (hit, None))
+            .collect()
+    }
+
+    /// Whether the fallback renderer draws and presses a cell: a mount's window hides the
+    /// equipment slots that mount does not have.
+    fn fallback_cell_permitted(&self, screen: InventoryScreen, hit: InventoryCellHit) -> bool {
+        !matches!((screen, hit),
             (InventoryScreen::Window(WindowKind::Horse, _), InventoryCellHit::Storage(index))
             if !self.hud_frame.mount_equipment.permits_inventory_slot(index))
-        {
-            return None;
-        }
-        Some(hit)
     }
 
     /// The recipe-book control under a GUI point, if the screen has a book.

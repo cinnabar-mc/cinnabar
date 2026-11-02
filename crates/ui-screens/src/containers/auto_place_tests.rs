@@ -93,6 +93,25 @@ const ROWS: &str = r#"{
   }
 }"#;
 
+/// One slot whose centre a small control without a cell covers, drawn on top of it.
+const COVERED: &str = r#"{
+  "namespace": "slots",
+  "slot_button": {
+    "type": "button", "size": [20, 20],
+    "anchor_from": "top_left", "anchor_to": "top_left"
+  },
+  "screen": {
+    "type": "screen",
+    "controls": [
+      {"slot@slots.slot_button": {"offset": [0, 0]}},
+      {"cover": {
+        "type": "button", "size": [8, 8], "offset": [6, 6],
+        "anchor_from": "top_left", "anchor_to": "top_left"
+      }}
+    ]
+  }
+}"#;
+
 fn frame() -> EngineFrame {
     frame_of(SCREEN)
 }
@@ -139,6 +158,33 @@ fn shift_clicks_elsewhere_move_the_stack() {
     ] {
         assert!(!engine_auto_place_destroys(&frame, point), "{place}");
     }
+}
+
+/// A cell whose centre is covered is still listed, through a point a pointer can reach.
+#[test]
+fn layout_cells_reach_a_partly_covered_cell() {
+    let mut frame = frame_of(COVERED);
+    let mut hits = frame.hits.to_vec();
+    for region in &mut hits {
+        if region.name == "slot" {
+            region.collection = Some("hotbar_items".to_owned());
+            region.collection_index = Some(0);
+        }
+    }
+    frame.hits = hits.into();
+    let layout = ScreenLayout::Personal { book: false };
+    assert_eq!(
+        layout.hit(&frame, [10.0, 10.0]),
+        None,
+        "the cover owns the centre"
+    );
+    let cells = layout.cells(&frame);
+    let (hit, point) = cells
+        .iter()
+        .copied()
+        .find(|(hit, _)| *hit == InventoryCellHit::Player(0))
+        .expect("the covered slot is listed");
+    assert_eq!(layout.hit(&frame, point), Some(hit));
 }
 
 /// Every drawn cell is listed once with a point that presses it, so a named click takes the

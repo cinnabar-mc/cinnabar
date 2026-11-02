@@ -65,6 +65,15 @@ fn unknown_mount_window_does_not_draw_or_hit_equipment_cells() {
             "unresolved equipment draws the panel rather than a slot well"
         );
     }
+    // A cell named by the developer endpoint follows the same rule as the pointer.
+    assert!(presentation.engine_container_frame().is_none());
+    assert!(
+        presentation
+            .inventory_screen_cells(screen)
+            .iter()
+            .all(|(hit, _)| !matches!(hit, InventoryCellHit::Storage(0 | 1))),
+        "unresolved equipment cells are listed as pressable"
+    );
 }
 
 fn opened(

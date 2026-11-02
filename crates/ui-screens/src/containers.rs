@@ -128,8 +128,13 @@ impl ScreenLayout {
 impl ScreenLayout {
     /// Every ledger cell or control this layout drew in `frame`, once each, with a point
     /// where a press reaches it (virtual px equal GUI px). It inverts [`Self::hit`], so a
-    /// caller that names a cell takes the same path as a pointer press on it.
+    /// caller that names a cell takes the same path as a pointer press on it. Each region's
+    /// visible area is sampled from its centre outwards, so a cell partly covered by another
+    /// control is still found through the part a pointer can reach, at the point nearest its
+    /// centre.
     pub fn cells(self, frame: &EngineFrame) -> Vec<(InventoryCellHit, [f32; 2])> {
+        /// Samples per axis; odd, so the centre comes first.
+        const STEPS: u8 = 9;
         let mut cells: Vec<(InventoryCellHit, [f32; 2])> = Vec::new();
         for region in frame.hits.iter() {
             let left = region.rect.x.max(region.clip.x);
@@ -139,12 +144,24 @@ impl ScreenLayout {
             if right <= left || bottom <= top {
                 continue;
             }
-            #[allow(clippy::cast_possible_truncation, reason = "GUI coordinates are small")]
-            let point = [((left + right) / 2.0) as f32, ((top + bottom) / 2.0) as f32];
-            if let Some(hit) = self.hit(frame, point)
-                && !cells.iter().any(|(known, _)| *known == hit)
-            {
-                cells.push((hit, point));
+            let mut offsets: Vec<f64> = (0..STEPS)
+                .map(|step| (f64::from(step) + 0.5) / f64::from(STEPS))
+                .collect();
+            offsets.sort_by(|a, b| (a - 0.5).abs().total_cmp(&(b - 0.5).abs()));
+            let samples = offsets
+                .iter()
+                .flat_map(|y| offsets.iter().map(move |x| (*x, *y)));
+            for (x, y) in samples {
+                #[allow(clippy::cast_possible_truncation, reason = "GUI coordinates are small")]
+                let point = [
+                    (left + (right - left) * x) as f32,
+                    (top + (bottom - top) * y) as f32,
+                ];
+                if let Some(hit) = self.hit(frame, point)
+                    && !cells.iter().any(|(known, _)| *known == hit)
+                {
+                    cells.push((hit, point));
+                }
             }
         }
         cells

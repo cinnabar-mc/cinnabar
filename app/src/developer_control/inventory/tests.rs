@@ -81,20 +81,20 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
 
     open_screen(&mut player, &mut ui, None).unwrap();
     assert!(ui.inventory_open());
-    assert_eq!(report(&player, &ui)["ready"], false);
+    assert_eq!(report(&player, &ui, None)["ready"], false);
     assert!(
         click_cell(&mut player, &mut ui, None, right(9))
             .unwrap_err()
             .starts_with("the client refused the click")
     );
     assert!(flush(&mut player, &mut ui) > 0, "the open request leaves");
-    assert_eq!(report(&player, &ui)["ready"], true);
+    assert_eq!(report(&player, &ui, None)["ready"], true);
     open_screen(&mut player, &mut ui, None).unwrap();
     assert!(ui.inventory_open(), "opening an open screen keeps it open");
 
     click_cell(&mut player, &mut ui, None, right(9)).unwrap();
     click_cell(&mut player, &mut ui, None, right(10)).unwrap();
-    let view = report(&player, &ui);
+    let view = report(&player, &ui, None);
     assert_eq!(view["screen"], "inventory");
     assert_eq!(view["cursor"]["identifier"], STONE);
     assert_eq!(count(&view["cursor"]), 15);
@@ -108,7 +108,7 @@ fn clicks_predict_through_the_player_click_path_without_waiting_for_the_server()
 
     close_screen(&mut player, &mut ui).unwrap();
     assert!(!ui.inventory_open());
-    assert_eq!(report(&player, &ui)["open"], false);
+    assert_eq!(report(&player, &ui, None)["open"], false);
     assert_eq!(
         close_screen(&mut player, &mut ui).unwrap_err(),
         "no inventory screen is open"

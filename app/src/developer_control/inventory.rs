@@ -50,10 +50,7 @@ pub(super) fn close(world: &mut World) -> Result<Value, String> {
 /// Clicks one cell and reports the predicted result.
 pub(super) fn click(world: &mut World, command: InventoryClick) -> Result<Value, String> {
     let request_id = with_inventory(world, |player, ui, world| {
-        let presentation = world
-            .get_resource::<UiPresentationResource>()
-            .map(|view| &view.0);
-        click_cell(player, ui, presentation, command)
+        click_cell(player, ui, presentation(world), command)
     })?;
     Ok(json!({ "request_id": request_id, "inventory": snapshot(world) }))
 }
@@ -64,7 +61,7 @@ pub(super) fn snapshot(world: &World) -> Value {
         world.get_resource::<client_state::PlayerRuntime>(),
         world.get_resource::<UiRuntimeResource>(),
     ) {
-        (Some(player), Some(ui)) => report(player, ui),
+        (Some(player), Some(ui)) => report(player, ui, presentation(world)),
         _ => Value::Null,
     }
 }
@@ -89,7 +86,29 @@ pub(super) fn evaluate(world: &World, condition: &Condition) -> Result<Value, St
             "{} inventory requests are waiting for the server",
             ledger.pending_request_count()
         )),
-        _ => Ok(report(player, ui)),
+        _ => Ok(report(player, ui, presentation(world))),
+    }
+}
+
+/// The drawn UI, when the presentation runtime exists.
+fn presentation(world: &World) -> Option<&UiPresentationRuntime> {
+    world
+        .get_resource::<UiPresentationResource>()
+        .map(|view| &view.0)
+}
+
+/// The cells the open screen lets a pointer press, with a press point on an engine-drawn
+/// screen. Without a presentation runtime (in tests) the fixed fallback layout stands in.
+fn drawn_cells(
+    screen: InventoryScreen,
+    presentation: Option<&UiPresentationRuntime>,
+) -> Vec<(InventoryCellHit, Option<[f32; 2]>)> {
+    match presentation {
+        Some(view) => view.inventory_screen_cells(screen),
+        None => screens::screen_slots(screen)
+            .iter()
+            .map(|placed| (placed.hit, None))
+            .collect(),
     }
 }
 
@@ -139,9 +158,8 @@ fn close_screen(player: &mut player_state::PlayerState, ui: &mut UiRuntime) -> R
 }
 
 /// Runs the pointer action a plain, right or Shift click on the addressed cell produces.
-/// An engine-drawn screen is checked against the cells its active layout draws, and a
-/// Shift-click takes the same layout-dependent route a pointer press there does; the
-/// fallback renderer's fixed cell layout is used only when it draws the screen.
+/// The cell must be one the open screen lets a pointer press, and a Shift-click takes the
+/// same layout-dependent route a pointer press there does.
 fn click_cell(
     player: &mut player_state::PlayerState,
     ui: &mut UiRuntime,
@@ -154,18 +172,7 @@ fn click_cell(
     ui.observe_inventory_window(player);
     let screen = InventoryScreen::of_runtime(player, ui);
     let target = cell_hit(ui.inventory_ledger(player), command.container, command.slot);
-    let drawn: Vec<(InventoryCellHit, Option<[f32; 2]>)> =
-        match presentation.filter(|view| view.engine_container_frame().is_some()) {
-            Some(view) => view
-                .engine_container_cells()
-                .into_iter()
-                .map(|(hit, point)| (hit, Some(point)))
-                .collect(),
-            None => screens::screen_slots(screen)
-                .iter()
-                .map(|placed| (placed.hit, None))
-                .collect(),
-        };
+    let drawn = drawn_cells(screen, presentation);
     let (hit, point) = target
         .and_then(|hit| drawn.iter().find(|(cell, _)| *cell == hit).copied())
         .ok_or_else(|| missing_cell(screen, command, drawn.iter().map(|(cell, _)| *cell)))?;
@@ -262,7 +269,11 @@ const fn screen_name(screen: InventoryScreen) -> &'static str {
 }
 
 /// The client's own view: open screen, cursor, player cells, crafting grid and any storage.
-fn report(player: &player_state::PlayerState, ui: &UiRuntime) -> Value {
+fn report(
+    player: &player_state::PlayerState,
+    ui: &UiRuntime,
+    presentation: Option<&UiPresentationRuntime>,
+) -> Value {
     let ledger = ui.inventory_ledger(player);
     let item = |stack: Option<&NetworkItemStack>| {
         stack
@@ -279,13 +290,17 @@ fn report(player: &player_state::PlayerState, ui: &UiRuntime) -> Value {
     let open = ui.inventory_open();
     let screen = open.then(|| InventoryScreen::of_runtime(player, ui));
     let grid = ledger.crafting_grid();
-    let output = matches!(
-        screen,
-        Some(InventoryScreen::Personal | InventoryScreen::Workbench)
-    )
-    .then(|| ui_screens::inventory_capture::crafting_output(ledger, ui.crafting_match(player)))
-    .flatten()
-    .filter(|(_, ghost)| !ghost);
+    // Report an output only where the screen draws one, including a creative player's
+    // personal crafting view.
+    let shows_output = screen.is_some_and(|screen| {
+        drawn_cells(screen, presentation)
+            .iter()
+            .any(|(hit, _)| *hit == InventoryCellHit::CraftOutput)
+    });
+    let output = shows_output
+        .then(|| ui_screens::inventory_capture::crafting_output(ledger, ui.crafting_match(player)))
+        .flatten()
+        .filter(|(_, ghost)| !ghost);
     let storage_cells = match screen {
         Some(InventoryScreen::Storage(cells) | InventoryScreen::Window(_, cells)) => {
             Some(cells.min(protocol::MAX_GENERIC_STORAGE_SLOTS))
