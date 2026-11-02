@@ -88,7 +88,8 @@ interface facts {
 interface clock {
     /// Milliseconds since the Unix epoch and the local zone's current offset from UTC.
     record local-time { unix-ms: u64, utc-offset-seconds: s32 }
-    /// Reads the local machine clock and its current UTC offset with clock authority.
+    /// Reads the local clock snapshot captured when this invocation started.
+    /// The time and UTC offset stay frozen across suspension. Requires clock authority.
     read-local-time: func() -> result<local-time, string>;
 }
 
@@ -416,6 +417,9 @@ interface permissions {
 interface budget {
     /// Fuel left in the running callback, about the WebAssembly instructions it may still
     /// execute before it traps. Mods use it to spread large work over later callbacks.
+    /// Fuel carries across suspension and is never refilled. Time yields are not overruns.
+    /// Frame and world-entry allowances are FRAME_FUEL and WORLD_ENTRY_FRAME_FUEL in mod-host;
+    /// the shared pool is TOTAL_MOD_FRAME_FUEL in mod-api. See the generated limits reference.
     remaining-fuel: func() -> u64;
 }
 
@@ -1028,7 +1032,10 @@ world extension {
     import cinnabar:world-draw/drawing@0.2.0;
     /// Creates the initial retained UI state.
     export init: func();
-    /// Bounded frame callback used to measure the spike's crossing cost.
+    /// Runs a frame transaction with frozen input, session and clock observations.
+    /// The host may suspend it without refilling fuel; time only schedules work.
+    /// Output publishes after successful post-return. Late input actions are dropped.
+    /// Instances exporting decision handlers keep synchronous frame execution.
     export frame: func();
 }
 
@@ -1126,7 +1133,8 @@ world filtered-player-mod {
     use action-filter.{action-frame, action-verdict};
     /// Optional and explicitly exported by filtering modules; requires controls authority.
     /// The earliest active exporting module is the sole owner. Runs after ordinary frame
-    /// callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+    /// callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+    /// host-import calls. Called for transitions and every
     /// frame with a retained hold. No callback is needed for an idle physical hold.
     /// Suppressing a release retains its hold. Suppressing its following press joins that
     /// hold; accepting that press completes the outstanding release before a fresh press.

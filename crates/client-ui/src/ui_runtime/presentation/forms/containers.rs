@@ -74,6 +74,7 @@ impl<'a> ContainerAuthority<'a> {
             creative_expanded: &state.creative_expanded,
             search: &state.search,
             container_scroll: &state.container_scroll,
+            storage_radios: &state.storage_radios,
             text_focused: state.text_focused(),
             book: state.book.as_ref().map(|book| BookView {
                 pages: &book.pages,

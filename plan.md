@@ -977,6 +977,14 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   duplicates from every row in the layout on both remap and row reset, while Cinnabar's other
   rows can still share a control or refuse the reset. Vanilla's handling of a keyboard Menu Cancel inside text boxes is unverified, and
   cross-platform device acceptance remains incomplete.
+  Signs, command blocks, server forms, data-driven forms, emotes, mob effects, chat and inventories take keyboard
+  and pointer input as the frame's owner: the scene on top when the frame began, while it stays on
+  top. The architecture gate rejects a screen system that reads input without it. The reference
+  client delivers input to the top scene and scenes that always accept it, and it applies screen
+  pops in its stack update; where that update falls among a frame's input is unverified, so the
+  closing-frame fence is Cinnabar's choice. Launcher menu input, mod panels, consent and modal
+  input still use their own checks because they aren't routed through the scene owner yet. Touch and
+  gamepad device acceptance of the owner remains incomplete.
   stable retained resources and correct supported DPI/aspect behavior. Tiled images
   retain full coverage with bounded repeat geometry across cropped regions and sliced
   borders; large collection admission and hardware frame-work acceptance remain incomplete.
@@ -1070,6 +1078,18 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Automatic ingredient filling, trader experience, restock and demand-price transitions,
   classic preview rich tooltips, and full item/container acceptance across trading layouts
   remain incomplete.
+  Actor-backed storage menus keep every cell up to an implementation bound of 1,024, not a
+  verified native limit. Stack requests for cells above 255 send the low byte with the stack
+  network ID, normal transactions send the full cell, and each response entry means the next cell
+  its request predicted with that byte; a server's handling of those responses is unobserved. Stack
+  hover text appends plain lore lines, up to the existing 32-line cap; JSON text-object lore is
+  shown raw.
+  Pack radio tabs over storage cells select locally by forced or named-collection index; a member
+  with neither stays a cell click, where native checks its own component. The selection replays
+  only for groups drawn on the previous frame, so a group that reappears shows its default for one
+  frame. Native holds this state per component, and moving to that closes both gaps.
+  A press on a pack's auto-place button still sends a take, whose equivalence to native's request and per-frame cost
+  at 1,024 cells remain unverified.
   Actor-use transactions precede held item use when component, held-item, offhand and
   equipment-enchantment facts rule out every possible offering of an unmodified retail
   item; only components the client maps to interactions can offer one. Actors with a
@@ -1571,11 +1591,26 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   input state, and unloading the last presenter releases the catalog. Local frame fuel
   overruns retain committed output and recover admitted code with committed preferences on
   the bounded loading lane; consecutive overruns quarantine the guest, and a successful frame
-  resets the count. Other guest traps still quarantine immediately. Live overrun recovery
-  qualification remains incomplete. Host-observed world entry admits one larger frame
-  callback per mod and session, with one extra slot shared across mods per update and
-  unused extra fuel discarded. Deterministic tests cover admission, lifecycle, replacement
-  and recovery; live frame-time and slow-device qualification remain incomplete. Unmeasured shared
+  resets the count. Other guest traps still quarantine immediately. Frame callbacks without
+  synchronous decision exports retain async continuations across soft time slices, with
+  frozen observations and output deltas until post-return succeeds. Committed drawing owners
+  retain allocation and retirement state, and confirmed despawns reconcile in-flight actor
+  references and mask members independently of candidate culling. Publication checks resource
+  revisions and allocation identity without comparing mesh or shader contents. Late frame actions
+  are dropped; authority changes and unload cancel without a fault. Decision-exporting
+  instances keep synchronous frames. Scheduling accounts and the admission cursor follow
+  stable guest identities across reordering. Removal and successful guest replacement retire
+  the old account; rejected replacements retain it with the old continuation. Host-observed
+  world entry admits one larger frame callback per mod and session, with one extra slot
+  shared across mods per update. Frame callbacks charge the shared pool, carrying world-entry
+  excess into later updates; suspended callbacks conservatively reserve a share on each
+  serviced frame. Rotating the first callback prevents starvation without withholding fuel;
+  input reservations and output authority retain load order. Filters and event handlers
+  have independent limits. Regression coverage includes accounting, fair admission,
+  precedence, lifecycle, replacement, recovery, scheduling account lifetime, renderer retirement,
+  in-flight actor and mask culling, unchanged resource publication and discarded-token allocation. Execution of
+  the new regressions, live overrun recovery, suspension pacing and slow-device qualification
+  remain incomplete. Unmeasured shared
   blur, element blur, route exits and current-world visual integration remain incomplete.
 - Granted mod input exposes raw physical holds, player bindings and finalized per-key
   gameplay admission. Both held lists retain the 64-key cap with deterministic truncation;

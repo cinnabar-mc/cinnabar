@@ -24,16 +24,21 @@ use client_shell::{
 };
 use client_ui::ui_runtime::command_block::{CommandBlockEdit, conditional_bit, mode_of_block};
 use client_ui::ui_runtime::forms::engine_input;
+use client_ui::ui_runtime::scene_stack::Scene;
 
 use crate::runtime::world::ClientWorld;
 use crate::ui_runtime::forms::{engine_frame_input, read_pointer_edges};
+use crate::ui_runtime::input_owner::InputOwner;
 use crate::ui_runtime::interaction::{
     chat_modifiers, input_capture::restore_gameplay_input_after_chat,
 };
 
-/// Input sources only the editor's frames read.
+/// The frame's owner, and the input the editor reads as owner.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct CommandBlockInputSources<'w, 's> {
+    owner: InputOwner<'w>,
+    keys: ResMut<'w, ButtonInput<KeyCode>>,
+    mouse: ResMut<'w, ButtonInput<MouseButton>>,
     wheel: MessageReader<'w, 's, MouseWheel>,
     keyboard: MessageReader<'w, 's, KeyboardInput>,
     /// Modifiers held down, which the key reset each editor frame ends with would forget.
@@ -69,8 +74,6 @@ pub(crate) fn drive_command_block(
         Option<ResMut<client_state::CursorFocus>>,
         Option<Res<client_state::DrivenInput>>,
     ),
-    mut keys: ResMut<ButtonInput<KeyCode>>,
-    mut mouse: ResMut<ButtonInput<MouseButton>>,
     mut motion: ResMut<AccumulatedMouseMotion>,
     mut sources: CommandBlockInputSources,
     menu: Option<Res<MenuRuntime>>,
@@ -84,31 +87,25 @@ pub(crate) fn drive_command_block(
     let (window, mut cursor) = window.into_inner();
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
-    // A data-driven form owns the keys: a request made meanwhile opens once the form closes.
-    if runtime.resource_pack_loading()
-        || runtime.credits().owns_input()
-        || runtime.data_driven_ui().owns_input()
-    {
-        sources.clear();
-        *owned_last_frame = false;
-        return;
-    }
     if menu.as_ref().is_some_and(|menu| menu.is_visible()) {
         runtime.command_block_mut().close();
         sources.clear();
         *owned_last_frame = false;
         return;
     }
-    // A server form over the editor owns the keys, and a request made under one opens once it
-    // closes, so one key press never reaches both.
-    if runtime.server_forms().owns_input() {
+    let owned = sources
+        .owner
+        .frame(&runtime, &player_runtime, menu.as_deref());
+    // A screen above the editor owns the keys: an editor under it waits, and a request made
+    // meanwhile opens once that screen closes.
+    if owned.covers(Scene::CommandBlock) {
         runtime.command_block_mut().cancel_pointer_input();
         sources.clear();
         *owned_last_frame = false;
         return;
     }
     if let Some(stream) = client_world.stream.as_mut()
-        && let Some(position @ [x, y, z]) = stream.take_pending_command_block()
+        && let Some(position @ [x, y, z]) = runtime.command_block_mut().take_request()
     {
         let key = world::BlockEntityKey::new(stream.current_dimension(), x, y, z);
         let actor = stream
@@ -138,7 +135,12 @@ pub(crate) fn drive_command_block(
     if !runtime.command_block().is_open() {
         sources.clear();
         if *owned_last_frame && !runtime.ui_focused(&player_runtime) && input_available {
-            restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
+            restore_gameplay_input_after_chat(
+                &mut cursor,
+                &mut sources.keys,
+                &mut sources.mouse,
+                &mut motion,
+            );
         }
         *owned_last_frame = false;
         return;
@@ -146,13 +148,13 @@ pub(crate) fn drive_command_block(
     *owned_last_frame = true;
     set_cursor_capture(&mut cursor, false);
     let pointer = read_pointer_edges(
-        &mouse,
+        &sources.mouse,
         sources.button_messages.as_deref(),
         &mut sources.button_cursor,
         &mut sources.held,
     );
     let keyboard: Vec<_> = sources.keyboard.read().cloned().collect();
-    chat_modifiers::capture_before_events(&mut sources.modifiers, &keys, &keyboard);
+    chat_modifiers::capture_before_events(&mut sources.modifiers, &sources.keys, &keyboard);
     let mut press_shortcuts = Vec::new();
     for input in &keyboard {
         chat_modifiers::track(&mut sources.modifiers, input);
@@ -161,7 +163,10 @@ pub(crate) fn drive_command_block(
         }
     }
     let frame = presentation.command_block_frame().cloned();
-    if input_available && let Some(frame) = frame {
+    if input_available
+        && owned.reads(|scene| scene == Scene::CommandBlock)
+        && let Some(frame) = frame
+    {
         let held: Vec<_> = sources
             .modifiers
             .get_pressed()
@@ -183,7 +188,7 @@ pub(crate) fn drive_command_block(
                 pointer,
                 sources.wheel.read(),
                 &key_presses,
-                &mouse,
+                &sources.mouse,
                 menu.as_deref(),
                 (sources.pads.iter(), &mut sources.stick),
                 sources
@@ -201,7 +206,7 @@ pub(crate) fn drive_command_block(
         *sources.stick = [false; 4];
         runtime.command_block_mut().cancel_pointer_input();
     }
-    keys.reset_all();
+    sources.keys.reset_all();
     motion.delta = bevy::math::Vec2::ZERO;
     if !runtime.command_block().exit_requested() {
         return;
@@ -219,7 +224,12 @@ pub(crate) fn drive_command_block(
         return;
     }
     if !runtime.ui_focused(&player_runtime) {
-        restore_gameplay_input_after_chat(&mut cursor, &mut keys, &mut mouse, &mut motion);
+        restore_gameplay_input_after_chat(
+                &mut cursor,
+                &mut sources.keys,
+                &mut sources.mouse,
+                &mut motion,
+            );
         *owned_last_frame = false;
     }
 }

@@ -34,6 +34,7 @@ mod held_stack;
 mod held_stack_tests;
 mod preparation;
 pub mod presses;
+mod storage_radio;
 use held_stack::held_stack;
 
 /// Which screen the engine drew, for mapping its cells back to ledger targets.
@@ -88,6 +89,13 @@ impl ScreenLayout {
         };
         if matches!(self, ScreenLayout::Book) {
             return widget();
+        }
+        if let ScreenLayout::Station(kind) = self
+            && furnace_book::hit(kind.screen, region).is_none()
+            && container_data::widget_hit(kind.screen, region).is_none()
+            && let Some(radio) = storage_radio::hit(region)
+        {
+            return Some(InventoryCellHit::Widget(radio));
         }
         let (Some(index), Some(collection)) =
             (region.collection_index, region.collection.as_deref())
@@ -222,7 +230,7 @@ impl ContainerScreen {
             _ => context = recipe_book::context(context),
         }
         let mut icons = Vec::new();
-        let data = screen_data(
+        let mut data = screen_data(
             source,
             items,
             layout,
@@ -231,6 +239,9 @@ impl ContainerScreen {
             (&mut self.book, &mut self.furnace),
         );
         let screen = source.screen();
+        if let Some(frame) = previous {
+            storage_radio::select(&mut data, &frame.hits, screen.storage_radios);
+        }
         let view = ViewState {
             hovered: previous
                 .zip(pointer)
@@ -575,6 +586,16 @@ impl ScreenCache {
     }
 }
 
+/// A stack's hover text: its name, then each lore line after `\n§5§o`, as
+/// `ItemStackBase::getFormattedHovertext` appends them. Server packs read lore out of this text.
+fn hover_text(mut name: String, extra_data: &[u8]) -> String {
+    for line in protocol::item_display(extra_data).lore {
+        name.push_str("\n§5§o");
+        name.push_str(&line);
+    }
+    name
+}
+
 /// Builds collections with one icon-table entry per cell, keeping later bindings stable.
 struct Cells<'a> {
     names: &'a std::collections::HashMap<(i32, u32), Arc<str>>,
@@ -609,6 +630,7 @@ impl Cells<'_> {
                     .or_else(|| self.names.get(&(stack.network_id, stack.metadata)).cloned())
             })
             .map_or_else(String::new, |name| name.to_string());
+        let hover = stack.map_or_else(String::new, |stack| hover_text(name, &stack.extra_data));
         item.with(
             "#inventory_stack_count",
             Scalar::Text(if count > 1 {
@@ -617,7 +639,7 @@ impl Cells<'_> {
                 String::new()
             }),
         )
-        .with("#hover_text", Scalar::Text(name))
+        .with("#hover_text", Scalar::Text(hover))
         .with(
             "#item_id_aux",
             Scalar::Int(i64::from(
@@ -811,6 +833,8 @@ mod empty_cells_tests;
 mod press_drop_tests;
 #[cfg(test)]
 mod station_output_tests;
+#[cfg(test)]
+mod storage_radio_tests;
 
 /// The stack, icon, and durability a station cell shows.
 fn station_cell<'a>(

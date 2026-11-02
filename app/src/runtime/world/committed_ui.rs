@@ -149,6 +149,15 @@ pub(crate) fn drain_committed_ui_before_authority(
                         }
                     })
             }
+            CommittedUiEvent::OpenCommandBlock {
+                dimension_epoch: event_epoch,
+                position,
+            } => {
+                if event_epoch == dimension_epoch {
+                    ui_runtime.command_block_mut().request(position);
+                }
+                Ok(())
+            }
             // A generic UI entry must never bypass the form lifetime fence.
             CommittedUiEvent::Ui {
                 event: protocol::UiEvent::Form(_),

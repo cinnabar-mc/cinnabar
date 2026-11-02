@@ -103,10 +103,9 @@ impl PlayerInventoryLedger {
             WindowKind::Furnace | WindowKind::BlastFurnace | WindowKind::Smoker => Some(2),
             _ => None,
         });
-        let mut cells: Vec<Cell> = (0..u8::MAX)
+        let mut cells: Vec<Cell> = (0..self.confirmed.storage_len() as u16)
             .map(Cell::Storage)
-            .take_while(|cell| self.confirmed.contains(*cell))
-            .filter(|cell| *cell != Cell::Storage(output_cell.unwrap_or(u8::MAX)))
+            .filter(|cell| output_cell.is_none_or(|output| *cell != Cell::Storage(output)))
             .collect();
         cells.extend(
             (0..36u8)

@@ -3,7 +3,7 @@
 
 use protocol::{OpenCommandBlockEvent, OpenSignEvent};
 
-use super::WorldAuthority;
+use super::{CommittedUiEvent, WorldAuthority};
 
 /// One sign face the server asked the player to edit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,16 +30,15 @@ impl WorldAuthority {
         self.pending_sign_edit.take()
     }
 
-    /// Retains the latest current-dimension command block request at its ordered commit position.
+    /// Queues a current-dimension command block request at its ordered place among the UI events,
+    /// so a form the server sends after it finds the editor already asked for.
     pub fn consume_open_command_block(&mut self, event: OpenCommandBlockEvent) {
         if event.dimension == self.current_dimension {
-            self.pending_command_block = Some(event.position);
+            self.push_committed_ui(CommittedUiEvent::OpenCommandBlock {
+                dimension_epoch: self.form_dimension_epoch,
+                position: event.position,
+            });
         }
-    }
-
-    /// Takes the position of the pending command block request, if any.
-    pub fn take_pending_command_block(&mut self) -> Option<[i32; 3]> {
-        self.pending_command_block.take()
     }
 }
 
@@ -97,22 +96,11 @@ mod tests {
             })
         );
         assert_eq!(authority.take_pending_sign_edit(), None);
-
-        authority.consume_open_command_block(OpenCommandBlockEvent {
-            dimension: 1,
-            position: [1, 2, 3],
-        });
-        authority.consume_open_command_block(OpenCommandBlockEvent {
-            dimension: 0,
-            position: [7, 8, 9],
-        });
-        assert_eq!(authority.take_pending_command_block(), Some([1, 2, 3]));
-        assert_eq!(authority.take_pending_command_block(), None);
     }
 
-    /// The coordinates of a request left untaken name another block after a transition.
+    /// A request carries its dimension's epoch, and one for another dimension is dropped.
     #[test]
-    fn a_dimension_transition_discards_a_pending_command_block_request() {
+    fn a_command_block_request_is_queued_for_the_current_dimension_only() {
         let assets = Arc::new(RuntimeAssets::diagnostic());
         let mut authority = WorldAuthority::new(
             WorldBootstrap {
@@ -129,17 +117,26 @@ mod tests {
             [0.0; 3],
             None,
         );
+        authority.take_committed_ui();
+        authority.consume_open_command_block(OpenCommandBlockEvent {
+            dimension: 1,
+            position: [7, 8, 9],
+        });
+        assert!(authority.take_committed_ui().is_empty());
         authority.consume_open_command_block(OpenCommandBlockEvent {
             dimension: 0,
             position: [1, 2, 3],
         });
-        authority.reset_dimension(4, 1);
-        assert_eq!(authority.take_pending_command_block(), None);
-        // A request in the new dimension is kept.
-        authority.consume_open_command_block(OpenCommandBlockEvent {
-            dimension: 1,
-            position: [4, 5, 6],
-        });
-        assert_eq!(authority.take_pending_command_block(), Some([4, 5, 6]));
+        let queued = authority.take_committed_ui();
+        assert!(
+            matches!(
+                queued.as_slice(),
+                [CommittedUiEvent::OpenCommandBlock {
+                    position: [1, 2, 3],
+                    ..
+                }]
+            ),
+            "{queued:?}"
+        );
     }
 }

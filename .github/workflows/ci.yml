@@ -182,7 +182,8 @@ jobs:
       && (needs.changes.outputs.full == 'true'
         || (needs.preflight.result == 'success' && needs.preflight.outputs.scope != 'none'))
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Slower runners can use more than 45 minutes on the full checks.
+    timeout-minutes: 60
     env:
       FULL: ${{ needs.changes.outputs.full }}
       AFFECTED: ${{ needs.preflight.outputs.names }}
@@ -221,6 +222,9 @@ jobs:
           if affected cinnabar; then
             cargo clippy -p cinnabar --features enhanced,developer-control,tracy --locked -- -D warnings
             cargo clippy -p cinnabar --features reports --tests --locked -- -D warnings
+          fi
+          if affected ui-snapshot; then
+            cargo clippy -p ui-snapshot --features test-support --all-targets --locked -- -D warnings
           fi
       - name: Test developer control adapters
         if: ${{ !cancelled() && (env.FULL == 'true' || contains(format(' {0} ', env.AFFECTED), ' cinnabar ')) }}

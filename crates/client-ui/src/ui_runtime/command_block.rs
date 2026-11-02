@@ -208,10 +208,29 @@ pub struct CommandBlockEditor {
     engine: FormEngineState,
     exit: Option<Exit>,
     watched_epoch: Option<u64>,
+    /// The block the server asked the editor to open for, until the editor takes it.
+    requested: Option<[i32; 3]>,
 }
 
 impl CommandBlockEditor {
     #[must_use]
+    /// Records the server's request at its ordered position, for the editor to open once nothing
+    /// above it holds the screen.
+    pub const fn request(&mut self, position: [i32; 3]) {
+        self.requested = Some(position);
+    }
+
+    /// Whether a request is waiting to open.
+    #[must_use]
+    pub const fn requested(&self) -> bool {
+        self.requested.is_some()
+    }
+
+    /// Takes the position a waiting request names.
+    pub const fn take_request(&mut self) -> Option<[i32; 3]> {
+        self.requested.take()
+    }
+
     pub const fn is_open(&self) -> bool {
         self.active.is_some()
     }
@@ -247,6 +266,7 @@ impl CommandBlockEditor {
             .is_some_and(|watched| watched != dimension_epoch)
         {
             self.close();
+            self.requested = None;
         }
         self.watched_epoch = Some(dimension_epoch);
     }

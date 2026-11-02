@@ -15,9 +15,4 @@ impl WorldStream {
     pub fn take_pending_sign_edit(&mut self) -> Option<SignEditRequest> {
         self.authority.take_pending_sign_edit()
     }
-
-    /// Takes the position of the pending command block request, if any.
-    pub fn take_pending_command_block(&mut self) -> Option<[i32; 3]> {
-        self.authority.take_pending_command_block()
-    }
 }

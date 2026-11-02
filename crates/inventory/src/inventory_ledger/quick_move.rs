@@ -39,7 +39,7 @@ impl QuickMoveInput {
         };
         single
             .into_iter()
-            .chain(slots.iter().copied().map(Cell::Storage))
+            .chain(slots.iter().map(|slot| Cell::Storage(u16::from(*slot))))
     }
 }
 
@@ -69,7 +69,7 @@ impl PlayerInventoryLedger {
     pub fn begin_quick_move_with_storage_filter(
         &mut self,
         target: InventoryTarget,
-        permits_storage: impl Fn(u8) -> bool,
+        permits_storage: impl Fn(u16) -> bool,
     ) -> Result<i32, InventoryGestureError> {
         self.begin_quick_move_into(target, None, None, permits_storage)
     }
@@ -81,7 +81,7 @@ impl PlayerInventoryLedger {
         amount: u16,
     ) -> Result<i32, InventoryGestureError> {
         self.begin_quick_move_into(
-            InventoryTarget::Storage(source),
+            InventoryTarget::Storage(u16::from(source)),
             Some(&[Cell::Inventory(destination)]),
             Some(amount),
             |_| true,
@@ -99,7 +99,7 @@ impl PlayerInventoryLedger {
             .map(Cell::Inventory)
             .collect();
         self.begin_quick_move_into(
-            InventoryTarget::Storage(source),
+            InventoryTarget::Storage(u16::from(source)),
             Some(&destinations),
             None,
             |_| true,
@@ -112,7 +112,7 @@ impl PlayerInventoryLedger {
         target: InventoryTarget,
         destinations: Option<&[Cell]>,
         amount: Option<u16>,
-        permits_storage: impl Fn(u8) -> bool,
+        permits_storage: impl Fn(u16) -> bool,
     ) -> Result<i32, InventoryGestureError> {
         let source = target.cell();
         let personal_generation = self.gesture_preflight(!matches!(source, Cell::Storage(_)))?;
@@ -265,13 +265,13 @@ impl PlayerInventoryLedger {
     ) -> Option<QuickMoveInput> {
         if crate::furnace_recipes::kind(window).is_some() {
             self.furnace_slot(window, network_id, metadata)
-                .map(Cell::Storage)
+                .map(|slot| Cell::Storage(u16::from(slot)))
                 .map(QuickMoveInput::Single)
         } else {
             let fact = self.item_facts.get(network_id);
             match window {
                 WindowKind::Horse => item_roles::horse_slot(fact)
-                    .map(Cell::Storage)
+                    .map(|slot| Cell::Storage(u16::from(slot)))
                     .map(QuickMoveInput::Single),
                 WindowKind::Loom => {
                     item_roles::loom_slot(fact, self.item_facts.is_banner(network_id))
@@ -331,7 +331,7 @@ impl PlayerInventoryLedger {
         &self,
         source: Cell,
         from: &Held,
-        permits_storage: impl Fn(u8) -> bool,
+        permits_storage: impl Fn(u16) -> bool,
     ) -> Vec<Cell> {
         let stack = &from.stack;
         let player = |range: std::ops::Range<u8>| -> Vec<Cell> {
@@ -399,8 +399,8 @@ impl PlayerInventoryLedger {
     /// The window cells a negotiated stack shift-clicks into.
     fn window_destinations(&self, kind: WindowKind, network_id: i32, metadata: u32) -> Vec<Cell> {
         let input = self.quick_move_input_route(kind, network_id, metadata);
-        let storage = |range: std::ops::Range<u8>| -> Vec<Cell> {
-            range
+        let storage = |first: u16| -> Vec<Cell> {
+            (first..self.confirmed.storage_len() as u16)
                 .map(Cell::Storage)
                 .filter(|cell| self.confirmed.contains(*cell))
                 .collect()
@@ -417,8 +417,8 @@ impl PlayerInventoryLedger {
             | WindowKind::Dispenser
             | WindowKind::Dropper
             | WindowKind::Hopper
-            | WindowKind::Crafter => storage(0..u8::MAX),
-            WindowKind::Horse if input.is_none() => storage(2..u8::MAX),
+            | WindowKind::Crafter => storage(0),
+            WindowKind::Horse if input.is_none() => storage(2),
             WindowKind::Anvil => ui(&[1, 2]),
             WindowKind::Grindstone => ui(&[16, 17]),
             WindowKind::Stonecutter => ui(&[3]),

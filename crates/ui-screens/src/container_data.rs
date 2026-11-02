@@ -668,6 +668,7 @@ mod banner_tests {
 
     static EXPANDED: BTreeSet<u32> = BTreeSet::new();
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
+    static RADIOS: BTreeMap<u64, u16> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
     pub(super) struct LoomSource {
@@ -776,6 +777,7 @@ mod banner_tests {
                 creative_expanded: &EXPANDED,
                 search: "",
                 container_scroll: &SCROLL,
+                storage_radios: &RADIOS,
                 text_focused: false,
                 book: None,
             },

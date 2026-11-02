@@ -56,7 +56,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="filtered-player-mod"></a>
@@ -127,7 +130,8 @@ filter-actions: func(frame: action-frame) -> action-verdict;
 
 Optional and explicitly exported by filtering modules; requires controls authority.
 The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
 frame with a retained hold. No callback is needed for an idle physical hold.
 Suppressing a release retains its hold. Suppressing its following press joins that
 hold; accepting that press completes the outstanding release before a fresh press.
@@ -253,7 +257,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="handled-player-mod"></a>
@@ -327,7 +334,8 @@ filter-actions: func(frame: action-frame) -> action-verdict;
 
 Optional and explicitly exported by filtering modules; requires controls authority.
 The earliest active exporting module is the sole owner. Runs after ordinary frame
-callbacks, before gameplay, with independent fuel and no host-import calls. Called for transitions and every
+callbacks, before gameplay, with independent ACTION_FILTER_FUEL from mod-api and no
+host-import calls. Called for transitions and every
 frame with a retained hold. No callback is needed for an idle physical hold.
 Suppressing a release retains its hold. Suppressing its following press joins that
 hold; accepting that press completes the outstanding release before a fresh press.
@@ -453,7 +461,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 <a id="handled-player-mod-handle-sound"></a>
 
@@ -723,7 +734,10 @@ Creates the initial retained UI state.
 frame: func();
 ```
 
-Bounded frame callback used to measure the spike's crossing cost.
+Runs a frame transaction with frozen input, session and clock observations.
+The host may suspend it without refilling fuel; time only schedules work.
+Output publishes after successful post-return. Late input actions are dropped.
+Instances exporting decision handlers keep synchronous frame execution.
 
 
 <a id="server-bundle"></a>

@@ -51,7 +51,7 @@ fn placements(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8)> {
                 destination.container,
                 StackRequestContainer::PlayerInventory
             );
-            (*amount, destination.slot)
+            (*amount, u8::try_from(destination.slot).unwrap())
         })
         .collect()
 }

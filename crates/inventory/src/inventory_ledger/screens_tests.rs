@@ -431,7 +431,7 @@ fn enchanting_sends_the_native_request_and_rolls_back_on_rejection() {
                 amount: 1,
                 source: protocol::StackRequestSlot {
                     container: StackRequestContainer::CreatedOutput,
-                    slot: protocol::CREATED_OUTPUT_SLOT,
+                    slot: u16::from(protocol::CREATED_OUTPUT_SLOT),
                     stack_network_id: request_id,
                 },
                 destination: slot(22, 14, 0),
@@ -562,7 +562,7 @@ fn gather_fills_the_cursor_partial_stacks_first() {
     set_cursor(&mut ledger, stack(50, 10));
     ledger.begin_gather().unwrap();
     let request = ledger.newest_request().unwrap();
-    let takes: Vec<(u8, u8)> = request
+    let takes: Vec<(u16, u8)> = request
         .actions
         .iter()
         .filter_map(|action| match action {
