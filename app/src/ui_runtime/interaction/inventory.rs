@@ -26,13 +26,13 @@ use {
             UiPresentationRuntime, forms::recipe_book_shown, inventory_pointer::InventoryScreen,
         },
     },
-    inventory::inventory_ledger::DropSource,
+    inventory::inventory_ledger::{DropSource, InventoryTarget},
 };
 
 use launcher::menu::settings_options::BindingId;
 
 /// Whether the vanilla inventory owns Menu Cancel, independently of an overlaid mod view.
-pub(super) fn accepts_menu_cancel(
+pub(crate) fn accepts_menu_cancel(
     runtime: &UiRuntime,
     presentation: Option<&UiPresentationRuntime>,
 ) -> bool {
@@ -320,6 +320,17 @@ pub(super) fn apply_inventory_pointer(
         dispatch_bound_inventory_hotbar(menu, control, player_runtime, runtime, hit);
     }
     if !scrollbar_owned {
+        let hit_stack = hit.and_then(|hit| {
+            let ledger = runtime.inventory_ledger(player_runtime);
+            match hit {
+                InventoryCellHit::Player(slot) => ledger.displayed_stack(slot).cloned(),
+                InventoryCellHit::Storage(slot) => ledger.storage_stack(slot).cloned(),
+                InventoryCellHit::Craft(slot) => {
+                    ledger.target_stack(InventoryTarget::Craft(slot)).cloned()
+                }
+                _ => None,
+            }
+        });
         let frame = crate::ui_runtime::inventory_drag::PointerFrame {
             primary_pressed,
             primary_released,
@@ -331,6 +342,7 @@ pub(super) fn apply_inventory_pointer(
                 .cursor_stack()
                 .is_some(),
             hit,
+            hit_stack,
             now_millis,
         };
         let actions = runtime.screen_state_mut().pointer.step(frame);

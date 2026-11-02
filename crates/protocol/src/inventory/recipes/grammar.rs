@@ -115,15 +115,24 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         let value = reader.string()?;
         // `item_tag` descriptors name a tag rather than an item.
         match key {
-            "name" | "item_tag" if identifier(value) => {
+            "name" => name = value,
+            "item_tag" if identifier(value) => {
                 name = value;
                 tag = key == "item_tag";
             }
             _ => valid = false,
         }
     }
-    let aux = reader.int()?;
+    let mut aux = reader.int()?;
     let count = reader.int()?;
+    if !tag {
+        if let Some((identifier, resolved)) = item_id(name, aux) {
+            name = identifier;
+            aux = resolved;
+        } else {
+            valid = false;
+        }
+    }
     valid &= (0..=u16::MAX as i32).contains(&aux) && (1..=255).contains(&count);
     if pairs == 0 && count == 0 {
         valid = true;
@@ -135,6 +144,27 @@ fn ingredient<'a>(reader: &mut Reader<'a>) -> ReadResult<Ingredient<'a>> {
         count,
         valid,
     })
+}
+
+/// Splits a named ingredient's `namespace:path[:aux[:...]]` item ID into its
+/// identifier and effective aux, as Bedrock's item-ID parser does when it
+/// resolves deferred descriptors. A third token that parses as `0..=255`
+/// replaces the descriptor's aux; any other third token leaves it unchanged,
+/// and later tokens are ignored.
+fn item_id(name: &str, aux: i32) -> Option<(&str, i32)> {
+    if identifier(name) {
+        return Some((name, aux));
+    }
+    let (namespace, rest) = name.split_once(':')?;
+    let (path, tail) = rest.split_once(':')?;
+    let base = &name[..namespace.len() + 1 + path.len()];
+    let suffix = tail.split(':').next().unwrap_or_default();
+    let aux = suffix
+        .parse::<i32>()
+        .ok()
+        .filter(|value| (0..=0xff).contains(value))
+        .unwrap_or(aux);
+    identifier(base).then_some((base, aux))
 }
 
 fn output(reader: &mut Reader<'_>) -> ReadResult<Option<Output>> {

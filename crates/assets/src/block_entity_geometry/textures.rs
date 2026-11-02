@@ -15,9 +15,6 @@ macro_rules! atlas_textures {
 }
 
 atlas_textures! {
-    BlocksBellBottom => "textures/blocks/bell_bottom",
-    BlocksBellSide => "textures/blocks/bell_side",
-    BlocksBellTop => "textures/blocks/bell_top",
     BlocksConduitCage => "textures/blocks/conduit_cage",
     BlocksConduitClosed => "textures/blocks/conduit_closed",
     BlocksConduitOpen => "textures/blocks/conduit_open",

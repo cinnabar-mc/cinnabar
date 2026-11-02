@@ -603,6 +603,8 @@ interface environment {
 interface gameplay {
     /// Three coordinates; the containing record or function specifies their units and frame.
     record vector3 { x: f32, y: f32, z: f32 }
+    /// Integer world coordinates of one block.
+    record block-position { x: s32, y: s32, z: s32 }
     /// Remote player feet in world coordinates, without names or network access.
     record player { runtime-id: u64, position: vector3 }
     /// Current input-owned frame only. Angles are actor YXZ radians: yaw left, pitch up.
@@ -678,6 +680,14 @@ interface gameplay {
     /// view. Renew every frame; none or omission restores the crosshair. The first supplying
     /// mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
     set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+    /// Requests immediate destruction of explicit block positions on the next movement tick.
+    /// Requires interaction, terrain and focused gameplay. At most MAX_BLOCK_BREAKS per frame,
+    /// within MAX_BLOCK_BREAK_DISTANCE of the eye. Duplicate positions are coalesced.
+    /// This explicit override bypasses local mining time, reach and obstruction, but retains
+    /// game-mode permissions, loaded terrain and server validation. The host supplies held
+    /// item and wire identities. Requests commit only after a successful callback and are
+    /// discarded on focus loss or world changes. No camera or physical input is changed.
+    break-blocks: func(positions: list<block-position>) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
     /// Retained only after a successful callback; no current gameplay frame required.

@@ -1,6 +1,11 @@
 //! Guest SDK for player mods, generated from the same `extension` WIT contract used by the host.
 //! A server Experience's client part uses `experience-sdk`'s `client` feature instead.
 
+/// Maximum explicit block destruction requests committed by one mod per frame.
+pub const MAX_BLOCK_BREAKS: usize = 1024;
+/// Maximum distance of an explicit destruction request from the observed eye, in blocks.
+pub const MAX_BLOCK_BREAK_DISTANCE: f32 = 16.;
+
 mod terrain_limits;
 pub use terrain_limits::{
     MAX_TERRAIN_BOXES, MAX_TERRAIN_CELLS, MAX_TERRAIN_DISTANCE, MAX_TERRAIN_EXTENT,

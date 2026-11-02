@@ -3288,6 +3288,14 @@
       ]
     },
     {
+      "id": "render-bell",
+      "fact": "render:Bell",
+      "status": "provisional",
+      "members": [
+        "minecraft:bell"
+      ]
+    },
+    {
       "id": "render-lever",
       "fact": "render:Lever",
       "status": "provisional",

@@ -68,6 +68,12 @@ impl<'a> LocalPlayerUi<'a> {
         self.authority.actor_rig(self.runtime_id())
     }
 
+    /// Whether `bone` is `ancestor` or one of its descendants in the local actor's rig.
+    pub fn bone_descends_from(self, bone: usize, ancestor: usize) -> bool {
+        self.authority
+            .actor_bone_descends_from(self.runtime_id(), bone, ancestor)
+    }
+
     /// Borrows the completed full-body pose, independently of first-person hand evaluation.
     pub fn pose(self) -> Option<&'a [BoneTransform]> {
         self.authority.actor_ui_pose(self.runtime_id())

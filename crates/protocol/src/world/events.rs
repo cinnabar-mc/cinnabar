@@ -193,6 +193,14 @@ pub struct OpenSignEvent {
     pub front: bool,
 }
 
+/// The server opening the command block editor for the block at `position`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenCommandBlockEvent {
+    pub dimension: i32,
+    /// Absolute block coordinates in X/Y/Z order.
+    pub position: [i32; 3],
+}
+
 /// A `BlockEventPacket`: a per-block client cue such as a container lid moving.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BlockEventEvent {
@@ -494,6 +502,7 @@ pub enum WorldEvent {
     BlockEvent(BlockEventEvent),
     MapData(MapDataEvent),
     OpenSign(OpenSignEvent),
+    OpenCommandBlock(OpenCommandBlockEvent),
     ChunkRadiusUpdated(i32),
     PublisherUpdate(PublisherUpdateEvent),
     ChangeDimension(ChangeDimensionEvent),

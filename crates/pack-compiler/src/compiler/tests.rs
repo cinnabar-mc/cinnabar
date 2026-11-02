@@ -16,6 +16,8 @@ mod azalea;
 pub(crate) mod barrel;
 #[path = "tests/beacon.rs"]
 mod beacon;
+#[path = "tests/bell.rs"]
+mod bell;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]

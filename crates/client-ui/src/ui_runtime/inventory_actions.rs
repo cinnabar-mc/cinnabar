@@ -269,7 +269,17 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         action: PointerAction,
     ) {
-        let _ = match action {
+        let _ = self.try_pointer_action(player_runtime, action);
+    }
+
+    /// Runs one pointer action and returns the queued request id, or why the
+    /// ledger refused the gesture.
+    pub fn try_pointer_action(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        action: PointerAction,
+    ) -> Outcome {
+        match action {
             PointerAction::Click(hit) => {
                 let before = place_snapshot(player_runtime, hit);
                 let result = self.click_hit(player_runtime, hit);
@@ -305,8 +315,19 @@ impl UiRuntime {
                 self.screen_state_mut().pointer.distribution = None;
                 Ok(0)
             }
-            PointerAction::Gather => self.inventory_ledger_mut(player_runtime).begin_gather(),
-        };
+            PointerAction::Gather { hit, shift, focus } => {
+                let ledger = self.inventory_ledger_mut(player_runtime);
+                match hit {
+                    InventoryCellHit::Player(slot) if shift => ledger
+                        .begin_gather_to_storage_with_focus(InventoryTarget::Player(slot), focus),
+                    InventoryCellHit::Storage(slot) if shift => ledger
+                        .begin_gather_to_player_with_focus(InventoryTarget::Storage(slot), focus),
+                    InventoryCellHit::Craft(slot) if shift => ledger
+                        .begin_gather_to_player_with_focus(InventoryTarget::Craft(slot), focus),
+                    _ => ledger.begin_gather(),
+                }
+            }
+        }
     }
 
     /// Lets a drag that continues from a press-time placement rebalance it.

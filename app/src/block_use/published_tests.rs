@@ -1155,6 +1155,9 @@ mod bridging;
 #[path = "published_tests/seed_planting.rs"]
 mod seed_planting;
 
+#[path = "published_tests/paired_items.rs"]
+mod paired_items;
+
 /// Publishes another frame from the fixture's fixed camera ray against its updated world.
 fn publish_fixed_pick(world: &mut World) {
     let pick = world
