@@ -26,7 +26,7 @@ pub(super) struct ColumnScan {
 /// One routed block entity and the template its NBT and block describe.
 pub(super) struct ColumnEntity {
     pub(super) key: BlockEntityKey,
-    pub(super) nbt: Arc<BlockEntityNbt>,
+    nbt: Arc<BlockEntityNbt>,
     runtime_id: u32,
     pub(super) template: Option<Template>,
 }

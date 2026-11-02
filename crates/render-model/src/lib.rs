@@ -203,9 +203,6 @@ pub use block_entity::{
     TextureRef,
 };
 pub use block_entity::{
-    BELL_SWING_TICKS_PER_SECOND, BellAttachment, BellModel, BookPose, EnchantingBook,
-};
-pub use block_entity::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,
     BlockEntityLight, BlockEntityScene, BlockEntitySubmission, CrackInstance, SceneClock,
 };
@@ -217,6 +214,7 @@ pub use block_entity::{
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
 pub use block_entity::{BedModel, bed_color};
+pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
 pub use block_entity::{

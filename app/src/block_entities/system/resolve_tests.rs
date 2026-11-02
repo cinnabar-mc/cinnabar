@@ -5,20 +5,6 @@ use super::super::describe::PlantBlock;
 use super::*;
 
 /// A stream, registries, font and textured scene for resolving templates outside the system.
-/// A minimal bell record: its id and zero coordinates, nothing else.
-fn test_record() -> BlockEntityNbt {
-    let mut bytes = vec![10, 0];
-    bytes.extend([8, 2]);
-    bytes.extend(*b"id");
-    bytes.extend([4]);
-    bytes.extend(*b"Bell");
-    for name in *b"xyz" {
-        bytes.extend([3, 1, name, 0]);
-    }
-    bytes.push(0);
-    BlockEntityNbt::decode_prefix(&bytes).unwrap().0
-}
-
 struct Fixture {
     stream: chunk_pipeline::WorldStream,
     collisions: PhysicsCollisionRegistries,
@@ -27,7 +13,6 @@ struct Fixture {
     scene: BlockEntityScene,
     readers: Vec<Vec3>,
     held: Vec<StaticItemPlacement>,
-    record: Arc<BlockEntityNbt>,
 }
 
 impl Fixture {
@@ -72,7 +57,6 @@ impl Fixture {
             scene: block_entity_scene(Some(&RuntimeBlockEntityAssets::decode(&atlas).unwrap())),
             readers: Vec::new(),
             held: Vec::new(),
-            record: Arc::new(test_record()),
         }
     }
 
@@ -92,7 +76,6 @@ impl Fixture {
             now_seconds: now,
             font: &self.font,
             readers: &self.readers,
-            record: &self.record,
         };
         resolve(
             template,
@@ -174,7 +157,6 @@ fn frustum_hidden_cue_and_reader_changes_match_uninterrupted_animation_on_reentr
         Template::Bell {
             attachment: BellAttachment::Standing,
             ring_direction: 0,
-            ring_ticks: None,
         },
         Template::EnchantTable,
         Template::Shulker(render_model::ShulkerModel {
@@ -247,7 +229,6 @@ fn hidden_animation_state_resets_across_sessions_and_dimensions() {
         Template::Bell {
             attachment: BellAttachment::Standing,
             ring_direction: 0,
-            ring_ticks: None,
         },
         Template::EnchantTable,
     ];
@@ -372,7 +353,6 @@ fn hidden_entities_keep_lids_rings_and_map_requests() {
     let bell_template = Template::Bell {
         attachment: BellAttachment::Standing,
         ring_direction: 0,
-        ring_ticks: None,
     };
     let frame_template = Template::ItemFrame {
         model: ItemFrameModel {

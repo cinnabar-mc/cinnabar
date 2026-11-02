@@ -17,8 +17,6 @@ const PIVOT_HEIGHT: f32 = 0.75;
 const SWING_TICKS_PER_GAME_TICK: u32 = 2;
 const SWING_END_TICK: u32 = 50;
 const GAME_TICKS_PER_SECOND: f32 = 20.0;
-/// Ring animation ticks per second, the rate a bell record's tick count runs at.
-pub const BELL_SWING_TICKS_PER_SECOND: u32 = 40;
 /// The body's box about its pivot, and the lip below it. Native boxes are authored with -Y as
 /// up, which [`emit`] restores with a half turn about Z.
 const BODY: BoxSpec = BoxSpec::new([-3.0, -1.0, -3.0], [6.0, 7.0, 6.0], [0.0, 0.0]);

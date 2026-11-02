@@ -9,7 +9,7 @@ use bevy::prelude::{
     App, Mat4, Projection, Query, Real, Res, ResMut, Resource, Time, Transform, Update, Vec3, With,
 };
 use ui::TextLayoutCache;
-use world::{BlockEntityNbt, ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
+use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
@@ -50,10 +50,7 @@ mod beacon_tests;
 mod bed;
 mod bell_rings;
 mod piston_arms;
-use bell_rings::{
-    BELL_RING_EVENT_TYPE, BellDataRings, bell_data_elapsed, bell_elapsed, prune_bell_data_rings,
-    prune_bell_rings,
-};
+use bell_rings::{BELL_RING_EVENT_TYPE, bell_elapsed, prune_bell_rings};
 pub(super) mod columns;
 mod crystal_beams;
 mod culling;
@@ -139,7 +136,6 @@ pub(crate) struct BlockEntityRuntime {
     layouts: TextLayoutCache,
     shapes: CrackShapeCache,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
-    bell_data_rings: BellDataRings,
     piston_motions: HashMap<[i32; 3], piston_arms::PistonMotion>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
@@ -165,7 +161,6 @@ impl BlockEntityRuntime {
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
-            bell_data_rings: BellDataRings::new(),
             piston_motions: HashMap::new(),
             missing_maps: Vec::new(),
             session: None,
@@ -211,7 +206,6 @@ impl BlockEntityRuntime {
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
-        self.bell_data_rings.clear();
         self.piston_motions.clear();
         self.books = books::TableBooks::default();
     }
@@ -630,7 +624,6 @@ pub(crate) fn update_block_entity_scene(
                     now_seconds,
                     font: &font.0,
                     readers: &readers,
-                    record: &entity.nbt,
                 };
                 let kind = if matches!(template, Template::Beacon) {
                     beam_top.map(|top| {
@@ -699,7 +692,6 @@ pub(crate) fn update_block_entity_scene(
     runtime.columns = scans;
     runtime.settled = settled.then_some(window);
     piston_arms::prune(&mut runtime.piston_motions, now_seconds);
-    prune_bell_data_rings(&mut runtime.bell_data_rings, now_seconds);
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)
@@ -753,8 +745,6 @@ pub(crate) fn update_block_entity_scene(
 }
 
 struct FrameContext<'a> {
-    /// The block-entity record of the entity being resolved.
-    record: &'a Arc<BlockEntityNbt>,
     stream: &'a chunk_pipeline::WorldStream,
     collisions: &'a PhysicsCollisionRegistries,
     eye: Vec3,
@@ -850,7 +840,6 @@ fn resolve(
         &Template::Bell {
             attachment,
             ring_direction,
-            ring_ticks,
         } => {
             let sequence = stream
                 .block_event_cue(position)
@@ -861,14 +850,7 @@ fn resolve(
                 position,
                 sequence,
                 context.now_seconds,
-            )
-            .min(bell_data_elapsed(
-                &mut runtime.bell_data_rings,
-                position,
-                context.record,
-                ring_ticks,
-                context.now_seconds,
-            ));
+            );
             (!hidden).then_some(BlockEntityKind::Bell(BellModel {
                 attachment,
                 ring_direction,
