@@ -136,6 +136,30 @@ fn a_pack_that_hides_the_game_behind_the_screen_stops_world_rendering() {
     assert!(presentation.renders_game_behind(&player_runtime, &runtime, None));
 }
 
+/// A runtime whose local player, runtime id 1, has one infinite Speed effect.
+fn runtime_with_infinite_speed() -> UiRuntime {
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_effect(
+            1,
+            1,
+            ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 0,
+            },
+            0,
+        )
+        .unwrap();
+    runtime
+}
+
 /// Touch follows both renderers' actual artwork, retained paints, safe areas and hidden HUDs.
 #[test]
 fn effects_touch_target_follows_painted_art_and_retires_with_the_hud() {
@@ -159,25 +183,7 @@ fn effects_touch_target_follows_painted_art_and_retires_with_the_hud() {
             return;
         };
         let player = player_state::PlayerState::new(1);
-        let mut runtime = UiRuntime::new(1);
-        runtime
-            .apply_local_effect(
-                1,
-                1,
-                ActorEffectEvent {
-                    dimension: 0,
-                    actor_runtime_id: 1,
-                    action: ActorEffectAction::Add,
-                    effect_id: 1,
-                    amplifier: 0,
-                    particles: true,
-                    ambient: false,
-                    duration_ticks: -1,
-                    tick: 0,
-                },
-                0,
-            )
-            .unwrap();
+        let runtime = runtime_with_infinite_speed();
         presentation.hud_frame_mut().first_person = true;
         presentation.set_safe_area(SafeArea::new(23.0, 17.0, 11.0, 9.0).unwrap());
         let screen = serde_json::json!({
@@ -249,25 +255,7 @@ fn effect_touches_yield_to_foreground_controls() {
     };
     presentation.enable_touch_controls(true);
     let player = player_state::PlayerState::new(1);
-    let mut runtime = UiRuntime::new(1);
-    runtime
-        .apply_local_effect(
-            1,
-            1,
-            ActorEffectEvent {
-                dimension: 0,
-                actor_runtime_id: 1,
-                action: ActorEffectAction::Add,
-                effect_id: 1,
-                amplifier: 0,
-                particles: true,
-                ambient: false,
-                duration_ticks: -1,
-                tick: 0,
-            },
-            0,
-        )
-        .unwrap();
+    let runtime = runtime_with_infinite_speed();
     let render = |presentation: &mut UiPresentationRuntime| {
         presentation
             .build(

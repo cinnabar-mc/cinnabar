@@ -439,3 +439,32 @@ fn touching_the_effect_art_opens_the_list_and_blocks_gameplay() {
             client_ui::test_support::write_snapshot(&after, "effects_touch_after");
         });
 }
+
+/// A toast whose press has nothing left to open leaves View to the effects screen.
+#[test]
+fn controller_view_opens_effects_when_the_toast_press_opens_nothing() {
+    let mut h = Harness::new(true);
+    h.app
+        .insert_resource(MenuRuntime::new(false, 2, "Effects".into()));
+    h.app
+        .world_mut()
+        .resource_mut::<UiRuntimeResource>()
+        .stand_toast(ui::StandingToast {
+            id: 7,
+            title: "Join request".into(),
+            message: "Respond".into(),
+            press: Some(ui::ToastPress::JoinRequests),
+            since_millis: 0,
+            until_millis: 60_000,
+        });
+    let pad = h.app.world_mut().spawn(Gamepad::default()).id();
+    h.app
+        .world_mut()
+        .get_mut::<Gamepad>(pad)
+        .unwrap()
+        .digital_mut()
+        .press(GamepadButton::Select);
+    h.app.update();
+    assert!(!h.app.world().resource::<MenuRuntime>().is_visible());
+    assert!(h.runtime().mob_effect_screen().is_open());
+}

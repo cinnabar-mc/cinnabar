@@ -116,18 +116,18 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
         .pads
         .iter()
         .any(|pad| pad.just_pressed(GamepadButton::Select));
-    // An actionable toast gets View before the effects screen.
+    // An actionable toast takes View first; a press that opens nothing leaves View to effects.
     if !was_open
         && view_pressed
         && !input.runtime.hides_toasts()
-        && input
+        && let Some(press) = input
             .runtime
             .hud()
             .showing_toast(now)
-            .is_some_and(|toast| toast.press == Some(ui::ToastPress::JoinRequests))
+            .and_then(|toast| toast.press)
         && let Some(menu) = input.menu.as_deref_mut()
+        && menu.press_toast(press)
     {
-        menu.open_join_requests();
         input.owner.claim(super::input_owner::top_scene(
             &input.runtime,
             &input.player,
