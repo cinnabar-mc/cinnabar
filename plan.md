@@ -684,12 +684,14 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
-Confirmed gap: native keeps and draws every render controller whose condition passes,
-while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
-controller ahead of the body draws only the cosmetic, with no limb animation, and
-other passing layers such as hats and capes never appear. Closing this needs per-layer
-condition and geometry evaluation, posing and drawing, and attachable parent-bone
-lookup across the passing list.
+Client-entity render controllers evaluate each layer's activation, geometry, texture and
+pose in authored order. A completed all-false activation result suppresses the base body
+and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain
+their distinct fallback behavior. The description's `hide_held_items` expression controls
+held equipment independently of worn armor in the actor's world or UI render context.
+Tick, frame-sampled and retained outputs carry these policies. Primary rig selection still
+occurs at compilation, and attachable parent-bone lookup across multiple passing controllers
+and version-matched in-game acceptance remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.

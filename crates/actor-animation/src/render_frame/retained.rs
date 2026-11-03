@@ -61,6 +61,7 @@ impl Key {
 #[derive(Debug)]
 struct Output {
     render: Vec<RenderTextureLayer>,
+    visibility: RenderVisibility,
     skin: Option<Vec<SkinRenderLayer>>,
     scale: Option<f32>,
     head_rotation: Option<HeadRotation>,
@@ -132,6 +133,7 @@ impl Sample {
         {
             return Some(ActorRenderLayers {
                 render: Cow::Owned(output.render.clone()),
+                visibility: output.visibility,
                 skin: output
                     .skin
                     .as_ref()
@@ -150,6 +152,7 @@ impl Sample {
     pub(super) fn store(
         &mut self,
         render: &[RenderTextureLayer],
+        visibility: RenderVisibility,
         sampled_skin: Option<&[SkinRenderLayer]>,
         scale: Option<f32>,
         head_rotation: Option<HeadRotation>,
@@ -159,6 +162,7 @@ impl Sample {
         }
         let output = self.output.get_or_insert_with(|| Output {
             render: Vec::new(),
+            visibility,
             skin: None,
             scale,
             head_rotation,
@@ -173,6 +177,7 @@ impl Sample {
             }
             None => output.skin = None,
         }
+        output.visibility = visibility;
         output.scale = scale;
         output.head_rotation = head_rotation;
         self.valid = true;

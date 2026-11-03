@@ -67,7 +67,17 @@ pub(super) fn prepare(
                 .into_iter()
                 .flatten()
                 .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
-            if key == *ready_hand_key && !samples_item_scale && !holds_map {
+            let visibility = stream
+                .authority()
+                .actor_render_frame(partial_tick)
+                .visibility(local_runtime_id);
+            if key == *ready_hand_key
+                && !samples_item_scale
+                && !holds_map
+                && ready_hand_source
+                    .as_ref()
+                    .is_some_and(|source| Some(source.visibility) == visibility)
+            {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;

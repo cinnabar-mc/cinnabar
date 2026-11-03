@@ -413,6 +413,7 @@ impl ActorAnimationStore {
         let ui = state.ui_animation.as_ref()?;
         Some(ActorRenderLayers {
             render: std::borrow::Cow::Borrowed(&ui.render),
+            visibility: ui.visibility,
             skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
             held_item_scale: ui.held_item_scale,
             head_rotation: None,
@@ -425,6 +426,7 @@ impl ActorAnimationStore {
         let ui = state.paper_doll_animation.as_ref()?;
         Some(ActorRenderLayers {
             render: std::borrow::Cow::Borrowed(&ui.render),
+            visibility: ui.visibility,
             skin: std::borrow::Cow::Borrowed(&ui.skin_layers),
             held_item_scale: ui.held_item_scale,
             head_rotation: None,
@@ -485,6 +487,7 @@ impl ActorAnimationStore {
             previous_body_yaw: state.motion.previous_body_yaw,
             body_yaw: state.motion.body_yaw,
             render: &state.render,
+            visibility: state.visibility,
             attachments: Some(
                 state
                     .skin_skeleton()

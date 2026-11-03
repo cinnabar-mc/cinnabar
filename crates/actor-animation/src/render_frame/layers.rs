@@ -20,6 +20,7 @@ impl ActorAnimationStore {
         }
         let completed = || ActorRenderLayers {
             render: Cow::Borrowed(state.render.as_slice()),
+            visibility: state.visibility,
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
             head_rotation: state.head_rotation,
@@ -40,6 +41,7 @@ impl ActorAnimationStore {
                 && (!state.culled
                     || state.samples_camera_poses
                     || state.held_item_scale.is_some()
+                    || state.visibility.hide_held_items.is_some()
                     || frame.samples_rig_scale(actor))
                 && !state.reset_pending
         }) else {
@@ -425,13 +427,17 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         };
-        let Ok(Some(mut layers)) = render::evaluate_render_cached(
+        let Ok(rendered) = render::evaluate_render_cached(
             &evaluator,
             &mut variables,
             render_rig,
             &mut budget,
             Some(layer_cache),
         ) else {
+            return Some(fallback());
+        };
+        let visibility = rendered.visibility;
+        let Some(mut layers) = rendered.layers else {
             return Some(fallback());
         };
         if state
@@ -449,7 +455,10 @@ impl ActorAnimationStore {
                         render_rig,
                         &mut budget,
                     ),
-                    Ok(Some(_))
+                    Ok(render::RenderEvaluation {
+                        layers: Some(_),
+                        ..
+                    })
                 ) {
                     return Some(fallback());
                 }
@@ -654,6 +663,7 @@ impl ActorAnimationStore {
         if complete && let Some(retained) = retained {
             retained.store(
                 &layers,
+                visibility,
                 match &skin {
                     Cow::Owned(skin) => Some(skin.as_slice()),
                     Cow::Borrowed(_) => None,
@@ -664,6 +674,7 @@ impl ActorAnimationStore {
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
+            visibility,
             skin,
             held_item_scale,
             head_rotation,

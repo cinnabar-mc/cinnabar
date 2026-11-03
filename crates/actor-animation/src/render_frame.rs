@@ -20,6 +20,7 @@ use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 #[derive(Clone)]
 pub struct ActorRenderLayers<'a> {
     pub render: Cow<'a, [RenderTextureLayer]>,
+    pub visibility: RenderVisibility,
     pub skin: Cow<'a, [SkinRenderLayer]>,
     /// Main-hand size evaluated with this frame's owner variables and query inputs.
     pub held_item_scale: Option<f32>,
@@ -167,15 +168,16 @@ impl<'a> ActorRenderFrame<'a> {
         rig
     }
 
-    /// Shares the owner's sampled item scale with equipment under this frame's budget.
-    pub fn sample_held_item_scale<'rig>(
+    /// Shares sampled held-item scale and visibility under this frame's budget.
+    pub fn sample_equipment_properties<'rig>(
         &mut self,
         mut rig: ActorRigSnapshot<'rig>,
     ) -> ActorRigSnapshot<'rig> {
-        if rig.held_item_scale.is_some()
+        if (rig.held_item_scale.is_some() || rig.visibility.hide_held_items.is_some())
             && let Some(layers) = self.cached_layers(rig.actor.runtime_id)
         {
             rig.held_item_scale = layers.held_item_scale;
+            rig.visibility = layers.visibility;
         }
         rig
     }
@@ -197,6 +199,11 @@ impl<'a> ActorRenderFrame<'a> {
                     .iter()
                     .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
             })
+    }
+
+    /// Shares the frame's visibility without copying its pose or texture layers.
+    pub fn visibility(&mut self, runtime_id: u64) -> Option<RenderVisibility> {
+        Some(self.cached_layers(runtime_id)?.visibility)
     }
 
     /// The head angles of the pose this frame draws the actor's body with, so a layer built on the

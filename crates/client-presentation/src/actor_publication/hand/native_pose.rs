@@ -176,20 +176,14 @@ impl NativePoseCache {
         #[cfg(test)]
         let allocated = test_alloc::thread_allocations();
         let mut frame = stream.authority().actor_render_frame(alpha);
-        self.held_item_scale = frame.sample_held_item_scale(rig).held_item_scale;
+        self.held_item_scale = frame.sample_equipment_properties(rig).held_item_scale;
         self.skin_layers = None;
-        let sampled = if sample_skin {
-            frame.layers_with_skin(runtime_id)
-        } else {
-            frame
-                .layers(runtime_id)
-                .map(|render| actor_animation::ActorRenderLayers {
-                    render,
-                    skin: Cow::Borrowed(&[]),
-                    held_item_scale: self.held_item_scale,
-                    head_rotation: None,
-                })
-        };
+        let sampled = frame.layers_with_skin(runtime_id).map(|mut sampled| {
+            if !sample_skin {
+                sampled.skin = Cow::Borrowed(&[]);
+            }
+            sampled
+        });
         let pose = sampled.and_then(|sampled| {
             let pose = body_pose(presentation, sampled)?;
             self.skin_layers = pose.skin;

@@ -104,7 +104,7 @@ pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::compose_pose;
-pub use render::RenderTextureLayer;
+pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};

@@ -3,7 +3,7 @@ use super::*;
 /// Lists the authored expressions that can affect an actor's rendered layers.
 pub(super) fn render_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     let mut expressions = rig_expressions(assets, binding);
-    expressions.extend(render_controller_expressions(assets, binding));
+    expressions.extend(render_output_expressions(assets, binding));
     expressions
 }
 
@@ -18,15 +18,18 @@ pub(super) fn rig_expressions(assets: &RuntimeEntityAssets, binding: usize) -> V
     expressions
 }
 
-/// Render-controller scripts run after body keyframes and before selected geometry sampling.
-pub(super) fn render_controller_expressions(
-    assets: &RuntimeEntityAssets,
-    binding: usize,
-) -> Vec<u32> {
+/// Controller and visibility scripts run after body keyframes and before selected geometry sampling.
+pub(super) fn render_output_expressions(assets: &RuntimeEntityAssets, binding: usize) -> Vec<u32> {
     assets
         .render_layers(binding)
         .iter()
         .flat_map(|layer| render_layer_expressions(assets, layer).expressions)
+        .chain(
+            assets
+                .rig_bindings()
+                .get(binding)
+                .and_then(|rig| rig.hide_held_items),
+        )
         .collect()
 }
 

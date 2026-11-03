@@ -32,6 +32,7 @@ pub(super) fn owner_rig() -> ActorRigSnapshot<'static> {
         previous_body_yaw: 0.0,
         body_yaw: 0.0,
         render: &[],
+        visibility: RenderVisibility::default(),
         attachments: None,
         bone_names: &[],
         skin_geometry: None,

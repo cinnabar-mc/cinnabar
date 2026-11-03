@@ -181,7 +181,7 @@ impl MotionSampling {
             })
             .map(|clip| clip.symbol)
             .collect();
-        let render_writes = super::sampling::render_controller_expressions(assets, rig)
+        let render_writes = super::sampling::render_output_expressions(assets, rig)
             .into_iter()
             .any(|expression| has_effects(assets, expression));
         let rig_scale = assets.rig_bindings()[rig]
