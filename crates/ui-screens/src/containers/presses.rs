@@ -29,14 +29,22 @@ pub enum HeldStackPress {
 pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<HeldStackPress> {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
     // Unmapped cursor visuals leave the screen underneath responsible for the press.
-    // A scroll view without its own press mapping takes the wheel, not the press: the press
-    // reaches the input panel around it, as the item grid's background does.
+    // Mouse presses pass through unmapped views and their configured touch-drag mapping
+    // to the input panel around them, as the item grid's background requires.
     let region = frame.hits.iter().rev().find(|region| {
         region.contains(point)
             && !(region.kind == HitKind::Button
                 && region.follows_cursor
                 && region.pressed.is_none())
             && match region.kind {
+                HitKind::ScrollView
+                    if region.enabled
+                        && frame.report.scrolls.get(&region.key).is_some_and(|scroll| {
+                            !scroll.touch_mode && region.pressed == scroll.touch_button
+                        }) =>
+                {
+                    false
+                }
                 HitKind::ScrollView | HitKind::Panel => region.pressed.is_some(),
                 _ => true,
             }

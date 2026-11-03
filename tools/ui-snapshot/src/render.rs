@@ -10,6 +10,7 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+mod creative_delete;
 mod crosshair_coverage;
 #[cfg(feature = "test-support")]
 mod data_driven;
@@ -203,6 +204,7 @@ fn png_fixture(
         | Fixture::SpriteOutline { .. }
         | Fixture::Toast { .. }
         | Fixture::BackupFont
+        | Fixture::CreativeCatalogDelete
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(..)
         | Fixture::HudSurface(..) => false,
@@ -253,6 +255,11 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::CreativeCatalogDelete => {
+            let mut engine = json_engine(&carriers)?;
+            creative_delete::paint(&engine, &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::BackupFont => {
             let engine = json_engine(&carriers)?;
             backup_font::paint(&engine, &mut frame)?;
