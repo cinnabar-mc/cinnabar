@@ -10,6 +10,20 @@ use ui_engine::text_metrics::TextMetrics;
 use ui_screens::mob_effect_screen::effect_rows;
 
 impl UiPresentationRuntime {
+    /// Whether the last completed HUD painted effect icons under this logical window point.
+    pub fn mob_effect_hud_hit(&self, point: UiPoint) -> bool {
+        self.screens.touch.hud.as_ref().is_some_and(|frame| {
+            let x = point.x() - frame.origin[0];
+            let y = point.y() - frame.origin[1];
+            self.screens
+                .hud
+                .effect_bounds()
+                .is_some_and(|[left, top, right, bottom]| {
+                    x >= left && x < right && y >= top && y < bottom
+                })
+        })
+    }
+
     pub(in super::super) fn append_mob_effect_screen(
         &mut self,
         runtime: &UiRuntime,
