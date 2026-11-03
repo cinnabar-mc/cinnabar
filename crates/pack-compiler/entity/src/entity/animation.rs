@@ -187,19 +187,25 @@ pub(super) fn compile(
     let mut channels = Vec::new();
     let mut keyframes = Vec::new();
     let mut clip_indices = ClipIndices::new();
-    // A player's skin can replace its default model with one that adds bones.
+    // A player's skin can replace its model with one that adds bones, whichever geometry the
+    // player's controllers select, so every player geometry keeps those bones' channels.
     let player = assets::facts::entity::NativeEntityClass::Player.identifier();
-    let skin_modelled: std::collections::BTreeSet<u32> = environments
-        .iter()
-        .filter(|environment| {
-            Some(
-                symbols[environment.entity_symbol as usize]
-                    .identifier
-                    .as_ref(),
-            ) == player
-        })
-        .filter_map(|environment| environment.geometry)
-        .collect();
+    let mut skin_modelled = std::collections::BTreeSet::<u32>::new();
+    for environment in environments.iter().filter(|environment| {
+        Some(
+            symbols[environment.entity_symbol as usize]
+                .identifier
+                .as_ref(),
+        ) == player
+    }) {
+        skin_modelled.extend(environment.geometry);
+        if let Some(GeometrySelection::Supported(selectable)) =
+            selection_for(environment, &geometry_selections)
+        {
+            skin_modelled.extend(selectable.iter().map(|candidate| candidate.geometry));
+        }
+        skin_modelled.extend(environment.alias_geometries.iter().copied());
+    }
     for (symbol, source, definition) in pending_clips {
         let identifier = symbols[symbol as usize].identifier.as_ref();
         // Omit conflicting definitions from every lookup path, including server requests.

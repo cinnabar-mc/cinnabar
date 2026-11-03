@@ -667,11 +667,13 @@ impl ActorArtworkPages {
         if !self.valid_multitexture(location) {
             return false;
         }
-        // A skin's own model wears the runtime skin; its controllers may also name any entity
-        // texture of either catalog, as a vanilla player's do.
+        // A skin's own model wears the runtime skin, and its animated layers' images live in
+        // equipment pages; its controllers may also name any entity texture of either catalog,
+        // as a vanilla player's do.
         if crate::is_skin_rig_id(rig) {
             let texture = (location.page, location.layer);
-            return self.pack_locations.contains(&texture)
+            return self.equipment.contains(&texture)
+                || self.pack_locations.contains(&texture)
                 || self.entity_locations.contains(&texture);
         }
         if crate::is_equipment_rig_id(rig) {
@@ -947,6 +949,19 @@ mod tests {
         assert!(pages.valid(rig, variant));
         assert_eq!(pages.variant_location(rig, 5), None);
         assert_eq!(pages.variant_location(EntityRigId(0), 9), None);
+    }
+
+    // Animated face and body skin layers draw from equipment pages on skin rig ids; admitting
+    // catalog textures for skin models must keep accepting those.
+    #[test]
+    fn skin_models_keep_drawing_their_animated_layer_images() {
+        let raster = EquipmentRaster {
+            width: 2,
+            height: 2,
+            rgba8: vec![9; 16].into(),
+        };
+        let (pages, locations) = ActorArtworkPages::default().with_equipment_rasters(&[raster]);
+        assert!(pages.valid(crate::skin_rig_id(0), locations[0].unwrap()));
     }
 
     #[test]

@@ -147,6 +147,34 @@ impl ActorRigState {
     }
 }
 
+/// How far skin bone `index` and its added descendants move so their offsets from a rig
+/// parent match the skin's: the rig bone's pivot minus the skin bone's for a matched bone,
+/// its parent's shift for an added bone, and none at a root. Results are memoized in `shift`.
+fn shift_of(
+    index: usize,
+    skin: &PreparedSkin,
+    rig: &[RuntimeBone],
+    driver: &[Option<usize>],
+    shift: &mut [Option<[f32; 3]>],
+) -> [f32; 3] {
+    if let Some(known) = shift[index] {
+        return known;
+    }
+    // Mark the bone before following its parent, so a malformed cycle ends at no shift.
+    shift[index] = Some([0.0; 3]);
+    let value = match driver[index] {
+        Some(slot) if slot < rig.len() => {
+            std::array::from_fn(|axis| rig[slot].pivot[axis] - skin.bones[index].pivot[axis])
+        }
+        _ => match skin.bones[index].parent {
+            Some(parent) if parent < skin.bones.len() => shift_of(parent, skin, rig, driver, shift),
+            _ => [0.0; 3],
+        },
+    };
+    shift[index] = Some(value);
+    value
+}
+
 /// Matches each skin bone to the rig bone of the same name, appending a skin-only animation
 /// slot for each bone the rig lacks. Returns no extended skeleton when every bone matched.
 fn drivers(
@@ -171,10 +199,15 @@ fn drivers(
     if own.is_empty() {
         return (driver, None);
     }
+    // An added bone keeps its skin-authored offset from its parent: channel defaults read that
+    // offset, so its pivot moves with the rig parent that now stands in for the skin parent.
+    let mut shift: Vec<Option<[f32; 3]>> = vec![None; skin.bones.len()];
     let mut bones = rig.to_vec();
     let mut names = rig_names.to_vec();
     for &index in &own {
         let mut bone = skin.bones[index].clone();
+        let offset = shift_of(index, skin, rig, &driver, &mut shift);
+        bone.pivot = std::array::from_fn(|axis| bone.pivot[axis] + offset[axis]);
         bone.parent = bone
             .parent
             .and_then(|parent| driver.get(parent).copied().flatten());

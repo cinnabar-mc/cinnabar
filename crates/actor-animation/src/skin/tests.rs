@@ -353,7 +353,7 @@ fn bones_only_the_skin_defines_take_their_own_animation_slots() {
         resource_patch: r#"{"geometry":{"default":"geometry.skin_tail"}}"#.into(),
         geometry_data: r#"{"format_version":"1.12.0","minecraft:geometry":[
             {"description":{"identifier":"geometry.skin_tail","texture_width":64,"texture_height":64},"bones":[
-                {"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]},
+                {"name":"body","pivot":[0,10,0],"cubes":[{"origin":[-4,0,-2],"size":[8,10,4],"uv":[0,0]}]},
                 {"name":"tail","parent":"body","pivot":[0,12,2],"cubes":[{"origin":[-1,10,2],"size":[2,2,6],"uv":[0,0]}]},
                 {"name":"tip","parent":"tail","pivot":[0,12,8]}]}]}"#.into(),
         animations: Arc::from([]),
