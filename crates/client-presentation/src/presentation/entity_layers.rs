@@ -229,6 +229,11 @@ fn resolve(
             .filter_map(|layer| resolve_layer(submission, layer, artwork, cache, player_skin))
             .take(MAX_TEXTURE_LAYERS),
     );
+    // A player's body keeps its runtime skin, so player passes such as capes still admit it;
+    // catalog textures apply to its further controller layers.
+    if player_skin && let Some(body) = resolved.first_mut() {
+        body.location = None;
+    }
 }
 
 /// Admitted controller styling inherited by equipment without replacing attachment poses.
@@ -449,8 +454,8 @@ mod tests {
         );
     }
 
-    /// A player draws its own skin only for the default skin raster; any other texture its
-    /// controllers name, such as a pack's tracer, samples that catalog texture instead.
+    /// A player's body draws its own skin; a further controller layer naming a built catalog
+    /// texture, such as a pack's tracer, samples that texture instead.
     #[test]
     fn runtime_skin_bodies_draw_other_controller_textures_from_the_catalog() {
         let presentation = super::super::actors::local_diagnostic_presentation(
@@ -494,6 +499,7 @@ mod tests {
             }],
             &[],
         );
+        let fresh = batch.submissions.clone();
         let layers = [layer(true, 0), layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
@@ -508,6 +514,17 @@ mod tests {
             batch.artwork.get(&tracer.input.identity).copied(),
             artwork.source_location(true, 23)
         );
+        // The body itself keeps the runtime skin, so player passes such as capes admit it.
+        batch.submissions = fresh;
+        batch.artwork.clear();
+        let catalog_first = [layer(false, 23)];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| Some(Cow::Borrowed(&catalog_first)),
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert!(batch.artwork.is_empty());
     }
 
     #[test]
