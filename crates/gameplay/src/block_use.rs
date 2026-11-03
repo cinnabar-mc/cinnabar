@@ -273,7 +273,7 @@ pub struct BlockUseRuntime {
     slow_repeat: bool,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
-    /// The latest press was resolved as a block interaction.
+    /// The latest press was consumed by a block interaction or placement.
     press_interacted: bool,
     position_authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     pub intention: BuildIntention,
@@ -455,7 +455,7 @@ impl BlockUseRuntime {
         self.latched_press
     }
 
-    /// Whether the latest press was resolved as a block interaction, consuming it.
+    /// Whether a block interaction or placement consumed the latest press.
     pub const fn press_interacted(&self) -> bool {
         self.press_interacted
     }
@@ -478,8 +478,8 @@ impl BlockUseRuntime {
         self.rejected_tick = None;
         self.latched_press = false;
         if trigger == ItemUseTrigger::PlayerInput {
-            self.press_interacted = local_use == LocalUse::Interact;
-            if self.press_interacted {
+            self.press_interacted = local_use != LocalUse::Nothing;
+            if local_use == LocalUse::Interact {
                 self.interacted_tick = Some(tick);
             }
         }

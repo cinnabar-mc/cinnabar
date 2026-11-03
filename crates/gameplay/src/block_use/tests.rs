@@ -12,6 +12,7 @@ use super::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
 mod classification;
+mod edible_planting;
 mod held_placement;
 mod repeat_clock;
 mod respawn_anchor;
