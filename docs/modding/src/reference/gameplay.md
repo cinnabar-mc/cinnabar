@@ -30,6 +30,26 @@ record vector3 {
 | `y` | `f32` |  |
 | `z` | `f32` |  |
 
+<a id="type-block-position"></a>
+
+### `block-position`
+
+Integer world coordinates of one block.
+
+```wit
+record block-position {
+    x: s32,
+    y: s32,
+    z: s32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `x` | `s32` |  |
+| `y` | `s32` |  |
+| `z` | `s32` |  |
+
 <a id="type-player"></a>
 
 ### `player`
@@ -427,20 +447,18 @@ Types: [`vector3`](gameplay.md#type-vector3).
 ### `break-blocks`
 
 ```wit
-record block-position { x: s32, y: s32, z: s32 }
 break-blocks: func(positions: list<block-position>) -> result<_, string>;
 ```
 
-Requires interaction, terrain and focused gameplay. Requests explicit loaded blocks together
-on the next available movement tick, using the current held item and negotiated destruction
-protocol. Requests commit after a successful callback; duplicate positions are coalesced.
-The SDK constants `MAX_BLOCK_BREAKS` and `MAX_BLOCK_BREAK_DISTANCE` bound each frame's list
-and its distance from the eye. Requests waiting for a carrier are bounded by the same list
-limit and clear on focus loss or world changes. A full pending list keeps its earlier entries.
+Requests immediate destruction of explicit block positions on the next movement tick.
+Requires interaction, terrain and focused gameplay. At most MAX_BLOCK_BREAKS per frame,
+within MAX_BLOCK_BREAK_DISTANCE of the eye. Duplicate positions are coalesced.
+This explicit override bypasses local mining time, reach and obstruction, but retains
+game-mode permissions, loaded terrain and server validation. The host supplies held
+item and wire identities. Requests commit only after a successful callback and are
+discarded on focus loss or world changes. No camera or physical input is changed.
 
-This explicit mod override bypasses local mining progress, reach and obstruction. Game-mode
-edit permissions and server validation still apply. Local prediction does not guarantee the
-server accepts destruction. It changes neither the camera nor physical input.
+Types: [`block-position`](gameplay.md#type-block-position).
 
 <a id="set-packet-delay"></a>
 
