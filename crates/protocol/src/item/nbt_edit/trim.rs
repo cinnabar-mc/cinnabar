@@ -48,7 +48,7 @@ pub fn apply_item_trim(extra_data: &[u8], trim: &ItemTrim) -> Option<Arc<[u8]>> 
     write_string(&mut out, &root)?;
     write_entries(&mut out, &entries)?;
     out.extend_from_slice(trailer);
-    super::super::super::inventory::validate_item_nbt_size(out.len()).ok()?;
+    crate::inventory::validate_item_nbt_size(out.len()).ok()?;
     Some(out.into())
 }
 

@@ -31,26 +31,22 @@ pub fn compose<'a>(
 ) -> Option<EquipmentTexture> {
     let material = material.strip_prefix("minecraft:").unwrap_or(material);
     let pattern = pattern.strip_prefix("minecraft:").unwrap_or(pattern);
-    let mask_path = if icon {
-        format!("{TEXTURE_DIRECTORY}items/{}_trim", slot_name(slot))
+    let mask = if icon {
+        texture(&format!(
+            "{TEXTURE_DIRECTORY}items/{}_trim",
+            slot_name(slot)
+        ))?
     } else {
-        format!(
-            "{TEXTURE_DIRECTORY}{pattern}{}",
-            if slot == ArmorSlot::Leggings {
-                "_leggings"
-            } else {
-                ""
-            }
-        )
+        let suffix = if slot == ArmorSlot::Leggings {
+            "_leggings"
+        } else {
+            ""
+        };
+        let native = format!("{TEXTURE_DIRECTORY}{pattern}{suffix}");
+        let authored = overrides
+            .and_then(|resources| resources.textures.get(format!("{pattern}_trim").as_str()));
+        texture(authored.map_or(native.as_str(), AsRef::as_ref))?
     };
-    let mask_path = if icon {
-        mask_path.as_str()
-    } else {
-        overrides
-            .and_then(|resources| resources.textures.get(format!("{pattern}_trim").as_str()))
-            .map_or(mask_path.as_str(), AsRef::as_ref)
-    };
-    let mask = texture(mask_path)?;
     let palette = texture(&format!("{TEXTURE_DIRECTORY}color_palettes/trim_palette"))?;
     let armor_material = base.identifier.rsplit('/').next()?.split('_').next()?;
     let darker = armor_material == material;
@@ -99,7 +95,9 @@ pub fn compose<'a>(
             let mut over = sample(mask, x, y);
             if let Some(index) = palette
                 .rgba8
-                .chunks_exact(4)
+                .as_chunks::<4>()
+                .0
+                .iter()
                 .position(|key| key[..3] == over[..3])
             {
                 over[..3].copy_from_slice(&target.rgba8[index * 4..index * 4 + 3]);
@@ -108,13 +106,12 @@ pub fn compose<'a>(
             // Straight-alpha source-over retains transparent holes in item and armor sheets.
             let alpha = a * 255 + u32::from(under[3]) * (255 - a);
             let mut result = [0; 4];
-            if alpha != 0 {
-                for c in 0..3 {
-                    result[c] = ((u32::from(over[c]) * a * 255
-                        + u32::from(under[c]) * u32::from(under[3]) * (255 - a)
-                        + alpha / 2)
-                        / alpha) as u8;
-                }
+            for c in 0..3 {
+                result[c] = (u32::from(over[c]) * a * 255
+                    + u32::from(under[c]) * u32::from(under[3]) * (255 - a)
+                    + alpha / 2)
+                    .checked_div(alpha)
+                    .unwrap_or(0) as u8;
             }
             result[3] = ((alpha + 127) / 255) as u8;
             pixels.extend(result);

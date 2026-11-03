@@ -14,7 +14,7 @@ pub struct TrimRegistry {
 impl TrimRegistry {
     /// Resolves the pattern template and material from the server's current registry.
     pub fn resolve(&self, template: &str, addition: &str) -> Option<crate::ItemTrim> {
-        let lookup = |entries: &[(Arc<str>, Arc<str>)], item: &str| {
+        let lookup = |entries: &[TrimMapping], item: &str| {
             let mut matches = entries.iter().filter(|(name, _)| name.as_ref() == item);
             let (_, value) = matches.next()?;
             (matches.all(|(_, next)| next == value) && !value.is_empty()).then(|| Arc::clone(value))

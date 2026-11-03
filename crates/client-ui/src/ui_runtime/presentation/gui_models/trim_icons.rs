@@ -174,7 +174,7 @@ impl UiPresentationRuntime {
         })
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Composes or reuses one stack appearance and marks it as used this frame.
     fn trim_image(
         &self,
         base: &assets::EquipmentTexture,

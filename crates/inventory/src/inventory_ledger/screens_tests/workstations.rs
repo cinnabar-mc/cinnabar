@@ -40,9 +40,11 @@ fn smithing_trim_take_consumes_each_input_once_and_rejection_restores_them() {
             crafts: 1
         }
     ));
-    assert!(
-        matches!(&request.actions[1],StackRequestAction::CraftResultsDeprecated {results,crafts:1} if results[0].user_data==extra)
-    );
+    assert!(matches!(
+        &request.actions[1],
+        StackRequestAction::CraftResultsDeprecated { results, crafts: 1 }
+            if results[0].user_data == extra
+    ));
     let consumed: Vec<_> = request
         .actions
         .iter()
