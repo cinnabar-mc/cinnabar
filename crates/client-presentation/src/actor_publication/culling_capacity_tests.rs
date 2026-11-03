@@ -1,10 +1,11 @@
 use super::*;
 use crate::presentation::actors::{PoseConversions, select_actor_presentations};
-use crate::presentation::skin_rig::{MAX_SKIN_RIGS, SkinRigCache};
+use crate::presentation::skin_rig::SkinRigCache;
 use bevy::math::Vec3;
 use protocol::{
     ActorEvent, ActorKind, ActorSpawnEvent, PlayerListEntry, PlayerListUpdateEvent, WorldEvent,
 };
+use render_model::MAX_SKIN_RIGS;
 use render_model::{ActorArtworkPages, ActorRigFrameBuilder, ActorRigRoute};
 use std::sync::Arc;
 

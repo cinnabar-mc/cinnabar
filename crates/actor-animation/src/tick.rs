@@ -689,8 +689,11 @@ pub(super) fn evaluate_state(
     let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
-        &state.bones,
-        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+        state.animated_skeleton().0,
+        {
+            let (_, names, channels) = state.animated_skeleton();
+            pose::ChannelBones::bound(names, channels)
+        },
         &weighted_clips,
         budget,
     )?
@@ -759,7 +762,8 @@ pub(super) fn evaluate_state(
             current: local,
             mask: state.motion_sampling.as_ref().unwrap().mask(
                 assets,
-                &state.bone_names,
+                state.animated_skeleton().1,
+                Some(state.animated_skeleton().2),
                 weighted_clips.iter().copied(),
                 None,
             ),
@@ -776,6 +780,7 @@ pub(super) fn evaluate_state(
                         mask: state.motion_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            None,
                             weighted_clips.iter().copied(),
                             Some(geometry),
                         ),
