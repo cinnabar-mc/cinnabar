@@ -39,15 +39,17 @@ impl HeldSelection {
 }
 
 impl EquipmentRuntime {
-    /// Admits the first-person definition before choosing its hand and drawing its model.
+    /// Admits the first-person definition before choosing its hand and drawing its model; `java`
+    /// is Java 1.7 animation mode.
     pub(crate) fn select_held_item(
         &mut self,
         item: &WornItem,
         owner: &ActorSnapshot,
         rig: &ActorRigSnapshot<'_>,
         input: AttachableAnimationInput<'_>,
+        java: bool,
     ) -> HeldSelection {
-        let source = if self.uses_native_item_mesh(&item.identifier) {
+        let source = if self.uses_native_item_mesh(&item.identifier, java) {
             None
         } else {
             self.selected_binding_source(
@@ -79,7 +81,7 @@ impl EquipmentRuntime {
         input: AttachableAnimationInput<'_>,
         java_hand: Option<render_model::java_animation::JavaHand>,
     ) -> Option<FirstPersonItem> {
-        let selected = self.select_held_item(item, owner, owner_rig, input);
+        let selected = self.select_held_item(item, owner, owner_rig, input, java_hand.is_some());
         self.first_person_selected_attachable(
             body, item, &selected, owner, owner_rig, input, java_hand,
         )

@@ -675,7 +675,11 @@ textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
-fallback for held models. Script-based helmet inference is provisional and recognizes
+fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
+attachable's poses in Bedrock animations, matching native first- and third-person draws, and
+use native item sprites only under Java animations. Texture-only spears and tridents still
+draw as native item sprites in both styles; that choice is unverified against native.
+Script-based helmet inference is provisional and recognizes
 specific head/hand branch names. General slot inference and rendered qualification remain
 incomplete. A pack's attachables have no binding or texture count limit, and all their art
 is decoded and placed at join. Native queues each texture when it is first requested, and
