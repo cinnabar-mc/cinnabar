@@ -69,11 +69,7 @@ pub(super) fn network(
         .enable_all()
         .build()?;
     let client = reqwest::Client::builder()
-        .user_agent(format!(
-            "{}/{}",
-            launcher::PRODUCT_NAME,
-            launcher::PRODUCT_VERSION
-        ))
+        .user_agent(launcher::PRODUCT_USER_AGENT)
         .timeout(REQUEST_TIMEOUT)
         .redirect(reqwest::redirect::Policy::none())
         .build()?;
