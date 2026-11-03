@@ -279,3 +279,41 @@ fn native_nocull_samples_the_authored_face_uv_from_both_sides() {
     assert!(vertices.iter().all(|vertex| vertex.back_uv == vertex.uv));
     assert_eq!(vertices[0].normal, [1.0, 0.0, 0.0]);
 }
+
+// A material that skips the depth test shows whichever overlapping face draws last. Vanilla
+// draws a cube's down face, then its up face, then its east and west faces: a thin tracer cube
+// seen from above reads as its up face, and one seen from the side as that side face.
+#[test]
+fn a_cube_draws_down_then_up_then_its_side_faces() {
+    let cube = EntityGeometryCube {
+        origin: [scalar(0.0); 3],
+        size: [1.0, 1.0, 16.0].map(scalar),
+        pivot: [scalar(0.0); 3],
+        rotation: [scalar(0.0); 3],
+        uv: EntityGeometryUv::Faces(EntityGeometryFaceUvs {
+            north: Some(authored_face(Some([0.0, 0.0]))),
+            south: Some(authored_face(Some([0.0, 0.0]))),
+            east: Some(authored_face(Some([0.0, 0.0]))),
+            west: Some(authored_face(Some([0.0, 0.0]))),
+            up: Some(authored_face(Some([0.0, 0.0]))),
+            down: Some(authored_face(Some([0.0, 0.0]))),
+        }),
+        inflate: scalar(0.0),
+        mirror: false,
+    };
+    let mut vertices = Vec::new();
+    append_entity_cube_vertices(&mut vertices, &cube, 0, (64, 64), false, 0.0).unwrap();
+    let normals: Vec<[f32; 3]> = vertices.chunks(6).map(|face| face[0].normal).collect();
+    let position = |axis: usize, sign: f32| {
+        normals
+            .iter()
+            .position(|normal| normal[axis] * sign > 0.5)
+            .unwrap_or_else(|| panic!("no face along axis {axis} sign {sign}: {normals:?}"))
+    };
+    let (down, up) = (position(1, -1.0), position(1, 1.0));
+    assert!(down < up, "{normals:?}");
+    assert!(
+        up < position(0, 1.0) && up < position(0, -1.0),
+        "{normals:?}"
+    );
+}

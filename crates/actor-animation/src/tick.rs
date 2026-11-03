@@ -763,6 +763,7 @@ pub(super) fn evaluate_state(
             mask: state.motion_sampling.as_ref().unwrap().mask(
                 assets,
                 state.animated_skeleton().1,
+                Some(state.animated_skeleton().2),
                 weighted_clips.iter().copied(),
                 None,
             ),
@@ -779,6 +780,7 @@ pub(super) fn evaluate_state(
                         mask: state.motion_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            None,
                             weighted_clips.iter().copied(),
                             Some(geometry),
                         ),

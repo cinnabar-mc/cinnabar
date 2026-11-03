@@ -92,10 +92,13 @@ impl MotionSampling {
     }
 
     /// Unions prepared masks for the live clips, retaining the old path for unbound topology.
-    pub(crate) fn mask(
+    /// `channels`, when given, are the prepared bindings for `names`; they resolve the bones a
+    /// worn skin adds after the skeleton the masks were bound on.
+    pub(crate) fn mask<'a>(
         &self,
-        assets: &RuntimeEntityAssets,
-        names: &[Box<str>],
+        assets: &'a RuntimeEntityAssets,
+        names: &'a [Box<str>],
+        channels: Option<&'a pose::ChannelBindings>,
         clips: impl IntoIterator<Item = tick::WeightedClip>,
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
@@ -124,7 +127,11 @@ impl MotionSampling {
                 }
                 // Bones a worn skin adds were not bound with the clip; resolve them by name.
                 if names.len() > bone_count {
-                    let own = self.mask_unbound(assets, names, [mapped], None);
+                    let channel_bones = match channels {
+                        Some(channels) => pose::ChannelBones::bound(names, channels),
+                        None => pose::ChannelBones::new(names),
+                    };
+                    let own = self.mask_with(assets, names.len(), channel_bones, [mapped], None);
                     for (target, bits) in mask.iter_mut().zip(own).skip(bone_count) {
                         for axis in 0..3 {
                             target[axis] |= bits[axis];

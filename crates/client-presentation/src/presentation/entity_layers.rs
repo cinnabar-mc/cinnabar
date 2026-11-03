@@ -193,10 +193,12 @@ fn resolve_layer(
         },
         model,
         ignore_lighting: layer.ignore_lighting,
+        // A player wears its runtime skin for the default skin raster, and for any other
+        // texture the catalog did not build; a built controller texture is drawn as authored.
         location: if player_skin && layer.runtime_skin {
             None
         } else if player_skin {
-            Some(artwork.source_location(layer.pack, layer.source)?)
+            artwork.source_location(layer.pack, layer.source)
         } else {
             Some(match layer.multitexture {
                 Some([second, third]) => artwork

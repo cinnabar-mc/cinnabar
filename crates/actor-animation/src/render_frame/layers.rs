@@ -353,6 +353,7 @@ impl ActorAnimationStore {
                 sampling.mask(
                     assets,
                     state.animated_skeleton().1,
+                    Some(state.animated_skeleton().2),
                     clips
                         .iter()
                         .chain(
@@ -549,6 +550,7 @@ impl ActorAnimationStore {
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,
+                                    None,
                                     clips.iter().chain(previous_clips).copied(),
                                     Some(geometry),
                                 )

@@ -903,6 +903,7 @@ mod tests {
         assert!(crate::is_skin_rig_id(skin));
         assert!(!crate::is_skin_rig_id(crate::item_mesh_rig_id(3)));
         assert!(!crate::is_skin_rig_id(crate::DIAGNOSTIC_RIG_ID));
+        assert!(!crate::is_skin_rig_id(crate::actor::flame::FLAME_RIG_ID));
         let location = pages.source_location(true, 23).unwrap();
         assert!(pages.valid(skin, location));
         assert_eq!(
