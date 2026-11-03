@@ -626,6 +626,12 @@ const STATES: &[State] = &[
         fixture: out_of_game::play_worlds,
     },
     State {
+        name: "play-worlds-keyboard-focus",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::play_worlds_keyboard_focus,
+    },
+    State {
         name: "play-worlds-importing",
         size: SIZE,
         gui_scale: GUI_SCALE,
