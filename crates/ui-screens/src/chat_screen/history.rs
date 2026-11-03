@@ -62,36 +62,7 @@ pub(super) fn render<'a>(
         env,
         view,
     )?;
-    let correction = (|| {
-        let (key, metrics) = drawn
-            .report
-            .scrolls
-            .iter()
-            .find(|(key, _)| key.contains(MESSAGES_VIEW))?;
-        let offset = anchors
-            .iter()
-            .find_map(|anchor| {
-                let node = drawn.nodes.iter().find(|node| node.key == anchor.key)?;
-                Some(metrics.offset + node.dest.y - metrics.viewport_top - anchor.y)
-            })
-            .or_else(|| {
-                // A burst can move every anchor outside the emitted clip even though
-                // the rows survive. Measure the bound tree without viewport culling.
-                let (laid, _) = json_ui::layout_with(&drawn.bound, at.0, env, view);
-                anchors.iter().find_map(|anchor| {
-                    let y = label_y(&laid, &anchor.key)?;
-                    Some(metrics.offset + y - metrics.viewport_top - anchor.y)
-                })
-            })
-            .unwrap_or(0.0)
-            .clamp(0.0, metrics.max_offset());
-        let mut anchored = view.clone();
-        anchored.scroll.insert(key.clone(), offset);
-        anchored
-            .scroll_state
-            .insert(key.clone(), json_ui::ScrollRetained::default());
-        Some(anchored)
-    })();
+    let anchored = anchored_view(drawn, at.0, env, view, anchors);
     // Re-enter the cache so an unchanged view reuses its layout without another pass.
     screen.render_shared_with(
         reference,
@@ -100,8 +71,47 @@ pub(super) fn render<'a>(
         data,
         at,
         env,
-        correction.as_ref().unwrap_or(view),
+        anchored.as_ref().unwrap_or(view),
     )
+}
+
+/// Returns `view` scrolled so the first surviving anchor keeps its viewport offset,
+/// or `None` when the drawn form has no message history.
+fn anchored_view(
+    drawn: &FormRender,
+    origin: [f64; 2],
+    env: &LayoutEnv<'_>,
+    view: &ViewState,
+    anchors: &[Anchor],
+) -> Option<ViewState> {
+    let (key, metrics) = drawn
+        .report
+        .scrolls
+        .iter()
+        .find(|(key, _)| key.contains(MESSAGES_VIEW))?;
+    let offset = anchors
+        .iter()
+        .find_map(|anchor| {
+            let node = drawn.nodes.iter().find(|node| node.key == anchor.key)?;
+            Some(metrics.offset + node.dest.y - metrics.viewport_top - anchor.y)
+        })
+        .or_else(|| {
+            // A burst can move every anchor outside the emitted clip even though
+            // the rows survive. Measure the bound tree without viewport culling.
+            let (laid, _) = json_ui::layout_with(&drawn.bound, origin, env, view);
+            anchors.iter().find_map(|anchor| {
+                let y = label_y(&laid, &anchor.key)?;
+                Some(metrics.offset + y - metrics.viewport_top - anchor.y)
+            })
+        })
+        .unwrap_or(0.0)
+        .clamp(0.0, metrics.max_offset());
+    let mut anchored = view.clone();
+    anchored.scroll.insert(key.clone(), offset);
+    anchored
+        .scroll_state
+        .insert(key.clone(), json_ui::ScrollRetained::default());
+    Some(anchored)
 }
 
 /// Find a retained label even when its current position lies outside the viewport.
