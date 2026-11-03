@@ -96,8 +96,8 @@ impl EquipmentRuntime {
                 height: h,
                 rgba8: base_pixels.into(),
             };
-            let dye =
-                (tint != 0).then(|| ((tint & 255) << 16) | (tint & 0xff00) | ((tint >> 16) & 255));
+            let dye = (tint != 0)
+                .then_some(((tint & 255) << 16) | (tint & 0xff00) | ((tint >> 16) & 255));
             let composed = assets::item::trim::compose(
                 &base,
                 &trim.material,

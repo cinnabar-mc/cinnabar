@@ -198,7 +198,7 @@ impl UiPresentationRuntime {
     /// Shares owner selection, artwork fallback and atlas placement for every preview caller.
     pub(in crate::ui_runtime::presentation) fn set_preview_gear(
         &mut self,
-        armor: [Option<(&str, Option<u32>, bool, Option<&protocol::ItemTrim>)>; 4],
+        armor: [Option<PreviewArmor<'_>>; 4],
         hands: [Option<(PreviewHandItem, bool)>; 2],
         owner: Option<PreviewEquipmentOwner<'_>>,
     ) {
@@ -318,6 +318,10 @@ impl UiPresentationRuntime {
 
 /// The selected worn texture, tinted only when the binding's
 /// material is a color mask, and that texture's identifier.
+/// One worn armor piece: item identifier, leather dye, enchantment glint and trim.
+pub(in crate::ui_runtime::presentation) type PreviewArmor<'a> =
+    (&'a str, Option<u32>, bool, Option<&'a protocol::ItemTrim>);
+
 fn worn_armor<'a>(
     binding: &assets::EquipmentBinding,
     artwork: Option<&'a RuntimeEquipmentCatalog>,
