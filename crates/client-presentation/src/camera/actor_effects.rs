@@ -24,9 +24,9 @@ pub struct DamageShake {
 pub struct PresentedDamageShake(pub Option<DamageShake>);
 
 /// Samples hurt and bob on their own clocks, applying movement bob to the selected views, and
-/// publishes the damage shake it samples at full strength. Player-attached third-person rigs keep
-/// the movement bob on the orbiting camera; hurt, death and the hand stay first-person effects,
-/// and a mod's detached presented view keeps its absolute pose.
+/// publishes the damage shake it samples at full strength. The native third-person cameras keep
+/// the movement bob; hurt, death and the hand stay first-person effects, and server rigs and a
+/// mod's detached presented view keep their own poses.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
@@ -58,7 +58,7 @@ pub fn apply_actor_damage_camera_rotation(
         .unwrap_or_default();
     if !server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
         if settings.presented_view().is_some()
-            || !server.player_effects_enabled()
+            || !server.renders_native_third_person()
             || !settings.feel().view_bobbing.camera_enabled()
         {
             return;

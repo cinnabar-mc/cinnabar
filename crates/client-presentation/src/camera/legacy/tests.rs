@@ -530,66 +530,85 @@ fn detached_presented_view_does_not_bob_with_the_body() {
     assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
 }
 
+/// Server free, follow-orbit and fixed-boom rigs keep their own poses while the body walks under
+/// Full bobbing, even when the preset enables player effects.
 #[test]
-fn free_server_camera_preserves_its_base_pose() {
-    let mut app = camera_app();
-    tick(&mut app, 0);
-    tick(&mut app, 1);
-    app.world_mut().run_system_cached(sample).unwrap();
-    let mut user = ui::UserSettings::default();
-    let base = Transform::from_xyz(2.0, 5.0, 8.0);
-    let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
-    user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
-    app.world_mut()
-        .resource_mut::<CameraSettingsAuthority>()
-        .replace(2, &user)
-        .unwrap();
-    let context = crate::camera::ViewContext {
-        base,
-        subject: base,
-        base_fov: 60.0,
-        actors: &|_| None,
-    };
-    let mut server = ServerCameraView::default();
-    server.apply(
-        1,
-        &protocol::CameraEvent::Presets(
-            vec![protocol::CameraPreset {
-                name: "minecraft:free".into(),
-                ..Default::default()
-            }]
-            .into(),
-        ),
-        &context,
-    );
-    server.apply(
-        2,
-        &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
-            set: Some(protocol::CameraSetInstruction {
-                preset_id: 0,
-                ease: None,
-                position: None,
-                rotation_degrees: None,
-                facing_position: None,
-                view_offset: None,
-                entity_offset: None,
-                default_preset: None,
-                remove_ignore_starting_values: false,
-            }),
-            ..Default::default()
-        })),
-        &context,
-    );
-    assert!(!server.renders_first_person(true));
-    app.insert_resource(server);
-    app.world_mut().run_system_cached(apply).unwrap();
-    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
-    assert_eq!(
-        app.world()
-            .resource::<FirstPersonHandMotion>()
-            .legacy_effect,
-        None
-    );
+fn server_camera_rigs_preserve_their_base_pose() {
+    for name in [
+        "minecraft:free",
+        "minecraft:follow_orbit",
+        "minecraft:fixed_boom",
+    ] {
+        for player_effects in [None, Some(true)] {
+            let mut app = camera_app();
+            for index in 0..4 {
+                tick(&mut app, index);
+            }
+            app.world_mut().run_system_cached(sample).unwrap();
+            assert_ne!(
+                app.world()
+                    .resource::<LegacyCameraMotion>()
+                    .state
+                    .endpoints
+                    .bob_matrix(0.5),
+                Mat4::IDENTITY
+            );
+            let base = Transform::from_xyz(2.0, 5.0, 8.0);
+            let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+            let context = crate::camera::ViewContext {
+                base,
+                subject: base,
+                base_fov: 60.0,
+                actors: &|_| None,
+            };
+            let mut server = ServerCameraView::default();
+            server.apply(
+                1,
+                &protocol::CameraEvent::Presets(
+                    vec![protocol::CameraPreset {
+                        name: name.into(),
+                        player_effects,
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
+                    set: Some(protocol::CameraSetInstruction {
+                        preset_id: 0,
+                        ease: None,
+                        position: None,
+                        rotation_degrees: None,
+                        facing_position: None,
+                        view_offset: None,
+                        entity_offset: None,
+                        default_preset: None,
+                        remove_ignore_starting_values: false,
+                    }),
+                    ..Default::default()
+                })),
+                &context,
+            );
+            assert!(!server.renders_first_person(true), "{name}");
+            assert!(!server.renders_native_third_person(), "{name}");
+            app.insert_resource(server);
+            app.world_mut().run_system_cached(apply).unwrap();
+            assert_eq!(
+                *app.world().get::<Transform>(camera).unwrap(),
+                base,
+                "{name} {player_effects:?}"
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .legacy_effect,
+                None
+            );
+        }
+    }
 }
 
 #[test]
