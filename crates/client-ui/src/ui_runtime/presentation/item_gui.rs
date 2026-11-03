@@ -68,7 +68,7 @@ pub(super) fn cutout_cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
             faces[face as usize],
         )
     });
-    block_model(&quads)
+    block_model(&quads, assets::gui_item::GuiShading::Inventory)
 }
 
 fn cube_project(point: [f32; 3]) -> [f32; 2] {
