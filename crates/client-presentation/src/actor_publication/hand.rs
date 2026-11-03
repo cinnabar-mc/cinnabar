@@ -327,7 +327,8 @@ pub(super) fn vanilla_hand_source(
                 if let Some((selected, selected_input)) = main_selection {
                     (selected, selected_input)
                 } else {
-                    let selected = equipment.select_held_item(item, actor, &rig, render_input);
+                    let selected =
+                        equipment.select_held_item(item, actor, &rig, render_input, java_mode);
                     icon_fallback = selected.uses_icon_fallback();
                     if icon_fallback {
                         return equipment.first_person_item_icon_with_use(
@@ -349,7 +350,8 @@ pub(super) fn vanilla_hand_source(
                     );
                 }
             } else {
-                let selected = equipment.select_held_item(item, actor, &rig, render_input);
+                let selected =
+                    equipment.select_held_item(item, actor, &rig, render_input, java_mode);
                 icon_fallback = selected.uses_icon_fallback();
                 if icon_fallback {
                     return equipment.first_person_offhand_icon(&presentation.submission, item);
