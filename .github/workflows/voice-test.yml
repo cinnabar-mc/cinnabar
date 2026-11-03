@@ -51,9 +51,47 @@ jobs:
           name: logs-${{ runner.os }}
           path: logs
 
+  app:
+    name: Check the client app and architecture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.99.0
+        with:
+          components: clippy
+      - name: Install Linux desktop development libraries
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --yes libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev
+      - name: Architecture boundaries
+        shell: bash
+        run: |
+          mkdir -p logs
+          cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml 2>&1 | tee logs/architecture.txt; test ${PIPESTATUS[0]} -eq 0
+      - name: Check the app
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p logs
+          cargo check -p cinnabar --locked 2>&1 | tee logs/app-check.txt; test ${PIPESTATUS[0]} -eq 0
+      - name: Test the new app code and chat intercept
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p logs
+          cargo test -p cinnabar --lib --locked voice:: 2>&1 | tee logs/app-test.txt; test ${PIPESTATUS[0]} -eq 0
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: logs-app
+          path: logs
+
   publish-logs:
     name: Publish logs
-    needs: core
+    needs: [core, app]
     if: always()
     runs-on: ubuntu-24.04
     permissions:

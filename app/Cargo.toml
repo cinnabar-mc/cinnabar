@@ -120,6 +120,7 @@ ui-engine = { path = "../crates/ui-engine" }
 ui-screens = { path = "../crates/ui-screens" }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+client-voice = { path = "../crates/client-voice" }
 test-alloc = { path = "../crates/test-alloc", optional = true }
 mimalloc = { workspace = true, optional = true }
 client-extensions = { path = "../crates/client-extensions" }

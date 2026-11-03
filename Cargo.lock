@@ -2277,6 +2277,7 @@ dependencies = [
  "client-shell",
  "client-state",
  "client-ui",
+ "client-voice",
  "client-world",
  "cosmetics",
  "crash-monitor",

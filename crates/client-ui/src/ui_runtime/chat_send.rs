@@ -7,7 +7,29 @@ use ui::{ChatSendError, ChatSendRequest};
 
 use super::UiRuntime;
 
+/// Commands that belong to the client; the server never sees them.
+const LOCAL_COMMANDS: [&str; 2] = ["/voz", "/voice"];
+
+/// Whether `message` is exactly a local command or a local command followed by arguments.
+fn is_local_command(message: &str) -> bool {
+    LOCAL_COMMANDS.iter().any(|command| {
+        message
+            .strip_prefix(command)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(char::is_whitespace))
+    })
+}
+
 impl UiRuntime {
+    /// The login identity chat sends under: display name and XUID.
+    pub fn chat_identity(&self) -> (&str, &str) {
+        (&self.session.chat_source_name, &self.session.chat_xuid)
+    }
+
+    /// Takes the local commands typed since the last call, in the order typed.
+    pub fn take_local_commands(&mut self) -> Vec<Arc<str>> {
+        std::mem::take(&mut self.local_commands)
+    }
+
     pub fn pending_chat_sends(&self) -> &VecDeque<ChatSendRequest> {
         self.session.chat_sends.pending()
     }
@@ -35,6 +57,16 @@ impl UiRuntime {
             .chat_editor
             .as_str()
             .trim_start_matches(|c| matches!(c, '\t'..='\r' | ' '));
+        if is_local_command(message.trim_end()) {
+            // Handled by the client: kept for the app to run and never queued for the server.
+            let line: Arc<str> = Arc::from(message.trim_end());
+            self.chat_history.push(Arc::clone(&line));
+            self.session.chat_editor.clear();
+            self.session.chat_autocomplete.clear();
+            self.session.pending_chat_autocomplete_request = None;
+            self.local_commands.push(Arc::clone(&line));
+            return Ok(ChatSendRequest { session: self.session.session_id, sequence: 0, message: line });
+        }
         let request = self
             .session
             .chat_sends

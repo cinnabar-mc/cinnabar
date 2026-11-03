@@ -139,6 +139,8 @@ pub struct UiRuntime {
     hide_toasts: bool,
     chat_history: ChatHistory,
     dropped_unsent_chat_messages: u64,
+    /// Chat lines the client runs itself (such as `/voz`) instead of sending to the server.
+    local_commands: Vec<Arc<str>>,
     inventory_keys: interaction::InventoryKeys,
     furnace_projection: Arc<std::sync::Mutex<presentation::forms::furnace_book::ProjectionCache>>,
     recipe_book_icons: Arc<std::sync::Mutex<presentation::forms::BookIconCache>>,
@@ -170,6 +172,7 @@ impl UiRuntime {
             hide_toasts: false,
             chat_history: ChatHistory::default(),
             dropped_unsent_chat_messages: 0,
+            local_commands: Vec::new(),
             inventory_keys: interaction::InventoryKeys::default(),
             furnace_projection: Arc::default(),
             recipe_book_icons: Arc::default(),
