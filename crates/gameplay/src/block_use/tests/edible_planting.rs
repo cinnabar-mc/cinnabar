@@ -44,7 +44,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
             let mut item = ItemUseRuntime::default();
             item.observe_press(true);
             for tick in 100..140 {
-                let frame = food_frame(tick, identifier, ready, block.press_interacted());
+                let frame = food_frame(tick, identifier, ready, block.press_consumed());
                 assert!(frame.air_use.is_some(), "the fixture must be edible");
                 let outcome = item.step(&frame);
                 assert!(
@@ -62,7 +62,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
             }
             item.step(&UseFrame {
                 held: false,
-                ..food_frame(140, identifier, ready, block.press_interacted())
+                ..food_frame(140, identifier, ready, block.press_consumed())
             });
             block.forget_press_resolution();
             block.record(
@@ -73,12 +73,7 @@ fn planting_edible_crops_does_not_start_eating_or_arm_a_held_repeat() {
                 clock(7_050, 0.0),
             );
             item.observe_press(true);
-            let outcome = item.step(&food_frame(
-                141,
-                identifier,
-                ready,
-                block.press_interacted(),
-            ));
+            let outcome = item.step(&food_frame(141, identifier, ready, block.press_consumed()));
             assert_eq!(outcome.packets.len(), 1, "a new air-use press still works");
             assert_eq!(outcome.started, ready);
             assert_eq!(item.is_using(), ready);
@@ -99,5 +94,5 @@ fn refused_planting_does_not_consume_the_press() {
         false,
     ));
     assert!(block.press_pending());
-    assert!(!block.press_interacted());
+    assert!(!block.press_consumed());
 }
