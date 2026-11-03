@@ -68,6 +68,11 @@ impl<'a> LocalPlayerUi<'a> {
         self.authority.actor_rig(self.runtime_id())
     }
 
+    /// Completed controller output in the same UI context as the live actor pose.
+    pub fn layers(self) -> Option<actor_animation::ActorRenderLayers<'a>> {
+        self.authority.actor_ui_layers(self.runtime_id())
+    }
+
     /// Completed player-controller layers in the HUD paper-doll context.
     pub fn paper_doll_layers(self) -> Option<actor_animation::ActorRenderLayers<'a>> {
         self.authority.actor_paper_doll_layers(self.runtime_id())

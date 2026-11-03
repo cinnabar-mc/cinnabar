@@ -630,7 +630,7 @@ impl UiPresentationRuntime {
                 && self.gui_models.player_layers.has_layers())
             || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
-            && self.gui_models.live_player.body.geometry.is_some()
+            && (live_renderer || self.gui_models.live_player.body.geometry.is_some())
         {
             let instances = nodes
                 .iter()
@@ -708,6 +708,13 @@ impl UiPresentationRuntime {
                         *node = node
                             .clone()
                             .with_visual(UiVisual::TintedMesh { mesh, color });
+                    }
+                }
+            } else if live_renderer {
+                // A completed empty actor draw must not reveal the placeholder player raster.
+                for (index, node) in nodes.iter_mut().enumerate() {
+                    if targets.shows(index, node.visual()) {
+                        *node = node.clone().with_visual(UiVisual::None);
                     }
                 }
             }
