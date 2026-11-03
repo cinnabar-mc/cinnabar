@@ -103,6 +103,10 @@ OS through the framed control handshake, omit unavailable hardware models and ke
 device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
 registration; native Windows device authentication and other platform registrations remain
 incomplete. Live acceptance of native device claims across platforms remains open.
+Offline logins derive a stable UUID from the saved install device and exact persona spelling,
+preserving it across new core processes. Missing or unusable owned profiles remain ephemeral;
+the mapping does not recover earlier random UUIDs. Encoded-login regressions cover fresh-process
+profile reuse and separation; rendered pause-menu reconnect acceptance remains open.
 
 ## Phase 2 — World rendering
 
