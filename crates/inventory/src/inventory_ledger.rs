@@ -217,6 +217,7 @@ pub struct PlayerInventoryLedger {
     creative: Option<protocol::CreativeContentEvent>,
     /// Enchanting-table options for the current input item.
     enchant_options: Option<std::sync::Arc<[protocol::EnchantOption]>>,
+    trims: protocol::TrimRegistry,
     /// Bundle contents by dynamic container id.
     bundles: BTreeMap<u32, Vec<NetworkItemStack>>,
     queue: VecDeque<PendingRequest>,
@@ -271,6 +272,7 @@ impl Default for PlayerInventoryLedger {
             furnace_inputs: Default::default(),
             creative: None,
             enchant_options: None,
+            trims: Default::default(),
             bundles: BTreeMap::new(),
             queue: VecDeque::new(),
             pending_world_drops: 0,
@@ -449,6 +451,11 @@ impl PlayerInventoryLedger {
     #[must_use]
     pub fn enchant_options(&self) -> Option<&[protocol::EnchantOption]> {
         self.enchant_options.as_deref()
+    }
+
+    /// The server's current smithing material and pattern mappings.
+    pub fn trim_registry(&self) -> &protocol::TrimRegistry {
+        &self.trims
     }
 
     /// How requests name the open window's own cells; needs the window's content.

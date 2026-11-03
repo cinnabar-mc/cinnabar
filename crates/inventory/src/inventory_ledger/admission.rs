@@ -113,6 +113,7 @@ impl PlayerInventoryLedger {
                 }
             }
             InventoryEvent::Creative(content) => self.creative = Some(content.clone()),
+            InventoryEvent::Trims(registry) => self.trims = registry.clone(),
             _ => {}
         }
     }

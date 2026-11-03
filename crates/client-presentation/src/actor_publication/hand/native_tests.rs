@@ -300,6 +300,7 @@ fn fixture_with_binding(
     stream.advance_actor_interpolation_frame(6);
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,
@@ -474,6 +475,7 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
             );
             if off_hand {
                 input.off = Some(crate::presentation::equipment::WornItem {
+                    trim: None,
                     variant: Default::default(),
                     map_id: None,
                     shield_pattern: None,
@@ -639,6 +641,7 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     let (mut stream, mut equipment, artwork, mut input) = fixture(main);
     if off {
         input.off = Some(crate::presentation::equipment::WornItem {
+            trim: None,
             variant: Default::default(),
             map_id: None,
             shield_pattern: None,

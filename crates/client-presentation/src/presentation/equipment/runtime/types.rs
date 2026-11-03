@@ -38,6 +38,7 @@ pub(super) struct JavaRasterFrame {
 /// One stack an actor wears or holds, reduced to what drawing needs.
 #[derive(Clone, Debug)]
 pub struct WornItem {
+    pub trim: Option<protocol::ItemTrim>,
     /// Image identity a held map samples, independent of its atlas icon variant.
     pub map_id: Option<i64>,
     /// Shield decoration shared with canonical inventory and actor equipment.

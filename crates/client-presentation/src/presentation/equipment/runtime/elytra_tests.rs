@@ -172,6 +172,7 @@ fn worn(enchanted: bool) -> ActorEquipmentInput {
         armor: [
             None,
             Some(WornItem {
+                trim: None,
                 variant: Default::default(),
                 map_id: None,
                 shield_pattern: None,

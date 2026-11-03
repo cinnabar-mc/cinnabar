@@ -505,6 +505,7 @@ fn check_stack_enchantment_selection(condition: &str) {
             Default::default(),
             |stack| {
                 Some(client_world::CanonicalItemStack {
+                    trim: None,
                     identifier: Some(ITEM.into()),
                     identity: assets::ItemStackIdentity::empty(),
                     visual: assets::ItemVisualRoute::Missing,

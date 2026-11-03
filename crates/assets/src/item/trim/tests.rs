@@ -1,0 +1,129 @@
+use super::*;
+use std::collections::BTreeMap;
+
+fn image(path: &str, width: u16, pixels: &[[u8; 4]]) -> EquipmentTexture {
+    EquipmentTexture {
+        identifier: path.into(),
+        width,
+        height: 1,
+        rgba8: pixels.iter().flatten().copied().collect::<Vec<_>>().into(),
+    }
+}
+
+#[test]
+fn palette_substitution_keeps_holes_and_dyes_only_the_base() {
+    let base = image(
+        "textures/models/armor/leather_1",
+        3,
+        &[[200, 200, 200, 255], [200, 200, 200, 255], [0; 4]],
+    );
+    let textures = BTreeMap::from([
+        (
+            "textures/trims/sentry",
+            image(
+                "mask",
+                3,
+                &[[100, 100, 100, 0], [100, 100, 100, 255], [100, 100, 100, 0]],
+            ),
+        ),
+        (
+            "textures/trims/color_palettes/trim_palette",
+            image("palette", 1, &[[100, 100, 100, 255]]),
+        ),
+        (
+            "textures/trims/color_palettes/gold",
+            image("gold", 1, &[[240, 170, 20, 255]]),
+        ),
+    ]);
+    let output = compose(
+        &base,
+        "gold",
+        "sentry",
+        ArmorSlot::Chestplate,
+        false,
+        Some(0x00ff00),
+        None,
+        |path| textures.get(path),
+    )
+    .unwrap();
+    assert_eq!(&output.rgba8[..4], &[0, 200, 0, 255]);
+    assert_eq!(&output.rgba8[4..8], &[240, 170, 20, 255]);
+    assert_eq!(&output.rgba8[8..], &[0; 4]);
+    assert!(
+        compose(
+            &base,
+            "absent",
+            "sentry",
+            ArmorSlot::Chestplate,
+            false,
+            None,
+            None,
+            |path| textures.get(path)
+        )
+        .is_none()
+    );
+}
+
+#[test]
+fn matching_materials_leggings_item_masks_and_authored_aliases_select_their_own_art() {
+    let base = image("textures/models/armor/diamond_2", 1, &[[20, 30, 40, 255]]);
+    let palette = image("palette", 1, &[[100, 100, 100, 255]]);
+    let mut textures = BTreeMap::from([
+        (
+            "textures/trims/sentry_leggings",
+            image("legs", 1, &[[100, 100, 100, 255]]),
+        ),
+        (
+            "textures/trims/items/leggings_trim",
+            image("icon", 1, &[[100, 100, 100, 255]]),
+        ),
+        ("textures/trims/color_palettes/trim_palette", palette),
+        (
+            "textures/trims/color_palettes/diamond",
+            image("light", 1, &[[30, 250, 250, 255]]),
+        ),
+        (
+            "textures/trims/color_palettes/diamond_darker",
+            image("dark", 1, &[[10, 100, 100, 255]]),
+        ),
+    ]);
+    for icon in [false, true] {
+        assert_eq!(
+            compose(
+                &base,
+                "diamond",
+                "sentry",
+                ArmorSlot::Leggings,
+                icon,
+                None,
+                None,
+                |path| textures.get(path)
+            )
+            .unwrap()
+            .rgba8
+            .as_ref(),
+            &[10, 100, 100, 255]
+        );
+    }
+    let mut overrides = crate::equipment::EquipmentResources::default();
+    overrides
+        .textures
+        .insert("diamond_palette".into(), "custom/palette".into());
+    textures.insert("custom/palette", image("custom", 1, &[[90, 30, 200, 255]]));
+    assert_eq!(
+        compose(
+            &base,
+            "diamond",
+            "sentry",
+            ArmorSlot::Leggings,
+            false,
+            None,
+            Some(&overrides),
+            |path| textures.get(path)
+        )
+        .unwrap()
+        .rgba8
+        .as_ref(),
+        &[90, 30, 200, 255]
+    );
+}

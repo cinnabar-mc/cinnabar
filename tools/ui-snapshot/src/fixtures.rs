@@ -40,6 +40,10 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    #[cfg(feature = "test-support")]
+    ArmorTrims {
+        trimmed: bool,
+    },
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
     /// Opaque black-backed cursor art on contrasting backgrounds.
@@ -161,6 +165,20 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "armor-trims-before",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::ArmorTrims { trimmed: false },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "armor-trims-after",
+        size: [576, 672],
+        gui_scale: 1,
+        fixture: || Fixture::ArmorTrims { trimmed: true },
+    },
     asset_free("crosshair-coverage-before", [640, 240], || {
         Fixture::CrosshairCoverage { fixed: false }
     }),
