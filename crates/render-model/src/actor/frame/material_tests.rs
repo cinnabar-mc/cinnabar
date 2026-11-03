@@ -77,21 +77,19 @@ fn overlay_override_keeps_cpu_gpu_policy_without_authoring_raster_state() {
 }
 
 #[test]
-fn authored_color_mask_state_requests_the_gpu_color_mask() {
-    let authored = |color_mask| ActorMaterial {
+fn authored_color_mask_keeps_its_state_bit_outside_the_leather_flag() {
+    let material = ActorMaterial {
         state: Some(EntityRenderMaterialState {
-            blend: true,
-            color_mask,
+            color_mask: true,
             ..Default::default()
         }),
+        glint: crate::ActorGlint {
+            profile: render_api::CombatVisuals::Legacy112,
+            ..Default::default()
+        },
         ..Default::default()
     };
-    assert_eq!(
-        authored(true).gpu_word() & crate::ACTOR_COLOR_MASK_MATERIAL_FLAG,
-        crate::ACTOR_COLOR_MASK_MATERIAL_FLAG
-    );
-    assert_eq!(
-        authored(false).gpu_word() & crate::ACTOR_COLOR_MASK_MATERIAL_FLAG,
-        0
-    );
+    let word = material.gpu_word();
+    assert!(EntityRenderMaterialState::from_word(word).is_some_and(|state| state.color_mask));
+    assert_eq!(word & crate::ACTOR_COLOR_MASK_MATERIAL_FLAG, 0);
 }
