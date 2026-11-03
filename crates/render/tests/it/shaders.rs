@@ -315,6 +315,107 @@ fn every_shader_parses_and_validates() {
 }
 
 #[test]
+fn render_fragment_interfaces_fit_fifteen_slots_including_builtins() {
+    // Raspberry Pi V3DV exposes fifteen inter-stage variables, and wgpu counts
+    // front-facing, sample-index and sample-mask inputs against that budget.
+    fn slots(
+        module: &naga::Module,
+        ty: naga::Handle<naga::Type>,
+        binding: Option<&naga::Binding>,
+    ) -> u32 {
+        match binding {
+            Some(naga::Binding::Location { location, .. }) => {
+                assert!(
+                    *location < 14,
+                    "location {location} leaves no fifteenth slot for front-facing"
+                );
+                1
+            }
+            Some(naga::Binding::BuiltIn(
+                naga::BuiltIn::FrontFacing | naga::BuiltIn::SampleIndex | naga::BuiltIn::SampleMask,
+            )) => 1,
+            Some(_) => 0,
+            None => {
+                let naga::TypeInner::Struct { members, .. } = &module.types[ty].inner else {
+                    panic!("fragment inputs must carry a binding or be a struct");
+                };
+                members
+                    .iter()
+                    .map(|member| slots(module, member.ty, member.binding.as_ref()))
+                    .sum()
+            }
+        }
+    }
+
+    fn assert_fragments_fit(label: &str, source: &str, definitions: &[&str]) {
+        let module = naga::front::wgsl::parse_str(source).expect("shader parses");
+        for entry in module
+            .entry_points
+            .iter()
+            .filter(|entry| entry.stage == naga::ShaderStage::Fragment)
+        {
+            let count: u32 = entry
+                .function
+                .arguments
+                .iter()
+                .map(|argument| slots(&module, argument.ty, argument.binding.as_ref()))
+                .sum();
+            assert!(
+                count <= 15,
+                "{label} {} with {definitions:?} needs {count} varying slots including builtins",
+                entry.name,
+            );
+        }
+    }
+
+    for definitions in [
+        &[][..],
+        &["ALPHA_TO_COVERAGE"][..],
+        &["PACKED_TERRAIN"][..],
+        &["PACKED_TERRAIN", "ALPHA_TO_COVERAGE"][..],
+        &["ENHANCED"][..],
+        &["ENHANCED", "ALPHA_TO_COVERAGE"][..],
+        &["ENHANCED_SHADOW"][..],
+    ] {
+        for (name, source) in [
+            ("cube", include_str!("../../src/chunk.wesl")),
+            ("model", include_str!("../../src/model.wesl")),
+            ("liquid", include_str!("../../src/liquid.wesl")),
+            (
+                "transparent",
+                include_str!("../../src/transparent_terrain.wesl"),
+            ),
+        ] {
+            let source = shader_source::composed(source, definitions);
+            assert_fragments_fit(name, &source, definitions);
+        }
+    }
+
+    let shader = shader_safety::from_actor_wesl(
+        include_str!("../../src/actor.wesl"),
+        "actor.wesl",
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
+    let bevy::shader::Source::Wesl(source) = shader.source else {
+        panic!("actor constructor must produce WESL");
+    };
+    for definitions in [
+        &[][..],
+        &["ALPHA_TO_COVERAGE"][..],
+        &["COMPACT_BONES"][..],
+        &["ACTOR_MOTION"][..],
+        &["ACTOR_MOTION", "ALPHA_TO_COVERAGE"][..],
+        &["ACTOR_MASK"][..],
+        &["MASK_DISSOLVE"][..],
+        &["MASK_DISSOLVE", "MASK_DISSOLVE_MSAA"][..],
+    ] {
+        let source = shader_source::composed(&source, definitions);
+        assert_fragments_fit("actor", &source, definitions);
+    }
+}
+
+#[test]
 fn review_render_world_actor_fragments_read_shared_fog() {
     for raw in [
         include_str!("../../src/actor.wesl"),

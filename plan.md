@@ -1493,6 +1493,11 @@ desktop acceptance of this recovery path remains incomplete.
 Windows runtime executables use `asInvoker` manifests and allow both normal and elevated
 launches. Native Windows startup, update and crash-restart acceptance remains incomplete.
 
+Raspberry Pi Linux packaging includes a native ARM64 AppImage. Terrain and actor
+fragment interfaces fit the fifteen inter-stage variables V3DV exposes, including
+front-facing. Clean-install and displayed-frame acceptance across supported Pi
+models remain incomplete.
+
 ## Experimental hosts and extensions
 
 - Browser/Android implementation and CI checks do not close their complete join, pack,
