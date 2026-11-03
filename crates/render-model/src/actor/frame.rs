@@ -106,7 +106,8 @@ pub struct ActorRigSubmission {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ActorMaterial {
-    /// Alpha weights leather dye independently of the page's other materials.
+    /// Alpha weights leather dye independently of the page's other materials. An authored
+    /// `USE_COLOR_MASK` state requests the same GPU masking without setting this field.
     pub color_mask: bool,
     /// Animated glint factors. Item glint overlays preserve the base material's coverage.
     pub glint: super::ActorGlint,
@@ -913,7 +914,7 @@ impl ActorMaterial {
             } else {
                 0
             }
-            | if self.color_mask {
+            | if self.color_mask || self.state.is_some_and(|state| state.color_mask) {
                 super::glint::ACTOR_COLOR_MASK_MATERIAL_FLAG
             } else {
                 0
