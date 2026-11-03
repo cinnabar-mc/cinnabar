@@ -48,6 +48,11 @@ impl UiPresentationRuntime {
                 local_player: &runtime.session.local_player_display_name,
                 editor: runtime.chat_editor(),
                 messages: runtime.chat().messages(),
+                first_message_id: runtime
+                    .chat()
+                    .observed_rows()
+                    .next()
+                    .map_or(0, |(id, _)| id),
                 suggestions: runtime.chat_suggestions(),
                 usage: runtime.chat_usage_hint(),
                 selected_suggestion: runtime.chat_selected_suggestion(),
