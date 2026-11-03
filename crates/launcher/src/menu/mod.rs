@@ -68,6 +68,9 @@ menu_screens! {
     Invite,
 }
 
+/// The Play screen's tabs in tab-bar order: Worlds, Realms and Servers.
+pub const PLAY_TABS: [MenuScreen; 3] = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MenuServerTab {
     Featured,

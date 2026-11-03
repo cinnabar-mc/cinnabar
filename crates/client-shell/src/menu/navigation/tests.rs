@@ -122,3 +122,32 @@ fn a_session_without_a_play_page_keeps_its_existing_return_defaults() {
     menu.cancel_join();
     assert_eq!(menu.screen(), MenuScreen::Play);
 }
+
+#[test]
+fn tab_shortcuts_step_through_play_tabs_and_stop_at_each_end() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    menu.step_play_tab(-1);
+    assert_eq!(menu.screen(), MenuScreen::Play);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Social);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Servers);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Servers);
+    menu.step_play_tab(-1);
+    assert_eq!(menu.screen(), MenuScreen::Social);
+    menu.activate(MenuAction::AddBack);
+    assert_eq!(menu.screen(), MenuScreen::Home);
+}
+
+#[test]
+fn tab_shortcuts_do_nothing_off_the_play_screen_or_under_a_dialog() {
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Home);
+    menu.activate(MenuAction::Navigate(MenuScreen::Play));
+    menu.activate(MenuAction::OpenExitDialog);
+    menu.step_play_tab(1);
+    assert_eq!(menu.screen(), MenuScreen::Play);
+}

@@ -67,6 +67,10 @@ impl MenuInputMode {
     pub(super) fn gamepad(self) -> bool {
         matches!(self, Self::Gamepad)
     }
+
+    pub(super) fn touch(self) -> bool {
+        matches!(self, Self::Touch)
+    }
 }
 
 /// Retains physical button state because menu input clears Bevy's buttons
@@ -820,6 +824,12 @@ pub fn drive_menu_input(
         if gamepad.just_pressed(GamepadButton::DPadRight) {
             menu.move_horizontal_focus(1);
         }
+        if gamepad.just_pressed(GamepadButton::LeftTrigger) {
+            menu.step_play_tab(-1);
+        }
+        if gamepad.just_pressed(GamepadButton::RightTrigger) {
+            menu.step_play_tab(1);
+        }
         if gamepad.just_pressed(GamepadButton::DPadUp) {
             menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1);
         }
@@ -914,6 +924,12 @@ pub fn drive_menu_input(
             }
             KeyCode::ArrowRight => menu.move_horizontal_focus(1),
             KeyCode::Tab => menu.move_focus(if modifiers.shift() { -1 } else { 1 }),
+            KeyCode::BracketLeft if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(-1)
+            }
+            KeyCode::BracketRight if !input.repeat && !menu.has_focused_field() => {
+                menu.step_play_tab(1)
+            }
             KeyCode::Enter | KeyCode::NumpadEnter if menu.field == Some(MenuField::SkinName) => {
                 menu.activate(launcher::menu::MenuAction::DressingRoom(
                     launcher::dressing_room::Action::SaveRename,
