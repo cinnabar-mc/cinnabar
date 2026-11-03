@@ -622,6 +622,19 @@ impl ActorArtworkPages {
         location.pose_mode = route.pose_mode;
         Some(location)
     }
+    /// Where catalog source `source` lives for a body without its own artwork route, such as a
+    /// player wearing a runtime skin whose controller also names a catalog texture. `pack`
+    /// selects the session pack catalog. The location poses with the body's animated bones.
+    pub fn source_location(&self, pack: bool, source: u32) -> Option<ActorArtworkLocation> {
+        let sources = if pack {
+            &self.pack_source_locations
+        } else {
+            &self.source_locations
+        };
+        let mut location = sources.get(&source).copied()?;
+        location.pose_mode = assets::ActorPoseMode::CompiledLiteral;
+        Some(location)
+    }
     pub fn rejected_bindings(&self) -> usize {
         self.rejected_bindings
     }
@@ -653,6 +666,13 @@ impl ActorArtworkPages {
     pub fn valid(&self, rig: EntityRigId, location: ActorArtworkLocation) -> bool {
         if !self.valid_multitexture(location) {
             return false;
+        }
+        // A skin's own model wears the runtime skin; its controllers may also name any entity
+        // texture of either catalog, as a vanilla player's do.
+        if crate::is_skin_rig_id(rig) {
+            let texture = (location.page, location.layer);
+            return self.pack_locations.contains(&texture)
+                || self.entity_locations.contains(&texture);
         }
         if crate::is_equipment_rig_id(rig) {
             return self.equipment.contains(&(location.page, location.layer));
@@ -865,6 +885,37 @@ mod tests {
         assert!(crate::is_pack_rig_id(crate::pack_rig_id(5)));
         assert_eq!(pages.rejected_bindings(), 1);
         assert_ne!(pages.identity(), [0; 32]);
+    }
+
+    // A player's controller may name a catalog texture beside the skin it wears, as a pack's
+    // tracer layer does; its skin model draws that texture although it has no route.
+    #[test]
+    fn skin_models_draw_catalog_textures_their_controllers_name() {
+        let texture = |source: u32, fill: u8| assets::ActorTexture {
+            source,
+            width: 2,
+            height: 2,
+            pixel_sha256: [fill; 32],
+            rgba8: vec![fill; 16].into(),
+        };
+        let pages = ActorArtworkPages::default().with_pack_artwork(&[texture(23, 1)], &[]);
+        let skin = crate::skin_rig_id(3);
+        assert!(crate::is_skin_rig_id(skin));
+        assert!(!crate::is_skin_rig_id(crate::item_mesh_rig_id(3)));
+        assert!(!crate::is_skin_rig_id(crate::DIAGNOSTIC_RIG_ID));
+        let location = pages.source_location(true, 23).unwrap();
+        assert!(pages.valid(skin, location));
+        assert_eq!(
+            pages.source_location(false, 23),
+            None,
+            "vanilla sources stay separate"
+        );
+        let unknown = ActorArtworkLocation {
+            page: location.page,
+            layer: location.layer + 1,
+            ..location
+        };
+        assert!(!pages.valid(skin, unknown));
     }
 
     // Pack render layers name pack-catalog sources, never vanilla ones.

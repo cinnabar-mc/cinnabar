@@ -187,6 +187,19 @@ pub(super) fn compile(
     let mut channels = Vec::new();
     let mut keyframes = Vec::new();
     let mut clip_indices = ClipIndices::new();
+    // A player's skin can replace its default model with one that adds bones.
+    let player = assets::facts::entity::NativeEntityClass::Player.identifier();
+    let skin_modelled: std::collections::BTreeSet<u32> = environments
+        .iter()
+        .filter(|environment| {
+            Some(
+                symbols[environment.entity_symbol as usize]
+                    .identifier
+                    .as_ref(),
+            ) == player
+        })
+        .filter_map(|environment| environment.geometry)
+        .collect();
     for (symbol, source, definition) in pending_clips {
         let identifier = symbols[symbol as usize].identifier.as_ref();
         // Omit conflicting definitions from every lookup path, including server requests.
@@ -273,7 +286,7 @@ pub(super) fn compile(
                 symbol,
                 source,
                 definition,
-                (None, &names),
+                (None, &names, false),
                 ClipOutputs {
                     clips: &mut clips,
                     channels: &mut channels,
@@ -290,7 +303,11 @@ pub(super) fn compile(
                 symbol,
                 source,
                 definition,
-                (Some(geometry), &effective_bones[geometry as usize]),
+                (
+                    Some(geometry),
+                    &effective_bones[geometry as usize],
+                    skin_modelled.contains(&geometry),
+                ),
                 ClipOutputs {
                     clips: &mut clips,
                     channels: &mut channels,

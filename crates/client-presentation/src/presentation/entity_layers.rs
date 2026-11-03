@@ -193,8 +193,10 @@ fn resolve_layer(
         },
         model,
         ignore_lighting: layer.ignore_lighting,
-        location: if player_skin {
+        location: if player_skin && layer.runtime_skin {
             None
+        } else if player_skin {
+            Some(artwork.source_location(layer.pack, layer.source)?)
         } else {
             Some(match layer.multitexture {
                 Some([second, third]) => artwork
@@ -420,6 +422,8 @@ mod tests {
             ignore_lighting: false,
             light_color_multiplier: 1.0,
             sampled_scale: None,
+            runtime_skin: true,
+            pack: false,
         };
         let layers = [layer];
         apply_render_layers_cached(
@@ -443,6 +447,67 @@ mod tests {
         );
     }
 
+    /// A player draws its own skin only for the default skin raster; any other texture its
+    /// controllers name, such as a pack's tracer, samples that catalog texture instead.
+    #[test]
+    fn runtime_skin_bodies_draw_other_controller_textures_from_the_catalog() {
+        let presentation = super::super::actors::local_diagnostic_presentation(
+            1,
+            0,
+            1,
+            render_api::PoseGeneration::new(1),
+            [0.0; 3],
+            0.0,
+            0.0,
+        )
+        .unwrap();
+        let mut batch =
+            super::super::actors::select_actor_presentations(1, true, Some(presentation), []);
+        let layer = |runtime_skin: bool, source: u32| RenderTextureLayer {
+            material: assets::EntityRenderMaterial::Default,
+            material_state: None,
+            source,
+            texture_slot: 0,
+            multitexture: None,
+            color: [1.0; 4],
+            overlay: [0.0; 4],
+            hidden_bones: Arc::from([]),
+            uv_anim: render_model::IDENTITY_UV_ANIM,
+            geometry: None,
+            previous_pose: Arc::from([]),
+            pose: Arc::from([]),
+            ignore_lighting: true,
+            light_color_multiplier: 1.0,
+            sampled_scale: None,
+            runtime_skin,
+            pack: true,
+        };
+        let artwork = ActorArtworkPages::default().with_pack_artwork(
+            &[assets::ActorTexture {
+                source: 23,
+                width: 2,
+                height: 2,
+                pixel_sha256: [1; 32],
+                rgba8: vec![255; 16].into(),
+            }],
+            &[],
+        );
+        let layers = [layer(true, 0), layer(false, 23)];
+        apply_render_layers_cached(
+            &mut batch,
+            |_| Some(Cow::Borrowed(&layers)),
+            &artwork,
+            &mut LayerPoseCache::default(),
+        );
+        assert_eq!(batch.submissions.len(), 2);
+        let [skin, tracer] = [&batch.submissions[0], &batch.submissions[1]];
+        assert!(!batch.artwork.contains_key(&skin.input.identity));
+        assert_eq!(
+            batch.artwork.get(&tracer.input.identity).copied(),
+            artwork.source_location(true, 23)
+        );
+    }
+
     #[test]
     fn runtime_skin_overlay_uses_the_first_admitted_layer_and_keeps_later_layers_independent() {
         let layer = RenderTextureLayer {
@@ -461,6 +526,8 @@ mod tests {
             ignore_lighting: false,
             light_color_multiplier: 1.0,
             sampled_scale: None,
+            runtime_skin: true,
+            pack: false,
         };
         for dissolve in [false, true] {
             let presentation = super::super::actors::local_diagnostic_presentation(
