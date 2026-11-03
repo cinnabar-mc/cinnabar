@@ -46,6 +46,7 @@ type Config struct {
 	// Injectable for tests; nil selects the real implementation.
 	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
 	Realms          func(context.Context, *authcache.Account) ([]catalog.Realm, error)
+	LeaveRealm      func(context.Context, *authcache.Account, int) error
 	Friends         func(context.Context, *authcache.Account) ([]catalog.Friend, error)
 	People          func(context.Context, *authcache.Account) ([]catalog.Person, error)
 	Gamertag        func(context.Context, *authcache.Account) (string, error)
@@ -88,6 +89,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Realms == nil {
 		cfg.Realms = catalog.Realms
+	}
+	if cfg.LeaveRealm == nil {
+		cfg.LeaveRealm = catalog.LeaveRealm
 	}
 	if cfg.Friends == nil {
 		cfg.Friends = catalog.Friends

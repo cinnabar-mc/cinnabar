@@ -34,8 +34,8 @@ pub use view::{
     ButtonArt, CatalogFile, CatalogFriend, CatalogServer, EXPERIENCE_ADDRESS_PREFIX,
     FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
     LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
-    MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt, pingable,
+    MenuRealmCard, MenuServerCard, MenuView, PingInfo, REALM_ADDRESS_PREFIX, SavedServer,
+    ServerDetails, ServerTrustPrompt, joined_realm, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
@@ -83,6 +83,8 @@ pub enum MenuDialog {
     Exit,
     DeathQuit,
     RemoveSaved(usize),
+    /// Confirms leaving the joined Realm with this service id.
+    LeaveRealm(u32),
     RemoveShaderPack(u16, u64),
     StorageDelete,
     StorageError,
@@ -152,6 +154,10 @@ pub enum MenuAction {
     PlayRealm(usize),
     /// Opens or advances Realm membership through an invite link or code.
     RealmMembership(realm_membership::Action),
+    /// Asks to confirm leaving the joined Realm with this service id.
+    LeaveRealmDialog(u32),
+    /// Leaves the joined Realm with this service id after the player confirmed.
+    ConfirmLeaveRealm(u32),
     PlayFriend(usize),
     ToggleFavorite(usize),
     RemoveSavedDialog(usize),
