@@ -381,6 +381,7 @@ fn touching_the_effect_art_opens_the_list_and_blocks_gameplay() {
         eprintln!("skipping effects touch input: missing JSON-UI carrier (make assets)");
         return;
     };
+    presentation.enable_touch_controls(true);
     let mut h = Harness::new(true);
     let player = h.app.world().resource::<PlayerRuntime>();
     let before = presentation
@@ -399,7 +400,7 @@ fn touching_the_effect_art_opens_the_list_and_blocks_gameplay() {
             (0..1280)
                 .step_by(4)
                 .map(|x| UiPoint::new(x as f32, y as f32).unwrap())
-                .find(|point| presentation.mob_effect_hud_hit(*point))
+                .find(|point| presentation.mob_effect_hud_hit(*point, [1280.0, 720.0]))
         })
         .expect("the active effect paints a touch target");
     h.app

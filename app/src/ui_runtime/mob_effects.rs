@@ -149,7 +149,11 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
                     .ok()
                     .is_some_and(|point| {
                         input.presentation.as_deref().is_some_and(|view| {
-                            view.toast_press_at(point).is_none() && view.mob_effect_hud_hit(point)
+                            view.toast_press_at(point).is_none()
+                                && view.mob_effect_hud_hit(
+                                    point,
+                                    [input.window.0.width(), input.window.0.height()],
+                                )
                         })
                     })
             })

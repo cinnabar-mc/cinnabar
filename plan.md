@@ -1072,7 +1072,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
   damage closes it. Controller View prioritizes actionable toasts. Touch hit bounds follow
   the painted effect artwork, including pack placement and clipping, and survive retained
-  paints. Native touch hit-area and toast precedence qualification, the opening guard's
+  paints. Foreground touch controls and mod buttons keep their presses when they overlap
+  effect artwork. Native touch hit-area and toast precedence qualification, the opening guard's
   unidentified player check, close-button hover, list scrolling and target-device acceptance
   remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,

@@ -210,12 +210,13 @@ fn effects_touch_target_follows_painted_art_and_retires_with_the_hud() {
             let center =
                 UiPoint::new((left + right) / 2.0 + 23.0, (top + bottom) / 2.0 + 17.0).unwrap();
             assert!(
-                presentation.mob_effect_hud_hit(center),
+                presentation.mob_effect_hud_hit(center, [1280.0 / dpi, 720.0 / dpi]),
                 "{renderer} at DPI {dpi}"
             );
-            assert!(
-                !presentation.mob_effect_hud_hit(UiPoint::new(left + 22.0, center.y()).unwrap())
-            );
+            assert!(!presentation.mob_effect_hud_hit(
+                UiPoint::new(left + 22.0, center.y()).unwrap(),
+                [1280.0 / dpi, 720.0 / dpi]
+            ));
             let paints = presentation.hud_paints();
             build_at(&player, &mut presentation, &runtime, 0, [1280, 720], dpi);
             assert_eq!(
@@ -224,17 +225,105 @@ fn effects_touch_target_follows_painted_art_and_retires_with_the_hud() {
                 "unchanged HUD reuses its paint"
             );
             assert!(
-                presentation.mob_effect_hud_hit(center),
+                presentation.mob_effect_hud_hit(center, [1280.0 / dpi, 720.0 / dpi]),
                 "reuse retains the hit area"
             );
             super::super::snapshot::write(&input, &format!("effects_touch_{renderer}_{dpi}"));
             presentation.hud_frame_mut().death_screen = true;
             build_at(&player, &mut presentation, &runtime, 0, [1280, 720], dpi);
             assert!(
-                !presentation.mob_effect_hud_hit(center),
+                !presentation.mob_effect_hud_hit(center, [1280.0 / dpi, 720.0 / dpi]),
                 "hidden HUD cannot take touches"
             );
             presentation.hud_frame_mut().death_screen = false;
         }
     }
+}
+
+/// A foreground mod button or utility overlay keeps a touch over the effect artwork.
+#[test]
+fn effect_touches_yield_to_foreground_controls() {
+    let Some(mut presentation) = super::super::pack_harness::engine_presentation() else {
+        eprintln!("skipping effects touch ownership: missing JSON-UI carrier (make assets)");
+        return;
+    };
+    presentation.enable_touch_controls(true);
+    let player = player_state::PlayerState::new(1);
+    let mut runtime = UiRuntime::new(1);
+    runtime
+        .apply_local_effect(
+            1,
+            1,
+            ActorEffectEvent {
+                dimension: 0,
+                actor_runtime_id: 1,
+                action: ActorEffectAction::Add,
+                effect_id: 1,
+                amplifier: 0,
+                particles: true,
+                ambient: false,
+                duration_ticks: -1,
+                tick: 0,
+            },
+            0,
+        )
+        .unwrap();
+    let render = |presentation: &mut UiPresentationRuntime| {
+        presentation
+            .build(
+                &player,
+                &runtime,
+                0,
+                [1280, 720],
+                ui::DpiScale::new(1.0).unwrap(),
+            )
+            .unwrap();
+    };
+    let window = [1280.0, 720.0];
+    render(&mut presentation);
+    let point = (0..720)
+        .step_by(4)
+        .find_map(|y| {
+            (0..1280)
+                .step_by(4)
+                .map(|x| UiPoint::new(x as f32, y as f32).unwrap())
+                .find(|point| presentation.mob_effect_hud_hit(*point, window))
+        })
+        .expect("the active effect has a reachable touch target");
+    let position = [point.x() / window[0], point.y() / window[1]];
+    assert_eq!(
+        presentation
+            .gameplay_touch_region(position, window)
+            .unwrap()
+            .hit_id,
+        semantic_input::touch::LOOK_SURFACE
+    );
+    let button = ui::mod_touch::TouchButton {
+        id: "overlap".into(),
+        label: "Menu".into(),
+        anchor: ui::mod_hud::Anchor::TopRight,
+        offset: [2.0; 2],
+        size: [48.0; 2],
+    };
+    presentation.set_mod_touch_buttons([(1, &button)].into_iter());
+    render(&mut presentation);
+    assert_eq!(
+        presentation
+            .gameplay_touch_region(position, window)
+            .unwrap()
+            .hit_id,
+        semantic_input::touch::mod_button(0).unwrap()
+    );
+    assert!(!presentation.mob_effect_hud_hit(point, window));
+    presentation.set_mod_touch_buttons(std::iter::empty());
+    render(&mut presentation);
+    assert!(presentation.mob_effect_hud_hit(point, window));
+    presentation.toggle_touch_utilities();
+    render(&mut presentation);
+    assert!(
+        presentation
+            .gameplay_touch_region(position, window)
+            .is_some_and(|region| region.hit_id != semantic_input::touch::LOOK_SURFACE)
+    );
+    assert!(!presentation.mob_effect_hud_hit(point, window));
 }
