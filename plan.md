@@ -498,7 +498,10 @@ is a broader claim than the presence of these features.
 
 View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
 with a steady movement camera in both animation modes; hurt and death effects remain
-independent. In-world rendered acceptance evidence for this client option remains outstanding.
+independent. Full also bobs player-attached third-person cameras, while hurt, death and
+hand effects stay first-person; the vanilla `third_person` preset's `minecraft:camera_player_bob`
+component, which would also carry hurt and death camera motion, is not yet confirmed (incomplete).
+In-world rendered acceptance evidence for this client option remains outstanding.
 
 Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
