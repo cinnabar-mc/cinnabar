@@ -493,6 +493,43 @@ fn third_person_camera_bobs_only_with_full_bobbing() {
     }
 }
 
+/// A mod's detached presented view reports third person but keeps its absolute pose while the
+/// body walks under Full bobbing.
+#[test]
+fn detached_presented_view_does_not_bob_with_the_body() {
+    let mut app = camera_app();
+    for index in 0..4 {
+        tick(&mut app, index);
+    }
+    app.world_mut().run_system_cached(sample).unwrap();
+    assert_ne!(
+        app.world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob_matrix(0.5),
+        Mat4::IDENTITY
+    );
+    let base = Transform::from_xyz(2.0, 5.0, 8.0).with_rotation(Quat::from_rotation_y(0.7));
+    app.world_mut()
+        .resource_mut::<CameraSettingsAuthority>()
+        .set_presented_view(Some(crate::camera::PresentedView {
+            position: base.translation,
+            rotation: base.rotation,
+            capture_look: false,
+            capture_movement: false,
+        }));
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
+    let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+    app.world_mut().run_system_cached(apply).unwrap();
+    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
+}
+
 #[test]
 fn free_server_camera_preserves_its_base_pose() {
     let mut app = camera_app();

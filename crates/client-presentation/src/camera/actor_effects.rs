@@ -25,7 +25,8 @@ pub struct PresentedDamageShake(pub Option<DamageShake>);
 
 /// Samples hurt and bob on their own clocks, applying movement bob to the selected views, and
 /// publishes the damage shake it samples at full strength. Player-attached third-person rigs keep
-/// the movement bob on the orbiting camera; hurt, death and the hand stay first-person effects.
+/// the movement bob on the orbiting camera; hurt, death and the hand stay first-person effects,
+/// and a mod's detached presented view keeps its absolute pose.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
@@ -56,7 +57,10 @@ pub fn apply_actor_damage_camera_rotation(
         .map(|legacy| legacy.state.endpoints)
         .unwrap_or_default();
     if !server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
-        if !server.player_effects_enabled() || !settings.feel().view_bobbing.camera_enabled() {
+        if settings.presented_view().is_some()
+            || !server.player_effects_enabled()
+            || !settings.feel().view_bobbing.camera_enabled()
+        {
             return;
         }
         let bob = if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
