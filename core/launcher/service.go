@@ -3,7 +3,6 @@
 package launcher
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -310,20 +309,27 @@ func (s *Service) joinGathering(ctx context.Context, account *authcache.Account,
 	return target, nil
 }
 
-// gatheringTarget names the transport the assignment selects, as vanilla reads it: host:port for
-// DEFAULT and NETHERNET, the latter probed for NetherNet HTTP signaling like a typed server
-// address, or the NetherNet ID of a NETHERNET_JSONRPC server with its signaling.
+// gatheringTarget names the transport the assignment selects, as gophertunnel's
+// realms.Networks.Experience reads it and vanilla joins it: RakNet to host:port for DEFAULT,
+// NetherNet HTTP signaling probed at host:port, never RakNet, for NETHERNET, and JSON-RPC
+// signaling to the NetherNet ID for NETHERNET_JSONRPC.
 func gatheringTarget(address *gatherings.Address) (string, error) {
 	if address == nil {
 		return "", errors.New("launcher: gathering returned no address")
 	}
-	switch protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol)); protocol {
-	case realms.NetworkProtocolDefault, "", realms.NetworkProtocolNetherNet:
+	// hostPort prefixes the assignment's host:port, which DEFAULT and NETHERNET require.
+	hostPort := func(protocol realms.NetworkProtocol, prefix string) (string, error) {
 		host := strings.TrimSpace(address.IPv4Address)
 		if host == "" || address.Port == 0 {
-			return "", fmt.Errorf("launcher: %s assignment has no host or port", cmp.Or(protocol, realms.NetworkProtocolDefault))
+			return "", fmt.Errorf("launcher: %s assignment has no host or port", protocol)
 		}
-		return net.JoinHostPort(host, strconv.Itoa(int(address.Port))), nil
+		return prefix + net.JoinHostPort(host, strconv.Itoa(int(address.Port))), nil
+	}
+	switch protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol)); protocol {
+	case realms.NetworkProtocolDefault, "":
+		return hostPort(realms.NetworkProtocolDefault, bridgecontract.RakNetTargetPrefix)
+	case realms.NetworkProtocolNetherNet:
+		return hostPort(protocol, bridgecontract.NetherNetTargetPrefix+bridgecontract.NetherNetSignalingHTTP+"/")
 	case realms.NetworkProtocolNetherNetJSONRPC:
 		id := strings.TrimSpace(address.NetherNetID)
 		if id == "" {

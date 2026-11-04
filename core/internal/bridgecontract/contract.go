@@ -101,6 +101,10 @@ const (
 	NetherNetTargetPrefix = "nethernet/"
 	// NetherNetSignalingJSONRPC: NetherNet JSON-RPC signaling selector.
 	NetherNetSignalingJSONRPC = "jsonrpc"
+	// NetherNetSignalingHTTP: NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet.
+	NetherNetSignalingHTTP = "http"
+	// RakNetTargetPrefix: Prefix for a host:port joined over RakNet without probing it for NetherNet.
+	RakNetTargetPrefix = "raknet/"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

@@ -30,10 +30,12 @@ import (
 const (
 	NetherNetTargetPrefix     = bridgecontract.NetherNetTargetPrefix
 	NetherNetSignalingJSONRPC = bridgecontract.NetherNetSignalingJSONRPC
+	NetherNetSignalingHTTP    = bridgecontract.NetherNetSignalingHTTP
 )
 
 const (
 	friendTargetPrefix = bridgecontract.FriendTargetPrefix
+	rakNetTargetPrefix = bridgecontract.RakNetTargetPrefix
 	realmTargetPrefix  = bridgecontract.RealmTargetPrefix
 	realmCodePrefix    = bridgecontract.RealmCodePrefix
 )
@@ -175,6 +177,13 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	if address == "" {
 		return nil, errors.New("upstream target is empty")
 	}
+	if hostPort, ok := cutPrefixFold(address, rakNetTargetPrefix); ok {
+		target, err := rakNetTarget(hostPort)
+		if err == nil && account != nil {
+			target.relay = relayForAccount(account, logger).join()
+		}
+		return target, err
+	}
 	if account == nil {
 		if isStableTarget(address) {
 			return nil, errors.New("authenticated target requires a Microsoft session")
@@ -200,7 +209,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 		strings.HasPrefix(strings.ToLower(address), realmCodePrefix):
 		return withRelay(resolveRealmTarget(resolveContext, address, account, logger))
 	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
-		return withRelay(resolveRawNetherNetTarget(resolveContext, address, account, logger))
+		return withRelay(resolveRawNetherNetTarget(resolveContext, address, account, logger, trust, relay))
 	case isRawNetherNetAddress(address):
 		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %s%s/<id>", address, NetherNetTargetPrefix, NetherNetSignalingJSONRPC)
 	default:
@@ -311,22 +320,66 @@ func selectFriendWorld(worlds []p2p.World, ownerXUID, self string) *p2p.World {
 	return nil
 }
 
-func resolveRawNetherNetTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	id, err := parseNetherNetTarget(address)
+// resolveRawNetherNetTarget dials nethernet/jsonrpc/<id> through Xbox signaling, or
+// nethernet/http/<host:port> through the HTTP signaling a probe of host:port finds.
+func resolveRawNetherNetTarget(_ context.Context, address string, account *authcache.Account, logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) (*resolvedUpstreamTarget, error) {
+	signaling, value, err := parseNetherNetTarget(address)
 	if err != nil {
 		return nil, err
 	}
-	return newNetherNetTarget(id, account, logger), nil
+	if signaling == NetherNetSignalingHTTP {
+		return &resolvedUpstreamTarget{address: value, network: httpNetherNetNetwork(logger, trust, relay)}, nil
+	}
+	return newNetherNetTarget(value, account, logger), nil
 }
 
-// parseNetherNetTarget returns the ID of nethernet/jsonrpc/<id>. Vanilla signals only over
-// JSON-RPC, so no other signaling is accepted, and none is inferred from the ID.
-func parseNetherNetTarget(address string) (string, error) {
-	signaling, id, _ := strings.Cut(address[len(NetherNetTargetPrefix):], "/")
-	if !strings.EqualFold(signaling, NetherNetSignalingJSONRPC) || !isRawNetherNetAddress(id) {
-		return "", fmt.Errorf("invalid NetherNet target %q: want %s%s/<id>", address, NetherNetTargetPrefix, NetherNetSignalingJSONRPC)
+// parseNetherNetTarget splits nethernet/jsonrpc/<id> or nethernet/http/<host:port> into its
+// lower-case signaling and value. Vanilla signals a NetherNet ID only over JSON-RPC, so no other
+// signaling is accepted for one, and none is inferred from the value.
+func parseNetherNetTarget(address string) (string, string, error) {
+	signaling, value, _ := strings.Cut(address[len(NetherNetTargetPrefix):], "/")
+	switch signaling = strings.ToLower(signaling); {
+	case signaling == NetherNetSignalingJSONRPC && isRawNetherNetAddress(value):
+		return signaling, value, nil
+	case signaling == NetherNetSignalingHTTP && isHostPort(value):
+		return signaling, value, nil
 	}
-	return id, nil
+	return "", "", fmt.Errorf("invalid NetherNet target %q: want %s%s/<id> or %s%s/<host:port>", address, NetherNetTargetPrefix, NetherNetSignalingJSONRPC, NetherNetTargetPrefix, NetherNetSignalingHTTP)
+}
+
+// httpNetherNetNetwork dials the NetherNet HTTP signaling a probe of the dial address finds and
+// fails, never trying RakNet, when none answers, as vanilla joins a NETHERNET experience
+// assignment. Signed-in joins gather through the account's relay config.
+func httpNetherNetNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) minecraft.NetherNetHTTP {
+	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	if relay != nil {
+		dialer.Credentials = relay.Credentials
+	}
+	return minecraft.NetherNetHTTP{NetherNet: minecraft.NetherNet{Dialer: dialer}, ServerTrust: trust}
+}
+
+// rakNetTarget joins host:port over RakNet without probing it for NetherNet, as vanilla joins a
+// DEFAULT experience assignment.
+func rakNetTarget(hostPort string) (*resolvedUpstreamTarget, error) {
+	if !isHostPort(hostPort) {
+		return nil, fmt.Errorf("invalid RakNet target %q: want %s<host:port>", hostPort, rakNetTargetPrefix)
+	}
+	return &resolvedUpstreamTarget{address: hostPort, network: remoteRakNet()}, nil
+}
+
+// isHostPort reports whether address is a nonempty host with a port from 1 to 65535.
+func isHostPort(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	number, portErr := strconv.ParseUint(port, 10, 16)
+	return err == nil && portErr == nil && host != "" && number != 0
+}
+
+// cutPrefixFold returns address after prefix, matched without regard to case.
+func cutPrefixFold(address, prefix string) (string, bool) {
+	if len(address) < len(prefix) || !strings.EqualFold(address[:len(prefix)], prefix) {
+		return "", false
+	}
+	return address[len(prefix):], true
 }
 
 // newNetherNetTarget signals over JSON-RPC with the account's Minecraft service token.

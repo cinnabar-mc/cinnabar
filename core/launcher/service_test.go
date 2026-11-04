@@ -260,12 +260,13 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 		address gatherings.Address
 		want    string
 	}{
-		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolDefault, IPv4Address: "203.0.113.7", Port: 19132}, "203.0.113.7:19132"},
-		{gatherings.Address{IPv4Address: "203.0.113.7", Port: 19132}, "203.0.113.7:19132"},
+		// DEFAULT, or no protocol, joins host:port over RakNet without a NetherNet probe.
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolDefault, IPv4Address: "203.0.113.7", Port: 19132}, "raknet/203.0.113.7:19132"},
+		{gatherings.Address{IPv4Address: "203.0.113.7", Port: 19132}, "raknet/203.0.113.7:19132"},
 		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNetJSONRPC, NetherNetID: "1234"}, "nethernet/jsonrpc/1234"},
-		// A NETHERNET assignment names a host and port, probed for HTTP signaling; any ID is unused.
-		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, NetherNetID: "1234", IPv4Address: "play.example.test", Port: 19132}, "play.example.test:19132"},
-		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, IPv4Address: "play.example.test", Port: 19132}, "play.example.test:19132"},
+		// NETHERNET probes host:port for HTTP signaling, never RakNet; any ID is unused.
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, NetherNetID: "1234", IPv4Address: "play.example.test", Port: 19132}, "nethernet/http/play.example.test:19132"},
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, IPv4Address: "play.example.test", Port: 19132}, "nethernet/http/play.example.test:19132"},
 	} {
 		f := newFixture(t, testAccount())
 		var joined []uuid.UUID
