@@ -100,6 +100,49 @@ fn worn_key(identity: render_model::ActorRenderIdentity) -> (actor_animation::Ac
 }
 
 impl EquipmentRuntime {
+    /// Bakes mask RGB below the trim while retaining authored color and opacity on the draw.
+    pub(crate) fn trim_draw(
+        &mut self,
+        item: &WornItem,
+        artwork: &ActorArtworkPages,
+        location: ActorArtworkLocation,
+        draw: &mut render_model::ActorRigSubmission,
+        worn: bool,
+    ) -> Option<(EquipmentRaster, EntityRigId)> {
+        let page = artwork
+            .pages()
+            .get(usize::from(location.page()).checked_sub(1)?)?;
+        let color_mask = page.color_mask
+            || draw.material.color_mask
+            || draw.material.state.is_some_and(|state| state.color_mask);
+        let raster = self.trim_raster(
+            item,
+            artwork,
+            location,
+            draw.input.rig,
+            if color_mask { draw.tint } else { 0 },
+            worn.then_some(draw.input.identity),
+        )?;
+        if color_mask && draw.tint != 0 {
+            let alpha = draw.tint >> 24;
+            draw.tint = if alpha == 255 {
+                0
+            } else {
+                (alpha << 24) | 0xffffff
+            };
+            draw.material.color_mask = false;
+            // The composed page has no mask. Keep its opacity multiplier without dyeing the trim.
+            if draw.tint != 0 {
+                if let Some(state) = &mut draw.material.state {
+                    state.color_mask = true;
+                } else {
+                    draw.material.color_mask = true;
+                }
+            }
+        }
+        Some(raster)
+    }
+
     /// Decorates the selected armor sheet or held armor sprite, preserving the mesh's UV frame.
     pub(crate) fn trim_raster(
         &mut self,

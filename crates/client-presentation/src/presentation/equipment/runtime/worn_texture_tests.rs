@@ -469,6 +469,97 @@ mod review_tests;
 mod artwork_state_tests;
 
 #[test]
+fn worn_trim_preserves_authored_color_and_opacity() {
+    for material in ["entity_alphablend", "entity_alphablend_color_mask"] {
+        let item = "minecraft:iron_chestplate";
+        let mut files = owner_armour_pack(item, false);
+        let mut definition: serde_json::Value = serde_json::from_slice(&files[0].1).unwrap();
+        definition["minecraft:attachable"]["description"]["materials"]["default"] = material.into();
+        files[0].1 = serde_json::to_vec(&definition).unwrap();
+        let mut controller: serde_json::Value = serde_json::from_slice(&files[2].1).unwrap();
+        let color = [0.5, 0.75, 1.0, 0.25];
+        controller["render_controllers"]["controller.render.test_coat"]["color"] =
+            serde_json::json!({"r":color[0], "g":color[1], "b":color[2], "a":color[3]});
+        files[2].1 = serde_json::to_vec(&controller).unwrap();
+        if material.ends_with("color_mask") {
+            files.push(("materials/fixture.material".into(), br#"{"materials":{"version":"1.0.0","entity_alphablend_color_mask:entity_alphablend":{"defines":["USE_COLOR_MASK"]}}}"#.to_vec()));
+        }
+        let pixel = |color| {
+            let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(color));
+            let mut bytes = std::io::Cursor::new(Vec::new());
+            image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+            bytes.into_inner()
+        };
+        for (path, color) in [
+            ("textures/trims/sentry.png", [100, 100, 100, 255]),
+            (
+                "textures/trims/color_palettes/trim_palette.png",
+                [100, 100, 100, 255],
+            ),
+            ("textures/trims/color_palettes/gold.png", [20, 220, 30, 255]),
+        ] {
+            files.push((path.into(), pixel(color)));
+        }
+        let (mut runtime, pages) = pack_runtime(files);
+        let body = player_body(&mut runtime);
+        let mut equipment = worn_armour(item, 1);
+        let stack = equipment.armor[1].as_mut().unwrap();
+        stack.trim = Some(protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        });
+        let owner = owner();
+        let names = [Box::<str>::from("body")];
+        let rig = owner_rig(&owner, &names, 1);
+        let drawn = runtime
+            .layers_for_profile(
+                &body,
+                &equipment,
+                render_api::CombatVisuals::Legacy112,
+                Some(EquipmentAnimation {
+                    owner: &owner,
+                    rig: &rig,
+                    frame_alpha: 1.0,
+                    delta_seconds: 0.025,
+                }),
+            )
+            .layers
+            .to_vec();
+        assert_eq!(drawn.len(), 1);
+        let mut draw = drawn[0].submission.clone();
+        assert!(draw.material.state.unwrap().blend, "{material}");
+        assert_eq!(draw.tint, render_model::pack_overlay_rgba8(color));
+        runtime
+            .trim_draw(
+                equipment.armor[1].as_ref().unwrap(),
+                &pages,
+                drawn[0].location,
+                &mut draw,
+                true,
+            )
+            .unwrap();
+        assert_eq!(
+            draw.tint >> 24,
+            64,
+            "{material}: trim must preserve controller opacity"
+        );
+        if material == "entity_alphablend" {
+            assert_eq!(
+                draw.tint,
+                render_model::pack_overlay_rgba8(color),
+                "ordinary controller color belongs to the complete draw"
+            );
+        } else {
+            assert_eq!(
+                draw.tint & 0xffffff,
+                0xffffff,
+                "mask RGB is baked beneath the trim"
+            );
+        }
+    }
+}
+
+#[test]
 fn worn_trim_uses_the_owner_admitted_palette() {
     let item = "minecraft:iron_chestplate";
     let mut files = owner_armour_pack(item, false);

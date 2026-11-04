@@ -222,16 +222,9 @@ pub(super) fn attach(
                 }?;
                 let equipment = equipment.as_deref_mut()?;
                 let location = location?;
-                if let Some(raster) = equipment.trim_raster(
-                    item,
-                    artwork,
-                    location,
-                    draw.input.rig,
-                    draw.tint,
-                    is_armor_layer(layer).then_some(draw.input.identity),
-                ) {
-                    draw.tint = 0;
-                    draw.material.color_mask = false;
+                if let Some(raster) =
+                    equipment.trim_draw(item, artwork, location, draw, is_armor_layer(layer))
+                {
                     return Some(raster);
                 }
                 equipment.shield_raster(item, artwork, location, draw.input.rig)
