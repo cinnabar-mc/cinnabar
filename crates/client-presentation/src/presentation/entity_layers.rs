@@ -528,7 +528,15 @@ mod tests {
         let layers = [layer(true, 0), layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
@@ -545,7 +553,15 @@ mod tests {
         let catalog_first = [layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&catalog_first)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&catalog_first),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
