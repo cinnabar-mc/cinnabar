@@ -1111,6 +1111,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops
   pending preparations before a new login.
+  Destroy rates read ground contact from before the tick's movement. After a multi-tick
+  block, the next start lands on the tick the 250 ms destroy deadline is reached, and a
+  held Creative destroy repeats on the tick after it.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Block-action carriers retain every accumulated action in tick order.

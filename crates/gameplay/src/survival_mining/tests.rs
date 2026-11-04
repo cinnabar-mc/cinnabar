@@ -258,7 +258,7 @@ fn server_authority_is_silent_while_cracking_and_completes_with_continue_then_pr
         assert_eq!(payload.destroy, None);
     }
     let next = target([1, 1, 3], "minecraft:dirt", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     // The destroy stays active on the broken block, so the next block continues it.
@@ -385,7 +385,7 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     ));
     let other = target([4, 5, 7], "minecraft:stone", None);
     // The post-break delay still reports the block now under the crosshair.
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert_eq!(
             kinds(&held(&mut machine, &other, Client)),
             [(CrackBlock, [4, 5, 7], 1)]
@@ -414,7 +414,7 @@ fn only_zero_hardness_breaks_on_the_start_tick() {
         [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
     );
     let next = target([2, 1, 2], "minecraft:torch", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     assert!(!held(&mut machine, &next, Server).is_empty());
@@ -537,7 +537,7 @@ fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
         None,
         "hit sounds and particles stop with the break"
     );
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
     // The server restated the block: no hold, destroying resumes at once.
@@ -668,6 +668,49 @@ fn release_clears_the_destroy_delay() {
         kinds(&held(&mut machine, &torch, Server)),
         [(StartDestroy, [1, 1, 1], 1), (PredictDestroy, [1, 1, 1], 1)]
     );
+}
+
+/// After a multi-tick block, the next survival block starts on the tick the destroy
+/// deadline is reached; a held Creative destroy repeats only once it has passed.
+#[test]
+fn the_next_block_starts_on_the_destroy_deadline_tick() {
+    let shovel = Some("minecraft:golden_shovel");
+    let mut machine = DestroyMachine::default();
+    let dirt = target([0, 3, 0], "minecraft:dirt", shovel);
+    while held(&mut machine, &dirt, Server).broken.is_none() {}
+    let next = target([0, 2, 0], "minecraft:dirt", shovel);
+    let started = (1u32..=20)
+        .find(|_| !held(&mut machine, &next, Server).is_empty())
+        .expect("the next block starts");
+    assert_eq!(simulation_clock::TICK_DURATION * started, DESTROY_DELAY);
+
+    let instant = |position| DestroyTarget {
+        instant: true,
+        ..target(position, "minecraft:stone", None)
+    };
+    let mut machine = DestroyMachine::default();
+    held(&mut machine, &instant([0, 0, 0]), Server);
+    let next = instant([0, -1, 0]);
+    let repeated = (1u32..=20)
+        .find(|_| !held(&mut machine, &next, Server).is_empty())
+        .expect("the held Creative destroy repeats");
+    assert_eq!(
+        simulation_clock::TICK_DURATION * (repeated - 1),
+        DESTROY_DELAY
+    );
+}
+
+/// A tick that lands still mines at the airborne rate: its destroy step precedes movement.
+#[test]
+fn a_landing_tick_mines_at_the_airborne_rate() {
+    let mut ticker = crate::test_support::survival_mining::ticker_with_ticks(0);
+    let mut landing = crate::test_support::survival_mining::completed(101);
+    landing.grounded_before_tick = false;
+    landing.grounded_after_tick = true;
+    ticker.enqueue_completed_physics(landing).unwrap();
+    let ticks = ticker.unstepped_interaction_ticks(None);
+    assert_eq!(ticks.len(), 1);
+    assert!(!ticks[0].1.on_ground, "the landing tick mines airborne");
 }
 
 /// Local flight reaches the destroy conditions instead of always reading grounded-or-falling.
