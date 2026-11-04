@@ -26,7 +26,9 @@ const DESTROY_DELAY: std::time::Duration = std::time::Duration::from_millis(250)
 pub const DESTROY_DELAY_TICKS: u8 =
     (DESTROY_DELAY.as_nanos() / simulation_clock::TICK_DURATION.as_nanos()) as u8;
 const _: () = assert!(
-    DESTROY_DELAY.as_nanos() % simulation_clock::TICK_DURATION.as_nanos() == 0,
+    DESTROY_DELAY
+        .as_nanos()
+        .is_multiple_of(simulation_clock::TICK_DURATION.as_nanos()),
     "the destroy deadline must land on a tick",
 );
 /// Progress at which a non-instant destroy completes.
