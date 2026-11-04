@@ -498,13 +498,17 @@ fn variable_fixture() -> CompiledEntityAssets {
         vec![LoadVariable(5), StoreVariable(8), Push(scalar(1.0))],
     );
     compiled.rig_bindings[0].held_item_scale = Some(held);
+    // The loop keeps setup on the generic VM, whose loop counters must not allocate per frame.
     let pre = expression(
         &mut compiled,
         vec![
+            Push(scalar(2.0)),
+            LoopStart(7),
             LoadQuery(1),
             Push(scalar(8.0)),
             Less,
             StoreVariable(9),
+            LoopNext(2),
             LoadVariable(8),
             StoreVariable(7),
             Push(scalar(0.0)),

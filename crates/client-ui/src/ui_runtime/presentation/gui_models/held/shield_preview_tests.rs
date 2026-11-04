@@ -309,7 +309,7 @@ fn live_attachables_preserve_each_hands_shield_decoration() {
         !ui.gui_models.live_player.bones.is_empty(),
         "the owner has a captured UI pose"
     );
-    for hand in 0..2 {
+    for (hand, pattern) in patterns.iter().enumerate() {
         let texture_id = if hand == 0 {
             "textures/mapped"
         } else {
@@ -324,7 +324,7 @@ fn live_attachables_preserve_each_hands_shield_decoration() {
             .texture(texture_id)
             .unwrap();
         let expected = ui
-            .shield_texture(&patterns[hand], texture)
+            .shield_texture(pattern, texture)
             .unwrap()
             .with_glint(true);
         let draw = &ui.gui_models.live_equipment.hands[hand].as_ref().unwrap()[0];
