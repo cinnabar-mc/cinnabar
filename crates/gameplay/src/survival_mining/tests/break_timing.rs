@@ -45,6 +45,34 @@ fn the_next_block_starts_on_the_destroy_deadline_tick() {
     );
 }
 
+/// Losing the target while Attack stays held does not shorten the Creative delay.
+#[test]
+fn reacquiring_a_creative_target_keeps_the_held_destroy_deadline() {
+    let first = DestroyTarget {
+        instant: true,
+        ..target([0, 0, 0], "minecraft:stone", None)
+    };
+    let next = DestroyTarget {
+        position: [0, -1, 0],
+        ..first.clone()
+    };
+    for authority in [Server, Client] {
+        let mut machine = DestroyMachine::default();
+        assert_eq!(
+            held(&mut machine, &first, authority).broken,
+            Some(first.position)
+        );
+        machine.step(DestroyInput::Held(None), STILL, authority);
+        for _ in 1..DESTROY_DELAY_TICKS {
+            assert!(held(&mut machine, &next, authority).is_empty());
+        }
+        assert_eq!(
+            held(&mut machine, &next, authority).broken,
+            Some(next.position)
+        );
+    }
+}
+
 /// A tick that lands still mines at the airborne rate: its destroy step precedes movement.
 #[test]
 fn a_landing_tick_mines_at_the_airborne_rate() {
