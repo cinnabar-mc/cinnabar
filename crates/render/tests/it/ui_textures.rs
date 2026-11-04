@@ -94,7 +94,7 @@ fn ordered_logical_mapping_does_not_group_draw_order() {
 }
 
 #[test]
-fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
+fn art_native_and_selected_pages_share_the_catalog_layer_limit() {
     let small = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
     let side = render_model::UI_ART_PAGE_SIDE;
     let art =
@@ -117,8 +117,20 @@ fn art_pages_follow_the_small_dynamic_pages_within_their_own_cap() {
         render_model::UI_NATIVE_SHEET_PAGE_OFFSET + render_model::MAX_UI_NATIVE_SHEET_PAGES
     );
     pages.push(small.clone());
+    let selected = UiTextureCatalog::new(pages.clone(), 0).unwrap();
     assert_eq!(
-        UiTextureCatalog::new(pages, 0),
+        selected.pages().len(),
+        render_model::UI_SELECTED_MODEL_PAGE_OFFSET + 1
+    );
+    pages.resize(render_model::MAX_UI_TEXTURE_LAYERS as usize, small.clone());
+    let full = UiTextureCatalog::new(pages.clone(), 0).unwrap();
+    assert_eq!(
+        full.pages().len(),
+        render_model::MAX_UI_TEXTURE_LAYERS as usize
+    );
+    pages.push(small.clone());
+    assert_eq!(
+        UiTextureCatalog::new(pages, 0).map(|catalog| catalog.pages().len()),
         Err(UiRenderRejectReason::InvalidTextureExtent)
     );
     let mut oversized_art = reserved_dynamic_pages();

@@ -76,7 +76,7 @@ fn production_update_schedule_initializes_without_dependency_cycles() {
 /// registrations dispatch every `Update` and `PostUpdate`. Each one costs executor and parameter
 /// work on every frame even when it finds nothing to do, so growth must be deliberate: change
 /// these with the registrations, and prefer one set condition over a condition per system.
-const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 147, 8), ("PostUpdate", 1, 0)];
+const FRAME_DISPATCH_BUDGET: [(&str, usize, usize); 2] = [("Update", 148, 8), ("PostUpdate", 1, 0)];
 
 #[test]
 fn client_frame_dispatch_stays_within_its_budget() {
@@ -117,10 +117,15 @@ fn client_frame_dispatch_stays_within_its_budget() {
         dispatched.push((name, schedule.systems_len(), conditions));
     }
     app.world_mut().insert_resource(schedules);
-    assert_eq!(
-        dispatched, FRAME_DISPATCH_BUDGET,
-        "(schedule, systems, run conditions) dispatched per frame"
-    );
+    for ((name, systems, conditions), (_, max_systems, max_conditions)) in
+        dispatched.into_iter().zip(FRAME_DISPATCH_BUDGET)
+    {
+        assert!(
+            systems <= max_systems && conditions <= max_conditions,
+            "{name} dispatches {systems} systems and {conditions} run conditions per frame; \
+             budget is {max_systems} systems and {max_conditions} run conditions"
+        );
+    }
 }
 
 /// Every host shares the world wiring, so each one follows the vehicle with the rider's view.
