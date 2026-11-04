@@ -543,6 +543,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         assert!(admit_frame_bounds(
             &mut presentation,
             &rig,
+            world.actor(1).unwrap(),
             view,
             Some(&mut frame)
         ));

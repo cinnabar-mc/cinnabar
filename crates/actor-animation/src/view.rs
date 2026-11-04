@@ -13,6 +13,31 @@ impl super::ActorRigSnapshot<'_> {
     }
 }
 
+/// Vanilla's render bounds for one actor: the model's authored visibility box joined with the
+/// actor's own collision box, both relative to its feet. Vanilla clamps an authored box to 50
+/// blocks, so a tall model whose box sits high above its actor still draws while the actor
+/// itself is in view. An actor without collision dimensions keeps the authored box alone.
+#[must_use]
+pub fn actor_culling_bounds(
+    authored: SkinGeometryBounds,
+    actor: &dyn crate::AnimatedActor,
+) -> SkinGeometryBounds {
+    let Some((low, high)) = actor.bounding_box() else {
+        return authored;
+    };
+    let feet = actor.position();
+    let collision = SkinGeometryBounds::from_corners(
+        std::array::from_fn(|axis| low[axis] - feet[axis]),
+        std::array::from_fn(|axis| high[axis] - feet[axis]),
+    );
+    if (0..3).any(|axis| {
+        !(collision.center[axis].is_finite() && collision.half_extents[axis].is_finite())
+    }) {
+        return authored;
+    }
+    authored.union(collision)
+}
+
 /// The view animation runs for: actors outside it hold their pose, since vanilla evaluates
 /// pre-animation, animation and render controllers only for actors it renders.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -70,7 +95,8 @@ impl ActorAnimationView {
 
 #[cfg(test)]
 mod tests {
-    use super::ActorAnimationView;
+    use super::{ActorAnimationView, actor_culling_bounds};
+    use crate::test_actor::TestActor;
 
     /// The half-space `x <= 10` alone, with generous distances.
     fn wall() -> ActorAnimationView {
@@ -117,5 +143,39 @@ mod tests {
         };
         assert!(!above.admits([0.0; 3], 1.0, true, Default::default()));
         assert!(above.admits([0.0; 3], 1.0, true, bounds));
+    }
+
+    /// A model box clamped high above its actor, as a tall beam's is.
+    fn raised_box() -> assets::SkinGeometryBounds {
+        assets::SkinGeometryBounds {
+            center: [0.0, 256.0, 0.0],
+            half_extents: [2.0, 25.0, 2.0],
+        }
+    }
+
+    #[test]
+    fn the_collision_box_keeps_a_raised_model_box_admitted_while_its_actor_is_in_view() {
+        // Only the space below y = 10 is in view; the actor stands inside it.
+        let low = ActorAnimationView {
+            planes: [[0.0, -1.0, 0.0, 10.0]; 6],
+            camera: [0.0, -5.0, 0.0],
+            ..wall()
+        };
+        let mut actor = TestActor {
+            position: [3.0, 4.0, 5.0],
+            ..TestActor::default()
+        };
+        assert!(!low.admits(actor.position, 1.0, false, raised_box()));
+        actor.status.bounding_box = Some(([2.9975, 4.0, 4.9975], [3.0025, 4.005, 5.0025]));
+        let joined = actor_culling_bounds(raised_box(), &actor);
+        assert!(low.admits(actor.position, 1.0, false, joined));
+        let (bottom, top) = joined.at(actor.position, 1.0);
+        assert!((bottom[1] - 4.0).abs() < 1e-4 && (top[1] - 285.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn an_actor_without_collision_keeps_its_authored_box() {
+        let actor = TestActor::default();
+        assert_eq!(actor_culling_bounds(raised_box(), &actor), raised_box());
     }
 }

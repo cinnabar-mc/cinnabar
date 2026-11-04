@@ -122,6 +122,7 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
+    let culling_bounds = actor_animation::actor_culling_bounds(rig.culling_bounds(), actor);
     // Culling places the model frame's box at the model origin, as the drawn submission does.
     let (origin, bounds) = sampled_rig_placement(
         rig,
@@ -134,10 +135,10 @@ pub fn rig_may_be_visible(
             rig.axis_scale[2],
         ],
     )
-    .map_or((feet, rig.culling_bounds()), |placement| {
+    .map_or((feet, culling_bounds), |placement| {
         (
             placement.model_origin(),
-            placement.frame.culling_bounds(rig.culling_bounds()),
+            placement.frame.culling_bounds(culling_bounds),
         )
     });
     if !actor_bounds_are_visible(origin, scale, bounds, Some(view)) {
@@ -314,7 +315,7 @@ fn tick_presentation(
         presentation: ActorRigPresentation {
             submission: ActorRigSubmission {
                 material: Default::default(),
-                culling_bounds: rig.culling_bounds(),
+                culling_bounds: actor_animation::actor_culling_bounds(rig.culling_bounds(), actor),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {
                         session_id: rig.actor.session_id,
