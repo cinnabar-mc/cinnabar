@@ -40,6 +40,43 @@ pub(super) struct WorldState {
 }
 
 impl WorldState {
+    /// Freezes import reads and starts empty writes without copying committed output ownership.
+    pub(super) fn transaction(&self) -> Self {
+        Self {
+            movement_input: None,
+            pending_movement_input: None,
+            movement_intents: None,
+            pending_movement_intents: None,
+            control_modes: None,
+            pending_control_modes: None,
+            mobs: self.mobs.clone(),
+            rig: None,
+            commands: Vec::new(),
+            cues: Vec::new(),
+            incoming: self.incoming.clone(),
+            polls: 0,
+            pending_rig: None,
+            pending_commands: Vec::new(),
+            pending_cues: Vec::new(),
+            window_sent: self.window_sent,
+            window_seconds: 0.,
+        }
+    }
+
+    /// Keeps rate accounting host-owned and discards actions completed after their frame.
+    pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
+        if current_frame {
+            self.pending_movement_input = transaction.pending_movement_input;
+            self.pending_movement_intents = transaction.pending_movement_intents;
+            self.pending_control_modes = transaction.pending_control_modes;
+            if !camera_blocked {
+                self.pending_rig = transaction.pending_rig;
+            }
+            self.pending_commands = transaction.pending_commands;
+            self.pending_cues = transaction.pending_cues;
+        }
+    }
+
     /// Drops unconsumed one-frame output; the committed rig is retained.
     pub fn begin_frame(&mut self) {
         self.movement_input = None;
@@ -374,6 +411,101 @@ impl cinnabar::extension::gameplay::Host for State {
 
     fn pulse_attack(&mut self) -> Result<Result<(), String>> {
         State::pulse_attack(self)
+    }
+
+    fn set_block_mining(&mut self, held: bool) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !self.grants.interaction {
+            return Ok(Err("interaction capability denied".into()));
+        }
+        if held
+            && (self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open)
+        {
+            return Ok(Err("block mining requires focused gameplay".into()));
+        }
+        self.controls.pending_interaction.block_mining = held;
+        Ok(Ok(()))
+    }
+
+    fn read_block_target(&mut self) -> Result<Result<Option<GameplayVector3>, String>> {
+        self.controls.budget(false)?;
+        if !self.grants.terrain {
+            return Ok(Err("terrain capability denied".into()));
+        }
+        Ok(Ok(self.gameplay_facts.block_target.filter(|_| {
+            self.snapshot.is_some()
+                && self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        })))
+    }
+
+    fn break_blocks(
+        &mut self,
+        positions: Vec<crate::GameplayBlockPosition>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        let Some(frame) = self.snapshot.as_ref().filter(|_| {
+            self.controls.frame.focused
+                && self.controls.frame.gameplay
+                && !self.controls.frame.panel_open
+        }) else {
+            return Ok(Err("block destruction requires focused gameplay".into()));
+        };
+        let pending = &mut self.controls.pending_interaction.block_breaks;
+        if positions.len() > mod_api::MAX_BLOCK_BREAKS.saturating_sub(pending.len()) {
+            return Ok(Err("too many block destruction requests".into()));
+        }
+        if positions.iter().any(|p| {
+            [p.x, p.y, p.z]
+                .into_iter()
+                .zip([frame.eye.x, frame.eye.y, frame.eye.z])
+                .map(|(v, eye)| (f64::from(v) + 0.5 - f64::from(eye)).powi(2))
+                .sum::<f64>()
+                > f64::from(mod_api::MAX_BLOCK_BREAK_DISTANCE).powi(2)
+        }) {
+            return Ok(Err("block destruction request out of range".into()));
+        }
+        pending.extend(positions);
+        pending.sort_unstable_by_key(|p| (p.x, p.y, p.z));
+        pending.dedup_by_key(|p| (p.x, p.y, p.z));
+        Ok(Ok(()))
+    }
+
+    fn set_block_mining_target(
+        &mut self,
+        point: Option<GameplayVector3>,
+    ) -> Result<Result<(), String>> {
+        self.controls.budget(false)?;
+        if !(self.grants.interaction && self.grants.terrain) {
+            return Ok(Err("interaction and terrain capabilities required".into()));
+        }
+        if let Some(point) = point {
+            if self.snapshot.is_none()
+                || !self.controls.frame.focused
+                || !self.controls.frame.gameplay
+                || self.controls.frame.panel_open
+                || !self.gameplay_facts.attack_held
+            {
+                return Ok(Err(
+                    "mining target requires physical attack in focused gameplay".into(),
+                ));
+            }
+            if ![point.x, point.y, point.z]
+                .iter()
+                .all(|v| v.is_finite() && v.abs() < (i32::MAX - 16) as f32)
+            {
+                return Ok(Err("invalid mining point".into()));
+            }
+        }
+        self.controls.pending_interaction.block_mining_target = point;
+        Ok(Ok(()))
     }
 
     /// The presented camera, available with the same grants and frame as `read-frame`.

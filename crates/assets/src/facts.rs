@@ -2,6 +2,7 @@
 
 pub mod block;
 pub mod candle;
+pub mod chorus;
 pub mod connection;
 pub mod liquid;
 pub mod rules;

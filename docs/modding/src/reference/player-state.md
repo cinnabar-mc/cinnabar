@@ -527,6 +527,26 @@ record revisions {
 | `equipment` | `u64` |  |
 | `effects` | `u64` |  |
 
+<a id="type-selected-slot"></a>
+
+### `selected-slot`
+
+The selected hotbar slot, 0 through 8, from the current session and dimension.
+
+```wit
+record selected-slot {
+    session: u64,
+    dimension: s32,
+    slot: u8,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `session` | `u64` |  |
+| `dimension` | `s32` |  |
+| `slot` | `u8` |  |
+
 <a id="type-equipment-matches"></a>
 
 ### `equipment-matches`
@@ -750,6 +770,24 @@ Tokens advance on observed changes and never repeat within an instance, includin
 These three reads share read-snapshot's grant, bounds, and callback read allowance.
 
 Types: [`revisions`](player-state.md#type-revisions).
+
+<a id="read-selected-slot"></a>
+
+### `read-selected-slot`
+
+```wit
+read-selected-slot: func() -> result<option<selected-slot>, string>;
+```
+
+Requires the player-state grant. None outside the current connected session or while the
+selection is unknown. A local hotbar selection is visible no later than the next frame
+callback: unordered selections in the frame that admits them, and selections admitted
+through ordered desktop input, which apply after that frame's callback, in the next.
+Server selections appear once applied.
+Copies no inventory cells. Its call allowance, MAX_SELECTED_SLOT_READS, renews for every
+callback and is separate from read-snapshot's, so it cannot exhaust the snapshot reads.
+
+Types: [`selected-slot`](player-state.md#type-selected-slot).
 
 <a id="read-equipment-matches"></a>
 

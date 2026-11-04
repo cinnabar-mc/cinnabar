@@ -583,6 +583,7 @@ pub(super) fn hand_source(
             stream.authority().actor(runtime_id)?,
             &rig,
             main_attachable_input,
+            true,
         ))
     });
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |item| {
@@ -691,7 +692,7 @@ pub(super) fn hand_source(
             let input =
                 super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
-            let selected = equipment.select_held_item(item, actor, &rig, input);
+            let selected = equipment.select_held_item(item, actor, &rig, input, true);
             icon_fallback = selected.uses_icon_fallback();
             if icon_fallback {
                 return None;

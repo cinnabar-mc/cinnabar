@@ -50,7 +50,7 @@ pub use selection::{
 pub use session::{InventorySession, MAX_PENDING_INVENTORY_EVENTS};
 
 mod item_icon;
-pub use item_icon::{crossbow_animation_frame, ranged_animation_frame};
+pub use item_icon::{crossbow_animation_frame, held_animation_frame, ranged_animation_frame};
 
 mod dial;
 pub use dial::{

@@ -40,7 +40,7 @@ pub(crate) use terrain_generation::synchronize_terrain_generation;
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-pub(crate) use control_apply::apply_committed_control;
+pub(crate) use control_apply::{MovePlayerRotation, apply_committed_control};
 
 use std::sync::Arc;
 
@@ -288,6 +288,8 @@ pub(crate) struct WorldPollInputs<'w, 's> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     render_queue: Option<ResMut<'w, ChunkRenderQueue>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mods: Option<ResMut<'w, crate::modding::ModRuntime>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -323,6 +325,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         #[cfg(target_arch = "wasm32")]
         options,
         mut render_queue,
+        #[cfg(not(target_arch = "wasm32"))]
+        mut mods,
     } = inputs;
     let _timer = profiler
         .as_deref()
@@ -637,6 +641,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut view,
             &mut camera_settings,
             pending_surface_spawn,
+            #[cfg(not(target_arch = "wasm32"))]
+            &mut |rotation| {
+                crate::modding::handle_move_player_rotation(mods.as_deref_mut(), rotation)
+            },
+            #[cfg(target_arch = "wasm32")]
+            &mut |_| None,
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {

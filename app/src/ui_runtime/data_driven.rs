@@ -20,12 +20,14 @@ use client_shell::{
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
 use client_ui::ui_runtime::{
-    data_driven::DataDrivenAction, presentation::forms::scene_policy::MenuScene,
-    scene_stack::SceneHost,
+    data_driven::DataDrivenAction,
+    presentation::forms::scene_policy::MenuScene,
+    scene_stack::{Scene, SceneHost},
 };
 use oreui::data_driven_screen::{FormHit, FormItem};
 use protocol::ddui::DataDrivenScreenCloseReason;
 
+use crate::ui_runtime::input_owner::InputOwner;
 use crate::ui_runtime::interaction::input_capture::{
     restore_gameplay_input_after_chat, suppress_gameplay_input_for_chat,
 };
@@ -87,9 +89,10 @@ pub(crate) fn drive_data_driven_input(
     mut presentation: ResMut<UiPresentationResource>,
     mut runtime: ResMut<UiRuntimeResource>,
     mut gesture: Local<FormGesture>,
-    consent: Option<Res<client_state::ConsentInput>>,
+    (consent, owner): (Option<Res<client_state::ConsentInput>>, InputOwner),
 ) {
     let (window, mut cursor) = window.into_inner();
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
     let input_available = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
     // Keys and left-button edges in arrival order, so text typed after a click reaches the
@@ -112,7 +115,7 @@ pub(crate) fn drive_data_driven_input(
         gesture.cursor = None;
         return;
     }
-    if runtime.resource_pack_loading() {
+    if frame.top() == Scene::ResourcePackLoading {
         wheel.clear();
         gesture.held = None;
         gesture.cursor = None;
@@ -120,7 +123,8 @@ pub(crate) fn drive_data_driven_input(
         presentation.set_data_driven_pointer(None, None);
         return;
     }
-    if runtime.credits().owns_input() || !runtime.data_driven_ui().owns_input() {
+    let covered = frame.covers(Scene::DataDriven) && !matches!(frame.top(), Scene::Menu(_));
+    if covered || !runtime.data_driven_ui().owns_input() {
         wheel.clear();
         if gesture.owned_last_frame {
             presentation.set_data_driven_pointer(None, None);
@@ -146,7 +150,7 @@ pub(crate) fn drive_data_driven_input(
     gesture.follow(instance);
     // Targets and slider tracks from a frame that painted another form instance are stale.
     let painted = presentation.data_driven_painted_form() == instance;
-    if !input_available {
+    if !input_available || !frame.reads(|scene| scene == Scene::DataDriven) {
         wheel.clear();
         gesture.held = None;
         // Moves made meanwhile were not followed; the next edges start from the window's cursor.

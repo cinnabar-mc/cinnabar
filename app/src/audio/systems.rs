@@ -226,7 +226,7 @@ pub(crate) fn pump_audio(
     #[cfg(not(target_arch = "wasm32"))]
     if let Some(hosts) = mods
         .as_deref_mut()
-        .and_then(crate::modding::ModRuntime::sound_filters)
+        .and_then(crate::modding::ModRuntime::sound_handlers)
     {
         client_audio::audio::systems::pump_audio_filtered(
             time,

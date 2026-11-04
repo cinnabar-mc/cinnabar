@@ -409,11 +409,6 @@ fn mesh_sub_chunk_core<
                                     [x, y, z],
                                     cull_face,
                                 );
-                                let equal_pane = template.flags & MODEL_TEMPLATE_FLAG_PANE != 0
-                                    && model_template_flags(visuals, neighbour)
-                                        & MODEL_TEMPLATE_FLAG_PANE
-                                        != 0
-                                    && neighbour.faces == entry.faces;
                                 let equal_transparent_cube =
                                     template.flags & MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE != 0
                                         && model_template_flags(visuals, neighbour)
@@ -430,7 +425,6 @@ fn mesh_sub_chunk_core<
                                         && quad.flags & assets::MODEL_QUAD_FLAG_CULL_FACE_MASK == 0;
                                 if (neighbour.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                     && !inset_portal_face)
-                                    || equal_pane
                                     || equal_transparent_cube
                                     || equal_portal
                                     || snow_side_is_covered(visuals, entry, neighbour, cull_face)
@@ -590,8 +584,8 @@ use std::{cell::OnceCell, sync::Arc};
 
 use assets::{
     BlockFlags, DIAGNOSTIC_MATERIAL, MATERIAL_FLAG_ALPHA_BLEND, MODEL_QUAD_FLAG_FACE_MASK,
-    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RuntimeAssets, VisualKind,
+    MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, NO_MODEL_TEMPLATE,
+    NetworkIdMode, RuntimeAssets, VisualKind,
 };
 use world::{MeshNeighbourhood, SubChunk};
 

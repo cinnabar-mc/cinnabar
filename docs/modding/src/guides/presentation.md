@@ -61,26 +61,37 @@ The client merges loaded mods in load order:
 
 So a mod loaded later cannot restyle what an earlier mod owns, but its tooltip lines still show. Design for coexistence: set only the policies your feature needs, because claiming the nametag style to change one colour also blocks every later mod's style.
 
-## Sound events
+## Event handlers
 
-Opt into `sound-filtered-player-mod` (or `audio-filtered-player-mod` when also using
-action filtering) and request the `audio` grant to
-receive `filter-sounds` callbacks. Each observation carries its exact routed
-sound-definition name, optional world position and loop flag. Return one boolean
-per event: true plays it, false cancels that request. Sound selection and conditions
-belong in the component. Every admitted authorized filter sees the same batch;
-any cancellation wins.
+Some host events can be changed or cancelled by an optional `handle-<event>` export.
+Each handler receives a context with the event's facts and its changeable values and
+returns it. The host applies only the changeable values. Include the handler worlds
+you implement (`sound-handler`, `teleport-handler`) in your component's world, or use
+`handled-player-mod`, which also includes the action filter.
 
-The callback runs before new sounds enter decoding or playback, once per audio
-frame with at most 256 observations and 128 bytes per name. It cannot call host
-imports and has bounded fuel, with a shared audio-frame pool. Observers run in load
-order with their full callback allowance, or are skipped for that frame when the
-pool cannot admit another full callback. Cache any other facts during ordinary
-frame callbacks. Missing grants, absent callbacks, traps and malformed results
-leave audio playing; failing components are quarantined. Excess or oversized
-observations pass through. Unloading immediately removes the observer.
+Handlers run in load order, each receiving the previous handler's changes, and
+cancellation is sticky. They cannot call host imports, so cache any other facts during
+ordinary frame callbacks. Each call has `HANDLER_CALL_FUEL` within a shared allowance
+per event family; handlers that the remaining allowance cannot cover are skipped.
+Missing grants and absent handlers leave the event unchanged. Traps and invalid values
+quarantine the component and keep the context it received.
+
+### Sounds
+
+With the `audio` grant, `handle-sound` receives each new playback request before it
+enters decoding or playback: its exact routed sound-definition name, optional world
+position and loop flag. Set `cancelled` to discard it. At most 256 requests per audio
+frame and 128 bytes per name are offered; excess or oversized requests play unhandled.
 
 Cancellation discards a one-shot rather than delaying it. Previously approved
 decodes are not offered again, and playing sounds are not stopped. Managed loops
-offer a new start when they need one, so a later callback may admit a previously
+offer a new start when they need one, so a later call may admit a previously
 cancelled loop. Resource packs are observed after routing to their sound definitions.
+
+### Teleports
+
+With the `camera` grant, `handle-teleport` receives each committed local-player
+MovePlayer with a finite rotation, before the rotation applies: the mode, the server's
+rotation, the view's rotation just before the move, and the rotation about to apply.
+Change `rotation` to replace it, for example to `presented` to keep the current view.
+Position, physics and the teleport acknowledgment always follow the server.

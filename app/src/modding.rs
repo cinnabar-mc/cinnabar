@@ -45,10 +45,13 @@ mod library;
 mod native_camera;
 mod native_input;
 mod packet_highlights;
-mod packet_menu;
+mod packet_panel;
 mod packet_render;
 pub(crate) mod packets;
+mod pointer;
 pub(crate) mod registration;
+mod teleport_handler;
+pub(crate) use teleport_handler::handle_move_player_rotation;
 mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
@@ -73,6 +76,8 @@ pub(crate) struct ModRuntime {
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
     controls: mod_host::ControlFrame,
+    /// The panel owner whose native editor owned the sampled frame's keys.
+    native_editing: Option<usize>,
     /// Chat-action clicks since the last frame, for the chat-action owner's next callback.
     chat_events: Vec<mod_host::ControlEvent>,
     suspended: bool,
@@ -81,9 +86,14 @@ pub(crate) struct ModRuntime {
 }
 
 impl ModRuntime {
-    /// Borrows sound observers only while personal components are running and opted in.
-    pub(crate) fn sound_filters(&mut self) -> Option<&mut ModHosts> {
-        (!self.suspended && self.hosts.has_sound_filters()).then_some(&mut self.hosts)
+    /// Borrows sound handlers only while personal components are running and opted in.
+    pub(crate) fn sound_handlers(&mut self) -> Option<&mut ModHosts> {
+        (!self.suspended && self.hosts.has_sound_handlers()).then_some(&mut self.hosts)
+    }
+
+    /// Borrows teleport handlers only while personal components are running and opted in.
+    pub(crate) fn teleport_handlers(&mut self) -> Option<&mut ModHosts> {
+        (!self.suspended && self.hosts.has_teleport_handlers()).then_some(&mut self.hosts)
     }
 
     /// Starts a runtime with one host and its stable presentation metadata.
@@ -94,6 +104,7 @@ impl ModRuntime {
             render_sources: Vec::new(),
             render_merge: Default::default(),
             controls: mod_host::empty_controls(),
+            native_editing: None,
             chat_events: Vec::new(),
             suspended: false,
             screens: Default::default(),
@@ -424,6 +435,7 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
+    pointer::configure(app);
     app.init_resource::<native_input::NativeInput>();
     app.init_resource::<ModControlModes>();
     app.init_resource::<ModMovementInputActive>();
@@ -465,6 +477,8 @@ fn configure_systems(app: &mut App, watching: bool) {
         drive_mod
             .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
+            // An unordered hotbar selection is visible to this frame's read-selected-slot.
+            .after(client_interaction::hotbar::queue_hotbar_selection)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );

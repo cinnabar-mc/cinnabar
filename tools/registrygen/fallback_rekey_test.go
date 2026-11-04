@@ -88,15 +88,15 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Tripwire and redstone-wire states fan out to their connection variants; reserved chorus is excluded.
-	if stats.InputEntries != 2_031 || stats.OutputEntries != 3_550 || stats.ReservedExcluded != 1 || stats.ConnectedVariants != 1552 {
+	// Tripwire, redstone-wire and chorus-plant states fan out to their connection variants.
+	if stats.InputEntries != 2_031 || stats.OutputEntries != 3_614 || stats.ReservedExcluded != 0 || stats.ConnectedVariants != 1616 {
 		t.Fatalf("rekey counts = in %d out %d reserved-excluded %d connected %d", stats.InputEntries, stats.OutputEntries, stats.ReservedExcluded, stats.ConnectedVariants)
 	}
 	count, err := parseFallbackInventoryHeader(output)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if count != 3_550 {
+	if count != 3_614 {
 		t.Fatalf("output header count = %d", count)
 	}
 	currentByHash := make(map[uint32]Record, len(current))
@@ -145,7 +145,7 @@ func TestRekeyFallbackRealRegistriesAreFullFidelity(t *testing.T) {
 	if len(outputPayloads) != len(inputPayloads)-33 {
 		t.Fatalf("unchanged payload identities = %d, want %d", len(outputPayloads), len(inputPayloads)-33)
 	}
-	if stats.DistinctNames != 334 || stats.ZeroVolume != 5 {
+	if stats.DistinctNames != 335 || stats.ZeroVolume != 5 {
 		t.Fatalf("preserved-envelope counts = names %d zero-volume %d", stats.DistinctNames, stats.ZeroVolume)
 	}
 	regenerated, regeneratedStats, err := rekeyFallbackInventory(input, legacy, current, source)

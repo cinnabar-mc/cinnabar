@@ -31,6 +31,7 @@ fn only_chat_history_background_follows_opacity_on_rebind() {
         local_player: "Alex",
         editor: &editor,
         messages: &messages,
+        first_message_id: 1,
         suggestions: &[],
         usage: None,
         selected_suggestion: None,

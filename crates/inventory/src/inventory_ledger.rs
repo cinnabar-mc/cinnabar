@@ -169,7 +169,7 @@ pub enum InventoryGestureError {
     #[error("player inventory slot {0} is outside the authoritative container")]
     InvalidSlot(u8),
     #[error("generic storage slot {0} is outside the authoritative window")]
-    InvalidStorageSlot(u8),
+    InvalidStorageSlot(u16),
     #[error("player inventory slot {0} is not known yet")]
     UnknownSlot(u8),
     #[error("the inventory request queue is full")]
@@ -364,7 +364,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+    pub fn storage_stack(&self, slot: u16) -> Option<&NetworkItemStack> {
         self.view_stack(Cell::Storage(slot))
     }
 
@@ -557,7 +557,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_slot_pending(&self, slot: u8) -> bool {
+    pub fn storage_slot_pending(&self, slot: u16) -> bool {
         self.cell_pending(Cell::Storage(slot))
     }
 

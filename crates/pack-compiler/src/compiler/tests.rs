@@ -16,6 +16,8 @@ mod azalea;
 pub(crate) mod barrel;
 #[path = "tests/beacon.rs"]
 mod beacon;
+#[path = "tests/bell.rs"]
+mod bell;
 #[path = "tests/brewing_stand.rs"]
 mod brewing_stand;
 #[path = "tests/bubble_column.rs"]
@@ -40,6 +42,8 @@ mod crop_families;
 mod crops;
 #[path = "tests/dragon_egg.rs"]
 mod dragon_egg;
+#[path = "tests/dried_ghast.rs"]
+mod dried_ghast;
 #[path = "tests/end_rod.rs"]
 mod end_rod;
 #[path = "tests/entity_particles.rs"]
@@ -64,6 +68,8 @@ mod hopper;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lectern.rs"]
+mod lectern;
 #[path = "tests/lever.rs"]
 mod lever;
 #[path = "tests/lightning_rod.rs"]
@@ -78,6 +84,8 @@ mod sculk;
 mod sea_pickle;
 #[path = "tests/shelf_cake.rs"]
 mod shelf_cake;
+#[path = "tests/shelf_tiles.rs"]
+mod shelf_tiles;
 #[path = "tests/speleothem.rs"]
 mod speleothem;
 #[path = "tests/spore_blossom.rs"]
@@ -334,6 +342,7 @@ fn canonical_air_at_an_arbitrary_identity_compiles_to_the_exact_invisible_route(
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a single-air synthetic registry");
@@ -359,6 +368,7 @@ fn non_canonical_air_flagged_decoys_keep_the_stripped_diagnostic_route() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile a canonical-plus-decoy-air synthetic registry");
@@ -400,6 +410,7 @@ fn current_heads_never_emit_terrain_geometry_over_the_block_actor() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .unwrap();
@@ -431,6 +442,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         &BTreeMap::new(),
         0,
         fallback,
+        &Default::default(),
         no_exact_admissions(),
     )
     .expect("compile the pinned v2225 registry");
@@ -443,6 +455,8 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
         "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision",
         "minecraft:light_block_0",
         "minecraft:light_block_15",
     ] {
@@ -451,7 +465,7 @@ fn render_invisible_blocks_compile_invisible_even_with_a_fallback_entry() {
             "{name}"
         );
     }
-    assert_eq!(invisible.len(), 20);
+    assert_eq!(invisible.len(), 32);
     for record in invisible {
         let visual = &visuals[record.sequential_id as usize];
         assert_eq!(visual.kind, VisualKind::Invisible, "{}", record.name);

@@ -41,6 +41,13 @@ impl NativeItem {
         }
     }
 
+    /// Whether this family draws natively under the active animation style. Bows and crossbows
+    /// draw natively only under Java's hand stack; in Bedrock style their attachable animations
+    /// pose the drawn weapon, as the stock attachables do.
+    fn native_in_style(self, java: bool) -> bool {
+        java || self == Self::Spear
+    }
+
     /// Selects authored aliases from the native use frame, including loaded projectiles.
     fn alias(self, frame: u32) -> &'static str {
         match (self, frame) {
@@ -235,7 +242,9 @@ pub(super) fn recognize(
 
 /// Only texture-mesh models without cubes sample a complete sprite instead of a UV atlas.
 fn sprite_artwork(bones: &[assets::EntityGeometryBone]) -> bool {
-    bones.iter().all(|bone| bone.cubes.is_empty())
+    bones
+        .iter()
+        .all(|bone| bone.cubes.is_empty() && !bone.has_polygons())
         && bones.iter().any(|bone| !bone.texture_meshes.is_empty())
 }
 
@@ -248,6 +257,7 @@ fn full_texture_plane(
 
     if bones.iter().any(|bone| {
         !bone.texture_meshes.is_empty()
+            || bone.has_polygons()
             || bone.inflate.is_some_and(|inflate| inflate != Scalar::ZERO)
             || bone.mirror == Some(true)
             || bone.never_render == Some(true)
@@ -303,20 +313,22 @@ fn geometry_names<'a>(
 }
 
 impl EquipmentRuntime {
-    /// Whether the current pack's complete model set is recognized as texture-only.
-    pub fn uses_native_item_mesh(&self, identifier: &str) -> bool {
+    /// Whether the current pack's complete model set is recognized as texture-only and drawn
+    /// natively under the active animation style; `java` is Java 1.7 animation mode.
+    pub fn uses_native_item_mesh(&self, identifier: &str, java: bool) -> bool {
         self.pack
             .as_ref()
             .and_then(|pack| pack.native_items.get(identifier))
             .is_some_and(|artwork| {
-                artwork.texture_is_sprite
-                    || self.session_sprite(identifier, 0).is_some()
-                    || self
-                        .icons
-                        .lookup_index(identifier, 0)
-                        .and_then(|index| self.placements.get(index).copied().flatten())
-                        .and_then(|placement| self.atlas_locations.get(placement.layer))
-                        .is_some_and(Option::is_some)
+                artwork.kind.native_in_style(java)
+                    && (artwork.texture_is_sprite
+                        || self.session_sprite(identifier, 0).is_some()
+                        || self
+                            .icons
+                            .lookup_index(identifier, 0)
+                            .and_then(|index| self.placements.get(index).copied().flatten())
+                            .and_then(|placement| self.atlas_locations.get(placement.layer))
+                            .is_some_and(Option::is_some))
             })
     }
 

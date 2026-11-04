@@ -215,11 +215,6 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
                 .sources
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
-                .or_else(|| {
-                    let index = (offset - super::gui_models::MODEL_PAGE)
-                        .checked_sub(runtime.gui_models.sources.pages.len())?;
-                    runtime.gui_models.pack_equipment.pages.get(index)
-                })
         } else {
             None
         };
@@ -284,6 +279,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    let pack_pages = &runtime.gui_models.pack_equipment.pages;
+    dynamic.extend((0..render_model::MAX_UI_PACK_EQUIPMENT_PAGES).map(|index| {
+        pack_pages
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()
@@ -303,10 +305,12 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    dynamic.extend(runtime.gui_models.player_layers.pages.iter().cloned());
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
-        let old = &previous[first_dynamic + offset];
-        if old.identity() == page.identity() {
+        if let Some(old) = previous.get(first_dynamic + offset)
+            && old.identity() == page.identity()
+        {
             *page = old.clone();
         }
     }

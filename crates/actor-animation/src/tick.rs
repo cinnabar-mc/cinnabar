@@ -96,8 +96,10 @@ pub struct ActorTickContext {
     pub is_flying: bool,
     /// The committed level default resolves players that use the default mode.
     pub world_game_mode: Option<protocol::PlayerGameMode>,
-    /// Native HUD rendering uses a UI actor context without a first-person hand camera.
+    /// The actor is drawn inside a menu rather than over the level view.
     pub is_in_ui: bool,
+    /// The actor is drawn by a paper-doll renderer, independently of its screen context.
+    pub is_paperdoll: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
@@ -687,8 +689,11 @@ pub(super) fn evaluate_state(
     let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
-        &state.bones,
-        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+        state.animated_skeleton().0,
+        {
+            let (_, names, channels) = state.animated_skeleton();
+            pose::ChannelBones::bound(names, channels)
+        },
         &weighted_clips,
         budget,
     )?
@@ -700,6 +705,9 @@ pub(super) fn evaluate_state(
     state
         .compose_into(&local, &mut pose)
         .ok_or(EvalError::Invalid)?;
+    let head_angles = state
+        .head_rotation
+        .and_then(|_| super::head_rotation::angles(&state.bones, &state.bone_names, &local));
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
     let render = super::render::evaluate_render(
@@ -754,7 +762,8 @@ pub(super) fn evaluate_state(
             current: local,
             mask: state.motion_sampling.as_ref().unwrap().mask(
                 assets,
-                &state.bone_names,
+                state.animated_skeleton().1,
+                Some(state.animated_skeleton().2),
                 weighted_clips.iter().copied(),
                 None,
             ),
@@ -771,6 +780,7 @@ pub(super) fn evaluate_state(
                         mask: state.motion_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            None,
                             weighted_clips.iter().copied(),
                             Some(geometry),
                         ),
@@ -781,6 +791,7 @@ pub(super) fn evaluate_state(
     }
     Ok(EvaluatedState {
         pose,
+        head_angles,
         skin_layers,
         render,
         scale,
@@ -847,6 +858,8 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.right_arm_swim_amount, input.swim_amount);
     variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
+    variables.set(engine.is_paperdoll, truth(context.is_paperdoll));
+    variables.set(engine.context_paperdoll, truth(context.is_paperdoll));
     variables.set(
         engine.player_x_rotation,
         if context.is_in_ui { 0.0 } else { input.pitch },

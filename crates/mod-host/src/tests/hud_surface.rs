@@ -168,7 +168,7 @@ fn frame_fuel_overrun_keeps_the_last_published_hud_surface_and_hidden_elements()
     budget
         .reserve(server_experience::runtime::LOAD_FUEL)
         .unwrap();
-    host.set_frame_authority(budget, false, false, 0);
+    host.set_frame_authority(budget, false, false);
     host.frame(false).unwrap();
     let (retained, retained_revision) = host.hud_surface().unwrap();
     assert!(Arc::ptr_eq(retained, &surface));

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 
 	shared "github.com/cinnabar-mc/protocolgen/generated/data"
@@ -36,10 +37,48 @@ func validateSharedTarget() error {
 	return nil
 }
 
-// sharedCollision returns source shapes and the verified empty collision of fire and wire.
+// chorusPlantShapeBase is the first of the source-independent shape ids a chorus plant's connection masks take.
+const chorusPlantShapeBase uint16 = 0xff00
+
+// chorusPlantCollision derives a plant's one box from its state: the core reaches each edge it connects toward.
+// The source carries no shape for these states.
+func chorusPlantCollision(record Record) (uint16, []sharedblock.Box, bool) {
+	var state map[string]struct {
+		Value int64 `json:"value"`
+	}
+	if err := json.Unmarshal(record.StateJSON, &state); err != nil {
+		return 0, nil, false
+	}
+	connected := func(side string) bool { return state["minecraft:connection_"+side].Value != 0 }
+	near := func(side string) float32 {
+		if connected(side) {
+			return 0
+		}
+		return 0.125
+	}
+	far := func(side string) float32 {
+		if connected(side) {
+			return 1
+		}
+		return 0.875
+	}
+	var mask uint16
+	for bit, side := range []string{"down", "east", "north", "south", "up", "west"} {
+		if connected(side) {
+			mask |= 1 << bit
+		}
+	}
+	box := sharedblock.Box{near("west"), near("down"), near("north"), far("east"), far("up"), far("south")}
+	return chorusPlantShapeBase + mask, []sharedblock.Box{box}, true
+}
+
+// sharedCollision returns source shapes, the verified empty collision of fire and wire, and a chorus plant's derived box.
 func sharedCollision(record Record, properties sharedblock.Properties) (uint16, []sharedblock.Box, bool) {
 	if boxes, ok := sharedblock.Shape(properties.CollisionShape); ok {
 		return properties.CollisionShape, boxes, true
+	}
+	if record.Name == "minecraft:chorus_plant" {
+		return chorusPlantCollision(record)
 	}
 	if record.Name == "minecraft:fire" || record.Name == "minecraft:redstone_wire" {
 		for index := 1; index <= 65535; index++ {

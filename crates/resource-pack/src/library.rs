@@ -93,6 +93,8 @@ pub enum LibraryError {
     },
     #[error(transparent)]
     Admission(#[from] AdmissionError),
+    #[error(transparent)]
+    JavaPack(java_resource_pack::TranslateError),
     #[error("encrypted or password-protected packs are unsupported")]
     Encrypted,
     #[error("open a supported resource-pack archive")]
@@ -192,8 +194,12 @@ impl GlobalPackLibrary {
         &self.active
     }
 
-    /// Imports independently valid resource halves; behavior halves are skipped.
+    /// Imports independently valid resource halves; behavior halves are skipped. A folder, such
+    /// as a dropped unpacked Bedrock or Java pack, goes through the same validation as an archive.
     pub fn import(&mut self, path: &Path) -> Result<ImportReport, LibraryError> {
+        if path.is_dir() {
+            return self.import_prepared(crate::prepare_import(path)?);
+        }
         if !crate::is_pack_import_path(path) {
             return Err(LibraryError::UnsupportedExtension);
         }

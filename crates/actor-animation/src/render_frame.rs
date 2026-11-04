@@ -23,6 +23,8 @@ pub struct ActorRenderLayers<'a> {
     pub skin: Cow<'a, [SkinRenderLayer]>,
     /// Main-hand size evaluated with this frame's owner variables and query inputs.
     pub held_item_scale: Option<f32>,
+    /// The head's own angles this frame's body poses from, when its renderer reads them.
+    pub head_rotation: Option<HeadRotation>,
 }
 
 /// A bounded render-layer evaluation frame, borrowing tick-owned actor and rig state.
@@ -195,6 +197,12 @@ impl<'a> ActorRenderFrame<'a> {
                     .iter()
                     .any(|layer| layer.material_state.is_some_and(|state| state.depth_always))
             })
+    }
+
+    /// The head angles of the pose this frame draws the actor's body with, so a layer built on the
+    /// head stays with it. Absent unless the actor's renderer reads them.
+    pub fn head_rotation(&mut self, runtime_id: u64) -> Option<HeadRotation> {
+        self.cached_layers(runtime_id)?.head_rotation
     }
 
     /// Expression budget left for this frame's remaining samples.

@@ -65,6 +65,7 @@ pub mod regression_snapshots;
 use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod accounts;
+pub mod command_block;
 #[cfg(test)]
 pub mod play_flow_snapshots;
 mod player_list;
@@ -155,6 +156,12 @@ pub(super) struct ScreenStates {
     touch: touch_controls::TouchControls,
 }
 
+/// The pressable cells of one drawn container frame, with the hit regions they came from.
+type ContainerCells = std::sync::OnceLock<(
+    std::sync::Arc<[json_ui::HitRegion]>,
+    Vec<(ui_screens::container_actions::InventoryCellHit, [f32; 2])>,
+)>;
+
 /// What the last build exposes to input and the next build; reset as each build starts.
 #[derive(Default)]
 pub(super) struct FrameProjections {
@@ -164,6 +171,11 @@ pub(super) struct FrameProjections {
     container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
     /// Last build's container frame, for this build's pointer hover.
     previous_container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// The container's pressable cells, found once per drawn frame and keyed by that frame's
+    /// hit regions, so repeated queries in one build reuse them.
+    container_cells: ContainerCells,
+    /// The command block editor drawn this build.
+    command_block: Option<EngineFrame>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.

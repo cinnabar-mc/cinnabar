@@ -249,6 +249,11 @@ pub enum CommittedUiEvent {
         dimension_epoch: u64,
         event: protocol::FormRequestEvent,
     },
+    /// A request for the block command block editor, with the same dimension fence as a form.
+    OpenCommandBlock {
+        dimension_epoch: u64,
+        position: [i32; 3],
+    },
     Ui {
         sequence: u64,
         event: UiEvent,

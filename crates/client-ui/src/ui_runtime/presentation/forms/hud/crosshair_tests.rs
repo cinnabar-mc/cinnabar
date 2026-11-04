@@ -84,6 +84,7 @@ fn draw(engine: &FormEngine, visible: bool, blend: ui::UiBlendMode) -> (Vec<UiNo
                     hud: &hud,
                     hunger_update: None,
                     bounds: None,
+                    effect_bounds: None,
                 }],
             },
         )
@@ -236,26 +237,40 @@ fn crosshair_color_toggle_preserves_pack_art_and_geometry() {
             .iter()
             .find(|node| matches!(node.visual(), UiVisual::InvertedSprite { .. }))
             .unwrap();
+        // Icons-sheet art keys out its background; standalone pack art keeps its own alpha.
         let normal = normal
             .iter()
-            .find(|node| matches!(node.visual(), UiVisual::Sprite { .. }))
+            .find(|node| {
+                matches!(
+                    node.visual(),
+                    UiVisual::Sprite { .. } | UiVisual::RgbCoverageSprite { .. }
+                )
+            })
             .unwrap();
         assert_eq!(inverted.bounds(), normal.bounds());
         let UiVisual::InvertedSprite { texture_page, uv } = inverted.visual() else {
             unreachable!()
         };
-        assert_eq!(
-            normal.visual(),
-            &UiVisual::Sprite {
+        let expected = if files.is_empty() {
+            UiVisual::RgbCoverageSprite {
                 texture_page: *texture_page,
                 uv: *uv,
-                color: [255; 4]
+                color: [255; 4],
             }
-        );
+        } else {
+            UiVisual::Sprite {
+                texture_page: *texture_page,
+                uv: *uv,
+                color: [255; 4],
+            }
+        };
+        assert_eq!(normal.visual(), &expected);
         let (hidden, _) = draw(&engine, false, ui::UiBlendMode::Alpha);
         assert!(!hidden.iter().any(|node| matches!(
             node.visual(),
-            UiVisual::Sprite { .. } | UiVisual::InvertedSprite { .. }
+            UiVisual::Sprite { .. }
+                | UiVisual::RgbCoverageSprite { .. }
+                | UiVisual::InvertedSprite { .. }
         )));
     }
 }

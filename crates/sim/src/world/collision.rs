@@ -93,7 +93,9 @@ impl<'a> PaletteWorld<'a> {
                 (min[2] >> 4..=max[2] >> 4).map(move |z| ChunkKey::new(self.dimension, x, z))
             })
             .collect::<Vec<_>>();
-        let identity = self.identity_for_chunks(chunks.iter().copied())?;
+        let mut identity = self.identity_for_chunks(chunks.iter().copied())?;
+        // Piston arm collision follows its owner's actor, which may sit outside the scan.
+        let mut owner_columns = Vec::new();
 
         self.emit_unloaded_boundary_instances(query, &chunks, &mut *emit);
         let mut section = SectionCache::default();
@@ -128,6 +130,13 @@ impl<'a> PaletteWorld<'a> {
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
                         let shapes = self.block_collision_shapes(block, physics, query)?;
+                        if let Some(owner) = self.collision_actor_owner(block, physics)? {
+                            let column =
+                                ChunkKey::new(self.dimension, owner[0] >> 4, owner[2] >> 4);
+                            if !chunks.contains(&column) && !owner_columns.contains(&column) {
+                                owner_columns.push(column);
+                            }
+                        }
                         if shapes.is_empty() {
                             // Powder snow has no shape of its own; a mover-aware
                             // query decides whether its block box collides.
@@ -161,6 +170,9 @@ impl<'a> PaletteWorld<'a> {
                     }
                 }
             }
+        }
+        if !owner_columns.is_empty() {
+            identity = self.identity_for_chunks(chunks.iter().chain(&owner_columns).copied())?;
         }
         if let Some(colliders) = &self.actor_colliders {
             for &shape in colliders.iter() {

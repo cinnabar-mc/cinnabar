@@ -22,6 +22,7 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
+            head_rotation: state.head_rotation,
         };
         let fallback = || {
             self.frame_fallbacks
@@ -305,8 +306,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &current.evaluator,
                 &mut current.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &current.clips,
                 &mut budget,
             ) else {
@@ -320,8 +324,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &evaluator,
                 &mut variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
@@ -341,11 +348,12 @@ impl ActorAnimationStore {
             .flatten()
             .map(|sampling| {
                 if camera_resample {
-                    return motion_sampling::full_mask(state.bone_names.len());
+                    return motion_sampling::full_mask(state.animated_skeleton().1.len());
                 }
                 sampling.mask(
                     assets,
-                    &state.bone_names,
+                    state.animated_skeleton().1,
+                    Some(state.animated_skeleton().2),
                     clips
                         .iter()
                         .chain(
@@ -367,8 +375,11 @@ impl ActorAnimationStore {
             let Ok(sampled_previous) = pose::sample_clips_reused(
                 &previous.evaluator,
                 &mut previous.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &previous.clips,
                 &mut budget,
             ) else {
@@ -539,6 +550,7 @@ impl ActorAnimationStore {
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,
+                                    None,
                                     clips.iter().chain(previous_clips).copied(),
                                     Some(geometry),
                                 )
@@ -634,6 +646,20 @@ impl ActorAnimationStore {
             }
             _ => Ok(Cow::Borrowed(state.skin_layers.as_slice())),
         };
+        // An unsampled body draws its tick pose, so the head keeps its tick angles too.
+        let head_rotation = state.head_rotation.map(|tick| {
+            sampled_local
+                .as_deref()
+                .and_then(|local| {
+                    HeadRotation::sampled(
+                        &state.bones,
+                        &state.bone_names,
+                        local,
+                        sampled_previous_local.as_deref(),
+                    )
+                })
+                .unwrap_or(tick)
+        });
         let complete = skin.is_ok();
         let skin = skin.unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
         if complete && let Some(retained) = retained {
@@ -644,12 +670,14 @@ impl ActorAnimationStore {
                     Cow::Borrowed(_) => None,
                 },
                 held_item_scale,
+                head_rotation,
             );
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
             skin,
             held_item_scale,
+            head_rotation,
         })
     }
 }

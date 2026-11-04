@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn general_camera_callback_negotiates_without_player_observation() {
-        let output = r#"{"view":{"position":[1.0,65.0,2.0],"yaw":0.5,"pitch":0.0,"velocity":[0.0,0.0,0.0]},"view_tilt":{"roll":14.0,"pitch":0.0,"suppress_hurt_shake":true},"preserve_teleport_rotation":true}"#;
+        let output = r#"{"view":{"position":[1.0,65.0,2.0],"yaw":0.5,"pitch":0.0,"velocity":[0.0,0.0,0.0]},"view_tilt":{"roll":14.0,"pitch":0.0,"suppress_hurt_shake":true}}"#;
         let mut wat = module_source(output, output.len());
         wat = wat.replace("\"frame\"", "\"camera-frame\"");
         // The legacy fixture checks the init bit before returning any effect.
@@ -254,7 +254,6 @@ mod tests {
                 suppress_hurt_shake: true,
             })
         );
-        assert!(effects.preserve_teleport_rotation);
         assert_eq!(guest.frame(None).unwrap(), None);
     }
 

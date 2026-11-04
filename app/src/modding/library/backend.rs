@@ -35,7 +35,11 @@ impl Retirement for removal::Permit {
 
 impl Backend for AppBackend {
     type Registered = selection::Registered;
-    type Declarations = (Option<mod_host::ModGrants>, ui::mod_metadata::ModMetadata);
+    type Declarations = (
+        Option<mod_host::ModGrants>,
+        ui::mod_metadata::ModMetadata,
+        bool,
+    );
     type Receipt = selection::Receipt;
     type Permit = removal::Permit;
     const MOD_API_REVISIONS_JSON: &'static str = mod_api::COMPATIBILITY_REVISIONS_JSON;
@@ -48,9 +52,11 @@ impl Backend for AppBackend {
     }
     /// Keeps declarations opaque to the service and uses the canonical parser.
     fn declarations(path: &Path) -> Self::Declarations {
-        match mod_host::declarations(path) {
-            Ok(declared) => (declared.requested.ok().flatten(), declared.metadata),
-            Err(_) => (None, Default::default()),
+        let bytes = mod_host::read_source(path).ok();
+        let packet = bytes.as_deref().is_some_and(mod_host::is_packet_source);
+        match bytes.as_deref().map(mod_host::declarations_snapshot) {
+            Some(Ok(declared)) => (declared.requested.ok().flatten(), declared.metadata, packet),
+            _ => (None, Default::default(), packet),
         }
     }
     /// Builds permissions from the grant declaration without maintaining another capability list.
@@ -59,12 +65,13 @@ impl Backend for AppBackend {
         declared: &Self::Declarations,
         current: Option<&Self::Registered>,
     ) {
-        let (requested, metadata) = declared;
+        let (requested, metadata, packet) = declared;
         let grants = current.map(|current| &current.entry.grants);
         item.metadata = metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {
+                applicable: capability.applies_to(*packet),
                 name: capability.label.into(),
                 description: capability.description.trim().into(),
                 enabled: grants.is_some_and(capability.enabled),

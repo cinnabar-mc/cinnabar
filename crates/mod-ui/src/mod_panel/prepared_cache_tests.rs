@@ -76,6 +76,6 @@ fn prepared_catalog_invalidates_documents_schemas_and_invalid_inputs() {
     let schema = PreparedPanelUi::prepare(Arc::new(routes)).unwrap();
     assert!(!Arc::ptr_eq(&routed.catalog, &schema.catalog));
     let mut invalid = source.as_ref().clone();
-    invalid.panel.toggle_key.clear();
+    invalid.panel.surface.screen.clear();
     assert!(PreparedPanelUi::prepare(Arc::new(invalid)).is_err());
 }

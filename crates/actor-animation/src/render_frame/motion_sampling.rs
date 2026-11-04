@@ -341,8 +341,25 @@ impl MotionSampling {
         clips: impl IntoIterator<Item = tick::WeightedClip>,
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
-        let mut mask = vec![[0; 3]; names.len()];
-        let mut channel_bones = pose::ChannelBones::new(names);
+        self.mask_with(
+            assets,
+            names.len(),
+            pose::ChannelBones::new(names),
+            clips,
+            geometry,
+        )
+    }
+
+    /// Builds an uncached union over `bones` slots, resolving channels through `channel_bones`.
+    fn mask_with<'a>(
+        &self,
+        assets: &'a RuntimeEntityAssets,
+        bones: usize,
+        mut channel_bones: pose::ChannelBones<'a>,
+        clips: impl IntoIterator<Item = tick::WeightedClip>,
+        geometry: Option<u32>,
+    ) -> Vec<[u8; 3]> {
+        let mut mask = vec![[0; 3]; bones];
         for weighted in clips {
             let weighted = match geometry {
                 Some(geometry) => match render::clip_for_layer(assets, weighted, geometry) {

@@ -16,16 +16,22 @@ const CUSTOM_SKIN_PACK_ID: &str = "aaaaaaaa-7b21-4637-9b63-8ad63622ef01";
 
 /// Geometry data for a skin without its own model: the styled JSON `null` that Bedrock writes for
 /// an empty geometry document. Servers parse this field as JSON, so it is never left empty.
-const ABSENT_GEOMETRY_DATA: &str = "null\n";
+pub(crate) const ABSENT_GEOMETRY_DATA: &str = "null\n";
 
 /// Returns a built-in skin's pack identity without minting a per-login UUID.
 pub fn builtin_skin_id(name: &str) -> String {
     format!("{CLASSIC_SKIN_PACK_ID}.{name}")
 }
 
-/// Returns an imported skin's pack identity from its persisted image name.
+/// Returns an imported skin's pack identity: the custom pack plus a UUID, the same shape native
+/// gives the files it imports. The UUID comes from the persisted image name, so an image keeps its
+/// identity across joins, and a 64-digit digest name doesn't reach the 100-character limit some
+/// servers enforce on skin IDs.
 pub fn custom_skin_id(image_name: &str) -> String {
-    format!("{CUSTOM_SKIN_PACK_ID}.{image_name}")
+    let digest = Sha256::digest(image_name.as_bytes());
+    let mut bytes = [0; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    format!("{CUSTOM_SKIN_PACK_ID}.{}", uuid::Uuid::from_bytes(bytes))
 }
 
 /// Returns the classic model's skin-pack identity, independent of login and player UUIDs.
@@ -129,6 +135,18 @@ pub fn player_skin_packet(
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    /// Imported images are stored under a SHA-256 digest; Nukkit refuses skin IDs of 100 characters.
+    #[test]
+    fn imported_skin_ids_fit_server_limits_and_stay_distinct_per_image() {
+        let digest = "0123456789abcdef".repeat(4);
+        let other = "fedcba9876543210".repeat(4);
+        let id = custom_skin_id(&digest);
+        assert!(id.len() < 100, "{} characters: {id}", id.len());
+        assert!(id.starts_with(CUSTOM_SKIN_PACK_ID));
+        assert_eq!(id, custom_skin_id(&digest));
+        assert_ne!(id, custom_skin_id(&other));
+    }
 
     #[test]
     fn selected_skin_update_preserves_wire_pixels_geometry_and_model() {

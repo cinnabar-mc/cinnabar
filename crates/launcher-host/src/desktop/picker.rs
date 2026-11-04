@@ -66,7 +66,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PickedFile>, String> {
     }
     // Android has no picker tools; the Storage Access Framework copies picks into app storage.
     #[cfg(target_os = "android")]
-    return super::android::pick_documents(multiple, filter.max_bytes, android_mime_type(filter))
+    return super::android::pick_documents(multiple, filter.max_bytes)
         .map_err(|error| format!("{error}."))?
         .ok_or_else(|| unavailable("no document picker is available", filter))
         .and_then(|paths| selected(filter, paths.into_iter().map(PickedFile::copied).collect()));
@@ -79,22 +79,6 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PickedFile>, String> {
         )?,
     )
     .map(|paths| paths.into_iter().map(PickedFile::from).collect())
-}
-
-/// Restricts ZIP-only requests in Android's picker. Custom extensions keep every document
-/// visible because providers may not register their MIME types; `selected` checks names.
-#[cfg(any(target_os = "android", test))]
-fn android_mime_type(filter: &Filter) -> &'static str {
-    if !filter.extensions.is_empty()
-        && filter
-            .extensions
-            .iter()
-            .all(|extension| extension.eq_ignore_ascii_case("zip"))
-    {
-        "application/zip"
-    } else {
-        "*/*"
-    }
 }
 
 /// Keeps picked files with an accepted extension; picking only other files is a visible error.
@@ -290,13 +274,11 @@ mod tests {
     }
 
     #[test]
-    fn android_filters_zip_requests_without_hiding_custom_pack_types() {
+    fn zip_requests_keep_only_zip_names() {
         let zip = Filter {
             extensions: &["ZIP"],
             ..PACKS
         };
-        assert_eq!(android_mime_type(&zip), "application/zip");
-        assert_eq!(android_mime_type(&PACKS), "*/*");
         assert_eq!(
             selected(
                 &zip,

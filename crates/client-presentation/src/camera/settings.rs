@@ -27,7 +27,8 @@ pub struct CameraSettingsAuthority {
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
-    preserve_teleport_rotation: bool,
+    /// A developer-scripted camera is rendering the scene from outside the body.
+    scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
 }
@@ -142,7 +143,7 @@ impl Default for CameraSettingsAuthority {
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
-            preserve_teleport_rotation: false,
+            scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
         }
@@ -246,6 +247,17 @@ impl CameraSettingsAuthority {
         }
     }
 
+    /// The perspective the local body is drawn for: `perspective`, except that a scripted camera filming
+    /// from outside the body draws it as third-person-back. Only drawing reads this; anything a server
+    /// can observe, such as aim-assist activation, keeps reading `perspective`.
+    #[must_use]
+    pub fn rendered_perspective(&self) -> PerspectiveMode {
+        match self.perspective() {
+            PerspectiveMode::FirstPerson if self.scripted_view => PerspectiveMode::ThirdPersonBack,
+            perspective => perspective,
+        }
+    }
+
     /// Whether the local player's death currently overrides first person.
     #[must_use]
     pub const fn death_view(&self) -> bool {
@@ -295,16 +307,6 @@ impl CameraSettingsAuthority {
     pub fn captures_movement(&self) -> bool {
         self.presented_view
             .is_some_and(|view| view.capture_movement)
-    }
-
-    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
-    pub const fn preserves_teleport_rotation(&self) -> bool {
-        self.preserve_teleport_rotation
-    }
-
-    /// Position reconciliation and teleport acknowledgment remain server-owned.
-    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
-        self.preserve_teleport_rotation = enabled;
     }
 
     /// Applies ephemeral view multipliers without changing saved FOV, sensitivity or perspective.
@@ -359,6 +361,12 @@ impl CameraSettingsAuthority {
         }
     }
 
+    /// Marks a developer-scripted camera as active, so the local body is drawn in its shots without
+    /// changing the player's perspective; clearing stops drawing it.
+    pub fn set_scripted_view(&mut self, active: bool) {
+        self.scripted_view = active;
+    }
+
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
     pub fn set_rig(&mut self, rig: Option<CameraRig>) {
         self.rig = rig.filter(|rig| {
@@ -391,7 +399,6 @@ impl CameraSettingsAuthority {
         self.freelook = false;
         self.presented_view = None;
         self.death_rotation = None;
-        self.preserve_teleport_rotation = false;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
     }

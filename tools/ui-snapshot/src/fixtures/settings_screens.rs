@@ -2,7 +2,8 @@
 
 use super::*;
 
-/// Search results, an empty result and the compact settings viewport.
+/// Global resources while applying and with an empty library, search results, an empty result
+/// and the compact settings viewport.
 pub(super) const SEARCH_STATES: &[State] = &[
     State {
         name: "settings-global-resources-applying",
@@ -13,6 +14,16 @@ pub(super) const SEARCH_STATES: &[State] = &[
             let packs = Arc::make_mut(&mut view.global_resources);
             packs.busy = true;
             packs.message = oreui::loading_screen::RESOURCE_PACK_WORDS[0].to_owned();
+            Fixture::Menu(Box::new(view))
+        },
+    },
+    State {
+        name: "settings-global-resources-empty",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let mut view = settings(SettingSection::GlobalTexturePack.definition().name);
+            Arc::make_mut(&mut view.global_resources).available_expanded = true;
             Fixture::Menu(Box::new(view))
         },
     },

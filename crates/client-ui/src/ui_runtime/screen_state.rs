@@ -57,6 +57,8 @@ pub struct ScreenState {
     pub container_scroll: std::collections::BTreeMap<String, f64>,
     /// The engine scroll view whose scrollbar thumb is being dragged, and its last pointer axis.
     pub container_scroll_drag: Option<(String, f64)>,
+    /// Selected radio tabs of a server pack's storage screen, by group key.
+    pub storage_radios: std::collections::BTreeMap<u64, u16>,
     window: Option<u64>,
     creative_filter: std::sync::Arc<std::sync::Mutex<Option<CreativeFilterCache>>>,
 }
@@ -128,6 +130,7 @@ impl ScreenState {
             self.mount_equipment = assets::entity::mount::MountEquipment::Unresolved;
             self.container_scroll.clear();
             self.container_scroll_drag = None;
+            self.storage_radios.clear();
             self.creative_expanded.clear();
         }
     }

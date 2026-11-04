@@ -590,9 +590,10 @@ fn png_fixture(
         Fixture::Chat {
             draft,
             suggestions,
-            messages,
+            mut messages,
             options,
             server_hover,
+            receive_while_scrolled,
         } => {
             let mut engine = json_engine(&carriers)?;
             #[cfg(feature = "test-support")]
@@ -606,7 +607,7 @@ fn png_fixture(
             frame.now = seconds;
             let mut screen = ChatScreen::default();
             screen.settings.set_snapshot((options, None));
-            for now in [0.0, seconds, seconds] {
+            for (step, now) in [0.0, seconds, seconds].into_iter().enumerate() {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -617,6 +618,7 @@ fn png_fixture(
                             local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
+                            first_message_id: 1,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -627,6 +629,20 @@ fn png_fixture(
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
+                if receive_while_scrolled {
+                    if step == 0 {
+                        screen.scroll(120.0, true);
+                    } else if step == 1 {
+                        messages.push_back(ui::ChatMessage {
+                            fifo_sequence: messages.back().map_or(1, |row| row.fifo_sequence + 1),
+                            received_millis: 0,
+                            kind: ui::ChatMessageKind::System,
+                            source: None,
+                            message: "NEW incoming message: this longer row wraps while the reader is looking at older messages.".into(),
+                            parameters: Arc::from([]),
+                        });
+                    }
+                }
                 if server_hover == Some(true)
                     && let Some(caption) = screen.nodes().iter().find(|node| node.name == "caption")
                 {

@@ -6,13 +6,11 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 
 mod bounds;
-mod poly_mesh;
 pub use bounds::SkinGeometryBounds;
-pub use poly_mesh::{SkinPolyMesh, SkinPolyVertex};
 
 use crate::{
     EntityGeometryBone, EntityGeometryCube, EntityGeometryFaceUv, EntityGeometryFaceUvs,
-    EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_TEXTURE_DIMENSION,
+    EntityGeometryPolyMesh, EntityGeometryScalar, EntityGeometryUv, MAX_ENTITY_TEXTURE_DIMENSION,
 };
 
 /// Bones one skin model may have; the actor renderer's per-rig bone bound.
@@ -32,8 +30,6 @@ pub struct SkinGeometry {
     pub texture_height: u16,
     /// Bones after inheritance, parents resolved by name (an unknown parent becomes a root).
     pub bones: Box<[EntityGeometryBone]>,
-    /// Optional polygon meshes in the same order as `bones`.
-    pub poly_meshes: Box<[Option<SkinPolyMesh>]>,
     /// Authored visibility box in the actor coordinate frame, when supplied and finite.
     pub visible_bounds: Option<SkinGeometryBounds>,
     /// The authored `animationNoHeadBob` flag suppresses movement bob only.
@@ -43,6 +39,16 @@ pub struct SkinGeometry {
 }
 
 impl SkinGeometry {
+    /// Bytes its bones' polygon meshes keep allocated.
+    #[must_use]
+    pub fn poly_mesh_bytes(&self) -> usize {
+        self.bones
+            .iter()
+            .filter_map(|bone| bone.poly_mesh.as_deref())
+            .map(crate::EntityGeometryPolyMesh::retained_bytes)
+            .sum()
+    }
+
     /// Resolves a classic model from the catalog when a skin sends only its resource patch.
     pub fn from_catalog(geometry: &crate::EntityGeometry) -> Option<Self> {
         if geometry.inherits.is_some() {
@@ -73,7 +79,6 @@ impl SkinGeometry {
             Some(geometry.texture_width),
             Some(geometry.texture_height),
             bones,
-            vec![None; geometry.bones.len()],
             "",
             &source,
         )
@@ -155,14 +160,13 @@ pub fn parse_skin_geometry_layer(
     let mut visible_bounds = None;
     let mut animation_no_head_bob = false;
     let mut bones: Vec<EntityGeometryBone> = Vec::new();
-    let mut poly_meshes = Vec::new();
     let mut cube_count = 0;
     for entry in chain.iter().rev() {
         texture_width = entry.texture_width.or(texture_width);
         texture_height = entry.texture_height.or(texture_height);
         visible_bounds = entry.visible_bounds.or(visible_bounds);
         animation_no_head_bob = entry.animation_no_head_bob.unwrap_or(animation_no_head_bob);
-        for (child, mesh) in entry.bones.iter().zip(&entry.poly_meshes) {
+        for child in &entry.bones {
             match bones
                 .iter()
                 .position(|bone| bone.name.eq_ignore_ascii_case(&child.name))
@@ -175,9 +179,6 @@ pub fn parse_skin_geometry_layer(
                             child,
                             MAX_SKIN_GEOMETRY_CUBES - other_cubes,
                         )?;
-                    if mesh.is_some() || child.reset == Some(true) {
-                        poly_meshes[index] = mesh.clone();
-                    }
                 }
                 None => {
                     cube_count = cube_count
@@ -188,7 +189,6 @@ pub fn parse_skin_geometry_layer(
                         return Err(SkinGeometryError::TooManyBones);
                     }
                     bones.push(child.clone());
-                    poly_meshes.push(mesh.clone());
                 }
             }
         }
@@ -198,7 +198,6 @@ pub fn parse_skin_geometry_layer(
         texture_width,
         texture_height,
         bones,
-        poly_meshes,
         resource_patch,
         geometry_data,
     )
@@ -214,7 +213,6 @@ fn finish(
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     mut bones: Vec<EntityGeometryBone>,
-    poly_meshes: Vec<Option<SkinPolyMesh>>,
     resource_patch: &str,
     geometry_data: &str,
 ) -> Result<SkinGeometry, SkinGeometryError> {
@@ -262,7 +260,6 @@ fn finish(
         texture_width: texture_width.unwrap_or(64),
         texture_height: texture_height.unwrap_or(64),
         bones: bones.into(),
-        poly_meshes: poly_meshes.into(),
         visible_bounds: None,
         animation_no_head_bob: false,
         digest: digest.finalize().into(),
@@ -275,7 +272,6 @@ struct ParsedGeometry {
     texture_width: Option<u16>,
     texture_height: Option<u16>,
     bones: Vec<EntityGeometryBone>,
-    poly_meshes: Vec<Option<SkinPolyMesh>>,
     visible_bounds: Option<SkinGeometryBounds>,
     animation_no_head_bob: Option<bool>,
 }
@@ -301,7 +297,6 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
                 texture_width: dimension(description.get("texture_width")),
                 texture_height: dimension(description.get("texture_height")),
                 bones: bones(geometry.get("bones")),
-                poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
                 visible_bounds: bounds::parse(description),
                 animation_no_head_bob: geometry
                     .get(GEOMETRY_NO_HEAD_BOB_FIELD)
@@ -323,7 +318,6 @@ fn parse_geometries(root: &Value) -> Option<Vec<ParsedGeometry>> {
             texture_width: dimension(geometry.get("texturewidth")),
             texture_height: dimension(geometry.get("textureheight")),
             bones: bones(geometry.get("bones")),
-            poly_meshes: poly_mesh::bone_meshes(geometry.get("bones")),
             visible_bounds: bounds::parse(geometry),
             animation_no_head_bob: geometry
                 .get(GEOMETRY_NO_HEAD_BOB_FIELD)
@@ -400,6 +394,7 @@ fn bones(value: Option<&Value>) -> Vec<EntityGeometryBone> {
                 reset: bone.get("reset").and_then(Value::as_bool),
                 binding: None,
                 texture_meshes: Box::new([]),
+                poly_mesh: EntityGeometryPolyMesh::parse_bone(bone.get("poly_mesh"), name),
                 cubes: cubes.into(),
             })
         })

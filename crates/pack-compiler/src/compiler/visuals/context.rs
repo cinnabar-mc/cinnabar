@@ -6,6 +6,7 @@ pub(in crate::compiler) struct RuleInputs<'a> {
     pub(in crate::compiler) material_by_descriptor: &'a BTreeMap<Descriptor, u32>,
     pub(in crate::compiler) vanilla_fallback_material: u32,
     pub(in crate::compiler) fallback: &'static FallbackInventory<'static>,
+    pub(in crate::compiler) sheet_tiles: &'a sheet_tiles::SheetPlan,
 }
 
 impl RuleInputs<'_> {

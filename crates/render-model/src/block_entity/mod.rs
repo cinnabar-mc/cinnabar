@@ -28,6 +28,7 @@ mod items;
 mod loyalty_rope;
 pub mod mesh;
 mod overlay_item;
+mod piston;
 mod portal;
 mod pot;
 mod scene;
@@ -45,7 +46,7 @@ pub use atlas::{
 pub use banner::{BannerLayer, BannerModel, BannerMount};
 pub use beam::BeaconModel;
 pub use bed::{BedModel, bed_color};
-pub use bell::{BellAttachment, BellModel, swing_degrees};
+pub use bell::{BellAttachment, BellModel};
 pub use book::{BookPose, EnchantingBook};
 pub use chalkboard::ChalkboardModel;
 pub use chest::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
@@ -72,6 +73,7 @@ pub use mesh::{
     model_matrix as block_matrix,
 };
 pub use overlay_item::overlay_item_transform;
+pub use piston::PistonArmModel;
 pub use pot::{DecoratedPotModel, sherd_pattern};
 pub use scene::{
     BLOCK_ENTITY_REACH_BLOCKS, BlockEntityAtlasImage, BlockEntityFrame, BlockEntityKind,

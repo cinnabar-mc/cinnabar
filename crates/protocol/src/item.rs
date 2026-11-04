@@ -19,6 +19,8 @@ use thiserror::Error;
 mod animation_tests;
 mod attack;
 mod banner;
+mod block_items;
+pub(crate) use block_items::with_block_items;
 mod components;
 mod digger;
 mod display;

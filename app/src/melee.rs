@@ -16,6 +16,7 @@ use semantic_input::Action;
 pub(crate) mod crosshair;
 mod hover;
 pub(crate) mod ordered;
+mod requested_breaks;
 pub(crate) mod server_swings;
 use crosshair::resolve_crosshair;
 
@@ -90,7 +91,7 @@ pub(crate) struct MeleeContext<'w, 's> {
     pub(crate) time: Res<'w, Time<Real>>,
     pub(crate) aim: Res<'w, client_presentation::aim_assist::AimAssistFrame>,
     pub(crate) camera: Res<'w, client_presentation::camera::ServerCameraView>,
-    pub(crate) mod_interaction: Option<Res<'w, ModInteraction>>,
+    pub(crate) mod_interaction: Option<ResMut<'w, ModInteraction>>,
     pub(crate) physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
@@ -198,7 +199,11 @@ pub(crate) fn prepare_melee(
     }
     let pending = runtime.observe_input_with_capture(
         attack.pressed,
-        attack.held,
+        attack.held
+            || context
+                .mod_interaction
+                .as_ref()
+                .is_some_and(|request| request.block_mining),
         context
             .network
             .pick_trace()
@@ -327,24 +332,53 @@ fn maintain_attacks(
     // continues; queued work already accepted still drains and an existing destroy aborts.
     let attack_held = active
         && !item_use.vetoes_attack(&player, context.client_world.stream.as_ref())
-        && crate::ordered_interactions::build_held(
-            context.ordered.as_deref(),
-            &context.input,
-            Action::Attack,
-        );
-    let wants_target =
-        active && !runtime.actor_in_front() && (attack_held || runtime.press_pending());
+        && (context
+            .mod_interaction
+            .as_ref()
+            .is_some_and(|request| request.block_mining)
+            || crate::ordered_interactions::build_held(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Attack,
+            ));
+    let requested = context
+        .mod_interaction
+        .as_ref()
+        .and_then(|request| request.block_mining_target)
+        .filter(|_| {
+            crate::ordered_interactions::build_held(
+                context.ordered.as_deref(),
+                &context.input,
+                Action::Attack,
+            )
+        });
+    let directed = requested.is_some()
+        && target
+            .attack
+            .is_some_and(|pick| !matches!(pick.crosshair, gameplay::melee::Crosshair::Actor(_)))
+        && !selected_attack_timing(&player, &context.client_world)
+            .is_some_and(|item| item.piercing_weapon);
+    let wants_target = active
+        && (directed || !runtime.actor_in_front())
+        && (attack_held || runtime.press_pending());
     // A block press is refused at its start even where the game mode cannot mine.
     let block_press = focused
         && attack
             .as_ref()
             .is_some_and(|(crosshair, _)| *crosshair == gameplay::melee::Crosshair::Block);
+    let mut mining_origin = (*context.origin).clone();
+    if let Some(point) = requested
+        && let Some(ray) = mining_origin.outbound_ray()
+    {
+        let direction = bevy::prelude::Vec3::from_array(point) - ray.origin();
+        mining_origin.assist_direction(direction);
+    }
     let observation = if wants_target || block_press {
         input.and_then(|input| {
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &context.origin,
+                &mining_origin,
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
@@ -362,7 +396,9 @@ fn maintain_attacks(
             None
         }
         Some(crate::survival_mining::DestroyObservation::Target(target)) if wants_target => {
-            Some(target)
+            requested
+                .is_none_or(|point| target.position == point.map(|v| v.floor() as i32))
+                .then_some(target)
         }
         _ => None,
     };
@@ -432,6 +468,7 @@ fn maintain_attacks(
     if let Some(hit) = admitted.actor_attack {
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }
+    requested_breaks::apply(&player, &mut context, &mut movement, active);
     for cue in mining.take_break_cues() {
         let gameplay::survival_mining::BlockBreakCue::Break {
             position,

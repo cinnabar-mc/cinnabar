@@ -6,6 +6,8 @@ use crate::render_frame::{cache::Inputs, sampling};
 struct Layer {
     inputs: Inputs,
     color: [f32; 4],
+    /// The damage state that chose between the overlay and hurt colours.
+    hurt: bool,
     output: Option<LayerOutput>,
 }
 
@@ -40,6 +42,7 @@ impl RenderCache {
                 budget,
             );
         }
+        let hurt = evaluator.actor.shows_damage();
         if index == self.layers.len() {
             self.layers.push(Layer {
                 inputs: Inputs::new(
@@ -47,6 +50,7 @@ impl RenderCache {
                     sampling::render_layer_expressions(evaluator.assets, layer).expressions,
                 ),
                 color,
+                hurt,
                 output: None,
             });
         }
@@ -63,13 +67,15 @@ impl RenderCache {
             );
         }
         let unchanged = cached.inputs.update(evaluator, variables, budget)
-            && cached.color.map(f32::to_bits) == color.map(f32::to_bits);
+            && cached.color.map(f32::to_bits) == color.map(f32::to_bits)
+            && cached.hurt == hurt;
         if unchanged && let Some(output) = &cached.output {
             return Ok(output.clone());
         }
         // A failed evaluation cannot make the previous result valid for the new inputs.
         cached.output = None;
         cached.color = color;
+        cached.hurt = hurt;
         let output = evaluate_layer(
             evaluator,
             variables,

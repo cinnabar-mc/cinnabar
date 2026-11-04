@@ -9,7 +9,7 @@ const STARTUP: [u8; 4] = [70, 100, 210, 255];
 const DYE: u32 = 0x00d0_3040;
 
 #[test]
-fn preview_atlas_fallback_keeps_the_selected_chest_category() {
+fn missing_pack_chest_art_keeps_the_startup_chest_category() {
     let base = catalog(&[Definition {
         name: ITEM,
         condition: None,
@@ -35,11 +35,6 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     ));
     let world = owner(Arc::clone(&base.assets));
     let mut presentation = material_tests::presentation(base.equipment.as_ref().unwrap());
-    let side = render_model::UI_MODEL_ATLAS_SIDE;
-    let full =
-        UiTexturePage::owned([side; 2], vec![255; (side * side * 4) as usize].into()).unwrap();
-    presentation.gui_models.sources.pages = vec![full; MODEL_PAGES];
-    presentation.gui_models.sources.required_pages = MODEL_PAGES;
     presentation.set_preview_equipment_assets(Some(base.assets), Some(pack.assets));
     presentation.set_preview_pack_equipment(pack.equipment);
     let cape_page = 100;
@@ -55,15 +50,17 @@ fn preview_atlas_fallback_keeps_the_selected_chest_category() {
     );
     presentation.gui_models.live_player.cape_vertices =
         player_preview::cape::rest_vertices().to_vec();
-    presentation.set_player_preview_gear_with_owner(
-        [None, Some((ITEM, None, false)), None, None],
-        None,
-        PreviewEquipmentOwner {
-            actor: world.authority().actor(1).unwrap(),
-            rig: world.authority().actor_rig(1).unwrap(),
-            input: Default::default(),
-        },
-    );
+    let context = PreviewEquipmentOwner {
+        actor: world.authority().actor(1).unwrap(),
+        rig: world.authority().actor_rig(1).unwrap(),
+        input: Default::default(),
+    };
+    let gear = [None, Some((ITEM, None, false)), None, None];
+    presentation.set_player_preview_gear_with_owner(gear, None, context);
+    // Pack art that found no page keeps its texture without a region.
+    presentation.gui_models.pack_equipment.pages.clear();
+    presentation.gui_models.pack_equipment.regions.clear();
+    presentation.set_player_preview_gear_with_owner(gear, None, context);
     let mesh = presentation.gui_player_mesh().unwrap();
     let draw_cape = mesh
         .batches()

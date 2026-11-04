@@ -4,6 +4,11 @@ use super::*;
 use anyhow::Result;
 
 impl ModHost {
+    /// Identifies this guest's scheduling account across changes in load order.
+    pub fn frame_owner(&self) -> FrameOwner {
+        self.instance.frame_owner()
+    }
+
     /// Resets frame-local outputs before input or lifecycle callbacks, preserving retained state.
     pub fn begin_frame(&mut self) {
         self.instance.begin_frame();
@@ -14,7 +19,7 @@ impl ModHost {
         self.instance.is_revoked()
     }
 
-    /// Whether a frame fuel trap is waiting for fresh guest initialization.
+    /// Whether fuel exhaustion or continuation cancellation is waiting for fresh initialization.
     pub fn is_recovering(&self) -> bool {
         self.instance.is_recovering()
     }
@@ -67,15 +72,9 @@ impl ModHost {
     }
 
     /// Shares frame fuel; the booleans say whether a higher mod owns camera or time output.
-    pub fn set_frame_authority(
-        &mut self,
-        budget: CallbackBudget,
-        camera: bool,
-        environment: bool,
-        owner: usize,
-    ) {
+    pub fn set_frame_authority(&mut self, budget: CallbackBudget, camera: bool, environment: bool) {
         self.instance
-            .set_frame_authority(budget, camera, environment, owner);
+            .set_frame_authority(budget, camera, environment);
     }
 
     /// Whether this instance currently publishes exclusive camera output in this frame.
@@ -118,7 +117,7 @@ impl ModHost {
         result
     }
 
-    /// Restarts a fuel-trapped guest and restores its lifecycle context.
+    /// Restarts a fuel-trapped or cancelled guest and restores its lifecycle context.
     /// Returns true when input sampled before replacement must be discarded.
     fn recover_frame_fuel(&mut self) -> Result<bool> {
         let recovered = self.instance.recover_frame_fuel()?;
@@ -160,11 +159,6 @@ impl ModHost {
     /// Supplies client facts for the next frame callback only; each import checks its grant.
     pub fn observe_gameplay(&mut self, facts: GameplayFacts) -> Result<()> {
         self.instance.observe_gameplay(facts)
-    }
-
-    /// Whether the last successful gameplay callback opted in to preserving teleport aim.
-    pub fn preserves_teleport_rotation(&self) -> bool {
-        self.instance.preserves_teleport_rotation()
     }
 
     /// Current-frame FOV and look multipliers; absence restores neutral 1/1.

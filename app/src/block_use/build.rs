@@ -31,6 +31,8 @@ struct BuildPlan {
     repeats_while_held: bool,
     /// The crop state a seed item plants; block items place their own block.
     planted: Option<u32>,
+    /// The door or bed a non-block item places, when it is not a block item.
+    paired: Option<u32>,
 }
 
 impl BuildInput {
@@ -119,20 +121,44 @@ fn prepare(
         if !ready && local_use != LocalUse::Interact {
             local_use = LocalUse::Nothing;
         }
+        // Door and bed items are not block items; native `DoorItem` and `BedItem` place through
+        // the item's own use and report the same success, which starts the repeat delay.
+        let paired = paired_item_block(&context.collisions, stream, &observed.selection.item);
+        let placed_block = paired
+            .or_else(|| held_block_store_id(stream, observed.selection.item.block_runtime_id()));
         let placement = (ready && caps.can_build && local_use != LocalUse::Interact)
-            .then(|| {
+            .then_some(placed_block)
+            .flatten()
+            .and_then(|block| {
                 predicted_placement(
                     &context.collisions,
                     stream,
                     world,
-                    observed.selection.item.block_runtime_id(),
+                    block,
                     &observed,
                     &surroundings,
                     attempt.view,
                 )
-            })
-            .flatten();
+            });
         if placement.is_some() && observed.selection.item.count() > 0 {
+            local_use = LocalUse::Place;
+        }
+        // Without a verified state, such as any bed, the server's block update draws the cells.
+        if let Some(block) = paired
+            && ready
+            && caps.can_build
+            && local_use == LocalUse::Nothing
+            && observed.selection.item.count() > 0
+            && paired_item_fits(
+                &context.collisions,
+                stream,
+                world,
+                block,
+                &observed,
+                &surroundings,
+                attempt.view,
+            )
+        {
             local_use = LocalUse::Place;
         }
         // A predicted placement can become the next ray hit before the release edge reaches
@@ -213,10 +239,11 @@ fn prepare(
             predicted,
             repeats_while_held,
             planted.map(|(_, crop)| crop),
+            paired,
         ))
     })
     .ok()?;
-    let (local_use, destination, predicted, repeats_while_held, planted) = prepared.value?;
+    let (local_use, destination, predicted, repeats_while_held, planted, paired) = prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -248,6 +275,7 @@ fn prepare(
             cooldown,
             repeats_while_held,
             planted,
+            paired,
         },
     })
 }
@@ -329,7 +357,11 @@ pub(crate) fn advance(
             plan.destination,
             plan.local_use,
             plan.local_use != LocalUse::Interact
-                && held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                && plan
+                    .paired
+                    .or_else(|| {
+                        held_block_store_id(stream, observed.selection.item.block_runtime_id())
+                    })
                     .is_some_and(|block| {
                         context
                             .collisions
@@ -369,7 +401,9 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    if plan.local_use == LocalUse::Place {
+    // Door and bed placement keeps only the server's sound: the cell it plays at is unverified,
+    // and a local cue at another cell would not pair with it.
+    if plan.local_use == LocalUse::Place && plan.paired.is_none() {
         // A seed sounds at the block it was used on, where the server voices its copy too.
         let position = if plan.planted.is_some() {
             observed.target.position

@@ -39,6 +39,7 @@ mod dials;
 mod lighting;
 mod preparation;
 mod source_cost;
+use crate::actor_publication::carried_blocks::CarriedBlockId;
 use crate::session_artwork::ItemArtwork;
 mod special;
 use preparation::DropPreparation;
@@ -208,7 +209,8 @@ fn block_template(
     if !block.is_known() || !matches!(block.kind(), VisualKind::Model | VisualKind::Cross) {
         return None;
     }
-    template_model(assets, block.model_template()?, block.variant() & 3)
+    let template = assets::item_model_template(assets.model_templates(), block.model_template()?);
+    template_model(assets, template, block.variant() & 3)
 }
 
 /// Retains the authored quads and pixels for a selected world or pot-content template.
@@ -799,11 +801,16 @@ impl DroppedItemPublisher<'_, '_> {
                 }
                 let air = stream.air_block_id();
                 for carried in carried_blocks {
-                    let id = stream.resolve_block_network_id(carried.block_runtime_id);
-                    if id == air {
-                        continue;
-                    }
-                    let mode = stream.network_id_mode();
+                    let (mode, id) = match carried.block {
+                        CarriedBlockId::Wire(id) => {
+                            let id = stream.resolve_block_network_id(id);
+                            if id == air {
+                                continue;
+                            }
+                            (stream.network_id_mode(), id)
+                        }
+                        CarriedBlockId::Pinned(state) => (NetworkIdMode::Sequential, state),
+                    };
                     let model = Self::actor_carried_block_model(cache, icons, assets, mode, id);
                     let Some(model) = cache.count_item(model) else {
                         continue;

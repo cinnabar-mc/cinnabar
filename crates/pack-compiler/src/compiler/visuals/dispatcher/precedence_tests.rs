@@ -59,6 +59,7 @@ fn dedicated_rules_supersede_the_provisional_envelope() {
         material_by_descriptor: &material_by_descriptor,
         vanilla_fallback_material: 1,
         fallback,
+        sheet_tiles: &Default::default(),
     };
     let canonical_air = resolve_canonical_air(&records).expect("canonical air");
     let admissions = ExactAdmissions {

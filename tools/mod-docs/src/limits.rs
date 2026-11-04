@@ -15,14 +15,17 @@ pub(super) fn render() -> String {
             page.push('\n');
         }};
     }
-    section!("Sound events",
-        mod_api::TOTAL_SOUND_FILTER_FUEL => "Guest fuel shared across sound observers per audio frame; each callback keeps FRAME_FUEL, or is skipped.",
-        mod_api::MAX_SOUND_FILTER_EVENTS => "New playback observations offered per audio frame; excess requests play normally.",
-        mod_api::MAX_SOUND_NAME_BYTES => "Bytes in one offered sound-definition name."
+    section!("Event handlers",
+        mod_api::ACTION_FILTER_FUEL => "Independent fuel for one synchronous action-filter call.",
+        mod_api::HANDLER_CALL_FUEL => "Fuel for one handler call; a handler is skipped when its event family's remaining allowance is smaller.",
+        mod_api::TOTAL_SOUND_HANDLER_FUEL => "Guest fuel shared by all sound handlers per audio frame.",
+        mod_api::MAX_HANDLED_SOUNDS => "New playback requests offered per audio frame; excess requests play unhandled.",
+        mod_api::MAX_SOUND_NAME_BYTES => "Bytes in one offered sound-definition name.",
+        mod_api::TOTAL_TELEPORT_HANDLER_FUEL => "Guest fuel shared by all teleport handlers per frame."
     );
     section!("Execution and packages",
-        mod_host::FRAME_FUEL => "Fuel for one personal-mod frame; also the action filter's independent fuel allowance.",
-        mod_api::TOTAL_MOD_FRAME_FUEL => "Ordinary frame fuel shared by all local mods.",
+        mod_host::FRAME_FUEL => "Fuel for one personal-mod frame.",
+        mod_api::TOTAL_MOD_FRAME_FUEL => "Frame fuel shared by all local mods, including actual world-entry use.",
         mod_host::WORLD_ENTRY_FRAME_FUEL => "One frame callback per observed world session, subject to shared admission.",
         server_experience::runtime::CALLBACK_FUEL => "Ordinary event and client-part callback fuel.",
         server_experience::runtime::LOAD_FUEL => "Personal-mod init and data-changed fuel.",
@@ -34,8 +37,9 @@ pub(super) fn render() -> String {
         mod_host::MAX_LABEL_BYTES => "Plain label bytes.",
         mod_api::MAX_SETTINGS_BYTES => "Settings JSON bytes.",
     );
-    page.push_str("After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It reserves `FRAME_FUEL` from the ordinary shared pool; the extra allowance is discarded after the callback and never refunded into that pool. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.\n\nThe guest's `budget.remaining-fuel` reports its actual current allowance. Action filters, events, loading, host-call limits and execution deadlines retain their existing limits. Fuel bounds guest execution work; it does not guarantee a wall-clock duration.\n\n");
+    page.push_str("After the host observes a new world session, each personal mod may run one frame callback with `WORLD_ENTRY_FRAME_FUEL`. Across all local mods, only one such callback is admitted per game update. It needs a full `FRAME_FUEL` reservation for admission and receives the full world-entry allowance. Its actual fuel use is charged to the shared frame pool; unused reservation fuel is refunded, and use beyond the pool reduces later frames' capacity. If the extra slot is busy, ordinary callbacks can continue and the mod keeps its pending allowance. A temporary missing world, dimension change, guest recovery or hot replacement does not renew a used allowance.\n\nThe guest's `budget.remaining-fuel` reports its cumulative invocation allowance across suspension. Elapsed time only schedules suspendible frames; fuel is their only execution fault limit. Host-call limits, validation, events, loading and synchronous decision-handler instances keep their separate limits. Fuel does not guarantee a wall-clock duration.\n\n");
     section!("Controls and presentation",
+        mod_api::MAX_SELECTED_SLOT_READS => "Selected-slot reads per callback, apart from the player-state read allowance.",
         mod_api::MAX_INPUT_BINDINGS_PER_READ => "Physical binding entries copied per read.",
         mod_api::MAX_INPUT_BINDINGS => "Physical binding entries per settings snapshot.",
         mod_api::MAX_INPUT_ACTION_BYTES => "Bytes per stable binding action name.",
@@ -71,8 +75,6 @@ pub(super) fn render() -> String {
         mod_api::MAX_ICON_BYTES => "Mods library icon bytes.",
         mod_api::MAX_ICON_SIDE => "Mods library icon side in pixels.",
         mod_api::native_frame::MAX_BYTES => "Native frame input and camera output bytes.",
-        mod_api::native_menu::MAX_INPUT_BYTES => "Native menu input bytes.",
-        mod_api::native_menu::MAX_OUTPUT_BYTES => "Native menu output bytes.",
         mod_api::native_render::MAX_BYTES => "Native drawing output bytes.",
     );
     section!("Block geometry and clipping",

@@ -30,6 +30,26 @@ record vector3 {
 | `y` | `f32` |  |
 | `z` | `f32` |  |
 
+<a id="type-block-position"></a>
+
+### `block-position`
+
+Integer world coordinates of one block.
+
+```wit
+record block-position {
+    x: s32,
+    y: s32,
+    z: s32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `x` | `s32` |  |
+| `y` | `s32` |  |
+| `z` | `s32` |  |
+
 <a id="type-player"></a>
 
 ### `player`
@@ -380,6 +400,65 @@ pulse-attack: func() -> result<_, string>;
 
 One attack-press edge, only while the physical attack control is held.
 An active action filter receives it as a repeat.
+
+<a id="set-block-mining"></a>
+
+### `set-block-mining`
+
+```wit
+set-block-mining: func(held: bool) -> result<_, string>;
+```
+
+Holds ordinary mining on the crosshair block for one successful gameplay frame.
+Requires interaction authority and a current gameplay frame when true; false releases
+only this mod's request. Renew every frame. Omission, focus loss, unload and failed
+callbacks release it. Does not press attack or select targets; normal block reach,
+obstruction, game mode, tool timing, item use and server checks still apply.
+
+<a id="read-block-target"></a>
+
+### `read-block-target`
+
+```wit
+read-block-target: func() -> result<option<vector3>, string>;
+```
+
+Center of the current crosshair block in world coordinates. Requires terrain and focused gameplay.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="set-block-mining-target"></a>
+
+### `set-block-mining-target`
+
+```wit
+set-block-mining-target: func(point: option<vector3>) -> result<_, string>;
+```
+
+Redirects held physical block mining toward a world point for one successful frame.
+Requires interaction, terrain and focused gameplay. Does not hold attack or rotate the
+view. Renew every frame; none or omission restores the crosshair. The first supplying
+mod wins. Ordinary reach, obstruction, mode, tool timing and server checks still apply.
+
+Types: [`vector3`](gameplay.md#type-vector3).
+
+<a id="break-blocks"></a>
+
+### `break-blocks`
+
+```wit
+break-blocks: func(positions: list<block-position>) -> result<_, string>;
+```
+
+Requests immediate destruction of explicit block positions on the next movement tick.
+Requires interaction, terrain and focused gameplay. At most MAX_BLOCK_BREAKS per frame,
+within MAX_BLOCK_BREAK_DISTANCE of the eye. Duplicate positions are coalesced.
+This explicit override bypasses local mining time, reach and obstruction, but retains
+game-mode permissions, loaded terrain and server validation. The host supplies held
+item and wire identities. Requests commit only after a successful callback and are
+discarded on focus loss or world changes. No camera or physical input is changed.
+
+Types: [`block-position`](gameplay.md#type-block-position).
 
 <a id="set-packet-delay"></a>
 

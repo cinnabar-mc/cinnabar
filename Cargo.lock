@@ -5097,6 +5097,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
+name = "java-resource-pack"
+version = "0.1.31"
+dependencies = [
+ "image",
+ "pack-json",
+ "rayon",
+ "serde_json",
+ "sha2",
+ "thiserror 2.0.18",
+ "uuid",
+]
+
+[[package]]
 name = "jni"
 version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6059,7 +6072,7 @@ checksum = "bc0287524726960e07b119cebd01678f852f147742ae0d925e6a520dca956126"
 [[package]]
 name = "naga"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -6086,7 +6099,7 @@ dependencies = [
 [[package]]
 name = "naga-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "hashbrown 0.17.1",
  "indexmap",
@@ -7945,6 +7958,8 @@ name = "resource-pack"
 version = "0.1.31"
 dependencies = [
  "aes",
+ "image",
+ "java-resource-pack",
  "pack-json",
  "protocol",
  "rayon",
@@ -10339,7 +10354,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "arrayvec",
  "bitflags 2.13.0",
@@ -10367,7 +10382,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "arrayvec",
  "bit-set",
@@ -10400,7 +10415,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-apple"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10408,7 +10423,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-emscripten"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10416,7 +10431,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core-deps-windows-linux-android"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "wgpu-hal",
 ]
@@ -10424,7 +10439,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "android_system_properties",
  "arrayvec",
@@ -10479,7 +10494,7 @@ dependencies = [
 [[package]]
 name = "wgpu-naga-bridge"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "naga",
  "wgpu-types",
@@ -10488,7 +10503,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "30.0.1"
-source = "git+https://github.com/cinnabar-mc/wgpu?rev=2138d48e59bd450ce03d579034b3f85337ffcbc0#2138d48e59bd450ce03d579034b3f85337ffcbc0"
+source = "git+https://github.com/cinnabar-mc/wgpu?rev=1fe6d240135375d60448962c19005648b1698fd7#1fe6d240135375d60448962c19005648b1698fd7"
 dependencies = [
  "bitflags 2.13.0",
  "bytemuck",

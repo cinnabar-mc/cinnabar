@@ -13,6 +13,8 @@ pub enum BlockStateIdentity<'a> {
 }
 /// Canonical empty-block identity checked against the pinned air trait.
 pub const AIR_IDENTIFIER: &str = "minecraft:air";
+/// The piston whose head wears the sticky art when its actor data does not say.
+pub const STICKY_PISTON_IDENTIFIER: &str = "minecraft:sticky_piston";
 
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";

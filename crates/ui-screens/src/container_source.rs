@@ -75,6 +75,8 @@ pub struct ScreenView<'a> {
     pub search: &'a str,
     /// Scroll offsets of the screen's scroll views, by view key.
     pub container_scroll: &'a BTreeMap<String, f64>,
+    /// Selected radio tabs of a server pack's storage screen, by group key.
+    pub storage_radios: &'a BTreeMap<u64, u16>,
     /// Whether a text field owns the keyboard.
     pub text_focused: bool,
     /// The book, sign-off or lectern reader being shown.

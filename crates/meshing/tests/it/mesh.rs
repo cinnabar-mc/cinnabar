@@ -18,6 +18,7 @@ include!("mesh/selector_alias.rs");
 include!("mesh/bee_housing.rs");
 include!("mesh/resin.rs");
 include!("mesh/cactus.rs");
+include!("mesh/chorus.rs");
 include!("mesh/cake.rs");
 include!("mesh/farmland.rs");
 include!("mesh/connectivity_models.rs");

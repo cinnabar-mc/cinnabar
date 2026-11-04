@@ -39,7 +39,7 @@ pub(super) fn validate_symbol_source(kind: EntityAssetKind, path: &str) -> Resul
             path.starts_with("render_controllers/") && path.ends_with(".json")
         }
         EntityAssetKind::Texture => {
-            path.starts_with("textures/") && (path.ends_with(".png") || path.ends_with(".tga"))
+            !path.contains([':', '\0']) && (path.ends_with(".png") || path.ends_with(".tga"))
         }
     };
     if matches {
@@ -61,4 +61,37 @@ pub(super) fn validate_relative_path(path: &str) -> Result<(), AssetError> {
         return Err(invalid("entity source path is unsafe or exceeds its bound"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declared_rasters_keep_the_relative_source_boundary() {
+        for path in [
+            "textures/entity/skin.png",
+            "artwork/ui/label.tga",
+            "models/label.png",
+        ] {
+            assert!(validate_relative_path(path).is_ok());
+            assert!(validate_symbol_source(EntityAssetKind::Texture, path).is_ok());
+        }
+        for path in [
+            "/label.png",
+            "../label.png",
+            "artwork/../label.png",
+            "C:/label.png",
+            "artwork\\label.png",
+            "label\0.png",
+        ] {
+            assert!(
+                validate_relative_path(path)
+                    .and_then(|()| validate_symbol_source(EntityAssetKind::Texture, path))
+                    .is_err(),
+                "{path}"
+            );
+        }
+        assert!(validate_symbol_source(EntityAssetKind::Texture, "artwork/label.json").is_err());
+    }
 }

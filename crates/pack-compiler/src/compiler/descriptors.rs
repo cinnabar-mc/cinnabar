@@ -10,6 +10,9 @@ pub(super) fn descriptor_for(
     if visuals::command_block::is_record(record) {
         return visuals::command_block::descriptor(pack, record, face);
     }
+    if visuals::chorus::is_plant(record) {
+        return visuals::chorus::plant_descriptor(pack, record, face);
+    }
     if visuals::speleothem::is_record(record) {
         return visuals::speleothem::descriptor(pack, record);
     }
@@ -18,6 +21,9 @@ pub(super) fn descriptor_for(
     }
     if visuals::stem::is_record(record) {
         return visuals::stem::descriptor(pack, record, face);
+    }
+    if visuals::redstone_wire::is_record(record) {
+        return visuals::redstone_wire::descriptor(pack, record, face);
     }
     if visuals::pitcher_crop::is_record(record) {
         return visuals::pitcher_crop::descriptor(pack, record, face);
