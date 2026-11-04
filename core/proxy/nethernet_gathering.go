@@ -4,25 +4,10 @@ import (
 	"context"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/df-mc/go-nethernet"
-	"github.com/pion/webrtc/v4"
 	"github.com/sandertv/gophertunnel/minecraft"
 )
-
-// stunGatherTimeout bounds how long gathering waits for one STUN server's answer. pion sends a
-// single binding request without retransmitting it, so a lost answer held the offer for pion's
-// default 5 s; an answer normally arrives within a round trip, well under this bound.
-const stunGatherTimeout = 1500 * time.Millisecond
-
-// gatheringAPI is the WebRTC API every outbound NetherNet join gathers candidates with: pion's
-// defaults with stunGatherTimeout. It is safe to share between connections.
-var gatheringAPI = func() *webrtc.API {
-	var settings webrtc.SettingEngine
-	settings.SetSTUNGatherTimeout(stunGatherTimeout)
-	return webrtc.NewAPI(webrtc.WithSettingEngine(settings))
-}()
 
 // stunOnly returns a copy of credentials that keeps only STUN URLs, or nil for nil. Xbox issues
 // one ICE server, relay.communication.microsoft.com, with a STUN and a TURN URL. Its TURN server

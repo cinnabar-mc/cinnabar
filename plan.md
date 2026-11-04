@@ -1336,8 +1336,7 @@ unverified. Realm, friend and raw NetherNet joins likewise keep only the STUN UR
 signaling's ICE servers. Confirmed gap: the relay config's TURN server answers allocations with
 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
 (trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
-relay when no direct path exists. STUN gathering waits at most 1.5 s per server, an
-implementation bound below pion's 5 s default. NAT and relay-only join acceptance remain open.
+relay when no direct path exists. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background

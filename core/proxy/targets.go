@@ -82,8 +82,8 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 // LAN: like vanilla it probes the address for NetherNet HTTP signaling and falls back to RakNet.
 // A nil trust joins any NetherNet server. A nil relay, for signed-out joins, gathers local
 // NetherNet candidates only.
-func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *xboxRelay) addressedServerNetwork {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true, API: gatheringAPI}
+func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *joinRelay) addressedServerNetwork {
+	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -98,7 +98,7 @@ func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay
 // requires even with online-mode off; signed-in dials present the account's.
 type addressedServerNetwork struct {
 	minecraft.AddressNetwork
-	relay *xboxRelay // the signed-in account's relay config; nil when signed out
+	relay *joinRelay // the signed-in account's relay config; nil when signed out
 }
 
 // Select chooses the transport and, when it is NetherNet, starts fetching the relay config so the
@@ -136,7 +136,7 @@ func dialSignedOut(ctx context.Context, selected minecraft.Network, address stri
 type resolvedUpstreamTarget struct {
 	address         string
 	network         minecraft.Network
-	relay           *xboxRelay              // signed-in relay config for addressed NetherNet joins and transfers
+	relay           *joinRelay              // signed-in relay config for addressed NetherNet joins and transfers
 	clientData      func(*login.ClientData) // applies a joined session's login fields
 	friend          interface{ Close() error }
 	xbox            interface{ Close() error }
@@ -187,7 +187,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	defer cancel()
 	// Every signed-in target keeps the relay config for addressed transfers, as vanilla's applies
 	// to the whole session.
-	relay := relayForAccount(account, logger)
+	relay := relayForAccount(account, logger).join()
 	withRelay := func(target *resolvedUpstreamTarget, err error) (*resolvedUpstreamTarget, error) {
 		if target != nil {
 			target.relay = relay
@@ -391,7 +391,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{
 		DialSignaling: network.signal,
-		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true, API: gatheringAPI},
+		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
 	}
 }
 

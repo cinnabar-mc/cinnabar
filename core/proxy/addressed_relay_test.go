@@ -15,16 +15,18 @@ import (
 	"github.com/sandertv/gophertunnel/minecraft/service"
 )
 
-// testRelay counts relay config requests answered by answer, on a clock the test controls.
+// testRelay counts relay config requests answered by answer, on a clock the test controls. Its
+// methods are those of one join; shared reaches the account's relay for other joins.
 type testRelay struct {
-	*xboxRelay
+	*joinRelay
+	shared   *xboxRelay
 	requests atomic.Int32
 	clock    time.Time
 }
 
 func newTestRelay(answer func(context.Context) (*nethernet.Credentials, error)) *testRelay {
 	relay := &testRelay{clock: time.Unix(1_000_000, 0)}
-	relay.xboxRelay = &xboxRelay{
+	relay.shared = &xboxRelay{
 		logger: slog.New(slog.DiscardHandler),
 		now:    func() time.Time { return relay.clock },
 		fetch: func(ctx context.Context) (*nethernet.Credentials, error) {
@@ -32,6 +34,7 @@ func newTestRelay(answer func(context.Context) (*nethernet.Credentials, error)) 
 			return answer(ctx)
 		},
 	}
+	relay.joinRelay = relay.shared.join()
 	return relay
 }
 
@@ -55,7 +58,7 @@ func gatheringConfig() *nethernet.Credentials {
 // once and copied per connection.
 func TestSignedInAddressedJoinGathersWithAccountRelay(t *testing.T) {
 	relay := newTestRelay(func(context.Context) (*nethernet.Credentials, error) { return relayConfig(), nil })
-	gather := remoteServerNetwork(slog.New(slog.DiscardHandler), nil, relay.xboxRelay).NetherNet.Dialer.Credentials
+	gather := remoteServerNetwork(slog.New(slog.DiscardHandler), nil, relay.joinRelay).NetherNet.Dialer.Credentials
 	if gather == nil {
 		t.Fatal("signed-in addressed joins gather local candidates only")
 	}
@@ -153,7 +156,7 @@ func TestExpiredRelayConfigIsRequestedAgain(t *testing.T) {
 // A transfer to another addressed server keeps the target's relay config.
 func TestAddressedTransferKeepsTargetRelay(t *testing.T) {
 	relay := newTestRelay(func(context.Context) (*nethernet.Credentials, error) { return relayConfig(), nil })
-	target := &resolvedUpstreamTarget{address: "first.example:19132", relay: relay.xboxRelay}
+	target := &resolvedUpstreamTarget{address: "first.example:19132", relay: relay.joinRelay}
 	if _, err := relay.Credentials(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +202,7 @@ func TestAddressedHTTPJoinPrefetchesRelayConfig(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	connection, err := remoteServerNetwork(slog.New(slog.DiscardHandler), nil, relay.xboxRelay).DialContext(ctx, address)
+	connection, err := remoteServerNetwork(slog.New(slog.DiscardHandler), nil, relay.joinRelay).DialContext(ctx, address)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -268,4 +271,28 @@ type credentialsSignaling struct {
 
 func (s credentialsSignaling) Credentials(context.Context) (*nethernet.Credentials, error) {
 	return s.credentials, nil
+}
+
+// A join that prefetched a failed relay config and never asked for it leaves no failure behind:
+// the next join requests again. A config that arrived is shared with the next join.
+func TestRelayFailureStaysWithItsJoin(t *testing.T) {
+	failing := true
+	relay := newTestRelay(func(context.Context) (*nethernet.Credentials, error) {
+		if failing {
+			return nil, errors.New("signaling unavailable")
+		}
+		return relayConfig(), nil
+	})
+	<-relay.start(t.Context()).done
+	failing = false
+	next := relay.shared.join()
+	if credentials, err := next.Credentials(t.Context()); err != nil || !reflect.DeepEqual(credentials, gatheringConfig()) {
+		t.Fatalf("next join gathering config = %+v, %v; want a fresh request's STUN URL", credentials, err)
+	}
+	if credentials, err := relay.shared.join().Credentials(t.Context()); err != nil || !reflect.DeepEqual(credentials, gatheringConfig()) {
+		t.Fatalf("third join gathering config = %+v, %v", credentials, err)
+	}
+	if got := relay.requests.Load(); got != 2 {
+		t.Fatalf("relay config requested %d times, want 2", got)
+	}
 }
