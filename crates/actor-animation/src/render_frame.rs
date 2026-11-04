@@ -13,6 +13,7 @@ mod retained;
 mod rotation;
 pub(super) mod sampling;
 mod schedule;
+mod visibility;
 
 use motion_endpoint::{MotionEndpoint, MotionEndpointState};
 
@@ -169,6 +170,27 @@ impl<'a> ActorRenderFrame<'a> {
                 sample_skin,
             )
         })
+    }
+
+    /// Samples into caller-owned storage, retaining vector capacity as frame inputs advance.
+    /// Visibility-only consumers may receive completed artwork and scale instead of sampled poses.
+    pub fn into_layers_reusing(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+        visibility_only: bool,
+        render: &mut Vec<RenderTextureLayer>,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.store.render_layers_reusing(
+            self.actors.animated_actor(runtime_id)?,
+            self.alpha,
+            self.camera_rotation,
+            self.camera_position,
+            &mut self.remaining_ops,
+            sample_skin,
+            visibility_only,
+            render,
+        )
     }
 
     /// Samples authored scale before admission and caches its layers for the same draw.

@@ -30,18 +30,7 @@ impl RenderCache {
         color: [f32; 4],
         multitexture: bool,
         budget: &mut EvalBudget<'_>,
-    ) -> Result<LayerOutput, EvalError> {
-        if !crate::render_frame::cache::enabled() {
-            return evaluate_layer(
-                evaluator,
-                variables,
-                rig,
-                layer,
-                color,
-                multitexture,
-                budget,
-            );
-        }
+    ) -> Result<&LayerOutput, EvalError> {
         let hurt = evaluator.actor.shows_damage();
         if index == self.layers.len() {
             self.layers.push(Layer {
@@ -55,22 +44,15 @@ impl RenderCache {
             });
         }
         let cached = &mut self.layers[index];
-        if !cached.inputs.pure() {
-            return evaluate_layer(
-                evaluator,
-                variables,
-                rig,
-                layer,
-                color,
-                multitexture,
-                budget,
-            );
-        }
         let unchanged = cached.inputs.update(evaluator, variables, budget)
             && cached.color.map(f32::to_bits) == color.map(f32::to_bits)
             && cached.hurt == hurt;
-        if unchanged && let Some(output) = &cached.output {
-            return Ok(output.clone());
+        if unchanged
+            && cached.inputs.pure()
+            && crate::render_frame::cache::enabled()
+            && cached.output.is_some()
+        {
+            return Ok(cached.output.as_ref().unwrap());
         }
         // A failed evaluation cannot make the previous result valid for the new inputs.
         cached.output = None;
@@ -85,7 +67,7 @@ impl RenderCache {
             multitexture,
             budget,
         )?;
-        cached.output = Some(output.clone());
-        Ok(output)
+        cached.output = Some(output);
+        Ok(cached.output.as_ref().unwrap())
     }
 }

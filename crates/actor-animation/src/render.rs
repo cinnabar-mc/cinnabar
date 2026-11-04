@@ -291,7 +291,7 @@ pub(super) fn evaluate_render(
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
 ) -> Result<RenderEvaluation, EvalError> {
-    evaluate_render_cached(evaluator, variables, rig, budget, None)
+    evaluate_render_cached(evaluator, variables, rig, budget, None, Vec::new())
 }
 
 /// Evaluates and poses selected layers, allowing established rigs to retain rest fallback.
@@ -329,9 +329,10 @@ pub(super) fn evaluate_render_cached(
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
     mut cache: Option<&mut cache::RenderCache>,
+    mut output: Vec<RenderTextureLayer>,
 ) -> Result<RenderEvaluation, EvalError> {
     let assets = evaluator.assets;
-    let mut output = Vec::new();
+    output.clear();
     let mut unresolved_artwork = false;
     let mut active = false;
     let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
@@ -358,7 +359,7 @@ pub(super) fn evaluate_render_cached(
             )?;
             active |= evaluated.status != LayerStatus::Inactive;
             unresolved_artwork |= evaluated.status == LayerStatus::UnresolvedArtwork;
-            output.extend(evaluated.layers);
+            output.extend_from_slice(&evaluated.layers);
         } else {
             let status = evaluate_layer_into(
                 evaluator,

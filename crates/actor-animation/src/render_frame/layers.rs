@@ -13,6 +13,31 @@ impl ActorAnimationStore {
         remaining_ops: &mut usize,
         sample_skin: bool,
     ) -> Option<ActorRenderLayers<'_>> {
+        self.render_layers_reusing(
+            actor,
+            partial_tick,
+            camera_rotation,
+            camera_position,
+            remaining_ops,
+            sample_skin,
+            false,
+            &mut Vec::new(),
+        )
+    }
+
+    /// Reuses the consumer's layer allocation for both evaluated and retained frame samples.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_layers_reusing(
+        &self,
+        actor: &dyn AnimatedActor,
+        partial_tick: f32,
+        camera_rotation: [f32; 2],
+        camera_position: [f32; 3],
+        remaining_ops: &mut usize,
+        sample_skin: bool,
+        visibility_only: bool,
+        render: &mut Vec<RenderTextureLayer>,
+    ) -> Option<ActorRenderLayers<'_>> {
         let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id())?;
         let state = self.rigs.get(lifetime)?;
         if lifetime.spawn_revision != actor.spawn_revision() {
@@ -149,6 +174,14 @@ impl ActorAnimationStore {
             stack: OperandStack::lease(),
             static_draw: None,
         };
+        if visibility_only
+            && let Some(visibility) = visibility::sample(&evaluator, state, &mut budget)
+        {
+            return Some(ActorRenderLayers {
+                visibility,
+                ..completed()
+            });
+        }
         let mut scratch = frame.cache.lock().unwrap();
         let FrameSamplingCache {
             variables: variable_scratch,
@@ -173,6 +206,7 @@ impl ActorAnimationStore {
                 &frame.motion.variables,
                 state,
                 &budget,
+                render,
             )
         {
             return Some(layers);
@@ -433,6 +467,7 @@ impl ActorAnimationStore {
             render_rig,
             &mut budget,
             Some(layer_cache),
+            std::mem::take(render),
         ) else {
             return Some(fallback());
         };

@@ -116,6 +116,7 @@ impl Sample {
     }
 
     /// A failed or changed sample invalidates its previous output before replay begins.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn get<'s>(
         &mut self,
         key: Key,
@@ -123,6 +124,7 @@ impl Sample {
         variables: &MolangVariables,
         state: &'s ActorRigState,
         budget: &EvalBudget<'_>,
+        render: &mut Vec<RenderTextureLayer>,
     ) -> Option<ActorRenderLayers<'s>> {
         let unchanged =
             self.inputs.update(evaluator, variables, budget) && self.key.as_ref() == Some(&key);
@@ -131,8 +133,9 @@ impl Sample {
             && self.valid
             && let Some(output) = &self.output
         {
+            render.clone_from(&output.render);
             return Some(ActorRenderLayers {
-                render: Cow::Owned(output.render.clone()),
+                render: Cow::Owned(std::mem::take(render)),
                 visibility: output.visibility,
                 skin: output
                     .skin

@@ -16,6 +16,7 @@ struct NativePoseInput {
     alpha: f32,
     camera: Option<([f32; 2], [f32; 3])>,
     sample_skin: bool,
+    visibility_only: bool,
 }
 
 #[derive(PartialEq)]
@@ -26,6 +27,7 @@ struct PoseKey {
     physics_alpha: Option<u32>,
     camera: Option<([f32; 2], [f32; 3])>,
     sample_skin: bool,
+    visibility_only: bool,
 }
 
 impl NativePoseInput {
@@ -39,6 +41,7 @@ impl NativePoseInput {
             physics_alpha: rig.java.local_swing_alpha.map(f32::to_bits),
             camera: self.camera,
             sample_skin: self.sample_skin,
+            visibility_only: self.visibility_only,
         })
     }
 }
@@ -58,6 +61,7 @@ pub(in super::super) struct NativePoseCache {
     key: Option<PoseKey>,
     sample_key: Option<PoseKey>,
     sampled: Option<SampledLayers>,
+    render_scratch: Vec<actor_animation::RenderTextureLayer>,
     pose: Option<[RenderPose; 2]>,
     skin_layers: Option<Arc<[actor_animation::SkinRenderLayer]>>,
     pub(in super::super) held_item_scale: Option<f32>,
@@ -80,7 +84,18 @@ impl NativePoseCache {
     pub(in super::super) fn visibility(
         &mut self,
         inputs: &HandInputs<'_>,
+        java_mode: bool,
     ) -> Option<actor_animation::RenderVisibility> {
+        let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
+        let rig = inputs.stream.authority().actor_rig(runtime_id)?;
+        let visibility_only = java_mode
+            || (inputs.equipment_input.main.is_none()
+                && inputs.equipment_input.off.is_none()
+                && inputs
+                    .stream
+                    .authority()
+                    .actor(runtime_id)
+                    .is_some_and(|actor| rig.animation_variables.uses_legacy_swing(actor)));
         self.sample_layers(
             inputs.stream,
             &inputs.presentation,
@@ -90,6 +105,7 @@ impl NativePoseCache {
                 alpha: inputs.alpha,
                 camera: inputs.sampling_camera,
                 sample_skin: false,
+                visibility_only,
             },
         )?;
         Some(self.sampled.as_ref()?.visibility)
@@ -103,18 +119,40 @@ impl NativePoseCache {
         input: NativePoseInput,
     ) -> Option<()> {
         let runtime_id = presentation.submission.input.identity.runtime_id;
-        let key = input.key(stream, runtime_id)?;
-        if input.camera.is_some() && self.sample_key.as_ref() == Some(&key) {
-            return self.sampled.as_ref().map(|_| ());
+        let mut key = input.key(stream, runtime_id)?;
+        if input.camera.is_some() {
+            // A full native sample also serves a later visibility-only consumer.
+            if key.visibility_only {
+                key.visibility_only = false;
+                if self.sample_key.as_ref() == Some(&key) {
+                    return self.sampled.as_ref().map(|_| ());
+                }
+                key.visibility_only = true;
+            }
+            if self.sample_key.as_ref() == Some(&key) {
+                return self.sampled.as_ref().map(|_| ());
+            }
         }
         #[cfg(test)]
         {
             self.layer_samples += 1;
         }
+        if let Some(render) = self
+            .sampled
+            .as_mut()
+            .and_then(|sample| sample.render.take())
+        {
+            self.render_scratch = render;
+        }
         self.sampled = stream
             .authority()
             .actor_render_frame(input.alpha)
-            .into_layers(runtime_id, input.sample_skin)
+            .into_layers_reusing(
+                runtime_id,
+                input.sample_skin,
+                input.visibility_only,
+                &mut self.render_scratch,
+            )
             .map(|layers| SampledLayers {
                 render: match layers.render {
                     Cow::Owned(render) => Some(render),
@@ -184,6 +222,7 @@ impl NativePoseCache {
                 alpha,
                 camera,
                 sample_skin: true,
+                visibility_only: false,
             },
         ) {
             presentation.submission.input.previous_bones = previous;
@@ -225,6 +264,7 @@ impl NativePoseCache {
                 alpha,
                 camera,
                 sample_skin: false,
+                visibility_only: false,
             },
         )
     }

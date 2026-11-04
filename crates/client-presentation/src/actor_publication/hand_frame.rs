@@ -80,7 +80,7 @@ pub(super) fn prepare(
                 sampling_camera,
                 aspect,
             };
-            let visibility = java_hand.native_pose.visibility(&inputs);
+            let visibility = java_hand.native_pose.visibility(&inputs, java_mode);
             if key == *ready_hand_key
                 && !samples_item_scale
                 && !holds_map

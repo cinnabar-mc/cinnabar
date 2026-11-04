@@ -11,7 +11,7 @@ use ui::IconRef;
 #[derive(Default)]
 pub(in super::super) struct LiveEquipment {
     pub(super) input: Option<AttachableAnimationInput<'static>>,
-    /// An admitted empty draw suppresses the ordinary preview fallback.
+    /// A successful inactive draw suppresses the ordinary preview fallback.
     pub(super) hands: [Option<Vec<HeldLayer>>; 2],
     pub(in super::super) pages: Vec<UiTexturePage>,
 }
@@ -50,8 +50,7 @@ impl UiPresentationRuntime {
             let item = hands[hand].as_ref()?;
             let local = local?;
             let actor = local.actor()?;
-            let mut rig = local.rig()?;
-            rig.held_item_scale = self.gui_models.player_layers.held_item_scale;
+            let rig = local.ui_rig()?;
             let enchantment = [(
                 assets::entity::EngineVariable::IsEnchanted.name(),
                 f32::from(item.glint.unwrap_or(false)),
@@ -96,120 +95,119 @@ impl UiPresentationRuntime {
                 actor,
                 &rig,
                 input,
-            );
+            )?;
+            let inactive = evaluated.render.is_empty();
             let mut draws = Vec::new();
-            if let Some(evaluated) = evaluated {
-                for layer in evaluated.render {
-                    let geometry = layer.geometry.unwrap_or(evaluated.geometry);
-                    let Some(path) = assets
-                        .sources()
-                        .get(layer.source as usize)
-                        .map(|source| source.path.as_ref())
-                    else {
-                        continue;
-                    };
-                    let texture_id = path
-                        .strip_suffix(".png")
-                        .or_else(|| path.strip_suffix(".tga"))
-                        .unwrap_or(path);
-                    let Some(texture) = pack
-                        .and_then(|catalog| catalog.texture(texture_id))
-                        .or_else(|| base.and_then(|catalog| catalog.texture(texture_id)))
-                    else {
-                        continue;
-                    };
-                    let key = (
-                        assets.source_manifest_sha256(),
-                        geometry,
-                        texture.identifier.clone(),
-                    );
-                    let cached = previous[hand]
-                        .as_ref()
-                        .and_then(|draws| draws.iter().find(|draw| draw.key == key));
-                    let geometry_source: Option<ActorRigGeometry> = cached
-                        .and_then(|draw| draw.model.geometry.clone())
-                        .or_else(|| {
-                            render_model::attachable_geometry(
-                                &assets,
-                                geometry as usize,
-                                EntityRigId(rig.rig.0),
-                                texture,
-                            )
-                            .ok()
-                        });
-                    let Some(geometry_source) = geometry_source else {
-                        continue;
-                    };
-                    let pose = if layer.pose.is_empty() {
-                        evaluated.pose
-                    } else {
-                        &layer.pose
-                    };
-                    let scale = evaluated
-                        .axis_scale
-                        .map(|axis| axis * evaluated.scale * input.main_hand_scale());
-                    let pose = pose
-                        .iter()
-                        .enumerate()
-                        .map(|(index, bone)| {
-                            compose_parent(
-                                parent_for_root(
-                                    &live.bones,
-                                    &live.bones,
-                                    rig.bone_names,
-                                    input,
-                                    evaluated.bone_parent(geometry, index)?,
-                                    scale,
-                                )?,
-                                *bone,
-                            )
-                        })
-                        .collect::<Option<Vec<_>>>();
-                    let Some(pose) = pose else { continue };
-                    let mut model = ModelGeometry::default();
-                    model.capture(&geometry_source, &pose, live.frame);
-                    if model.geometry.is_none() {
-                        continue;
-                    }
-                    let page = cached.map(|draw| draw.page.clone()).or_else(|| {
-                        UiTexturePage::owned(
-                            [texture.width.into(), texture.height.into()],
-                            Arc::clone(&texture.rgba8),
+            for layer in evaluated.render {
+                let geometry = layer.geometry.unwrap_or(evaluated.geometry);
+                let Some(path) = assets
+                    .sources()
+                    .get(layer.source as usize)
+                    .map(|source| source.path.as_ref())
+                else {
+                    continue;
+                };
+                let texture_id = path
+                    .strip_suffix(".png")
+                    .or_else(|| path.strip_suffix(".tga"))
+                    .unwrap_or(path);
+                let Some(texture) = pack
+                    .and_then(|catalog| catalog.texture(texture_id))
+                    .or_else(|| base.and_then(|catalog| catalog.texture(texture_id)))
+                else {
+                    continue;
+                };
+                let key = (
+                    assets.source_manifest_sha256(),
+                    geometry,
+                    texture.identifier.clone(),
+                );
+                let cached = previous[hand]
+                    .as_ref()
+                    .and_then(|draws| draws.iter().find(|draw| draw.key == key));
+                let geometry_source: Option<ActorRigGeometry> = cached
+                    .and_then(|draw| draw.model.geometry.clone())
+                    .or_else(|| {
+                        render_model::attachable_geometry(
+                            &assets,
+                            geometry as usize,
+                            EntityRigId(rig.rig.0),
+                            texture,
                         )
                         .ok()
                     });
-                    let Some(page) = page else {
-                        continue;
-                    };
-                    let index = pages
-                        .iter()
-                        .position(|old| old == &page)
-                        .unwrap_or(pages.len());
-                    if first + index >= render_model::MAX_UI_TEXTURE_LAYERS as usize {
-                        continue;
-                    }
-                    if index == pages.len() {
-                        if bytes + page.pixels().len() > render_model::MAX_UI_NATIVE_SHEET_BYTES {
-                            continue;
-                        }
-                        bytes += page.pixels().len();
-                        pages.push(page.clone());
-                    }
-                    draws.push(HeldLayer {
-                        key,
-                        page,
-                        model,
-                        layer: layer.clone(),
-                        icon: IconRef {
-                            page: (first + index) as u16,
-                            uv: [0, 0, texture.width, texture.height],
-                            color_mask: None,
-                            glint: item.glint.unwrap_or(false),
-                        },
-                    });
+                let Some(geometry_source) = geometry_source else {
+                    continue;
+                };
+                let pose = if layer.pose.is_empty() {
+                    evaluated.pose
+                } else {
+                    &layer.pose
+                };
+                let scale = evaluated
+                    .axis_scale
+                    .map(|axis| axis * evaluated.scale * input.main_hand_scale());
+                let pose = pose
+                    .iter()
+                    .enumerate()
+                    .map(|(index, bone)| {
+                        compose_parent(
+                            parent_for_root(
+                                &live.bones,
+                                &live.bones,
+                                rig.bone_names,
+                                input,
+                                evaluated.bone_parent(geometry, index)?,
+                                scale,
+                            )?,
+                            *bone,
+                        )
+                    })
+                    .collect::<Option<Vec<_>>>();
+                let Some(pose) = pose else { continue };
+                let mut model = ModelGeometry::default();
+                model.capture(&geometry_source, &pose, live.frame);
+                if model.geometry.is_none() {
+                    continue;
                 }
+                let page = cached.map(|draw| draw.page.clone()).or_else(|| {
+                    UiTexturePage::owned(
+                        [texture.width.into(), texture.height.into()],
+                        Arc::clone(&texture.rgba8),
+                    )
+                    .ok()
+                });
+                let Some(page) = page else {
+                    continue;
+                };
+                let index = pages
+                    .iter()
+                    .position(|old| old == &page)
+                    .unwrap_or(pages.len());
+                if first + index >= render_model::MAX_UI_TEXTURE_LAYERS as usize {
+                    continue;
+                }
+                if index == pages.len() {
+                    if bytes + page.pixels().len() > render_model::MAX_UI_NATIVE_SHEET_BYTES {
+                        continue;
+                    }
+                    bytes += page.pixels().len();
+                    pages.push(page.clone());
+                }
+                draws.push(HeldLayer {
+                    key,
+                    page,
+                    model,
+                    layer: layer.clone(),
+                    icon: IconRef {
+                        page: (first + index) as u16,
+                        uv: [0, 0, texture.width, texture.height],
+                        color_mask: None,
+                        glint: item.glint.unwrap_or(false),
+                    },
+                });
             }
-            Some(draws)
+            (inactive || !draws.is_empty()).then_some(draws)
         });
         for (hand, layers) in draws.iter_mut().enumerate() {
             let Some(pattern) = hands[hand]
@@ -243,8 +241,10 @@ impl UiPresentationRuntime {
             .enumerate()
             .all(|(index, page)| self.textures.pages().get(first + index) == Some(page))
         {
-            for hand in self.gui_models.live_equipment.hands.iter_mut().flatten() {
-                hand.clear();
+            for hand in &mut self.gui_models.live_equipment.hands {
+                if hand.as_ref().is_some_and(|layers| !layers.is_empty()) {
+                    *hand = None;
+                }
             }
         }
     }

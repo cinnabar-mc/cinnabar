@@ -68,6 +68,11 @@ impl<'a> LocalPlayerUi<'a> {
         self.authority.actor_rig(self.runtime_id())
     }
 
+    /// Borrows the UI evaluation's variables for live attachment selection and animation.
+    pub fn ui_rig(self) -> Option<ActorRigSnapshot<'a>> {
+        self.authority.actor_ui_rig(self.runtime_id())
+    }
+
     /// Completed controller output in the same UI context as the live actor pose.
     pub fn layers(self) -> Option<actor_animation::ActorRenderLayers<'a>> {
         self.authority.actor_ui_layers(self.runtime_id())

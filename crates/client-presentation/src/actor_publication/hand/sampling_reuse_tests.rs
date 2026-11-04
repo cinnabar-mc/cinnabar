@@ -123,3 +123,105 @@ fn readiness_visibility_and_native_pose_share_one_layer_sample() {
         "the native pose consumed that same sample"
     );
 }
+
+#[test]
+fn advancing_frame_inputs_reuse_nonempty_layer_storage() {
+    for (java_mode, main) in [(false, None), (true, None), (false, Some("minecraft:bow"))] {
+        let ((mut stream, mut equipment, artwork, input), _) = fixture_with_visibility(
+            main,
+            false,
+            false,
+            true,
+            false,
+            false,
+            Some("query.frame_alpha > 0.5"),
+        );
+        let mut cache = java::HandCache::default();
+        let initial = hand_source_for_mode(
+            &stream,
+            &mut equipment,
+            &artwork,
+            &input,
+            &mut cache,
+            0.25,
+            java_mode,
+        );
+        let presentation = initial.presentation;
+        assert!(!stream.authority().actor_rig(1).unwrap().render.is_empty());
+        for frame in 0..24 {
+            let alpha = [0.0, 0.25, 0.75, 0.75][frame % 4];
+            let camera = (
+                [frame as f32, frame as f32 * 2.0],
+                [frame as f32 * 0.1, 64.0, 0.0],
+            );
+            stream.set_actor_camera_rotation(camera.0);
+            stream.set_actor_camera_position(camera.1);
+            let allocations = test_alloc::thread_allocations();
+            let selected = source(
+                HandInputs {
+                    stream: &stream,
+                    presentation: presentation.clone(),
+                    equipment_input: &input,
+                    owner_equipment: &input,
+                    consume_ticks: None,
+                    item_animation: Some(actor_animation::AttachableAnimationInput {
+                        first_person: true,
+                        ..Default::default()
+                    }),
+                    alpha,
+                    artwork: &artwork,
+                    motion: Mat4::IDENTITY,
+                    sampling_camera: Some(camera),
+                    aspect: 1.0,
+                },
+                java_mode,
+                &mut equipment,
+                &mut cache,
+            )
+            .unwrap();
+            if frame >= 4 {
+                assert_eq!(
+                    test_alloc::thread_allocations(),
+                    allocations,
+                    "frame {frame}, Java {java_mode}"
+                );
+            }
+            assert_eq!(selected.visibility.hides_held_items(), alpha > 0.5);
+        }
+        if java_mode {
+            assert_eq!(
+                cache.native_pose.sample_work.0, 0,
+                "Java visibility needs no native pose"
+            );
+        }
+    }
+}
+
+#[test]
+fn java_native_fallback_reuses_its_full_sample_for_later_visibility_reads() {
+    let (stream, mut equipment, artwork, input) = fixture(Some("minecraft:shield"));
+    let mut cache = java::HandCache::default();
+    hand_source_for_mode(
+        &stream,
+        &mut equipment,
+        &artwork,
+        &input,
+        &mut cache,
+        0.5,
+        true,
+    );
+    let samples = cache.native_pose.layer_samples;
+    let work = cache.native_pose.sample_work;
+    assert_eq!(work.0, 1);
+    hand_source_for_mode(
+        &stream,
+        &mut equipment,
+        &artwork,
+        &input,
+        &mut cache,
+        0.5,
+        true,
+    );
+    assert_eq!(cache.native_pose.layer_samples, samples);
+    assert_eq!(cache.native_pose.sample_work, work);
+}

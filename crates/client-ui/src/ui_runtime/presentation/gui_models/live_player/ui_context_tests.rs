@@ -35,7 +35,7 @@ fn pack_with_overlay(
         "identifier":"minecraft:player","materials":{"default":"entity_alphatest"},
         "textures":{"default":"textures/entity/fixture"},"geometry":{"default":"geometry.fixture"},
         "animations":{"pose":"controller.animation.fixture","ui":"animation.fixture.ui"},
-        "scripts":{"animate":["pose"]},
+        "scripts":{"animate":["pose"], "pre_animation":["variable.show_item = query.is_in_ui;"]},
         "hide_held_items":"!query.is_in_ui || query.mark_variant == 3",
         "held_item_scale":"query.is_in_ui ? 1.5 : 0.5",
         "render_controllers":[{"controller.render.world":"!query.is_in_ui"},
@@ -483,48 +483,33 @@ fn json_hud_live_player_control_publishes_the_captured_item_palette() {
 }
 
 #[test]
-fn live_ui_keeps_secondary_textures_on_controller_geometry() {
+fn live_ui_ordinary_controller_keeps_only_the_primary_texture_sampler() {
     let pack = pack_with_overlay(true, Vec::new(), true);
     let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
     equip(&mut stream, Some("minecraft:stone"));
     let local = stream.authority().local_player_ui();
-    let mut output = local.layers().unwrap();
-    let mut overlay = output.render[0].clone();
-    assert!(overlay.geometry.is_some());
-    overlay.texture_slot = 1;
-    overlay.source = pack
-        .assets
-        .sources()
+    let output = local.layers().unwrap();
+    assert!(output.render.iter().all(|layer| layer.texture_slot == 0));
+    let alternate = output
+        .render
         .iter()
-        .position(|source| source.path.as_ref() == "textures/entity/overlay.png")
-        .unwrap() as u32;
-    let overlay_source = overlay.source;
-    assert_ne!(overlay.source, output.render[0].source);
-    output.render.to_mut().insert(1, overlay);
+        .find(|layer| layer.geometry.is_some())
+        .unwrap();
+    assert!(alternate.multitexture.is_none());
+    assert_eq!(
+        pack.assets.sources()[alternate.source as usize]
+            .path
+            .as_ref(),
+        "textures/entity/fixture.png"
+    );
     let mut ui = presentation(pack);
     ui.set_player_preview_gear([None; 4], None);
     ui.capture_hud_player(Some(local), false);
-    ui.capture_player_layers_with_output(Some(local), Some(output));
-    let (mesh, vertices) = draw_captured(&mut ui, PreviewView::default()).unwrap();
-    let selected = ui
-        .gui_models
-        .player_layers
-        .live
-        .iter()
-        .find(|draw| draw.layer.source == overlay_source)
-        .unwrap();
-    let icon = selected
-        .icon
-        .expect("secondary artwork has its own UI page");
-    assert!(
-        mesh.batches()
-            .iter()
-            .any(|batch| batch.texture_page == icon.page)
-    );
+    let (_, vertices) = draw_captured(&mut ui, PreviewView::default()).unwrap();
     assert_eq!(
         triangles(&vertices),
-        24,
-        "both texture slots draw the unmasked cube"
+        12,
+        "secondary samplers do not duplicate controller geometry"
     );
 }
 

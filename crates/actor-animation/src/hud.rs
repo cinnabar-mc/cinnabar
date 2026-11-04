@@ -7,7 +7,7 @@ pub(super) struct UiAnimationState {
     controllers: Vec<ControllerState>,
     pub(super) server_animations: Vec<server_animation::Controller>,
     clip_clocks: clock::ClipClocks,
-    variables: MolangVariables,
+    pub(super) variables: MolangVariables,
     initialized: bool,
     replay: Option<replay::Replay>,
     pub(super) render: Vec<RenderTextureLayer>,

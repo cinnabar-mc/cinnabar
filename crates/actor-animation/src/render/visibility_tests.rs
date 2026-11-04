@@ -425,3 +425,49 @@ fn visibility_ui_budget_fallback_never_inherits_world_policy() {
         );
     }
 }
+
+#[test]
+fn advancing_visibility_frames_reuse_owned_and_retained_layer_storage() {
+    let mut compiled = fixture(false);
+    compiled.rig_bindings[0].hide_held_items = Some(expression(
+        &mut compiled,
+        vec![
+            MolangOp::LoadQuery(1),
+            MolangOp::Push(crate::test_support::scalar(0.5)),
+            MolangOp::Greater,
+        ],
+    ));
+    let (mut store, mut actor) = store(compiled);
+    mark(&mut actor, 41);
+    advance(&mut store, &actor, true);
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    for visibility_only in [false, true] {
+        let mut storage = Vec::new();
+        for frame in 0..24 {
+            // Repeat each alpha to exercise both fresh and retained samples; camera always advances.
+            let alpha = if (frame / 2) % 2 == 0 { 0.25 } else { 0.75 };
+            let allocations = test_alloc::thread_allocations();
+            let output = ActorRenderFrame::new(
+                &store,
+                &actors,
+                [frame as f32, 0.0],
+                [frame as f32, 64.0, 0.0],
+                alpha,
+            )
+            .into_layers_reusing(actor.runtime_id, false, visibility_only, &mut storage)
+            .unwrap();
+            assert!(!output.render.is_empty());
+            assert_eq!(output.visibility.hides_held_items(), alpha > 0.5);
+            if let std::borrow::Cow::Owned(layers) = output.render {
+                storage = layers;
+            }
+            if frame >= 4 {
+                assert_eq!(
+                    test_alloc::thread_allocations(),
+                    allocations,
+                    "frame {frame}, visibility only {visibility_only}"
+                );
+            }
+        }
+    }
+}

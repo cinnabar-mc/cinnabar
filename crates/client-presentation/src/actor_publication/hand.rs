@@ -574,7 +574,7 @@ pub(super) fn source(
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
-    let visibility = cache.native_pose.visibility(&inputs)?;
+    let visibility = cache.native_pose.visibility(&inputs, java_mode)?;
     let mut source =
         unmasked_source(inputs.clone(), java_mode, equipment, cache).or_else(|| {
             (visibility.hides_body() || visibility.hides_held_items()).then_some(HandSource {
