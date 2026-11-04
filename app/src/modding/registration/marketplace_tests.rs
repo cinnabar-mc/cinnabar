@@ -31,7 +31,7 @@ fn pending_reload_cannot_reauthorize_a_held_marketplace_packet_program() {
         let relay = {
             let mut packets = world.resource_mut::<crate::modding::packets::PacketMods>();
             assert!(packets.authorize(std::slice::from_ref(&entry)).is_empty());
-            packets.session_relay().unwrap()
+            packets.session_relay(false).unwrap()
         };
         let identity = protocol::session_wire::SessionIdentity {
             display_name: "Steve".into(),
@@ -68,7 +68,7 @@ fn pending_reload_cannot_reauthorize_a_held_marketplace_packet_program() {
         );
         let packets = world.resource::<crate::modding::packets::PacketMods>();
         assert!(!packets.admitted(&entry.component));
-        assert!(packets.session_relay().is_none());
+        assert!(packets.session_relay(false).is_none());
         assert_eq!(relay.outbound(&[1]), None);
     }
 }
