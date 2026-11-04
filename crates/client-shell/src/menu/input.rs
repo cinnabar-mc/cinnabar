@@ -33,7 +33,7 @@ use bevy::{
     prelude::{ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Single, With},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatEditor, ToastPress, UiPoint};
+use ui::{ChatEditor, UiPoint};
 
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -543,15 +543,14 @@ pub fn drive_menu_input(
             keys.reset_all();
         } else if cursor.grab_mode == CursorGrabMode::None
             && mouse_buttons.just_pressed(MouseButton::Left)
-            && window
+            && let Some(press) = window
                 .cursor_position()
                 .and_then(|position| UiPoint::new(position.x, position.y).ok())
                 .and_then(|point| presentation.toast_press_at(point))
-                == Some(ToastPress::JoinRequests)
         {
-            // A free cursor pressing the join request toast opens its popup, and nothing beneath;
+            // A free cursor pressing an actionable toast runs its press, and nothing beneath;
             // the held press is not a new one for the menu.
-            menu.open_join_requests();
+            menu.press_toast(press);
             menu.pointer_down = true;
             mouse_buttons.reset(MouseButton::Left);
         }

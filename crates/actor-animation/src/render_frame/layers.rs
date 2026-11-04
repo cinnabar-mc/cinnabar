@@ -306,8 +306,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &current.evaluator,
                 &mut current.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &current.clips,
                 &mut budget,
             ) else {
@@ -321,8 +324,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &evaluator,
                 &mut variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
@@ -342,11 +348,12 @@ impl ActorAnimationStore {
             .flatten()
             .map(|sampling| {
                 if camera_resample {
-                    return motion_sampling::full_mask(state.bone_names.len());
+                    return motion_sampling::full_mask(state.animated_skeleton().1.len());
                 }
                 sampling.mask(
                     assets,
-                    &state.bone_names,
+                    state.animated_skeleton().1,
+                    Some(state.animated_skeleton().2),
                     clips
                         .iter()
                         .chain(
@@ -368,8 +375,11 @@ impl ActorAnimationStore {
             let Ok(sampled_previous) = pose::sample_clips_reused(
                 &previous.evaluator,
                 &mut previous.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &previous.clips,
                 &mut budget,
             ) else {
@@ -540,6 +550,7 @@ impl ActorAnimationStore {
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,
+                                    None,
                                     clips.iter().chain(previous_clips).copied(),
                                     Some(geometry),
                                 )

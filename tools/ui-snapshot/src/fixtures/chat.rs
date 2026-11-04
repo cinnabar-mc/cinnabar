@@ -6,6 +6,7 @@ use super::*;
 pub(super) fn mentions() -> Fixture {
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "@",
         suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
         messages: Default::default(),
@@ -17,6 +18,7 @@ pub(super) fn mentions() -> Fixture {
 pub(super) fn command_targets() -> Fixture {
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "/give @",
         suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
         messages: Default::default(),
@@ -46,6 +48,7 @@ pub(super) fn background(percent: i32) -> Fixture {
     .collect();
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
@@ -82,6 +85,7 @@ pub(super) fn completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft,
         suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
         messages: Default::default(),
@@ -106,7 +110,35 @@ pub(super) fn server_content(hover: bool) -> Fixture {
         .into(),
         options: Default::default(),
         server_hover: Some(hover),
+        receive_while_scrolled: false,
     }
+}
+
+/// Receive chat while the reader is partway through older history.
+pub(super) fn incoming_while_scrolled() -> Fixture {
+    let mut fixture = background(50);
+    if let Fixture::Chat {
+        messages,
+        draft,
+        receive_while_scrolled,
+        ..
+    } = &mut fixture
+    {
+        *draft = "Reading older messages";
+        *receive_while_scrolled = true;
+        messages.clear();
+        for index in 1..=80 {
+            messages.push_back(ui::ChatMessage {
+                fifo_sequence: index,
+                received_millis: 0,
+                kind: ui::ChatMessageKind::System,
+                source: None,
+                message: format!("Older message {index}: continuing the conversation").into(),
+                parameters: Arc::from([]),
+            });
+        }
+    }
+    fixture
 }
 
 /// Shows white mentions, surrounding styles and explicit white under green chat.

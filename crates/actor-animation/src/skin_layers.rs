@@ -186,9 +186,9 @@ pub(super) fn evaluate(
         .layers
         .iter()
         .filter_map(|layer| {
-            let current = layer.compose(&state.bone_names, local)?;
+            let current = layer.compose(state.animated_skeleton().1, local)?;
             let previous = match previous {
-                Some(local) => layer.compose(&state.bone_names, local)?,
+                Some(local) => layer.compose(state.animated_skeleton().1, local)?,
                 None => Arc::clone(&current),
             };
             let (hidden_bones, uv_anim) = metadata(layer, evaluator, render, blinking);

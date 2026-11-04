@@ -138,6 +138,8 @@ struct RetainedHud {
     hunger: Vec<(String, Option<u64>)>,
     /// Whether the screen's last paint reused the retained one.
     reused: bool,
+    /// Actual effect artwork bounds, retained alongside its paint.
+    effect_bounds: Option<[f32; 4]>,
 }
 
 /// The chat message and mention formatting colours a HUD paint's labels read.
@@ -298,11 +300,13 @@ impl HudScreens {
         let reuse = renderers_unchanged && retained.unchanged(paint, icons, [color, mention]);
         let paints = retained.paint.paints;
         let caller = std::mem::take(&mut frame.renderers);
+        let effect_bounds = ui_engine::engine::PaintBounds::default();
         let drawn = {
             let mut hud_renderer = HudRenderer {
                 hud: paint,
                 hunger_update: Some(&advance_hunger),
                 bounds: None,
+                effect_bounds: Some(&effect_bounds),
             };
             let mut renderers: Vec<&mut dyn CustomRenderer> = Vec::with_capacity(caller.len() + 2);
             for renderer in caller.iter_mut() {
@@ -330,11 +334,17 @@ impl HudScreens {
                 hunger_animation.advance(key, *instance);
             }
         } else if retained.paint.paints != paints {
+            retained.effect_bounds = effect_bounds.get();
             retained.drawn = matches!(drawn, Ok(Some(_)))
                 .then(|| (paint.clone(), icons.to_vec(), [color, mention]));
             retained.hunger = advanced.into_inner();
         }
         drawn
+    }
+
+    /// The last HUD paint's visible effect artwork, in logical pixels relative to safe content.
+    pub fn effect_bounds(&self) -> Option<[f32; 4]> {
+        self.hud_paint.effect_bounds
     }
 
     /// Whether the HUD screen's, or the crosshair overlay's, last paint reused its previous

@@ -114,3 +114,20 @@ fn material_choices_preserve_alpha_for_every_possible_raster() {
     );
     assert_eq!(runtime.encode().unwrap().as_ref(), encoded.as_ref());
 }
+
+#[test]
+fn authored_color_masks_preserve_fractional_mask_alpha() {
+    let mut compiled = carrier_v4_fixture();
+    let source = compiled.render.candidates[0].source;
+    compiled.render.layers[0].material_selection = None;
+    let keeps = |compiled: &assets::CompiledEntityAssets| {
+        assets::actor_sources_keeping_alpha(&compiled.render, &compiled.sources).contains(&source)
+    };
+    compiled.render.layers[0].material_state = Some(EntityRenderMaterialState::default());
+    assert!(!keeps(&compiled));
+    compiled.render.layers[0].material_state = Some(EntityRenderMaterialState {
+        color_mask: true,
+        ..Default::default()
+    });
+    assert!(keeps(&compiled));
+}

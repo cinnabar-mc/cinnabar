@@ -39,6 +39,11 @@ pub struct RenderTextureLayer {
     pub light_color_multiplier: f32,
     /// Frame-sampled authored uniform and X/Y/Z rig scales; absent for tick-owned placement.
     pub sampled_scale: Option<[f32; 4]>,
+    /// The raster is the default player skin, which a player replaces with the skin it wears.
+    /// Every other texture a player's controller names is drawn as authored.
+    pub runtime_skin: bool,
+    /// `source` indexes the session pack catalog rather than the vanilla one.
+    pub pack: bool,
 }
 
 /// Bones of a geometry a render controller draws beside the rig's own.
@@ -546,6 +551,14 @@ fn evaluate_layer_into(
             ignore_lighting: layer.ignore_lighting,
             light_color_multiplier,
             sampled_scale: None,
+            runtime_skin: evaluator
+                .assets
+                .sources()
+                .get(source as usize)
+                .is_some_and(|raster| {
+                    raster.path.as_ref() == render_model::DEFAULT_PLAYER_SKIN_PATH
+                }),
+            pack: evaluator.pack,
         });
     }
     Ok(unresolved_artwork)

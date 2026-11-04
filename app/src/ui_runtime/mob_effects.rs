@@ -1,5 +1,5 @@
-//! Physical input for vanilla's mob effect screen: the Mob Effects binding opens and closes
-//! it, and Escape, Menu Cancel, the controller's cancel button and its close button dismiss it.
+//! Physical input for vanilla's mob effect screen: the Mob Effects binding and controller View
+//! toggle it, touch opens it from the HUD, and cancel controls and its close button dismiss it.
 use bevy::{
     ecs::message::{MessageCursor, Messages},
     ecs::system::SystemParam,
@@ -8,6 +8,7 @@ use bevy::{
         gamepad::{Gamepad, GamepadButton},
         keyboard::KeyboardInput,
         mouse::AccumulatedMouseMotion,
+        touch::Touches,
     },
     prelude::*,
     time::Real,
@@ -41,7 +42,8 @@ pub(crate) struct MobEffectInput<'w, 's> {
     window_events: Option<Res<'w, Messages<WindowEvent>>>,
     window_cursor: Local<'s, MessageCursor<WindowEvent>>,
     pads: Query<'w, 's, &'static Gamepad>,
-    menu: Option<Res<'w, MenuRuntime>>,
+    touches: Option<Res<'w, Touches>>,
+    menu: Option<ResMut<'w, MenuRuntime>>,
     consent: Option<Res<'w, client_state::ConsentInput>>,
     world: Option<Res<'w, ClientWorld>>,
     player: Res<'w, PlayerRuntime>,
@@ -110,7 +112,56 @@ pub(crate) fn drive_mob_effect_screen_input(mut input: MobEffectInput) {
     }
     let now = u64::try_from(input.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     let was_open = input.runtime.mob_effect_screen().is_open();
+    let view_pressed = input
+        .pads
+        .iter()
+        .any(|pad| pad.just_pressed(GamepadButton::Select));
+    // An actionable toast takes View first; a press that opens nothing leaves View to effects.
+    if !was_open
+        && view_pressed
+        && !input.runtime.hides_toasts()
+        && let Some(press) = input
+            .runtime
+            .hud()
+            .showing_toast(now)
+            .and_then(|toast| toast.press)
+        && let Some(menu) = input.menu.as_deref_mut()
+        && menu.press_toast(press)
+    {
+        input.owner.claim(super::input_owner::top_scene(
+            &input.runtime,
+            &input.player,
+            input.menu.as_deref(),
+        ));
+        input.consumed.0 = true;
+        input.modifiers.reset_all();
+        input.keys.reset_all();
+        input.mouse.reset_all();
+        input.motion.delta = Vec2::ZERO;
+        set_cursor_capture(&mut input.window.1, false);
+        return;
+    }
     let mut owned = was_open;
+    let effect_touched = !was_open
+        && input.touches.as_deref().is_some_and(|touches| {
+            touches.iter_just_pressed().any(|touch| {
+                UiPoint::new(touch.position().x, touch.position().y)
+                    .ok()
+                    .is_some_and(|point| {
+                        input.presentation.as_deref().is_some_and(|view| {
+                            view.toast_press_at(point).is_none()
+                                && view.mob_effect_hud_hit(
+                                    point,
+                                    [input.window.0.width(), input.window.0.height()],
+                                )
+                        })
+                    })
+            })
+        });
+    if view_pressed || effect_touched {
+        input.runtime.toggle_mob_effect_screen(now);
+        owned |= input.runtime.mob_effect_screen().is_open();
+    }
     chat_modifiers::capture_before_events(&mut input.modifiers, &input.keys, &keyboard);
     let mouse_toggled = mouse_binding_pressed(&input, &pointer_presses, &keyboard);
     if mouse_toggled {
