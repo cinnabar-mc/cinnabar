@@ -574,12 +574,7 @@ pub(super) fn source(
     equipment: &mut EquipmentRuntime,
     cache: &mut java::HandCache,
 ) -> Option<HandSource> {
-    let runtime_id = inputs.presentation.submission.input.identity.runtime_id;
-    let visibility = inputs
-        .stream
-        .authority()
-        .actor_render_frame(inputs.alpha)
-        .visibility(runtime_id)?;
+    let visibility = cache.native_pose.visibility(&inputs)?;
     let mut source =
         unmasked_source(inputs.clone(), java_mode, equipment, cache).or_else(|| {
             (visibility.hides_body() || visibility.hides_held_items()).then_some(HandSource {

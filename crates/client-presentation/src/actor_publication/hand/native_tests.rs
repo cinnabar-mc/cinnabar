@@ -971,5 +971,8 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
     assert_eq!(cache.native_pose.sample_work, (0, 0));
 }
 
+#[path = "sampling_reuse_tests.rs"]
+mod sampling_reuse;
+
 #[path = "shield_review_tests.rs"]
 mod shield_review;

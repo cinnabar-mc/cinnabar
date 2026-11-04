@@ -153,6 +153,24 @@ impl<'a> ActorRenderFrame<'a> {
             .as_ref()
     }
 
+    /// Moves a single actor's sample to a retained consumer without a frame-map allocation.
+    pub fn into_layers(
+        mut self,
+        runtime_id: u64,
+        sample_skin: bool,
+    ) -> Option<ActorRenderLayers<'a>> {
+        self.sampled_layers.remove(&runtime_id).unwrap_or_else(|| {
+            Self::sample(
+                self.store,
+                self.actors,
+                (self.camera_rotation, self.camera_position, self.alpha),
+                runtime_id,
+                &mut self.remaining_ops,
+                sample_skin,
+            )
+        })
+    }
+
     /// Samples authored scale before admission and caches its layers for the same draw.
     /// Ordinary rigs retain their tick scale without evaluating layer expressions.
     pub fn sample_rig_scale(&mut self, mut rig: ActorRigSnapshot<'a>) -> ActorRigSnapshot<'a> {

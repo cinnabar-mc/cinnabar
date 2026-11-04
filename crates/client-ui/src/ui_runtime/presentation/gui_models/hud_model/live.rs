@@ -64,7 +64,8 @@ impl UiPresentationRuntime {
         let mut model = |model: &super::super::live_player::ModelGeometry,
                          icon: IconRef,
                          turned: &dyn Fn(usize) -> bool,
-                         layer: Option<&actor_animation::RenderTextureLayer>|
+                         layer: Option<&actor_animation::RenderTextureLayer>,
+                         hand: Option<usize>|
          -> Option<()> {
             let geometry = model.geometry.as_ref()?;
             let posed = |(bone, frame): (usize, &Affine3A)| {
@@ -105,6 +106,8 @@ impl UiPresentationRuntime {
             if let Some(layer) = layer {
                 cache.style_last_layer(start, layer);
             }
+            let index = cache.cursor - 1;
+            cache.sources[index].hand = hand;
             Some(())
         };
         if body_visible {
@@ -127,10 +130,11 @@ impl UiPresentationRuntime {
                         draw.icon.unwrap_or(icon),
                         &|bone| draw.layer.geometry.is_none() && turned(bone),
                         Some(&draw.layer),
+                        None,
                     )?;
                 }
             } else {
-                model(&live.body, icon, &turned, None)?;
+                model(&live.body, icon, &turned, None, None)?;
             }
         }
 
@@ -144,7 +148,7 @@ impl UiPresentationRuntime {
                 .and_then(|key| self.menu_artwork_icon(key))
             && live.cape.geometry.is_some()
         {
-            model(&live.cape, icon, &|_| false, None)?;
+            model(&live.cape, icon, &|_| false, None, None)?;
         }
         for item in self
             .menu_preview_model
@@ -161,7 +165,13 @@ impl UiPresentationRuntime {
                     .as_deref()
                     .and_then(|key| self.menu_artwork_icon(key))
             {
-                model(model_source, icon, &|_| model_source.follows_head, None)?;
+                model(
+                    model_source,
+                    icon,
+                    &|_| model_source.follows_head,
+                    None,
+                    None,
+                )?;
             }
         }
         // Controller geometry keeps the player's projection; expanded bounds affect coverage,
@@ -177,7 +187,20 @@ impl UiPresentationRuntime {
         };
         for (source, layer, icon) in extra_layers {
             if source.geometry.is_some() {
-                model(source, *icon, &|_| false, Some(layer))?;
+                model(source, *icon, &|_| false, Some(layer), None)?;
+            }
+        }
+        if ui_context && !controllers.visibility.hides_held_items() {
+            for (hand, layers) in self.gui_models.live_equipment.hands.iter().enumerate() {
+                for draw in layers.iter().flatten() {
+                    model(
+                        &draw.model,
+                        draw.icon,
+                        &|_| false,
+                        Some(&draw.layer),
+                        Some(hand),
+                    )?;
+                }
             }
         }
         for slot in 0..4 {
@@ -206,6 +229,9 @@ impl UiPresentationRuntime {
             )?;
         }
         for (hand, model) in held.iter().enumerate() {
+            if ui_context && self.gui_models.live_equipment.hands[hand].is_some() {
+                continue;
+            }
             let Some(model) = model else { continue };
             let (frame, part) = if ui_context {
                 let Some(parent) = live.hands[hand] else {

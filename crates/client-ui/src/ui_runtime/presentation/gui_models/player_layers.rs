@@ -75,11 +75,19 @@ impl UiPresentationRuntime {
         &mut self,
         local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
     ) {
+        self.capture_player_layers_with_output(local, local.and_then(|local| local.layers()));
+    }
+
+    /// Captures already evaluated controller layers and their catalog artwork.
+    pub(super) fn capture_player_layers_with_output(
+        &mut self,
+        local: Option<client_world::ui_read::LocalPlayerUi<'_>>,
+        ui_output: Option<actor_animation::ActorRenderLayers<'_>>,
+    ) {
         let layers = &mut self.gui_models.player_layers;
         layers.clear_capture();
         let Some(local) = local else { return };
         let Some(rig) = local.rig() else { return };
-        let ui_output = local.layers();
         if let Some(output) = &ui_output {
             layers.visibility = output.visibility;
             layers.held_item_scale = output.held_item_scale;
@@ -87,7 +95,11 @@ impl UiPresentationRuntime {
                 output
                     .render
                     .iter()
-                    .filter(|layer| layer.texture_slot == 0)
+                    .filter(|layer| {
+                        layer.texture_slot == 0
+                            || layer.geometry.is_some()
+                            || rig.skin_geometry.is_none()
+                    })
                     .cloned()
                     .map(|layer| LiveLayer {
                         model: None,
@@ -117,8 +129,7 @@ impl UiPresentationRuntime {
                     .flat_map(|output| output.render.iter())
                     .filter(move |layer| {
                         if *is_live {
-                            layer.texture_slot == 0
-                                && (layer.geometry.is_some() || rig.skin_geometry.is_none())
+                            layer.geometry.is_some() || rig.skin_geometry.is_none()
                         } else {
                             layer.geometry.is_some()
                         }

@@ -14,6 +14,23 @@ fn pack() -> Arc<assets::SessionEntityPack> {
 
 /// Optionally places a second controller before the masked body to exercise authored draw order.
 fn pack_with_alternate(alternate: bool) -> Arc<assets::SessionEntityPack> {
+    pack_with_files(alternate, Vec::new())
+}
+
+/// Compiles optional original attachable documents beside the player.
+fn pack_with_files(
+    alternate: bool,
+    extra: Vec<(Box<str>, Vec<u8>)>,
+) -> Arc<assets::SessionEntityPack> {
+    pack_with_overlay(alternate, extra, false)
+}
+
+/// Adds independently colored secondary artwork to an alternate controller.
+fn pack_with_overlay(
+    alternate: bool,
+    extra: Vec<(Box<str>, Vec<u8>)>,
+    overlay: bool,
+) -> Arc<assets::SessionEntityPack> {
     let mut entity = serde_json::json!({"format_version":"1.10.0","minecraft:client_entity":{"description":{
         "identifier":"minecraft:player","materials":{"default":"entity_alphatest"},
         "textures":{"default":"textures/entity/fixture"},"geometry":{"default":"geometry.fixture"},
@@ -71,6 +88,12 @@ fn pack_with_alternate(alternate: bool) -> Arc<assets::SessionEntityPack> {
             "part_visibility":[{"trim":false}]
         });
     }
+    if overlay {
+        entity["minecraft:client_entity"]["description"]["textures"]["overlay"] =
+            serde_json::json!("textures/entity/overlay");
+        render["render_controllers"]["controller.render.extra"]["textures"] =
+            serde_json::json!(["Texture.default", "Texture.overlay"]);
+    }
     let mut files: Vec<(Box<str>, Vec<u8>)> = [
         ("entity/player.json", entity),
         ("models/entity/fixture.geo.json", geometry),
@@ -86,6 +109,14 @@ fn pack_with_alternate(alternate: bool) -> Arc<assets::SessionEntityPack> {
         .write_to(&mut png, image::ImageFormat::Png)
         .unwrap();
     files.push(("textures/entity/fixture.png".into(), png.into_inner()));
+    if overlay {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_pixel(16, 16, image::Rgba([220, 60, 30, 128]))
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        files.push(("textures/entity/overlay.png".into(), png.into_inner()));
+    }
+    files.extend(extra);
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
         .unwrap();
@@ -93,7 +124,14 @@ fn pack_with_alternate(alternate: bool) -> Arc<assets::SessionEntityPack> {
         assets: Arc::new(assets::RuntimeEntityAssets::from_compiled(compiled.entities).unwrap()),
         textures: compiled.textures.into(),
         bindings: compiled.bindings.into(),
-        equipment: None,
+        equipment: Some(Arc::new(
+            assets::RuntimeEquipmentCatalog::from_parts(
+                compiled.identity,
+                compiled.equipment_bindings,
+                compiled.equipment_textures,
+            )
+            .unwrap(),
+        )),
     })
 }
 
@@ -172,6 +210,14 @@ fn draw(
     view: PreviewView,
 ) -> Option<(Arc<ui::UiMesh>, Vec<UiMeshVertex>)> {
     ui.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    draw_captured(ui, view)
+}
+
+/// Draws an already captured controller frame through the production UI path.
+fn draw_captured(
+    ui: &mut UiPresentationRuntime,
+    view: PreviewView,
+) -> Option<(Arc<ui::UiMesh>, Vec<UiMeshVertex>)> {
     ui.hud_preview_view = view;
     ui.player_preview_view = view;
     let icon = ui.player_preview_icon().unwrap();
@@ -435,3 +481,52 @@ fn json_hud_live_player_control_publishes_the_captured_item_palette() {
         "the held cube is part of the HUD draw"
     );
 }
+
+#[test]
+fn live_ui_keeps_secondary_textures_on_controller_geometry() {
+    let pack = pack_with_overlay(true, Vec::new(), true);
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, Some("minecraft:stone"));
+    let local = stream.authority().local_player_ui();
+    let mut output = local.layers().unwrap();
+    let mut overlay = output.render[0].clone();
+    assert!(overlay.geometry.is_some());
+    overlay.texture_slot = 1;
+    overlay.source = pack
+        .assets
+        .sources()
+        .iter()
+        .position(|source| source.path.as_ref() == "textures/entity/overlay.png")
+        .unwrap() as u32;
+    let overlay_source = overlay.source;
+    assert_ne!(overlay.source, output.render[0].source);
+    output.render.to_mut().insert(1, overlay);
+    let mut ui = presentation(pack);
+    ui.set_player_preview_gear([None; 4], None);
+    ui.capture_hud_player(Some(local), false);
+    ui.capture_player_layers_with_output(Some(local), Some(output));
+    let (mesh, vertices) = draw_captured(&mut ui, PreviewView::default()).unwrap();
+    let selected = ui
+        .gui_models
+        .player_layers
+        .live
+        .iter()
+        .find(|draw| draw.layer.source == overlay_source)
+        .unwrap();
+    let icon = selected
+        .icon
+        .expect("secondary artwork has its own UI page");
+    assert!(
+        mesh.batches()
+            .iter()
+            .any(|batch| batch.texture_page == icon.page)
+    );
+    assert_eq!(
+        triangles(&vertices),
+        24,
+        "both texture slots draw the unmasked cube"
+    );
+}
+
+#[path = "equipment_tests.rs"]
+mod equipment;

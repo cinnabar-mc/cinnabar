@@ -13,6 +13,13 @@ impl UiPresentationRuntime {
         owner: Option<PreviewEquipmentOwner<'_>>,
         worn: [Option<&str>; 4],
     ) {
+        self.gui_models.live_equipment.input =
+            owner.map(|owner| actor_animation::AttachableAnimationInput {
+                owner_main_hand: None,
+                owner_off_hand: None,
+                owner_variables: &[],
+                ..owner.input
+            });
         let base = self.equipment_catalog.clone();
         let pack = self.gui_models.pack_equipment.source.clone();
         let selected: [_; 2] = std::array::from_fn(|index| {

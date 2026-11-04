@@ -77,7 +77,7 @@ pub(super) struct LivePlayer {
     pub(super) hat_vertices: std::collections::HashMap<cosmetics::Item, Vec<ActorVertex>>,
     hat_pose: std::collections::HashMap<cosmetics::Item, render_model::hats::HatPoseCache>,
     pub(super) hat_motion: std::collections::HashMap<cosmetics::Item, render_model::hats::Motion>,
-    bones: Vec<RenderBoneTransform>,
+    pub(super) bones: Vec<RenderBoneTransform>,
     cape_bones: Vec<RenderBoneTransform>,
     cape_bindings: Option<(
         GeometryIdentity,
@@ -193,6 +193,7 @@ impl UiPresentationRuntime {
     ) {
         self.capture_live_pose(local, swimming, emote);
         self.capture_player_layers(local);
+        self.capture_live_equipment(local);
     }
 
     /// Retains the animated body and unmasked attachment bones for the current capture.

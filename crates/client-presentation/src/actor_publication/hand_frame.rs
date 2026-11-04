@@ -67,10 +67,20 @@ pub(super) fn prepare(
                 .into_iter()
                 .flatten()
                 .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
-            let visibility = stream
-                .authority()
-                .actor_render_frame(partial_tick)
-                .visibility(local_runtime_id);
+            let inputs = hand::HandInputs {
+                stream,
+                presentation,
+                equipment_input: &equipment_input,
+                owner_equipment: &equipment_input,
+                consume_ticks,
+                item_animation,
+                alpha: partial_tick,
+                artwork,
+                motion,
+                sampling_camera,
+                aspect,
+            };
+            let visibility = java_hand.native_pose.visibility(&inputs);
             if key == *ready_hand_key
                 && !samples_item_scale
                 && !holds_map
@@ -84,24 +94,7 @@ pub(super) fn prepare(
                     source
                 });
             }
-            hand::source(
-                hand::HandInputs {
-                    stream,
-                    presentation,
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: partial_tick,
-                    artwork,
-                    motion,
-                    sampling_camera,
-                    aspect,
-                },
-                java_mode,
-                equipment,
-                java_hand,
-            )
+            hand::source(inputs, java_mode, equipment, java_hand)
         })
     } else {
         None

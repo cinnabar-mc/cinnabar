@@ -1054,8 +1054,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
   Live player controls consume UI-context controller layers, part visibility and held-item
-  visibility. Held meshes attach to the evaluated item bones, including independent item-bone
-  animation and main-hand scale. Menu fallback and level-view paper-doll contracts stay separate.
+  visibility, including secondary artwork on controller-owned geometry. Held attachables evaluate
+  their own controllers and animated bones in UI context and share owner-bone placement with
+  world equipment. Ordinary held meshes retain their item-bone placement and main-hand scale.
+  Menu fallback and level-view paper-doll contracts stay separate.
   A screen's live player renderer draws the same animated actor from its own palette, the
   head subtree turned toward the pointer. It replaces the head's orientation rather than
   re-evaluating the actor with native's overwritten rotations, so Molang that reads the look

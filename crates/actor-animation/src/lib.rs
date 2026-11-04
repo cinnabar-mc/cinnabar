@@ -138,3 +138,6 @@ mod dragon_tests;
 #[cfg(test)]
 #[global_allocator]
 static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+/// Owner-bone placement shared by world and live UI equipment.
+pub mod attachment;

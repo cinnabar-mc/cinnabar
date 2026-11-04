@@ -23,6 +23,7 @@ mod cosmetic_previews;
 mod fire;
 mod held;
 pub(super) mod hud_model;
+mod live_equipment;
 mod live_player;
 mod pack_equipment;
 mod player_layers;
@@ -136,6 +137,7 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) live_equipment: live_equipment::LiveEquipment,
     pub(super) player_layers: player_layers::PlayerLayers,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
