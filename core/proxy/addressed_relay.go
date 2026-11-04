@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
@@ -104,8 +103,8 @@ func (r *xboxRelay) start(ctx context.Context) *relayFetch {
 	return fetch
 }
 
-// Credentials returns a copy of the relay config for one connection's candidate gathering, or
-// nil when none could be obtained, which gathers local candidates only.
+// Credentials returns the relay config's STUN servers for one connection's candidate gathering,
+// or nil when none could be obtained, which gathers local candidates only.
 func (r *xboxRelay) Credentials(ctx context.Context) (*nethernet.Credentials, error) {
 	fetch := r.start(ctx)
 	select {
@@ -119,10 +118,24 @@ func (r *xboxRelay) Credentials(ctx context.Context) (*nethernet.Credentials, er
 		r.mu.Unlock()
 		return nil, nil
 	}
-	credentials := *fetch.credentials
-	credentials.ICEServers = slices.Clone(credentials.ICEServers)
-	for i := range credentials.ICEServers {
-		credentials.ICEServers[i].URLs = slices.Clone(credentials.ICEServers[i].URLs)
+	return stunOnly(fetch.credentials), nil
+}
+
+// accountRelays keeps the most recent signed-in account's relay config across joins, as vanilla
+// holds its config from sign-in, so only the first NetherNet join after starting or switching
+// accounts waits for the request. The config lasts as long as the service says, a week today.
+var accountRelays struct {
+	mu      sync.Mutex
+	account service.TokenSource
+	relay   *xboxRelay
+}
+
+// relayForAccount returns the shared relay config for account, replacing the previous account's.
+func relayForAccount(account service.TokenSource, logger *slog.Logger) *xboxRelay {
+	accountRelays.mu.Lock()
+	defer accountRelays.mu.Unlock()
+	if accountRelays.relay == nil || accountRelays.account != account {
+		accountRelays.account, accountRelays.relay = account, newXboxRelay(account, logger)
 	}
-	return &credentials, nil
+	return accountRelays.relay
 }

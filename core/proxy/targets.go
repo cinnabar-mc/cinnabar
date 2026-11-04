@@ -83,7 +83,7 @@ func dialTransportWithin(ctx context.Context, network minecraft.Network, address
 // A nil trust joins any NetherNet server. A nil relay, for signed-out joins, gathers local
 // NetherNet candidates only.
 func remoteServerNetwork(logger *slog.Logger, trust minecraft.ServerTrust, relay *xboxRelay) addressedServerNetwork {
-	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true}
+	dialer := nethernet.Dialer{Log: logger, AllowIdentitylessServer: true, API: gatheringAPI}
 	if relay != nil {
 		dialer.Credentials = relay.Credentials
 	}
@@ -187,7 +187,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	defer cancel()
 	// Every signed-in target keeps the relay config for addressed transfers, as vanilla's applies
 	// to the whole session.
-	relay := newXboxRelay(account, logger)
+	relay := relayForAccount(account, logger)
 	withRelay := func(target *resolvedUpstreamTarget, err error) (*resolvedUpstreamTarget, error) {
 		if target != nil {
 			target.relay = relay
@@ -381,7 +381,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType
 		if err != nil {
 			return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
 		}
-		return conn, nil
+		return stunOnlySignaling{conn}, nil
 	}
 	return scopedNetherNetNetwork{signal: signal, logger: logger}
 }
@@ -391,7 +391,7 @@ func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType
 func (network scopedNetherNetNetwork) transport() minecraft.NetherNet {
 	return minecraft.NetherNet{
 		DialSignaling: network.signal,
-		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true},
+		Dialer:        nethernet.Dialer{Log: network.logger, AllowIdentitylessServer: true, API: gatheringAPI},
 	}
 }
 
