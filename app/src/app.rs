@@ -628,8 +628,11 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
     } else {
         Color::srgb(0.035, 0.043, 0.059)
     };
+    // Local benchmark switch: keep the foreground rate while unfocused or occluded.
+    let ignore_window_state =
+        env_compat::var_os("CINNABAR_IGNORE_WINDOW_STATE").as_deref() == Some(OsStr::new("1"));
     app.insert_resource(crate::frame_pacing::FramePacingRuntime::new(
-        hidden_surface || args.acceptance_seconds.is_some(),
+        hidden_surface || args.acceptance_seconds.is_some() || ignore_window_state,
     ))
     // Every update passes the pacer's single admission wait, so input never adds frames.
     .insert_resource(bevy::winit::WinitSettings::continuous())
