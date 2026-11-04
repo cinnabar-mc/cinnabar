@@ -20,7 +20,7 @@ pub enum BlockBreakCue {
     },
 }
 
-/// Time `GameMode` refuses another destroy after one completes (its `mNoDestroyUntil`).
+/// Time after a completed destroy before another may start.
 const DESTROY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
 /// Whole ticks covering [`DESTROY_DELAY`]; the deadline falls on the last of them.
 pub const DESTROY_DELAY_TICKS: u8 =
@@ -314,8 +314,8 @@ impl DestroyMachine {
         remaining: u8,
     ) {
         let creative_continue = target.instant && self.destroying.is_some();
-        // `continueDestroyBlock` refuses a survival start only before the deadline, but
-        // repeats a held Creative destroy only once the deadline has passed.
+        // A survival start may land on the deadline tick; a held Creative destroy repeats
+        // only once the deadline has passed.
         let delayed = if creative_continue {
             remaining > 0
         } else {
