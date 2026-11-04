@@ -1328,12 +1328,15 @@ server/Realm/friend-world joins, transfers, reconnect/disconnect, account switch
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
 Signed-in addressed NetherNet joins, and transfers from any signed-in target, gather ICE
-candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
-does; signed-out joins gather local candidates only. A refused relay request, or one past the
-10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
-vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
-allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
-STUN but no relay candidates. NAT and relay-only join acceptance remain open.
+candidates through the STUN URL of the account's Player Messaging relay config, as vanilla
+does; signed-out joins gather local candidates only. The config is requested once per account
+and reused until its expiry (a week), as vanilla holds it from sign-in. A refused relay request,
+or one past the 10 s implementation bound, leaves the join on local candidates; that bound is
+unverified. Realm, friend and raw NetherNet joins likewise keep only the STUN URLs of their
+signaling's ICE servers. Confirmed gap: the relay config's TURN server answers allocations with
+300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
+(trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
+relay when no direct path exists. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
