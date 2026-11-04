@@ -101,8 +101,6 @@ const (
 	NetherNetTargetPrefix = "nethernet/"
 	// NetherNetSignalingJSONRPC: NetherNet JSON-RPC signaling selector.
 	NetherNetSignalingJSONRPC = "jsonrpc"
-	// NetherNetSignalingWebSocket: NetherNet WebSocket signaling selector.
-	NetherNetSignalingWebSocket = "websocket"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

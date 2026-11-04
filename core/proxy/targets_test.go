@@ -219,19 +219,18 @@ var _ interface {
 	DialContextIdentityProvider(context.Context, string, string, *ecdsa.PrivateKey, string) (net.Conn, error)
 } = scopedNetherNetNetwork{}
 
-// A raw NetherNet ID carries its signaling explicitly; a bare ID is refused rather than guessed.
+// A raw NetherNet ID carries its JSON-RPC signaling explicitly, the only signaling vanilla uses;
+// a bare ID is refused rather than guessed.
 func TestNetherNetTargetsNameTheirSignaling(t *testing.T) {
 	id := "5db3882f-99fe-4648-97dd-1b55492e1cc9"
-	for address, want := range map[string]int{
-		"nethernet/jsonrpc/" + id:      p2p.ConnectionTypeSignalingOverJSONRPC,
-		"NetherNet/WebSocket/12345678": p2p.ConnectionTypeSignalingOverWebSocket,
-	} {
-		if _, got, err := parseNetherNetTarget(strings.ToLower(address)); err != nil || got != want {
-			t.Fatalf("%s = %d, %v; want %d", address, got, err, want)
+	for _, address := range []string{"nethernet/jsonrpc/" + id, "NetherNet/JSONRPC/12345678"} {
+		want := address[strings.LastIndex(address, "/")+1:]
+		if got, err := parseNetherNetTarget(strings.ToLower(address)); err != nil || got != want {
+			t.Fatalf("%s = %q, %v; want %q", address, got, err, want)
 		}
 	}
-	for _, address := range []string{"nethernet/jsonrpc/", "nethernet/carrier/" + id, "nethernet/websocket/host:1"} {
-		if _, _, err := parseNetherNetTarget(address); err == nil {
+	for _, address := range []string{"nethernet/jsonrpc/", "nethernet/carrier/" + id, "nethernet/websocket/12345678", "nethernet/websocket/host:1"} {
+		if _, err := parseNetherNetTarget(address); err == nil {
 			t.Fatalf("%s parsed", address)
 		}
 	}

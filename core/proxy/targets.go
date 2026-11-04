@@ -28,9 +28,8 @@ import (
 
 // A raw NetherNet target names its signaling and ID: NetherNetTargetPrefix + signaling + "/" + id.
 const (
-	NetherNetTargetPrefix       = bridgecontract.NetherNetTargetPrefix
-	NetherNetSignalingJSONRPC   = bridgecontract.NetherNetSignalingJSONRPC
-	NetherNetSignalingWebSocket = bridgecontract.NetherNetSignalingWebSocket
+	NetherNetTargetPrefix     = bridgecontract.NetherNetTargetPrefix
+	NetherNetSignalingJSONRPC = bridgecontract.NetherNetSignalingJSONRPC
 )
 
 const (
@@ -203,7 +202,7 @@ func resolveUpstreamTarget(ctx context.Context, address string, account *authcac
 	case strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix):
 		return withRelay(resolveRawNetherNetTarget(resolveContext, address, account, logger))
 	case isRawNetherNetAddress(address):
-		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
+		return nil, fmt.Errorf("NetherNet target %q needs its signaling: use %s%s/<id>", address, NetherNetTargetPrefix, NetherNetSignalingJSONRPC)
 	default:
 		return withRelay(&resolvedUpstreamTarget{address: address, network: remoteServerNetwork(logger, trust, relay)}, nil)
 	}
@@ -246,15 +245,12 @@ func lookupRealmTarget(ctx context.Context, address string, account *authcache.A
 	if strings.TrimSpace(realmAddress.Address) == "" {
 		return nil, fmt.Errorf("resolve realm %q: empty address", address)
 	}
-	protocol := realms.ParseNetworkProtocol(string(realmAddress.NetworkProtocol))
-	if protocol == realms.NetworkProtocolDefault || protocol == "" {
-		return &resolvedUpstreamTarget{address: realmAddress.Address, network: remoteRakNet()}, nil
+	// Vanilla joins a realm only through JSON-RPC signaling to its NetherNet ID.
+	id, err := realmAddress.NetherNetID()
+	if err != nil {
+		return nil, fmt.Errorf("resolve realm %q: %w", address, err)
 	}
-	connectionType, ok := realmConnectionType(protocol)
-	if !ok {
-		return nil, fmt.Errorf("realm %q uses unsupported network protocol %q", address, realmAddress.NetworkProtocol)
-	}
-	return newNetherNetTarget(realmAddress.Address, connectionType, account, logger), nil
+	return newNetherNetTarget(id, account, logger), nil
 }
 
 func resolveFriendTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
@@ -297,7 +293,7 @@ func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, acc
 		_ = session.Close()
 		return nil, fmt.Errorf("join friend world %q: %w", xuid, err)
 	}
-	target := newNetherNetTarget(joined.DialAddress(), joined.ConnectionType(), account, logger)
+	target := newNetherNetTarget(joined.DialAddress(), account, logger)
 	target.clientData = joined.ApplyClientData
 	target.friend = joined
 	target.xbox = xbl
@@ -316,42 +312,28 @@ func selectFriendWorld(worlds []p2p.World, ownerXUID, self string) *p2p.World {
 }
 
 func resolveRawNetherNetTarget(ctx context.Context, address string, account *authcache.Account, logger *slog.Logger) (*resolvedUpstreamTarget, error) {
-	id, connectionType, err := parseNetherNetTarget(address)
+	id, err := parseNetherNetTarget(address)
 	if err != nil {
 		return nil, err
 	}
-	return newNetherNetTarget(id, connectionType, account, logger), nil
+	return newNetherNetTarget(id, account, logger), nil
 }
 
-// parseNetherNetTarget splits nethernet/<signaling>/<id>; the signaling is never inferred from the ID.
-func parseNetherNetTarget(address string) (string, int, error) {
+// parseNetherNetTarget returns the ID of nethernet/jsonrpc/<id>. Vanilla signals only over
+// JSON-RPC, so no other signaling is accepted, and none is inferred from the ID.
+func parseNetherNetTarget(address string) (string, error) {
 	signaling, id, _ := strings.Cut(address[len(NetherNetTargetPrefix):], "/")
-	connectionType, ok := map[string]int{
-		NetherNetSignalingJSONRPC:   p2p.ConnectionTypeSignalingOverJSONRPC,
-		NetherNetSignalingWebSocket: p2p.ConnectionTypeSignalingOverWebSocket,
-	}[strings.ToLower(signaling)]
-	if !ok || !isRawNetherNetAddress(id) {
-		return "", 0, fmt.Errorf("invalid NetherNet target %q: want %sjsonrpc/<id> or %swebsocket/<id>", address, NetherNetTargetPrefix, NetherNetTargetPrefix)
+	if !strings.EqualFold(signaling, NetherNetSignalingJSONRPC) || !isRawNetherNetAddress(id) {
+		return "", fmt.Errorf("invalid NetherNet target %q: want %s%s/<id>", address, NetherNetTargetPrefix, NetherNetSignalingJSONRPC)
 	}
-	return id, connectionType, nil
+	return id, nil
 }
 
-// newNetherNetTarget signals with the account's Minecraft service token.
-func newNetherNetTarget(address string, connectionType int, account *authcache.Account, logger *slog.Logger) *resolvedUpstreamTarget {
+// newNetherNetTarget signals over JSON-RPC with the account's Minecraft service token.
+func newNetherNetTarget(address string, account *authcache.Account, logger *slog.Logger) *resolvedUpstreamTarget {
 	return &resolvedUpstreamTarget{
 		address: address,
-		network: newScopedNetherNetNetwork(account, connectionType, logger),
-	}
-}
-
-func realmConnectionType(protocol realms.NetworkProtocol) (int, bool) {
-	switch realms.ParseNetworkProtocol(string(protocol)) {
-	case realms.NetworkProtocolNetherNet:
-		return p2p.ConnectionTypeSignalingOverWebSocket, true
-	case realms.NetworkProtocolNetherNetJSONRPC:
-		return p2p.ConnectionTypeSignalingOverJSONRPC, true
-	default:
-		return 0, false
+		network: newScopedNetherNetNetwork(account, logger),
 	}
 }
 
@@ -375,9 +357,9 @@ type scopedNetherNetNetwork struct {
 	logger *slog.Logger
 }
 
-func newScopedNetherNetNetwork(serviceSource service.TokenSource, connectionType int, logger *slog.Logger) scopedNetherNetNetwork {
+func newScopedNetherNetNetwork(serviceSource service.TokenSource, logger *slog.Logger) scopedNetherNetNetwork {
 	signal := func(ctx context.Context, _ string) (minecraft.SignalingConn, error) {
-		conn, err := p2p.DialClientSignaling(ctx, connectionType, serviceSource, p2p.ClientSignalingOptions{Log: logger})
+		conn, err := p2p.DialClientSignaling(ctx, serviceSource, p2p.ClientSignalingOptions{Log: logger})
 		if err != nil {
 			return nil, fmt.Errorf("establish NetherNet signaling: %w", err)
 		}

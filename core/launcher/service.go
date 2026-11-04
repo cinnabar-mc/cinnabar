@@ -3,6 +3,7 @@
 package launcher
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -309,32 +310,29 @@ func (s *Service) joinGathering(ctx context.Context, account *authcache.Account,
 	return target, nil
 }
 
-// gatheringTarget names the transport the assignment selects: host:port for RakNet, or the
-// NetherNet ID with its signaling dialect. A NETHERNET assignment without an ID returns its
-// host:port, which is probed for NetherNet HTTP signaling like a typed server address.
+// gatheringTarget names the transport the assignment selects, as vanilla reads it: host:port for
+// DEFAULT and NETHERNET, the latter probed for NetherNet HTTP signaling like a typed server
+// address, or the NetherNet ID of a NETHERNET_JSONRPC server with its signaling.
 func gatheringTarget(address *gatherings.Address) (string, error) {
 	if address == nil {
 		return "", errors.New("launcher: gathering returned no address")
 	}
-	protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol))
-	if protocol == realms.NetworkProtocolNetherNet && strings.TrimSpace(address.NetherNetID) == "" {
+	switch protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol)); protocol {
+	case realms.NetworkProtocolDefault, "", realms.NetworkProtocolNetherNet:
 		host := strings.TrimSpace(address.IPv4Address)
 		if host == "" || address.Port == 0 {
-			return "", errors.New("launcher: NetherNet assignment has neither a NetherNet ID nor an address")
+			return "", fmt.Errorf("launcher: %s assignment has no host or port", cmp.Or(protocol, realms.NetworkProtocolDefault))
 		}
 		return net.JoinHostPort(host, strconv.Itoa(int(address.Port))), nil
-	}
-	dial, err := address.DialAddress()
-	if err != nil {
-		return "", err
-	}
-	switch protocol {
-	case realms.NetworkProtocolNetherNet:
-		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingWebSocket + "/" + dial, nil
 	case realms.NetworkProtocolNetherNetJSONRPC:
-		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/" + dial, nil
+		id := strings.TrimSpace(address.NetherNetID)
+		if id == "" {
+			return "", errors.New("launcher: NetherNet assignment has no NetherNet ID")
+		}
+		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/" + id, nil
+	default:
+		return "", fmt.Errorf("launcher: unsupported gathering network protocol %q", address.NetworkProtocol)
 	}
-	return dial, nil
 }
 
 // SignOut deletes the cached Microsoft tokens and reports the signed-out state. The running

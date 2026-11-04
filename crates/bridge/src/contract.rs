@@ -149,9 +149,6 @@ pub const NETHERNET_TARGET_PREFIX: &str = "nethernet/";
 /// NetherNet JSON-RPC signaling selector.
 pub const NETHERNET_SIGNALING_JSONRPC: &str = "jsonrpc";
 
-/// NetherNet WebSocket signaling selector.
-pub const NETHERNET_SIGNALING_WEBSOCKET: &str = "websocket";
-
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";
 
