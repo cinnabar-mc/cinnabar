@@ -300,6 +300,7 @@ pub(crate) struct FrameSamplingCache {
     layers: render::cache::RenderCache,
     compositions: composition::Compositions,
     retained: Option<retained::Sample>,
+    visibility: Option<visibility::Plan>,
 }
 
 impl FrameSamplingCache {

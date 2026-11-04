@@ -10,7 +10,7 @@ fn expression(compiled: &mut CompiledEntityAssets, program: Vec<MolangOp>) -> u3
     expressions.push(CompiledMolangExpression {
         first_op: ops.len() as u32,
         op_count: program.len() as u16,
-        max_stack: 2,
+        max_stack: assets::molang_program_stack(&program).unwrap(),
     });
     ops.extend(program);
     compiled.molang_ops = ops.into();
@@ -468,6 +468,160 @@ fn advancing_visibility_frames_reuse_owned_and_retained_layer_storage() {
                     "frame {frame}, visibility only {visibility_only}"
                 );
             }
+        }
+    }
+}
+
+/// Camera and swing drive poses, while pre-animation and engine variables drive visibility.
+fn variable_fixture() -> CompiledEntityAssets {
+    use MolangOp::*;
+    let scalar = crate::test_support::scalar;
+    let mut compiled = fixture(false);
+    compiled.molang_symbols[1].identifier = "query.distance_from_camera".into();
+    let mut symbols = compiled.molang_symbols.into_vec();
+    symbols.extend(
+        [
+            "variable.attack_time",
+            "variable.first_person_item_rotation_factor",
+            "variable.first_person_rotation_factor",
+            "variable.held_visibility",
+            "variable.is_first_person",
+        ]
+        .map(|identifier| MolangSymbol {
+            kind: MolangSymbolKind::Variable,
+            identifier: identifier.into(),
+        }),
+    );
+    compiled.molang_symbols = symbols.into();
+    let held = expression(
+        &mut compiled,
+        vec![LoadVariable(5), StoreVariable(8), Push(scalar(1.0))],
+    );
+    compiled.rig_bindings[0].held_item_scale = Some(held);
+    let pre = expression(
+        &mut compiled,
+        vec![
+            LoadQuery(1),
+            Push(scalar(8.0)),
+            Less,
+            StoreVariable(9),
+            LoadVariable(8),
+            StoreVariable(7),
+            Push(scalar(0.0)),
+        ],
+    );
+    compiled.rig_bindings[0].pre_animation = Some(pre);
+    let gate = expression(&mut compiled, vec![LoadVariable(9), Not]);
+    for layer in &mut compiled.render.layers {
+        layer.condition = Some(gate);
+    }
+    let hide = expression(
+        &mut compiled,
+        vec![LoadVariable(6), Push(scalar(0.5)), Greater],
+    );
+    compiled.rig_bindings[0].hide_held_items = Some(hide);
+    let camera_pose = expression(&mut compiled, vec![LoadQuery(1)]);
+    let swing_pose = expression(&mut compiled, vec![LoadVariable(5)]);
+    compiled.animation_keyframes[0].expressions = [Some(camera_pose), Some(swing_pose), None];
+    compiled
+}
+
+#[test]
+fn variable_visibility_replays_setup_without_pose_work_or_warm_allocations() {
+    let (mut store, actor) = store(variable_fixture());
+    let progress = LocalSwingProgress {
+        bedrock: [0.1, 0.9],
+        java: [0.1, 0.9],
+        frame_alpha: None,
+    };
+    store.sync_local_swing(actor.runtime_id, progress);
+    advance(&mut store, &actor, true);
+    let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+    let mut storage = Vec::new();
+    for frame in 0..24 {
+        if frame == 12 {
+            advance(&mut store, &actor, true);
+        }
+        let alpha = if frame % 2 == 0 { 0.25 } else { 0.75 };
+        let distance = if frame % 3 == 0 { 5.0 } else { 9.0 };
+        let camera_rotation = [frame as f32, frame as f32 * 2.0];
+        let camera_position = [
+            actor.position[0],
+            actor.position[1],
+            actor.position[2] + distance,
+        ];
+        pose::work::take();
+        let allocations = test_alloc::thread_allocations();
+        let visibility =
+            ActorRenderFrame::new(&store, &actors, camera_rotation, camera_position, alpha)
+                .into_layers_reusing(actor.runtime_id, false, true, &mut storage)
+                .unwrap()
+                .visibility;
+        let allocated = test_alloc::thread_allocations() - allocations;
+        assert_eq!(pose::work::take(), (0, 0), "visibility frame {frame}");
+        if frame >= 4 {
+            assert_eq!(allocated, 0, "visibility frame {frame}");
+        }
+        assert_eq!(visibility.hides_body(), distance < 8.0);
+        assert_eq!(visibility.hides_held_items(), alpha > 0.5);
+        let full = ActorRenderFrame::new(&store, &actors, camera_rotation, camera_position, alpha)
+            .into_layers_reusing(actor.runtime_id, false, false, &mut storage)
+            .unwrap();
+        assert_eq!(visibility, full.visibility, "frame {frame}");
+        let (samples, compositions) = pose::work::take();
+        assert!(samples > 0, "control must exercise pose sampling");
+        assert!(compositions > 0, "control must exercise composition");
+    }
+}
+
+#[test]
+fn variable_visibility_retains_downstream_animation_and_render_writes() {
+    use MolangOp::*;
+    for render_write in [false, true] {
+        let mut compiled = variable_fixture();
+        let write = expression(
+            &mut compiled,
+            vec![
+                LoadVariable(5),
+                Push(crate::test_support::scalar(0.5)),
+                Greater,
+                StoreVariable(6),
+                Push(crate::test_support::scalar(0.0)),
+            ],
+        );
+        if render_write {
+            compiled.render.layers[0].color = Some([write; 4]);
+        } else {
+            compiled.animation_keyframes[0].expressions[2] = Some(write);
+        }
+        let (mut store, actor) = store(compiled);
+        store.sync_local_swing(
+            actor.runtime_id,
+            LocalSwingProgress {
+                bedrock: [0.1, 0.9],
+                java: [0.1, 0.9],
+                frame_alpha: None,
+            },
+        );
+        advance(&mut store, &actor, true);
+        let actors = HashMap::from([(actor.runtime_id, actor.clone())]);
+        let mut storage = Vec::new();
+        for alpha in [0.25, 0.75, 0.25] {
+            let camera = [
+                actor.position[0],
+                actor.position[1],
+                actor.position[2] + 9.0,
+            ];
+            let full = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, false, &mut storage)
+                .unwrap()
+                .visibility;
+            let visibility = ActorRenderFrame::new(&store, &actors, [0.0; 2], camera, alpha)
+                .into_layers_reusing(actor.runtime_id, false, true, &mut storage)
+                .unwrap()
+                .visibility;
+            assert_eq!(visibility, full);
+            assert_eq!(visibility.hides_held_items(), alpha > 0.5);
         }
     }
 }

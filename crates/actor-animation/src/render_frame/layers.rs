@@ -175,7 +175,7 @@ impl ActorAnimationStore {
             static_draw: None,
         };
         if visibility_only
-            && let Some(visibility) = visibility::sample(&evaluator, state, &mut budget)
+            && let Some(visibility) = visibility::sample(&evaluator, state, swing, &mut budget)
         {
             return Some(ActorRenderLayers {
                 visibility,
@@ -190,6 +190,7 @@ impl ActorAnimationStore {
             layers: layer_cache,
             compositions,
             retained,
+            visibility: _,
         } = &mut *scratch;
         let retained = if cache::enabled()
             && (!state.complete_spear_variables || layout.engine.spear.is_empty())
@@ -212,32 +213,12 @@ impl ActorAnimationStore {
             return Some(layers);
         }
         let mut variables = variable_scratch.lease(&frame.motion.variables);
-        if let Some(swing) = swing {
-            variables.set(layout.engine.attack_time, swing);
-        }
         let rig = assets.rig_bindings().get(state.rig_binding)?;
         let Ok(held_item_scale) =
-            tick::scale::evaluate_held_item(&evaluator, rig, &mut variables, &mut budget)
+            sampling::prepare_variables(&evaluator, state, swing, &mut variables, &mut budget)
         else {
             return Some(fallback());
         };
-        if let Some(script) = rig.pre_animation
-            && evaluator
-                .run(script as usize, &mut variables, 0.0, &mut budget)
-                .is_err()
-        {
-            return Some(fallback());
-        }
-        if state.complete_spear_variables {
-            layout.engine.spear.apply(
-                &mut variables,
-                actor,
-                &context,
-                &current_input,
-                swing.unwrap_or(current_input.attack_time),
-            );
-        }
-        tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let body_swing_changed = frame.samples_swing_poses && swing_changed;
         // Camera-dependent channels resample both endpoints with the live camera, so a camera
         // frame still blends tick motion instead of drawing one latest-tick pose.
