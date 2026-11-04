@@ -7,6 +7,42 @@ use super::{
 };
 use assets::entity_render_pattern_matches as pattern_matches;
 
+/// Controller activation is independent of whether selected artwork can be drawn.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ControllerActivity {
+    #[default]
+    NotEvaluated,
+    NoControllers,
+    Active,
+    Inactive,
+}
+
+/// Pack-authored visibility for one actor render context.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct RenderVisibility {
+    pub controllers: ControllerActivity,
+    /// Absent when the description did not author a held-item expression.
+    pub hide_held_items: Option<bool>,
+}
+
+impl RenderVisibility {
+    /// Only a completed all-false controller evaluation suppresses the base body.
+    pub fn hides_body(self) -> bool {
+        self.controllers == ControllerActivity::Inactive
+    }
+
+    /// Held equipment follows its own description property, independently of the body.
+    pub fn hides_held_items(self) -> bool {
+        self.hide_held_items == Some(true)
+    }
+}
+
+/// A successful render evaluation can retain visibility even without usable artwork.
+pub(super) struct RenderEvaluation {
+    pub layers: Option<Vec<RenderTextureLayer>>,
+    pub visibility: RenderVisibility,
+}
+
 /// One texture layer a rig draws this tick, from its render controllers in controller order.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RenderTextureLayer {
@@ -253,14 +289,42 @@ fn color(
 }
 
 /// Evaluates the rig's render controllers against the actor's Molang state.
-/// Unavailable attachable artwork returns `None` without invalidating authored state.
+/// Unavailable attachable artwork leaves layers absent without invalidating authored state.
 pub(super) fn evaluate_render(
     evaluator: &Evaluator<'_>,
     variables: &mut MolangVariables,
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
-) -> Result<Option<Vec<RenderTextureLayer>>, EvalError> {
-    evaluate_render_cached(evaluator, variables, rig, budget, None)
+) -> Result<RenderEvaluation, EvalError> {
+    evaluate_render_cached(evaluator, variables, rig, budget, None, Vec::new())
+}
+
+/// Evaluates and poses selected layers, allowing established rigs to retain rest fallback.
+pub(super) fn evaluate_posed_render(
+    evaluator: &Evaluator<'_>,
+    variables: &mut MolangVariables,
+    rig: RenderRig<'_>,
+    clips: &[super::tick::WeightedClip],
+    locals: Option<&mut BTreeMap<u32, Vec<pose::LocalDelta>>>,
+    require_complete: bool,
+    budget: &mut EvalBudget<'_>,
+) -> Result<RenderEvaluation, EvalError> {
+    let mut evaluated = evaluate_render(evaluator, variables, rig, budget)?;
+    if let Some(layers) = evaluated.layers.as_mut() {
+        let posed = pose_layers(
+            evaluator,
+            variables,
+            rig.skeletons,
+            clips,
+            layers,
+            locals,
+            budget,
+        );
+        if require_complete {
+            posed?;
+        }
+    }
+    Ok(evaluated)
 }
 
 /// Uses endpoint-owned caches only during read-only frame sampling.
@@ -270,10 +334,12 @@ pub(super) fn evaluate_render_cached(
     rig: RenderRig<'_>,
     budget: &mut EvalBudget<'_>,
     mut cache: Option<&mut cache::RenderCache>,
-) -> Result<Option<Vec<RenderTextureLayer>>, EvalError> {
+    mut output: Vec<RenderTextureLayer>,
+) -> Result<RenderEvaluation, EvalError> {
     let assets = evaluator.assets;
-    let mut output = Vec::new();
+    output.clear();
     let mut unresolved_artwork = false;
+    let mut active = false;
     let multitexture = assets::native_actor_uses_multitexture(assets, rig.binding);
     let symbol = assets
         .rig_bindings()
@@ -296,10 +362,11 @@ pub(super) fn evaluate_render_cached(
                 multitexture,
                 budget,
             )?;
-            unresolved_artwork |= evaluated.unresolved_artwork;
-            output.extend(evaluated.layers);
+            active |= evaluated.status != LayerStatus::Inactive;
+            unresolved_artwork |= evaluated.status == LayerStatus::UnresolvedArtwork;
+            output.extend_from_slice(&evaluated.layers);
         } else {
-            unresolved_artwork |= evaluate_layer_into(
+            let status = evaluate_layer_into(
                 evaluator,
                 variables,
                 rig,
@@ -308,16 +375,40 @@ pub(super) fn evaluate_render_cached(
                 &mut output,
                 budget,
             )?;
+            active |= status != LayerStatus::Inactive;
+            unresolved_artwork |= status == LayerStatus::UnresolvedArtwork;
         }
     }
-    if output.is_empty()
+    let hide_held_items = assets
+        .rig_bindings()
+        .get(rig.binding)
+        .ok_or(EvalError::Invalid)?
+        .hide_held_items
+        .map(|expression| {
+            evaluator
+                .run(expression as usize, variables, 0.0, budget)
+                .map(|value| value.truthy())
+        })
+        .transpose()?;
+    let visibility = RenderVisibility {
+        controllers: if assets.render_layers(rig.binding).is_empty() {
+            ControllerActivity::NoControllers
+        } else if active {
+            ControllerActivity::Active
+        } else {
+            ControllerActivity::Inactive
+        },
+        hide_held_items,
+    };
+    let layers = if output.is_empty()
         && unresolved_artwork
         && symbol.is_some_and(|symbol| symbol.kind == EntityAssetKind::Attachable)
     {
-        Ok(None)
+        None
     } else {
-        Ok(Some(output))
-    }
+        Some(output)
+    };
+    Ok(RenderEvaluation { layers, visibility })
 }
 
 #[cfg(test)]
@@ -340,6 +431,10 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "render/visibility_tests.rs"]
+mod visibility_tests;
+
+#[cfg(test)]
 #[path = "render/multitexture_tests.rs"]
 mod multitexture_tests;
 
@@ -355,7 +450,15 @@ mod hurt_color_tests;
 #[derive(Clone, Debug)]
 pub(crate) struct LayerOutput {
     layers: Vec<RenderTextureLayer>,
-    unresolved_artwork: bool,
+    status: LayerStatus,
+}
+
+/// Inactive controllers never become missing-artwork fallbacks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LayerStatus {
+    Inactive,
+    Active,
+    UnresolvedArtwork,
 }
 
 /// Evaluates one controller independently while preserving its authored script order.
@@ -369,7 +472,7 @@ fn evaluate_layer(
     budget: &mut EvalBudget<'_>,
 ) -> Result<LayerOutput, EvalError> {
     let mut output = Vec::new();
-    let unresolved_artwork = evaluate_layer_into(
+    let status = evaluate_layer_into(
         evaluator,
         variables,
         rig,
@@ -380,7 +483,7 @@ fn evaluate_layer(
     )?;
     Ok(LayerOutput {
         layers: output,
-        unresolved_artwork,
+        status,
     })
 }
 
@@ -393,7 +496,7 @@ fn evaluate_layer_into(
     (actor_color, multitexture): ([f32; 4], bool),
     output: &mut Vec<RenderTextureLayer>,
     budget: &mut EvalBudget<'_>,
-) -> Result<bool, EvalError> {
+) -> Result<LayerStatus, EvalError> {
     let assets = evaluator.assets;
     let render = assets.render_data();
     let mut unresolved_artwork = false;
@@ -403,7 +506,7 @@ fn evaluate_layer_into(
             .run(condition as usize, variables, 0.0, budget)?
             .truthy()
     {
-        return Ok(unresolved_artwork);
+        return Ok(LayerStatus::Inactive);
     }
     let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
     let choices = render
@@ -433,7 +536,7 @@ fn evaluate_layer_into(
             Some(Some(skeleton)) => (Some(geometry), skeleton.names.as_slice()),
             // A geometry without a usable skeleton cannot be drawn.
             _ => {
-                return Ok(unresolved_artwork);
+                return Ok(LayerStatus::UnresolvedArtwork);
             }
         },
     };
@@ -458,7 +561,11 @@ fn evaluate_layer_into(
     let visible = hidden.iter().any(|hidden| !hidden);
     if layer.unresolved_textures {
         unresolved_artwork |= visible;
-        return Ok(unresolved_artwork);
+        return Ok(if unresolved_artwork {
+            LayerStatus::UnresolvedArtwork
+        } else {
+            LayerStatus::Active
+        });
     }
     let hidden_bones: Arc<[u32]> = hidden
         .iter()
@@ -522,7 +629,11 @@ fn evaluate_layer_into(
         unresolved_artwork |= texture_slot == 0 && !resolved && visible;
     }
     if multitexture && selected_sources.len() != 3 {
-        return Ok(unresolved_artwork);
+        return Ok(if unresolved_artwork {
+            LayerStatus::UnresolvedArtwork
+        } else {
+            LayerStatus::Active
+        });
     }
     let grouped = if multitexture {
         Some([selected_sources[1], selected_sources[2]])
@@ -561,7 +672,11 @@ fn evaluate_layer_into(
             pack: evaluator.pack,
         });
     }
-    Ok(unresolved_artwork)
+    Ok(if unresolved_artwork {
+        LayerStatus::UnresolvedArtwork
+    } else {
+        LayerStatus::Active
+    })
 }
 
 /// Evaluates one whole-model material decision before executing the controller body once.

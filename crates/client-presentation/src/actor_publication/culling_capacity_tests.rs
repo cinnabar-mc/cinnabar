@@ -463,7 +463,7 @@ fn selected_wide_geometry_is_drawn_when_only_its_base_is_outside() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| frame.layers(id),
+        |id| frame.layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );
@@ -528,7 +528,7 @@ fn selected_geometry_keeps_empty_layer_base_fallback_and_unknown_bounds() {
         select_actor_presentations(sampled.local_runtime_id, false, None, sampled.remotes);
     crate::presentation::entity_layers::apply_render_layers_cached(
         &mut batch,
-        |id| sampled.render_frame.as_mut().unwrap().layers(id),
+        |id| sampled.render_frame.as_mut().unwrap().layers_with_skin(id),
         &artwork,
         &mut crate::presentation::entity_layers::LayerPoseCache::default(),
     );

@@ -29,6 +29,8 @@ mod shield_tests;
 mod spear_tests;
 #[cfg(test)]
 mod third_person_tests;
+#[cfg(test)]
+mod visibility_tests;
 pub(super) use native_pose::NativePoseCache;
 
 /// Vanilla draws the first-person rig in view space as a zero-yaw actor, feet one eye height
@@ -173,6 +175,7 @@ pub(super) fn local_consume(
 /// and whether its bone is in camera space.
 pub(super) struct HandSource {
     pub(super) presentation: ActorRigPresentation,
+    pub(super) visibility: actor_animation::RenderVisibility,
     pub(super) body: Option<ActorRigSubmission>,
     pub(super) items: [Option<(FirstPersonItem, HandItemAtlas)>; 2],
     pub(super) maps: maps::MapLayers,
@@ -185,6 +188,19 @@ pub(super) struct HandSource {
 }
 
 impl HandSource {
+    /// Applies the owner's render policy to every held representation, including map paper.
+    fn apply_visibility(&mut self, visibility: actor_animation::RenderVisibility) {
+        self.visibility = visibility;
+        if visibility.hides_body() {
+            self.body = None;
+        }
+        if visibility.hides_held_items() {
+            self.items = [None, None];
+            self.maps = Default::default();
+            self.item_glint = None;
+        }
+    }
+
     /// Includes each received map's paper with the current camera motion.
     pub(super) fn all_submissions(&self) -> impl Iterator<Item = ActorRigSubmission> + '_ {
         self.maps
@@ -245,9 +261,11 @@ pub(super) fn is_ready(
         return false;
     };
     HandRigScene::accepts_skin_and_fov(skin, fov)
-        && source
-            .all_submissions()
-            .any(|draw| builder.can_draw_submission(&draw))
+        && (source.visibility.hides_body()
+            || source.visibility.hides_held_items()
+            || source
+                .all_submissions()
+                .any(|draw| builder.can_draw_submission(&draw)))
 }
 
 /// Inputs shared by the built-in hand stacks and authored attachables.
@@ -467,6 +485,7 @@ pub(super) fn vanilla_hand_source(
     };
     (body.is_some() || items.iter().any(Option::is_some) || maps.paper.iter().any(Option::is_some))
         .then_some(HandSource {
+            visibility: Default::default(),
             presentation,
             body,
             items,
@@ -552,6 +571,31 @@ pub(super) fn java_light_matrix(
 
 /// Selects the same arm and item layers for readiness and final first-person publication.
 pub(super) fn source(
+    inputs: HandInputs<'_>,
+    java_mode: bool,
+    equipment: &mut EquipmentRuntime,
+    cache: &mut java::HandCache,
+) -> Option<HandSource> {
+    let visibility = cache.native_pose.visibility(&inputs, java_mode)?;
+    let mut source =
+        unmasked_source(inputs.clone(), java_mode, equipment, cache).or_else(|| {
+            (visibility.hides_body() || visibility.hides_held_items()).then_some(HandSource {
+                presentation: inputs.presentation,
+                visibility,
+                body: None,
+                items: [None, None],
+                maps: Default::default(),
+                item_glint: None,
+                motion: inputs.motion,
+                body_camera: None,
+            })
+        })?;
+    source.apply_visibility(visibility);
+    Some(source)
+}
+
+/// Selects artwork before applying the owner's independent body and held-item visibility.
+fn unmasked_source(
     inputs: HandInputs<'_>,
     java_mode: bool,
     equipment: &mut EquipmentRuntime,

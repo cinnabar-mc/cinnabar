@@ -48,6 +48,21 @@ fn fixture(item: &str, mapped: &str) -> assets::SessionEntityPack {
             rgba8: color.repeat(1024).into(),
         });
     }
+    for texture in &textures {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::RgbaImage::from_raw(
+            texture.width.into(),
+            texture.height.into(),
+            texture.rgba8.to_vec(),
+        )
+        .unwrap()
+        .write_to(&mut png, image::ImageFormat::Png)
+        .unwrap();
+        files.push((
+            format!("{}.png", texture.identifier).into(),
+            png.into_inner(),
+        ));
+    }
     let compiled = pack_entity_compiler::compile_entity_pack(files)
         .unwrap()
         .unwrap();

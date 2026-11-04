@@ -67,31 +67,34 @@ pub(super) fn prepare(
                 .into_iter()
                 .flatten()
                 .any(|item| item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER);
-            if key == *ready_hand_key && !samples_item_scale && !holds_map {
+            let inputs = hand::HandInputs {
+                stream,
+                presentation,
+                equipment_input: &equipment_input,
+                owner_equipment: &equipment_input,
+                consume_ticks,
+                item_animation,
+                alpha: partial_tick,
+                artwork,
+                motion,
+                sampling_camera,
+                aspect,
+            };
+            let visibility = java_hand.native_pose.visibility(&inputs, java_mode);
+            if key == *ready_hand_key
+                && !samples_item_scale
+                && !holds_map
+                && ready_hand_source
+                    .as_ref()
+                    .is_some_and(|source| Some(source.visibility) == visibility)
+            {
                 reused_hand = true;
                 return ready_hand_source.take().map(|mut source| {
                     source.motion = motion;
                     source
                 });
             }
-            hand::source(
-                hand::HandInputs {
-                    stream,
-                    presentation,
-                    equipment_input: &equipment_input,
-                    owner_equipment: &equipment_input,
-                    consume_ticks,
-                    item_animation,
-                    alpha: partial_tick,
-                    artwork,
-                    motion,
-                    sampling_camera,
-                    aspect,
-                },
-                java_mode,
-                equipment,
-                java_hand,
-            )
+            hand::source(inputs, java_mode, equipment, java_hand)
         })
     } else {
         None

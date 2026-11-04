@@ -747,6 +747,7 @@ pub(super) fn hand_source(
         None => (None, None),
     };
     Some(HandSource {
+        visibility: Default::default(),
         presentation: inputs.presentation,
         body,
         items: [main_layer, off_layer],
