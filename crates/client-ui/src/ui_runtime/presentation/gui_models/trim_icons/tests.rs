@@ -39,7 +39,7 @@ fn unchanged_preview_trims_reuse_compositions_and_pages() {
             .trim_preview(
                 &base,
                 "textures/models/armor/diamond_1",
-                "minecraft:diamond_chestplate",
+                None,
                 &trim,
                 assets::ArmorSlot::Chestplate,
             )

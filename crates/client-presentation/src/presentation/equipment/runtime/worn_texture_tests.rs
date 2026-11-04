@@ -467,3 +467,76 @@ mod review_tests;
 
 #[path = "worn_texture_tests/artwork_state_tests.rs"]
 mod artwork_state_tests;
+
+#[test]
+fn worn_trim_uses_the_owner_admitted_palette() {
+    let item = "minecraft:iron_chestplate";
+    let mut files = owner_armour_pack(item, false);
+    files.extend(
+        owner_armour_pack(item, true)
+            .into_iter()
+            .filter(|(path, _)| !path.starts_with("render_controllers/")),
+    );
+    for (path, bytes) in &mut files {
+        if !path.starts_with("attachables/") {
+            continue;
+        }
+        let mut definition: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+        let description = &mut definition["minecraft:attachable"]["description"];
+        let stand = description.get("item").is_some();
+        if stand {
+            description["identifier"] = "z_fixture:stand_armour".into();
+        }
+        description["textures"]["gold_palette"] = if stand {
+            "textures/fixture/stand_palette"
+        } else {
+            "textures/fixture/player_palette"
+        }
+        .into();
+        *bytes = serde_json::to_vec(&definition).unwrap();
+    }
+    let pixel = |color| {
+        let image = image::RgbaImage::from_pixel(1, 1, image::Rgba(color));
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+        bytes.into_inner()
+    };
+    let admitted = [20, 220, 30, 255];
+    for (path, color) in [
+        ("textures/trims/sentry.png", [100, 100, 100, 255]),
+        (
+            "textures/trims/color_palettes/trim_palette.png",
+            [100, 100, 100, 255],
+        ),
+        ("textures/fixture/player_palette.png", admitted),
+        ("textures/fixture/stand_palette.png", [220, 20, 30, 255]),
+    ] {
+        files.push((path.into(), pixel(color)));
+    }
+    let (mut runtime, pages) = startup_runtime(files);
+    let body = player_body(&mut runtime);
+    let mut equipment = worn_armour(item, 1);
+    let stack = equipment.armor[1].as_mut().unwrap();
+    stack.trim = Some(protocol::ItemTrim {
+        material: "gold".into(),
+        pattern: "sentry".into(),
+    });
+    let drawn = layers(&mut runtime, &body, &owner(), &equipment, 1);
+    assert_eq!(drawn.len(), 1);
+    let draw = &drawn[0];
+    let (decorated, _) = runtime
+        .trim_raster(
+            equipment.armor[1].as_ref().unwrap(),
+            &pages,
+            draw.location,
+            draw.submission.input.rig,
+            draw.submission.tint,
+            Some(draw.submission.input.identity),
+        )
+        .unwrap();
+    assert_eq!(
+        &decorated.rgba8[..4],
+        &admitted,
+        "trim aliases must retain the definition admitted for the player"
+    );
+}

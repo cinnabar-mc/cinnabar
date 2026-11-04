@@ -414,8 +414,9 @@ shared held/preview/dropped block geometry, carried tint and owner-selected
 external armor models. Broader item-action and custom-content parity stays open.
 Trim stack identifiers feed inventory icons, player previews and worn armor compositions
 from pack masks and palettes. Startup collection retains unreferenced trim artwork;
-authored pattern and palette aliases retain precedence. Native trim visual qualification
-remains open.
+authored pattern and palette aliases retain precedence. Worn and preview compositions
+retain their admitted definition; regression cases cover owner-specific palettes and held
+session sprites. Native trim visual qualification remains open.
 Shield decoration tests cover metadata, ordered texture composition, stack-specific icons,
 selected artwork and pack replacement. Inventory, preview and held routes retain banner layers;
 dropped/frame models retain their authored geometry and decoration. Custom model-part trees,

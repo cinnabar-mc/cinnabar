@@ -678,7 +678,9 @@ textures are present. Authored item bindings retain precedence.
 Armor trim identifiers survive canonical stack and equipment admission. Inventory icons,
 player previews and worn armor compose the active pack's trim masks and palettes over
 their selected artwork, preserving dye and enchantment state. Authored pattern and palette
-aliases override the native paths. Full native trim visual qualification remains incomplete.
+aliases override the native paths. Worn and preview compositions retain their admitted
+owner definition; held session icons retain their selected sprite placement. Full native trim
+visual qualification remains incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon

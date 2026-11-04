@@ -228,7 +228,7 @@ pub(super) fn attach(
                     location,
                     draw.input.rig,
                     draw.tint,
-                    is_armor_layer(layer),
+                    is_armor_layer(layer).then_some(draw.input.identity),
                 ) {
                     draw.tint = 0;
                     draw.material.color_mask = false;

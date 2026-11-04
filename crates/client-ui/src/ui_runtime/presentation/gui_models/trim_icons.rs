@@ -127,7 +127,15 @@ impl UiPresentationRuntime {
                     .pixels,
             )
         };
-        let binding = self.equipment_catalog.as_deref()?.binding(identifier)?;
+        let startup = self.equipment_catalog.as_deref()?;
+        let binding = startup.binding(identifier)?;
+        let trim_binding = self
+            .gui_models
+            .pack_equipment
+            .source
+            .as_deref()
+            .and_then(|catalog| catalog.binding(identifier))
+            .or(Some(binding));
         let base = assets::EquipmentTexture {
             identifier: binding.texture.identifier.clone(),
             width,
@@ -136,7 +144,7 @@ impl UiPresentationRuntime {
         };
         self.trim_image(
             &base,
-            identifier,
+            trim_binding,
             trim,
             assets::item::trim::armor_slot(identifier)?,
             true,
@@ -152,7 +160,7 @@ impl UiPresentationRuntime {
         &self,
         preview: &player_preview::PreviewTexture,
         path: &str,
-        identifier: &str,
+        binding: Option<&assets::EquipmentBinding>,
         trim: &protocol::ItemTrim,
         slot: assets::ArmorSlot,
     ) -> Option<player_preview::PreviewTexture> {
@@ -165,7 +173,7 @@ impl UiPresentationRuntime {
         let dye = preview
             .tint
             .map(|c| u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2]));
-        let (texture, _) = self.trim_image(&base, identifier, trim, slot, false, dye)?;
+        let (texture, _) = self.trim_image(&base, binding, trim, slot, false, dye)?;
         Some(player_preview::PreviewTexture {
             rgba: texture.rgba8,
             width: texture.width,
@@ -178,7 +186,7 @@ impl UiPresentationRuntime {
     fn trim_image(
         &self,
         base: &assets::EquipmentTexture,
-        identifier: &str,
+        binding: Option<&assets::EquipmentBinding>,
         trim: &protocol::ItemTrim,
         slot: assets::ArmorSlot,
         icon: bool,
@@ -186,9 +194,6 @@ impl UiPresentationRuntime {
     ) -> Option<(assets::EquipmentTexture, Option<IconRef>)> {
         let startup = self.equipment_catalog.as_deref()?;
         let pack = self.gui_models.pack_equipment.source.as_deref();
-        let binding = pack
-            .and_then(|catalog| catalog.binding(identifier))
-            .or_else(|| startup.binding(identifier));
         let key = Key {
             trim: trim.clone(),
             binding: binding.map_or(0, |binding| binding as *const _ as usize),

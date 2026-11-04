@@ -75,7 +75,7 @@ pub(super) fn decorated_item_atlas(
             layer.presentation.location,
             layer.presentation.submission.input.rig,
             layer.presentation.submission.tint,
-            false,
+            None,
         )
         .or_else(|| {
             equipment.shield_raster(

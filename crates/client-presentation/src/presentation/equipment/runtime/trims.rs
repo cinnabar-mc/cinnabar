@@ -5,6 +5,8 @@ use super::*;
 struct Key {
     trim: protocol::ItemTrim,
     item: Arc<str>,
+    binding: usize,
+    texture: usize,
     source: usize,
     layer: u32,
     tint: u32,
@@ -13,27 +15,88 @@ struct Key {
 
 struct Image {
     _source: render_model::PagePixels,
+    _binding: Arc<RuntimeEquipmentCatalog>,
+    _artwork: Option<Arc<RuntimeEquipmentCatalog>>,
     raster: EquipmentRaster,
+    used: bool,
+}
+
+/// The admitted definition and actual texture selected for one worn draw.
+#[derive(Clone)]
+pub(super) struct WornSource {
+    pub catalog: Arc<RuntimeEquipmentCatalog>,
+    pub binding: usize,
+    pub artwork: Arc<RuntimeEquipmentCatalog>,
+    pub texture: usize,
+}
+
+struct WornDraw {
+    identity: render_model::ActorRenderIdentity,
+    source: WornSource,
     used: bool,
 }
 
 #[derive(Default)]
 pub(super) struct Trims {
     images: BTreeMap<Key, Image>,
+    worn: BTreeMap<(actor_animation::ActorLifetimeId, u8), WornDraw>,
 }
 
 impl Trims {
+    /// Reuses the stable actor slot while pinning this frame's exact selection.
+    pub(super) fn remember_worn(
+        &mut self,
+        identity: render_model::ActorRenderIdentity,
+        source: WornSource,
+    ) {
+        self.worn.insert(
+            worn_key(identity),
+            WornDraw {
+                identity,
+                source,
+                used: true,
+            },
+        );
+    }
+
+    /// Only this frame's admitted definition may decorate a draw with that identity.
+    pub(super) fn worn_source(
+        &self,
+        identity: render_model::ActorRenderIdentity,
+    ) -> Option<&WornSource> {
+        let draw = self.worn.get(&worn_key(identity))?;
+        (draw.used && draw.identity == identity).then_some(&draw.source)
+    }
+
     pub(super) fn begin_frame(&mut self) {
+        for draw in self.worn.values_mut() {
+            draw.used = false;
+        }
         for image in self.images.values_mut() {
             image.used = false;
         }
     }
     pub(super) fn finish_frame(&mut self) {
         self.images.retain(|_, image| image.used);
+        self.worn.retain(|_, draw| draw.used);
     }
     pub(super) fn clear(&mut self) {
         self.images.clear();
+        self.worn.clear();
     }
+}
+
+/// Selection slots follow actor lifetime and layer rather than changing pose generations.
+fn worn_key(identity: render_model::ActorRenderIdentity) -> (actor_animation::ActorLifetimeId, u8) {
+    (
+        actor_animation::ActorLifetimeId {
+            session_id: identity.session_id,
+            dimension: identity.dimension,
+            runtime_id: identity.runtime_id,
+            spawn_revision: identity.spawn_revision.get(),
+        },
+        identity.layer,
+    )
 }
 
 impl EquipmentRuntime {
@@ -45,15 +108,23 @@ impl EquipmentRuntime {
         location: ActorArtworkLocation,
         rig: EntityRigId,
         tint: u32,
-        worn: bool,
+        worn: Option<render_model::ActorRenderIdentity>,
     ) -> Option<(EquipmentRaster, EntityRigId)> {
         let trim = item.trim.as_ref()?;
         let slot = assets::item::trim::armor_slot(&item.identifier)?;
-        let icon = if worn {
+        let icon = if worn.is_some() {
             None
         } else {
             match self.meshes.iter().find(|(_, cached)| **cached == Some(rig)) {
                 Some((MeshKey::Sprite(index), _)) => Some(*self.placements.get(*index)?.as_ref()?),
+                Some((MeshKey::Session(index), _)) => {
+                    let (selected, placement, selected_location) =
+                        self.session_sprite(&item.identifier, item.metadata)?;
+                    if selected != *index || selected_location != location {
+                        return None;
+                    }
+                    Some(placement)
+                }
                 _ => return None,
             }
         };
@@ -62,9 +133,39 @@ impl EquipmentRuntime {
             .get(usize::from(location.page()).checked_sub(1)?)?;
         let pixels = page.shared_pixels();
         let (width, height) = page.dimensions();
+        let (catalog, binding_index, selected_artwork) = if let Some(identity) = worn {
+            let selected = self.trims.worn_source(identity)?;
+            (
+                Arc::clone(&selected.catalog),
+                selected.binding,
+                Some((Arc::clone(&selected.artwork), selected.texture)),
+            )
+        } else {
+            let (catalog, _) = self.binding_source(&item.identifier)?;
+            let index = catalog
+                .bindings()
+                .partition_point(|binding| binding.identifier.as_ref() <= item.identifier.as_ref())
+                .checked_sub(1)?;
+            (catalog, index, None)
+        };
+        let binding = catalog.bindings().get(binding_index)?;
+        let (base_path, texture_identity) = if let Some((artwork, index)) = &selected_artwork {
+            let texture = artwork.textures().get(*index)?;
+            (
+                texture.identifier.as_ref(),
+                texture as *const assets::EquipmentTexture as usize,
+            )
+        } else {
+            (
+                binding.texture.identifier.as_ref(),
+                &binding.texture as *const assets::EquipmentReference as usize,
+            )
+        };
         let key = Key {
             trim: trim.clone(),
             item: Arc::clone(&item.identifier),
+            binding: binding as *const assets::EquipmentBinding as usize,
+            texture: texture_identity,
             source: pixels.storage_id(),
             layer: location.layer(),
             tint,
@@ -85,13 +186,10 @@ impl EquipmentRuntime {
                 let start = (usize::from(row) * usize::from(width) + usize::from(x)) * 4;
                 base_pixels.extend_from_slice(&selected[start..start + usize::from(w) * 4]);
             }
-            let startup = self.catalog.as_deref()?;
+            let startup = self.catalog.as_deref().unwrap_or(catalog.as_ref());
             let pack = self.pack.as_ref().and_then(|pack| pack.catalog.as_deref());
-            let binding = pack
-                .and_then(|c| c.binding(&item.identifier))
-                .or_else(|| startup.binding(&item.identifier))?;
             let base = assets::EquipmentTexture {
-                identifier: binding.texture.identifier.clone(),
+                identifier: base_path.into(),
                 width: w,
                 height: h,
                 rgba8: base_pixels.into(),
@@ -140,6 +238,8 @@ impl EquipmentRuntime {
                 key.clone(),
                 Image {
                     _source: pixels,
+                    _binding: catalog,
+                    _artwork: selected_artwork.map(|(catalog, _)| catalog),
                     raster,
                     used: true,
                 },

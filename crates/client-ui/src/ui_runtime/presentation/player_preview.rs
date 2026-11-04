@@ -222,17 +222,19 @@ impl UiPresentationRuntime {
         let resolved: [_; 4] = std::array::from_fn(|slot| {
             let (_, dye, _, _) = armor[slot]?;
             let selection = selected[slot].as_ref()?;
-            worn_armor(selection.binding, pack.as_deref(), base.as_deref(), dye).or_else(|| {
-                selection
-                    .startup
-                    .and_then(|binding| worn_armor(binding, None, base.as_deref(), dye))
-            })
+            worn_armor(selection.binding, pack.as_deref(), base.as_deref(), dye)
+                .map(|(preview, path)| (selection.binding, preview, path))
+                .or_else(|| {
+                    let binding = selection.startup?;
+                    worn_armor(binding, None, base.as_deref(), dye)
+                        .map(|(preview, path)| (binding, preview, path))
+                })
         });
         self.prepare_preview_hands(
             &hands,
             owner,
             std::array::from_fn(|slot| {
-                let (_, texture) = resolved[slot].as_ref()?;
+                let (_, _, texture) = resolved[slot].as_ref()?;
                 pack.as_deref()?.texture(texture)?;
                 Some(*texture)
             }),
@@ -240,8 +242,8 @@ impl UiPresentationRuntime {
         let armor = std::array::from_fn(|slot| {
             let selection = selected[slot].as_ref()?;
             // A supplied image that could not fit the GUI atlas retains base artwork.
-            let (binding, preview) = if self.gui_models.enabled
-                && resolved[slot].as_ref().is_some_and(|(_, texture)| {
+            let (binding, preview, path) = if self.gui_models.enabled
+                && resolved[slot].as_ref().is_some_and(|(_, _, texture)| {
                     pack.as_deref()
                         .is_some_and(|pack| pack.texture(texture).is_some())
                 })
@@ -249,22 +251,23 @@ impl UiPresentationRuntime {
             {
                 let (_, dye, _, _) = armor[slot]?;
                 let binding = selection.startup?;
-                (binding, worn_armor(binding, None, base.as_deref(), dye)?.0)
+                let (preview, path) = worn_armor(binding, None, base.as_deref(), dye)?;
+                (binding, preview, path)
             } else {
-                (selection.binding, resolved[slot].as_ref()?.0.clone())
+                let (binding, preview, path) = resolved[slot].as_ref()?;
+                (*binding, preview.clone(), *path)
             };
             if slot == assets::ArmorSlot::Chestplate as usize {
                 self.gui_models.wearing_elytra =
                     binding.category == assets::EquipmentCategory::Elytra;
             }
             let (identifier, _, _, trim) = armor[slot]?;
-            let path = resolved[slot].as_ref()?.1;
             Some(
                 trim.and_then(|trim| {
                     self.trim_preview(
                         &preview,
                         path,
-                        identifier,
+                        Some(binding),
                         trim,
                         assets::item::trim::armor_slot(identifier)?,
                     )
