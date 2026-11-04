@@ -267,6 +267,40 @@ pub struct EntityRigBinding {
     /// Optional main-hand item scale expression; omitted descriptions retain unit scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_item_scale: Option<u32>,
+    /// Optional held-item visibility expression, evaluated in the actor render context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide_held_items: Option<u32>,
+}
+
+impl EntityRigBinding {
+    /// Every description expression reference, with exhaustive field classification.
+    fn expressions(self) -> impl Iterator<Item = u32> {
+        let Self {
+            placement_frame: _,
+            entity_symbol: _,
+            render_controller: _,
+            first_geometry: _,
+            geometry_count: _,
+            fallback: _,
+            scale: _,
+            initialize,
+            pre_animation,
+            item_condition,
+            scale_expressions,
+            held_item_scale,
+            hide_held_items,
+        } = self;
+        [
+            initialize,
+            pre_animation,
+            item_condition,
+            held_item_scale,
+            hide_held_items,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(scale_expressions.into_iter().flatten())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]

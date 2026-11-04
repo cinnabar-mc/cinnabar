@@ -691,12 +691,14 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
-Confirmed gap: native keeps and draws every render controller whose condition passes,
-while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
-controller ahead of the body draws only the cosmetic, with no limb animation, and
-other passing layers such as hats and capes never appear. Closing this needs per-layer
-condition and geometry evaluation, posing and drawing, and attachable parent-bone
-lookup across the passing list.
+Client-entity render controllers evaluate each layer's activation, geometry, texture and
+pose in authored order. A completed all-false activation result suppresses the base body
+and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain
+their distinct fallback behavior. The description's `hide_held_items` expression controls
+held equipment independently of worn armor in the actor's world or UI render context.
+Tick, frame-sampled and retained outputs carry these policies. Primary rig selection still
+occurs at compilation, and attachable parent-bone lookup across multiple passing controllers
+and version-matched in-game acceptance remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -1061,6 +1063,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   layer acceptance remain open.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
+  Live player controls consume UI-context controller layers, part visibility and held-item
+  visibility, including secondary artwork on controller-owned geometry. Held attachables evaluate
+  their own controllers and animated bones in UI context and share owner-bone placement with
+  world equipment. Ordinary held meshes retain their item-bone placement and main-hand scale.
+  Menu fallback and level-view paper-doll contracts stay separate.
   A screen's live player renderer draws the same animated actor from its own palette, the
   head subtree turned toward the pointer. It replaces the head's orientation rather than
   re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
@@ -1328,12 +1335,15 @@ server/Realm/friend-world joins, transfers, reconnect/disconnect, account switch
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
 Signed-in addressed NetherNet joins, and transfers from any signed-in target, gather ICE
-candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
-does; signed-out joins gather local candidates only. A refused relay request, or one past the
-10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
-vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
-allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
-STUN but no relay candidates. NAT and relay-only join acceptance remain open.
+candidates through the STUN URL of the account's Player Messaging relay config, as vanilla
+does; signed-out joins gather local candidates only. The config is requested once per account
+and reused until its expiry (a week), as vanilla holds it from sign-in. A refused relay request,
+or one past the 10 s implementation bound, leaves the join on local candidates; that bound is
+unverified. Realm, friend and raw NetherNet joins likewise keep only the STUN URLs of their
+signaling's ICE servers. Confirmed gap: the relay config's TURN server answers allocations with
+300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
+(trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
+relay when no direct path exists. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background

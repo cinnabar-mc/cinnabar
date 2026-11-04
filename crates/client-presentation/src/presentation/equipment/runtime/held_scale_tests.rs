@@ -181,7 +181,7 @@ fn equipment_reads_frame_sampled_owner_scale() {
     assert_eq!(completed.held_item_scale, Some(1.0));
     let bounds = [0.25, 0.75].map(|alpha| {
         let mut frame = world.actor_render_frame(alpha);
-        let rig = frame.sample_held_item_scale(completed);
+        let rig = frame.sample_equipment_properties(completed);
         assert_eq!(rig.held_item_scale, Some(1.0 + alpha));
         let (mut runtime, body, item) = block_fixture();
         let layers = runtime.layers_for(

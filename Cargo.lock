@@ -123,6 +123,7 @@ dependencies = [
  "assets",
  "cosmetics",
  "criterion",
+ "glam",
  "protocol",
  "protocol-ids",
  "rayon",
