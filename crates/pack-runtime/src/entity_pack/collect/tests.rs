@@ -776,3 +776,128 @@ fn geometry_collection_bounds_parallel_parse_input() {
             );
         });
 }
+
+#[test]
+fn declared_entity_images_use_pack_relative_paths_with_base_definitions() {
+    macro_rules! source {
+        ($path:literal) => {
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../tools/localserver/testdata/player-preview-layers/",
+                $path
+            ))
+            .as_slice()
+        };
+    }
+    for image in [
+        "artwork/ui/stripes",
+        "models/ui/stripes",
+        "models/entity/stripes",
+        "attachables/ui/stripes",
+    ] {
+        let image_file = format!("{image}.png");
+        let mut entity: serde_json::Value =
+            serde_json::from_slice(source!("entity/player.json")).unwrap();
+        let description = &mut entity["minecraft:client_entity"]["description"];
+        description["geometry"]["default"] = json!("geometry.fixture.avatar");
+        description["textures"]["panel"] = json!(image);
+        description["render_controllers"][0] = json!("controller.render.fixture.avatar");
+        let mut geometry: serde_json::Value =
+            serde_json::from_slice(source!("models/entity/preview.geo.json")).unwrap();
+        let mut avatar = geometry["minecraft:geometry"]
+            .as_array_mut()
+            .unwrap()
+            .remove(0);
+        avatar["description"]["identifier"] = json!("geometry.fixture.avatar");
+        let mut controllers: serde_json::Value =
+            serde_json::from_slice(source!("render_controllers/preview.json")).unwrap();
+        let body = controllers["render_controllers"]
+            .as_object_mut()
+            .unwrap()
+            .remove("controller.render.preview.body")
+            .unwrap();
+        controllers["render_controllers"]["controller.render.preview.panel"]["textures"] =
+            json!(["Texture.panel"]);
+        let mut vanilla = assets::VanillaEntityRefs::new();
+        vanilla
+            .render_controllers
+            .insert("controller.render.fixture.avatar".into(), body);
+        vanilla
+            .geometry_index
+            .insert("geometry.fixture.avatar".into(), 0);
+        vanilla.geometry_files.push(assets::VanillaGeometryFile {
+            path: "models/entity/avatar.json".into(),
+            text: json!({"format_version":"1.12.0","minecraft:geometry":[avatar]}).to_string(),
+        });
+        let files = [
+            ("entity/player.json", serde_json::to_vec(&entity).unwrap()),
+            (
+                "models/entity/panel.json",
+                serde_json::to_vec(&geometry).unwrap(),
+            ),
+            (
+                "render_controllers/panel.json",
+                serde_json::to_vec(&controllers).unwrap(),
+            ),
+            (
+                "animations/preview.json",
+                source!("animations/preview.json").to_vec(),
+            ),
+            (
+                "textures/entity/preview_layers.png",
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+            (
+                image_file.as_str(),
+                source!("textures/entity/preview_layers.png").to_vec(),
+            ),
+        ];
+        let borrowed = files
+            .iter()
+            .map(|(path, bytes)| (*path, bytes.as_slice()))
+            .collect::<Vec<_>>();
+        let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&borrowed));
+        let collected = super::collect_files(&view, Some(&vanilla), None);
+        assert!(
+            collected
+                .iter()
+                .any(|(path, _)| path.as_ref() == image_file),
+            "a declared image must not require the conventional texture directory"
+        );
+        let compiled = pack_entity_compiler::compile_actor_pack(collected)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            compiled.entities.rig_bindings.len(),
+            1,
+            "partial entity resolves its base geometry and renderer"
+        );
+        assert_eq!(compiled.entities.render.layers.len(), 2);
+        assert!(compiled.textures.iter().any(|texture| {
+            compiled.entities.sources[texture.source as usize]
+                .path
+                .as_ref()
+                == image_file
+        }));
+        assert!(!compiled.bindings.is_empty());
+    }
+}
+
+#[test]
+fn declared_entity_image_paths_stay_inside_the_resource_root() {
+    for path in [
+        "../image",
+        "/image",
+        "folder/../image",
+        "folder//image",
+        "C:/image",
+        "folder\\image",
+        "",
+    ] {
+        assert!(super::declared_texture_stem(path).is_none(), "{path}");
+    }
+    assert_eq!(
+        super::declared_texture_stem("artwork/ui/image.tga"),
+        Some("artwork/ui/image".into())
+    );
+}

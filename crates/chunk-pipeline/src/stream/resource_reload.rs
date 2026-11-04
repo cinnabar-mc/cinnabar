@@ -34,11 +34,14 @@ impl ResourceMeshSnapshot {
         Some(
             self.chunks
                 .into_par_iter()
-                .map(|(key, snapshot)| {
-                    let biome = pack_biome_record(&snapshot.biomes, &resolved);
-                    let mesh = snapshot.mesh(classifier, assets, mode, &biome);
-                    (key, mesh, biome)
-                })
+                .map_init(
+                    ::meshing::MeshScratch::default,
+                    |scratch, (key, snapshot)| {
+                        let biome = pack_biome_record(&snapshot.biomes, &resolved);
+                        let mesh = snapshot.mesh(classifier, assets, mode, &biome, scratch);
+                        (key, mesh, biome)
+                    },
+                )
                 .collect(),
         )
     }
@@ -113,6 +116,7 @@ impl WorldStream {
         let biomes_changed =
             self.authority.runtime_assets().biome_assets() != assets.biome_assets();
         self.biome_records = None;
+        self.mesh_memory.reload_assets(&assets);
         self.authority.replace_runtime_assets(assets);
         self.reload_far_terrain_resources();
         if biomes_changed {

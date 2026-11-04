@@ -50,18 +50,23 @@ pub(super) fn notice(
             None,
         )
     } else if let Some(ready) = &view.updates.ready {
-        let status = if ready.protocol_required {
+        let status = if ready.switching {
+            "Switch ready"
+        } else if ready.protocol_required {
             "Update required"
         } else {
             "Update available"
         };
         (
-            format!("{status} · {}", ready.version),
-            if ready.writable {
-                "Restart and update"
-            } else {
-                "Download update"
-            },
+            format!(
+                "{status} · {} {}",
+                ready
+                    .release
+                    .channel
+                    .map_or("Release", |channel| channel.title()),
+                ready.release.version
+            ),
+            ready.action_label(),
             Some(MenuAction::Update(ready.action())),
         )
     } else {
@@ -144,7 +149,12 @@ mod tests {
                 for size in [[1280.0, 720.0], [360.0, 240.0]] {
                     let mut view = MenuView::new(true, "Player".into());
                     view.updates.ready = Some(Ready {
-                        version: "2.0.0".into(),
+                        release: update_manifest::build::Build {
+                            version: "2.0.0".into(),
+                            number: 2,
+                            channel: Some(update_manifest::channel::Channel::Beta),
+                        },
+                        switching: false,
                         writable,
                         protocol_required: required,
                     });
@@ -188,7 +198,12 @@ mod tests {
         let mut view = MenuView::new(true, "Player".into());
         view.over_world = true;
         view.updates.ready = Some(Ready {
-            version: "2.0.0".into(),
+            release: update_manifest::build::Build {
+                version: "2.0.0".into(),
+                number: 2,
+                channel: Some(update_manifest::channel::Channel::Beta),
+            },
+            switching: false,
             writable: true,
             protocol_required: true,
         });
@@ -220,7 +235,12 @@ mod tests {
             assert!(bounds.min().x() >= 0.0 && bounds.max().x() <= size[0]);
             assert!(bounds.min().y() >= 0.0 && bounds.max().y() <= size[1]);
             view.updates.ready = Some(Ready {
-                version: "2.0.0".into(),
+                release: update_manifest::build::Build {
+                    version: "2.0.0".into(),
+                    number: 2,
+                    channel: Some(update_manifest::channel::Channel::Beta),
+                },
+                switching: false,
                 writable: true,
                 protocol_required: false,
             });

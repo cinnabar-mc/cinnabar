@@ -1,13 +1,13 @@
 //! Observations of outbound inventory transactions.
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     InventorySourceType, ItemReleaseInventoryTransactionActionType,
     ItemUseInventoryTransactionActionType, ItemUseInventoryTransactionClientCooldownState,
     ItemUseInventoryTransactionPredictedResult, ItemUseInventoryTransactionTriggerType,
     ItemUseOnActorInventoryTransactionActionType,
 };
-use bedrock_protocol_1_26_51::packets;
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets;
+use bedrock_protocol_1_26_60::types::{
     InventoryAction, InventoryTransactionPacketData,
     NetworkItemStackDescriptorSerializedData as WireItem,
 };
@@ -198,6 +198,7 @@ pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
             }),
         ),
         InventoryTransactionPacketData::ItemUseOnActorInventoryTransaction {
+            hand: _,
             actions,
             runtime_id,
             action_type,
@@ -225,6 +226,7 @@ pub fn observe_transaction(packet: &Packet) -> Option<TransactionObservation> {
             }),
         ),
         InventoryTransactionPacketData::ItemReleaseInventoryTransaction {
+            hand: _,
             actions,
             action_type,
             slot,

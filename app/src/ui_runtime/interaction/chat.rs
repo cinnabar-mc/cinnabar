@@ -5,8 +5,8 @@ use oreui::BedHit;
 use ui_screens::chat_screen::ChatHit;
 mod touch;
 
-/// Sends Back to the top chat popup before dismissing the chat itself.
-pub(super) fn cancel_from_mouse_back(
+/// Sends Menu Cancel to the top chat popup before dismissing the chat itself.
+pub(super) fn handle_menu_cancel(
     runtime: &mut UiRuntime,
     presentation: Option<&mut UiPresentationRuntime>,
 ) -> bool {
@@ -45,12 +45,13 @@ pub(crate) fn drive_chat_ui_actions(
     mut focus: Option<ResMut<client_state::CursorFocus>>,
     driven: Option<Res<client_state::DrivenInput>>,
     mut keyboard: Option<ResMut<client_shell::platform_text::KeyboardRequests>>,
+    owner: InputOwner,
 ) {
     let (window_entity, window) = *window;
-    if runtime.credits().owns_input()
-        || runtime.server_forms().owns_input()
-        || runtime.data_driven_ui().owns_input()
-    {
+    let frame = owner.frame(&runtime, &player_runtime, menu.as_deref());
+    if !frame.reads(|scene| matches!(scene, Scene::Bed | Scene::Chat | Scene::Loading)) {
+        presentation.set_bed_pointer(None);
+        presentation.set_chat_pointer(None);
         gesture.cancel();
         return;
     }
@@ -63,8 +64,9 @@ pub(crate) fn drive_chat_ui_actions(
     let bed =
         !menu_visible && input_available && runtime.local_sleeping() && !runtime.chat_focused();
     presentation.set_bed_pointer(pointer.filter(|_| bed));
-    if bed && mouse_buttons.just_pressed(MouseButton::Back) {
-        mouse_buttons.reset(MouseButton::Back);
+    // The bed screen's keys, including a keyboard Menu Cancel, are routed with the frame's keys.
+    if bed && let Some(button) = menu_cancel_mouse(menu.as_deref(), &mouse_buttons) {
+        mouse_buttons.reset(button);
         runtime.request_wake();
         if let Some(focus) = focus.as_deref_mut() {
             focus.authorize_screen_return();

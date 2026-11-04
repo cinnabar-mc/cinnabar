@@ -501,9 +501,11 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
         .insert_resource(device.clone())
         .insert_resource(RenderQueue::new(queue))
         .init_resource::<ChunkTextureAssets>()
+        .init_resource::<ChunkBiomeTints>()
         .init_resource::<TransparentSortRuntime>()
         .init_resource::<TransparentUploadBudget>()
         .init_resource::<TransparentModelSortRuntime>();
+    install_visible_transparent_tracking(app.world_mut());
     let view = app.world_mut().spawn_empty().id();
     let mut instance = water(ChunkBiomeTintIdentity::default());
     instance.model_refs = Arc::from([PackedModelRef::new(0, 0, 0, 1)]);
@@ -587,6 +589,16 @@ fn model_sort_app() -> (App, Entity, TransparentModelSortKey) {
     (app, view, key)
 }
 
+/// Runs one model-sort frame: the visible transparent tracker, then preparation.
+fn prepare_model_sorts(app: &mut App) {
+    app.world_mut()
+        .run_system_once(track_visible_transparent_chunks)
+        .unwrap();
+    app.world_mut()
+        .run_system_once(prepare_transparent_model_sorts)
+        .unwrap();
+}
+
 #[test]
 fn review_render_model_result_survives_camera_rotation() {
     let (mut app, view, key) = model_sort_app();
@@ -614,9 +626,7 @@ fn review_render_model_result_survives_camera_rotation() {
         .unwrap()
         .world_from_view =
         GlobalTransform::from(Transform::from_rotation(Quat::from_rotation_y(0.5)));
-    app.world_mut()
-        .run_system_once(prepare_transparent_model_sorts)
-        .unwrap();
+    prepare_model_sorts(&mut app);
     assert_eq!(
         app.world()
             .resource::<TransparentModelSortRuntime>()
@@ -640,9 +650,7 @@ fn committed_model_sort_is_reused_for_rotation_only_camera_change() {
             .world_from_view = GlobalTransform::from(Transform::from_rotation(
             Quat::from_rotation_y(yaw) * Quat::from_rotation_x(0.3),
         ));
-        app.world_mut()
-            .run_system_once(prepare_transparent_model_sorts)
-            .unwrap();
+        prepare_model_sorts(&mut app);
         let runtime = app.world().resource::<TransparentModelSortRuntime>();
         assert_eq!(runtime.committed.as_ref(), Some(&key));
         assert!(runtime.requested.is_none());
@@ -668,9 +676,7 @@ fn review_render_model_staged_upload_survives_camera_rotation() {
         .unwrap()
         .world_from_view =
         GlobalTransform::from(Transform::from_rotation(Quat::from_rotation_y(0.5)));
-    app.world_mut()
-        .run_system_once(prepare_transparent_model_sorts)
-        .unwrap();
+    prepare_model_sorts(&mut app);
     assert_eq!(
         app.world()
             .resource::<TransparentModelSortRuntime>()
@@ -687,9 +693,7 @@ fn review_render_model_view_loss_clears_abandoned_request() {
         .resource_mut::<TransparentModelSortRuntime>()
         .requested = Some((ViewSortGeneration(1), key));
     app.world_mut().entity_mut(view).remove::<ExtractedView>();
-    app.world_mut()
-        .run_system_once(prepare_transparent_model_sorts)
-        .unwrap();
+    prepare_model_sorts(&mut app);
     assert!(
         app.world()
             .resource::<TransparentModelSortRuntime>()
@@ -756,9 +760,7 @@ fn far_model_order_in_its_class_commits_without_a_sort_job() {
             .unwrap()
             .world_from_view =
             GlobalTransform::from_translation(camera + Vec3::splat(step as f32 * 0.4));
-        app.world_mut()
-            .run_system_once(prepare_transparent_model_sorts)
-            .unwrap();
+        prepare_model_sorts(&mut app);
         let runtime = app.world().resource::<TransparentModelSortRuntime>();
         assert!(runtime.committed.is_some());
         assert!(runtime.requested.is_none());
@@ -945,9 +947,7 @@ fn queued_model_job_revalidates_groups_an_in_flight_result_overwrites() {
             .unwrap();
     }
     for _ in 0..4 {
-        app.world_mut()
-            .run_system_once(prepare_transparent_model_sorts)
-            .unwrap();
+        prepare_model_sorts(&mut app);
         let runtime = app.world().resource::<TransparentModelSortRuntime>();
         if runtime.committed.as_ref() == Some(&key(camera_b)) {
             break;
@@ -976,9 +976,7 @@ fn queued_model_job_revalidates_groups_an_in_flight_result_overwrites() {
 /// Runs model-sort frames, handing each worker result to the next frame, until `key` commits.
 fn run_model_sorts_until_committed(app: &mut App, key: &TransparentModelSortKey) -> bool {
     for _ in 0..6 {
-        app.world_mut()
-            .run_system_once(prepare_transparent_model_sorts)
-            .unwrap();
+        prepare_model_sorts(app);
         let runtime = app.world().resource::<TransparentModelSortRuntime>();
         if runtime.committed.as_ref() == Some(key) {
             return true;

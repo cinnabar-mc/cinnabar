@@ -126,9 +126,7 @@ pub(super) fn hud_model(
                 .hud()
                 .air()
                 .is_some_and(|air| air.current() < air.maximum()),
-        paper_doll: frame.paper_doll_visible
-            && mode_allows_hotbar
-            && settings.value(SettingId::HidePaperdoll) == 0,
+        paper_doll: frame.paper_doll_requested(player_runtime.facts.player_game_mode(), settings),
         effects_visible: runtime
             .gameplay_hud()
             .effects()
@@ -149,7 +147,7 @@ pub(super) fn hud_model(
         chat_visible,
         chat_color: ui_screens::settings_chat::default_color(settings),
         chat_mention_color: Some(settings.mentions_color_code()),
-        chat_local_player: Arc::clone(&runtime.local_player_display_name),
+        chat_local_player: Arc::clone(&runtime.session.local_player_display_name),
         chat_lifetime: settings.chat_lifetime(),
         chat_background_opacity: CHAT_BACKGROUND_OPACITY,
         chat_text: ui_screens::settings_chat::chat_text(settings),
@@ -184,7 +182,10 @@ pub(super) fn world_text_lines(
     runtime: &UiRuntime,
     frame: &HudFrame,
 ) -> (Option<String>, Option<String>) {
-    let alive = runtime.last_known_local_player_alive.unwrap_or(true);
+    let alive = runtime
+        .session
+        .last_known_local_player_alive
+        .unwrap_or(true);
     let rules = runtime.gameplay_hud();
     let translate = |key: &str, fallback: &str, arguments: &[String]| {
         let template = runtime

@@ -9,9 +9,11 @@ use super::{
 use crate::{Aabb, Vec3};
 
 mod camera;
+mod overlays;
 mod placement;
 mod precision;
 pub use camera::CameraBlockHit;
+pub use overlays::OverlayHit;
 pub use placement::{BLOCK_USE_SUPPORT_DEPTH, BLOCK_USE_SUPPORT_MAX_Y};
 use precision::FloatRay;
 
@@ -37,6 +39,9 @@ pub struct BlockHit {
     pub distance: f64,
     /// Exact registry and inspected-column revisions that authorize the hit.
     pub identity: WorldCollisionIdentity,
+    /// The cell overlay of the block that the ray met, when it met one rather than the block's
+    /// own shape ([`PaletteWorld::with_cell_overlays`]).
+    pub overlay: Option<OverlayHit>,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +54,7 @@ struct Candidate {
     distance: f64,
     fraction: f32,
     shape_index: usize,
+    overlay: Option<OverlayHit>,
 }
 
 impl PaletteWorld<'_> {
@@ -61,6 +67,24 @@ impl PaletteWorld<'_> {
         max_distance: f64,
     ) -> Result<Option<BlockHit>, WorldQueryError> {
         self.block_interaction_ray_with_identity(origin, direction, max_distance, None)
+    }
+
+    /// Searches a distance-limited prefix while keeping the full ray's rounded geometry.
+    pub fn block_interaction_ray_prefix_current(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+        prefix_distance: f64,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        if !prefix_distance.is_finite() || prefix_distance < 0.0 {
+            return Err(WorldQueryError::InvalidRayDistance);
+        }
+        let prefix_distance = (prefix_distance < max_distance).then_some(prefix_distance);
+        let origin = origin.rounded();
+        let max_distance = f64::from(max_distance as f32);
+        let direction = validate_ray(origin, direction, max_distance)?;
+        self.trace_block_segment(origin, direction, max_distance, None, prefix_distance)
     }
 
     /// Finds the nearest selection-shape intercept along a caller-bounded ray.
@@ -95,9 +119,41 @@ impl PaletteWorld<'_> {
         let origin = origin.rounded();
         let max_distance = f64::from(max_distance as f32);
         let direction = validate_ray(origin, direction, max_distance)?;
+        self.trace_block_segment(origin, direction, max_distance, expected_identity, None)
+    }
+
+    /// Reclips a stored hit to its exact endpoint without normalizing and rebuilding that segment.
+    pub fn block_interaction_segment_current(
+        &self,
+        origin: Vec3,
+        endpoint: Vec3,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let origin = origin.rounded();
+        let endpoint = endpoint.rounded();
+        validate_ray_origin(origin)?;
+        validate_ray_origin(endpoint)?;
+        let delta = endpoint - origin;
+        if delta == Vec3::ZERO {
+            return Ok(None);
+        }
+        if delta.length_squared() > MAX_COLLISION_QUERY_EXTENT * MAX_COLLISION_QUERY_EXTENT {
+            return Err(WorldQueryError::InvalidRayDistance);
+        }
+        self.trace_block_segment(origin, delta, 1.0, None, None)
+    }
+
+    /// Traverses and clips one already validated float segment, retaining all query evidence.
+    fn trace_block_segment(
+        &self,
+        origin: Vec3,
+        direction: Vec3,
+        max_distance: f64,
+        expected_identity: Option<&WorldCollisionIdentity>,
+        prefix_distance: Option<f64>,
+    ) -> Result<Option<BlockHit>, WorldQueryError> {
+        let ray = FloatRay::new(origin, direction, max_distance);
         let halo = self.registry.selection_ray_halo();
-        let inspection_limit =
-            inspection_limit(FloatRay::new(origin, direction, max_distance), halo)?;
+        let inspection_limit = inspection_limit(ray, halo)?;
         let mut state = TraversalState::new(origin, direction, max_distance)?;
         let mut inspected = BTreeSet::new();
         let mut inspected_count = 0_usize;
@@ -125,6 +181,7 @@ impl PaletteWorld<'_> {
                 .as_ref()
                 .is_some_and(|hit| crossing_order(hit.fraction, next).is_lt())
                 || next > 1.0
+                || prefix_distance.is_some_and(|limit| ray.distance(ray.point(next)) > limit)
             {
                 break;
             }
@@ -145,7 +202,9 @@ impl PaletteWorld<'_> {
             }
         }
 
-        let Some(best) = best else {
+        let Some(best) =
+            best.filter(|hit| prefix_distance.is_none_or(|limit| hit.distance <= limit))
+        else {
             return Ok(None);
         };
         let identity =
@@ -158,6 +217,7 @@ impl PaletteWorld<'_> {
             runtime_id: best.runtime_id,
             distance: best.distance,
             identity,
+            overlay: best.overlay,
         }))
     }
 
@@ -294,6 +354,7 @@ impl PaletteWorld<'_> {
                     distance,
                     fraction,
                     shape_index,
+                    overlay: None,
                 };
                 if best
                     .as_ref()
@@ -303,6 +364,7 @@ impl PaletteWorld<'_> {
                 }
             }
         }
+        self.inspect_overlays(block, (origin, direction, max_distance), best)?;
         Ok(())
     }
 
@@ -337,7 +399,8 @@ impl PaletteWorld<'_> {
     }
 }
 
-fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3, WorldQueryError> {
+/// Rejects nonfinite or unrepresentable coordinates before tracing any segment.
+fn validate_ray_origin(origin: Vec3) -> Result<(), WorldQueryError> {
     let coordinate_min = f64::from(i32::MIN) + 2.0;
     let coordinate_max = f64::from(i32::MAX) - 2.0;
     if !origin.is_finite()
@@ -347,6 +410,11 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
     {
         return Err(WorldQueryError::InvalidRayOrigin);
     }
+    Ok(())
+}
+
+fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3, WorldQueryError> {
+    validate_ray_origin(origin)?;
     if !direction.is_finite() {
         return Err(WorldQueryError::InvalidRayDirection);
     }
@@ -357,13 +425,7 @@ fn validate_ray(origin: Vec3, direction: Vec3, max_distance: f64) -> Result<Vec3
     let normalized =
         precision::normalized(direction).ok_or(WorldQueryError::InvalidRayDirection)?;
     let endpoint = origin + normalized * max_distance;
-    if !endpoint.is_finite()
-        || [endpoint.x, endpoint.y, endpoint.z]
-            .into_iter()
-            .any(|value| value < coordinate_min || value > coordinate_max)
-    {
-        return Err(WorldQueryError::InvalidRayOrigin);
-    }
+    validate_ray_origin(endpoint)?;
     Ok(normalized)
 }
 
@@ -410,9 +472,17 @@ pub(super) fn checked_offset(
 }
 
 fn candidate_precedes(candidate: &Candidate, previous: &Candidate) -> bool {
+    // At an equal distance an overlay wins over its host's own shape, and the lower slot wins
+    // among overlays.
+    let overlay_rank = |candidate: &Candidate| {
+        candidate
+            .overlay
+            .map_or(u16::MAX, |hit| u16::from(hit.slot))
+    };
     crossing_order(candidate.fraction, previous.fraction)
         .then_with(|| candidate.block_pos.cmp(&previous.block_pos))
         .then_with(|| candidate.runtime_id.cmp(&previous.runtime_id))
+        .then_with(|| overlay_rank(candidate).cmp(&overlay_rank(previous)))
         .then_with(|| candidate.shape_index.cmp(&previous.shape_index))
         .then_with(|| candidate.face.cmp(&previous.face))
         .is_lt()

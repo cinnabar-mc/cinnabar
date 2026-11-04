@@ -523,7 +523,7 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     let durability_hash: [u8; 32] =
         Sha256::digest(crate::item::durability::ITEM_DURABILITY_SOURCE_BYTES).into();
     let facts_hash: [u8; 32] = Sha256::digest(crate::item::armour::ITEM_ARMOUR_SOURCE_BYTES).into();
-    let retail = include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
+    let retail = include_str!("../../../protocol/data/retail_items_1_26_60.tsv")
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
         .collect::<std::collections::BTreeSet<_>>();
@@ -654,9 +654,9 @@ fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
         .any(|row| row == (identifier, metadata))
 }
 
-const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
+const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.60.json";
 const DEFAULT_SPRITE_BINDINGS: &[u8] =
-    include_bytes!("../../data/default-sprite-bindings-1.26.50.json");
+    include_bytes!("../../data/default-sprite-bindings-1.26.60.json");
 
 #[derive(Deserialize)]
 struct DefaultSpriteBindings {
@@ -671,7 +671,7 @@ struct DefaultSpriteBinding {
 fn valid_item_definition_source(path: &str) -> bool {
     (path.starts_with("entity/") && path.ends_with(".json"))
         || path == "textures/item_texture.json"
-        || path == "registry/block-item-routes-v2193.json"
+        || path == "registry/block-item-routes-v2225.json"
 }
 
 fn valid_item_raster_source(path: &str) -> bool {

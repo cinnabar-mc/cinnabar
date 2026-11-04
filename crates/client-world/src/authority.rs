@@ -33,6 +33,7 @@ use std::{
 };
 use world::{ChunkKey, ChunkStore};
 mod access;
+mod actor_lives;
 mod actor_movement;
 mod actors;
 mod biomes;
@@ -66,9 +67,9 @@ mod synchronized_audio_tests;
 mod terrain;
 #[cfg(test)]
 mod tests;
-mod totems;
 #[cfg(test)]
 mod world_spawn_tests;
+pub use actor_lives::{ActorLife, MAX_ACTOR_LIVES};
 pub use biomes::BiomeCommitReport;
 pub use block_events::BlockEventCue;
 pub use combat::{ActorCombatEvidence, ActorCombatKind};
@@ -107,7 +108,6 @@ pub struct WorldAuthority {
     actors: ActorStore,
     combat_evidence: VecDeque<ActorCombatEvidence>,
     combat_revision: u64,
-    totems: Option<totems::Tracking>,
     block_events: block_events::BlockEvents,
     map_images: map_data::MapImages,
     pending_sign_edit: Option<SignEditRequest>,
@@ -159,6 +159,23 @@ impl WorldAuthority {
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
+        Self::new_with_actor_catalog(
+            bootstrap,
+            runtime_assets,
+            entity_assets.map(actor_animation::ActorAnimationCatalog::new),
+            current_position,
+            existing_anchor,
+        )
+    }
+
+    /// Starts session authority using entity analysis completed before bootstrap publication.
+    pub fn new_with_actor_catalog(
+        bootstrap: WorldBootstrap,
+        runtime_assets: Arc<RuntimeAssets>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
+        current_position: [f32; 3],
+        existing_anchor: Option<[i32; 2]>,
+    ) -> Self {
         let resolved_server_position =
             resolve_server_position(bootstrap.player_position, current_position, existing_anchor);
         let resolved_biome_tints = Arc::new(
@@ -189,13 +206,14 @@ impl WorldAuthority {
         );
         actors.exclude_remote_state_for(bootstrap.local_player_runtime_id);
         actors.set_local_unique_id(bootstrap.local_player_unique_id);
+        // No custom palette is admitted yet, so the internal air id is also its wire id.
+        actors.set_air_block_network_id(Some(air_block_id));
         Self {
             terrain: ChunkStore::new(),
             actors,
             combat_evidence: VecDeque::new(),
             local_mode_follows_default: false,
             combat_revision: 0,
-            totems: None,
             block_events: block_events::BlockEvents::default(),
             map_images: map_data::MapImages::default(),
             pending_sign_edit: None,
@@ -260,6 +278,7 @@ impl WorldAuthority {
         self.current_dimension = dimension;
         self.local_actor_position = None;
         self.form_dimension_epoch = sequence;
+        // Its coordinates named a block in the dimension just left.
         self.publish_local_actor_replacement(sequence);
         self.publish_local_mount_change(sequence, previous_mount);
     }

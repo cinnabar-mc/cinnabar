@@ -45,11 +45,12 @@ impl Content<'_, '_> {
         } else if id == SettingId::CinnabarBadges {
             "Show Cinnabar badges beside player names and in the player list.".to_owned()
         } else if id == SettingId::AutoUpdateEnabled {
-            "Check the selected channel and download verified updates in the background.".to_owned()
+            "Check and download updates in the background. Changing channels always checks immediately.".to_owned()
         } else if id == SettingId::InstallUpdatesOnQuit {
-            "Install a downloaded update and restart when you quit. Later defers it for this session.".to_owned()
+            "Install newer updates when you quit. Older channel switches require Restart and switch.".to_owned()
         } else if id == SettingId::UpdateChannel {
-            "Beta for regular releases. Nightly for the latest changes.".to_owned()
+            "Changing this checks for the latest release, even with automatic checks off."
+                .to_owned()
         } else if id == SettingId::ScreenAnimations {
             "Smooth highlights, button presses and screen transitions. Turn off for an instant interface.".to_owned()
         } else if id == SettingId::VerboseLogging {

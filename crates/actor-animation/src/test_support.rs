@@ -54,7 +54,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
         (MolangSymbolKind::Query, "query.main_hand_item_use_duration"),
         (MolangSymbolKind::Variable, "context.is_first_person"),
         (MolangSymbolKind::Variable, "context.is_paperdoll"),
-        (MolangSymbolKind::Variable, "variable.charge_amount"),
+        (MolangSymbolKind::Variable, "variable.counter"),
     ]
     .into_iter()
     .map(|(kind, identifier)| MolangSymbol {
@@ -93,6 +93,7 @@ pub fn compiled_fixture() -> CompiledEntityAssets {
                 reset: None,
                 cubes: Box::new([]),
                 texture_meshes: Box::new([]),
+                poly_mesh: None,
             }]
             .into_boxed_slice(),
         }]

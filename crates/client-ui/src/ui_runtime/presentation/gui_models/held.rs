@@ -17,10 +17,15 @@ use {
     ui::IconRef,
 };
 
+/// Prepared variants support borrowed item-name lookups without allocating a temporary key.
+pub(super) type HeldModels = BTreeMap<Box<str>, BTreeMap<u32, HeldModel>>;
+
 /// One item's held model. A sprite item's extruded mesh is built the first time a preview holds
 /// it, since every item has one and most are never held.
 pub(super) struct HeldModel {
     model: PreviewHeldModel,
+    /// An unrestricted authored model keeps the ordinary sprite available as a fallback.
+    authored: Option<PreviewHeldModel>,
     /// The item sprite extruded on first use; `None` for models built up front.
     sprite: Option<usize>,
     extruded: OnceLock<Option<Arc<[render_model::ActorRigVertex]>>>,
@@ -29,7 +34,7 @@ pub(super) struct HeldModel {
 impl HeldModel {
     /// Whether the held geometry follows an item sprite rather than authored or block geometry.
     pub(super) const fn is_sprite(&self) -> bool {
-        self.sprite.is_some()
+        self.authored.is_none() && self.sprite.is_some()
     }
 
     /// Changes a sprite's artwork and mask while retaining its hand placement and glint policy.
@@ -45,9 +50,11 @@ impl HeldModel {
         }
     }
 
-    const fn ready(model: PreviewHeldModel) -> Self {
+    /// Admits an already prepared held mesh without lazy sprite extrusion.
+    pub(super) const fn ready(model: PreviewHeldModel) -> Self {
         Self {
             model,
+            authored: None,
             sprite: None,
             extruded: OnceLock::new(),
         }
@@ -56,9 +63,18 @@ impl HeldModel {
     /// The model with its mesh, extruding a sprite item's sprite from `icons` on first use;
     /// `None` when that sprite has no mesh.
     pub(super) fn model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
-        let Some(sprite) = self.sprite else {
+        if let Some(model) = &self.authored {
+            return Some(model.clone());
+        }
+        if self.sprite.is_none() {
             return Some(self.model.clone());
-        };
+        }
+        self.sprite_model(icons)
+    }
+
+    /// Extrudes the ordinary sprite once, including when an authored model takes precedence.
+    fn sprite_model(&self, icons: &RuntimeIconCatalog) -> Option<PreviewHeldModel> {
+        let sprite = self.sprite?;
         let vertices = self
             .extruded
             .get_or_init(|| {
@@ -86,12 +102,12 @@ pub(super) fn prepare(
     icon_refs: &[IconRef],
     equipment: Option<&RuntimeEquipmentCatalog>,
     blocks: &BTreeMap<u32, IconRef>,
-) -> Result<BTreeMap<ItemVisualKey, HeldModel>, UiPresentationError> {
+) -> Result<HeldModels, UiPresentationError> {
     let Some(hand_pivots) = player_hands(entities) else {
         // A model without native item bones cannot safely manufacture a grip origin.
         return Ok(BTreeMap::new());
     };
-    let mut models = BTreeMap::new();
+    let mut models = HeldModels::new();
     for entry in icons.entries() {
         let sprite = icons
             .lookup_held_index(&entry.identifier, entry.metadata)
@@ -128,11 +144,8 @@ pub(super) fn prepare(
             }
         };
         if let Some((model, sprite)) = model {
-            models.insert(
-                ItemVisualKey {
-                    identifier: entry.identifier.clone(),
-                    metadata: entry.metadata,
-                },
+            models.entry(entry.identifier.clone()).or_default().insert(
+                entry.metadata,
                 HeldModel {
                     sprite,
                     ..HeldModel::ready(model.with_glint(
@@ -159,19 +172,17 @@ pub(super) fn prepare(
             let Some(model) = authored(entities, equipment, binding, hand_pivots, source) else {
                 continue;
             };
-            models.insert(
-                ItemVisualKey {
-                    identifier: binding.identifier.clone(),
-                    metadata: 0,
-                },
-                HeldModel::ready(model.with_glint(Some(entities.item_visuals().iter().any(
-                    |definition| {
-                        definition.key.identifier == binding.identifier
-                            && definition.key.metadata == 0
-                            && definition.glint.enabled().unwrap_or(false)
-                    },
-                )))),
-            );
+            let model = model.with_glint(Some(entities.item_visuals().iter().any(|definition| {
+                definition.key.identifier == binding.identifier
+                    && definition.key.metadata == 0
+                    && definition.glint.enabled().unwrap_or(false)
+            })));
+            models
+                .entry(binding.identifier.clone())
+                .or_default()
+                .entry(0)
+                .and_modify(|held| held.authored = Some(model.clone()))
+                .or_insert_with(|| HeldModel::ready(model));
         }
     }
     Ok(models)

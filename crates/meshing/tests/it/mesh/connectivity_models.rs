@@ -10,6 +10,7 @@ struct CompiledConnectedFixture {
     wall: u32,
     cube: u32,
     glass: u32,
+    scaffolding: u32,
     /// Registry-unclassified see-through cubes: ice, tinted glass and honey.
     see_through: [u32; 3],
 }
@@ -27,7 +28,8 @@ fn write_connected_render_pack(root: &Path, cube_name: &str) {
                 "fence_gate":{{"textures":"oak_fence_gate"}},
                 "cobblestone_wall":{{"textures":"wall"}},
                 "{cube_name}":{{"textures":"cube"}},
-                "glass":{{"textures":"glass"}}
+                "glass":{{"textures":"glass"}},
+                "scaffolding":{{"textures":"wall"}}
             }}"#
         ),
     )
@@ -127,6 +129,8 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             .expect("full cube")
             .clone();
         let glass = named("minecraft:glass");
+        let scaffolding = named("minecraft:scaffolding");
+        let scaffolding_id = scaffolding.sequential_id;
         let see_through = ["minecraft:ice", "minecraft:tinted_glass", "minecraft:honey_block"]
             .map(named);
         let see_through_ids = see_through.each_ref().map(|record| record.sequential_id);
@@ -156,6 +160,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             wall,
             cube,
             glass,
+            scaffolding,
         ];
         records.extend(see_through);
         let compiled = compile_pack(directory.path(), &records)
@@ -203,6 +208,7 @@ fn compiled_connected_fixture() -> &'static CompiledConnectedFixture {
             wall: ids[7],
             cube: ids[8],
             glass: ids[9],
+            scaffolding: scaffolding_id,
             see_through: see_through_ids,
         }
     })
@@ -237,6 +243,76 @@ fn mesh_connected(center_id: u32, neighbours: &[(usize, u32)]) -> ChunkMesh {
         &Neighbourhood::empty(),
         &sub,
     )
+}
+
+/// Meshes scaffolding at the fixture centre above `below`, returning its template refs.
+fn mesh_scaffolding_above(below: u32) -> Vec<u32> {
+    let fixture = compiled_connected_fixture();
+    let sub = sub_chunk(vec![packed_storage(
+        4,
+        &[fixture.air, fixture.scaffolding, below],
+        &[([8, 8, 8], 1), ([8, 7, 8], 2)],
+    )]);
+    let mesh = mesh_sub_chunk(
+        &BlockClassifier::new(fixture.air),
+        &fixture.assets,
+        NetworkIdMode::Sequential,
+        &Neighbourhood::empty(),
+        &sub,
+    );
+    mesh.model_refs()
+        .iter()
+        .filter(|reference| reference.words()[0] & 0xfff == 8 | (8 << 4) | (8 << 8))
+        .map(|reference| reference.words()[1])
+        .collect()
+}
+
+#[test]
+fn scaffolding_draws_its_foot_ring_only_with_nothing_to_stand_on() {
+    let fixture = compiled_connected_fixture();
+    let base = fixture
+        .assets
+        .resolve(NetworkIdMode::Sequential, fixture.scaffolding)
+        .model_template()
+        .expect("scaffolding compiles to a model");
+    assert_eq!(
+        fixture.assets.model_templates()[base as usize].flags,
+        assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING
+    );
+    assert_eq!(
+        mesh_scaffolding_above(fixture.air),
+        [base, base + 1, base + 2]
+    );
+    for below in [fixture.cube, fixture.scaffolding] {
+        assert_eq!(mesh_scaffolding_above(below), [base + 1, base + 2]);
+    }
+}
+
+#[test]
+fn scaffolding_highlights_and_cracks_resolve_the_template_its_terrain_draws() {
+    let fixture = compiled_connected_fixture();
+    let template_above = |below: Option<u32>| {
+        fixture.assets.model_template_at(
+            NetworkIdMode::Sequential,
+            fixture.scaffolding,
+            [0, 8, 0],
+            |position| {
+                assert_eq!(position, [0, 7, 0]);
+                below
+            },
+        )
+    };
+    let base = fixture
+        .assets
+        .resolve(NetworkIdMode::Sequential, fixture.scaffolding)
+        .model_template()
+        .expect("scaffolding compiles to a model");
+    for below in [None, Some(fixture.air)] {
+        assert_eq!(template_above(below), Some(base));
+    }
+    for below in [fixture.cube, fixture.scaffolding] {
+        assert_eq!(template_above(Some(below)), Some(base + 1));
+    }
 }
 
 #[test]
@@ -314,22 +390,16 @@ fn panes_and_fences_connect_to_non_occluding_full_cubes() {
 }
 
 #[test]
-fn equal_panes_suppress_only_internal_edge_caps_and_different_materials_retain_them() {
+fn pane_arms_end_open_so_every_neighbouring_pane_keeps_all_template_quads() {
     let fixture = compiled_connected_fixture();
-    let same = mesh_connected(fixture.pane, &[(0, fixture.pane)]);
-    let different = mesh_connected(fixture.pane, &[(0, fixture.other_pane)]);
-    let same_ref = center_stair_ref(&same, [8, 8, 8]);
-    let different_ref = center_stair_ref(&different, [8, 8, 8]);
-    assert_eq!(same_ref.words()[1], different_ref.words()[1]);
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        same_ref.words()[3].count_ones() + 1,
-        "only the equal-material boundary cap is suppressed"
-    );
-    assert_eq!(
-        different_ref.words()[3].count_ones(),
-        fixture.assets.model_templates()[different_ref.words()[1] as usize].quad_count
-    );
+    for neighbour in [fixture.pane, fixture.other_pane] {
+        let mesh = mesh_connected(fixture.pane, &[(0, neighbour)]);
+        let reference = center_stair_ref(&mesh, [8, 8, 8]);
+        assert_eq!(
+            reference.words()[3].count_ones(),
+            fixture.assets.model_templates()[reference.words()[1] as usize].quad_count
+        );
+    }
 }
 
 #[test]

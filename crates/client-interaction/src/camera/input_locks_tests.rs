@@ -232,6 +232,7 @@ fn server_input_locks_stop_rebound_keyboard_look() {
 }
 
 #[test]
+#[cfg(feature = "developer-control")]
 fn server_input_locks_gate_non_physics_fly_movement() {
     let mut router = SemanticInputRouter::default();
     router

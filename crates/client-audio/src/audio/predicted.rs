@@ -39,7 +39,8 @@ pub enum LocalBlockCue {
         position: [i32; 3],
         block_runtime_id: i32,
     },
-    /// A block item was placed at `position`; the id uses the local store palette.
+    /// A local placement voiced at `position`, which must match the cell of the server's copy
+    /// so the two pair up. The id uses the local store palette.
     Place {
         position: [i32; 3],
         block_runtime_id: i32,

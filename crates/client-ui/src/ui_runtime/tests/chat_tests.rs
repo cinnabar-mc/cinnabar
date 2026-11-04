@@ -8,6 +8,7 @@ fn tab_cycles_whitespace_suggestions_as_complete_replacements() {
     runtime.insert_chat_text("/tell A").unwrap();
     let request = runtime.take_chat_autocomplete_request().unwrap();
     runtime
+        .session
         .chat_autocomplete
         .apply(
             request,

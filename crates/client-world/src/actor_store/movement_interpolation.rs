@@ -30,6 +30,44 @@ pub(super) fn duration(interpolation: ActorInterpolation) -> Option<u32> {
 }
 
 impl ActorSnapshot {
+    /// Places a Normal update directly without replacing any interpolation already in flight.
+    pub(super) fn apply_direct_player_move(&mut self, mut pose: ActorPose) {
+        self.previous_pose = self.current_pose();
+        let rotation = [pose.pitch, pose.yaw];
+        pose.pitch = signed_pitch(pose.pitch);
+        pose.yaw = wrap_degrees(pose.yaw);
+        self.previous_pose.pitch =
+            wrap_degrees(self.previous_pose.pitch + pose.pitch - rotation[0]);
+        self.previous_pose.yaw = wrap_degrees(self.previous_pose.yaw + pose.yaw - rotation[1]);
+        let state = &mut self.status.movement_interpolation;
+        state.last_received = Some(pose);
+        self.received_pose.head_yaw = pose.head_yaw;
+        state.head_ticks = self.interpolation_ticks_remaining.max(state.rotation_ticks);
+        self.set_current_pose(pose);
+    }
+
+    /// Applies rotation mode immediately while preserving the current movement target and counters.
+    pub(super) fn apply_player_rotation(
+        &mut self,
+        movement: &protocol::ActorMoveEvent,
+        sequence: u64,
+    ) {
+        let state = &mut self.status.movement_interpolation;
+        state.last_received.get_or_insert(self.received_pose);
+        if let Some(pitch) = movement.pitch.filter(|value| value.is_finite()) {
+            self.pitch = signed_pitch(pitch);
+        }
+        if let Some(head_yaw) = movement.head_yaw.filter(|value| value.is_finite()) {
+            self.received_pose.head_yaw = head_yaw;
+        }
+        state.head_ticks = self.interpolation_ticks_remaining.max(state.rotation_ticks);
+        self.on_ground = movement.on_ground.or(self.on_ground);
+        self.movement_revision = sequence;
+        self.player_mode = movement.player_mode;
+        self.source_tick = movement.source_tick;
+        self.teleported = false;
+    }
+
     /// Applies a native height displacement and keeps its collision-feet projection coherent.
     pub(super) fn translate_native_height(&mut self, delta: f32) {
         let mut pose = self.current_pose();

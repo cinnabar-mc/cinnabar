@@ -58,6 +58,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             &mut view,
             &mut settings,
             &mut pending_surface_spawn,
+            &mut |_| None,
         );
         assert_eq!(view.eye_translation().to_array(), recorded.position);
         // Use the same view-to-wire conversion as the fixed movement system.
@@ -74,6 +75,7 @@ fn zeqa_correction_burst_preserves_outbound_look() {
             yaw,
             head_yaw: yaw,
             camera_orientation: (view.rotation() * Vec3::NEG_Z).to_array(),
+            interact_rotation: [-bevy_pitch.to_degrees(), yaw],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
             vehicle: None,

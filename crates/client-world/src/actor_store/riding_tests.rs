@@ -642,3 +642,92 @@ fn resolved_passenger_order_survives_controller_removal() {
     store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
     assert!(store.rider_controls_vehicle(10));
 }
+
+/// Pick prediction and committed ticks use the same mount tick before placing its passenger.
+#[test]
+fn streamed_seats_follow_the_predicted_mount_tick_once() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let before = store.get(10).unwrap().native_position();
+    let mut movement = super::tests::network_move(20, 12.0, false);
+    let ActorEvent::Move(ref mut event) = movement else {
+        unreachable!()
+    };
+    event.position[0] = Some(16.0);
+    store.apply(1, 4, movement);
+    store.predict_remote_motion(1);
+    let predicted = store.pick_pose(10).expect("predicted rider");
+    assert_eq!(store.get(10).unwrap().native_position(), before);
+    store.advance_interpolation_frame(1);
+    let rider = store.get(10).unwrap();
+    assert_eq!(rider.position, predicted.position);
+    let mount = store.get(20).unwrap().native_position();
+    let actual = rider.native_position();
+    for (observed, expected) in
+        actual
+            .into_iter()
+            .zip([mount[0] - 0.5, mount[1] + 2.0, mount[2] + 1.0])
+    {
+        assert!((observed - expected).abs() < 0.00001);
+    }
+}
+
+/// A remote player teleport releases its old seat before later movement ticks can restore it.
+#[test]
+fn teleporting_a_remote_player_releases_the_riding_link() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let mount = store.get(20).unwrap().native_position();
+    let target = [30.0, 40.0, 50.0];
+    store.apply_player_move(
+        1,
+        4,
+        0,
+        protocol::MovePlayerEvent {
+            runtime_id: 10,
+            position: target,
+            mode: protocol::MovePlayerMode::Teleport,
+            teleported: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(store.ridden_unique_id(10), None);
+    assert_eq!(store.get(10).unwrap().native_position(), target);
+    store.predict_remote_motion(1);
+    let predicted = store.pick_pose(10).unwrap().position;
+    store.advance_interpolation_frame(1);
+    assert_eq!(store.get(10).unwrap().position, predicted);
+    store.advance_interpolation_ticks(5);
+    assert_eq!(store.get(10).unwrap().native_position(), target);
+    assert_eq!(store.get(20).unwrap().native_position(), mount);
+    // The server's later removal remains harmless, and a new link can seat the actor again.
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Remove));
+    store.apply_link(1, 6, link(10, 20, ActorLinkType::Rider));
+    store.advance_interpolation_ticks(1);
+    assert!(store.rider_seat_pose(10).is_some());
+    assert_ne!(store.get(10).unwrap().native_position(), target);
+}
+
+/// Reset and rotation updates leave a mounted player's relationship intact.
+#[test]
+fn other_player_movement_modes_preserve_riding_links() {
+    for mode in [
+        protocol::MovePlayerMode::Normal,
+        protocol::MovePlayerMode::Reset,
+        protocol::MovePlayerMode::Rotation,
+    ] {
+        let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+        store.apply_player_move(
+            1,
+            4,
+            0,
+            protocol::MovePlayerEvent {
+                runtime_id: 10,
+                position: [30.0, 40.0, 50.0],
+                mode,
+                ..Default::default()
+            },
+        );
+        assert_eq!(store.ridden_unique_id(10), Some(20), "{mode:?}");
+    }
+}

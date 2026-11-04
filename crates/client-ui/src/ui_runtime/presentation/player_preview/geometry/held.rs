@@ -110,7 +110,11 @@ thread_local! {
     pub(super) static PROJECTED_VERTICES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn placement(model: &PreviewHeldModel, hand: usize) -> Option<(RenderBoneTransform, Vec3)> {
+/// Resolves a held model's static item-to-hand frame without walking its vertices.
+pub(in crate::ui_runtime::presentation) fn placement(
+    model: &PreviewHeldModel,
+    hand: usize,
+) -> Option<(RenderBoneTransform, Vec3)> {
     let origin = *model.hand_pivots.get(hand)?;
     let parent = RenderBoneTransform {
         rotation: Quat::IDENTITY.to_array(),

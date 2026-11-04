@@ -477,7 +477,11 @@
       "item": "minecraft:yellow_wool_stairs"
     }
   },
-  "unresolved_retail": [],
+  "unresolved_retail": [
+    "minecraft:disc_press",
+    "minecraft:ice_crystal",
+    "minecraft:icicle"
+  ],
   "movement": [
     {
       "name": "minecraft:bed",
@@ -1079,6 +1083,14 @@
       "status": "verified"
     },
     {
+      "id": "shape-straw-bed",
+      "fact": "shape:STRAW_BED",
+      "members": [
+        "minecraft:straw_bed"
+      ],
+      "status": "verified"
+    },
+    {
       "id": "render-authored-model",
       "fact": "render:AuthoredModel",
       "status": "verified",
@@ -1353,7 +1365,8 @@
         "minecraft:grindstone",
         "minecraft:cartography_table",
         "minecraft:smithing_table",
-        "minecraft:beacon"
+        "minecraft:beacon",
+        "minecraft:lectern"
       ]
     },
     {
@@ -3210,6 +3223,14 @@
       ]
     },
     {
+      "id": "render-hopper",
+      "fact": "render:Hopper",
+      "status": "provisional",
+      "members": [
+        "minecraft:hopper"
+      ]
+    },
+    {
       "id": "render-bubble-column",
       "fact": "render:BubbleColumn",
       "status": "provisional",
@@ -3265,6 +3286,22 @@
       "status": "provisional",
       "members": [
         "minecraft:stonecutter_block"
+      ]
+    },
+    {
+      "id": "render-lectern",
+      "fact": "render:Lectern",
+      "status": "provisional",
+      "members": [
+        "minecraft:lectern"
+      ]
+    },
+    {
+      "id": "render-bell",
+      "fact": "render:Bell",
+      "status": "provisional",
+      "members": [
+        "minecraft:bell"
       ]
     },
     {
@@ -3360,6 +3397,56 @@
       "status": "provisional",
       "members": [
         "minecraft:loom"
+      ]
+    },
+    {
+      "id": "render-observer",
+      "fact": "render:Observer",
+      "status": "verified",
+      "members": [
+        "minecraft:observer"
+      ]
+    },
+    {
+      "id": "render-dispenser",
+      "fact": "render:Dispenser",
+      "status": "verified",
+      "members": [
+        "minecraft:dispenser",
+        "minecraft:dropper"
+      ]
+    },
+    {
+      "id": "render-crafter",
+      "fact": "render:Crafter",
+      "status": "verified",
+      "members": [
+        "minecraft:crafter"
+      ]
+    },
+    {
+      "id": "render-piston-base",
+      "fact": "render:PistonBase",
+      "status": "verified",
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ]
+    },
+    {
+      "id": "render-jigsaw",
+      "fact": "render:Jigsaw",
+      "status": "verified",
+      "members": [
+        "minecraft:jigsaw"
+      ]
+    },
+    {
+      "id": "render-vault",
+      "fact": "render:Vault",
+      "status": "verified",
+      "members": [
+        "minecraft:vault"
       ]
     },
     {
@@ -3577,6 +3664,12 @@
       "suffix": "candle_cake"
     },
     {
+      "id": "render-candle",
+      "fact": "render:Candle",
+      "status": "verified",
+      "suffix": "candle"
+    },
+    {
       "id": "render-shelf",
       "fact": "render:Shelf",
       "status": "provisional",
@@ -3639,7 +3732,9 @@
         "minecraft:barrier",
         "minecraft:structure_void",
         "minecraft:invisible_bedrock",
-        "minecraft:moving_block"
+        "minecraft:moving_block",
+        "minecraft:piston_arm_collision",
+        "minecraft:sticky_piston_arm_collision"
       ],
       "prefix": "light_block_"
     },
@@ -5149,6 +5244,7 @@
     "minecraft:shield"
   ],
   "entity_rules": [
+    {"id": "unresolved-1-26-60-actors", "status": "provisional", "members": ["minecraft:frostbite", "minecraft:ice_ball"], "facts": {"native_class": "Unresolved", "interactions": "Unresolved", "actor_use_resolver": "Unresolved"}},
     {
       "id": "pick-radius-shulker",
       "status": "verified",
@@ -6240,6 +6336,20 @@
     },
     {
       "entry": {
+        "nbt_id": "PistonArm",
+        "route": "model",
+        "renderer": "piston_arm",
+        "diagnostic": "deferred",
+        "geometry": "any"
+      },
+      "members": [
+        "minecraft:piston",
+        "minecraft:sticky_piston"
+      ],
+      "status": "verified"
+    },
+    {
+      "entry": {
         "nbt_id": "Bell",
         "route": "model",
         "renderer": "bell",
@@ -6506,7 +6616,7 @@
         "route": "no_draw",
         "renderer": "none",
         "diagnostic": "deferred",
-        "geometry": "diagnostic"
+        "geometry": "model_or_diagnostic"
       },
       "members": [
         "minecraft:hopper"
@@ -7105,6 +7215,9 @@
       "BeaconShell"
     ],
     "blocks": {
+      "RedstoneTorch": "minecraft:redstone_torch",
+      "RedstoneWire": "minecraft:redstone_wire",
+      "UnlitRedstoneTorch": "minecraft:unlit_redstone_torch",
       "Beacon": "minecraft:beacon",
       "Obsidian": "minecraft:obsidian",
       "Glass": "minecraft:glass",
@@ -7115,19 +7228,32 @@
       "Cake": "minecraft:cake",
       "Farmland": "minecraft:farmland",
       "ResinClump": "minecraft:resin_clump",
+      "Sunflower": "minecraft:sunflower",
       "Dirt": "minecraft:dirt",
+      "ChorusPlant": "minecraft:chorus_plant",
+      "EndStone": "minecraft:end_stone",
+      "SporeBlossom": "minecraft:spore_blossom",
+      "CarvedPumpkin": "minecraft:carved_pumpkin",
+      "ChorusFlower": "minecraft:chorus_flower",
+      "PointedDripstone": "minecraft:pointed_dripstone",
+      "SulfurSpike": "minecraft:sulfur_spike",
+      "WeepingVines": "minecraft:weeping_vines",
+      "TwistingVines": "minecraft:twisting_vines",
       "CobblestoneWall": "minecraft:cobblestone_wall",
       "Air": "minecraft:air",
       "Stone": "minecraft:stone",
       "HeavyCore": "minecraft:heavy_core",
       "Crafter": "minecraft:crafter",
       "DriedGhast": "minecraft:dried_ghast",
+      "TurtleEgg": "minecraft:turtle_egg",
+      "TripWire": "minecraft:trip_wire",
       "SculkSensor": "minecraft:sculk_sensor",
       "CalibratedSculkSensor": "minecraft:calibrated_sculk_sensor",
       "SculkShrieker": "minecraft:sculk_shrieker",
       "BigDripleaf": "minecraft:big_dripleaf",
       "SmallDripleaf": "minecraft:small_dripleaf_block",
-      "StrawBed": "minecraft:straw_bed"
+      "StrawBed": "minecraft:straw_bed",
+      "Observer": "minecraft:observer"
     },
     "selectors": {
       "door_lower": "Door",

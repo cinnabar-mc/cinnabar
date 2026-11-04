@@ -83,7 +83,7 @@ impl Fixture {
         for (identity, instance) in &self.allocations {
             self.cache.observe(identity.clone(), instance);
         }
-        self.cache.finish_frame(&mut self.orders)
+        self.cache.finish_frame(&mut self.orders, 0, 0)
     }
 
     /// Resolves pages through the same combined-array reuse boundary as live preparation.
@@ -543,4 +543,66 @@ fn camera_only_changes_still_accept_in_flight_work_for_the_same_inputs() {
         .is_none()
     );
     assert_eq!(runtime.staged.as_ref().unwrap().key, old_key);
+}
+
+#[test]
+fn a_retained_scan_matches_a_rescan_until_its_revision_or_carrier_changes() {
+    let mut f = fixture(3);
+    f.cache.begin_frame(&f.assets);
+    for (identity, instance) in &f.allocations {
+        f.cache.observe(identity.clone(), instance);
+    }
+    let scanned = f.cache.finish_frame(&mut f.orders, 7, 9);
+    let (retained, refs) = f.cache.retained(7, &f.assets).unwrap();
+    assert_eq!(refs, 9);
+    assert!(Arc::ptr_eq(&retained.allocations, &scanned.allocations));
+    // A rescan of the same inputs publishes the very address the retained scan returns.
+    let rescanned = f.scan();
+    assert_eq!(rescanned, retained);
+    assert!(Arc::ptr_eq(&rescanned.allocations, &retained.allocations));
+    assert!(f.cache.retained(8, &f.assets).is_none());
+    let mut carrier = f.assets.clone();
+    carrier.revision += 1;
+    f.scan();
+    assert!(f.cache.retained(0, &carrier).is_none());
+    f.cache.begin_frame(&f.assets);
+    assert!(
+        f.cache.retained(0, &f.assets).is_none(),
+        "an unfinished scan retains nothing"
+    );
+    f.scan();
+    f.cache.clear();
+    assert!(f.cache.retained(0, &f.assets).is_none());
+}
+
+#[test]
+fn cached_near_tests_match_the_order_camera_over_random_moves() {
+    let mut f = fixture(4);
+    let mut seed = 0x2545_f491_u32;
+    let mut next = move |bound: u32| {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed % bound
+    };
+    let mut near = NearAllocations::default();
+    let mut address = f.scan();
+    for step in 0..2_000 {
+        if next(50) == 0 {
+            let moved = next(4) as usize;
+            f.allocations[moved].0.key.y = next(3) as i32 - 1;
+            address = f.scan();
+        }
+        let camera = Vec3::new(
+            next(160) as f32 * 0.37 - 20.0,
+            next(80) as f32 * 0.29 - 12.0,
+            next(40) as f32 * 0.31 - 6.0,
+        );
+        let metric = TransparentFaceMetric::new(camera);
+        assert_eq!(
+            metric.order_camera_with_near(near.any_near(metric, &address.allocations)),
+            metric.order_camera(address.allocations.iter().map(|identity| identity.key)),
+            "step {step}"
+        );
+    }
 }

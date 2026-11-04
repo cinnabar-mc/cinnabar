@@ -6,6 +6,9 @@ use client_ui::ui_runtime::{
     presentation::{SessionIcon, SessionIcons},
 };
 
+#[path = "pack_texture_tests/shield_tests.rs"]
+mod shields;
+
 const ITEM: &str = "minecraft:stone";
 
 /// Creates original one-pixel base artwork and an ordinary dropped stack.
@@ -238,6 +241,7 @@ fn framed_cube_faces_follow_pack_replacement_and_removal() {
     world.init_resource::<DroppedItemScene>();
     world.insert_resource(render_scene::StaticItemPlacementsResource(
         render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
+            shield_pattern: None,
             allow_block_models: true,
             identifier: ITEM.into(),
             metadata: 0,
@@ -467,6 +471,7 @@ fn framed_session_cube_uses_session_sprite_under_cache_pressure() {
     let (mut icons, _) = fixture(0);
     install(&mut icons, Some(160), true, 0);
     let placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
         allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
@@ -509,6 +514,7 @@ fn refused_session_artwork_reuses_resident_startup_sprites() {
         frustum: None,
     };
     let placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
         allow_block_models: true,
         identifier: ITEM.into(),
         metadata: 0,
@@ -715,6 +721,7 @@ fn framed_cubes_fall_back_to_sprites_at_the_device_layer_limit() {
         let models: Vec<_> = (0..43)
             .map(|metadata| {
                 let placement = render_model::StaticItemPlacement {
+                    shield_pattern: None,
                     allow_block_models: true,
                     identifier: ITEM.into(),
                     metadata,
@@ -779,6 +786,7 @@ fn assert_framed_plan_recovers(layers: usize, counts: [u32; 3]) {
             (0..count)
                 .map(|metadata| {
                     let placement = render_model::StaticItemPlacement {
+                        shield_pattern: None,
                         allow_block_models: true,
                         identifier: ITEM.into(),
                         metadata,
@@ -928,6 +936,7 @@ fn session_block_sheets_render_without_startup_identity_but_campfire_items_stay_
     let (mut icons, _) = fixture(0);
     install(&mut icons, Some(90), true, 0);
     let mut placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
         identifier: ITEM.into(),
         metadata: 0,
         potted_block: None,

@@ -55,24 +55,30 @@ fn configured_storage_limits_cover_the_renderer_without_lowering_existing_limits
     }
 }
 
-/// A window wider than 8192 px must not fail target creation on an adapter that supports it.
+/// Window targets use the adapter's full dimensions without requesting unsupported limits.
 #[test]
-fn window_texture_limits_rise_to_the_adapter_and_never_fall() {
+fn window_texture_limits_match_the_adapter_even_for_oversized_requests() {
     let adapter = wgpu::Limits {
         max_texture_dimension_1d: 16384,
         max_texture_dimension_2d: 16384,
         ..wgpu::Limits::default()
     };
-    let mut limits = wgpu::Limits::default();
-    raise_window_texture_limits(&mut limits, &adapter);
-    assert_eq!(limits.max_texture_dimension_1d, 16384);
-    assert_eq!(limits.max_texture_dimension_2d, 16384);
-    let requested = limits.clone();
-    raise_window_texture_limits(&mut limits, &wgpu::Limits::downlevel_webgl2_defaults());
-    assert_eq!(
-        limits.max_texture_dimension_2d,
-        requested.max_texture_dimension_2d
-    );
+    for initial in [4096, 16384, u32::MAX] {
+        let mut limits = wgpu::Limits {
+            max_texture_dimension_1d: initial,
+            max_texture_dimension_2d: initial,
+            ..Default::default()
+        };
+        use_adapter_texture_limits(&mut limits, &adapter);
+        assert_eq!(
+            limits.max_texture_dimension_1d,
+            adapter.max_texture_dimension_1d
+        );
+        assert_eq!(
+            limits.max_texture_dimension_2d,
+            adapter.max_texture_dimension_2d
+        );
+    }
 }
 
 /// wgpu drops the DX12 backend when its DXC cannot load; only that case retries with FXC.

@@ -5,6 +5,7 @@ mod spawn;
 
 mod equipment;
 mod interpolation;
+mod movement;
 
 impl ActorStore {
     /// Allocates a nonzero render lifetime without changing authority arrival ordering.
@@ -59,36 +60,38 @@ impl ActorStore {
             max_players,
             max_player_skin_bytes,
             actor_animation::ActorAnimationStore::diagnostic(),
+            crate::item::ItemStateStore::diagnostic(),
         )
     }
     pub(crate) fn new_with_entity_assets(
         session_id: u64,
         dimension: i32,
-        entity_assets: std::sync::Arc<assets::RuntimeEntityAssets>,
+        entity_assets: impl Into<actor_animation::ActorAnimationCatalog>,
     ) -> Self {
+        let catalog = entity_assets.into();
+        let entity_assets = std::sync::Arc::clone(catalog.assets());
         let mut store = Self::with_limits_and_animation(
             session_id,
             dimension,
             MAX_TRACKED_ACTORS,
             MAX_TRACKED_PLAYERS,
             MAX_TRACKED_PLAYER_SKIN_BYTES,
-            actor_animation::ActorAnimationStore::with_assets(std::sync::Arc::clone(
-                &entity_assets,
-            )),
+            actor_animation::ActorAnimationStore::with_assets(catalog),
+            crate::item::ItemStateStore::with_assets(std::sync::Arc::clone(&entity_assets)),
         );
         store.entity_assets = Some(std::sync::Arc::clone(&entity_assets));
-        store.items =
-            crate::item::ItemStateStore::with_assets(std::sync::Arc::clone(&entity_assets));
         store.actions = crate::action::RemoteActionStore::with_assets(entity_assets);
         store
     }
-    fn with_limits_and_animation(
+    /// Starts fresh actor state around the caller's prepared evaluator and item storage.
+    pub(super) fn with_limits_and_animation(
         session_id: u64,
         dimension: i32,
         max_actors: usize,
         max_players: usize,
         max_player_skin_bytes: usize,
         animation: actor_animation::ActorAnimationStore,
+        items: crate::item::ItemStateStore,
     ) -> Self {
         Self {
             session_id,
@@ -117,10 +120,11 @@ impl ActorStore {
             unlisted_players: HashMap::new(),
             animation,
             ready_appearances: Default::default(),
-            items: crate::item::ItemStateStore::diagnostic(),
+            items,
             actions: crate::action::RemoteActionStore::diagnostic(),
             remote_state_excluded_runtime_id: None,
             local_unique_id: None,
+            air_block_network_id: None,
             local_vehicle: Default::default(),
             pending_local_health: None,
             pending_local_actor: None,
@@ -166,6 +170,34 @@ impl ActorStore {
         }
     }
 
+    /// Shares the base analysis for independent client-owned actor namespaces.
+    pub(crate) fn animation_catalog(&self) -> Option<actor_animation::ActorAnimationCatalog> {
+        self.animation.catalog()
+    }
+
+    /// Restarts client-owned displays without rebuilding their unchanged catalog or item registry.
+    pub(super) fn restart_display(self, session_id: u64, dimension: i32) -> Self {
+        let Self {
+            max_actors,
+            max_players,
+            max_player_skin_bytes,
+            animation,
+            mut items,
+            ..
+        } = self;
+        items.clear_actor_state();
+        drop(items.take_notices());
+        Self::with_limits_and_animation(
+            session_id,
+            dimension,
+            max_actors,
+            max_players,
+            max_player_skin_bytes,
+            animation.restart(),
+            items,
+        )
+    }
+
     /// Arm swings the server sent for the local player since the last call.
     pub(crate) fn take_local_server_swings(&mut self) -> Vec<Option<std::sync::Arc<str>>> {
         std::mem::take(&mut self.local_server_swings)
@@ -175,6 +207,11 @@ impl ActorStore {
     /// already present, as vanilla's local player always is.
     pub(crate) fn set_local_unique_id(&mut self, unique_id: i64) {
         self.local_unique_id = Some(unique_id);
+    }
+
+    /// Records how this session's block metadata encodes air.
+    pub(crate) fn set_air_block_network_id(&mut self, network_id: Option<u32>) {
+        self.air_block_network_id = network_id;
     }
 
     pub(crate) fn exclude_remote_state_for(&mut self, runtime_id: u64) {
@@ -482,11 +519,23 @@ impl ActorStore {
         self.synchronized_audio.clear();
         ActorApplyResult::Reset
     }
+    /// Applies an event when the caller has no terrain admission constraint.
     pub(crate) fn apply(
         &mut self,
         session_id: u64,
         sequence: u64,
         event: ActorEvent,
+    ) -> ActorApplyResult {
+        self.apply_with_player_move_terrain(session_id, sequence, event, true)
+    }
+
+    /// Applies an event with the Normal MovePlayer target's current terrain residency.
+    pub(crate) fn apply_with_player_move_terrain(
+        &mut self,
+        session_id: u64,
+        sequence: u64,
+        event: ActorEvent,
+        player_target_resident: bool,
     ) -> ActorApplyResult {
         let guard = self.guard(session_id, sequence);
         if guard != ActorApplyResult::Updated {
@@ -517,133 +566,7 @@ impl ActorStore {
             }
             ActorEvent::Remove(remove) => self.remove_unique(sequence, remove.unique_id),
             ActorEvent::Move(movement) => {
-                // The local player's pose is client-fed each tick; server movement
-                // (authoritative reconciliation) must not fight that feed.
-                if self.remote_state_excluded_runtime_id == Some(movement.runtime_id) {
-                    return ActorApplyResult::MissingActor;
-                }
-                if !self.admit_local_vehicle_move(&movement) {
-                    return ActorApplyResult::Updated;
-                }
-                let Some(actor) = self.actors.get_mut(&movement.runtime_id) else {
-                    return ActorApplyResult::MissingActor;
-                };
-                let Some(duration) =
-                    super::movement_interpolation::duration(movement.interpolation)
-                else {
-                    let previous = self.ignored_movement_components;
-                    self.ignored_movement_components = previous.saturating_add(1);
-                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        tracing::warn!(
-                            "ignored unsupported actor movement duration (total {})",
-                            self.ignored_movement_components
-                        );
-                    }
-                    return ActorApplyResult::Updated;
-                };
-                let previous_received = actor.last_received_pose();
-                let mut received = previous_received;
-                let network_position_offset =
-                    if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                        actor.network_position_offset()
-                    } else {
-                        0.0
-                    };
-                let mut ignored = 0_u64;
-                let mut merge = |target: &mut f32, source: Option<f32>| {
-                    if let Some(value) = source {
-                        if value.is_finite() {
-                            *target = value;
-                        } else {
-                            ignored += 1;
-                        }
-                    }
-                };
-                for (axis, (target, source)) in received
-                    .position
-                    .iter_mut()
-                    .zip(movement.position)
-                    .enumerate()
-                {
-                    merge(
-                        target,
-                        source.map(|value| {
-                            if axis == 1 {
-                                value - network_position_offset
-                            } else {
-                                value
-                            }
-                        }),
-                    );
-                }
-                if movement.position[1].is_some_and(f32::is_finite) {
-                    received.y_origin =
-                        if movement.position_origin == ActorPositionOrigin::NetworkOffset {
-                            PoseYOrigin {
-                                native_y: movement.position[1],
-                                ..PoseYOrigin::NETWORK
-                            }
-                        } else {
-                            PoseYOrigin::default()
-                        };
-                }
-                merge(&mut received.pitch, movement.pitch);
-                merge(&mut received.yaw, movement.yaw);
-                merge(&mut received.head_yaw, movement.head_yaw);
-                if ignored > 0 {
-                    let previous = self.ignored_movement_components;
-                    self.ignored_movement_components = previous.saturating_add(ignored);
-                    if previous == 0 || self.ignored_movement_components / 64 > previous / 64 {
-                        tracing::warn!(
-                            "ignored non-finite actor movement components: {}",
-                            self.ignored_movement_components
-                        );
-                    }
-                }
-                if let Some(value) = movement.on_ground {
-                    actor.on_ground = Some(value);
-                }
-                let tick_seconds = simulation_clock::TICK_DURATION.as_secs_f32();
-                let elapsed_seconds = movement
-                    .source_tick
-                    .zip(actor.source_tick)
-                    .and_then(|(current, previous)| current.checked_sub(previous))
-                    .filter(|ticks| *ticks > 0)
-                    .map_or(tick_seconds, |ticks| ticks as f32 * tick_seconds);
-                let derived_velocity = if movement.teleported {
-                    [0.0; 3]
-                } else {
-                    std::array::from_fn(|axis| {
-                        (received.position[axis] - previous_received.position[axis])
-                            / elapsed_seconds
-                    })
-                };
-                // A rotation-only move carries no displacement to derive from.
-                if movement.position.iter().any(Option::is_some) {
-                    actor.velocity = if derived_velocity.iter().all(|value| value.is_finite()) {
-                        derived_velocity
-                    } else {
-                        [0.0; 3]
-                    };
-                }
-                actor.start_movement_interpolation(
-                    received,
-                    duration,
-                    movement.interpolation.force_completion,
-                    movement.teleported,
-                );
-                actor.movement_revision = sequence;
-                actor.teleported = movement.teleported;
-                actor.player_mode = movement.player_mode;
-                actor.source_tick = movement.source_tick;
-                self.effect_members.collidable.update(actor);
-                if movement.teleported {
-                    self.animation.mark_reset(movement.runtime_id);
-                    if let Some(lifetime) = self.lifetime(movement.runtime_id) {
-                        self.actions.reset_on_teleport(lifetime);
-                    }
-                }
-                ActorApplyResult::Updated
+                self.apply_movement(sequence, movement, player_target_resident)
             }
             ActorEvent::Metadata(update) => {
                 let Some(actor) = self.actors.get_mut(&update.runtime_id) else {
@@ -798,7 +721,7 @@ impl ActorStore {
                 yaw: Some(movement.yaw),
                 head_yaw: Some(movement.head_yaw),
                 on_ground: Some(movement.on_ground),
-                teleported: movement.teleported || movement.mode == protocol::MovePlayerMode::Reset,
+                teleported: movement.teleported,
                 force_local_move: false,
                 player_mode: Some(movement.mode),
                 source_tick: Some(movement.source_tick),

@@ -49,6 +49,13 @@ fn checker() -> (Checker, Receiver<Request>, Sender<Response>) {
     )
 }
 
+/// Supplies an inert checker or a queued notice to exercise service publication without a network worker.
+pub(crate) fn service_fixture(message: Option<String>) -> Checker {
+    let mut checker = checker().0;
+    checker.message = message;
+    checker
+}
+
 #[test]
 fn absent_sources_disabled_checks_and_invalid_versions_never_queue_requests() {
     let (mut checker, incoming, _) = checker();
@@ -116,6 +123,7 @@ fn only_newer_published_semantic_versions_offer_updates() {
                 generation: 1,
                 permission: 0,
                 candidates: vec![Candidate {
+                    revision_update: None,
                     id: 3,
                     repository: "example/zoom".into(),
                     asset: None,
@@ -161,6 +169,7 @@ fn repository_checks_are_cached_across_mod_versions_and_library_changes() {
                 generation: revision,
                 permission: 0,
                 candidates: vec![Candidate {
+                    revision_update: None,
                     id: revision,
                     repository: "example/zoom".into(),
                     asset: None,
@@ -180,12 +189,14 @@ fn unavailable_repositories_do_not_block_other_mods_and_network_work_is_bounded(
     let (requests, incoming) = unbounded();
     let (outgoing, responses) = unbounded();
     let mut candidates = vec![Candidate {
+        revision_update: None,
         id: 1,
         repository: "example/unavailable".into(),
         asset: None,
         version: "1.0.0".into(),
     }];
     candidates.extend((2..=100).map(|id| Candidate {
+        revision_update: None,
         id,
         repository: format!("example/mod-{id}"),
         asset: None,
@@ -219,11 +230,15 @@ fn run(
     incoming: Receiver<Request>,
     outgoing: Sender<Response>,
     generation: &AtomicU64,
-    fetch: impl FnMut(&str) -> anyhow::Result<Option<Release>>,
+    mut fetch: impl FnMut(&str) -> anyhow::Result<Option<Release>>,
 ) {
-    worker::run(incoming, outgoing, generation, fetch, |_, _, _, _| {
-        panic!("unexpected download")
-    });
+    worker::run(
+        incoming,
+        outgoing,
+        generation,
+        |candidate| fetch(&candidate.repository),
+        |_, _, _, _| panic!("unexpected download"),
+    );
 }
 
 #[test]
@@ -284,6 +299,7 @@ fn unchanged_sources_are_downloaded_once_per_launch_and_stale_transfers_can_retr
                 generation: revision,
                 permission: 0,
                 candidates: vec![Candidate {
+                    revision_update: None,
                     id: 1,
                     repository: "example/zoom".into(),
                     version: "1.0.0".into(),
@@ -419,6 +435,7 @@ fn an_update_click_retries_a_failed_automatic_download_without_rechecking_the_re
                 generation: revision,
                 permission: 0,
                 candidates: vec![Candidate {
+                    revision_update: None,
                     id: 1,
                     repository: "example/zoom".into(),
                     version: "1.0.0".into(),
@@ -443,6 +460,7 @@ fn completed_download_is_handed_to_the_installer_without_a_spurious_failure() {
             generation: 1,
             permission: 0,
             candidates: vec![Candidate {
+                revision_update: None,
                 id: 1,
                 repository: "example/zoom".into(),
                 version: "1.0.0".into(),
@@ -505,6 +523,7 @@ fn explicit_update_downloads_after_the_automatic_work_budget_is_exhausted() {
         attempts
     });
     let candidate = |id| Candidate {
+        revision_update: None,
         id,
         repository: "example/zoom".into(),
         version: "1.0.0".into(),

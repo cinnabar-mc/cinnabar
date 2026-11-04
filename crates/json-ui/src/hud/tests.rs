@@ -367,3 +367,37 @@ fn closed_chat_lines_use_the_chosen_font_size_and_line_spacing() {
     assert_eq!(vars["chat_font_scale_factor"], json!(chat_text.font_scale));
     assert_eq!(vars["chat_line_spacing"], json!(chat_text.line_spacing));
 }
+
+/// Current pack chat bindings preserve the user's visibility setting without editor layout.
+#[test]
+fn current_chat_bindings_follow_visibility_and_keep_the_authored_origin() {
+    let root = Arc::new(ResolvedControl {
+        name: "chat".into(),
+        control_type: Some("panel".into()),
+        properties: [
+            ("offset".into(), json!([17, 29])),
+            ("bindings".into(), json!([
+                {"binding_name":"#editor_chat_visible","binding_name_override":"#visible"},
+                {"binding_name":"#editor_chat_offset","binding_name_override":"#offset"},
+                {"binding_name":"#editor_chat_layout_active"},
+                {"binding_type":"view","source_property_name":"(not #editor_chat_layout_active)","target_property_name":"#enabled"}
+            ])),
+        ].into(),
+        base: None,
+        unresolved_base: None,
+        children: Vec::new(),
+        factory: None,
+    });
+    for visible in [true, false] {
+        let data = hud_data_source(&HudModel {
+            chat_visible: visible,
+            ..Default::default()
+        });
+        let (bound, notes) = bind_stateful(&root, &data, &EmptyLibrary, &mut BindState::new());
+        assert!(notes.is_empty(), "{notes:?}");
+        assert_eq!(bound.properties.get("visible"), Some(&json!(visible)));
+        let offset = &bound.properties["offset"];
+        assert_eq!([offset[0].as_f64(), offset[1].as_f64()], [Some(0.0); 2]);
+        assert_eq!(bound.properties["enabled"], json!(true));
+    }
+}

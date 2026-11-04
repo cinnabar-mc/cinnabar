@@ -1,5 +1,5 @@
 //! Shared native GUI item coordinates for offline fallback baking and runtime model drawing.
-//! The matching 1.26.50.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
+//! The matching 1.26.60.26 witnesses are recorded in docs/reference/inventory-gui-geometry.md.
 
 use crate::{BlockFace, EntityGeometryCube, EntityGeometryUv};
 

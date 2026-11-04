@@ -170,9 +170,9 @@ impl SurvivalTickPayload {
             });
     }
 
+    /// Retains a destroy action in the order this tick produced it.
     fn push(&mut self, kind: BlockActionKind, position: [i32; 3], face: u8) {
-        // A tick emits at most four actions; the bounded list holds eight.
-        let _ = self.actions.push(BlockAction {
+        self.actions.push(BlockAction {
             kind,
             position,
             face,
@@ -541,9 +541,7 @@ impl SurvivalMiningRuntime {
         };
         let mut machine = self.machine.clone();
         let mut cleanup = machine.step(DestroyInput::Released, motion, authority);
-        if cleanup.actions.append(&refusal.actions).is_err() {
-            return false;
-        }
+        cleanup.actions.append(&refusal.actions);
         refusal.actions = cleanup.actions;
         if !ticker.attach_survival_mining(tick, refusal) {
             return false;

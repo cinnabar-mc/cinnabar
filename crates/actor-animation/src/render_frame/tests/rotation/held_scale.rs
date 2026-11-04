@@ -68,7 +68,7 @@ fn expression(compiled: &mut CompiledEntityAssets, code: &[MolangOp], max_stack:
 fn held_fixture(effects: bool) -> (CompiledEntityAssets, u32) {
     let mut compiled = compiled_fixture(180.0);
     let life = add_query(&mut compiled, "query.life_time");
-    let size = find_symbol(&compiled, "variable.charge_amount");
+    let size = find_symbol(&compiled, "variable.counter");
     let body = find_symbol(&compiled, "query.body_y_rotation");
 
     let held = if effects {

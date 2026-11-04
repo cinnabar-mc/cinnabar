@@ -3,7 +3,7 @@ use crate::device_settings::vertex_storage_buffers;
 
 #[cfg(test)]
 mod cutout_contact_tests;
-mod descriptors;
+pub(in crate::chunk) mod descriptors;
 mod terrain_blend;
 mod terrain_cutout;
 

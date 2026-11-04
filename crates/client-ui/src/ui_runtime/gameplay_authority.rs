@@ -19,11 +19,11 @@ const MOUNT_JUMP_CHARGE_FULL_MILLIS: u64 = 500;
 
 impl UiRuntime {
     pub fn set_hardcore(&mut self, hardcore: bool) {
-        self.gameplay_hud.set_hardcore(hardcore);
+        self.session.gameplay_hud.set_hardcore(hardcore);
     }
 
     pub fn apply_hud_rules(&mut self, rules: protocol::HudRules) {
-        self.gameplay_hud.apply_hud_rules(rules);
+        self.session.gameplay_hud.apply_hud_rules(rules);
     }
 
     pub(super) fn apply_game_mode_update(
@@ -34,7 +34,7 @@ impl UiRuntime {
         if player_runtime.facts.apply_game_mode_update(update) {
             super::UiApplyOutcome::Applied
         } else {
-            self.gameplay_hud.note_odd_hud_packet();
+            self.session.gameplay_hud.note_odd_hud_packet();
             super::UiApplyOutcome::IgnoredByReceiveStore
         }
     }
@@ -47,20 +47,20 @@ impl UiRuntime {
         if player_runtime.facts.apply_default_game_mode_update(update) {
             super::UiApplyOutcome::Applied
         } else {
-            self.gameplay_hud.note_odd_hud_packet();
+            self.session.gameplay_hud.note_odd_hud_packet();
             super::UiApplyOutcome::IgnoredByReceiveStore
         }
     }
 
     pub const fn gameplay_hud(&self) -> &GameplayHudState {
-        &self.gameplay_hud
+        &self.session.gameplay_hud
     }
 
     /// The presentation tick at `now_millis`, advancing at 20 tps from its real-time anchor.
     /// Equal or lagging packet ticks never rewind this clock or discard fractional elapsed time.
     /// Effect durations start when received; a server Remove remains authoritative for early clears.
     pub fn estimated_server_tick(&self, now_millis: u64) -> Option<u64> {
-        let (tick, observed) = self.presentation_tick_anchor?;
+        let (tick, observed) = self.session.presentation_tick_anchor?;
         Some(tick.saturating_add(now_millis.saturating_sub(observed) / MILLIS_PER_SERVER_TICK))
     }
 
@@ -68,11 +68,12 @@ impl UiRuntime {
     /// Zero timestamps leave the last nonzero ordering fence intact.
     pub(super) fn observe_presentation_tick(&mut self, tick: u64, now_millis: u64) -> u64 {
         if tick != 0 {
-            self.last_server_tick = Some(self.last_server_tick.unwrap_or(0).max(tick));
+            self.session.last_server_tick =
+                Some(self.session.last_server_tick.unwrap_or(0).max(tick));
         }
         let estimated = self.estimated_server_tick(now_millis);
         if estimated.is_none_or(|estimated| tick > estimated) {
-            self.presentation_tick_anchor = Some((tick, now_millis));
+            self.session.presentation_tick_anchor = Some((tick, now_millis));
         }
         self.estimated_server_tick(now_millis).unwrap()
     }
@@ -80,26 +81,26 @@ impl UiRuntime {
     /// Drops effects that expired on the estimated session clock.
     pub fn expire_gameplay_effects(&mut self, now_millis: u64) {
         let now_tick = self.estimated_server_tick(now_millis);
-        self.gameplay_hud.expire_effects(now_tick);
+        self.session.gameplay_hud.expire_effects(now_tick);
     }
 
     /// Observes the held state of the jump action for the mount jump-charge
     /// ramp. Holding jump while mounted starts the charge clock; releasing
     /// it, or losing the mount, resets the charge to empty.
     pub fn set_mount_jump_held(&mut self, held: bool, now_millis: u64) {
-        if !held || self.gameplay_hud.mount_unique_id().is_none() {
-            self.mount_jump_hold_started_millis = None;
+        if !held || self.session.gameplay_hud.mount_unique_id().is_none() {
+            self.session.mount_jump_hold_started_millis = None;
             return;
         }
-        if self.mount_jump_hold_started_millis.is_none() {
-            self.mount_jump_hold_started_millis = Some(now_millis);
+        if self.session.mount_jump_hold_started_millis.is_none() {
+            self.session.mount_jump_hold_started_millis = Some(now_millis);
         }
     }
 
     /// The current jump charge in `0.0..=1.0`: a linear ramp over the pinned
     /// hold window, zero while jump is not held.
     pub fn mount_jump_charge(&self, now_millis: u64) -> f32 {
-        let Some(started) = self.mount_jump_hold_started_millis else {
+        let Some(started) = self.session.mount_jump_hold_started_millis else {
             return 0.0;
         };
         let elapsed = now_millis.saturating_sub(started);
@@ -111,18 +112,22 @@ impl UiRuntime {
     /// row (fail closed) rather than retaining a stale value.
     pub fn set_derived_armor(&mut self, points: Option<u16>) {
         let armor = points.and_then(|points| BoundedStat::new(points.min(20), 20));
-        self.hud
-            .set_stats(self.hud.health(), self.hud.hunger(), armor, self.hud.air());
+        self.session.hud.set_stats(
+            self.session.hud.health(),
+            self.session.hud.hunger(),
+            armor,
+            self.session.hud.air(),
+        );
     }
 
     /// Current local actor damage state, absent when its session has no player actor.
     pub const fn local_actor_damage(&self) -> Option<client_world::ActorDamageState> {
-        self.local_actor_damage
+        self.session.local_actor_damage
     }
 
     /// Publishes the current local actor's damage snapshot after its completed ticks.
     pub fn publish_local_actor_damage(&mut self, damage: Option<client_world::ActorDamageState>) {
-        self.local_actor_damage = damage;
+        self.session.local_actor_damage = damage;
     }
 
     /// Projects actor health and damage; life transitions stay in committed packet order.
@@ -132,17 +137,18 @@ impl UiRuntime {
             .and_then(|actor| actor.attributes.get("minecraft:health"))
             .and_then(hud_adapter::attribute_stat)
         {
-            self.local_player_health_available = self.last_known_local_player_alive.is_some();
-            self.hud.set_health(Some(health));
+            self.session.local_player_health_available =
+                self.session.last_known_local_player_alive.is_some();
+            self.session.hud.set_health(Some(health));
         } else if actor.is_none() {
-            self.local_player_health_available = false;
+            self.session.local_player_health_available = false;
         }
     }
 
     /// Millis timestamp when the selected slot or item identity last changed,
     /// for the selected-item label fade.
     pub const fn selected_item_changed_millis(&self) -> Option<u64> {
-        self.last_selected_identity_change_millis
+        self.session.last_selected_identity_change_millis
     }
 
     /// Refreshes the selected-item identity clock. Runs before presentation so
@@ -171,9 +177,9 @@ impl UiRuntime {
         identity: Option<(u8, i32, u32)>,
         now_millis: u64,
     ) {
-        if identity != self.last_selected_identity {
-            self.last_selected_identity = identity;
-            self.last_selected_identity_change_millis = if identity.is_some() {
+        if identity != self.session.last_selected_identity {
+            self.session.last_selected_identity = identity;
+            self.session.last_selected_identity_change_millis = if identity.is_some() {
                 Some(now_millis)
             } else {
                 None
@@ -215,14 +221,14 @@ impl UiRuntime {
                 }
             };
             let ledger = player_runtime.inventory.ledger();
-            self.inventory_open = self.screen.book.is_some()
+            self.session.inventory_open = self.session.screen.book.is_some()
                 || ledger.personal_inventory_desired_open()
                 || ledger.storage_inventory_desired_open();
-            if self.inventory_open {
-                self.chat_focused = false;
+            if self.session.inventory_open {
+                self.session.chat_focused = false;
             }
             self.observe_inventory_window(player_runtime);
-            self.gameplay_hud.apply_inventory(&event);
+            self.session.gameplay_hud.apply_inventory(&event);
             self.observe_use_on_identity(
                 player_runtime,
                 sequenced.session_generation,
@@ -243,11 +249,11 @@ impl UiRuntime {
             envelope.local_millis,
             Some(envelope.server_tick),
         )?;
-        let mut health = self.hud.health();
-        let mut hunger = self.hud.hunger();
-        let mut absorption = self.hud.absorption();
-        let mut xp_level = self.hud.experience().map(|xp| xp.level);
-        let mut xp_progress = self.hud.experience().map(|xp| xp.progress);
+        let mut health = self.session.hud.health();
+        let mut hunger = self.session.hud.hunger();
+        let mut absorption = self.session.hud.absorption();
+        let mut xp_level = self.session.hud.experience().map(|xp| xp.level);
+        let mut xp_progress = self.session.hud.experience().map(|xp| xp.progress);
         for attribute in envelope.attributes.iter() {
             match attribute.name.as_ref() {
                 // A semantically odd value (non-finite, inverted range) in a
@@ -258,7 +264,7 @@ impl UiRuntime {
                         self.publish_local_player_alive(attribute.current > 0.0);
                         health = Some(stat);
                     }
-                    None => self.gameplay_hud.note_odd_attribute(),
+                    None => self.session.gameplay_hud.note_odd_attribute(),
                 },
                 "minecraft:player.hunger" => {
                     if player_runtime.facts.apply_hunger_attribute(attribute) {
@@ -266,17 +272,17 @@ impl UiRuntime {
                             BoundedStat::new_scaled(stat.current(), stat.maximum(), stat.scale())
                         });
                     } else {
-                        self.gameplay_hud.note_odd_attribute();
+                        self.session.gameplay_hud.note_odd_attribute();
                     }
                 }
                 "minecraft:player.saturation" => {
-                    self.gameplay_hud.set_saturation(attribute.current);
+                    self.session.gameplay_hud.set_saturation(attribute.current);
                 }
                 // The native heart renderer reads current absorption, independently
                 // of the attribute range; zero clears the golden hearts.
                 "minecraft:absorption" => match hud_adapter::attribute_stat(attribute) {
                     Some(stat) => absorption = Some(stat),
-                    None => self.gameplay_hud.note_odd_attribute(),
+                    None => self.session.gameplay_hud.note_odd_attribute(),
                 },
                 // Bedrock sends experience as attributes, not a dedicated packet: progress in
                 // 0.0..=1.0 and an integer level. `f32 as u32` saturates, so a stray value is bounded.
@@ -290,21 +296,26 @@ impl UiRuntime {
             }
         }
         // An authoritative health decrease can dismiss screens that close when hurt.
-        if let (Some(previous), Some(next)) = (self.hud.health(), health)
+        if let (Some(previous), Some(next)) = (self.session.hud.health(), health)
             && u32::from(next.current()) * u32::from(previous.scale())
                 < u32::from(previous.current()) * u32::from(next.scale())
         {
             self.note_player_hurt();
         }
-        self.hud
-            .set_stats(health, hunger, self.hud.armor(), self.hud.air());
-        self.hud.set_absorption(absorption);
+        self.session.hud.set_stats(
+            health,
+            hunger,
+            self.session.hud.armor(),
+            self.session.hud.air(),
+        );
+        self.session.hud.set_absorption(absorption);
         if xp_level.is_some() || xp_progress.is_some() {
-            self.hud
+            self.session
+                .hud
                 .set_experience(xp_level.unwrap_or(0), xp_progress.unwrap_or(0.0));
         }
-        self.last_fifo_sequence = Some(envelope.fifo_sequence);
-        self.last_local_millis = Some(envelope.local_millis);
+        self.session.last_fifo_sequence = Some(envelope.fifo_sequence);
+        self.session.last_local_millis = Some(envelope.local_millis);
         self.observe_presentation_tick(envelope.server_tick, envelope.local_millis);
         Ok(())
     }
@@ -331,11 +342,11 @@ impl UiRuntime {
         metadata: &[ActorMetadata],
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
-        self.gameplay_hud.apply_metadata(metadata);
-        if let Some((current, maximum)) = self.gameplay_hud.air_ticks() {
-            self.hud.set_air(BoundedStat::new(current, maximum));
+        self.session.gameplay_hud.apply_metadata(metadata);
+        if let Some((current, maximum)) = self.session.gameplay_hud.air_ticks() {
+            self.session.hud.set_air(BoundedStat::new(current, maximum));
         }
-        self.last_fifo_sequence = Some(fifo_sequence);
+        self.session.last_fifo_sequence = Some(fifo_sequence);
         Ok(())
     }
 
@@ -351,8 +362,8 @@ impl UiRuntime {
         self.guard_local_apply(session_id, fifo_sequence)?;
         let event_tick = event.tick;
         event.tick = self.observe_presentation_tick(event_tick, local_millis);
-        self.gameplay_hud.apply_effect(event);
-        self.last_fifo_sequence = Some(fifo_sequence);
+        self.session.gameplay_hud.apply_effect(event);
+        self.session.last_fifo_sequence = Some(fifo_sequence);
         Ok(())
     }
 
@@ -423,7 +434,7 @@ impl UiRuntime {
     ) -> Result<(), UiRuntimeError> {
         self.guard_local_apply(session_id, fifo_sequence)?;
         self.publish_mount(player_runtime, ridden_unique_id);
-        self.last_fifo_sequence = Some(fifo_sequence);
+        self.session.last_fifo_sequence = Some(fifo_sequence);
         Ok(())
     }
 
@@ -434,17 +445,17 @@ impl UiRuntime {
         ridden_unique_id: Option<i64>,
     ) {
         player_runtime.facts.set_mount(ridden_unique_id);
-        self.gameplay_hud.set_mount(ridden_unique_id);
+        self.session.gameplay_hud.set_mount(ridden_unique_id);
     }
 
     fn guard_local_apply(&self, session_id: u64, fifo_sequence: u64) -> Result<(), UiRuntimeError> {
-        if session_id != self.session_id {
+        if session_id != self.session.session_id {
             return Err(UiRuntimeError::WrongSession {
-                expected: self.session_id,
+                expected: self.session.session_id,
                 actual: session_id,
             });
         }
-        if let Some(previous) = self.last_fifo_sequence
+        if let Some(previous) = self.session.last_fifo_sequence
             && fifo_sequence <= previous
         {
             return Err(UiRuntimeError::StaleFifoSequence {
@@ -471,34 +482,34 @@ impl UiRuntime {
     }
 
     pub fn set_server_lang(&mut self, overlay: Option<Arc<assets::ServerLangOverlay>>) {
-        self.server_lang = overlay;
+        self.session.server_lang = overlay;
         self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
     pub fn set_session_icons(&mut self, icons: Option<Arc<super::presentation::SessionIcons>>) {
-        self.session_icons = icons;
+        self.session.session_icons = icons;
     }
 
     pub fn set_session_glyphs(
         &mut self,
         glyphs: Option<Arc<super::presentation::SessionGlyphSheets>>,
     ) {
-        self.session_glyphs = glyphs;
+        self.session.session_glyphs = glyphs;
     }
 
     pub fn session_glyphs(&self) -> Option<&Arc<super::presentation::SessionGlyphSheets>> {
-        self.session_glyphs.as_ref()
+        self.session.session_glyphs.as_ref()
     }
 
     pub fn session_icons(&self) -> Option<&Arc<super::presentation::SessionIcons>> {
-        self.session_icons.as_ref()
+        self.session.session_icons.as_ref()
     }
 
     pub fn set_session_items(
         &mut self,
         items: Option<Arc<super::item_facts::SessionItemComponents>>,
     ) {
-        self.session_items = items;
+        self.session.session_items = items;
         self.item_name_generation = self.item_name_generation.wrapping_add(1);
     }
 
@@ -509,12 +520,12 @@ impl UiRuntime {
 
     /// The server's components for `identifier` this session.
     pub fn item_components(&self, identifier: &str) -> Option<&protocol::ItemComponents> {
-        self.session_items.as_ref()?.get(identifier)
+        self.session.session_items.as_ref()?.get(identifier)
     }
 
     /// The semantic item-name colour resolved when session components were admitted.
     pub fn item_name_color(&self, identifier: &str) -> Option<ui::BedrockColor> {
-        self.session_items.as_ref()?.name_color(identifier)
+        self.session.session_items.as_ref()?.name_color(identifier)
     }
 
     /// Combines cached enchantments with the current numeric registry's shine fact.
@@ -545,11 +556,11 @@ impl UiRuntime {
     }
 
     pub fn set_server_ui(&mut self, pack: Option<Arc<super::presentation::ServerUiPack>>) {
-        self.server_ui = pack;
+        self.session.server_ui = pack;
     }
 
     pub fn server_ui(&self) -> Option<&Arc<super::presentation::ServerUiPack>> {
-        self.server_ui.as_ref()
+        self.session.server_ui.as_ref()
     }
 
     /// Identifies the language tables [`Self::translation`] reads; any
@@ -561,13 +572,13 @@ impl UiRuntime {
         [
             address(self.lang_catalog.as_ref()),
             address(self.active_lang.as_ref()),
-            address(self.server_lang.as_ref()),
+            address(self.session.server_lang.as_ref()),
         ]
     }
 
     pub(super) fn translation(&self, key: &str) -> Option<Arc<str>> {
         translate(
-            self.server_lang.as_deref(),
+            self.session.server_lang.as_deref(),
             self.active_lang.as_deref(),
             self.lang_catalog.as_deref(),
             key,
@@ -577,7 +588,7 @@ impl UiRuntime {
     /// The language tables [`Self::translation`] reads, detached for another thread.
     pub fn translator(&self) -> Translator {
         Translator {
-            server: self.server_lang.clone(),
+            server: self.session.server_lang.clone(),
             active: self.active_lang.clone(),
             base: self.lang_catalog.clone(),
         }
@@ -594,7 +605,10 @@ impl UiRuntime {
                 .translation(name)
                 .map_or_else(|| name.to_owned(), |text| text.as_ref().to_owned());
         }
-        if self.server_lang.is_some() || self.active_lang.is_some() || self.lang_catalog.is_some() {
+        if self.session.server_lang.is_some()
+            || self.active_lang.is_some()
+            || self.lang_catalog.is_some()
+        {
             if let Some(ids) = assets::item::names::serialization_ids(identifier) {
                 for id in ids.into_iter().filter(|id| !id.is_empty()) {
                     let key = if id.starts_with("item.record_") {

@@ -207,7 +207,7 @@ pub fn book_data(
         .collect();
     let items = std::sync::Arc::from(items);
     *cache = Some(
-        BookCache::capture(source, frame, first_icon, icons, &items)
+        BookCache::capture(source, frame, first_icon, &items)
             .unwrap_or_else(|| BookCache::capture_rows(creative, rows, first_icon, icons, &items)),
     );
     data.set_shared_collection(COLLECTION, items);

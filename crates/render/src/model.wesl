@@ -130,6 +130,17 @@ fn rotate_cross(position: vec3<f32>, transform: u32) -> vec3<f32> {
     return rotated + vec3(0.5, 0.0, 0.5);
 }
 
+/// Turns a template-space position by a model turn: its quarter turns about x (bits 2-3), each
+/// taking +y to +z about the block centre, then its quarter turns about y (bits 0-1) as
+/// `rotate_cross` makes them. Overlays turn to their face this way.
+fn rotate_model_turn(position: vec3<f32>, turn: u32) -> vec3<f32> {
+    var turned = position;
+    for (var x_turn = 0u; x_turn < ((turn >> 2u) & 3u); x_turn += 1u) {
+        turned = vec3(turned.x, 1.0 - turned.z, turned.y);
+    }
+    return rotate_cross(turned, turn);
+}
+
 // Current lily-pad tessellator: unsigned wrapping position hash.
 fn lily_pad_rotation(position: vec3<i32>) -> u32 {
     let h = (bitcast<u32>(position.z) * 0x6ebfff5u) ^
@@ -176,11 +187,12 @@ fn vertex(
     return model_vertex(offsets.x, offsets.y + instance_index);
 }
 
-/// One quad of a placed model, decoded as every model program reads it.
+/// One quad of a placed model, decoded as every model program reads it. Its flags are 0 or 1
+/// in `u32`s: older Mali compilers fault on bool struct members merged across returns.
 struct ModelQuad {
-    /// False when the draw ref, model ref, template or lighting record is out of range, or
+    /// Zero when the draw ref, model ref, template or lighting record is out of range, or
     /// the quad is hidden by its ref's visibility mask; no other field is meaningful then.
-    valid: bool,
+    valid: u32,
     template_quad_base: u32,
     quad_index: u32,
     packed_transform: u32,
@@ -189,8 +201,8 @@ struct ModelQuad {
     block_position: vec3<f32>,
     /// Quarter turns about the block's vertical centre line, after bamboo and lily-pad rules.
     rotation: u32,
-    is_lily_pad: bool,
-    is_bamboo: bool,
+    is_lily_pad: u32,
+    is_bamboo: u32,
     /// Bamboo's packed placement offset, added to template corners before `rotation`.
     template_offset: vec3<f32>,
     /// Bamboo leaf plane inset, added after `template_offset` and before `rotation`.
@@ -207,7 +219,7 @@ struct ModelQuad {
 
 fn invalid_model_quad() -> ModelQuad {
     var quad: ModelQuad;
-    quad.valid = false;
+    quad.valid = 0u;
     return quad;
 }
 
@@ -264,7 +276,7 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         return invalid_model_quad();
     }
     var quad: ModelQuad;
-    quad.valid = true;
+    quad.valid = 1u;
     quad.template_quad_base = template_quad_words + (quad_start + quad_index) * 12u;
     quad.quad_index = quad_index;
     quad.packed_transform = packed_transform;
@@ -275,11 +287,11 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         f32((packed_transform >> 8u) & 15u),
     );
     quad.chunk_origin = chunk_origins(metadata_index).value;
-    quad.is_lily_pad = (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u;
-    quad.is_bamboo = (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u;
+    quad.is_lily_pad = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_LILY_PAD_FLAG) != 0u);
+    quad.is_bamboo = select(0u, 1u, (model_templates(descriptor + 2u) & MODEL_BAMBOO_FLAG) != 0u);
     let has_offset = (packed_transform & MODEL_RANDOM_OFFSET_FLAG) != 0u;
     quad.rotation = packed_transform >> 12u;
-    if (quad.is_bamboo) {
+    if (quad.is_bamboo != 0u) {
         if (!has_offset) {
             quad.template_offset.x = BAMBOO_OFFSET_MIN + f32(quad.rotation & 15u) * BAMBOO_OFFSET_STEP;
             quad.template_offset.z = BAMBOO_OFFSET_MIN + f32((quad.rotation >> 4u) & 15u) * BAMBOO_OFFSET_STEP;
@@ -288,7 +300,7 @@ fn model_quad_at(model_ref_index: u32, quad_index: u32, metadata_index: u32) -> 
         if (quad_index == BAMBOO_POSITIVE_Z_LEAF_QUAD) { quad.leaf_inset.x = BAMBOO_LEAF_PLANE_INSET; }
         quad.rotation = 0u;
     }
-    if (quad.is_lily_pad) {
+    if (quad.is_lily_pad != 0u) {
         quad.rotation = lily_pad_rotation(quad.chunk_origin.xyz + vec3<i32>(quad.block_position));
     }
     if (has_offset) {
@@ -315,7 +327,7 @@ fn model_corner_position(quad: ModelQuad, corner: u32) -> vec3<f32> {
         f32(packed_i16(quad.template_quad_base, component + 1u)),
         f32(packed_i16(quad.template_quad_base, component + 2u)),
     ) / 256.0;
-    return rotate_cross(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
+    return rotate_model_turn(template_position + quad.template_offset + quad.leaf_inset, quad.rotation) + quad.placement_offset;
 }
 
 /// Whether every authored corner UV of `quad` lies within a single tile, so the quad never repeats.
@@ -344,7 +356,7 @@ fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<
             default: {}
         }
     }
-    if (quad.is_bamboo && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
+    if (quad.is_bamboo != 0u && ((BAMBOO_STEM_SIDE_QUAD_MASK >> quad.quad_index) & 1u) != 0u) {
         uv.x += f32((quad.packed_transform >> 20u) & 3u) * BAMBOO_STEM_UV_STRIDE;
     }
     return uv;
@@ -356,16 +368,28 @@ fn model_light_sample(quad: ModelQuad, corner: u32) -> u32 {
     return select(light_word & 0xffffu, light_word >> 16u, (corner & 1u) != 0u);
 }
 
+/// Unit normal of a model-carrier face id; zero for faceless quads.
+fn model_face_normal(face: u32) -> vec3<f32> {
+    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
+    return normals[face & 7u];
+}
+
 /// The quad's authored shading normal, turned with the model.
 fn model_quad_normal(quad: ModelQuad) -> vec3<f32> {
-    let normals = array(vec3(0.0), vec3(0.0,-1.0,0.0), vec3(0.0,1.0,0.0), vec3(-1.0,0.0,0.0), vec3(1.0,0.0,0.0), vec3(0.0,0.0,-1.0), vec3(0.0,0.0,1.0));
-    return rotate_cross(normals[quad.quad_flags & 7u] + vec3(0.5,0.0,0.5), quad.rotation) - vec3(0.5,0.0,0.5);
+    return rotate_model_turn(model_face_normal(quad.quad_flags) + vec3(0.5), quad.rotation) - vec3(0.5);
+}
+
+/// Normal whose face coefficient shades the quad: the shade face `light_sample` carries for a
+/// detail quad that keeps the colour of the cuboid face drawn before it, else `normal`.
+fn model_shade_normal(normal: vec3<f32>, light_sample: u32) -> vec3<f32> {
+    let face = (light_sample >> MODEL_SHADE_FACE_SHIFT) & 7u;
+    return select(normal, model_face_normal(face), face != 0u);
 }
 
 fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let corner = vertex_index & 3u;
     let quad = model_quad(instance_index, vertex_index / 4u);
-    if (!quad.valid) {
+    if (quad.valid == 0u) {
         return invisible_vertex();
     }
     let template_position = model_corner_position(quad, corner);
@@ -374,8 +398,8 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     let material_id = quad.material_id;
     let quad_flags = quad.quad_flags;
     let rotation = quad.rotation;
-    let is_lily_pad = quad.is_lily_pad;
-    let is_bamboo = quad.is_bamboo;
+    let is_lily_pad = quad.is_lily_pad != 0u;
+    let is_bamboo = quad.is_bamboo != 0u;
     let material = materials(quad.selected_material_id);
     let frame = animation_sample(material);
     let light_sample = model_light_sample(quad, corner);
@@ -400,7 +424,7 @@ fn model_vertex(vertex_index: u32, instance_index: u32) -> VertexOutput {
     // plane. Apply it after sampling, without another 8-bit atlas quantization.
     let pad_shade = select(1.0, 15.0 / 255.0, out.normal.y < 0.0);
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
-    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let dimming = material_face_shade(model_shade_normal(out.normal, light_sample), (light_sample & 2048u) != 0u, material.flags);
     let terrain_shade = select(ao * dimming, pad_shade, is_lily_pad);
     out.lighting = light_colour(light_sample) * terrain_shade;
     @if(ENHANCED)
@@ -445,7 +469,7 @@ template_quad_base: u32, @if(ENHANCED)
 corner: u32, @if(ENHANCED)
 transform: u32) -> vec3<f32> {
     let component = corner * 3u;
-    return rotate_cross(vec3<f32>(
+    return rotate_model_turn(vec3<f32>(
         f32(packed_i16(template_quad_base, component)),
         f32(packed_i16(template_quad_base, component + 1u)),
         f32(packed_i16(template_quad_base, component + 2u)),

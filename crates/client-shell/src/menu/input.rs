@@ -33,7 +33,7 @@ use bevy::{
     prelude::{ButtonInput, Entity, KeyCode, Local, MouseButton, Query, Res, ResMut, Single, With},
     window::{CursorGrabMode, CursorOptions, PrimaryWindow, Window},
 };
-use ui::{ChatEditor, ToastPress, UiPoint};
+use ui::{ChatEditor, UiPoint};
 
 use crate::ui_resources::{UiPresentationResource, UiRuntimeResource};
 use client_ui::ui_runtime::presentation::UiPresentationRuntime;
@@ -309,8 +309,12 @@ pub fn drive_menu_input(
                 .collect()
         })
         .unwrap_or_default();
+    let pack_cover = runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.resource_pack_loading());
     if driven.is_none()
         && (!window.1.focused || focus.as_ref().is_some_and(|focus| !focus.available()))
+        || pack_cover
         || !menu.is_visible()
         || consent.as_ref().is_some_and(|consent| consent.0)
         || runtime.as_ref().is_some_and(|runtime| {
@@ -329,7 +333,7 @@ pub fn drive_menu_input(
         menu.advance_death_controls(time.delta_secs_f64());
     }
     menu.settings.slider_hovered = None;
-    if consent.is_some_and(|consent| consent.0) {
+    if consent.is_some_and(|consent| consent.0) || pack_cover {
         presentation.cancel_touch_editor_pointer();
         gui_scale_drag.editor_touch = None;
         presentation.cancel_menu_player_preview_input();
@@ -347,6 +351,10 @@ pub fn drive_menu_input(
         menu.hovered = None;
         menu.pointer_down = false;
         *modifiers = MenuModifiers::default();
+        if pack_cover {
+            keys.reset_all();
+            mouse_buttons.reset_all();
+        }
         gui_scale_drag.captured = false;
         gui_scale_drag.left_held = false;
         if let Some(messages) = mouse_messages.as_deref() {
@@ -535,15 +543,14 @@ pub fn drive_menu_input(
             keys.reset_all();
         } else if cursor.grab_mode == CursorGrabMode::None
             && mouse_buttons.just_pressed(MouseButton::Left)
-            && window
+            && let Some(press) = window
                 .cursor_position()
                 .and_then(|position| UiPoint::new(position.x, position.y).ok())
                 .and_then(|point| presentation.toast_press_at(point))
-                == Some(ToastPress::JoinRequests)
         {
-            // A free cursor pressing the join request toast opens its popup, and nothing beneath;
+            // A free cursor pressing an actionable toast runs its press, and nothing beneath;
             // the held press is not a new one for the menu.
-            menu.open_join_requests();
+            menu.press_toast(press);
             menu.pointer_down = true;
             mouse_buttons.reset(MouseButton::Left);
         }
@@ -561,7 +568,12 @@ pub fn drive_menu_input(
         return;
     }
 
-    if mouse_buttons.just_pressed(MouseButton::Back) {
+    if crate::menu::settings_options::control_bindings::menu_cancel_mouse(
+        Some(&*menu),
+        &mouse_buttons,
+    )
+    .is_some()
+    {
         menu.go_back_from_input();
         gui_scale_drag.cancel_pointer(&mut menu, &mut presentation);
         modifiers.capture_pressed(&keys);
@@ -881,6 +893,16 @@ pub fn drive_menu_input(
                 if input.repeat => {}
             KeyCode::Space if input.repeat && !menu.has_focused_field() => {}
             KeyCode::Escape => menu.go_back_from_input(),
+            // A Menu Cancel key goes back like Escape unless a field takes typed keys.
+            key if !input.repeat
+                && !menu.has_focused_field()
+                && crate::menu::settings_options::control_bindings::menu_cancel_key(
+                    Some(&*menu),
+                    key,
+                ) =>
+            {
+                menu.go_back_from_input()
+            }
             KeyCode::Backspace if native_settings => menu.go_back_from_input(),
             KeyCode::ArrowUp => {
                 menu.move_directional_focus(launcher::menu::view::SettingsFocusAxis::Vertical, -1)

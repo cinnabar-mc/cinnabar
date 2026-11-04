@@ -5,9 +5,10 @@ use super::{
     status::write_json,
 };
 use launcher::mods::Status;
+use launcher_host::mod_library::paths::{resolved_component, same_path};
 use mod_host::ModGrants;
 use sha2::{Digest, Sha256};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub(super) const SELECTION_CHANGED: &str = "The mod selection changed before removal finished.";
 
@@ -31,36 +32,6 @@ impl Receipt {
             Err(SELECTION_CHANGED.into())
         }
     }
-}
-
-/// Matches resolved entries, also resolving a missing companion through its existing parent.
-pub(in crate::modding) fn same_path(left: &Path, right: &Path) -> bool {
-    left == right
-        || resolved_path(left)
-            .zip(resolved_path(right))
-            .is_some_and(|(left, right)| left == right)
-}
-
-/// Resolves directory aliases without requiring a not-yet-created settings entry to exist.
-pub(super) fn resolved_path(path: &Path) -> Option<PathBuf> {
-    path.canonicalize()
-        .ok()
-        .or_else(|| Some(path.parent()?.canonicalize().ok()?.join(path.file_name()?)))
-}
-
-/// Resolves only directory aliases; a selected leaf link must still fail source admission.
-pub(super) fn resolved_component(path: &Path) -> PathBuf {
-    path.parent()
-        .and_then(|parent| parent.canonicalize().ok())
-        .zip(path.file_name())
-        .map(|(parent, name)| parent.join(name))
-        .unwrap_or_else(|| path.into())
-}
-
-/// Uses a resolved component path for panel ownership and cards without a source revision.
-pub(in crate::modding) fn component_id(component: &Path) -> u64 {
-    let digest = Sha256::digest(component.to_string_lossy().as_bytes());
-    u64::from_le_bytes(digest[..8].try_into().expect("eight digest bytes"))
 }
 
 /// A valid entry and the status for its list's current request.
@@ -256,6 +227,12 @@ pub(in crate::modding) fn permission(
         let descriptor = ModGrants::CAPABILITIES
             .get(capability)
             .ok_or("Unknown capability.")?;
+        if enabled && descriptor.packet_only {
+            let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+            if !mod_host::is_packet_source(&bytes) {
+                return Err("This permission requires a packet component.".into());
+            }
+        }
         let requested = if enabled {
             mod_host::declarations(component)
                 .and_then(|declared| declared.requested)
@@ -277,12 +254,34 @@ pub(in crate::modding) fn allow_requested(
     component: &Path,
     request_id: String,
 ) -> Result<(), String> {
-    let requested = mod_host::declarations(component)
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::is_packet_source(&bytes);
+    let mut requested = mod_host::declarations_snapshot(&bytes)
         .and_then(|declared| declared.requested)
         .map_err(|error| error.to_string())?
         .ok_or("This mod doesn't declare its permissions.")?;
+    requested.retain_applicable(packet);
     change_grants(directory, component, request_id, |grants| {
         *grants = requested;
+        Ok(())
+    })
+}
+
+/// Grants all applicable capabilities and declared commands without changing the source's host.
+pub(in crate::modding) fn grant_all(
+    directory: &Path,
+    component: &Path,
+    request_id: String,
+) -> Result<(), String> {
+    let bytes = mod_host::read_source(component).map_err(|error| error.to_string())?;
+    let packet = mod_host::is_packet_source(&bytes);
+    let requested = mod_host::declarations_snapshot(&bytes)
+        .and_then(|declared| declared.requested)
+        .map_err(|error| error.to_string())?;
+    change_grants(directory, component, request_id, |grants| {
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(grants, capability.applies_to(packet), requested.as_ref());
+        }
         Ok(())
     })
 }
@@ -341,6 +340,9 @@ pub(in crate::modding) fn forget(
 fn write_selection(path: &Path, registration: Registration) -> Result<Receipt, String> {
     registration.validate()?;
     let bytes = serde_json::to_vec(&registration).map_err(|error| error.to_string())?;
+    if bytes.len() > super::MAX_BYTES {
+        return Err("The mod list is too large to save.".into());
+    }
     let fingerprint = Sha256::digest(&bytes).into();
     write_json(path, &registration)
         .map_err(|error| format!("Could not save the mod selection: {error}"))?;

@@ -22,6 +22,7 @@ mod effects;
 mod emote;
 mod encoding;
 mod input_state;
+mod interaction_rotation;
 
 pub use input_state::TickInput;
 mod evidence;
@@ -30,6 +31,7 @@ mod locomotion;
 mod outbox;
 mod physics;
 mod prediction_sync;
+mod requested_breaks;
 mod respawn;
 pub mod session_blocks;
 mod speed_authority;
@@ -475,6 +477,7 @@ impl MovementTicker {
             yaw,
             head_yaw: sample.head_yaw,
             camera_orientation: sample.camera_orientation,
+            interact_rotation: interaction_rotation::from_facing(sample.pitch, sample.yaw),
             flags: input_flags(sample, self.previous_input)
                 | self.take_next_tick_flags()
                 | self.advance_emote_input(),

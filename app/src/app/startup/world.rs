@@ -81,7 +81,7 @@ impl WorldPreparation {
 
 /// Starts after the menu report and publishes a complete bundle for the next Update.
 fn poll(world: &mut World) {
-    if !world.resource::<WorldWorkAdmission>().is_admitted() {
+    if !world.resource::<WorldWorkAdmission>().can_prepare_assets() {
         return;
     }
     let Some(mut pending) = world.remove_resource::<PendingWorld>() else {
@@ -312,12 +312,16 @@ mod tests {
         assert_eq!(count.load(Ordering::Relaxed), 0);
         assert!(world.resource::<PendingWorld>().worker.is_none());
         assert!(!world.contains_resource::<WorldReady>());
-        admission.admit();
+        admission.menu_presented();
         test_time::eventually("complete world bundle published", || {
             world.run_system_once(poll).unwrap();
             world.contains_resource::<WorldReady>()
         });
         world.run_system_once(poll).unwrap();
         assert_eq!(count.load(Ordering::Relaxed), 1);
+        assert!(
+            admission.is_admitted(),
+            "completed menu admits background GPU preparation too"
+        );
     }
 }

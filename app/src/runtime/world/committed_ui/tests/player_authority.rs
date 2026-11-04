@@ -520,6 +520,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
         );
         sender
             .try_send(NetworkControlEvent::Bootstrap {
+                player_rotation: [0.0, 180.0],
                 identity: Default::default(),
                 session_generation: simulation_clock::identity::SessionGeneration::new(generation),
                 world: WorldBootstrap {

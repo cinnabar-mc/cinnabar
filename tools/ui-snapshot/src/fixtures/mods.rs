@@ -49,6 +49,18 @@ pub(super) const STATES: &[State] = &[
         fixture: show_all,
     },
     State {
+        name: "settings-mods-permissions-none",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: no_grants,
+    },
+    State {
+        name: "settings-mods-permissions-none-narrow",
+        size: [360, 900],
+        gui_scale: GUI_SCALE,
+        fixture: no_grants,
+    },
+    State {
         name: "settings-mods-permissions-narrow",
         size: [360, 900],
         gui_scale: GUI_SCALE,
@@ -69,6 +81,7 @@ fn view(metadata: bool) -> Fixture {
         file: file.into(),
         bytes: 182_272,
         permissions: vec![Permission {
+            applicable: true,
             name: "time override".into(),
             description: "Lets the mod fix the local time of day.".into(),
             enabled: true,
@@ -100,6 +113,7 @@ fn view(metadata: bool) -> Fixture {
                         icon: Some(icon()),
                         update_repository: None,
                         update_url: None,
+                        revision_update: None,
                     },
                 ),
                 card(
@@ -221,9 +235,22 @@ fn permissions(customizing: bool, show_all: bool, consent: bool, declared: bool)
             false,
             true,
         ),
+        (
+            "Session packets",
+            "Allows session packet access for packet components.",
+            false,
+            true,
+        ),
+        (
+            "WASI runtime",
+            "Allows the packet runtime's WASI services.",
+            false,
+            false,
+        ),
     ]
     .into_iter()
     .map(|(name, description, requested, sensitive)| Permission {
+        applicable: !matches!(name, "Session packets" | "WASI runtime"),
         name: name.into(),
         description: description.into(),
         enabled: requested && !consent,
@@ -259,6 +286,11 @@ pub fn requested_only() -> Fixture {
 /// Requested permissions precede the optional permissions in the expanded grid.
 pub fn show_all() -> Fixture {
     permissions(true, true, false, true)
+}
+
+/// An undeclared component with every permission off and the full grid open.
+pub fn no_grants() -> Fixture {
+    permissions(true, true, true, false)
 }
 
 /// A component without a declaration can only customize its grants.

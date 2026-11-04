@@ -13,6 +13,9 @@ pub(crate) use missing::supply_vertex_outputs;
 /// Requires compatible live buffer layouts and vertex outputs for every fragment input.
 pub(crate) fn validate(stages: &[&CompiledStage]) -> Result<(), String> {
     validate_buffers(stages)?;
+    if stages.iter().any(|s| s.stage == StageKind::Geometry) {
+        return Ok(());
+    }
     let Some(vertex) = stages.iter().find(|stage| stage.stage == StageKind::Vertex) else {
         return Ok(());
     };

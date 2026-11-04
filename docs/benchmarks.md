@@ -44,3 +44,66 @@ cargo bench --locked -p world -p meshing -p chunk-pipeline --features chunk-pipe
 These are CPU baselines, not join-time or FPS evidence. They omit socket framing,
 real server terrain, GPU preparation/uploads/draws and the rest of the Bevy frame.
 Native performance acceptance still follows [live testing](docs/agents/live-testing.md).
+
+# Scripted resident-render benchmark
+
+`cinnabar-mcp --repo <checkout> --benchmark <plan.json> <new-output-directory>`
+runs a developer-control client headlessly against a copied, pregenerated
+[terrain fixture](../tools/localserver/terrain-fixture.md). It copies an isolated
+user/cache template for each process, disables VSync, and rejects an effective
+frame cap, scaled rendering, resized target or different server-granted radius.
+Prepare the template with the desired explicit render distance and unlimited FPS.
+Keep templates, worlds and output outside the checkout. Input paths are relative
+to the plan file. The output directory must not already exist.
+
+```json
+{
+  "binary": "bin/cinnabar",
+  "server_binary": "bin/bedrock-local-server",
+  "frozen_world": "terrain-template",
+  "user_template": "benchmark-user-template",
+  "machine_id": "local-machine-a",
+  "power": "ac",
+  "window": [1920, 1080],
+  "render_distance": 12,
+  "warmup_s": 2,
+  "routes": [{
+    "name": "flight",
+    "start": [0, 100, 0],
+    "end": [192, 100, 0],
+    "yaw": -90,
+    "pitch": 20,
+    "vertical_fov": 70,
+    "speed": 16
+  }]
+}
+```
+
+Choose positions inside the fixture's resident content. Each route holds its first
+pose for settling, then flies linearly at the specified blocks per real second.
+This camera-only workload leaves the player and stream anchor in place. Resident
+column counts do not prove complete visible terrain or streaming performance.
+The resident wait uses a square inscribed in the server's circular delivery radius;
+it does not wait for undelivered square corners at the full requested radius.
+
+The runner currently supports Linux and macOS host probes. `report.json` contains
+exact average, 1% and 0.1% low FPS, frame-time percentiles and a fixed-edge histogram.
+`manifest.json` links input and trace hashes, native CPU stage splits, sampled GPU
+execution spans, GPU-completed title/world endpoints, sampled family peak RSS,
+hardware and effective settings. CPU stages can overlap. GPU samples have receipt
+times but no source-frame identity, so their all-frame tails remain unknown.
+Startup times begin at process entry, and RSS sums can count shared pages twice.
+Unsupported measurements stay explicit rather than becoming zero.
+
+`--benchmark-compare <first/report.json> <second/report.json>` refuses missing or
+different hardware, scene, route, cache, resolution, settings and timing semantics,
+or missing phases. Its ratios are first/second and describe diagnostic interval
+statistics only. One process run has no confidence interval. Full stage tracing
+changes the workload; neither this report nor a matching comparison closes a
+shipping-artifact, displayed-pacing, streaming, stability or hardware release gate.
+
+Trace overwrites, missing frame sequences and unclosed final intervals fail capture.
+Intervals belong to their starting frame, including a stall ending after the route.
+Every attempt retains an outcome receipt; failed attempts must not be replaced by
+successful retries. Logs and raw stage traces remain local and can contain private
+session details. Reports are never uploaded automatically.

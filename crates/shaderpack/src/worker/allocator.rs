@@ -14,6 +14,7 @@ struct Accounting {
     mode: AtomicU8,
     installed: AtomicBool,
     bytes: AtomicUsize,
+    exceeded: AtomicUsize,
 }
 
 impl Accounting {
@@ -23,6 +24,7 @@ impl Accounting {
             mode: AtomicU8::new(STARTUP),
             installed: AtomicBool::new(false),
             bytes: AtomicUsize::new(0),
+            exceeded: AtomicUsize::new(0),
         }
     }
 
@@ -35,13 +37,18 @@ impl Accounting {
             _ => return None,
         }
         self.installed.store(true, Ordering::Relaxed);
-        self.bytes
+        let reserved = self
+            .bytes
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
                 let next = current.checked_add(bytes)?;
                 (mode != WORKER || next <= super::MEMORY_LIMIT as usize).then_some(next)
             })
             .ok()
-            .map(|_| true)
+            .map(|previous| previous + bytes);
+        if reserved.is_some_and(|live| live > super::MEMORY_LIMIT as usize) {
+            self.exceeded.fetch_add(1, Ordering::Relaxed);
+        }
+        reserved.map(|_| true)
     }
 
     /// Selects an ordinary host permanently; it can never later run an unbounded compiler.
@@ -62,11 +69,18 @@ impl Accounting {
     fn release(&self, bytes: usize) {
         self.bytes.fetch_sub(bytes, Ordering::Relaxed);
     }
+
+    /// Reports current or transient soft-limit excess without refusing host allocations.
+    fn heap_exceeded(&self, epoch: usize) -> bool {
+        self.mode.load(Ordering::Relaxed) != HOST
+            && (self.bytes.load(Ordering::Relaxed) > super::MEMORY_LIMIT as usize
+                || self.exceeded.load(Ordering::Relaxed) != epoch)
+    }
 }
 
 static ACCOUNTING: Accounting = Accounting::new();
 
-/// Wraps a compiler executable's allocator; its budget is enabled only in worker mode.
+/// Tracks live heap for compiler hosts; only isolated worker mode refuses over-budget growth.
 /// The host must use this as its sole global allocator, including before worker startup.
 pub struct BudgetAllocator<A>(pub A);
 
@@ -93,6 +107,17 @@ pub(super) fn enable() -> bool {
 /// Startup allocations remain harmless credits; this process can no longer enter worker mode.
 pub fn disable_for_host() {
     ACCOUNTING.host();
+}
+
+/// Snapshots soft-limit crossings so even temporary excess is observed by an in-app compiler.
+pub(super) fn heap_epoch() -> usize {
+    ACCOUNTING.exceeded.load(Ordering::Relaxed)
+}
+
+/// Checks the live process heap when BudgetAllocator is installed and accounting remains on.
+/// In-app hosts keep startup accounting: refusing global allocations would abort the app.
+pub(super) fn heap_exceeded(epoch: usize) -> bool {
+    ACCOUNTING.heap_exceeded(epoch)
 }
 
 // SAFETY: every operation preserves the wrapped allocator's layouts and ownership. Refusing
@@ -157,6 +182,23 @@ unsafe impl<A: GlobalAlloc> GlobalAlloc for BudgetAllocator<A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn in_app_heap_excess_stops_compilation_without_refusing_host_memory() {
+        let accounting = Accounting::new();
+        let limit = super::super::MEMORY_LIMIT as usize;
+        let epoch = accounting.exceeded.load(Ordering::Relaxed);
+        assert_eq!(accounting.reserve(limit), Some(true));
+        assert!(!accounting.heap_exceeded(epoch));
+        assert_eq!(accounting.reserve(1), Some(true));
+        accounting.release(limit + 1);
+        assert!(
+            accounting.heap_exceeded(epoch),
+            "transient excess must be observed"
+        );
+        let next_epoch = accounting.exceeded.load(Ordering::Relaxed);
+        assert!(!accounting.heap_exceeded(next_epoch));
+    }
 
     #[test]
     fn live_heap_credit_cannot_exceed_the_enabled_budget() {

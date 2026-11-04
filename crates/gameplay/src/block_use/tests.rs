@@ -12,6 +12,7 @@ use super::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
 mod classification;
+mod edible_planting;
 mod held_placement;
 mod repeat_clock;
 mod respawn_anchor;
@@ -109,8 +110,8 @@ fn press_fires_at_once_and_held_repeats_keep_a_bounded_schedule() {
         clock(2_000, 5.0),
     );
     assert_eq!(runtime.last_use, Some(Duration::from_millis(1_820)));
-    // One attempt per tick; a failure keeps the schedule and retries next tick.
-    assert_eq!(runtime.due(true, 5, clock(5_000, 5.0)), None);
+    // A later buffered pick may use an elapsed deadline in the same tick.
+    assert!(runtime.due(true, 5, clock(5_000, 5.0)).is_some());
     let (trigger, due) = runtime.due(true, 6, clock(5_000, 5.0)).unwrap();
     runtime.record(trigger, due, 6, LocalUse::Nothing, clock(5_000, 5.0));
     assert!(runtime.due(true, 7, clock(5_001, 5.0)).is_some());
@@ -192,6 +193,31 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+/// A lectern is interactive and needs the open-containers ability, so a use press aimed at
+/// it places a held book instead of opening the book's own screen.
+#[test]
+fn a_lectern_takes_the_use_press_from_a_held_book() {
+    let book = verified(network_item(3, 0));
+    let lectern = surroundings("minecraft:lectern", "minecraft:air");
+    let resolve = |mode| {
+        LocalUse::resolve(
+            &book,
+            [2, 63, 0],
+            1,
+            &lectern,
+            &GameModeCapabilities::for_mode(mode),
+        )
+    };
+    assert_eq!(resolve(PlayerGameMode::Survival), LocalUse::Interact);
+    assert_eq!(resolve(PlayerGameMode::Spectator), LocalUse::Nothing);
+    assert!(super::block_takes_use_press(lectern.clicked, false));
+    assert!(!super::block_takes_use_press(lectern.clicked, true));
+    assert!(!super::block_takes_use_press(
+        block_fact("minecraft:stone"),
+        false
+    ));
 }
 
 #[test]
@@ -519,19 +545,36 @@ fn first_success_starts_before_swing_and_repeat_keeps_only_transaction() {
     );
 }
 
-/// Any hand repeats a block's own use while held, swinging and predicting success like the
-/// press; other non-block uses and buckets still do not repeat.
+/// Block interactions repeat for any non-bucket hand and preserve their prediction and swing.
 #[test]
 fn held_block_uses_repeat_for_any_hand() {
     let empty = verified(NetworkItemStack::empty());
     let tool = verified(network_item(2, 0));
     let block = verified(network_item(2, 77));
+    let clicked = block_fact("minecraft:chest");
     for item in [&empty, &tool] {
-        assert!(super::repeats_while_held(item, false, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, true, LocalUse::Interact));
-        assert!(!super::repeats_while_held(item, false, LocalUse::Nothing));
+        assert!(super::repeats_while_held(
+            item,
+            false,
+            LocalUse::Interact,
+            clicked,
+            Default::default()
+        ));
+        assert!(!super::repeats_while_held(
+            item,
+            true,
+            LocalUse::Interact,
+            clicked,
+            Default::default()
+        ));
     }
-    assert!(super::repeats_while_held(&block, false, LocalUse::Nothing));
+    assert!(super::repeats_while_held(
+        &block,
+        false,
+        LocalUse::Nothing,
+        clicked,
+        Default::default()
+    ));
     let observed =
         crate::interaction_authority::FrozenBlockObservation::fixture([2, 63, 0], 3, empty);
     let packets = use_packets(
@@ -581,6 +624,82 @@ fn held_block_uses_repeat_for_any_hand() {
     assert!(!transaction.cooldown_active);
 }
 
+/// Unknown item-specific successes must not be retried on a failed-prediction clock.
+#[test]
+fn failed_held_repeats_require_a_known_passive_crop_hand() {
+    use assets::facts::ItemTraits;
+
+    let empty = verified(NetworkItemStack::empty());
+    let item = verified(network_item(2, 0));
+    let crop = block_fact("minecraft:wheat");
+    let soil = block_fact("minecraft:dirt");
+    assert!(super::repeats_while_held(
+        &empty,
+        false,
+        LocalUse::Nothing,
+        crop,
+        Default::default()
+    ));
+    for traits in [ItemTraits::HOE, ItemTraits::PICKAXE] {
+        assert!(super::repeats_while_held(
+            &item,
+            false,
+            LocalUse::Nothing,
+            crop,
+            traits
+        ));
+        assert!(!super::repeats_while_held(
+            &item,
+            false,
+            LocalUse::Nothing,
+            soil,
+            traits
+        ));
+        assert!(!super::repeats_while_held(
+            &item,
+            true,
+            LocalUse::Nothing,
+            crop,
+            traits
+        ));
+    }
+    assert!(!super::repeats_while_held(
+        &item,
+        false,
+        LocalUse::Nothing,
+        crop,
+        Default::default()
+    ));
+}
+
+/// A non-block item resolves to placement only by planting, which repeats like any item use.
+#[test]
+fn held_seed_planting_repeats_unless_the_item_is_a_bucket() {
+    let seeds = verified(network_item(2, 0));
+    let soil = block_fact("minecraft:farmland");
+    assert!(super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        true,
+        LocalUse::Place,
+        soil,
+        Default::default()
+    ));
+    assert!(!super::repeats_while_held(
+        &seeds,
+        false,
+        LocalUse::Nothing,
+        soil,
+        Default::default()
+    ));
+}
+
 /// Orientation caching applies to placement-direction states, not pillar axes.
 #[test]
 fn orientation_sensitive_states_preserve_the_original_world_hit() {
@@ -611,6 +730,30 @@ fn orientation_sensitive_states_preserve_the_original_world_hit() {
         [1.5, 64.0, 0.5],
     );
     assert_eq!(intention.first_world_hit(), Some([0.75, 64.0, 0.25]));
+}
+
+#[test]
+fn a_newly_placed_cell_is_not_reinterpreted_as_an_interaction() {
+    let mut intention = super::BuildIntention::default();
+    intention.record(
+        false,
+        [4, 64, -2],
+        LocalUse::Place,
+        true,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(intention.suppress_post_place_interaction([4, 64, -2]));
+    assert!(!intention.suppress_post_place_interaction([4, 64, -1]));
+    intention.record(
+        true,
+        [4, 64, -2],
+        LocalUse::Interact,
+        false,
+        false,
+        [4.5, 65.0, -1.5],
+    );
+    assert!(!intention.suppress_post_place_interaction([4, 64, -2]));
 }
 
 #[test]
@@ -683,7 +826,7 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         LocalUse::for_actor(&player, false, Default::default()),
         clock,
     );
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(!runtime.press_pending());
 }
 
@@ -716,7 +859,7 @@ fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
         true
     ));
     assert!(
-        !runtime.press_interacted(),
+        !runtime.press_consumed(),
         "the same press must be available to held-item use"
     );
     assert!(!runtime.press_pending());

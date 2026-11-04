@@ -204,7 +204,6 @@ pub struct LocalViewPose {
     feet_translation: Vec3,
     rotation: ViewRotation,
     freelook_rotation: Option<ViewRotation>,
-    detached_eye: Option<Vec3>,
     camera_reanchor_epoch: u64,
     sleeping: Option<sleeping::SleepingPose>,
     sleeping_camera: bool,
@@ -254,7 +253,6 @@ impl Default for LocalViewPose {
                 yaw: 0.0,
             },
             freelook_rotation: None,
-            detached_eye: None,
             camera_reanchor_epoch: 0,
             sleeping: None,
             sleeping_camera: false,
@@ -320,25 +318,23 @@ impl LocalViewPose {
         self.look_rotation()
     }
 
-    /// Starts or releases a camera-only translation, without relocating physics or interaction origins.
-    pub fn set_detached_translation(&mut self, enabled: bool) {
-        if enabled {
-            self.detached_eye.get_or_insert(self.eye_translation);
-        } else {
-            self.detached_eye = None;
-        }
+    /// Whether look input turns a freelook heading instead of the body.
+    pub const fn freelook_held(self) -> bool {
+        self.freelook_rotation.is_some()
     }
 
-    /// The detached camera's current eye, falling back to the body's eye.
-    pub fn detached_eye(&self) -> Vec3 {
-        self.detached_eye.unwrap_or(self.eye_translation)
+    /// The input heading's continuous yaw and its pitch in radians, including freelook.
+    pub fn look_angles(self) -> (f32, f32) {
+        let (yaw, pitch, _) = self.freelook_rotation.unwrap_or(self.rotation).angles();
+        (yaw, pitch)
     }
 
-    /// Advances only an existing detached view; gameplay's subject position is unchanged.
-    pub fn move_detached_eye(&mut self, position: Vec3) {
-        if self.detached_eye.is_some() && position.is_finite() {
-            self.detached_eye = Some(position);
-        }
+    /// Sets the input heading, freelook while held, to a continuous yaw and a pitch without roll.
+    pub fn set_look_angles(&mut self, yaw: f32, pitch: f32) {
+        self.freelook_rotation
+            .as_mut()
+            .unwrap_or(&mut self.rotation)
+            .set(Quat::from_euler(EulerRot::YXZ, yaw, pitch, 0.0), Some(yaw));
     }
 
     /// Restores the actor heading on release with the winding nearest the outgoing camera.
@@ -723,7 +719,6 @@ pub fn reset_local_player_session(
     settings.reset_perspective();
     view.reanchor_camera();
     view.set_freelook(false);
-    view.set_detached_translation(false);
     view.set_sleeping_presentation(None, false);
     let eye = Vec3::from_array(eye_position);
     view.set_subject_position(eye, eye - Vec3::Y * protocol::PLAYER_NETWORK_OFFSET);
@@ -796,11 +791,8 @@ pub fn resolve_camera_pose(
     let rotation = settings
         .death_rotation()
         .unwrap_or_else(|| view.camera_rotation());
-    let transform = if matches!(
-        settings.detached_view(),
-        Some(crate::camera::DetachedView::Fly { .. })
-    ) {
-        Transform::from_translation(view.detached_eye()).with_rotation(view.camera_rotation())
+    let transform = if let Some(presented) = settings.presented_view() {
+        Transform::from_translation(presented.position).with_rotation(presented.rotation)
     } else if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(
             stream.collision_store(),

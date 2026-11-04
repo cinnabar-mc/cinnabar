@@ -17,6 +17,9 @@ fn request(action: i32) -> Request {
         generation: 7,
     };
     info.context = Some(WorldContext {
+        opening_closed: false,
+        actor_riding_elsewhere: false,
+        entities: Vec::new(),
         current: handle.clone(),
         player: Some(PlayerLocation {
             world: handle.clone(),

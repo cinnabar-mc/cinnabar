@@ -10,6 +10,7 @@ mod compiler_contracts;
 mod compute;
 mod dimensions;
 mod draw_buffers;
+mod geometry;
 mod includes;
 mod legacy;
 mod options;

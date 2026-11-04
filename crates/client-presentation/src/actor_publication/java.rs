@@ -14,7 +14,9 @@ use render_model::{
     },
 };
 
-use super::hand::{HandInputs, HandSource, hand_progress, item_atlas, vanilla_hand_source};
+use super::hand::{
+    HandInputs, HandSource, decorated_item_atlas, hand_progress, vanilla_hand_source,
+};
 use crate::presentation::{
     actors::{ActorRigPresentation, convert_bones, convert_bones_with, lerp_degrees, wrap_degrees},
     equipment::{
@@ -383,13 +385,13 @@ fn third_person_input(
     local: bool,
 ) -> JavaBipedInput {
     let motion = rig.java;
-    let lerp = |[from, to]: [f32; 2]| from + (to - from) * alpha;
+    let (limb_swing, limb_amount) = motion.limb_motion(alpha);
     let body_yaw = lerp_degrees(rig.previous_body_yaw, rig.body_yaw, alpha);
     let (head_yaw, head_pitch) = head_look(actor, alpha, local);
     let using = actor.is_using_item();
     JavaBipedInput {
-        limb_swing: motion.limb_swing[1] - motion.limb_amount[1] * (1.0 - alpha),
-        limb_amount: lerp(motion.limb_amount).min(1.0),
+        limb_swing,
+        limb_amount,
         age: actor.status.age_ticks as f32 + alpha,
         head_yaw: wrap_degrees(head_yaw - body_yaw),
         head_pitch,
@@ -581,6 +583,7 @@ pub(super) fn hand_source(
             stream.authority().actor(runtime_id)?,
             &rig,
             main_attachable_input,
+            true,
         ))
     });
     if vanilla_draws(main.as_ref(), equipment_input.off.as_ref(), |item| {
@@ -645,7 +648,7 @@ pub(super) fn hand_source(
                 Some(hand),
             )
         });
-        let layer = attachable.flatten().or_else(|| {
+        let mut layer = attachable.flatten().or_else(|| {
             let input = item_animation
                 .map(|input| {
                     super::hand::attachable_hand_input(
@@ -679,7 +682,7 @@ pub(super) fn hand_source(
                 )
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     let off_layer = equipment_input.off.as_ref().and_then(|item| {
@@ -689,7 +692,7 @@ pub(super) fn hand_source(
             let input =
                 super::hand::attachable_hand_input(equipment_input, owner_equipment, input, true);
             let actor = stream.authority().actor(runtime_id)?;
-            let selected = equipment.select_held_item(item, actor, &rig, input);
+            let selected = equipment.select_held_item(item, actor, &rig, input, true);
             icon_fallback = selected.uses_icon_fallback();
             if icon_fallback {
                 return None;
@@ -705,14 +708,14 @@ pub(super) fn hand_source(
                 None,
             )
         });
-        let layer = attachable.or_else(|| {
+        let mut layer = attachable.or_else(|| {
             if icon_fallback {
                 equipment.first_person_offhand_icon(&inputs.presentation.submission, item)
             } else {
                 equipment.first_person_offhand(&inputs.presentation.submission, item)
             }
         })?;
-        let atlas = item_atlas(&layer, artwork)?;
+        let atlas = decorated_item_atlas(equipment, item, &mut layer, artwork)?;
         Some((layer, atlas))
     });
     // A missing held-item image does not make the hand empty. The empty arm's fixed pose is

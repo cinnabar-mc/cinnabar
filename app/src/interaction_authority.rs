@@ -178,12 +178,14 @@ pub(crate) fn observe_block_ray_using(
         Some(selection.item.block_runtime_id()),
     );
     context.liquids = liquids;
+    let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
     let world = PaletteWorld::new(
         stream.collision_store(),
         collisions.registry(stream.network_id_mode()),
         stream.current_dimension(),
         context,
-    );
+    )
+    .with_cell_overlays(&overlay_ids);
     let observed = world
         .observe(|world| choose(world, vector(ray.origin()), vector(ray.direction()), reach))
         .map_err(|_| BlockRayUnavailable)?;

@@ -81,7 +81,7 @@ impl IconBlocks {
     }
 
     pub(super) fn read(root: &Path) -> Result<Self, AssetError> {
-        let records = read_registry_for_protocol(assets::pinned_block_registry_bytes(), 2193)?;
+        let records = read_registry_for_protocol(assets::pinned_block_registry_bytes(), 2225)?;
         let has_catalogs = root.join("blocks.json").is_file()
             && root.join("textures/terrain_texture.json").is_file();
         Ok(Self {
@@ -137,6 +137,27 @@ impl IconBlocks {
                     candidate.name == record.name
                         && state[BlockProperty::FacingDirection.name()]["value"] == 5
                         && state[BlockProperty::ButtonPressedBit.name()]["value"] == 0
+                })
+                .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
+        }
+        if assets::facts::block_render_fact(&record.name).kind
+            == assets::facts::BlockRenderKind::Lectern
+        {
+            // The stand turns its reading surface toward the viewer, like the placed south pose.
+            return self
+                .records
+                .iter()
+                .find(|candidate| {
+                    let Ok(state) =
+                        serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
+                    else {
+                        return false;
+                    };
+                    use assets::facts::BlockProperty;
+                    candidate.name == record.name
+                        && state[BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                            == "south"
+                        && state[BlockProperty::PoweredBit.name()]["value"] == 0
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
@@ -197,12 +218,19 @@ impl IconBlocks {
         if !block.is_known() {
             return false;
         }
+        let record = self.records.get(visual.0 as usize);
+        // A piston's item is a full cube, although its exact world body is cropped.
+        if record.is_some_and(|record| {
+            record
+                .traits
+                .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+        }) {
+            return true;
+        }
         if block.support() == VisualSupport::VanillaFallback
-            && self.records.get(visual.0 as usize).is_some_and(|record| {
+            && record.is_some_and(|record| {
                 record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier()
-                    || record
-                        .traits
-                        .contains(BlockTraits::PISTON | BlockTraits::BODY_RELATIVE_FACING)
+                    || record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
             })
         {
             return true;
@@ -280,6 +308,16 @@ impl IconBlocks {
                     return Ok(None);
                 };
                 transform
+            } else if carried
+                && record.name.as_ref() == assets::facts::pack::PackBlock::Observer.identifier()
+            {
+                // The base game's observer item draws its default state turned south, whose
+                // south face shows the authored north slot and whose north face the south slot.
+                match face {
+                    BlockFace::North => (BlockFace::South, 0),
+                    BlockFace::South => (BlockFace::North, 0),
+                    _ => (face, 0),
+                }
             } else if record.name.as_ref() == assets::facts::pack::PackBlock::Crafter.identifier() {
                 // The inventory pose faces south with its top upright.
                 match face {
@@ -597,9 +635,17 @@ mod tests;
 mod crafter_tests;
 
 #[cfg(test)]
+#[path = "blocks/observer_tests.rs"]
+mod observer_tests;
+
+#[cfg(test)]
 #[path = "blocks/lightning_rod_tests.rs"]
 mod lightning_rod_tests;
 
 #[cfg(test)]
 #[path = "blocks/button_tests.rs"]
 mod button_tests;
+
+#[cfg(test)]
+#[path = "blocks/lectern_tests.rs"]
+mod lectern_tests;

@@ -320,7 +320,7 @@ mod tests {
         let mut collisions = gameplay::movement::PhysicsCollisionRegistries::from_assets(
             breg,
             &records,
-            include_bytes!("../../crates/assets/data/block-physics-v2193.bin"),
+            include_bytes!("../../crates/assets/data/block-physics-v2225.bin"),
             version,
         )
         .unwrap();

@@ -41,6 +41,8 @@ pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "frame-generation")))]
+pub mod frame_generation;
 mod gpu_allocation;
 mod gpu_error_policy;
 pub use gpu_error_policy::{GpuFailure, install_error_policy};
@@ -80,7 +82,11 @@ mod pack_skybox;
 mod panorama_render;
 mod particle_render;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod pipeline_compilation;
 mod pipeline_warmup;
+#[cfg(not(target_arch = "wasm32"))]
+pub use pipeline_compilation::PipelineCompilationPlugin;
 #[cfg(test)]
 #[path = "pipeline_warmup/app_tests.rs"]
 mod pipeline_warmup_app_tests;
@@ -103,9 +109,10 @@ mod queue_writes;
 mod screen_overlay_render;
 mod shader_asset;
 mod shader_safety;
-#[cfg(feature = "shaderpacks")]
+#[cfg(test)]
+#[path = "shader_safety/spirv_tests.rs"]
+mod shader_spirv_tests;
 pub use self::shaderpack::atlas::{ShaderpackAtlas, ShaderpackAtlasPlugin};
-#[cfg(feature = "shaderpacks")]
 pub use self::shaderpack::geometry::{
     BlockEntityIdFn, CONSTANT_VERTEX_BUFFER, DEFAULT_GEOMETRY_BUDGET_BYTES,
     DRAW_ORIGIN_VERTEX_BUFFER, FRAME_EXPANSION_FACES, GEOMETRY_VERTEX_BUFFER, GeometryCategory,
@@ -122,6 +129,7 @@ mod surface_capabilities;
 mod surface_lifecycle;
 mod transparent_phase;
 mod ui_render;
+pub use ui_render::presentation::UiFrameContent;
 #[cfg(all(test, target_os = "macos"))]
 mod upload_allocation_tests;
 mod upload_staging;
@@ -187,6 +195,9 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+#[cfg(test)]
+#[path = "startup_presentation/timing_tests.rs"]
+mod startup_timing_tests;
 mod stock_systems;
 pub use stock_systems::StockSystemsPlugin;
 mod world_passes;

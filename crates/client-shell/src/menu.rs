@@ -391,10 +391,10 @@ impl MenuRuntime {
         if launcher::menu::disconnect::requires_client_update(&message) {
             launcher_host::lifecycle::update::protocol_required();
         }
+        bevy::log::warn!(error = %message, kind = ?self.feeds.join.kind, "join failed");
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
-            bevy::log::warn!(error = %message, "join failed");
             self.message = None;
             self.disconnect_message = Some(message);
             self.focused = 0;
@@ -438,6 +438,10 @@ impl MenuRuntime {
 
     pub fn take_disconnect_request(&mut self) -> bool {
         std::mem::take(&mut self.intents.disconnect)
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
     }
 
     pub fn take_exit_request(&mut self) -> bool {
@@ -565,14 +569,14 @@ impl MenuRuntime {
                     self.death_loading = true;
                     self.death_presentation.exiting_world = true;
                     self.death_presentation.respawn_seconds = Some(0.0);
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.dialog = None;
                 }
             }
             MenuAction::ConfirmDeathQuit => {
                 if self.dialog == Some(MenuDialog::DeathQuit) {
                     self.dialog = None;
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.set_visible(false);
                 }
             }
@@ -724,7 +728,7 @@ impl MenuRuntime {
             }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.intents.disconnect = true;
+                self.request_disconnect();
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {

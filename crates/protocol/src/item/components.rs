@@ -36,6 +36,8 @@ pub struct ItemComponents {
     pub attack: Option<super::ItemAttackTiming>,
     /// `minecraft:shooter` draw facts, when declared.
     pub shooter: Option<super::ItemShooter>,
+    /// `minecraft:render_offsets` tables, when declared.
+    pub render_offsets: Option<render_api::ItemRenderOffsets>,
     /// `item_texture.json` key from `minecraft:icon`.
     pub icon: Option<Arc<str>>,
     /// `minecraft:display_name` value: a localization key or literal text.
@@ -89,6 +91,8 @@ pub struct ItemComponents {
     pub hover_text_color: Option<Arc<str>>,
     /// `minecraft:digger` destroy speeds, when declared.
     pub digger: Option<Arc<super::ItemDigger>>,
+    /// `minecraft:seed` planting rule, when declared and resolvable.
+    pub seed: Option<Arc<super::ItemSeed>>,
 }
 
 /// One authored use cooldown with bounded owned category text.
@@ -125,6 +129,9 @@ impl ItemComponents {
         }
         if let Some(digger) = &self.digger {
             bytes = bytes.saturating_add(digger.retained_bytes());
+        }
+        if let Some(seed) = &self.seed {
+            bytes = bytes.saturating_add(seed.retained_bytes());
         }
         bytes
     }
@@ -270,6 +277,9 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             .all(|name| component(name).is_some_and(|value| matches!(value, Nbt::Compound(_)))),
         attack: super::attack::parse_attack(components),
         shooter: super::shooter::parse_shooter(component("minecraft:shooter")),
+        render_offsets: super::render_offsets::parse_render_offsets(component(
+            "minecraft:render_offsets",
+        )),
         icon: super::icons::icon_key(bytes),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
@@ -345,6 +355,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
             component("minecraft:hover_text_color").and_then(|color| color.field("value")),
         ),
         digger: super::digger::parse_digger(component("minecraft:digger")).map(Arc::new),
+        seed: super::seed::parse_seed(component("minecraft:seed")).map(Arc::new),
     })
 }
 
@@ -621,6 +632,19 @@ mod tests {
         assert!(charged.charge_on_draw && !charged.starts_held_draw());
         let root = compound("", &[compound("components", &[])]);
         assert_eq!(parse_components(&root).unwrap().shooter, None);
+    }
+
+    #[test]
+    fn render_offsets_reach_the_item_facts() {
+        let facts = |component: Vec<u8>| {
+            let root = compound("", &[compound("components", &[component])]);
+            parse_components(&root).unwrap().render_offsets
+        };
+        assert_eq!(facts(int("unrelated", 1)), None);
+        assert_eq!(
+            facts(string("minecraft:render_offsets", "tools")),
+            Some(render_api::DEFAULT_ITEM_RENDER_OFFSETS)
+        );
     }
 
     #[test]

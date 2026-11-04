@@ -278,6 +278,67 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
     );
 }
 
+/// Draws through the full menu adapter, which owns when a route forgets its scroll positions.
+fn present_menu(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
+    let metrics = TextMetrics::for_viewport(
+        [size[0] as u32, size[1] as u32],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation.set_menu_view(Some(view.clone()));
+    presentation.menu_hit_targets = presentation
+        .append_menu(
+            &crate::ui_runtime::UiRuntime::new(1),
+            &mut nodes,
+            &mut next,
+            metrics,
+            size[0],
+            size[1],
+        )
+        .unwrap();
+}
+
+#[test]
+fn selecting_a_category_keeps_the_sidebar_where_it_was_scrolled() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("accessibility_forced_index");
+    let size = [1280.0, 360.0];
+    present_menu(&mut presentation, &view, size);
+    let row = presentation
+        .menu_hit_targets
+        .iter()
+        .find_map(|(action, bounds)| {
+            matches!(action, MenuAction::SettingsSection(_)).then_some(*bounds)
+        })
+        .expect("the sidebar must accept scrolling");
+    assert!(presentation.scroll_menu(centre(row), -3.0, false));
+    presentation.menu_seconds += 0.2;
+    present_menu(&mut presentation, &view, size);
+    let scrolled = presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY];
+    assert!(scrolled > 0.0, "the regression needs a scrolled sidebar");
+    let clicked = presentation
+        .menu_hit_targets
+        .iter()
+        .filter_map(|(action, bounds)| match action {
+            MenuAction::SettingsSection(section) if *section != view.settings.section => {
+                Some((*section, *bounds))
+            }
+            _ => None,
+        })
+        .find(|(_, bounds)| bounds.max().y() < size[1] && bounds.min().y() > 100.0)
+        .map(|(section, _)| section)
+        .expect("a fully visible category to click");
+    view.settings.section = clicked;
+    view.focused_action = Some(MenuAction::SettingsSection(clicked));
+    present_menu(&mut presentation, &view, size);
+    assert_eq!(
+        presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY],
+        scrolled,
+        "clicking a visible category must not move the list it sits in"
+    );
+}
+
 #[test]
 fn settings_picker_close_focus_preserves_the_scrolled_choice_list() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();

@@ -89,19 +89,18 @@ fn traced_movement_packets(tick: u64) -> (protocol::Packet, protocol::Packet) {
         yaw: 0.0,
         head_yaw: 0.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 0.0],
         flags: protocol::PlayerInputFlags::NONE,
         input_mode: protocol::PlayerInputMode::Mouse,
         vehicle: None,
     };
     let movement = protocol::player_auth_input(snapshot).unwrap();
     let mut block_actions = protocol::BlockActions::new();
-    block_actions
-        .push(protocol::BlockAction {
-            kind: protocol::BlockActionKind::StartDestroy,
-            position: [0, 1, -3],
-            face: 3,
-        })
-        .unwrap();
+    block_actions.push(protocol::BlockAction {
+        kind: protocol::BlockActionKind::StartDestroy,
+        position: [0, 1, -3],
+        face: 3,
+    });
     let combined = protocol::player_auth_input_with_interactions(
         snapshot,
         &protocol::PlayerAuthInputInteractions {

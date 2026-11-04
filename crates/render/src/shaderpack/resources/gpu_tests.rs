@@ -1,9 +1,9 @@
 use super::*;
 
-/// Requests a device for resource fixtures, skipping only an absent adapter.
+/// Requests full shader-pack limits without optional filtering features; skips unsupported adapters.
 #[allow(
     clippy::print_stderr,
-    reason = "names the absent GPU fixture when tests skip"
+    reason = "names the missing or unsupported GPU fixture when tests skip"
 )]
 fn gpu() -> Option<GpuContext> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
@@ -15,8 +15,15 @@ fn gpu() -> Option<GpuContext> {
         }
         Err(error) => panic!("resource fixture adapter: {error}"),
     };
+    if let Err(reason) = crate::shaderpack::kernels::validate_device(&adapter.limits()) {
+        eprintln!(
+            "skipping shader pack resource fixtures: unsupported GPU adapter fixture: {reason}"
+        );
+        return None;
+    }
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("shader pack resource fixture"),
+        required_limits: adapter.limits(),
         ..Default::default()
     }))
     .expect("resource fixture device");
@@ -400,6 +407,8 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         ("colortex4", "gaux1"),
         ("shadowcolor0", "shadowcolor"),
     ] {
+        // Reflection canonicalizes buffer aliases before resource binding.
+        let binding = shaderpack::canonical_sampler_name(sampler);
         let properties = format!("texture.composite.{property} = sample.png\n");
         let (_directory, pack) = png_pack(&properties);
         let translation = pack.translate(&Default::default());
@@ -407,26 +416,26 @@ fn custom_textures_match_both_spellings_of_buffer_aliases() {
         let mut builder = ConstantBuilder::new(&gpu, &pack, &translation, &vanilla, gpu.support());
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D2, 0)
+                .custom("composite", &binding, TextureDimension::D2, 0)
                 .is_some(),
             "{property} aliases {sampler}"
         );
         // A flip releases images bound to colour buffers, never to shadow buffers.
         assert_eq!(
             builder
-                .custom("composite", sampler, TextureDimension::D2, u32::MAX)
+                .custom("composite", &binding, TextureDimension::D2, u32::MAX)
                 .is_none(),
             !sampler.starts_with("shadowcolor"),
             "{property} released as {sampler}"
         );
         assert!(
             builder
-                .custom("deferred", sampler, TextureDimension::D2, 0)
+                .custom("deferred", &binding, TextureDimension::D2, 0)
                 .is_none()
         );
         assert!(
             builder
-                .custom("composite", sampler, TextureDimension::D3, 0)
+                .custom("composite", &binding, TextureDimension::D3, 0)
                 .is_none()
         );
     }

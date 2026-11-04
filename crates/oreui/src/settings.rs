@@ -117,7 +117,7 @@ pub(super) fn draw(
     let options = view
         .shader_options
         .as_deref()
-        .filter(|_| render_model::SHADER_PACKS_ENABLED && section == SettingSection::Shaders);
+        .filter(|_| section == SettingSection::Shaders);
     let footer = options.map_or(0.0, |_| shader_options::footer_height(canvas));
     let viewport = [
         panel[0] + canvas.r(EDGE),

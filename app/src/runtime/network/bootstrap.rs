@@ -85,6 +85,7 @@ pub(super) fn apply(
         session_generation,
         identity,
         world: bootstrap,
+        player_rotation,
         environment,
         custom_blocks,
         inventory,
@@ -142,7 +143,8 @@ pub(super) fn apply(
         &client_world.runtime_assets,
         collisions,
         &custom_blocks,
-    ) {
+    ) || !registries.matches_actor_assets(client_world.entity_assets.as_ref())
+    {
         client_runtime::session::release_off_frame(registries);
         record_fatal_error(
             &mut fatal_error.0,
@@ -191,7 +193,7 @@ pub(super) fn apply(
     );
     #[cfg(not(target_arch = "wasm32"))]
     {
-        ui_runtime.experiences.marker = packs.extension_marker.take();
+        ui_runtime.session.experiences.marker = packs.extension_marker.take();
     }
     player_runtime.facts.publish_bootstrap_game_modes(
         player_game_mode,
@@ -255,6 +257,10 @@ pub(super) fn apply(
         view,
         avatar,
     );
+    view.set_rotation(crate::runtime::telemetry::bedrock_camera_rotation(
+        player_rotation[1],
+        player_rotation[0],
+    ));
     if let Err(fault) = (gameplay::movement::bootstrap::StartGamePhysics {
         session_generation: clock.session_generation(),
         position: resolved.position,

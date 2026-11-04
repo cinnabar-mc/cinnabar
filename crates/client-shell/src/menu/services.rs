@@ -73,10 +73,11 @@ pub fn sync_cinnabar_players(
 ) {
     account.0.set_cinnabar_roster(
         runtime.session_id(),
-        runtime.player_roster.revision(),
-        runtime.player_roster.lookup_ids(),
+        runtime.session.player_roster.revision(),
+        runtime.session.player_roster.lookup_ids(),
     );
     runtime
+        .session
         .player_roster
         .set_cinnabar(account.0.cinnabar_players());
 }

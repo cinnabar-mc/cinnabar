@@ -195,8 +195,8 @@ pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
 /// Keeps the crosshair's background inversion enabled unless the player opts out.
 pub const INVERT_CROSSHAIR_OPTION: SettingDefinition = SettingId::InvertCrosshair.definition();
 
-/// Raises the built-in HUD's hotbar from Java's flush placement to vanilla Bedrock's height.
-/// Its name is also the HUD pack's context flag.
+/// Places the built-in HUD's hotbar at vanilla Bedrock's height, on by default; turning it off
+/// lowers it to Java's flush placement. Its name is also the HUD pack's context flag.
 pub const BEDROCK_HOTBAR_OPTION: SettingDefinition = SettingId::CinnabarBedrockHotbar.definition();
 
 /// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
@@ -405,7 +405,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 0)], [SettingsGroup::Video], None, None;
     InterfaceOpacity => "interface_opacity", slider("options.hudOpacity", 0, 100, 100),
         [(SettingPanel::VideoCustomization, 8)], [SettingsGroup::Video], None, None;
-    CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", false),
+    CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", true),
         [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     DamageBob => "damage_bob", slider("options.damageBobbing", 0, 100, 100),
         [(SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video], None, None;

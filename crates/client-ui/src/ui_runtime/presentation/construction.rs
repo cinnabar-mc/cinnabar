@@ -28,8 +28,10 @@ impl UiPresentationRuntime {
         hud: Option<Arc<RuntimeHudCatalog>>,
         icons: Option<Arc<RuntimeIconCatalog>>,
     ) -> Result<Self, UiPresentationError> {
-        let font =
-            mod_ui::fonts::install(font).map_err(|_| UiPresentationError::InvalidFontTexture)?;
+        let font = {
+            let _span = tracing::info_span!("ui.mod_font").entered();
+            mod_ui::fonts::install(font).map_err(|_| UiPresentationError::InvalidFontTexture)?
+        };
         let (textures, solid_texture_page, hud_textures, icon_refs) =
             match (hud.as_deref(), icons.as_deref()) {
                 (Some(hud), None) => {
@@ -65,6 +67,7 @@ impl UiPresentationRuntime {
             last_input: None,
             last_frame: None,
             assembly_nodes: Vec::new(),
+            vertex_buffers: Default::default(),
             retained_menu: None,
             #[cfg(test)]
             tree_builds: 0,
@@ -80,10 +83,12 @@ impl UiPresentationRuntime {
             safe_area: SafeArea::ZERO,
             hud_frame: HudFrame::default(),
             inventory_cache: Some(Box::default()),
+            inventory_preparation_revision: Default::default(),
             hud_cache: Default::default(),
             hud_renderers: Default::default(),
             mod_hud_bindings: Default::default(),
-            control_previews: Default::default(),
+            label_metrics: None,
+            hud_elements: Default::default(),
             last_hud_diagnostics: Default::default(),
             nametag_anchors: Vec::new(),
             nametag_local_actor: None,

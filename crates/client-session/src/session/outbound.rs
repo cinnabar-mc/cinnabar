@@ -403,9 +403,9 @@ async fn publish_receipt<P, W: FnMut(&str)>(
 fn finalize_interaction_packet(
     packet: Packet,
     interaction: Option<InteractionPacketGuard>,
-) -> (Option<Packet>, Packet) {
+) -> (Vec<Packet>, Packet) {
     match interaction {
         Some(guard) => guard.sanitize(packet),
-        None => (None, packet),
+        None => (Vec::new(), packet),
     }
 }

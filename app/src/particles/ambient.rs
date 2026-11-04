@@ -12,8 +12,8 @@ use chunk_pipeline::WorldStream;
 use particles::{
     ParticleSystem, ParticleView,
     ambient::{
-        AmbientRandom, FIRE_SMOKE_EFFECT, LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler,
-        material_allows_leaf,
+        AmbientRandom, CANDLE_FLAME_EFFECT, CANDLE_SMOKE_EFFECT, FIRE_SMOKE_EFFECT,
+        LEAF_CHANCE_DENOMINATOR, LEAF_EFFECT, Sampler, material_allows_leaf,
     },
 };
 
@@ -23,6 +23,7 @@ use {
     gameplay::movement::MAX_LOCAL_PHYSICS_TICKS_PER_FRAME,
 };
 
+mod candle;
 mod color;
 mod diagnostics;
 mod fire;
@@ -73,8 +74,12 @@ impl AmbientParticles {
                 && system.has_effect(effect.identifier())
         });
         let fire_effect_present = system.has_effect(FIRE_SMOKE_EFFECT);
-        let effect_present =
-            leaf_effect_present || fire_effect_present || portal::effects_present(system);
+        let candle_effect_present =
+            system.has_effect(CANDLE_FLAME_EFFECT) || system.has_effect(CANDLE_SMOKE_EFFECT);
+        let effect_present = leaf_effect_present
+            || fire_effect_present
+            || candle_effect_present
+            || portal::effects_present(system);
         let view_valid = valid_view(view);
         self.diagnostics.enabled = bevy::log::tracing::enabled!(
             target: "cinnabar::ambient_leaves",
@@ -119,6 +124,12 @@ impl AmbientParticles {
                 // Legacy block callbacks use only the nearest sample cohort.
                 if kind.block == AmbientBlock::Portal && index < particles::ambient::MIN_SAMPLES {
                     self.try_portal(block, runtime_id, stream, system);
+                }
+                if candle_effect_present
+                    && kind.block == AmbientBlock::Candle
+                    && index < particles::ambient::MIN_SAMPLES
+                {
+                    self.try_candle(block, runtime_id, stream, system);
                 }
             }
             self.sampler.finish(view.position, started.elapsed());

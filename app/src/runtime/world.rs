@@ -40,7 +40,7 @@ pub(crate) use terrain_generation::synchronize_terrain_generation;
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-pub(crate) use control_apply::apply_committed_control;
+pub(crate) use control_apply::{MovePlayerRotation, apply_committed_control};
 
 use std::sync::Arc;
 
@@ -58,7 +58,6 @@ use client_world::CommittedControlEvent;
 
 use client_audio::audio_ingress::{SequencedAudioEvent, drain_committed_audio};
 use client_presentation::server_camera::{ServerCameraInstructions, drain_committed_camera};
-use client_ui::block_cracks::reconcile_world_block_cracks;
 use protocol::BlobCacheStats;
 use render_scene::{
     ChunkBiomeTints, ChunkRenderQueue, ChunkUploadAcknowledgements, ChunkUploadBudget,
@@ -289,6 +288,8 @@ pub(crate) struct WorldPollInputs<'w, 's> {
     #[cfg(target_arch = "wasm32")]
     options: Res<'w, crate::browser_input::BrowserOptions>,
     render_queue: Option<ResMut<'w, ChunkRenderQueue>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    mods: Option<ResMut<'w, crate::modding::ModRuntime>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -324,6 +325,8 @@ pub(crate) fn reconcile_world_stream_before_physics(
         #[cfg(target_arch = "wasm32")]
         options,
         mut render_queue,
+        #[cfg(not(target_arch = "wasm32"))]
+        mut mods,
     } = inputs;
     let _timer = profiler
         .as_deref()
@@ -638,6 +641,12 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut view,
             &mut camera_settings,
             pending_surface_spawn,
+            #[cfg(not(target_arch = "wasm32"))]
+            &mut |rotation| {
+                crate::modding::handle_move_player_rotation(mods.as_deref_mut(), rotation)
+            },
+            #[cfg(target_arch = "wasm32")]
+            &mut |_| None,
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {
@@ -774,7 +783,7 @@ pub(crate) fn drive_world_stream(
     } else {
         time.delta_secs()
     });
-    reconcile_world_block_cracks(&mut ui_runtime, stream);
+    ui_runtime.project_block_cracks(stream.block_crack_snapshot());
     let camera_position = view.eye_translation();
     let resolved_surface_spawn = client_world.pending_surface_spawn.and_then(|anchor| {
         client_world

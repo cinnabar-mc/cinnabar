@@ -7,6 +7,9 @@ use mod_api::{MAX_PASS_PARAMS, MAX_RENDER_CALLS, MAX_RENDER_PASSES};
 use mod_render::{Pass, Primitives, RenderOutput};
 use std::sync::Arc;
 
+#[path = "render/publication.rs"]
+mod publication;
+
 /// Preserves the admission category while legacy callers continue receiving plain detail.
 fn admission(code: ErrorCode, detail: impl Into<String>) -> DrawError {
     DrawError {
@@ -22,16 +25,82 @@ pub(crate) struct RenderState {
     generation: u64,
     staged_passes: Option<Vec<Pass>>,
     staged_primitives: Primitives,
+    primitives_changed: bool,
     calls: usize,
     mask_calls: u32,
     compiles_left: u32,
-    native_ribbons: Vec<mod_render::Ribbon>,
-    native_generation: u64,
-    combined: Option<RenderOutput>,
     draw_limit: Option<usize>,
 }
 
 impl RenderState {
+    /// Freezes immutable read views and starts output deltas without forking resource owners.
+    pub(super) fn transaction(&self) -> Self {
+        let retained = self.retained.transaction();
+        retained.track_entities(self.masks.entity_keys().map(Into::into));
+        Self {
+            masks: self.masks.transaction(),
+            committed: RenderOutput {
+                passes: self.committed.passes.clone(),
+                primitives: Arc::clone(&self.committed.primitives),
+                ..Default::default()
+            },
+            retained,
+            generation: 0,
+            staged_passes: None,
+            staged_primitives: Primitives::default(),
+            primitives_changed: false,
+            calls: 0,
+            mask_calls: 0,
+            compiles_left: self.compiles_left,
+            draw_limit: self.draw_limit,
+        }
+    }
+
+    /// Merges only successful output deltas; native lifetime updates remain authoritative.
+    pub(super) fn accept(&mut self, transaction: Self) {
+        let Self {
+            masks,
+            committed,
+            retained,
+            generation: _,
+            staged_passes,
+            staged_primitives,
+            mut primitives_changed,
+            calls: _,
+            mask_calls: _,
+            compiles_left,
+            draw_limit: _,
+        } = transaction;
+        primitives_changed |= !Arc::ptr_eq(&committed.primitives, &self.committed.primitives);
+        drop(committed);
+        let removed = retained
+            .removed_entities()
+            .into_iter()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        self.retained.accept(retained);
+        self.masks.accept(masks, &removed);
+        self.compiles_left = self.compiles_left.min(compiles_left);
+        self.staged_passes = staged_passes;
+        self.staged_primitives = staged_primitives;
+        self.primitives_changed = primitives_changed;
+        // The retained delta is already applied; committing it twice expires new frame groups.
+        let masks = self.masks.commit();
+        let mut changed = !Arc::ptr_eq(&masks, &self.committed.masks);
+        self.committed.masks = masks;
+        changed |= self.publish_retained();
+        if let Some(mut passes) = self.staged_passes.take() {
+            passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
+            changed |= !publication::same_passes(&passes, &self.committed.passes);
+            self.committed.passes = passes;
+        }
+        if changed {
+            self.generation = mod_render::next_owner();
+        }
+        self.commit_primitives();
+        self.retained.reclaim();
+    }
+
     pub fn new() -> Self {
         Self {
             masks: mod_render::masks::MaskStore::default(),
@@ -40,12 +109,10 @@ impl RenderState {
             generation: mod_render::next_owner(),
             staged_passes: None,
             staged_primitives: Primitives::default(),
+            primitives_changed: false,
             calls: 0,
             mask_calls: 0,
             compiles_left: MAX_RENDER_PASSES as u32,
-            native_ribbons: Vec::new(),
-            native_generation: 0,
-            combined: None,
             draw_limit: None,
         }
     }
@@ -65,7 +132,13 @@ impl RenderState {
         {
             return Err("bundle draw budget exceeded".into());
         }
+        let changed = !publication::matches_next(
+            &self.committed.primitives,
+            &self.staged_primitives,
+            &primitives,
+        );
         self.staged_primitives.append_checked(primitives)?;
+        self.primitives_changed |= changed;
         if let Some(limit) = self.draw_limit {
             self.retained.limit_instances(limit - immediate);
         }
@@ -73,7 +146,7 @@ impl RenderState {
     }
 
     pub fn output(&self) -> &RenderOutput {
-        self.combined.as_ref().unwrap_or(&self.committed)
+        &self.committed
     }
 
     /// Changes whenever the committed output does, including across reloads.
@@ -95,6 +168,7 @@ impl RenderState {
         self.compiles_left = mod_api::MAX_PASS_COMPILES_PER_FRAME;
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        self.primitives_changed = false;
         if let Some(limit) = self.draw_limit {
             self.retained.limit_instances(limit);
         }
@@ -103,34 +177,38 @@ impl RenderState {
     /// Publishes masks, geometry and effects together after a successful callback.
     pub fn commit_retained(&mut self) {
         let masks = self.masks.commit();
-        let mut changed = masks != self.committed.masks;
+        let mut changed = !Arc::ptr_eq(&masks, &self.committed.masks);
         self.committed.masks = masks;
         self.retained.commit();
         changed |= self.publish_retained();
         if let Some(mut passes) = self.staged_passes.take() {
             passes.sort_by(|a, b| a.order.cmp(&b.order).then_with(|| a.name.cmp(&b.name)));
-            changed |= passes != self.committed.passes;
+            changed |= !publication::same_passes(&passes, &self.committed.passes);
             self.committed.passes = passes;
         }
         if changed {
             self.generation = mod_render::next_owner();
-            self.refresh_native_lines();
         }
     }
 
-    /// Publishes immediate primitives and retained changes after a successful frame.
+    /// Publishes retained changes and then immediate primitives, as one successful frame does.
     pub fn commit(&mut self) {
-        let primitives = std::mem::take(&mut self.staged_primitives);
-        let mut changed = false;
         self.commit_retained();
-        // Unchanged content keeps its identity, so the renderer rebuilds and uploads nothing.
-        if primitives != *self.committed.primitives {
-            self.committed.primitives = Arc::new(primitives);
-            changed = true;
-        }
+        self.commit_primitives();
+    }
+
+    /// Publishes only a successful frame's immediate primitives. Retained output, including
+    /// frame groups, must be committed exactly once per callback through
+    /// [`Self::commit_retained`]: a second retained commit expires the frame groups the
+    /// callback just drew.
+    pub fn commit_primitives(&mut self) {
+        let primitives = std::mem::take(&mut self.staged_primitives);
+        let changed = std::mem::take(&mut self.primitives_changed)
+            || mod_render::PrimitiveRanges::all(&primitives)
+                != mod_render::PrimitiveRanges::all(&self.committed.primitives);
         if changed {
+            self.committed.primitives = Arc::new(primitives);
             self.generation = mod_render::next_owner();
-            self.refresh_native_lines();
         }
     }
 
@@ -141,11 +219,29 @@ impl RenderState {
         despawned: &[mod_render::retained::EntityKey],
     ) -> Result<(), mod_render::retained::DrawError> {
         self.retained.reconcile_entities(candidates, despawned)?;
-        if self.publish_retained() {
+        let removed = despawned
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+        self.masks.remove_entities(&removed);
+        let masks = self.masks.committed();
+        let changed = !Arc::ptr_eq(&masks, &self.committed.masks);
+        self.committed.masks = masks;
+        if self.publish_retained() || changed {
             self.generation = mod_render::next_owner();
-            self.refresh_native_lines();
         }
         Ok(())
+    }
+
+    /// Includes mask-only actors in the same native despawn checks as drawing references.
+    pub(super) fn entity_keys(&self) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
+        self.retained
+            .entity_keys()
+            .into_iter()
+            .chain(self.masks.entity_keys().map(Into::into))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
     }
 
     /// Copies only the immutable snapshot identity into renderer output.
@@ -170,51 +266,36 @@ impl RenderState {
     }
 
     pub fn revoke(&mut self) {
-        self.native_ribbons.clear();
-        let native = self.combined.take().is_some();
         self.masks.revoke();
         self.retained.revoke();
+        self.clear_output();
+    }
+
+    /// Invalidates guest handles while retaining the current trusted drawing observations.
+    pub(super) fn restart_guest(&mut self) {
+        self.masks.restart_guest();
+        self.retained.restart_guest();
+        self.clear_output();
+        self.compiles_left = MAX_RENDER_PASSES as u32;
+    }
+
+    /// Drops staged and published drawing from the replaced guest.
+    fn clear_output(&mut self) {
         self.staged_passes = None;
         self.staged_primitives = Primitives::default();
+        self.primitives_changed = false;
         if let Some(limit) = self.draw_limit {
             self.retained.limit_instances(limit);
         }
-        if native || self.committed != RenderOutput::default() {
+        if !self.committed.passes.is_empty()
+            || !self.committed.primitives.is_empty()
+            || !self.committed.masks.is_empty()
+            || !self.committed.retained.is_empty()
+            || !self.committed.gpu_reservations.is_empty()
+        {
             self.committed = RenderOutput::default();
             self.generation = mod_render::next_owner();
-            self.refresh_native_lines();
         }
-    }
-
-    /// Merges validated native outlines within the guest's existing shared primitive limits.
-    pub(super) fn native_lines(&mut self, ribbons: Vec<mod_render::Ribbon>) {
-        if ribbons == self.native_ribbons && self.native_generation == self.generation {
-            return;
-        }
-        if ribbons != self.native_ribbons {
-            self.native_ribbons = ribbons;
-            self.generation = mod_render::next_owner();
-        }
-        self.refresh_native_lines();
-    }
-
-    /// Rebuilds the overlay from the current retained and immediate renderer output.
-    fn refresh_native_lines(&mut self) {
-        if self.native_ribbons.is_empty() {
-            self.combined = None;
-        } else {
-            let mut primitives = (*self.committed.primitives).clone();
-            for ribbon in &self.native_ribbons {
-                let _ = primitives.append_checked(Primitives {
-                    ribbons: vec![ribbon.clone()],
-                    ..Default::default()
-                });
-            }
-            let mut combined = self.committed.clone();
-            combined.primitives = Arc::new(primitives);
-            self.combined = Some(combined);
-        }
-        self.native_generation = self.generation;
     }
 
     pub(super) fn budget(&mut self) -> Result<()> {
@@ -354,13 +435,6 @@ impl State {
 }
 
 impl wit::Host for State {
-    fn set_block_highlights(
-        &mut self,
-        spec: Option<wit::BlockHighlightSpec>,
-    ) -> Result<Result<(), String>> {
-        super::block_highlights::set(self, spec)
-    }
-
     fn register_pass(&mut self, spec: wit::PassSpec) -> Result<Result<(), String>> {
         Ok(self
             .register_render_pass(spec, Vec::new())?

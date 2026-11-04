@@ -20,13 +20,11 @@ struct SendTrace {
 /// Freezes a tick with a mining action, as the movement outbox does before transport.
 fn packet() -> protocol::Packet {
     let mut actions = protocol::BlockActions::new();
-    actions
-        .push(protocol::BlockAction {
-            kind: protocol::BlockActionKind::StartDestroy,
-            position: [2, 64, -3],
-            face: 1,
-        })
-        .unwrap();
+    actions.push(protocol::BlockAction {
+        kind: protocol::BlockActionKind::StartDestroy,
+        position: [2, 64, -3],
+        face: 1,
+    });
     protocol::player_auth_input_with_interactions(
         protocol::PlayerAuthInputSnapshot {
             tick: 101,
@@ -39,6 +37,7 @@ fn packet() -> protocol::Packet {
             yaw: 90.0,
             head_yaw: 90.0,
             camera_orientation: [1.0, 0.0, 0.0],
+            interact_rotation: [0.0, 90.0],
             flags: protocol::PlayerInputFlags::NONE,
             input_mode: protocol::PlayerInputMode::Mouse,
             vehicle: None,

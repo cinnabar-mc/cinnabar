@@ -169,6 +169,17 @@ fn all_candle_cakes_keep_cake_candle_and_lit_texture_through_the_carrier() {
                 .all(|quad| quad.material == body[0].material)
         );
         assert!(
+            quads[..12]
+                .iter()
+                .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE == 0)
+        );
+        assert!(
+            quads[12..]
+                .iter()
+                .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE != 0),
+            "the wick keeps the candle's shade"
+        );
+        assert!(
             quads[12..]
                 .iter()
                 .flat_map(|quad| quad.uvs)

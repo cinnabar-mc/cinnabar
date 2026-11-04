@@ -10,10 +10,10 @@ pub(crate) fn press(
     mut context: BlockUseContext,
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
+    mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
     movement: Res<MovementTicker>,
 ) -> bool {
     let pressed = input.edge.pressed;
-    let attacking = input.edge.buttons.held(Action::Attack);
     let now = u64::try_from(context.time.elapsed().as_millis()).unwrap_or(u64::MAX);
     runtime.synchronize(movement.interaction_authority_identity());
     if pressed {
@@ -21,11 +21,11 @@ pub(crate) fn press(
     }
     let resolved = (|| {
         if (runtime.stopping() || runtime.last_success_destination().is_some())
-            && !stop_block_use(&mut runtime, &context, pressed && !attacking)
+            && !stop_block_use(&mut runtime, &context, pressed)
         {
             return false;
         }
-        if !pressed || attacking || context.melee.blocks_use_at(now) {
+        if !pressed || context.melee.blocks_use_at(now) {
             return true;
         }
         if !movement.accepts_block_interactions()
@@ -99,6 +99,7 @@ pub(crate) fn press(
             &mut player,
             &mut context,
             &mut runtime,
+            &mut item_use,
             &mut swings,
             &movement,
             &mut build,

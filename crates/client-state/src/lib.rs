@@ -131,6 +131,6 @@ pub enum ShellFrameSet {
 #[derive(SystemSet, Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ExperienceInputSet;
 
-/// The emote UI consumed the sampled input before gameplay finalization.
+/// The emote wheel or mob effect screen consumed the sampled input before gameplay finalization.
 #[derive(Resource, Default)]
-pub struct EmoteInputConsumed(pub bool);
+pub struct ScreenInputConsumed(pub bool);

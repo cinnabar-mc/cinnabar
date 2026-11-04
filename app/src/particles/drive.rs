@@ -54,6 +54,10 @@ mod totem_tests;
 #[path = "drive/break_tests.rs"]
 mod break_tests;
 
+#[cfg(test)]
+#[path = "drive/crack_tests.rs"]
+mod crack_tests;
+
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
 pub(crate) struct ParticleInbox {
@@ -225,10 +229,22 @@ fn admit_break_echo(
         )
 }
 
+/// Emits a local mining crack using the block currently in the world.
 fn spawn_crack(system: &mut ParticleSystem, routing: &Routing<'_>, block: [i32; 3], face: u8) {
     let Some(runtime_id) = routing.world.block_runtime_id(block) else {
         return;
     };
+    spawn_block_crack(system, routing, block, runtime_id, face);
+}
+
+/// Emits a crack for the supplied block identity, even if the world cell has since changed.
+fn spawn_block_crack(
+    system: &mut ParticleSystem,
+    routing: &Routing<'_>,
+    block: [i32; 3],
+    runtime_id: u32,
+    face: u8,
+) {
     if let Some(found) = block_tile(routing.stream, routing.mode, runtime_id, block) {
         system.spawn_terrain(&block_crack_request(
             BLOCK_BREAK_EFFECT,
@@ -323,8 +339,14 @@ fn route_level_event(
                 ));
             }
         }
-        Some(LevelParticle::BlockCrack { face, .. }) => {
-            spawn_crack(system, routing, floor_cell(position), face);
+        Some(LevelParticle::BlockCrack { runtime_id, face }) => {
+            spawn_block_crack(
+                system,
+                routing,
+                floor_cell(position),
+                runtime_id as u32,
+                face,
+            );
         }
         Some(LevelParticle::ItemIcon { network_id, aux }) => {
             spawn_item_icon_by_id(system, routing, network_id, aux, position);
@@ -603,9 +625,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
-            settings.perspective()
-        }),
+        camera_settings.as_deref(),
         server_camera.as_deref(),
     );
     system.set_camera(view.position);
@@ -732,6 +752,18 @@ fn drive_particles(
                 high,
             )
         },
+    );
+    cosmetics.retire_hidden(
+        &mut system,
+        cosmetic_placements
+            .as_deref()
+            .map_or(&[], |placements| &placements.0),
+        &view,
+    );
+    ground.retire_hidden(
+        &mut system,
+        ground_wearers.as_deref().map_or(&[], |wearers| &wearers.0),
+        &view,
     );
     if changed {
         frame.set_changed();

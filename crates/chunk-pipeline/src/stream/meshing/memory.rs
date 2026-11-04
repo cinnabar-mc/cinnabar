@@ -9,7 +9,7 @@ pub(in crate::stream) struct MeshMemoryBudget {
 }
 
 impl MeshMemoryBudget {
-    /// Precomputes model bounds once for the stream's immutable assets.
+    /// Precomputes model bounds for the stream's initial assets.
     pub(in crate::stream) fn new(assets: &RuntimeAssets) -> Self {
         Self {
             retained: Arc::new(AtomicU64::new(0)),
@@ -17,16 +17,23 @@ impl MeshMemoryBudget {
         }
     }
 
-    /// Admits without blocking a worker or discarding a completed current mesh.
+    /// Refreshes future reservations without releasing credit held by existing meshes.
+    pub(in crate::stream) fn reload_assets(&mut self, assets: &RuntimeAssets) {
+        self.bounds = ::meshing::MeshOutputBounds::new(assets);
+    }
+
+    /// Admits terrain and cell-overlay output without blocking a worker or discarding a current mesh.
     pub(in crate::stream) fn try_admit(
         &self,
         source: &SubChunk,
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
+        overlays: usize,
     ) -> Option<MeshMemoryPermit> {
         MeshMemoryPermit::reserve(
             &self.retained,
             self.bounds.for_sub_chunk(source, assets, mode)
+                + self.bounds.for_overlays(overlays)
                 + std::mem::size_of::<MeshCompletion>() as u64,
         )
     }

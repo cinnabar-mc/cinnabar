@@ -17,6 +17,7 @@ pub(crate) fn profiler(
 ) -> RuntimeStageProfiler {
     RuntimeStageProfiler::for_gameplay(enabled, trace_path)
         .with_diagnostic_sink(diagnostics::console::defer_stderr)
+        .with_thread_cpu_clock(diagnostics::thread_cpu::thread_cpu_time)
 }
 
 /// Feeds slow-frame thresholds the primary window's monitor interval, or a slower frame cap.

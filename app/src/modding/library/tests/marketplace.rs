@@ -38,7 +38,7 @@ fn website_component_is_available_without_grants_then_runs_with_explicit_consent
     assert!(!hud.enabled);
     let mut requests = 0;
     let mut act = |action| {
-        perform(
+        perform::<AppBackend>(
             action,
             &mods,
             &registration,

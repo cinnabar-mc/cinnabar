@@ -5,30 +5,13 @@ use std::collections::HashSet;
 
 mod anchor;
 mod bindings;
+mod elements;
 mod geometry;
 pub use bindings::{HudBindings, MAX_HUD_BINDINGS};
-pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
-mod compass;
-mod cosmetic;
-mod editor_style;
-mod source;
-mod text_plate;
-pub use text_plate::{MAX_TEXT_PLATE_HEIGHT, TextPlate, TextPlateLayout, TextPlateStyle};
-mod totems;
-pub use totems::{CounterAnnotation, TotemCounterStyle};
-mod merge;
-mod update;
-pub use compass::{
-    COMPASS_DEFAULT_WIDTH, COMPASS_DIRECTIONS, COMPASS_HEIGHT, COMPASS_MAX_WIDTH,
-    COMPASS_MIN_WIDTH, COMPASS_TICKS, Compass, CompassFrame, CompassMarker, MAX_COMPASS_COORDINATE,
-    MAX_COMPASS_MARKERS, MAX_HUD_COMPASSES, compass_bearing, compass_offset,
+pub use elements::{
+    ElementState, ElementStates, HiddenElements, HudViewport, PanelLayout, VanillaElement,
 };
-pub use cosmetic::{ActorStyle, HungerOverlay, NametagStyle};
-pub use editor_style::{EditorStyle, MAX_EDITOR_HANDLE_RADIUS};
-pub use merge::HudMergeCache;
-pub use source::{ActorBounds, ActorHealth, NativeRows, RowSource};
-pub use update::HudUpdate;
-
+pub use geometry::{HudGeometry, HudGeometryRequests, MAX_HUD_GEOMETRY_REQUESTS};
 /// Bound for one read-only server text field crossing an extension callback.
 pub const MAX_OBSERVED_TEXT_BYTES: usize = 256;
 /// Bound for the newest received chat history imported by one callback.
@@ -37,10 +20,6 @@ pub const MAX_OBSERVED_CHAT_MESSAGES: usize = 32;
 pub const MAX_CHAT_READ_MESSAGES: usize = 4;
 /// Bound for camera-projected labels, separate from draggable HUD cards.
 pub const MAX_WORLD_LABELS: usize = 64;
-/// Reserved projected labels for the host's bounded nearby-actor observation set.
-pub const MAX_NATIVE_ACTOR_LABELS: usize = 16;
-/// Bound for clickable literal spans in native chat.
-pub const MAX_CHAT_ACTIONS: usize = 32;
 pub const MAX_HUD_BYTES: usize = 128 * 1024;
 pub const MAX_HUD_CARDS: usize = 64;
 pub const MAX_HUD_ROWS: usize = 256;
@@ -114,18 +93,6 @@ pub enum RowLayout {
 #[serde(deny_unknown_fields)]
 pub struct Hud {
     pub cards: Vec<Card>,
-    /// Cosmetic native actor overrides; absence restores native presentation.
-    #[serde(default)]
-    pub actor_style: Option<ActorStyle>,
-    /// Read-only replicated health labels; players and mobs require their own grants.
-    #[serde(default)]
-    pub actor_health: Option<ActorHealth>,
-    /// Native depth-tested outlines; requires render plus the selected actor grants.
-    #[serde(default)]
-    pub actor_bounds: Option<ActorBounds>,
-    /// Adds cosmetic food-state artwork to the actual native hunger controls.
-    #[serde(default)]
-    pub hunger_overlay: Option<HungerOverlay>,
     /// Suppresses the ordinary status-effect icons while this HUD is published.
     #[serde(default)]
     pub hide_effect_icons: bool,
@@ -135,9 +102,6 @@ pub struct Hud {
     /// Bounded world anchors rendered by the host through the actual gameplay camera.
     #[serde(default)]
     pub world_labels: Vec<WorldLabel>,
-    /// Client-selected literal spans made clickable in the open native chat history.
-    #[serde(default)]
-    pub chat_actions: Vec<ChatAction>,
     /// Editor requests persist completed gestures when explicitly enabled.
     #[serde(default)]
     pub autosave: bool,
@@ -150,20 +114,9 @@ pub struct Hud {
     /// Optional client-authored JSON-UI chrome for a host-owned layout editor.
     #[serde(default)]
     pub surface: Option<crate::mod_panel::Surface>,
-    /// Optional colors for the editor's outlines, handles, guides and grid.
-    #[serde(default)]
-    pub editor_style: Option<EditorStyle>,
     /// Optional editor settings-card size in GUI pixels, positioned beside the selection.
     #[serde(default)]
     pub inspector_size: Option<[f32; 2]>,
-}
-
-/// Exact plain-text chat span and the extension event emitted by a primary click.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ChatAction {
-    pub text: String,
-    pub action: String,
 }
 
 /// Cosmetic world anchor; text content and persistence belong to the extension.
@@ -230,19 +183,10 @@ pub struct Card {
     /// Reserves a card for panel previews without showing it during gameplay.
     #[serde(default)]
     pub preview_only: bool,
-    /// Uses representative native observations only for an explicitly preview-only card.
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub sample: bool,
-    /// Requests an isolated native sample of this same source policy under a separate identity.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preview_id: Option<String>,
     #[serde(default)]
     pub title: String,
     #[serde(default)]
     pub editor_label: String,
-    /// Retains native preview identity after its row policy is materialized. JSON cannot set it.
-    #[serde(skip)]
-    pub editor_native: bool,
     /// Host-measured preview bounds in GUI pixels. JSON cannot set this geometry.
     #[serde(skip)]
     pub editor_size: Option<[f32; 2]>,
@@ -291,18 +235,9 @@ pub struct Card {
     #[serde(default)]
     pub reset_scale: Option<f32>,
     pub rows: Vec<Row>,
-    /// Optional native rows. Game-backed sources require player-state; Clock is local UI time.
-    #[serde(default)]
-    pub source: Option<RowSource>,
-    /// A native compass uses current-session motion instead of guest-sampled geometry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compass: Option<Compass>,
     /// Shares the gameplay crosshair painter with isolated menu artwork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crosshair: Option<Crosshair>,
-    /// Native measured text with independently colored brackets, background and border.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub text_plate: Option<TextPlate>,
     /// Optional rectangular text cells instead of linear rows.
     #[serde(default)]
     pub cells: Vec<Cell>,
@@ -314,11 +249,8 @@ impl Default for Card {
             id: String::new(),
             visible: true,
             preview_only: false,
-            sample: false,
-            preview_id: None,
             title: String::new(),
             editor_label: String::new(),
-            editor_native: false,
             editor_size: None,
             anchor: Anchor::default(),
             offset: [0.; 2],
@@ -337,10 +269,7 @@ impl Default for Card {
             reset_offset: None,
             reset_scale: None,
             rows: Vec::new(),
-            source: None,
-            compass: None,
             crosshair: None,
-            text_plate: None,
             cells: Vec::new(),
         }
     }
@@ -358,14 +287,6 @@ impl Card {
             &self.id
         } else {
             &self.editor_label
-        }
-    }
-
-    /// Keeps an empty native card named and selectable after its source policy is consumed.
-    pub fn ensure_editor_placeholder(&mut self) {
-        self.editor_native |= self.source.is_some();
-        if self.editor_native && self.rows.is_empty() && self.title.is_empty() {
-            self.title = self.editor_name().to_owned();
         }
     }
 }
@@ -585,21 +506,6 @@ impl Hud {
         }) {
             return Err("HUD inspector size must contain finite positive GUI pixels".into());
         }
-        if let Some(bounds) = &self.actor_bounds {
-            bounds.validate()?;
-        }
-        if let Some(health) = &self.actor_health {
-            health.validate()?;
-            if self.world_labels.len() > MAX_WORLD_LABELS - MAX_NATIVE_ACTOR_LABELS {
-                return Err(
-                    "actor health labels require sixteen reserved world-label slots".into(),
-                );
-            }
-        }
-        cosmetic::validate(self.actor_style.as_ref(), self.hunger_overlay.as_ref())?;
-        if let Some(style) = &self.editor_style {
-            style.validate()?;
-        }
         if let Some(surface) = &self.surface {
             if !surface.collections.is_empty() {
                 return Err("HUD editor surfaces do not support tile collections".into());
@@ -636,21 +542,6 @@ impl Hud {
                 }
             }
         }
-        if self.chat_actions.len() > MAX_CHAT_ACTIONS
-            || self.chat_actions.iter().any(|a| {
-                a.text.is_empty()
-                    || a.text.len() > 96
-                    || a.text.chars().any(char::is_control)
-                    || a.action.is_empty()
-                    || a.action.len() > crate::mod_panel::MAX_PANEL_ID_BYTES
-                    || !a
-                        .action
-                        .chars()
-                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-            })
-        {
-            return Err("invalid chat actions".into());
-        }
         if self.world_labels.len() > MAX_WORLD_LABELS
             || self.world_labels.iter().any(|label| {
                 !label.position.iter().all(|v| v.is_finite())
@@ -681,73 +572,22 @@ impl Hud {
         {
             return Err("invalid world labels".into());
         }
-        if self.cards.len() + self.cards.iter().filter(|c| c.preview_id.is_some()).count()
-            > MAX_HUD_CARDS
+        if self.cards.len() > MAX_HUD_CARDS
+            || self.cards.iter().map(|card| card.rows.len()).sum::<usize>() > MAX_HUD_ROWS
             || self
                 .cards
                 .iter()
-                .map(|c| {
-                    c.source
-                        .as_ref()
-                        .map_or(c.rows.len(), |s| usize::from(s.limit))
-                        * if c.preview_id.is_some() { 2 } else { 1 }
-                })
+                .map(|card| card.cells.len())
                 .sum::<usize>()
-                > MAX_HUD_ROWS
-            || self.cards.iter().map(|c| c.cells.len()).sum::<usize>() > MAX_HUD_CELLS
-            || self
-                .cards
-                .iter()
-                .filter(|c| c.compass.is_some())
-                .map(|c| if c.preview_id.is_some() { 2 } else { 1 })
-                .sum::<usize>()
-                > MAX_HUD_COMPASSES
+                > MAX_HUD_CELLS
         {
             return Err("HUD has too many cards, rows or cells".into());
         }
         let mut ids = HashSet::new();
         for card in &self.cards {
-            if let Some(id) = &card.preview_id
-                && (!valid_card_id(id)
-                    || !ids.insert(id)
-                    || card.sample
-                    || card.source.is_none() && card.compass.is_none())
-            {
-                return Err(
-                    "native preview identities require a unique, bounded source policy".into(),
-                );
-            }
-            if let Some(plate) = &card.text_plate {
-                plate.validate(card)?;
-            }
-            if let Some(compass) = &card.compass {
-                compass.validate()?;
-                if card.source.is_some()
-                    || !card.rows.is_empty()
-                    || !card.cells.is_empty()
-                    || !(COMPASS_MIN_WIDTH..=COMPASS_MAX_WIDTH).contains(&card.width)
-                {
-                    return Err("native compass requires its own bounded, empty card".into());
-                }
-            }
-            if let Some(source) = &card.source {
-                source.validate()?;
-                if !card.cells.is_empty() || card.rows.len() > usize::from(source.limit) {
-                    return Err("native HUD source exceeds its reserved rows or has cells".into());
-                }
-            }
-            if card.sample && !card.preview_only {
-                return Err("sample observations require a preview-only card".into());
-            }
             if let Some(crosshair) = &card.crosshair {
                 crosshair.validate()?;
-                if !card.preview_only
-                    || card.source.is_some()
-                    || card.compass.is_some()
-                    || card.text_plate.is_some()
-                    || !card.cells.is_empty()
-                    || !card.rows.is_empty()
-                {
+                if !card.preview_only || !card.cells.is_empty() || !card.rows.is_empty() {
                     return Err("crosshair previews require their own preview-only card".into());
                 }
             }

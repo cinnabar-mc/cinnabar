@@ -23,7 +23,7 @@ func TestSharedRegistrySchemaIsCurrent(t *testing.T) {
 }
 
 func TestRegistryEncoderMatchesCrossLanguageFixture(t *testing.T) {
-	metadata := RegistryMetadata{Protocol: 2193, CanonicalNames: 2, CanonicalStates: 2, ValentineNames: 2, ValentineStates: 2}
+	metadata := RegistryMetadata{Protocol: v2225BlockProtocol, CanonicalNames: 2, CanonicalStates: 2, ValentineNames: 2, ValentineStates: 2}
 	records := []Record{
 		{
 			BeaconTint: BeaconTintRed, SequentialID: 7, NetworkHash: 0x12345678, Flags: flagCubeGeometry | flagLeafModel,
@@ -60,11 +60,11 @@ func TestRegistryEncoderMatchesCrossLanguageFixture(t *testing.T) {
 
 // TestActiveBlockFactsWireRoundTrip checks nonzero compiled masks against the real pinned palette.
 func TestActiveBlockFactsWireRoundTrip(t *testing.T) {
-	data, err := os.ReadFile("../../crates/assets/data/block-registry-v2193.bin")
+	data, err := os.ReadFile("../../crates/assets/data/block-registry-v2225.bin")
 	if err != nil {
 		t.Fatal(err)
 	}
-	metadata, records, err := decodeBREGRecords(data, v2193BlockProtocol)
+	metadata, records, err := decodeBREGRecords(data, v2225BlockProtocol)
 	if err != nil {
 		t.Fatal(err)
 	}

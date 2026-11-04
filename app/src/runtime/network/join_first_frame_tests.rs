@@ -169,6 +169,11 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
             .is_none()
     );
     assert!(app.world().resource::<LocalPhysicsController>().is_active());
+    let forward = app.world().resource::<LocalViewPose>().camera_rotation() * Vec3::NEG_Z;
+    assert!(
+        forward.abs_diff_eq(Vec3::new(-3.0_f32.sqrt() / 2.0, -0.5, 0.0), 1e-5),
+        "the initial server heading must be applied before the first player input: {forward:?}"
+    );
     let (network, mut sent) =
         NetworkHandle::<resource_packs::PackApplication>::stub_capturing_packets();
     app.insert_resource(network);
@@ -261,9 +266,11 @@ fn join_first_frame_keeps_current_artwork_after_reversed_biome_completion_and_se
         1,
         "the first movement input must be sent immediately"
     );
+    assert!((movement[0].yaw - INITIAL_ROTATION[1]).abs() < 1e-4);
+    assert!((movement[0].pitch - INITIAL_ROTATION[0]).abs() < 1e-4);
     assert_eq!(movement[0].move_vector, [0.0, 1.0]);
     assert_eq!(movement[0].raw_move_vector, [0.0, 1.0]);
-    assert_ne!(movement[0].position[2], EYE[2]);
+    assert!(movement[0].position[0] < EYE[0]);
     assert!(
         app.world()
             .resource::<MovementTicker>()

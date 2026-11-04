@@ -11,12 +11,12 @@ use ui::{
 
 use super::scene_stack::Scene;
 use super::{UiRuntime, render_adapter::UiRenderViewport};
+#[cfg(test)]
 use crate::ui_runtime::render_adapter::adapt_ui_draw_list;
 
 mod accessors;
 mod color_icons;
 mod construction;
-mod control_previews;
 pub mod debug_overlay;
 mod dial_icons;
 pub mod dynamic_textures;
@@ -139,6 +139,8 @@ pub struct UiPresentationRuntime {
     last_frame: Option<frame::BuiltFrame>,
     /// Scene assembly keeps its capacity across unchanged frames and failed builds.
     assembly_nodes: Vec<UiNode>,
+    /// Immutable geometry reuses storage only after all render readers release it.
+    vertex_buffers: render_model::FrameBuffers<render_model::UiRenderVertex>,
     retained_menu: Option<forms::RetainedMenu>,
     #[cfg(test)]
     tree_builds: usize,
@@ -160,13 +162,18 @@ pub struct UiPresentationRuntime {
     hud_frame: HudFrame,
     /// Inventory projections retained across HUD publications.
     inventory_cache: Option<Box<publish::inventory_cache::InventoryCache>>,
+    /// External projection changes that invalidate closed-inventory preparation.
+    inventory_preparation_revision: std::sync::atomic::AtomicU64,
     /// Semantic HUD content retained before binding construction.
     hud_cache: forms::hud::SemanticHud,
     /// What the presentation's renderers drew the engine HUD and its crosshair overlay from.
     hud_renderers: [forms::hud::HudRendererInputs; 2],
     /// Owner-scoped extension globals layered over the gameplay HUD's retained data.
     mod_hud_bindings: mod_hud_bindings::Bindings,
-    control_previews: control_previews::Previews,
+    /// Text metrics of the last painted HUD, for `hud.measure-text`.
+    label_metrics: Option<Arc<mod_ui::LabelMetrics>>,
+    /// Vanilla HUD elements of the last painted HUD, for `hud.read-elements`.
+    hud_elements: forms::hud::HudElements,
     /// Last logged skip/odd-data counters, so changes surface exactly once.
     last_hud_diagnostics: crate::ui_runtime::gameplay_hud::GameplayHudDiagnostics,
     /// This frame's world-space tags, including scores, and their retained glyph atlas.

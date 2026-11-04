@@ -113,14 +113,10 @@ fn bow_world(held: bool) -> (World, client_session::CapturedPackets) {
     world
         .resource_mut::<InteractionOriginSnapshot>()
         .assist_direction(Vec3::Y);
-    world.resource_scope(|world, mut block_use: Mut<BlockUseRuntime>| {
-        block_use.retain_pick(
-            world.resource::<InteractionOriginSnapshot>(),
-            world
-                .resource::<MovementTicker>()
-                .position_authority_identity(),
-        );
-    });
+    world.resource_mut::<BlockUseRuntime>().clear_picks();
+    world
+        .run_system_cached(crate::block_use::retain_block_use_pick)
+        .unwrap();
     super::super::riptide_tests::flush_and_acknowledge(&mut world);
     world
         .run_system_cached(crate::item_use::ordered::synchronize_scope)
@@ -281,9 +277,11 @@ fn deferred_use_edges_keep_server_clears_in_input_order() {
             releasing,
             "only a real owned release may precede the server clear: {buttons:?}"
         );
+        let mut windows = crate::ordered_interactions::PrimaryWindows::new(&mut world);
         crate::ordered_interactions::drain(
             &mut world,
             crate::ordered_interactions::DispatchPhase::AfterMovement,
+            &mut windows,
         );
         assert!(!world.resource::<ItemUseRuntime>().is_using());
         let transactions: Vec<_> = captured
@@ -351,9 +349,11 @@ fn a_server_clear_survives_expired_use_edges_and_backpressure() {
         .run_system_cached(crate::item_use::adopt_server_item_use)
         .unwrap();
     assert!(world.resource::<ItemUseRuntime>().is_using());
+    let mut windows = crate::ordered_interactions::PrimaryWindows::new(&mut world);
     crate::ordered_interactions::drain(
         &mut world,
         crate::ordered_interactions::DispatchPhase::AfterMovement,
+        &mut windows,
     );
     captured.drain();
     world
@@ -679,9 +679,11 @@ fn a_remaining_use_binding_does_not_hide_a_server_clear() {
     );
     assert_eq!(world.resource::<ItemUseRuntime>().movement_modifier(), None);
     assert!(!world.resource::<LocalPhysicsController>().live_using_item());
+    let mut windows = crate::ordered_interactions::PrimaryWindows::new(&mut world);
     crate::ordered_interactions::drain(
         &mut world,
         crate::ordered_interactions::DispatchPhase::AfterMovement,
+        &mut windows,
     );
     assert!(captured.drain().iter().all(|packet| {
         protocol::test_support::transactions::observe_transaction(packet).is_none()

@@ -295,12 +295,28 @@ impl ActorStore {
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.animation.ui_layers(runtime_id)
     }
+    pub(crate) fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.paper_doll_layers(runtime_id)
+    }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(
         &self,
         runtime_id: u64,
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
+    }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub(crate) fn actor_bone_descends_from(
+        &self,
+        runtime_id: u64,
+        bone: usize,
+        ancestor: usize,
+    ) -> bool {
+        self.animation
+            .bone_descends_from(runtime_id, bone, ancestor)
     }
     pub(crate) fn actor_retargeted_pose(
         &self,

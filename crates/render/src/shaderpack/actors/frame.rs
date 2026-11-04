@@ -358,6 +358,15 @@ pub(crate) fn record(
     if !state.actors.draws.iter().any(|draw| draw.kind == kind) {
         return;
     }
+    if state
+        .pack
+        .draws
+        .iter()
+        .any(|draw| draw.kind == kind && draw.emulation.is_some())
+    {
+        record_emulated(encoder, state, kind, write_alt, depth);
+        return;
+    }
     let constant = state.pack.host.constant_stream.clone();
     let Some((mut render, _)) = open_kind(encoder, state, kind, write_alt, depth) else {
         return;
@@ -403,4 +412,57 @@ pub(crate) fn record(
             );
         }
     }
+}
+
+/// Expands skinned actor triangles with each layer's existing uniform and texture bindings.
+fn record_emulated(
+    encoder: &mut CommandEncoder,
+    state: &mut ViewState,
+    kind: DrawKind,
+    write_alt: u32,
+    depth: Option<(&TextureView, [u32; 2])>,
+) {
+    let actors = std::mem::take(&mut state.actors);
+    if let Some(slots) = actors.slots.get(&kind) {
+        for index in actors.draw_order(kind) {
+            let draw = &actors.draws[index];
+            let Some(slot) = slots.get(actors.slot_of[index] as usize).filter(|slot| {
+                actors
+                    .views
+                    .get(&draw.texture)
+                    .is_some_and(|view| slot.texture == Some((draw.texture, view.generation)))
+            }) else {
+                continue;
+            };
+            for buffers in &actors.pages {
+                let start = draw.vertices.start.max(buffers.first);
+                let end = draw
+                    .vertices
+                    .end
+                    .min(buffers.first + u64::from(buffers.vertices));
+                let Some(output) = buffers.output.buffer.as_ref().filter(|_| start < end) else {
+                    continue;
+                };
+                crate::shaderpack::geometry_shader::record(
+                    encoder,
+                    state,
+                    kind,
+                    write_alt,
+                    depth,
+                    crate::shaderpack::geometry_shader::Input {
+                        vertices: output,
+                        indices: None,
+                        index_values: None,
+                        origins: None,
+                        first: (start - buffers.first) as u32,
+                        count: (end - start) as u32,
+                        base_vertex: 0,
+                        instance: 0,
+                    },
+                    Some(&slot.groups[state.targets.parity]),
+                );
+            }
+        }
+    }
+    state.actors = actors;
 }

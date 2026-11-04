@@ -17,7 +17,7 @@ impl MenuRuntime {
         };
         self.feeds.server_trust_answer = Some((prompt, trusted));
         if !trusted {
-            self.intents.disconnect = true;
+            self.request_disconnect();
         }
     }
 

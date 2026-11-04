@@ -33,12 +33,8 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
         .iter()
         .filter_map(|source| {
             let key = source.key();
-            let art = cache.decoded.get(&key)?;
-            Some((
-                key.0,
-                art.as_ref(),
-                matches!(source, Source::Item(_, false)),
-            ))
+            let art = cache.get(&key)?;
+            Some((key.0, art, matches!(source, Source::Item(_, false))))
         })
         .collect();
     let decoded: Vec<(String, &Artwork, bool)> = title()

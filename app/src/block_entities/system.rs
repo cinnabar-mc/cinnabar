@@ -1,9 +1,7 @@
 //! The per-frame system, carrier loading and the caches behind them.
 
-use crate::runtime::network::resource_packs::PackApplication;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::IntoScheduleConfigs;
-use client_runtime::network::NetworkHandle;
 use std::{path::Path, sync::Arc};
 
 use assets::{RuntimeBlockEntityAssets, RuntimeFontCatalog};
@@ -25,7 +23,7 @@ use super::{
     books,
     containers::{ContainerKind, ContainerLids, cue_is_open},
     cracks::{CrackLayers, crack_instances, with_second_parts},
-    describe::{HeldItem, Template, describe},
+    describe::{HeldItem, Template, describe, overlay_items},
     sign_text,
     state::BlockState,
 };
@@ -51,14 +49,17 @@ mod beacon;
 mod beacon_tests;
 mod bed;
 mod bell_rings;
+mod piston_arms;
 use bell_rings::{BELL_RING_EVENT_TYPE, bell_elapsed, prune_bell_rings};
 pub(super) mod columns;
 mod crystal_beams;
 mod culling;
 mod dragon_death;
+mod loyalty_ropes;
+mod maps;
 mod placement;
 mod portals;
-use placement::held_placement;
+use placement::{held_placement, overlay_item_placements};
 
 #[cfg(test)]
 mod beacon_tint_tests;
@@ -128,11 +129,14 @@ pub(crate) struct BlockEntityRuntime {
     /// Scan results per loaded column, rebuilt when the column changes.
     columns: HashMap<ChunkKey, columns::ColumnScan>,
     rescans: columns::RescanOrder,
+    /// The window whose last pass left every column in range current.
+    settled: Option<columns::ColumnWindow>,
     frame: u64,
     blocks: HashMap<u32, Option<Arc<BlockInfo>>>,
     layouts: TextLayoutCache,
     shapes: CrackShapeCache,
     bell_rings: HashMap<[i32; 3], (u64, f64)>,
+    piston_motions: HashMap<[i32; 3], piston_arms::PistonMotion>,
     /// Framed map ids seen this frame without an image.
     missing_maps: Vec<i64>,
     /// Session and dimension the runtime-id keyed caches were filled from.
@@ -151,11 +155,13 @@ impl BlockEntityRuntime {
             beacon_tints: assets::BeaconTintCatalog::pinned(),
             columns: HashMap::new(),
             rescans: columns::RescanOrder::default(),
+            settled: None,
             frame: 0,
             blocks: HashMap::new(),
             layouts: TextLayoutCache::new(TEXT_CACHE_ENTRIES, TEXT_CACHE_BYTES),
             shapes: CrackShapeCache::default(),
             bell_rings: HashMap::new(),
+            piston_motions: HashMap::new(),
             missing_maps: Vec::new(),
             session: None,
             beam_source: None,
@@ -179,6 +185,7 @@ impl BlockEntityRuntime {
         {
             self.beam_source = Some((Arc::clone(assets), range));
             self.columns.clear();
+            self.settled = None;
             self.blocks.clear();
         }
     }
@@ -194,10 +201,12 @@ impl BlockEntityRuntime {
         self.lids = ContainerLids::default();
         self.missing_maps.clear();
         self.columns.clear();
+        self.settled = None;
         self.rescans = columns::RescanOrder::default();
         self.blocks.clear();
         self.shapes.clear();
         self.bell_rings.clear();
+        self.piston_motions.clear();
         self.books = books::TableBooks::default();
     }
 }
@@ -221,7 +230,7 @@ pub(crate) fn configure(app: &mut App, font: Arc<RuntimeFontCatalog>) {
             (
                 update_block_entity_scene
                     .after(crate::runtime::network::prepare_actor_render_frame),
-                request_missing_maps,
+                maps::request_missing_maps,
             )
                 .chain()
                 .run_if(bevy::prelude::resource_exists::<PhysicsCollisionRegistries>),
@@ -266,6 +275,7 @@ fn model_light(kind: &BlockEntityKind, block: u8, sky: u8, daylight: f32) -> Blo
         BlockEntityKind::Skull(_)
             | BlockEntityKind::Chalkboard(_)
             | BlockEntityKind::EnchantTable { .. }
+            | BlockEntityKind::PistonArm(_)
     ) {
         BlockEntityLight::Actor { block, sky }
     } else {
@@ -309,7 +319,7 @@ fn second_crack_part(
     store: &world::ChunkStore,
     mode: assets::NetworkIdMode,
     dimension: i32,
-    entry: &chunk_pipeline::ActiveBlockCrack,
+    entry: &client_world::ActiveBlockCrack,
 ) -> Option<([i32; 3], CrackLayers)> {
     let id = entry.layers[0]?;
     let offset = collisions.second_part_offset(mode, id)?;
@@ -484,16 +494,22 @@ pub(crate) fn update_block_entity_scene(
         ((center - SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
             ..=((center + SCAN_RADIUS_BLOCKS) / SUB_CHUNK_SIDE as f32).floor() as i32
     };
-    let selected = runtime.rescans.select(
-        chunk_range(eye.x)
-            .flat_map(|x| chunk_range(eye.z).map(move |z| ChunkKey::new(dimension, x, z)))
-            .filter(|key| {
-                !columns::is_near_column(eye_column, key.x, key.z)
-                    && store.chunk(*key).is_some_and(|chunk| {
-                        scans.get(key).is_none_or(|scan| !scan.is_current(chunk))
-                    })
-            }),
-    );
+    let window = columns::ColumnWindow {
+        terrain: store.content_revision(),
+        columns: [chunk_range(eye.x), chunk_range(eye.z)],
+        eye_column,
+    };
+    // A settled window has no stale column to select, so selecting would change nothing.
+    let selected = if runtime.settled.as_ref() == Some(&window) {
+        Default::default()
+    } else {
+        runtime
+            .rescans
+            .select(window.stale_distant(dimension, store, |key, chunk| {
+                scans.get(&key).is_none_or(|scan| !scan.is_current(chunk))
+            }))
+    };
+    let mut settled = true;
     let prepare_zone = bevy::log::info_span!("block_entity.prepare").entered();
     'columns: for chunk_x in chunk_range(eye.x) {
         for chunk_z in chunk_range(eye.z) {
@@ -516,13 +532,26 @@ pub(crate) fn update_block_entity_scene(
                 budget,
                 columns::ColumnScan::is_current,
                 |previous| {
-                    let portals = portals::column_cells(chunk_key, chunk, |id| {
+                    let mut portals = portals::column_cells(chunk_key, chunk, |id| {
                         portal_kind(&collisions, mode, id)
+                            .or_else(|| piston_arms::resting(runtime, &collisions, mode, id))
+                    });
+                    // Actor data, when present, drives the head instead.
+                    portals.retain(|(block, kind)| {
+                        !matches!(kind, BlockEntityKind::PistonArm(_))
+                            || !piston_arms::has_actor(chunk, dimension, *block)
                     });
                     let entities = columns::routed_entities(
                         chunk,
                         previous,
                         |id, runtime_id, nbt, position| {
+                            if let Some(overlays) = nbt.cell_overlays() {
+                                return overlay_items(
+                                    overlays,
+                                    &stream.authority().decode_ids(dimension),
+                                    runtime_id,
+                                );
+                            }
                             block_info(runtime, &collisions, mode, runtime_id)
                                 .zip(nbt.parse())
                                 .and_then(|(info, root)| {
@@ -540,11 +569,18 @@ pub(crate) fn update_block_entity_scene(
                     columns::ColumnScan::new(chunk, portals, entities)
                 },
             ) else {
+                settled = false;
                 continue;
             };
+            settled &= scan.is_current(chunk);
             scan.seen_frame = frame_stamp;
             let before_portals = submissions.len();
-            portals::submit(&mut submissions, &scan.portals, eye);
+            portals::submit(&mut submissions, &scan.portals, eye, |block, kind| {
+                piston_arms::light_sample(kind, *block).map_or(1.0.into(), |sample| {
+                    let (block_light, sky_light) = stream.light_level_at(sample);
+                    model_light(kind, block_light, sky_light, daylight)
+                })
+            });
             let portals = (submissions.len() - before_portals) as u32;
             work.candidates += portals;
             work.prepared += portals;
@@ -630,7 +666,9 @@ pub(crate) fn update_block_entity_scene(
                             stream.light_level_at(position)
                         })
                     } else {
-                        let (block_light, sky_light) = stream.light_level_at(center.to_array());
+                        let sample = piston_arms::light_sample(&kind, [x, y, z])
+                            .unwrap_or(center.to_array());
+                        let (block_light, sky_light) = stream.light_level_at(sample);
                         model_light(&kind, block_light, sky_light, daylight)
                     };
                     submissions.push(BlockEntitySubmission {
@@ -642,6 +680,7 @@ pub(crate) fn update_block_entity_scene(
             }
             scans.insert(chunk_key, scan);
             if full {
+                settled = false;
                 break 'columns;
             }
         }
@@ -651,6 +690,8 @@ pub(crate) fn update_block_entity_scene(
     runtime.books.finish();
     scans.retain(|_, scan| scan.seen_frame == frame_stamp);
     runtime.columns = scans;
+    runtime.settled = settled.then_some(window);
+    piston_arms::prune(&mut runtime.piston_motions, now_seconds);
     prune_bell_rings(&mut runtime.bell_rings, now_seconds, |position| {
         stream
             .block_event_cue(*position)
@@ -665,6 +706,15 @@ pub(crate) fn update_block_entity_scene(
         |runtime_id, owner_position| {
             let actor = stream.authority().actor(runtime_id)?;
             stream.solved_light_at(actor.brightness_sample_position(owner_position))
+        },
+    );
+    loyalty_ropes::submit(
+        &mut submissions,
+        stream.authority().loyalty_ropes(actor_partial_tick.0),
+        camera_position,
+        |runtime_id, trident| {
+            let actor = stream.authority().actor(runtime_id)?;
+            stream.solved_light_at(actor.brightness_sample_position(trident))
         },
     );
     dragon_death::submit(
@@ -729,68 +779,6 @@ const CAMPFIRE_SLOTS: [[f32; 2]; 4] = [[-4.0, -4.0], [4.0, -4.0], [4.0, 4.0], [-
 const CAMPFIRE_ITEM_HEIGHT: f32 = 7.5;
 const CAMPFIRE_ITEM_SCALE: f32 = 0.375;
 
-/// Requests each missing held or framed map once per session after output admission.
-pub(crate) fn request_missing_maps(
-    mut runtime: ResMut<BlockEntityRuntime>,
-    network: Option<Res<NetworkHandle<PackApplication>>>,
-    mut world: ResMut<ClientWorld>,
-    player: Res<client_state::PlayerRuntime>,
-    ui: Option<Res<UiRuntimeResource>>,
-) {
-    let Some(network) = network else {
-        runtime.missing_maps.clear();
-        return;
-    };
-    let Some(stream) = world.stream.as_mut() else {
-        runtime.missing_maps.clear();
-        return;
-    };
-    let runtime = &mut *runtime;
-    {
-        let held = client_presentation::presentation::equipment::local_input(
-            &player,
-            stream,
-            ui.as_deref().map(|ui| &ui.0),
-            stream.local_player_runtime_id(),
-        );
-        for item in [held.main, held.off].into_iter().flatten() {
-            if item.identifier.as_ref() == assets::facts::FILLED_MAP_IDENTIFIER
-                && let Some(id) = item.map_id
-                && stream.map_image(id).is_none()
-            {
-                runtime.missing_maps.push(id);
-            }
-        }
-    }
-    runtime.missing_maps.sort_unstable();
-    runtime.missing_maps.dedup();
-    for id in std::mem::take(&mut runtime.missing_maps) {
-        if !stream.map_is_known(id)
-            && network
-                .send_inventory_packet(protocol::map_info_request_packet(id))
-                .is_ok()
-        {
-            stream.admit_map_request(id);
-        }
-    }
-}
-
-/// Cache key for a map image at one revision.
-fn map_cache_key(map_id: i64, revision: u64) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (map_id, revision).hash(&mut hasher);
-    hasher.finish()
-}
-
-/// A 128x128 RGBA8 canvas from packed map pixels (red in the low byte).
-fn map_canvas(pixels: &[u32]) -> Vec<u8> {
-    pixels
-        .iter()
-        .flat_map(|pixel| pixel.to_le_bytes())
-        .collect()
-}
-
 /// Applies per-frame state (lid openness, sign canvases, viewer yaw) to a template; a `hidden`
 /// one still advances its book, lid, ring and map request and keeps its text and map canvases
 /// resident, but prepares no geometry.
@@ -845,9 +833,13 @@ fn resolve(
                 viewer_yaw_degrees: yaw_toward(context.eye, position),
             })
         }),
+        &Template::PistonArm { .. } => {
+            piston_arms::resolve(template, position, context.now_seconds, runtime)
+                .filter(|_| !hidden)
+        }
         &Template::Bell {
             attachment,
-            direction,
+            ring_direction,
         } => {
             let sequence = stream
                 .block_event_cue(position)
@@ -861,7 +853,7 @@ fn resolve(
             );
             (!hidden).then_some(BlockEntityKind::Bell(BellModel {
                 attachment,
-                direction,
+                ring_direction,
                 seconds_since_ring,
             }))
         }
@@ -879,8 +871,8 @@ fn resolve(
             }
             let map = map_id.and_then(|id| {
                 let image = stream.map_image(id)?;
-                scene.map_rect(map_cache_key(id, image.revision), || {
-                    map_canvas(&image.pixels)
+                scene.map_rect(maps::map_cache_key(id, image.revision), || {
+                    maps::map_canvas(&image.pixels)
                 })
             });
             if hidden {
@@ -912,6 +904,7 @@ fn resolve(
                 &plant.states,
             )?;
             held.push(StaticItemPlacement {
+                shield_pattern: None,
                 allow_block_models: false,
                 identifier: Arc::clone(&plant.identifier),
                 metadata: 0,
@@ -965,6 +958,12 @@ fn resolve(
                     back,
                 },
             ))
+        }
+        Template::OverlayItems(items) => {
+            if !hidden {
+                held.extend(overlay_item_placements(items, position, stream));
+            }
+            None
         }
     }
 }

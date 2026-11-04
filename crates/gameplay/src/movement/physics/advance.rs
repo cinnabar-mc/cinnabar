@@ -21,6 +21,10 @@ impl LocalPhysicsController {
         if context.input.jump.pressed || (input.jumping && !self.previous_jump_held) {
             self.jump_edge_pending = true;
         }
+        // Vanilla reads the jump button's current state each tick, so a press released before
+        // the next tick runs neither jumps nor deploys an elytra, and that tick sends no
+        // `Jumping`. Only a press still held when the tick runs keeps its edge.
+        self.jump_edge_pending &= input.jumping;
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
 
@@ -79,8 +83,8 @@ impl LocalPhysicsController {
                 self.live_climber,
             );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
-            // once the player is grounded again. Preserve the render-frame edge
-            // latch for taps shorter than one fixed tick, but never inject the
+            // once the player is grounded again. Keep the edge of a press made in
+            // an earlier render frame and still held, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             input.jumping = physical_jump_held || self.jump_pulse_pending;
             let grounded_before_tick = state.on_ground;
@@ -140,6 +144,7 @@ impl LocalPhysicsController {
                 Ok(choice) => {
                     input.mode = choice.mode;
                     input.sprinting = choice.sprinting;
+                    input.glide_ascent = choice.glide_ascent;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
                     flight_request = choice.flight_request;
@@ -152,6 +157,7 @@ impl LocalPhysicsController {
                     // Missing terrain cannot turn an authoritative freeze into a blocked tick.
                     self.modes = previous_modes;
                     input.mode = self.modes.mode();
+                    input.glide_ascent = false;
                     input.sneaking = sneak_request;
                 }
                 Err(error) => mode_error = Some(error),

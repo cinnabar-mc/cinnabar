@@ -2,6 +2,7 @@
 //! block break/crack parameters and server-supplied Molang variable maps.
 
 use assets::facts::{ParticleEffect, legacy_particle_effect, level_particle_effect};
+use protocol_ids::LevelEvent;
 use serde_json::Value;
 
 use super::{
@@ -98,10 +99,21 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
     }
     match event_id {
         2001 | 2021 => Some(LevelParticle::BlockBreak { runtime_id: data }),
-        2014 => Some(LevelParticle::BlockCrack {
-            runtime_id: data & 0x00ff_ffff,
-            face: ((data >> 24) & 0x7) as u8,
-        }),
+        id if id == LevelEvent::ParticlesCrackBlock.wire_value() => {
+            Some(LevelParticle::BlockCrack {
+                runtime_id: data & 0x00ff_ffff,
+                face: ((data >> 24) & 0x7) as u8,
+            })
+        }
+        id if (LevelEvent::ParticlesCrackBlockDown.wire_value()
+            ..=LevelEvent::ParticlesCrackBlockEast.wire_value())
+            .contains(&id) =>
+        {
+            Some(LevelParticle::BlockCrack {
+                runtime_id: data,
+                face: (id - LevelEvent::ParticlesCrackBlockDown.wire_value()) as u8,
+            })
+        }
         2002 => Some(LevelParticle::Named {
             effect: ParticleEffect::SplashSpellEmitter,
             spell_color: Some(argb(data)),
@@ -515,12 +527,44 @@ mod tests {
     #[test]
     fn crack_event_splits_runtime_id_and_face() {
         assert_eq!(
-            classify_level_event(2014, (1 << 24) | 5),
+            classify_level_event(LevelEvent::ParticlesCrackBlock.wire_value(), (1 << 24) | 5),
             Some(LevelParticle::BlockCrack {
                 runtime_id: 5,
                 face: 1
             })
         );
+    }
+
+    #[test]
+    fn face_crack_events_preserve_all_block_id_bits() {
+        let events = [
+            LevelEvent::ParticlesCrackBlockDown,
+            LevelEvent::ParticlesCrackBlockUp,
+            LevelEvent::ParticlesCrackBlockNorth,
+            LevelEvent::ParticlesCrackBlockSouth,
+            LevelEvent::ParticlesCrackBlockWest,
+            LevelEvent::ParticlesCrackBlockEast,
+        ];
+        for (face, event) in events.into_iter().enumerate() {
+            for runtime_id in [7, 0x7abc_def0, 0xfabc_def0_u32 as i32] {
+                assert_eq!(
+                    classify_level_event(event.wire_value(), runtime_id),
+                    Some(LevelParticle::BlockCrack {
+                        runtime_id,
+                        face: face as u8,
+                    })
+                );
+            }
+            assert!(is_particle_level_event(event.wire_value()));
+        }
+        assert!(!matches!(
+            classify_level_event(LevelEvent::ParticlesCrackBlockDown.wire_value() - 1, 0),
+            Some(LevelParticle::BlockCrack { .. })
+        ));
+        assert!(!matches!(
+            classify_level_event(LevelEvent::ParticlesCrackBlockEast.wire_value() + 1, 0),
+            Some(LevelParticle::BlockCrack { .. })
+        ));
     }
 
     #[test]

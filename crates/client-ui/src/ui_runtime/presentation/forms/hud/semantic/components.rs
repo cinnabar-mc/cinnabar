@@ -17,7 +17,10 @@ pub(super) struct WorldTextInput {
 
 /// Projects visibility and day boundaries without formatting any text.
 pub(super) fn world_text_input(runtime: &UiRuntime, frame: &HudFrame) -> WorldTextInput {
-    let alive = runtime.last_known_local_player_alive.unwrap_or(true);
+    let alive = runtime
+        .session
+        .last_known_local_player_alive
+        .unwrap_or(true);
     let rules = runtime.gameplay_hud();
     WorldTextInput {
         position: frame

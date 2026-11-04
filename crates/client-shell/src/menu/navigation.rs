@@ -10,6 +10,14 @@ use {
 };
 
 impl MenuRuntime {
+    /// Records the accepted leave action once before the session controller consumes it.
+    pub(super) fn request_disconnect(&mut self) {
+        if !self.intents.disconnect {
+            bridge::leave_profile::LeaveProfile::begin();
+            self.intents.disconnect = true;
+        }
+    }
+
     /// Invokes the enabled Apply action before leaving Global Resources.
     pub(super) fn apply_global_resources_on_leave(&mut self) {
         if self.scene() == Some(MenuScreen::Settings)
@@ -258,7 +266,9 @@ impl MenuRuntime {
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
-            self.intents.disconnect |= self.feeds.join.cancellable();
+            if self.feeds.join.cancellable() {
+                self.request_disconnect();
+            }
             return;
         }
         if self.shader_options_back() {

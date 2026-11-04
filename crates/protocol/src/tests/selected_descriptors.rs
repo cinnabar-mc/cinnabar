@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::{
+use bedrock_protocol_1_26_60::{
     enums::ContainerEnumName,
     packets,
     types::{InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData},
@@ -221,6 +221,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         yaw: 180.0,
         head_yaw: 180.0,
         camera_orientation: [0.0, 0.0, -1.0],
+        interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
         vehicle: None,
@@ -261,7 +262,7 @@ fn assert_change(
     assert_eq!(slots.len(), 1);
     assert_eq!(
         slots[0].container_enum,
-        ContainerEnumName::Inventorycontainer
+        ContainerEnumName::InventoryContainer
     );
     assert_eq!(slots[0].slots.as_ref(), [2]);
     let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =

@@ -147,7 +147,7 @@ fn fixture_with_skin(with_skin: bool) -> World {
         client_interaction::movement::PhysicsCollisionRegistries::from_assets(
             bytes,
             &records,
-            include_bytes!("../../../../../../crates/assets/data/block-physics-v2193.bin"),
+            include_bytes!("../../../../../../crates/assets/data/block-physics-v2225.bin"),
             version,
         )
         .unwrap(),

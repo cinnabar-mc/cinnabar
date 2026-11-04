@@ -66,7 +66,7 @@ impl MenuRuntime {
                 .flatten(),
             renderer: self.renderer_choice(),
             shader_options_available: self.shader_options_available(),
-            renderer_failure: self.renderer_failure(),
+            renderer_issue: self.renderer_issue(),
             shader_pack_loading: self.renderer_loading(),
             vsync_override: self.vsync_override,
             display_name: self.presented_display_name(),

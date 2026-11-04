@@ -22,6 +22,7 @@ impl ActorAnimationStore {
             render: Cow::Borrowed(state.render.as_slice()),
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
+            head_rotation: state.head_rotation,
         };
         let fallback = || {
             self.frame_fallbacks
@@ -34,7 +35,8 @@ impl ActorAnimationStore {
                 || state.samples_swing_poses
                 || frame.needs_swell_sampling(actor)
                 || frame.needs_rotation_sampling()
-                || frame.needs_walk_sampling())
+                || frame.needs_walk_sampling()
+                || frame.samples_local_walk(state))
                 && (!state.culled
                     || state.samples_camera_poses
                     || state.held_item_scale.is_some()
@@ -66,7 +68,8 @@ impl ActorAnimationStore {
             });
         let swell_changed = frame.needs_swell_sampling(actor);
         let rotation_changed = frame.needs_rotation_sampling();
-        let walk_changed = frame.needs_walk_sampling();
+        let local_walk = frame.samples_local_walk(state);
+        let walk_changed = frame.needs_walk_sampling() || local_walk;
         let motion_changed = swell_changed || rotation_changed || walk_changed;
         if !state.samples_render_frames && !swing_changed && !motion_changed {
             return Some(completed());
@@ -90,7 +93,21 @@ impl ActorAnimationStore {
             } else {
                 input
             };
-            if walk_changed {
+            if local_walk {
+                let mut input = state
+                    .java
+                    .local_body
+                    .sample_walk(
+                        input,
+                        &state.motion,
+                        state.java.motion.body_frame_alpha.unwrap_or(partial_tick),
+                    )
+                    .unwrap_or(input);
+                if query::actor_flag(actor, protocol_ids::ActorFlag::Baby.wire_value()) {
+                    input.move_speed *= tick::BABY_MOVE_SPEED_SCALE;
+                }
+                input
+            } else if walk_changed {
                 input.sample_walk(frame.previous_walk, current, partial_tick)
             } else {
                 input
@@ -289,8 +306,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &current.evaluator,
                 &mut current.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &current.clips,
                 &mut budget,
             ) else {
@@ -304,8 +324,11 @@ impl ActorAnimationStore {
             let Ok(local) = pose::sample_clips_reused(
                 &evaluator,
                 &mut variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 sampled_clips.as_deref().unwrap_or(&frame.motion.clips),
                 &mut budget,
             ) else {
@@ -325,11 +348,12 @@ impl ActorAnimationStore {
             .flatten()
             .map(|sampling| {
                 if camera_resample {
-                    return motion_sampling::full_mask(state.bone_names.len());
+                    return motion_sampling::full_mask(state.animated_skeleton().1.len());
                 }
                 sampling.mask(
                     assets,
-                    &state.bone_names,
+                    state.animated_skeleton().1,
+                    Some(state.animated_skeleton().2),
                     clips
                         .iter()
                         .chain(
@@ -351,8 +375,11 @@ impl ActorAnimationStore {
             let Ok(sampled_previous) = pose::sample_clips_reused(
                 &previous.evaluator,
                 &mut previous.variables,
-                &state.bones,
-                pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+                state.animated_skeleton().0,
+                {
+                    let (_, names, channels) = state.animated_skeleton();
+                    pose::ChannelBones::bound(names, channels)
+                },
                 &previous.clips,
                 &mut budget,
             ) else {
@@ -523,6 +550,7 @@ impl ActorAnimationStore {
                                 sampling.mask(
                                     assets,
                                     &skeleton.names,
+                                    None,
                                     clips.iter().chain(previous_clips).copied(),
                                     Some(geometry),
                                 )
@@ -618,6 +646,20 @@ impl ActorAnimationStore {
             }
             _ => Ok(Cow::Borrowed(state.skin_layers.as_slice())),
         };
+        // An unsampled body draws its tick pose, so the head keeps its tick angles too.
+        let head_rotation = state.head_rotation.map(|tick| {
+            sampled_local
+                .as_deref()
+                .and_then(|local| {
+                    HeadRotation::sampled(
+                        &state.bones,
+                        &state.bone_names,
+                        local,
+                        sampled_previous_local.as_deref(),
+                    )
+                })
+                .unwrap_or(tick)
+        });
         let complete = skin.is_ok();
         let skin = skin.unwrap_or(Cow::Borrowed(state.skin_layers.as_slice()));
         if complete && let Some(retained) = retained {
@@ -628,12 +670,14 @@ impl ActorAnimationStore {
                     Cow::Borrowed(_) => None,
                 },
                 held_item_scale,
+                head_rotation,
             );
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
             skin,
             held_item_scale,
+            head_rotation,
         })
     }
 }

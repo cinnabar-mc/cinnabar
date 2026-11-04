@@ -99,10 +99,14 @@ pub struct ActorStatus {
     pub(crate) cloud_start_tick: Option<u32>,
     pub(crate) cloud_particles_expired: bool,
     pub dead: bool,
+    /// Commit sequence of the latest death observed in this lifetime; zero before any.
+    pub(crate) death_revision: u64,
     /// `age_ticks` when the fuse metadata was last received.
     pub fuse_age_ticks: u32,
     /// Ticks since the actor spawned; drives dropped-item spin and bob phase.
     pub age_ticks: u32,
+    /// A thrown trident's ticks with its return flag set, which lengthen its loyalty rope.
+    pub(super) loyalty_return_ticks: u32,
     pub(super) fire: super::fire::FireAnimation,
     /// Runtime ID and spawn revision of the dragon's last selected healing crystal.
     pub(crate) healing_crystal: Option<(u64, u64)>,
@@ -199,6 +203,19 @@ impl ActorStatus {
 }
 
 impl ActorSnapshot {
+    /// Restores depleted health on an alive notice without resetting a living actor's clocks.
+    fn apply_spawn_alive(&mut self) {
+        if let Some(health) = self.attributes.get_mut(Attribute::Health.wire_name()) {
+            if health.current > 0.0 {
+                return;
+            }
+            health.current = health.max;
+        } else if !self.status.dead {
+            return;
+        }
+        self.status.revive();
+    }
+
     /// Where this actor's eating crumbs scatter from: a player's mouth, else its position.
     pub fn eating_position(&self) -> [f32; 3] {
         let mut position = self.position;
@@ -246,6 +263,14 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
+    /// Records a death committed at `sequence` for the current lifetime of an admitted actor;
+    /// other runtime IDs are ignored.
+    pub(crate) fn note_death(&mut self, runtime_id: u64, sequence: u64) {
+        if let Some(actor) = self.actors.get_mut(&runtime_id) {
+            actor.status.death_revision = sequence;
+        }
+    }
+
     pub(super) fn apply_status(&mut self, event: ActorStatusEvent) -> ActorApplyResult {
         let Some(actor) = self.actors.get_mut(&event.runtime_id) else {
             return ActorApplyResult::MissingActor;
@@ -273,6 +298,9 @@ impl ActorStore {
                 self.animation.hurt_java_limbs(event.runtime_id);
             }
             ActorStatusKind::Death => {
+                if let Some(health) = actor.attributes.get_mut(Attribute::Health.wire_name()) {
+                    health.current = health.min;
+                }
                 if actor.entity_fact.native_class == NativeEntityClass::EnderDragon {
                     actor.status.dead = true;
                     actor.status.dragon_death_time = 1;
@@ -280,7 +308,7 @@ impl ActorStore {
                     actor.status.die();
                 }
             }
-            ActorStatusKind::SpawnAlive => actor.status.revive(),
+            ActorStatusKind::SpawnAlive => actor.apply_spawn_alive(),
             // Entity event 39 (0x27) sets the shake countdown verbatim.
             ActorStatusKind::Shake => actor.status.shake_time = event.data,
             ActorStatusKind::KineticDamageDealt => actor.status.kinetic_hit_ticks = Some(0),
@@ -628,5 +656,98 @@ mod tests {
         assert_eq!(actor.status.kinetic_hit_ticks, Some(6));
         actor.status.advance_kinetic_hit(false);
         assert_eq!(actor.status.kinetic_hit_ticks, None);
+    }
+
+    /// A streamed player with independent current, maximum and default health.
+    fn player_with_health(current: f32) -> ActorStore {
+        let protocol::ActorEvent::Spawn(mut spawn) = spawn() else {
+            unreachable!()
+        };
+        spawn.kind = protocol::ActorKind::Player {
+            uuid: [7; 16],
+            username: "Fixture".into(),
+        };
+        spawn.attributes = [protocol::ActorAttribute {
+            name: Attribute::Health.wire_name().into(),
+            min: 0.0,
+            max: 40.0,
+            current,
+            default: Some(20.0),
+            modifiers: [].into(),
+        }]
+        .into();
+        let mut store = ActorStore::new(1, 0);
+        store.apply(1, 1, protocol::ActorEvent::Spawn(spawn));
+        store
+    }
+
+    #[test]
+    fn spawn_alive_restores_maximum_health_without_replacing_movement() {
+        let mut store = player_with_health(0.0);
+        store.advance_interpolation_ticks(1);
+        store.apply_player_move(
+            1,
+            2,
+            0,
+            protocol::MovePlayerEvent {
+                runtime_id: 7,
+                position: [6.0, 5.0, 0.0],
+                ..Default::default()
+            },
+        );
+        let before = store.get(7).unwrap().clone();
+        assert!(before.status.dead);
+        assert!(before.interpolation_ticks_remaining > 0);
+        store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+        let actor = store.get(7).unwrap();
+        assert_eq!(
+            actor.attributes[Attribute::Health.wire_name()].current,
+            40.0
+        );
+        assert!(!actor.status.dead);
+        assert_eq!(actor.spawn_revision, before.spawn_revision);
+        assert_eq!(actor.position, before.position);
+        assert_eq!(actor.received_pose, before.received_pose);
+        assert_eq!(
+            actor.interpolation_ticks_remaining,
+            before.interpolation_ticks_remaining
+        );
+        store.advance_interpolation_ticks(1);
+        assert!(!store.get(7).unwrap().status.dead);
+        assert_ne!(store.get(7).unwrap().position, before.position);
+    }
+
+    #[test]
+    fn spawn_alive_keeps_positive_health_and_active_hurt_timing() {
+        for current in [0.5, 8.0, 40.0] {
+            let mut store = player_with_health(current);
+            store.apply(1, 2, status(ActorStatusKind::Hurt));
+            let before = store.get(7).unwrap().status;
+            assert!(before.hurt_time > 0);
+            store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+            let actor = store.get(7).unwrap();
+            assert_eq!(
+                actor.attributes[Attribute::Health.wire_name()].current,
+                current
+            );
+            assert_eq!(actor.status.hurt_time, before.hurt_time);
+            assert_eq!(actor.status.hurt_direction, before.hurt_direction);
+        }
+    }
+
+    #[test]
+    fn death_then_spawn_alive_updates_health_without_an_attribute_packet() {
+        let mut store = player_with_health(8.0);
+        store.apply(1, 2, status(ActorStatusKind::Death));
+        let actor = store.get(7).unwrap();
+        assert_eq!(actor.attributes[Attribute::Health.wire_name()].current, 0.0);
+        assert!(actor.status.dead);
+        store.apply(1, 3, status(ActorStatusKind::SpawnAlive));
+        let actor = store.get(7).unwrap();
+        assert_eq!(
+            actor.attributes[Attribute::Health.wire_name()].current,
+            40.0
+        );
+        assert!(!actor.status.dead);
     }
 }
