@@ -82,7 +82,7 @@ pub(super) fn attach(
             stream,
             render_frame.as_deref_mut(),
             &poses,
-            (partial_tick, delta_seconds, glint_settings),
+            (partial_tick, delta_seconds, glint_settings, local_coverage),
             |body, runtime_skin, render_frame| {
                 let runtime_id = body.input.identity.runtime_id;
                 let render_frame = render_frame?;
@@ -107,18 +107,15 @@ pub(super) fn attach(
     };
     let mut layers_of = |runtime_id| {
         let render_frame = render_frame.as_mut()?;
-        if let Some(pose) = poses.emote(runtime_id) {
-            Some(std::borrow::Cow::Borrowed(pose.render.as_slice()))
-        } else if local_coverage && runtime_id == local_runtime_id {
-            stream?
-                .authority()
-                .actor_ui_layers(runtime_id)
-                .map(|layers| layers.render)
+        let mut layers = if local_coverage && runtime_id == local_runtime_id {
+            stream?.authority().actor_ui_layers(runtime_id)?
         } else {
-            render_frame
-                .layers_with_skin(runtime_id)
-                .map(|layers| layers.render)
+            render_frame.layers_with_skin(runtime_id)?
+        };
+        if let Some(pose) = poses.emote(runtime_id) {
+            layers.render = std::borrow::Cow::Borrowed(pose.render.as_slice());
         }
+        Some(layers)
     };
     // Equipment inherits animation poses before body-only visibility masks are applied.
     crate::presentation::entity_layers::apply_render_layers_cached(

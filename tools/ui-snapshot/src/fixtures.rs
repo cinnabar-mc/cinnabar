@@ -97,6 +97,8 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
         server_hover: Option<bool>,
+        /// Scroll into history, then receive a wrapped message before the final capture.
+        receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
     TabList(Vec<RosterRow>),
@@ -178,6 +180,12 @@ const STATES: &[State] = &[
         size: [576, 672],
         gui_scale: 1,
         fixture: || Fixture::ArmorTrims { trimmed: true },
+    },
+    State {
+        name: "chat-incoming-while-scrolled",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::incoming_while_scrolled,
     },
     asset_free("crosshair-coverage-before", [640, 240], || {
         Fixture::CrosshairCoverage { fixed: false }

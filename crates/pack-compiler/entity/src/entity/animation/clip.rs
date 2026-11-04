@@ -23,11 +23,13 @@ pub(super) struct ClipOutputs<'a> {
 /// Compiles one clip for one geometry; returns its index and how many channels were dropped
 /// because an axis expression is outside the reviewed Molang surface. Bones the geometry lacks
 /// are skipped, as vanilla binds animations to each model by bone name, but still set the length.
+/// A skin-modelled geometry instead keeps them bound by name: a player's skin replaces that
+/// model at runtime and may define the bones itself.
 pub(super) fn compile_clip_for_geometry(
     symbol: u32,
     source: u32,
     definition: &Map<String, Value>,
-    (geometry, effective_bones): (Option<u32>, &[Box<str>]),
+    (geometry, effective_bones, skin_modelled): (Option<u32>, &[Box<str>], bool),
     outputs: ClipOutputs<'_>,
 ) -> Result<(u32, usize), ClipCompileError> {
     let ClipOutputs {
@@ -103,15 +105,18 @@ pub(super) fn compile_clip_for_geometry(
                         return Err(ClipCompileError::Invalid(error));
                     }
                 }
-                let Some(bone_index) = bone_index else {
-                    molang.rollback(mark);
-                    local_keyframes.truncate(first_keyframe as usize);
-                    continue;
+                // The index of a name-bound skin bone is never read; the first bone keeps it valid.
+                let (bone_index, name_bound) = match bone_index {
+                    Some(index) => (index, geometry.is_none()),
+                    None if skin_modelled && !effective_bones.is_empty() => (0, true),
+                    None => {
+                        molang.rollback(mark);
+                        local_keyframes.truncate(first_keyframe as usize);
+                        continue;
+                    }
                 };
                 local_channels.push(EntityAnimationChannel {
-                    bone_name: geometry
-                        .is_none()
-                        .then(|| bone_name.to_ascii_lowercase().into()),
+                    bone_name: name_bound.then(|| bone_name.to_ascii_lowercase().into()),
                     bone: bone_index,
                     property,
                     first_keyframe,

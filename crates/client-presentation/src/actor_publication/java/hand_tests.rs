@@ -154,13 +154,13 @@ fn equipment_fixture_with_bow_override(
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
         pages = next;
         equipment.set_pack_layer(Some((entities, Some(catalog), locations)));
-        assert!(!equipment.uses_native_item_mesh(BOW));
+        assert!(!equipment.uses_native_item_mesh(BOW, true));
     } else if native_bow {
         let (next, locations) =
             pages.with_equipment_rasters(&EquipmentRuntime::pack_rasters(&catalog));
         pages = next;
         equipment.set_pack_layer(Some((entities, Some(catalog), locations)));
-        assert!(equipment.uses_native_item_mesh(BOW));
+        assert!(equipment.uses_native_item_mesh(BOW, true));
     }
     (equipment, pages)
 }

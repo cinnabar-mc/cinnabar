@@ -40,6 +40,7 @@ const MAX_MESSAGES: usize = 100;
 /// The edit box caret's on and off time.
 const CARET_BLINK_MILLIS: u64 = 500;
 const MESSAGES_VIEW: &str = "messages_panel";
+const MESSAGE_ROW_PREFIX: &str = "message_";
 
 /// What a pointer press on the chat screen means.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -92,7 +93,7 @@ pub struct ChatScreen {
     history_bounds: Option<UiRect>,
     /// Virtual px scrolled up from the newest message.
     from_bottom: f64,
-    messages: usize,
+    history_revision: (u64, usize),
     open: bool,
     /// Logical px per virtual px, from the last frame.
     scale: f32,
@@ -108,6 +109,8 @@ pub struct ChatInput<'a> {
     pub editor: &'a ui::ChatEditor,
     /// The history, oldest first.
     pub messages: &'a VecDeque<ui::ChatMessage>,
+    /// The first retained row's monotonic identity, independent of network FIFO batches.
+    pub first_message_id: u64,
     pub suggestions: &'a [Arc<str>],
     pub usage: Option<&'a str>,
     /// The keyboard-selected suggestion.
@@ -127,13 +130,10 @@ impl ChatScreen {
         input: ChatInput<'_>,
         frame: &mut PaintFrame<'_>,
     ) -> Result<(), PaintError> {
-        let messages = input.messages.len();
-        // The view jumps to the newest message on open and on every update.
-        if !self.open || messages != self.messages {
+        if !self.open {
             self.from_bottom = 0.0;
         }
         self.open = true;
-        self.messages = messages;
         let translate = frame.translate;
         let mut data = chat_data(&input, &self.settings, translate);
         crate::chat_coordinates::bind(self, &mut data, input.now_millis, &|key| {
@@ -149,6 +149,13 @@ impl ChatScreen {
             data.set_control_values(name, metrics.feedback());
         }
         let view = self.view_state(input.selected_suggestion);
+        let revision = (input.first_message_id, input.messages.len());
+        let anchors = if revision != self.history_revision {
+            history::anchors(self.screen.nodes(), self.scroll.as_ref(), self.from_bottom)
+        } else {
+            Vec::new()
+        };
+        self.history_revision = revision;
         let context = self.context.get(
             engine.context(),
             crate::hud_placement::HudPlacement::from_settings(&self.settings.options),
@@ -185,8 +192,10 @@ impl ChatScreen {
             ..ScreenArt::default()
         };
         let screen = &mut self.screen;
+        let data = Arc::new(data);
         let drawn = engine.draw(art, frame, |env, root| {
-            screen.render_with(
+            history::render(
+                screen,
                 CHAT_SCREEN,
                 &catalog,
                 &context,
@@ -194,6 +203,7 @@ impl ChatScreen {
                 (root, px, language),
                 env,
                 &view,
+                &anchors,
             )
         })?;
         self.hits.clear();
@@ -210,6 +220,9 @@ impl ChatScreen {
             .iter()
             .find(|(key, _)| key.contains(MESSAGES_VIEW))
             .map(|(key, metrics)| (key.clone(), metrics.clone()));
+        if let Some((_, metrics)) = &self.scroll {
+            self.from_bottom = (metrics.max_offset() - metrics.offset).max(0.0);
+        }
         self.history_bounds = self.scroll.as_ref().and_then(|(_, metrics)| {
             let [x, y, w, h] = metrics.viewport_rect?;
             ui::UiRect::new(
@@ -584,8 +597,8 @@ impl ChatScreen {
         };
         // Keyboard completion keeps its hover look while the pointer follows message controls.
         view.focus_memory.held = selected;
-        // The view's `jump_to_bottom_on_update` jumps to the newest line whenever
-        // its maximum changes; otherwise it keeps `from_bottom`.
+        // Follow updates only at the bottom. While reading history, the controller
+        // owns the offset and restores a surviving message after layout.
         if let Some((key, metrics)) = &self.scroll {
             let max = metrics.max_offset();
             view.scroll
@@ -593,7 +606,7 @@ impl ChatScreen {
             view.scroll_state.insert(
                 key.clone(),
                 json_ui::ScrollRetained {
-                    extent: Some(max),
+                    extent: (self.from_bottom == 0.0).then_some(max),
                     ..Default::default()
                 },
             );
@@ -653,11 +666,16 @@ fn chat_data(
     let chat_text = crate::settings_chat::chat_text(settings);
     let items = messages
         .iter()
+        .enumerate()
         .skip(messages.len().saturating_sub(MAX_MESSAGES))
         .filter(|_| settings.value(SettingId::HideChat) == 0)
-        .map(|line| {
+        .map(|(index, line)| {
             let text = resolve_chat_line(line, translate);
             FactoryItem::new("chat_screen_messages", 0.0)
+                .named(format!(
+                    "{MESSAGE_ROW_PREFIX}{}",
+                    input.first_message_id + index as u64
+                ))
                 .value(
                     "#text",
                     Scalar::Text(bounded_visible_text(text.as_ref()).to_owned()),
@@ -742,6 +760,9 @@ fn chat_hit(region: &HitRegion) -> Option<ChatHit> {
 
 #[cfg(test)]
 mod geometry_tests;
+mod history;
+#[cfg(test)]
+mod history_tests;
 #[cfg(test)]
 mod hover_tests;
 #[cfg(test)]

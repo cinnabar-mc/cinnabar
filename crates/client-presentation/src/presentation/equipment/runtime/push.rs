@@ -707,17 +707,20 @@ impl EquipmentRuntime {
                     if root == actor_animation::AttachableBoneParent::BindingExpression {
                         return Some(hidden_bone());
                     }
-                    let Some(parent) = modern::parent_for_root(
+                    let Some(parent) = actor_animation::attachment::parent_for_root(
                         &body.input.previous_bones,
                         &body.input.current_bones,
-                        bones,
+                        &bones.names,
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     ) else {
                         return Some(hidden_bone());
                     };
-                    Some(modern::compose_parent(parent, *local).unwrap_or_else(hidden_bone))
+                    Some(
+                        actor_animation::attachment::compose_parent(parent, *local)
+                            .unwrap_or_else(hidden_bone),
+                    )
                 },
             )
             .ok_or(())?[0]

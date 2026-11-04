@@ -5,7 +5,7 @@ use render_model::{ActorVertex, RenderBoneTransform};
 use ui::{UI_STYLE_GLINT, UiBlendMode, UiMeshBatch, UiMeshVertex};
 
 use render_model::equipment::{
-    attach_to_bone, held_block_display_for_hand, held_sprite_display_for_hand,
+    ItemDisplay, attach_to_bone, held_block_display_for_hand, held_sprite_display_for_hand,
 };
 
 use super::super::PreviewHeldPlacement;
@@ -121,26 +121,34 @@ pub(in crate::ui_runtime::presentation) fn placement(
         translation_scale: [origin[0], origin[1], origin[2], 1.0],
         axis_scale: render_model::UNIT_AXIS_SCALE,
     };
-    let (bone, pivot) = match *model.placements.get(hand)? {
+    placement_on_bone(model, hand, parent, 1.0)
+}
+
+/// Places the same held geometry on an evaluated item bone, without a preview arm approximation.
+pub(in crate::ui_runtime::presentation) fn placement_on_bone(
+    model: &PreviewHeldModel,
+    hand: usize,
+    parent: RenderBoneTransform,
+    scale: f32,
+) -> Option<(RenderBoneTransform, Vec3)> {
+    let (mut display, pivot) = match *model.placements.get(hand)? {
         PreviewHeldPlacement::Sprite { hand_equipped } => (
-            attach_to_bone(
-                parent,
-                held_sprite_display_for_hand(hand_equipped, hand == 1),
-            )?,
+            held_sprite_display_for_hand(hand_equipped, hand == 1),
             Vec3::ZERO,
         ),
-        PreviewHeldPlacement::Block => (
-            attach_to_bone(parent, held_block_display_for_hand(hand == 1))?,
-            Vec3::ZERO,
-        ),
-        PreviewHeldPlacement::Authored { mut bone, pivot } => {
-            for (axis, origin) in origin.into_iter().enumerate() {
-                bone.translation_scale[axis] += origin;
-            }
-            (bone, Vec3::from_array(pivot))
+        PreviewHeldPlacement::Block => (held_block_display_for_hand(hand == 1), Vec3::ZERO),
+        PreviewHeldPlacement::Authored { bone, pivot } => {
+            let display = ItemDisplay {
+                rotation: Quat::from_vec4(Vec4::from_array(bone.rotation).try_normalize()?),
+                translation: Vec3::from_slice(&bone.translation_scale[..3]) * scale,
+                scale: bone.translation_scale[3],
+                axis_scale: Vec3::from_slice(&bone.axis_scale[..3]),
+            };
+            (display, Vec3::from_array(pivot))
         }
     };
-    bone.is_finite().then_some((bone, pivot))
+    display.scale *= scale;
+    Some((attach_to_bone(parent, display)?, pivot))
 }
 
 #[cfg(test)]

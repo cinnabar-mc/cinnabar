@@ -201,12 +201,41 @@ fn actors(world: &World) -> Vec<Value> {
                     "position": actor.position,
                     "distance": distance,
                     "health": health,
+                    "visible_parts": authority.actor_rig(actor.runtime_id).map(|rig| visible_parts(
+                        rig.render
+                            .iter()
+                            .filter(|layer| layer.geometry.is_none())
+                            .map(|layer| layer.hidden_bones.as_ref()),
+                        rig.bone_names,
+                    )),
                 }),
             )
         })
         .collect();
     actors.sort_by(|a, b| a.0.total_cmp(&b.0));
     actors.into_iter().map(|(_, actor)| actor).collect()
+}
+
+/// Bones of an actor's posed model that at least one drawn layer leaves visible, sorted and
+/// deduplicated. Each layer lists the sorted indices into `names` it hides; layers drawing a
+/// controller's own geometry index that model instead, so callers leave them out.
+fn visible_parts<'a>(
+    hidden_by_layer: impl IntoIterator<Item = &'a [u32]>,
+    names: &'a [Box<str>],
+) -> Vec<&'a str> {
+    let mut parts: Vec<&str> = hidden_by_layer
+        .into_iter()
+        .flat_map(|hidden| {
+            names
+                .iter()
+                .enumerate()
+                .filter(move |(index, _)| hidden.binary_search(&(*index as u32)).is_err())
+                .map(|(_, name)| name.as_ref())
+        })
+        .collect();
+    parts.sort_unstable();
+    parts.dedup();
+    parts
 }
 
 fn player_motion(world: &World) -> Option<Value> {
@@ -549,5 +578,23 @@ mod frame_stats_tests {
                 1
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod visible_parts_tests {
+    use super::visible_parts;
+
+    #[test]
+    fn a_part_is_visible_when_any_drawn_layer_leaves_it_shown() {
+        let names: Vec<Box<str>> = ["body", "head", "tracer"].map(Into::into).into();
+        let body: &[u32] = &[2];
+        let tracer: &[u32] = &[0, 1];
+        assert_eq!(visible_parts([body], &names), ["body", "head"]);
+        assert_eq!(
+            visible_parts([body, tracer], &names),
+            ["body", "head", "tracer"]
+        );
+        assert!(visible_parts([], &names).is_empty());
     }
 }

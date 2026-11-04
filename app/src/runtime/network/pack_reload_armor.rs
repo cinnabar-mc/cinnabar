@@ -238,6 +238,7 @@ fn owner_rig<'a>(owner: &ActorSnapshot, names: &'a [Box<str>], tick: u64) -> Act
         rest: &[],
         rest_completed_tick: tick,
         rest_reset_generation: 0,
+        visibility: Default::default(),
         completed_tick: tick,
         pose_evaluated: true,
         reset_generation: 0,

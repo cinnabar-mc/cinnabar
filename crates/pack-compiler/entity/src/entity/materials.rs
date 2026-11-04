@@ -247,6 +247,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
         state.emissive = false;
         state.only_emissive = false;
         state.disable_overlay = true;
+        state.color_mask = false;
     }
     for (key, enabled) in [("states", true), ("+states", true), ("-states", false)] {
         if replace_states != (key == "states") {
@@ -279,6 +280,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
                 "USE_EMISSIVE" => state.emissive = enabled,
                 "USE_ONLY_EMISSIVE" => state.only_emissive = enabled,
                 "USE_OVERLAY" => state.disable_overlay = !enabled,
+                "USE_COLOR_MASK" => state.color_mask = enabled,
                 _ => {}
             }
         }
@@ -326,3 +328,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     }
     Some(())
 }
+
+#[cfg(test)]
+#[path = "materials_tests.rs"]
+mod tests;

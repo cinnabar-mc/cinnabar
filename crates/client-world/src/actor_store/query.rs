@@ -288,6 +288,14 @@ impl ActorStore {
             partial_tick,
         )
     }
+    /// Borrows the live UI component for owner-dependent attachment evaluation.
+    pub(crate) fn actor_ui_rig(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRigSnapshot<'_>> {
+        self.animation.ui_rig(runtime_id)
+    }
+
     /// Full-body controller layers paired with the actor's UI pose.
     pub(crate) fn actor_ui_layers(
         &self,
