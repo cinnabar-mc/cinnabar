@@ -49,17 +49,17 @@ fn rig_from_reference_bone() -> Mat4 {
     Mat4::from_scale(Vec3::new(-1.0, -1.0, 1.0))
 }
 
-/// How the third-person hand grips a flat sprite item, as the 26.30 reference's humanoid
-/// main- and off-hand item renderers choose it.
+/// How the third-person hand grips a flat sprite item, as vanilla's humanoid main- and off-hand
+/// item placement chooses it.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SpriteGrip {
     /// Held flat in the palm.
     Flat,
-    /// Held upright like a sword: tools, weapons and other `isHandEquipped` items.
+    /// Held upright like a sword: tools, weapons and other hand-equipped items.
     HandEquipped,
-    /// Vanilla's `ItemHelper::isFishingRod` items (fishing rod, carrot and warped fungus on a
-    /// stick), turned so the line end hangs forward and down. This branch runs before, and
-    /// replaces, the hand-equipped grip.
+    /// Fishing rods, carrots on a stick and warped fungus on a stick, turned over so the line
+    /// hangs from the forward tip. Vanilla chooses it ahead of, and instead of, the hand-equipped
+    /// grip.
     Rod,
 }
 
@@ -78,7 +78,7 @@ impl SpriteGrip {
 
 impl From<assets::item::grip::ItemGrip> for SpriteGrip {
     /// Uses the admitted upright flag and rod art; an unresolved grip is held flat. The catalog's
-    /// mirrored-rod-art items are exactly vanilla's `isFishingRod` items.
+    /// mirrored-rod-art items are exactly the three rods vanilla gives the rod grip.
     fn from(grip: assets::item::grip::ItemGrip) -> Self {
         Self::new(grip.upright().unwrap_or(false), grip.mirrored_art())
     }

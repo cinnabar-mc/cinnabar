@@ -235,7 +235,7 @@ mod tests {
         assert!(validate(std::slice::from_ref(&visual), &sources).is_err());
     }
 
-    /// Third-person rendering uses mirrored rod art as vanilla's `ItemHelper::isFishingRod`.
+    /// Mirrored-rod-art items take vanilla's third-person rod grip, which covers exactly these.
     #[test]
     fn mirrored_rod_art_covers_exactly_the_native_fishing_rod_items() {
         let mirrored: Vec<_> = catalog()

@@ -147,6 +147,27 @@ fn third_person_rod_points_forward_with_its_line_hanging_down() {
     assert!(!line_below_tip(SpriteGrip::HandEquipped));
 }
 
+/// Pins each hand's rod placement on its item bone: the main hand holds the rod lower and further
+/// back than the off hand, as vanilla's two rod offsets do.
+#[test]
+fn third_person_rod_placement_differs_per_hand() {
+    use super::held_sprite_display_for_hand;
+    let near = |actual: Vec3, expected: [f32; 3]| {
+        assert!(
+            actual.distance(Vec3::from_array(expected)) < 1e-3,
+            "{actual} != {expected:?}"
+        );
+    };
+    for (off_hand, handle, tip) in [
+        (false, [-0.012, -0.0841, 0.1928], [-0.0466, 0.0184, -0.9623]),
+        (true, [0.113, 0.1252, 0.1842], [0.0784, 0.2277, -0.9709]),
+    ] {
+        let display = held_sprite_display_for_hand(SpriteGrip::Rod, off_hand);
+        near(icon_point(display, 1.0, 15.0), handle);
+        near(icon_point(display, 15.0, 1.0), tip);
+    }
+}
+
 #[test]
 fn rod_grip_wins_over_the_hand_equipped_flag() {
     assert_eq!(SpriteGrip::new(true, true), SpriteGrip::Rod);
