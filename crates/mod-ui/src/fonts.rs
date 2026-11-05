@@ -87,6 +87,11 @@ mod tests {
         )
         .unwrap();
         let degree = source.glyph('\u{b0}').expect("degree sign in the atlas");
-        assert_ne!(Some(degree), source.glyph('?'));
+        let fallback = source.glyph('?').expect("fallback in the atlas");
+        // A character missing from the face is rasterized from `?` under its own codepoint.
+        assert_ne!(
+            (degree.bearing, degree.advance_64),
+            (fallback.bearing, fallback.advance_64)
+        );
     }
 }
