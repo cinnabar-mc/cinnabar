@@ -35,8 +35,14 @@ pub(super) fn lookup_icon(
     metadata: u32,
 ) -> Option<IconRef> {
     session.icon(identifier, metadata).or_else(|| {
-        let sprite = catalog?.lookup_index(identifier, metadata)?;
-        refs?.get(sprite).copied()
+        let lookup = |id: &str| {
+            let sprite = catalog?.lookup_index(id, metadata)?;
+            refs?.get(sprite).copied()
+        };
+        lookup(identifier).or_else(|| {
+            let short = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
+            (short != identifier).then(|| lookup(short)).flatten()
+        })
     })
 }
 
@@ -145,10 +151,16 @@ impl SessionIconPage {
 
     /// Returns a session override for the requested variant, then variant zero.
     fn icon(&self, identifier: &str, metadata: u32) -> Option<IconRef> {
-        self.refs
-            .get(identifier)
-            .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
-            .copied()
+        let lookup = |id: &str| {
+            self.refs
+                .get(id)
+                .and_then(|variants| variants.get(&metadata).or_else(|| variants.get(&0)))
+                .copied()
+        };
+        lookup(identifier).or_else(|| {
+            let short = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
+            (short != identifier).then(|| lookup(short)).flatten()
+        })
     }
 }
 
@@ -560,6 +572,17 @@ fn pack(icons: &SessionIcons, page_index: u16) -> Option<PackedIcons> {
             .entry(Arc::clone(&icon.identifier))
             .or_default()
             .insert(icon.metadata, placement);
+        let short = icon
+            .identifier
+            .rsplit_once(':')
+            .map_or(icon.identifier.as_ref(), |(_, name)| name);
+        if short != icon.identifier.as_ref() {
+            placements
+                .entry(Arc::from(short))
+                .or_default()
+                .entry(icon.metadata)
+                .or_insert(placement);
+        }
         cursor[0] += padded[0];
         row_height = row_height.max(padded[1]);
     }

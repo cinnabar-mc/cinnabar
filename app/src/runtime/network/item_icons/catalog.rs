@@ -82,6 +82,42 @@ pub(super) fn icon_keys(
                 && (keys.len() < MAX_CATALOG_ENTRIES || keys.contains_key(identifier))
             {
                 keys.insert(Arc::from(identifier), Arc::from(key));
+                let short_id = identifier.rsplit_once(':').map_or(identifier, |(_, name)| name);
+                if !keys.contains_key(short_id) && keys.len() < MAX_CATALOG_ENTRIES {
+                    keys.insert(Arc::from(short_id), Arc::from(key));
+                }
+            }
+        }
+    }
+    let attachable_paths = view
+        .list("attachables/")
+        .into_iter()
+        .filter(|path| path.starts_with("attachables/") && path.ends_with(".json"))
+        .collect::<Vec<_>>();
+    for layer in view.layers() {
+        for path in &attachable_paths {
+            let Ok(Some(bytes)) = layer.read_file(path) else {
+                continue;
+            };
+            let Some(root) = parse_pack_json(&bytes) else {
+                continue;
+            };
+            let attachable = &root["minecraft:attachable"];
+            let Some(identifier) = attachable["description"]["identifier"].as_str() else {
+                continue;
+            };
+            if keys.len() < MAX_CATALOG_ENTRIES {
+                let key = identifier
+                    .rsplit_once(':')
+                    .map_or(identifier, |(_, name)| name);
+                if !key.is_empty() && key.len() <= 256 {
+                    if !keys.contains_key(identifier) {
+                        keys.insert(Arc::from(identifier), Arc::from(key));
+                    }
+                    if !keys.contains_key(key) && keys.len() < MAX_CATALOG_ENTRIES {
+                        keys.insert(Arc::from(key), Arc::from(key));
+                    }
+                }
             }
         }
     }

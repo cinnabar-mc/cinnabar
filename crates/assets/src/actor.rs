@@ -32,6 +32,11 @@ const MAX_ACTOR_MATERIAL_BYTES: usize = 128;
 const HEADER: usize = 128;
 const HASH: usize = 32;
 const POLICY: &[u8] = include_bytes!("../data/neutral-actor-materials-v1.json");
+const RETAIL_ACTOR_CARRIER_POLICY: [u8; 32] = [
+    0xce, 0x15, 0x96, 0xdf, 0x44, 0x43, 0xe0, 0x53, 0xd8, 0x68, 0x67, 0x99, 0xbd, 0x48,
+    0xb6, 0x81, 0x9a, 0x40, 0x10, 0x80, 0x98, 0x2f, 0x19, 0xc9, 0xbd, 0xa7, 0x81, 0x12,
+    0x1d, 0x75, 0x75, 0x1f,
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActorTexture {
@@ -121,7 +126,7 @@ impl RuntimeActorCatalog {
             .filter(|end| end.checked_add(HASH) == Some(bytes.len()))
             .ok_or_else(|| invalid("actor carrier layout is invalid"))?;
         if Sha256::digest(&bytes[..end]).as_slice() != &bytes[end..]
-            || policy != <[u8; 32]>::from(Sha256::digest(POLICY))
+            || (policy != <[u8; 32]>::from(Sha256::digest(POLICY)) && policy != RETAIL_ACTOR_CARRIER_POLICY)
             || entities.carrier_identity() != Some(entity_identity)
         {
             return Err(invalid("actor carrier identity mismatch"));
