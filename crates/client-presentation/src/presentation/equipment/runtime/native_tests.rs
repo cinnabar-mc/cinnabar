@@ -611,7 +611,7 @@ fn spears_and_tridents_keep_native_hands_in_both_views_and_reload_cleanly() {
                         ),
                     )
                 } else {
-                    held_sprite_display_for_hand(item.grip.upright().unwrap_or(false), off_hand)
+                    held_sprite_display_for_hand(item.grip.into(), off_hand)
                 };
                 let expected = attach_to_bone(body.input.current_bones[hand], display).unwrap();
                 assert_eq!(
