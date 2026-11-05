@@ -504,6 +504,19 @@ pub(super) fn fallback(key: &str) -> &str {
         "hudScreen.controlCustomization.tooltip.notouch" => {
             "Use a touch device to customize controls"
         }
+        "options.controlMode.name" => "Control mode",
+        "options.controlMode.touchLabel" => "Joystick & tap to interact",
+        "options.controlMode.classicLabel" => "D-Pad & tap to interact",
+        "options.controlMode.crosshairLabel" => "Joystick & aim crosshair",
+        "options.controlMode.touch.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.classic.description" => {
+            "Tap arrows to move. Drag anywhere else to look around. Tap and hold blocks to interact with them."
+        }
+        "options.controlMode.crosshair.description" => {
+            "Drag joystick to move. Drag anywhere else to look around. Aim crosshair and use buttons to interact with blocks."
+        }
         "options.globalResources" | "menu.globalpacks" | "options.resourcepacks" => {
             "Global Resources"
         }

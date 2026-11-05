@@ -13,14 +13,15 @@ pub(super) fn enable_placement(value: &mut serde_json::Value) {
                 .and_then(serde_json::Value::as_str)
                 .and_then(|name| control_id(Some(name)))
                 .is_some_and(placeable_control);
-            let joystick = object.get("button_mappings").is_some_and(|mappings| {
+            let movement = object.get("button_mappings").is_some_and(|mappings| {
                 mappings.as_array().is_some_and(|items| {
-                    items
-                        .iter()
-                        .any(|item| item["to_button_id"] == "cinnabar.touch.joystick")
+                    items.iter().any(|item| {
+                        item["to_button_id"] == "cinnabar.touch.joystick"
+                            || item["to_button_id"] == "cinnabar.touch.dpad"
+                    })
                 })
             });
-            if control || joystick {
+            if control || movement {
                 object.insert("draggable".into(), serde_json::json!("both"));
             }
             for child in object.values_mut() {
@@ -326,6 +327,7 @@ impl UiPresentationRuntime {
 fn builtin_label(name: &str) -> &str {
     match name {
         "joystick" => "Joystick",
+        "dpad" => "D-Pad",
         "menu" => "Pause",
         "chat" => "Chat",
         "utilities" => "Menu",

@@ -289,6 +289,8 @@ pub struct GameplaySettings {
     pub always_sprint: bool,
     /// Sneak key toggles a persistent sneak instead of requiring hold.
     pub toggle_sneak: bool,
+    /// How touch controls move and interact.
+    pub touch_control_mode: semantic_input::TouchControlMode,
 }
 
 /// World rendering path. `Enhanced` and `ShaderPack` are opt-in custom looks that never
