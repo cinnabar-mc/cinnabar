@@ -170,13 +170,11 @@ impl MaskStore {
         }
     }
 
-    /// Resolves only explicitly consented unfiltered observations; a frustum is not occlusion.
+    /// Resolves an actor from the consented observation set, which `entity_observe` already
+    /// exposes through retained drawing. Through-wall coverage stays gated on `always` masks.
     pub fn entity(&mut self, runtime_id: u64) -> Result<DrawingHandle, MaskError> {
         let permissions = self.session.permissions;
-        if !permissions.entity_highlight
-            || !permissions.entity_observe
-            || !permissions.render_through_walls
-        {
+        if !permissions.entity_highlight || !permissions.entity_observe {
             return Err(MaskError::Denied);
         }
         let (&key, &vertices) = self

@@ -196,6 +196,35 @@ fn hidden_lookup_and_always_depth_fail_closed_independently() {
 }
 
 #[test]
+fn observed_actors_resolve_for_depth_tested_masks_without_through_walls() {
+    let mut store = MaskStore::new(1);
+    store.bind(DrawingSession {
+        connection: 1,
+        permissions: DrawingPermissions {
+            entity_highlight: true,
+            entity_observe: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let key = MaskEntity {
+        connection: 1,
+        dimension: 0,
+        runtime_id: 9,
+        spawn_revision: 1,
+    };
+    store.publish_targets(&[(key, 36)]);
+    let actor = store.entity(9).unwrap();
+    let mask = store.create(MaskDepth::Test).unwrap();
+    assert_eq!(store.select(mask, &[actor]), Ok(()));
+    assert_eq!(store.create(MaskDepth::Always), Err(MaskError::Denied));
+    let committed = store.commit();
+    assert_eq!(committed.len(), 1);
+    assert_eq!(committed[0].entities, [key]);
+    assert!(committed[0].authorized());
+}
+
+#[test]
 fn attachment_accounting_includes_resolve_and_all_samples() {
     assert_eq!(attachment_bytes(1920, 1080, 1), Some(1920 * 1080 * 4 * 2));
     assert_eq!(attachment_bytes(1920, 1080, 4), Some(1920 * 1080 * 4 * 9));
