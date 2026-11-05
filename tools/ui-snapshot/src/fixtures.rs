@@ -688,6 +688,24 @@ const STATES: &[State] = &[
         fixture: chat::history_width,
     },
     State {
+        name: "chat-top-java-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, false, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-top-bedrock-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-bedrock-input-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "/give @", &["@a", "@e", "@p"]),
+    },
+    State {
         name: "chat-command-background-transparent",
         size: SIZE,
         gui_scale: GUI_SCALE,
