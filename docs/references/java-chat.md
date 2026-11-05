@@ -18,6 +18,17 @@ The editor, suggestions, server HUD widgets and built-in chat priority retain
 their existing behavior. This placement choice is a Cinnabar presentation
 extension, not a new vanilla parity claim.
 
+**Chat Input**, next to Chat Position, chooses how the open chat looks. **Java**
+(the default) keeps the Java-look input line, suggestions and focused history
+above. **Bedrock** draws the pinned pack's own `chat.chat_screen_content`
+instead: the full-screen backdrop, the Exit header, history anchored above the
+full-width input bar, and the settings and send buttons. In this mode the Java
+line and suggestion backgrounds are hidden, history ignores Top placement and
+gives way to command completions as vanilla's does. Top or Bottom still places
+HUD notifications. The Java-look pack keeps screen animations off in both modes,
+so vanilla's slide-in transition is not drawn. A live 1.26.60.4 client showed the
+same arrangement on 2026-11-05.
+
 **Bedrock Hotbar Position**, on by default, lifts the Java-look hotbar to
 vanilla desktop's height: the pinned pack's hotbar ends 1.5 GUI px above the
 bottom edge. Status rows, XP bar, offhand, item name, HUD chat and focused

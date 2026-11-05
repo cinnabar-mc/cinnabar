@@ -1,4 +1,6 @@
-// Java-look presentation; the vanilla chat controller still owns editing and sending.
+// Java-look presentation; the vanilla chat controller still owns editing and sending. The
+// Bedrock Chat Input setting keeps vanilla's full chat screen, so the Java styling of shared
+// controls below applies only without `$cinnabar_chat_input_bedrock`.
 {
   "namespace": "chat",
   "chat_screen@common.base_screen": {
@@ -6,6 +8,11 @@
     "render_game_behind": true,
     "$screen_content": "chat.java_chat_content",
     "$screen_bg_content": "common.base_screen_empty_panel",
+    "variables": [{
+      "requires": "$cinnabar_chat_input_bedrock",
+      "$screen_content": "chat.chat_screen_content",
+      "$screen_bg_content": "chat.chat_background"
+    }],
     "$screen_animations": [],
     "$background_animations": []
   },
@@ -127,16 +134,27 @@
       }
     ]
   },
+  // Vanilla's history gives way to command completions, which share its area.
+  "chat_screen_content/messages_panel": {
+    "bindings": [ { "binding_name": "#chat_visible", "binding_name_override": "#visible" } ]
+  },
   "messages_stack_panel": {
     "variables": [{
-      "requires": "$cinnabar_chat_top",
+      "requires": "($cinnabar_chat_top and (not $cinnabar_chat_input_bedrock))",
       "$scrolling_content_anchor_from": "top_left",
       "$scrolling_content_anchor_to": "top_left"
     }]
   },
   "auto_complete_panel_contents_with_item": {
-    "size": [ "100%cm + 1px", 12 ],
-    "inherit_max_sibling_width": true,
+    "$cinnabar_completion_size": [ "100%cm + 1px", 12 ],
+    "$cinnabar_completion_sibling_width": true,
+    "variables": [{
+      "requires": "$cinnabar_chat_input_bedrock",
+      "$cinnabar_completion_size": [ "100%", 10 ],
+      "$cinnabar_completion_sibling_width": false
+    }],
+    "size": "$cinnabar_completion_size",
+    "inherit_max_sibling_width": "$cinnabar_completion_sibling_width",
     "clips_children": true,
     "modifications": [
       {
@@ -145,6 +163,7 @@
         "value": [
           { "background": {
             "type": "image",
+            "ignored": "$cinnabar_chat_input_bedrock",
             "texture": "textures/ui/Black",
             // Fixed suggestion background: alpha 208/255.
             "alpha": 0.8156862745098039,
@@ -159,10 +178,19 @@
     "ignored": true
   },
   "auto_complete_panel_contents_with_item/text": {
-    "size": [ "default", 9 ],
-    "anchor_from": "top_left",
-    "anchor_to": "top_left",
-    "offset": [ 1, 2 ]
+    "$cinnabar_completion_text_size": [ "default", 9 ],
+    "$cinnabar_completion_text_anchor": "top_left",
+    "$cinnabar_completion_text_offset": [ 1, 2 ],
+    "variables": [{
+      "requires": "$cinnabar_chat_input_bedrock",
+      "$cinnabar_completion_text_size": [ "default", "default" ],
+      "$cinnabar_completion_text_anchor": "left_middle",
+      "$cinnabar_completion_text_offset": [ 2, 0 ]
+    }],
+    "size": "$cinnabar_completion_text_size",
+    "anchor_from": "$cinnabar_completion_text_anchor",
+    "anchor_to": "$cinnabar_completion_text_anchor",
+    "offset": "$cinnabar_completion_text_offset"
   },
   "messages_text": {
     "bindings": [],
@@ -173,6 +201,7 @@
         "value": [
           { "background": {
             "type": "image",
+            "ignored": "$cinnabar_chat_input_bedrock",
             "texture": "textures/ui/Black",
             "alpha": "$chat_background_opacity",
             "bindings": [ { "binding_name": "#chat_background_opacity", "binding_name_override": "#alpha" } ],
