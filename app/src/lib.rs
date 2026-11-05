@@ -4,6 +4,7 @@ pub mod asset_bindings;
 mod audio;
 mod audio_observations;
 mod block_entities;
+mod block_ray_cache;
 mod block_selection;
 mod block_use;
 pub mod camera;

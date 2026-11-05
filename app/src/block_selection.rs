@@ -1,13 +1,16 @@
 //! Publishes the current gameplay pick to the native outline/highlight overlay passes.
-use bevy::{ecs::system::SystemParam, prelude::*};
+use bevy::{
+    ecs::{change_detection::DetectChanges, system::SystemParam},
+    prelude::*,
+};
 use gameplay::melee::{Crosshair, classify_block_hit, pick_actor};
 use render_model::{BlockSelectionTarget, CrackShape, crack_shape_for_block};
-use sim::PaletteWorld;
 use simulation_clock::identity::SessionGeneration;
 
 use client_shell::ui_resources::UiRuntimeResource;
 use {
     crate::{
+        block_ray_cache::CachedPickWorld,
         interaction_authority::ray_is_current,
         runtime::{shutdown::FatalError, world::ClientWorld},
     },
@@ -100,12 +103,12 @@ fn target(
     } else {
         survival_reach(mode)
     };
-    let registry = context.collisions.registry(stream.network_id_mode());
     let overlay_ids = stream.authority().decode_ids(stream.current_dimension());
-    let world = PaletteWorld::new(
-        stream.collision_store(),
-        registry,
-        stream.current_dimension(),
+    let picks = CachedPickWorld::new(
+        &context.world.block_rays,
+        stream,
+        context.collisions.registry(stream.network_id_mode()),
+        context.collisions.last_changed(),
         crate::interaction_authority::pick_context(
             stream,
             &context.collisions,
@@ -114,11 +117,12 @@ fn target(
                 .selected_stack()
                 .map(|item| item.block_runtime_id),
         ),
-    )
-    .with_cell_overlays(&overlay_ids);
+        &overlay_ids,
+    );
+    let world = picks.world();
     let vector = |value: Vec3| sim::Vec3::new(value.x as f64, value.y as f64, value.z as f64);
-    let direct = world
-        .block_interaction_ray_current(vector(ray.origin()), vector(ray.direction()), reach)
+    let direct = picks
+        .ray(vector(ray.origin()), vector(ray.direction()), reach)
         .ok()?;
     let actor = pick_actor(
         stream.authority().remote_actors(),
@@ -134,8 +138,8 @@ fn target(
     }
     let hit = match direct {
         Some(hit) => hit,
-        None => world
-            .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
+        None => picks
+            .miss_support(vector(ray.origin()), vector(ray.direction()))
             .ok()??,
     };
     if !context.collisions.selection_overlay_visible(
