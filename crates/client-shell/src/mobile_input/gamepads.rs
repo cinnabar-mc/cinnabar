@@ -46,6 +46,34 @@ impl NativeGamepadEvent {
     }
 }
 
+/// A Bevy gamepad button or axis that a native control drives.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum GamepadInput {
+    Axis(GamepadAxis),
+    Button(GamepadButton),
+}
+
+/// Events for the `inputs` whose `current` values differ from `previous`, which then holds
+/// `current`. With no previous sample every value is reported.
+pub(crate) fn changed_inputs<const N: usize>(
+    id: u64,
+    inputs: &[GamepadInput; N],
+    previous: &mut Option<[f32; N]>,
+    current: [f32; N],
+) -> Vec<NativeGamepadEvent> {
+    let previous = previous.replace(current);
+    inputs
+        .iter()
+        .zip(current)
+        .enumerate()
+        .filter(|(index, (_, value))| previous.is_none_or(|previous| previous[*index] != *value))
+        .map(|(_, (input, value))| match *input {
+            GamepadInput::Axis(axis) => NativeGamepadEvent::Axis { id, axis, value },
+            GamepadInput::Button(button) => NativeGamepadEvent::Button { id, button, value },
+        })
+        .collect()
+}
+
 /// Events queued by platform input callbacks, which run outside the Bevy schedule.
 static QUEUED: Mutex<Vec<NativeGamepadEvent>> = Mutex::new(Vec::new());
 

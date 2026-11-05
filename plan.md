@@ -1516,7 +1516,12 @@ look reads relative motion. Controller key and joystick events reach Bevy as gam
 gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
 winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
 PlayStation and generic controllers remains incomplete, as do controllers whose right stick
-uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
+uses `AXIS_RX`/`AXIS_RY`.
+iOS reads physical keys, mouse motion, buttons and scrolling, and extended-profile controllers
+through the Game Controller framework. Gameplay locks the iPadOS pointer through the winit fork
+so mouse clicks do not also arrive as touches. While text input is enabled, the keyboard's
+Backspace yields to winit's text path. Device acceptance remains incomplete, including mouse
+delta and scroll directions and scales, Enter handling in focused text fields, and micro-profile
 controllers.
 
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
