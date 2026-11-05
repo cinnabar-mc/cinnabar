@@ -3,19 +3,24 @@
 use std::{
     io::Write,
     sync::{
-        Arc,
+        Arc, OnceLock,
         atomic::{AtomicU8, Ordering},
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use bevy::{
     app::AppExit,
-    prelude::{MessageReader, Res, Resource},
+    ecs::system::NonSendMarker,
+    prelude::{Entity, MessageReader, Query, Res, Resource},
+    window::Window,
+    winit::WINIT_WINDOWS,
 };
 
-use diagnostics::markers::{SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER};
+use diagnostics::markers::{
+    SHUTDOWN_PHASE_MARKER, SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER,
+};
 
 pub const SHUTDOWN_WATCHDOG_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -149,6 +154,7 @@ impl Drop for TeardownWatchdog {
             AppExit::Success
         };
         begin_bounded_shutdown(&self.0, &exit);
+        log_shutdown_phase("world_teardown_begin");
     }
 }
 
@@ -160,8 +166,23 @@ pub fn app_exit_code(exit: &AppExit) -> i32 {
     }
 }
 
+/// When shutdown began, so each teardown step can report how far into it the process is.
+static SHUTDOWN_STARTED: OnceLock<Instant> = OnceLock::new();
+
+/// Logs that a teardown step finished, with the time since shutdown began, so a slow exit can be
+/// attributed to the step that spends it.
+pub fn log_shutdown_phase(phase: &str) {
+    let elapsed = SHUTDOWN_STARTED.get().map(|started| started.elapsed());
+    let _ = writeln!(
+        diagnostics::console::stderr(),
+        "{SHUTDOWN_PHASE_MARKER} phase={phase} elapsed_ms={:.1}",
+        elapsed.map_or(-1.0, |elapsed| elapsed.as_secs_f64() * 1000.0)
+    );
+}
+
 /// Arms shutdown once and records the requested timeout and exit status.
 pub fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
+    SHUTDOWN_STARTED.get_or_init(Instant::now);
     if watchdog.arm(exit.clone()) {
         let _ = writeln!(
             diagnostics::console::stderr(),
@@ -169,6 +190,29 @@ pub fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
             watchdog.timeout.as_millis(),
             app_exit_code(exit)
         );
+    }
+}
+
+/// Hides every window as soon as an exit is requested, so the teardown that follows (trace and
+/// far-terrain flushes, network and GPU shutdown) never shows as a window that ignores its close
+/// button. The request reaches winit directly because `changed_windows` runs unordered with the
+/// blocking exit systems; the `Window` component is kept in step so it applies the same state.
+/// Order every blocking exit system after this one.
+pub fn hide_windows_on_exit(
+    mut exits: MessageReader<AppExit>,
+    mut windows: Query<(Entity, &mut Window)>,
+    _main_thread: NonSendMarker,
+) {
+    if exits.read().next().is_none() {
+        return;
+    }
+    for (entity, mut window) in &mut windows {
+        window.visible = false;
+        WINIT_WINDOWS.with_borrow(|winit| {
+            if let Some(native) = winit.get_window(entity) {
+                native.set_visible(false);
+            }
+        });
     }
 }
 
@@ -188,6 +232,52 @@ pub fn arm_shutdown_watchdog(mut exits: MessageReader<AppExit>, watchdog: Res<Sh
 mod tests {
     use super::*;
     use std::cell::RefCell;
+
+    /// Records whether the window was already hidden when a blocking exit system ran.
+    #[derive(Resource, Default)]
+    struct HiddenBeforeBlocking(Option<bool>);
+
+    fn record_window_visibility(
+        windows: Query<&Window>,
+        mut seen: bevy::prelude::ResMut<HiddenBeforeBlocking>,
+    ) {
+        seen.0 = windows.iter().next().map(|window| !window.visible);
+    }
+
+    fn exit_test_app() -> bevy::prelude::App {
+        use bevy::prelude::{App, IntoScheduleConfigs, Last};
+        let mut app = App::new();
+        app.add_message::<AppExit>()
+            .init_resource::<HiddenBeforeBlocking>()
+            .insert_resource(ShutdownWatchdog::new(Duration::from_secs(60), |_| {}))
+            .add_systems(
+                Last,
+                (
+                    (hide_windows_on_exit, arm_shutdown_watchdog).chain(),
+                    record_window_visibility.after(arm_shutdown_watchdog),
+                ),
+            );
+        app.world_mut().spawn(Window::default());
+        app
+    }
+
+    #[test]
+    fn a_requested_exit_hides_the_window_before_blocking_exit_work() {
+        let mut app = exit_test_app();
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(app.world().resource::<HiddenBeforeBlocking>().0, Some(true));
+    }
+
+    #[test]
+    fn the_window_stays_visible_until_an_exit_is_requested() {
+        let mut app = exit_test_app();
+        app.update();
+        assert_eq!(
+            app.world().resource::<HiddenBeforeBlocking>().0,
+            Some(false)
+        );
+    }
 
     fn cut_short(code: i32) -> Vec<String> {
         let steps = RefCell::new(Vec::new());
