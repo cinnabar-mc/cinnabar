@@ -8,6 +8,101 @@ use {
     ui::IconRef,
 };
 
+#[test]
+fn empty_library_offers_marketplace_and_sign_in_without_blocking_local_imports() {
+    let (hits, labels) = render(Snapshot::default());
+    assert!(labels.iter().any(|label| label == "Browse marketplace"));
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
+    assert!(hits.contains(&MenuAction::StartSignIn));
+    assert!(hits.contains(&command(Action::Import)));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("same Xbox account"))
+    );
+}
+
+#[test]
+fn marketplace_guidance_uses_the_current_authentication_step() {
+    use launcher::menu::auth::AuthState;
+    for (auth, title, action) in [
+        (AuthState::Checking, "Checking your account…", None),
+        (
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid/sign-in".into(),
+                code: "PRIVATE-CODE".into(),
+            },
+            "Finish signing in",
+            Some(MenuAction::OpenSignInLink),
+        ),
+        (
+            AuthState::AwaitingXboxSignup {
+                uri: "https://example.invalid/profile".into(),
+            },
+            "Finish signing in",
+            Some(MenuAction::OpenSignInLink),
+        ),
+        (
+            AuthState::Failed("PRIVATE-ERROR".into()),
+            "Sign in to reconnect your library",
+            Some(MenuAction::StartSignIn),
+        ),
+        (AuthState::Authenticated, "Signed in to Cinnabar", None),
+    ] {
+        let mut view = MenuView::new(true, "Player".into());
+        view.auth_state = auth;
+        let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
+        assert!(labels.iter().any(|label| label == title), "{title}");
+        assert!(hits.contains(&command(Action::BrowseMarketplace)));
+        for candidate in [MenuAction::StartSignIn, MenuAction::OpenSignInLink] {
+            assert_eq!(
+                hits.contains(&candidate),
+                action == Some(candidate),
+                "{title}"
+            );
+        }
+        assert!(labels.iter().all(|label| !label.contains("PRIVATE-")));
+    }
+}
+
+#[test]
+fn busy_library_preserves_delivery_messages_and_marketplace_browsing() {
+    let mut snapshot = Snapshot::default();
+    snapshot.library.busy = true;
+    snapshot.library.message = "Preparing zoom from the marketplace…".into();
+    let (hits, labels) = render(snapshot.clone());
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
+    assert!(!hits.contains(&command(Action::Import)));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == &snapshot.library.message)
+    );
+}
+
+#[test]
+fn marketplace_action_keeps_keyboard_focus_at_narrow_widths() {
+    let browse = command(Action::BrowseMarketplace);
+    for width in [220.0, 400.0, 800.0] {
+        let (hits, labels, _) = render_at(
+            Snapshot::default(),
+            &HashMap::new(),
+            width,
+            None,
+            Some(browse),
+        );
+        assert_eq!(hits.first(), Some(&browse));
+        assert!(hits.contains(&MenuAction::StartSignIn));
+        assert!(hits.contains(&command(Action::Import)));
+        assert!(labels.iter().any(|label| {
+            label
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .eq("Browsemarketplace".chars())
+        }));
+    }
+}
+
 /// Supplies one card with a declared camera permission for interaction assertions.
 fn installed(id: u64, name: &str) -> InstalledMod {
     InstalledMod {
@@ -110,6 +205,15 @@ fn render_at(
     view.hovered = hovered;
     view.focused_action = focused;
     view.navigation_focus_visible = focused.is_some();
+    render_view(view, artwork, width)
+}
+
+/// Paints the real Mods page with a caller-selected account state and viewport width.
+fn render_view(
+    view: MenuView,
+    artwork: &HashMap<String, IconRef>,
+    width: f32,
+) -> (Vec<MenuAction>, Vec<String>, Vec<ui::UiNode>) {
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
     let font = ui_engine::test_support::fixture_font();
@@ -344,7 +448,7 @@ fn header_activation_discloses_the_whole_card_and_hides_every_action_on_collapse
         assert!(
             !hits.iter().any(|action| matches!(action,
                 MenuAction::Mods(action) if !matches!(action,
-                    Action::Import | Action::ReloadAll | Action::ToggleActive
+                    Action::BrowseMarketplace | Action::Import | Action::ReloadAll | Action::ToggleActive
                     | Action::ToggleAvailable | Action::ReadMore(_)
                 )
             )),

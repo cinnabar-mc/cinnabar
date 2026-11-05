@@ -7,6 +7,24 @@ use ui::mod_metadata::ModMetadata;
 /// Settings → Mods captures.
 pub(super) const STATES: &[State] = &[
     State {
+        name: "settings-mods-marketplace-empty",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_empty,
+    },
+    State {
+        name: "settings-mods-marketplace-empty-narrow",
+        size: [480, 960],
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_empty,
+    },
+    State {
+        name: "settings-mods-marketplace-signed-in",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_signed_in,
+    },
+    State {
         name: "settings-mods",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -73,6 +91,23 @@ pub(super) const STATES: &[State] = &[
         fixture: undeclared_permissions,
     },
 ];
+
+/// An empty local library before the player connects an account.
+fn marketplace_empty() -> Fixture {
+    let mut view = settings(launcher::mods::SECTION);
+    view.auth_state = launcher::menu::auth::AuthState::SignedOut;
+    view.mods = Arc::new(Snapshot::default());
+    Fixture::Menu(Box::new(view))
+}
+
+/// The same empty library with a signed-in account; no successful sync is implied.
+fn marketplace_signed_in() -> Fixture {
+    let Fixture::Menu(mut view) = marketplace_empty() else {
+        unreachable!("the marketplace fixture is a menu")
+    };
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    Fixture::Menu(view)
+}
 
 /// Three components; `metadata` decides whether they describe themselves.
 fn view(metadata: bool) -> Fixture {

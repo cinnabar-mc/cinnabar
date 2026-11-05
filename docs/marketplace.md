@@ -1,5 +1,12 @@
 # Marketplace installation
 
+Open Settings → Mods and choose **Browse marketplace** to open the official
+catalogue. Sign in with the same Xbox account in the client and on the website,
+then choose **Add to Cinnabar** on a mod page. New downloads appear under
+**My mods** and stay disabled until you choose **Enable** and review permissions.
+The account panel explains sign-in; delivery messages report preparation and
+download failures separately. Local imports remain available without sign-in.
+
 The website's Add to Cinnabar action queues a release for the signed-in Xbox
 account. The account core receives the library in the authenticated API welcome
 and subsequent `mod_library` messages. `cinnabar_mods.v1` exposes only that live
@@ -23,7 +30,7 @@ command values, must match the signed release. Components and signed receipts
 are published under immutable, account/hash-derived names; each file is complete
 before it becomes visible. Imports never overwrite existing files, enable a mod,
 copy prior grants or authorize new ones. New releases appear under Settings →
-Mods → Available; enable them and choose permissions through the existing consent
+Mods → My mods; enable them and choose permissions through the existing consent
 controls. New versions remain separate files so an update cannot silently inherit
 another file's authority. The GitHub mod updater cannot replace managed files.
 
