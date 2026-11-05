@@ -257,6 +257,15 @@ fn action_panel(
         Some(MenuAction::Navigate(MenuScreen::Settings)),
     )?;
     y += canvas.r(5.6);
+    widgets::button(
+        canvas,
+        view,
+        [x, y, right, y + canvas.r(layout::MARKETPLACE_HEIGHT)],
+        Variant::Secondary,
+        "Mod marketplace",
+        Some(MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)),
+    )?;
+    y += canvas.r(layout::MARKETPLACE_HEIGHT + layout::MARKETPLACE_GAP);
     link(
         canvas,
         view,

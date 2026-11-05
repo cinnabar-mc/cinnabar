@@ -32,22 +32,26 @@ fn marketplace_guidance_uses_the_current_authentication_step() {
                 uri: "https://example.invalid/sign-in".into(),
                 code: "PRIVATE-CODE".into(),
             },
-            "Finish signing in",
+            "Finish signing in with your browser.",
             Some(MenuAction::OpenSignInLink),
         ),
         (
             AuthState::AwaitingXboxSignup {
                 uri: "https://example.invalid/profile".into(),
             },
-            "Finish signing in",
+            "Finish signing in with your browser.",
             Some(MenuAction::OpenSignInLink),
         ),
         (
             AuthState::Failed("PRIVATE-ERROR".into()),
-            "Sign in to reconnect your library",
+            "Sign in again to sync mods.",
             Some(MenuAction::StartSignIn),
         ),
-        (AuthState::Authenticated, "Signed in to Cinnabar", None),
+        (
+            AuthState::Authenticated,
+            "Choose Add to Cinnabar on the website. Downloads appear in My mods.",
+            None,
+        ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
         view.auth_state = auth;

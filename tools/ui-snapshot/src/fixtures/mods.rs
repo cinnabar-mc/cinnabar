@@ -7,6 +7,18 @@ use ui::mod_metadata::ModMetadata;
 /// Settings → Mods captures.
 pub(super) const STATES: &[State] = &[
     State {
+        name: "home-marketplace",
+        size: super::SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: home_marketplace,
+    },
+    State {
+        name: "home-marketplace-small",
+        size: super::SMALL_SIZE,
+        gui_scale: 1,
+        fixture: home_marketplace,
+    },
+    State {
         name: "settings-mods-marketplace-empty",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -91,6 +103,14 @@ pub(super) const STATES: &[State] = &[
         fixture: undeclared_permissions,
     },
 ];
+
+/// A signed-out home with a public marketplace shortcut and no service fixtures.
+fn home_marketplace() -> Fixture {
+    Fixture::Menu(Box::new(launcher::menu::MenuView::new(
+        true,
+        "Player".into(),
+    )))
+}
 
 /// An empty local library before the player connects an account.
 fn marketplace_empty() -> Fixture {

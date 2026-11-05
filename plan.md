@@ -2091,7 +2091,7 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 Marketplace delivery implements account-scoped library transport, exact signed
 release/hash verification, disabled installation with explicit permission consent,
 signed revocation freshness and conditional library removal. Production signing
-public keys are pinned in the client. The Mods page links to the catalogue and
+public keys are pinned in the client. Home and Mods link to the catalogue and
 explains account sign-in, website sends and explicit permission review while
 preserving local imports. Production deployment and real-domain/cross-platform
 interactive acceptance remain incomplete; see

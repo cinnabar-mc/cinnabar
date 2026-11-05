@@ -66,26 +66,31 @@ fn draw_sections(
     motion: &Mods,
 ) -> Result<(), PaintError> {
     let library = &snapshot.library;
-    content.heading("Mods", "Browse the marketplace or import your own mods.")?;
+    content.heading("Mods", "Manage your mods.")?;
+    let buttons = [
+        (
+            "Browse marketplace",
+            Variant::Primary,
+            Some(command(Action::BrowseMarketplace)),
+        ),
+        (
+            "Import mod…",
+            Variant::Secondary,
+            (!library.busy).then_some(command(Action::Import)),
+        ),
+        (
+            "Reload all",
+            Variant::Secondary,
+            (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
+        ),
+    ];
     actions(
         content,
-        &[
-            (
-                "Browse marketplace",
-                Variant::Primary,
-                Some(command(Action::BrowseMarketplace)),
-            ),
-            (
-                "Import mod…",
-                Variant::Secondary,
-                (!library.busy).then_some(command(Action::Import)),
-            ),
-            (
-                "Reload all",
-                Variant::Secondary,
-                (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
-            ),
-        ],
+        if library.active.is_empty() {
+            &buttons[..2]
+        } else {
+            &buttons
+        },
     )?;
     content.y += content.canvas.r(1.2);
     marketplace::draw(content)?;
@@ -117,7 +122,7 @@ fn draw_sections(
             caption(
                 content,
                 if library.active.is_empty() {
-                    "Enable a mod from My mods to start using it."
+                    "Enable mods from My mods."
                 } else {
                     "Higher mods take priority. Reorder Active mods to choose which wins."
                 },
@@ -144,7 +149,7 @@ fn draw_sections(
                     } else {
                         "No other mods"
                     },
-                    "Browse the marketplace and choose Add to Cinnabar, or import a local .wasm mod.",
+                    "Browse the marketplace or import a .wasm file.",
                 )
             })?;
             cards(content, motion, Group::Available, |content, card| {
