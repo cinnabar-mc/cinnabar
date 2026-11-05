@@ -27,9 +27,10 @@ line and suggestion backgrounds are hidden, history ignores Top placement and
 gives way to command completions as vanilla's does. History text keeps
 vanilla's flush-left position instead of Java's 4 px inset. Completions rest on
 the input bar, and a list longer than the completion area fills it from the
-top, as a live 1.26.60.4 client showed on 2026-11-05. The built-in pack sizes
-the completion grid to its rows, up to that area, anchors it to the area's
-bottom and clips rows past its bottom edge. Vanilla's own grid fills the area,
+top, as a live 1.26.60.4 client showed on 2026-11-05. The built-in pack keeps
+the completion grid at its rows' natural height, at the top of a panel that fits
+it up to that area and rests on the input bar; the panel clips rows past its
+bottom edge. Vanilla's own grid fills the area,
 and the native rule that places its rows at the bottom has not been identified.
 A server pack that restyles the chat screen without this override therefore
 lists completions from the top. Vanilla also ends a truncated list with a `...`

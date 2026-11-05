@@ -138,15 +138,17 @@
   "chat_screen_content/messages_panel": {
     "bindings": [ { "binding_name": "#chat_visible", "binding_name_override": "#visible" } ]
   },
-  // Bedrock completions rest on the input bar: the grid is as tall as its rows, up to the
-  // completion area, and anchored to its bottom. A longer list fills the area from the top, and
-  // the area clips the rows past its bottom edge.
+  // Bedrock completions rest on the input bar. The grid keeps its rows' natural height and sits
+  // at the top of a bottom-anchored panel that fits it, up to the completion area. A longer list
+  // therefore fills the area from the top, and the panel clips rows past its bottom edge.
   "auto_complete_panel/panel": {
+    "size": [ "100%", "100%c" ],
     "clips_children": true
   },
   "auto_complete_panel/panel/auto_complete_grid": {
     "size": [ "100%", "default" ],
-    "max_size": [ "100%", "100%" ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
     "grid_rescaling_type": "horizontal",
     "modifications": [
       {

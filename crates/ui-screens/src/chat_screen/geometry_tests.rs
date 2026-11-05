@@ -443,7 +443,7 @@ fn bedrock_chat_input_rests_completions_on_the_input_bar_and_keeps_text_flush_le
             );
             continue;
         }
-        let centres: Vec<f64> = nodes
+        let mut centres: Vec<f64> = nodes
             .iter()
             .filter(|node| matches!(node.draw, Draw::Text { .. }))
             .map(|node| {
@@ -457,7 +457,18 @@ fn bedrock_chat_input_rests_completions_on_the_input_bar_and_keeps_text_flush_le
                 node.dest.y + node.dest.h / 2.0
             })
             .collect();
-        let first = centres.iter().copied().fold(f64::MAX, f64::min);
+        centres.sort_by(f64::total_cmp);
+        for pair in centres.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                10.0,
+                "{count} suggestions: rows keep 10 px"
+            );
+        }
+        let fully_visible = centres
+            .iter()
+            .filter(|centre| **centre + 5.0 <= viewport[1] - INPUT_BAR)
+            .count();
         if count == 2 {
             let usage_row = labelled(usage).expect("usage line");
             assert_eq!(
@@ -465,13 +476,15 @@ fn bedrock_chat_input_rests_completions_on_the_input_bar_and_keeps_text_flush_le
                 (2.0, viewport[1] - INPUT_BAR - 5.0),
                 "the usage line rests on the input bar"
             );
-            assert_eq!(
-                first,
-                viewport[1] - INPUT_BAR - 25.0,
-                "three rows, bottom-up"
-            );
+            assert_eq!(fully_visible, 3, "both suggestions and the usage line");
         } else {
-            assert_eq!(first, HEADER + 5.0, "a long list fills from the top");
+            assert_eq!(centres[0], HEADER + 5.0, "a long list fills from the top");
+            let area = viewport[1] - INPUT_BAR - HEADER;
+            assert_eq!(
+                fully_visible,
+                (area / 10.0) as usize,
+                "whole rows fill the area"
+            );
         }
     }
 }
