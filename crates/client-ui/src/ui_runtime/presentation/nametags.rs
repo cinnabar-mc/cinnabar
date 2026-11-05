@@ -41,7 +41,15 @@ const METADATA_SCORE: u32 = ActorDataKey::Score.wire_value();
 const METADATA_RENDER_DISTANCE: u32 = ActorDataKey::NameplateRenderDistance.wire_value();
 const SCORE_DISTANCE_SQUARED: f32 = 100.0;
 pub(super) const EXTRA_LINE_LIFT: f32 = 0.125;
-pub(super) const PLATE_COLOR: [f32; 4] = [0.0, 0.0, 0.0, 0.25];
+pub(super) const PLATE_COLOR: [f32; 4] = [
+    0.0,
+    0.0,
+    0.0,
+    launcher::menu::settings_options::SettingId::NametagBackgroundOpacity
+        .definition()
+        .default as f32
+        / 100.0,
+];
 /// Each line needs one background and one text record.
 pub(super) const NAMETAG_RECORDS_PER_LINE: usize = 2;
 /// Most lines one tag can consume in a scene, including its backing plates.

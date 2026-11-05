@@ -318,6 +318,10 @@ pub(super) fn fallback(key: &str) -> &str {
         "chat.settings.mentionsColor.description" => {
             "Saved preference; mention highlighting is not available yet"
         }
+        "options.nametagBackgroundOpacity" => "Nametag Background Opacity",
+        "options.nametagBackgroundOpacity.description" => {
+            "Adjust the opacity of nametag backgrounds. 0% hides the background."
+        }
         "options.chatBackgroundOpacity" => "Chat Background Opacity",
         "options.chatBackgroundOpacity.description" => {
             "Adjust the opacity of the chat background box"
