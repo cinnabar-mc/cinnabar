@@ -97,7 +97,7 @@ pub enum Fixture {
         receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
-    TabList(Vec<RosterRow>),
+    TabList(Vec<RosterRow>, &'static str),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed

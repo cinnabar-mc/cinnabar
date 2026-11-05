@@ -195,7 +195,7 @@ fn png_fixture(
         Fixture::Loading(stage) => stage.is_world_entry(),
         Fixture::ResourcePackLoading => false,
         Fixture::Chat { .. }
-        | Fixture::TabList(_)
+        | Fixture::TabList(..)
         | Fixture::EditSelection
         | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
@@ -502,10 +502,11 @@ fn png_fixture(
                 }
             }
         }
-        Fixture::TabList(rows) => {
+        Fixture::TabList(rows, header) => {
             carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
+            list.set_header(header);
             for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
