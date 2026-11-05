@@ -265,8 +265,8 @@ fn triangles(vertices: &[UiMeshVertex]) -> usize {
         .count()
 }
 
-#[test]
-fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
+/// Draws a helmet block on the captured head and checks it sits on the posed head bone.
+fn assert_helmet_block_on_posed_head(view: PreviewView) {
     let pack = pack();
     let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
     equip(&mut stream, None);
@@ -296,7 +296,7 @@ fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
         use_animation: Default::default(),
         charged_projectile: Default::default(),
     });
-    let (mesh, vertices) = draw(&mut ui, &stream, PreviewView::default()).unwrap();
+    let (mesh, vertices) = draw(&mut ui, &stream, view).unwrap();
     let worn = mesh
         .batches()
         .iter()
@@ -320,15 +320,18 @@ fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
     let frame = Affine3A::from_scale(
         Vec3::new(-1., 1., -1.) * rig.scale / player_preview::PLAYER_MODEL_SCALE,
     ) * render_matrix(&posed).unwrap();
-    let projection =
-        player_preview::Rig::new(Default::default(), PreviewView::default(), 0., [false; 2]);
-    // A live renderer turns the head, and the block with it, toward the pointer.
-    let (pitch, yaw) = projection.head_look();
-    let frame = ui
-        .gui_models
-        .live_player
-        .head_turn(pitch, yaw)
-        .map_or(frame, |turn| turn * frame);
+    let projection = player_preview::Rig::new(Default::default(), view, 0., [false; 2]);
+    // A screen's renderer turns the head, and the block with it, toward the pointer; the HUD doll
+    // keeps its pose.
+    let frame = if view == PreviewView::Hud {
+        frame
+    } else {
+        let (pitch, yaw) = projection.head_look();
+        ui.gui_models
+            .live_player
+            .head_turn(pitch, yaw)
+            .map_or(frame, |turn| turn * frame)
+    };
     let source = render_model::textured_cube_vertices([[0., 0., 1., 1.]; 6]);
     for (actual, source) in worn.iter().zip(source) {
         let expected = projection.project(render_model::ActorVertex {
@@ -349,6 +352,16 @@ fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
             );
         }
     }
+}
+
+#[test]
+fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
+    assert_helmet_block_on_posed_head(PreviewView::default());
+}
+
+#[test]
+fn hud_doll_wears_a_helmet_block_on_the_posed_head_bone() {
+    assert_helmet_block_on_posed_head(PreviewView::Hud);
 }
 
 #[test]

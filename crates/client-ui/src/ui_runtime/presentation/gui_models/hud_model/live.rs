@@ -203,8 +203,7 @@ impl UiPresentationRuntime {
                 }
             }
         }
-        if ui_context
-            && let Some(model) = self.preview_head_block()
+        if let Some(model) = self.preview_head_block()
             && let Some(parent) = live.head_bone
         {
             let bone = render_model::equipment::attach_to_bone(
@@ -212,7 +211,7 @@ impl UiPresentationRuntime {
                 render_model::equipment::head_block_display(),
             )?;
             let frame = live.frame * super::super::live_player::render_matrix(&bone)?;
-            // The block turns with the head when a live renderer looks toward the pointer.
+            // The block turns with the head when a screen's renderer looks toward the pointer.
             let frame = turn.map_or(frame, |turn| turn * frame);
             let (screen, light) = projection(&rig, 6);
             cache.layer(
