@@ -192,6 +192,8 @@ wit-parser = "=0.247.0"
 [patch.crates-io]
 # Keep Linux crash dumps when a thread's stack cannot be read.
 minidump-writer = { git = "https://github.com/cinnabar-mc/minidump-writer", rev = "389d34092fb3323f2253010615eda402212e534f" }
+# Android mouse input and an input filter for controllers; patches live on `cinnabar-v0.30`.
+winit = { git = "https://github.com/cinnabar-mc/winit", rev = "a4a4057505022effee163c4f2fd548b967297f29" }
 naga = { git = "https://github.com/cinnabar-mc/wgpu", rev = "1fe6d240135375d60448962c19005648b1698fd7" }
 wgpu = { git = "https://github.com/cinnabar-mc/wgpu", rev = "1fe6d240135375d60448962c19005648b1698fd7" }
 wgpu-core = { git = "https://github.com/cinnabar-mc/wgpu", rev = "1fe6d240135375d60448962c19005648b1698fd7" }
