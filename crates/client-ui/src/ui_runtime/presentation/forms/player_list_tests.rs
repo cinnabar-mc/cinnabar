@@ -66,7 +66,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     runtime
         .session
         .player_roster
-        .set_level_name("Another World".into());
+        .set_level_name("New World".into());
     let renamed = frame(&mut presentation, &player, &runtime);
     assert_ne!(shown.vertices, renamed.vertices);
     runtime.session.player_roster.set_entries(names(3));
