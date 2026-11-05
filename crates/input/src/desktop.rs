@@ -416,4 +416,48 @@ mod tests {
         assert_eq!(usages.len(), keyed);
         assert_eq!(KeyboardKey::Unidentified.usage(), None);
     }
+
+    /// Keys that enter a character count as typing; keys that enter none do not, so a binding on
+    /// them keeps working inside a text box.
+    #[test]
+    fn only_keys_that_enter_a_character_type_text() {
+        use KeyboardKey::*;
+        for key in [
+            KeyA,
+            KeyM,
+            KeyZ,
+            Digit0,
+            Digit5,
+            Space,
+            Minus,
+            Slash,
+            Comma,
+            Period,
+            Numpad0,
+            NumpadAdd,
+            NumpadDecimal,
+            // A key the platform could not name may still enter text.
+            Unidentified,
+        ] {
+            assert!(key.types_text(), "{key:?} should type text");
+        }
+        for key in [
+            F1,
+            F2,
+            F12,
+            ArrowLeft,
+            ArrowUp,
+            ControlLeft,
+            ShiftRight,
+            AltLeft,
+            PrintScreen,
+            CapsLock,
+            Enter,
+            Backspace,
+            Tab,
+            Escape,
+        ] {
+            assert!(!key.types_text(), "{key:?} should not type text");
+        }
+    }
 }

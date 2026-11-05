@@ -168,7 +168,7 @@ fn capture_on_key(
     mut frames: ResMut<FrameCapture>,
 ) {
     // A key bound to the screenshot still types its character into chat and other text boxes.
-    let typing = ui.chat_focused() || ui.screen_state().text_focused();
+    let typing = ui.text_entry_focused();
     if menu.as_ref().is_some_and(|menu| menu.is_visible())
         || !client_shell::menu::settings_options::control_bindings::binding_pressed_unless_typing(
             menu.as_deref(),
