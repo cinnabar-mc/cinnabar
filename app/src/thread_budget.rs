@@ -64,8 +64,9 @@ impl ThreadBudget {
         }
     }
 
-    /// Raises frame submission on the render executor's own thread. The main thread stays as the
-    /// platform started it, so the world and network threads it spawns do not inherit a boost.
+    /// Raises frame submission on the render executor's own thread. Android also raises the main
+    /// schedule's thread, which the platform starts at normal priority; threads either one spawns
+    /// later start at normal priority.
     #[cfg(any(target_os = "macos", target_os = "android"))]
     pub(crate) fn configure_frame_threads(app: &mut bevy::prelude::App) {
         use bevy::{
@@ -73,10 +74,16 @@ impl ThreadBudget {
             prelude::IntoScheduleConfigs,
             render::{Render, RenderApp, RenderSystems},
         };
+        #[cfg(target_os = "android")]
+        app.add_systems(bevy::app::Startup, android::prepare_schedule_thread);
+        #[cfg(target_os = "macos")]
+        let prepare_render = macos::prepare_render_thread;
+        #[cfg(target_os = "android")]
+        let prepare_render = android::prepare_schedule_thread;
         if let Some(render) = app.get_sub_app_mut(RenderApp) {
             render.add_systems(
                 Render,
-                frame_priority::prepare_render_thread
+                prepare_render
                     .run_if(run_once)
                     .before(RenderSystems::ExtractCommands),
             );
