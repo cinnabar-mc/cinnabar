@@ -39,7 +39,7 @@ struct AudioCapture {
 }
 
 #[derive(Resource)]
-pub(super) struct Recording {
+pub(crate) struct Recording {
     recorder: Option<Recorder>,
     delivery: Delivery,
     fps: u32,

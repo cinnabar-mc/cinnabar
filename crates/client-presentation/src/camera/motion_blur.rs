@@ -7,8 +7,9 @@ use semantic_input::PerspectiveMode;
 use super::{CameraRig, CameraSettingsAuthority, FlyCamera, ServerCameraView};
 use crate::local_player::LocalViewPose;
 
+/// Camera anchors shared by presentation effects; changes invalidate their image histories.
 #[derive(Clone, Copy, PartialEq)]
-struct CameraAnchor {
+pub struct CameraContinuityKey {
     player: u64,
     server: u64,
     perspective: PerspectiveMode,
@@ -16,10 +17,27 @@ struct CameraAnchor {
     death_rotation: Option<Quat>,
 }
 
+impl CameraContinuityKey {
+    /// Identifies every anchor whose change breaks rendered-camera history.
+    pub fn current(
+        view: &LocalViewPose,
+        server: &ServerCameraView,
+        settings: &CameraSettingsAuthority,
+    ) -> Self {
+        Self {
+            player: view.camera_reanchor_epoch(),
+            server: server.camera_reanchor_epoch(),
+            perspective: settings.perspective(),
+            rig: settings.rig(),
+            death_rotation: settings.death_rotation(),
+        }
+    }
+}
+
 /// Tracks the camera anchors consumed by the rendered pose, independently of gameplay prediction.
 #[derive(Default)]
 pub struct MotionBlurHistory {
-    previous: Option<CameraAnchor>,
+    previous: Option<CameraContinuityKey>,
     epoch: u64,
 }
 
@@ -43,13 +61,7 @@ pub fn apply_camera_motion_blur(
         }
         return;
     }
-    let anchor = CameraAnchor {
-        player: view.camera_reanchor_epoch(),
-        server: server.camera_reanchor_epoch(),
-        perspective: settings.perspective(),
-        rig: settings.rig(),
-        death_rotation: settings.death_rotation(),
-    };
+    let anchor = CameraContinuityKey::current(&view, &server, &settings);
     let reanchored = history.previous != Some(anchor);
     if reanchored {
         history.epoch = history.epoch.wrapping_add(1);

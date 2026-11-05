@@ -262,3 +262,15 @@ pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
     ));
     Fixture::Menu(Box::new(view))
 }
+
+/// Shows the saved opt-in and its latency description on the Video page.
+pub(super) fn settings_frame_generation(enabled: bool) -> Fixture {
+    let mut view = settings("video_forced_index");
+    Arc::make_mut(&mut view.settings_options)
+        .set(SettingId::FrameGeneration.index(), i32::from(enabled));
+    view.focused_action = Some(MenuAction::SettingsOption(
+        SettingId::FrameGeneration.index() as u16,
+        i32::from(!enabled),
+    ));
+    Fixture::Menu(Box::new(view))
+}

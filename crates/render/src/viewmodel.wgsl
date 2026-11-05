@@ -12,5 +12,6 @@ struct VertexOut { @builtin(position) position: vec4<f32>, @location(0) uv: vec2
 @fragment fn hand_fragment(input: VertexOut) -> @location(0) vec4<f32> {
     let color = textureSample(skin, nearest, input.uv);
     if color.a == 0.0 { discard; }
-    return color;
+    // Without blending this replaces the scene; a separately composed hand keeps that coverage.
+    return vec4<f32>(color.rgb, 1.0);
 }

@@ -559,6 +559,30 @@ fn settings_choice_rows_select_their_own_values() {
 }
 
 #[test]
+fn native_video_frame_generation_toggle_edits_the_saved_opt_in() {
+    let index = launcher::menu::settings_options::SettingId::FrameGeneration.index();
+    for size in [[640.0, 720.0], [1280.0, 720.0]] {
+        let mut view = settings_view("video_forced_index");
+        assert!(!view.settings_options.user_settings().video.frame_generation);
+        for enabled in [true, false] {
+            let frame = paint(&view, size, centered_option(&view, index, size));
+            let action = MenuAction::SettingsOption(index as u16, i32::from(enabled));
+            let bounds = frame
+                .hits
+                .iter()
+                .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
+                .expect("frame generation toggle remains reachable");
+            assert_eq!(hit(&frame.hits, centre(bounds)), Some(action));
+            Arc::make_mut(&mut view.settings_options).set(index, i32::from(enabled));
+            assert_eq!(
+                view.settings_options.user_settings().video.frame_generation,
+                enabled
+            );
+        }
+    }
+}
+
+#[test]
 fn native_video_settings_exposes_motion_blur_and_edits_all_presets() {
     use launcher::menu::settings_options::MOTION_BLUR_OPTION;
 

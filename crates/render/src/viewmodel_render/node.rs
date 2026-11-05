@@ -78,7 +78,14 @@ pub(crate) fn hand_view<const AFTER_PACK: bool>(
         gate.reject(token);
         return Ok(());
     };
-    let attachments = [Some(scene_target.color_attachment(target, false))];
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    let separate = crate::frame_generation::runtime::hand_attachment(world, view_entity);
+    #[cfg(any(not(feature = "frame-generation"), target_arch = "wasm32"))]
+    let separate = None;
+    let attachments =
+        [Some(separate.unwrap_or_else(|| {
+            scene_target.color_attachment(target, false)
+        }))];
     let mut pass = context.begin_tracked_render_pass(RenderPassDescriptor {
         label: Some("camera-local neutral empty hand"),
         color_attachments: &attachments,

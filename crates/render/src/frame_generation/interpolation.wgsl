@@ -163,7 +163,12 @@ fn bilinear_offset(i: i32) -> vec2<i32> {
 
 /// Reconstructs finite view distance from reversed device depth.
 fn device_to_view_depth(d: f32) -> f32 {
-    return params.device_to_view.y / (d - params.device_to_view.x);
+    // Infinite-projection sky has zero depth. Bound reconstruction math, never world visibility.
+    let denominator = d - params.device_to_view.x;
+    if denominator <= 0.0 {
+        return 1e10;
+    }
+    return min(1e10, params.device_to_view.y / denominator);
 }
 
 /// Reconstructs a view-space position for depth discontinuity checks.

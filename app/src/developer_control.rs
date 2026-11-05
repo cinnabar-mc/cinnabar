@@ -6,6 +6,7 @@ mod benchmark;
 mod camera;
 mod cape;
 mod capture;
+pub(crate) use capture::Recording;
 pub(crate) mod cursor_isolation;
 mod input;
 mod inventory;

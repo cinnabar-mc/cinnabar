@@ -41,22 +41,84 @@ impl FramesInFlight {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
     ) -> Result<wgpu::PollStatus, wgpu::PollError> {
+        self.finish_with_wait(device, queue, None)
+    }
+
+    /// Tracks post-poll surface copies without adding another poll or another outstanding frame.
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    pub(crate) fn track_tail(&mut self, queue: &wgpu::Queue) {
+        let marker = queue.submit([]);
+        if let Some(last) = self.0.back_mut() {
+            *last = marker;
+        } else {
+            self.0.push_back(marker);
+        }
+    }
+
+    /// A ready interpolation pair may wait for its current marker within a bounded deadline.
+    fn finish_with_wait(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        latest: Option<std::time::Duration>,
+    ) -> Result<wgpu::PollStatus, wgpu::PollError> {
         self.0.push_back(queue.submit([]));
-        let poll = if self.0.len() > MAX_FRAMES_IN_FLIGHT {
-            PollType::Wait {
+        match poll_target(self.0.len(), latest) {
+            PollTarget::None => device.poll(PollType::Poll),
+            PollTarget::Oldest => device.poll(PollType::Wait {
                 submission_index: self.0.pop_front(),
                 timeout: None,
+            }),
+            PollTarget::Newest(timeout) => {
+                let result = device.poll(PollType::Wait {
+                    submission_index: self.0.back().cloned(),
+                    timeout: Some(timeout),
+                });
+                if result.is_ok() {
+                    self.0.clear();
+                } else if self.0.len() > MAX_FRAMES_IN_FLIGHT {
+                    // A late candidate still keeps the in-flight bound.
+                    device.poll(PollType::Wait {
+                        submission_index: self.0.pop_front(),
+                        timeout: None,
+                    })?;
+                }
+                result
             }
-        } else {
-            PollType::Poll
-        };
-        device.poll(poll)
+        }
+    }
+}
+
+/// The outstanding submission one frame's poll waits for.
+#[derive(Debug, PartialEq, Eq)]
+enum PollTarget {
+    None,
+    Oldest,
+    /// The newest frame, within a deadline; completing it also completes every older frame.
+    Newest(std::time::Duration),
+}
+
+/// A presenter's candidate waits for its own frame, which a full in-flight queue must not
+/// replace with the already-finished oldest frame.
+fn poll_target(outstanding: usize, latest: Option<std::time::Duration>) -> PollTarget {
+    match latest {
+        Some(timeout) => PollTarget::Newest(timeout),
+        None if outstanding > MAX_FRAMES_IN_FLIGHT => PollTarget::Oldest,
+        None => PollTarget::None,
     }
 }
 
 /// Owners whose systems register completion callbacks or request readbacks after the graph.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct FrameSubmissions;
+
+/// A presentation consumer's optional wait, consumed by the single device-poll owner.
+#[derive(Resource, Default)]
+pub(crate) struct FrameWait(pub Option<std::time::Duration>);
+
+/// Presentation waits happen after the frame's only poll and never run simulation.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DevicePollComplete;
 
 /// Polls issued so far; tests read it to prove there is exactly one per frame.
 #[derive(Resource, Default, Debug)]
@@ -70,6 +132,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
     render_app
         .init_resource::<DevicePolls>()
         .init_resource::<FramesInFlight>()
+        .init_resource::<FrameWait>()
         .configure_sets(
             Render,
             FrameSubmissions
@@ -80,6 +143,7 @@ pub(crate) fn install(render_app: &mut SubApp) {
             Render,
             poll_device
                 .in_set(RenderSystems::Render)
+                .in_set(DevicePollComplete)
                 .after(FrameSubmissions),
         );
 }
@@ -108,10 +172,18 @@ fn poll_device(
     queue: Res<RenderQueue>,
     mut frames: ResMut<FramesInFlight>,
     mut polls: ResMut<DevicePolls>,
+    mut wait: ResMut<FrameWait>,
 ) {
     #[cfg(feature = "tracy")]
     let _span = bevy::log::info_span!("render.device_poll").entered();
-    if let Err(error) = frames.finish_frame(device.wgpu_device(), &queue) {
+    let latest = wait.0.take();
+    let result = match latest {
+        Some(timeout) => frames.finish_with_wait(device.wgpu_device(), &queue, Some(timeout)),
+        None => frames.finish_frame(device.wgpu_device(), &queue),
+    };
+    if let Err(error) = result
+        && !(latest.is_some() && matches!(error, wgpu::PollError::Timeout))
+    {
         warn!(?error, "could not poll the render device");
     }
     polls.0 += 1;

@@ -520,6 +520,24 @@ fn vsync_defaults_and_saved_toggle_values_survive_loading() {
 }
 
 #[test]
+fn frame_generation_defaults_off_persists_and_resets_with_video() {
+    let mut settings = SettingsOptions::decode(br#"{"values":{}}"#).unwrap();
+    let index = SettingId::FrameGeneration.index();
+    assert!(!settings.user_settings().video.frame_generation);
+    assert_eq!(
+        ui::VideoSettings::default().frame_generation,
+        render_api::frame_generation::DEFAULT_FRAME_GENERATION
+    );
+    settings.set(index, 1);
+    let mut loaded = SettingsOptions::decode(&serde_json::to_vec(&settings).unwrap()).unwrap();
+    assert!(loaded.user_settings().video.frame_generation);
+    loaded.reset_group(SettingsGroup::Audio);
+    assert!(loaded.user_settings().video.frame_generation);
+    loaded.reset_group(SettingsGroup::Video);
+    assert!(!loaded.user_settings().video.frame_generation);
+}
+
+#[test]
 fn motion_blur_defaults_off_persists_every_preset_and_resets_with_video() {
     let mut settings = SettingsOptions::default();
     let index = index(MOTION_BLUR_OPTION.name);

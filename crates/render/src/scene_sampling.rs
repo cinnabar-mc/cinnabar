@@ -46,13 +46,29 @@ impl ResolvedDepth {
         depth: &ViewDepthStencilTexture,
         stage: RuntimeStage,
     ) -> Option<Self> {
-        let size = depth.texture().size();
+        Self::from_source(
+            device,
+            crate::scene_sampling::view_depth(depth).clone(),
+            depth.texture().size(),
+            depth.texture().sample_count(),
+            stage,
+        )
+    }
+
+    /// Builds a resolve from owned input handles so preparation can run off the render thread.
+    pub(crate) fn from_source(
+        device: &RenderDevice,
+        source: TextureView,
+        size: wgpu::Extent3d,
+        samples: u32,
+        stage: RuntimeStage,
+    ) -> Option<Self> {
         let bytes = u64::from(size.width) * u64::from(size.height) * 4;
         let texture =
             crate::gpu_allocation::checked(device, "resolved scene depth", bytes, || {
                 device.create_texture(&wgpu::TextureDescriptor {
                     label: Some("resolved scene depth"),
-                    size: depth.texture().size(),
+                    size,
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
@@ -69,7 +85,7 @@ impl ResolvedDepth {
             label: Some("resolved scene depth"),
             source: wgpu::ShaderSource::Wgsl(include_str!("scene_depth.wgsl").into()),
         });
-        let multi = depth.texture().sample_count() > 1;
+        let multi = samples > 1;
         let pipeline = gpu.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("resolved scene depth"),
             layout: None,
@@ -102,15 +118,13 @@ impl ResolvedDepth {
             layout: &pipeline.get_bind_group_layout(0),
             entries: &[wgpu::BindGroupEntry {
                 binding: u32::from(multi),
-                resource: wgpu::BindingResource::TextureView(crate::scene_sampling::view_depth(
-                    depth,
-                )),
+                resource: wgpu::BindingResource::TextureView(&source),
             }],
         });
         Some(Self {
             _texture: texture,
             view,
-            source: crate::scene_sampling::view_depth(depth).id(),
+            source: source.id(),
             stage,
             pipeline,
             binding,

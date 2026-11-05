@@ -32,6 +32,8 @@ impl Content<'_, '_> {
             "Skip terrain hidden behind other blocks. Visible terrain stays available.".to_owned()
         } else if id == SettingId::RenderScaleSharpen {
             "Sharpen the FSR-upscaled world when Render Resolution is below 100%. Turn off to keep FSR upscaling without sharpening.".to_owned()
+        } else if id == SettingId::FrameGeneration {
+            render_api::frame_generation::frame_generation_description()
         } else if id == SettingId::RenderResolution {
             launcher::menu::settings_options::render_resolution::DESCRIPTION.to_owned()
         } else if id == SettingId::GraphicsApi {

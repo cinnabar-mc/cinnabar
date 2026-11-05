@@ -228,6 +228,42 @@ fn native_ui_pair_keeps_output_pixels_and_reuses_across_world_scale_changes() {
     assert!(world.get::<NativeUiTarget>(entity).is_none());
 }
 
+/// A same-size scene seeds with a copy, so ready EASU alone must not admit frame generation.
+#[test]
+#[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+fn frame_generation_requires_the_same_size_seed_pipeline() {
+    let mut app = fixture(noop_renderer());
+    let world = app.sub_app_mut(RenderApp).world_mut();
+    let entity = view(world, [64, 32], [64, 32]);
+    ready_pipelines(world);
+    let device = world.resource::<RenderDevice>().clone();
+    let cache = world.resource::<PipelineCache>();
+    let blit = world.resource::<BlitPipeline>();
+    let target = world.get::<ViewTarget>(entity).unwrap();
+    let native = world.get::<NativeUiTarget>(entity).unwrap();
+    assert!(native.compatible(&device, cache, false, target));
+    let mut compiling = native.seed_pipelines;
+    compiling.bilinear = CachedRenderPipelineId::INVALID;
+    assert!(matches!(
+        compiling.ready_pass(cache, false),
+        Some(UpscalePass::Easu)
+    ));
+    let pending = NativeUiTarget::allocate(
+        &device,
+        native.extent(),
+        [native.textures[0].format(), native.output_format],
+        (compiling, native.present_pipeline),
+        &cache.get_bind_group_layout(&blit.layout),
+        &blit.sampler,
+    )
+    .unwrap();
+    pending.begin_frame(cache, false);
+    assert!(
+        !pending.compatible(&device, cache, false, target),
+        "the hand and names would leave a world that nothing composes"
+    );
+}
+
 #[test]
 fn native_ui_target_rejects_stale_output_and_releases_removed_views() {
     let mut app = fixture(noop_renderer());

@@ -7,7 +7,7 @@
 use std::time::Instant;
 
 /// Sleeps until about `deadline`; returns early only on spurious OS wakes.
-pub(super) fn sleep_until(deadline: Instant) {
+pub(crate) fn sleep_until(deadline: Instant) {
     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
         return;
     };

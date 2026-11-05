@@ -12,6 +12,7 @@ pub mod enhanced;
 pub mod entity_shadow;
 pub mod far_terrain;
 pub mod formats;
+pub mod frame_generation;
 pub mod gpu_times;
 pub mod hand_rig;
 pub mod lighting;

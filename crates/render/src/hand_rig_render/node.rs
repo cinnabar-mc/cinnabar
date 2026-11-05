@@ -69,7 +69,13 @@ pub(crate) fn hand_rig<const AFTER_PACK: bool>(
     }
     let final_world_draw =
         !(render_model::enhanced_rendering_enabled() && enhanced) && msaa.samples() > 1;
-    let attachments = [Some(if final_world_draw {
+    #[cfg(all(feature = "frame-generation", not(target_arch = "wasm32")))]
+    let separate = crate::frame_generation::runtime::hand_attachment(world, view_entity);
+    #[cfg(any(not(feature = "frame-generation"), target_arch = "wasm32"))]
+    let separate = None;
+    let attachments = [Some(if let Some(attachment) = separate {
+        attachment
+    } else if final_world_draw {
         scene_target.final_attachment(target.main_texture_view())
     } else {
         scene_target.color_attachment(target, false)

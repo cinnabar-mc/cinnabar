@@ -50,7 +50,7 @@ mod item_glint;
 #[path = "ui_render/page_uniform_tests.rs"]
 mod page_uniform_tests;
 #[path = "ui_render/target.rs"]
-mod target;
+pub(crate) mod target;
 #[path = "ui_render/textures.rs"]
 mod textures;
 #[path = "ui_render/upscale.rs"]
@@ -196,6 +196,7 @@ fn ui_systems() -> bevy::ecs::schedule::ScheduleConfigs<bevy::ecs::system::Sched
     (
         resources::prepare_ui_resources.in_set(RenderSystems::PrepareResources),
         target::prepare_native_ui_targets
+            .in_set(target::NativeUiPrepared)
             .in_set(RenderSystems::PrepareResources)
             .after(bevy::render::view::prepare_view_targets),
         composite::prepare_ui_layers

@@ -49,6 +49,17 @@ impl CameraHistory {
     /// Whether the preceding rendered frame can contribute camera and actor exposure.
     pub fn continuous(&self, current: Self, settings: CameraMotionBlur) -> bool {
         let dt = settings.delta_seconds;
+        self.same_anchor(current)
+            && dt.is_finite()
+            && dt > 0.000001
+            && dt <= 0.25
+            && settings.exposure_seconds.is_finite()
+            && settings.exposure_seconds > 0.0
+            && settings.samples >= 3
+    }
+
+    /// Rejects discontinuous or invalid rendered camera poses for any temporal consumer.
+    pub(crate) fn same_anchor(&self, current: Self) -> bool {
         let translation = current.world_from_view.w_axis - self.world_from_view.w_axis;
         let forward_dot = current
             .world_from_view
@@ -58,17 +69,11 @@ impl CameraHistory {
             && self.viewport == current.viewport
             && translation.length_squared() < 64.0 * 64.0
             && forward_dot > 0.0
-            && dt.is_finite()
-            && dt > 0.000001
-            && dt <= 0.25
             && current.clip_from_view.is_finite()
             && self.clip_from_view.is_finite()
             && current.world_from_view.is_finite()
             && self.world_from_view.is_finite()
             && current.clip_from_view.determinant().abs() > f32::EPSILON
-            && settings.exposure_seconds.is_finite()
-            && settings.exposure_seconds > 0.0
-            && settings.samples >= 3
     }
 
     /// Object movement can require exposure even when the camera itself stays still.
@@ -81,16 +86,7 @@ impl CameraHistory {
         let admitted = self.continuous(current, settings)
             && (actor_moved || self.world_from_view != current.world_from_view);
         let old = std::mem::replace(self, current);
-        let translation = current.world_from_view.w_axis - old.world_from_view.w_axis;
-        // Subtract camera origins before transforming to avoid distant-world cancellation.
-        let mut previous_pose = old.world_from_view;
-        previous_pose.w_axis = Vec4::W;
-        let mut current_pose = current.world_from_view;
-        current_pose.w_axis = translation.truncate().extend(1.0);
-        let reprojection = old.clip_from_view
-            * previous_pose.inverse()
-            * current_pose
-            * current.clip_from_view.inverse();
+        let reprojection = old.reprojection(current);
         let strength = if admitted && reprojection.is_finite() {
             settings.exposure_seconds / settings.delta_seconds
         } else {
@@ -105,6 +101,21 @@ impl CameraHistory {
             strength: Vec4::new(strength, settings.samples.clamp(3, 32) as f32, 0.0, 0.0),
             viewport: current.viewport.as_vec4(),
         }
+    }
+
+    /// Maps current clip coordinates to the prior camera without distant-world cancellation.
+    pub(crate) fn reprojection(self, current: Self) -> Mat4 {
+        let old = self;
+        let translation = current.world_from_view.w_axis - old.world_from_view.w_axis;
+        // Subtract camera origins before transforming to avoid distant-world cancellation.
+        let mut previous_pose = old.world_from_view;
+        previous_pose.w_axis = Vec4::W;
+        let mut current_pose = current.world_from_view;
+        current_pose.w_axis = translation.truncate().extend(1.0);
+        old.clip_from_view
+            * previous_pose.inverse()
+            * current_pose
+            * current.clip_from_view.inverse()
     }
 }
 
