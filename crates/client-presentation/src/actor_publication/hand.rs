@@ -74,7 +74,13 @@ pub(super) fn decorated_item_atlas(
             artwork,
             layer.presentation.location,
             layer.presentation.submission.input.rig,
-            layer.presentation.submission.tint,
+            (layer.presentation.submission.tint != 0).then(|| {
+                let [r, g, b, _] = layer.presentation.submission.tint.to_le_bytes();
+                assets::item::trim::Dye {
+                    rgb: [r, g, b],
+                    alpha: assets::item::trim::DyeAlpha::Coverage,
+                }
+            }),
             None,
         )
         .or_else(|| {

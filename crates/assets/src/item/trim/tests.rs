@@ -41,7 +41,10 @@ fn palette_substitution_keeps_holes_and_dyes_only_the_base() {
         "sentry",
         ArmorSlot::Chestplate,
         false,
-        Some(0x00ff00),
+        Some(Dye {
+            rgb: [0, 255, 0],
+            alpha: DyeAlpha::Coverage,
+        }),
         None,
         |path| textures.get(path),
     )
@@ -62,6 +65,43 @@ fn palette_substitution_keeps_holes_and_dyes_only_the_base() {
         )
         .is_none()
     );
+}
+
+#[test]
+fn trim_dye_distinguishes_coverage_from_texture_opacity() {
+    let base = image("base", 2, &[[200, 200, 200, 64]; 2]);
+    let textures = BTreeMap::from([
+        (
+            "textures/trims/sentry",
+            image("mask", 2, &[[100, 100, 100, 0], [100, 100, 100, 255]]),
+        ),
+        (
+            "textures/trims/color_palettes/trim_palette",
+            image("palette", 1, &[[100, 100, 100, 255]]),
+        ),
+        (
+            "textures/trims/color_palettes/gold",
+            image("gold", 1, &[[240, 170, 20, 255]]),
+        ),
+    ]);
+    for (alpha, expected) in [(DyeAlpha::Coverage, 255), (DyeAlpha::Preserve, 64)] {
+        let output = compose(
+            &base,
+            "gold",
+            "sentry",
+            ArmorSlot::Chestplate,
+            false,
+            Some(Dye {
+                rgb: [0, 255, 0],
+                alpha,
+            }),
+            None,
+            |path| textures.get(path),
+        )
+        .unwrap();
+        assert_eq!(&output.rgba8[..4], &[149, 200, 149, expected]);
+        assert_eq!(&output.rgba8[4..], &[240, 170, 20, 255]);
+    }
 }
 
 #[test]

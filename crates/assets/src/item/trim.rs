@@ -6,6 +6,20 @@ mod tests;
 
 pub const TEXTURE_DIRECTORY: &str = "textures/trims/";
 
+/// Whether base alpha represents leather cutout coverage or retained texture opacity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DyeAlpha {
+    Coverage,
+    Preserve,
+}
+
+/// A color-mask multiplier and the material's interpretation of base alpha.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Dye {
+    pub rgb: [u8; 3],
+    pub alpha: DyeAlpha,
+}
+
 /// The native item mask name follows the admitted armor slot.
 pub const fn slot_name(slot: ArmorSlot) -> &'static str {
     match slot {
@@ -25,7 +39,7 @@ pub fn compose<'a>(
     pattern: &str,
     slot: ArmorSlot,
     icon: bool,
-    dye: Option<u32>,
+    dye: Option<Dye>,
     overrides: Option<&crate::equipment::EquipmentResources>,
     mut texture: impl FnMut(&str) -> Option<&'a EquipmentTexture>,
 ) -> Option<EquipmentTexture> {
@@ -86,11 +100,12 @@ pub fn compose<'a>(
     for y in 0..height {
         for x in 0..width {
             let mut under = sample(base, x, y);
-            if let Some(rgb) = dye {
-                under = crate::color_mask_texel(
-                    under,
-                    [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8],
-                );
+            if let Some(dye) = dye {
+                let alpha = under[3];
+                under = crate::color_mask_texel(under, dye.rgb);
+                if dye.alpha == DyeAlpha::Preserve {
+                    under[3] = alpha;
+                }
             }
             let mut over = sample(mask, x, y);
             if let Some(index) = palette

@@ -109,14 +109,14 @@ fn worn_trim_pixels_are_shared_until_the_appearance_retires() {
     };
     remember(&mut runtime);
     let (first, selected) = runtime
-        .trim_raster(&item, &pages, location, rig, 0, Some(identity))
+        .trim_raster(&item, &pages, location, rig, None, Some(identity))
         .unwrap();
     assert_eq!(selected, rig);
     assert_eq!(first.rgba8.as_ref(), &[240, 170, 20, 255, 40, 50, 60, 255]);
     runtime.begin_shield_frame();
     remember(&mut runtime);
     let (again, _) = runtime
-        .trim_raster(&item, &pages, location, rig, 0, Some(identity))
+        .trim_raster(&item, &pages, location, rig, None, Some(identity))
         .unwrap();
     assert!(Arc::ptr_eq(&first.rgba8, &again.rgba8));
     runtime.finish_shield_frame();
@@ -124,13 +124,13 @@ fn worn_trim_pixels_are_shared_until_the_appearance_retires() {
     runtime.finish_shield_frame();
     remember(&mut runtime);
     let (fresh, _) = runtime
-        .trim_raster(&item, &pages, location, rig, 0, Some(identity))
+        .trim_raster(&item, &pages, location, rig, None, Some(identity))
         .unwrap();
     assert!(!Arc::ptr_eq(&first.rgba8, &fresh.rgba8));
     item.trim.as_mut().unwrap().material = "unknown".into();
     assert!(
         runtime
-            .trim_raster(&item, &pages, location, rig, 0, Some(identity))
+            .trim_raster(&item, &pages, location, rig, None, Some(identity))
             .is_none()
     );
 }
@@ -157,7 +157,7 @@ fn held_trim_decorates_the_selected_session_icon() {
         .session_sprite(&item.identifier, item.metadata)
         .unwrap();
     let (decorated, selected) = runtime
-        .trim_raster(&item, &pages, location, rig, 0, None)
+        .trim_raster(&item, &pages, location, rig, None, None)
         .expect("the admitted session icon must receive the stack trim");
     assert_eq!(selected, rig);
     let at =

@@ -1,5 +1,6 @@
 //! Visible armor compositions share source pixels and retire with the frame's equipment.
 use super::*;
+use assets::item::trim::{Dye, DyeAlpha};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct Key {
@@ -9,7 +10,7 @@ struct Key {
     texture: usize,
     source: usize,
     layer: u32,
-    tint: u32,
+    dye: Option<Dye>,
     icon: Option<[u16; 4]>,
 }
 
@@ -115,12 +116,28 @@ impl EquipmentRuntime {
         let color_mask = page.color_mask
             || draw.material.color_mask
             || draw.material.state.is_some_and(|state| state.color_mask);
+        let dye = (color_mask && draw.tint != 0).then(|| {
+            let [r, g, b, _] = draw.tint.to_le_bytes();
+            let coverage = (draw.material.color_mask || draw.material.state.is_none())
+                && !draw
+                    .material
+                    .state
+                    .is_some_and(|state| state.blend || state.emissive);
+            Dye {
+                rgb: [r, g, b],
+                alpha: if coverage {
+                    DyeAlpha::Coverage
+                } else {
+                    DyeAlpha::Preserve
+                },
+            }
+        });
         let raster = self.trim_raster(
             item,
             artwork,
             location,
             draw.input.rig,
-            if color_mask { draw.tint } else { 0 },
+            dye,
             worn.then_some(draw.input.identity),
         )?;
         if color_mask && draw.tint != 0 {
@@ -150,7 +167,7 @@ impl EquipmentRuntime {
         artwork: &ActorArtworkPages,
         location: ActorArtworkLocation,
         rig: EntityRigId,
-        tint: u32,
+        dye: Option<Dye>,
         worn: Option<render_model::ActorRenderIdentity>,
     ) -> Option<(EquipmentRaster, EntityRigId)> {
         let trim = item.trim.as_ref()?;
@@ -211,7 +228,7 @@ impl EquipmentRuntime {
             texture: texture_identity,
             source: pixels.storage_id(),
             layer: location.layer(),
-            tint,
+            dye,
             icon: icon.map(|p| [p.x, p.y, p.width, p.height]),
         };
         if !self.trims.images.contains_key(&key) {
@@ -237,8 +254,6 @@ impl EquipmentRuntime {
                 height: h,
                 rgba8: base_pixels.into(),
             };
-            let dye = (tint != 0)
-                .then_some(((tint & 255) << 16) | (tint & 0xff00) | ((tint >> 16) & 255));
             let composed = assets::item::trim::compose(
                 &base,
                 &trim.material,

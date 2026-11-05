@@ -481,6 +481,7 @@ fn worn_trim_preserves_authored_color_and_opacity() {
         controller["render_controllers"]["controller.render.test_coat"]["color"] =
             serde_json::json!({"r":color[0], "g":color[1], "b":color[2], "a":color[3]});
         files[2].1 = serde_json::to_vec(&controller).unwrap();
+        files[3].1 = texture([170, 170, 170, 64]);
         if material.ends_with("color_mask") {
             files.push(("materials/fixture.material".into(), br#"{"materials":{"version":"1.0.0","entity_alphablend_color_mask:entity_alphablend":{"defines":["USE_COLOR_MASK"]}}}"#.to_vec()));
         }
@@ -490,8 +491,14 @@ fn worn_trim_preserves_authored_color_and_opacity() {
             image.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
             bytes.into_inner()
         };
+        let mask = image::RgbaImage::from_fn(2, 1, |x, _| {
+            image::Rgba([100, 100, 100, if x == 0 { 0 } else { 255 }])
+        });
+        let mut mask_bytes = std::io::Cursor::new(Vec::new());
+        mask.write_to(&mut mask_bytes, image::ImageFormat::Png)
+            .unwrap();
+        files.push(("textures/trims/sentry.png".into(), mask_bytes.into_inner()));
         for (path, color) in [
-            ("textures/trims/sentry.png", [100, 100, 100, 255]),
             (
                 "textures/trims/color_palettes/trim_palette.png",
                 [100, 100, 100, 255],
@@ -529,7 +536,7 @@ fn worn_trim_preserves_authored_color_and_opacity() {
         let mut draw = drawn[0].submission.clone();
         assert!(draw.material.state.unwrap().blend, "{material}");
         assert_eq!(draw.tint, render_model::pack_overlay_rgba8(color));
-        runtime
+        let (raster, _) = runtime
             .trim_draw(
                 equipment.armor[1].as_ref().unwrap(),
                 &pages,
@@ -538,6 +545,8 @@ fn worn_trim_preserves_authored_color_and_opacity() {
                 true,
             )
             .unwrap();
+        assert_eq!(raster.rgba8[3], 64, "{material}: uncovered base opacity");
+        assert_eq!(&raster.rgba8[8 * 4..9 * 4], &[20, 220, 30, 255]);
         assert_eq!(
             draw.tint >> 24,
             64,
@@ -621,7 +630,7 @@ fn worn_trim_uses_the_owner_admitted_palette() {
             &pages,
             draw.location,
             draw.submission.input.rig,
-            draw.submission.tint,
+            None,
             Some(draw.submission.input.identity),
         )
         .unwrap();

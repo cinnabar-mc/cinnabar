@@ -216,7 +216,13 @@ impl UiPresentationRuntime {
                 &trim.pattern,
                 slot,
                 icon,
-                dye,
+                dye.map(|rgb| {
+                    let [_, r, g, b] = rgb.to_be_bytes();
+                    assets::item::trim::Dye {
+                        rgb: [r, g, b],
+                        alpha: assets::item::trim::DyeAlpha::Coverage,
+                    }
+                }),
                 binding.map(|binding| &binding.resources),
                 |path| {
                     pack.and_then(|p| p.texture(path))
