@@ -15,11 +15,21 @@ mod android_map;
 )]
 #[cfg(any(target_os = "android", target_os = "ios", test))]
 mod gamepads;
+#[cfg_attr(
+    not(target_os = "ios"),
+    allow(dead_code, reason = "iOS-only mapping, tested on every host")
+)]
+#[cfg(any(target_os = "ios", test))]
+mod hid_keys;
+#[cfg(target_os = "ios")]
+mod ios;
 
 /// Installs the platform's native input sources.
 pub(crate) fn configure(app: &mut bevy::prelude::App) {
     #[cfg(target_os = "android")]
     android::configure(app);
-    #[cfg(not(target_os = "android"))]
+    #[cfg(target_os = "ios")]
+    ios::configure(app);
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
     let _ = app;
 }

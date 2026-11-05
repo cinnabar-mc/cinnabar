@@ -2,7 +2,7 @@
 
 use bevy::prelude::{GamepadAxis, GamepadButton};
 
-use super::gamepads::NativeGamepadEvent;
+use super::gamepads::{GamepadInput, NativeGamepadEvent, changed_inputs};
 
 /// `AINPUT_SOURCE_KEYBOARD`'s device bit, above the button class.
 const SOURCE_KEYBOARD_BIT: u32 = 0x0100;
@@ -69,30 +69,23 @@ pub(super) struct JoystickSample {
     pub hat_y: f32,
 }
 
-/// A joystick value's Bevy destination.
-#[derive(Clone, Copy, Debug, PartialEq)]
-enum Target {
-    Axis(GamepadAxis),
-    Button(GamepadButton),
-}
-
-const TARGETS: [Target; 10] = [
-    Target::Axis(GamepadAxis::LeftStickX),
-    Target::Axis(GamepadAxis::LeftStickY),
-    Target::Axis(GamepadAxis::RightStickX),
-    Target::Axis(GamepadAxis::RightStickY),
-    Target::Button(GamepadButton::LeftTrigger2),
-    Target::Button(GamepadButton::RightTrigger2),
-    Target::Button(GamepadButton::DPadLeft),
-    Target::Button(GamepadButton::DPadRight),
-    Target::Button(GamepadButton::DPadUp),
-    Target::Button(GamepadButton::DPadDown),
+const TARGETS: [GamepadInput; 10] = [
+    GamepadInput::Axis(GamepadAxis::LeftStickX),
+    GamepadInput::Axis(GamepadAxis::LeftStickY),
+    GamepadInput::Axis(GamepadAxis::RightStickX),
+    GamepadInput::Axis(GamepadAxis::RightStickY),
+    GamepadInput::Button(GamepadButton::LeftTrigger2),
+    GamepadInput::Button(GamepadButton::RightTrigger2),
+    GamepadInput::Button(GamepadButton::DPadLeft),
+    GamepadInput::Button(GamepadButton::DPadRight),
+    GamepadInput::Button(GamepadButton::DPadUp),
+    GamepadInput::Button(GamepadButton::DPadDown),
 ];
 
 /// Values in `TARGETS` order. Android's stick Y axes point down while Bevy's point up; the
 /// right stick is `AXIS_Z`/`AXIS_RZ`, and either trigger axis pair drives the analog triggers.
 fn target_values(sample: JoystickSample) -> [f32; 10] {
-    let held = |pressed: bool| if pressed { 1.0 } else { 0.0 };
+    let held = |pressed: bool| f32::from(u8::from(pressed));
     [
         sample.x,
         -sample.y,
@@ -120,19 +113,7 @@ impl ControllerState {
     pub(super) fn joystick(&mut self, id: u64, sample: JoystickSample) -> Vec<NativeGamepadEvent> {
         let values = target_values(sample);
         self.analog_triggers |= values[4] != 0.0 || values[5] != 0.0;
-        let previous = self.joystick.replace(values);
-        TARGETS
-            .iter()
-            .zip(values)
-            .enumerate()
-            .filter(|(index, (_, value))| {
-                previous.is_none_or(|previous| previous[*index] != *value)
-            })
-            .map(|(_, (target, value))| match *target {
-                Target::Axis(axis) => NativeGamepadEvent::Axis { id, axis, value },
-                Target::Button(button) => NativeGamepadEvent::Button { id, button, value },
-            })
-            .collect()
+        changed_inputs(id, &TARGETS, &mut self.joystick, values)
     }
 
     /// The event for a controller key edge, or none when trigger axes already report it.
