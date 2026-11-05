@@ -62,10 +62,10 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, view_bone,
         },
     },
-    render_model::equipment::{self as attachable, blocks::BlockSheets},
+    render_model::equipment::{self as attachable, blocks::BlockSheets, head_block_display},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {

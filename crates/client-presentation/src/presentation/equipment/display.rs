@@ -1,6 +1,6 @@
 //! Composition of an item's display placement with the hand bone's pose.
 
-use bevy::math::{Mat4, Quat, Vec3};
+use bevy::math::{Mat4, Vec3};
 use render_model::RenderBoneTransform;
 use render_model::equipment::ItemDisplay;
 use render_model::equipment::sprite_item_transform;
@@ -170,20 +170,13 @@ pub fn view_bone(display: ItemDisplay) -> Option<RenderBoneTransform> {
     bone.is_finite().then_some(bone)
 }
 
-/// A block worn on the head, facing along the head after vanilla's half-turn.
-/// The existing cube size and vertical placement remain provisional.
-pub(super) fn head_block_display() -> ItemDisplay {
-    ItemDisplay {
-        rotation: Quat::from_rotation_y(std::f32::consts::PI),
-        translation: Vec3::new(0.0, 0.25, 0.0),
-        scale: 0.5625,
-        axis_scale: Vec3::ONE,
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use {super::*, render_model::equipment::attach_to_bone};
+    use {
+        super::*,
+        bevy::math::Quat,
+        render_model::equipment::{attach_to_bone, head_block_display},
+    };
 
     const IDENTITY_TABLE: ItemDisplay = ItemDisplay {
         rotation: Quat::IDENTITY,

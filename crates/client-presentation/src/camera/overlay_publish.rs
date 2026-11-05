@@ -21,7 +21,7 @@ use super::{
     overlay::{OverlayKind, OverlayLayer, ScreenOverlays},
 };
 use launcher::install_layout::InstallLayout;
-use render_scene::screen_overlay::{PUMPKIN_MASK_PATH, SPYGLASS_MASK_PATH};
+use render_scene::screen_overlay::SPYGLASS_MASK_PATH;
 
 /// Immutable startup masks kept separately from the active pack scene.
 #[derive(Clone, Default, Resource)]
@@ -73,11 +73,11 @@ fn load_rgba(paths: &[PathBuf]) -> Option<Vec<u8>> {
     Some(image.into_raw())
 }
 
-/// Loads available startup masks independently, preserving absent procedural layers.
+/// Loads the available startup masks independently, preserving absent procedural layers.
+/// The carved pumpkin never loads the vanilla mask: it keeps its procedural vignette.
 pub fn load_textures(resource_root: &Path) -> Option<ScreenOverlayTextures> {
-    let pumpkin = load_rgba(&candidates(resource_root, PUMPKIN_MASK_PATH));
     let spyglass = load_rgba(&candidates(resource_root, SPYGLASS_MASK_PATH));
-    ScreenOverlayTextures::from_layers(pumpkin, spyglass)
+    ScreenOverlayTextures::from_layers(None, spyglass)
 }
 
 /// Publishes startup masks and retains their immutable fallback for pack reloads.
@@ -89,9 +89,7 @@ pub fn load_overlay_textures(mut commands: Commands, scene: Option<ResMut<Screen
         .ok()
         .and_then(|layout| load_textures(&layout.resource_root));
     if textures.is_none() {
-        warn!(
-            "camera overlay textures not found; pumpkin and spyglass overlays use procedural art"
-        );
+        warn!("camera overlay textures not found; the spyglass overlay uses procedural art");
     }
     let textures = textures.map(Arc::new);
     commands.insert_resource(ScreenOverlayBase(textures.clone()));
@@ -190,8 +188,33 @@ mod tests {
 
     #[test]
     fn candidates_prefer_the_shipped_carrier() {
-        let paths = candidates(Path::new("root"), PUMPKIN_MASK_PATH);
-        assert!(paths[0].ends_with("overlays/pumpkinblur.png"));
-        assert!(paths[1].ends_with("textures/misc/pumpkinblur.png"));
+        let paths = candidates(Path::new("root"), SPYGLASS_MASK_PATH);
+        let name = SPYGLASS_MASK_PATH.rsplit('/').next().unwrap();
+        assert!(paths[0].ends_with(Path::new("overlays").join(name)));
+        assert!(paths[1].ends_with(SPYGLASS_MASK_PATH));
+    }
+
+    /// The carved pumpkin keeps its procedural vignette even when the vanilla mask is installed.
+    #[test]
+    fn the_vanilla_pumpkin_mask_is_never_loaded() {
+        let root = tempfile::tempdir().unwrap();
+        let mask = image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 0, 255]));
+        let write = |path: PathBuf| {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            mask.save(path).unwrap();
+        };
+        let vanilla = root
+            .path()
+            .join(launcher::install_layout::vanilla_pack_relative());
+        write(vanilla.join(render_scene::screen_overlay::PUMPKIN_MASK_PATH));
+        write(root.path().join("overlays/pumpkinblur.png"));
+        write(
+            root.path()
+                .join("overlays")
+                .join(SPYGLASS_MASK_PATH.rsplit('/').next().unwrap()),
+        );
+        let textures = load_textures(root.path()).expect("the spyglass mask loads");
+        assert!(textures.spyglass().is_some());
+        assert!(textures.pumpkin().is_none());
     }
 }

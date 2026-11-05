@@ -248,4 +248,36 @@ impl UiPresentationRuntime {
             Some(model.with_grip(hand.grip).with_glint(hand.glint))
         })
     }
+
+    /// The block the helmet slot shows on the head. Only a block with prepared held geometry
+    /// draws: a sprite item or a pack-authored hand model never does.
+    pub(in crate::ui_runtime::presentation::gui_models) fn preview_head_block(
+        &self,
+    ) -> Option<player_preview::PreviewHeldModel> {
+        let head = self.player_preview_gear.head.as_ref()?;
+        let (identifier, metadata) = (head.identifier.as_ref(), head.metadata);
+        let model = if let Some((source, vertices)) =
+            self.session_icons.held_block(identifier, metadata)
+        {
+            player_preview::PreviewHeldModel {
+                source,
+                vertices,
+                hand_pivots: self.gui_models.sources.hand_pivots?,
+                placements: [player_preview::PreviewHeldPlacement::Block; 2],
+            }
+        } else {
+            let held = self.gui_models.sources.held.get(identifier)?;
+            let base = held.get(&metadata).or_else(|| held.get(&0))?;
+            if base.is_sprite() {
+                return None;
+            }
+            let model = base.model(self.icon_catalog.as_deref()?)?;
+            model
+                .placements
+                .iter()
+                .all(|placement| matches!(placement, player_preview::PreviewHeldPlacement::Block))
+                .then_some(model)?
+        };
+        Some(model.with_glint(head.glint))
+    }
 }

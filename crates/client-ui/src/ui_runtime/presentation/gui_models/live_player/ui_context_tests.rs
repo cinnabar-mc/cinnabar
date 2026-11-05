@@ -48,7 +48,8 @@ fn pack_with_overlay(
         {"name":"rightArm","parent":"body","pivot":[-6,16,0],"cubes":[{"origin":[-8,6,-2],"size":[4,10,4],"uv":[0,0]}]},
         {"name":"rightSleeve","parent":"rightArm","pivot":[-6,16,0],"cubes":[{"origin":[-8,6,-2],"size":[4,10,4],"inflate":0.25,"uv":[0,0]}]},
         {"name":"rightItem","parent":"rightArm","pivot":[-6,7,1]},
-        {"name":"leftItem","parent":"body","pivot":[6,7,1]}
+        {"name":"leftItem","parent":"body","pivot":[6,7,1]},
+        {"name":"head","parent":"body","pivot":[0,24,0]}
     ]}]});
     let controller = serde_json::json!({"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]});
     let mut ui = controller.clone();
@@ -262,6 +263,92 @@ fn triangles(vertices: &[UiMeshVertex]) -> usize {
             (b - a).cross(c - a).length_squared() > 1e-12
         })
         .count()
+}
+
+#[test]
+fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
+    let pack = pack();
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, None);
+    let mut ui = presentation(pack);
+    ui.set_player_preview_gear([None; 4], None);
+    let block = PreviewHeldModel {
+        source: IconRef {
+            page: 0,
+            uv: [0, 0, 1, 1],
+            color_mask: None,
+            glint: false,
+        },
+        vertices: render_model::textured_cube_vertices([[0., 0., 1., 1.]; 6]).into(),
+        placements: [PreviewHeldPlacement::Block; 2],
+        hand_pivots: [[0.; 3]; 2],
+    };
+    ui.gui_models.sources.held.insert(
+        "minecraft:carved_pumpkin".into(),
+        [(0, super::super::held::HeldModel::ready(block))].into(),
+    );
+    ui.player_preview_gear.head = Some(player_preview::PreviewHandItem {
+        shield_pattern: None,
+        grip: None,
+        glint: Some(false),
+        identifier: "minecraft:carved_pumpkin".into(),
+        metadata: 0,
+        use_animation: Default::default(),
+        charged_projectile: Default::default(),
+    });
+    let (mesh, vertices) = draw(&mut ui, &stream, PreviewView::default()).unwrap();
+    let worn = mesh
+        .batches()
+        .iter()
+        .find(|batch| batch.texture_page == 0)
+        .expect("the helmet block is drawn");
+    let worn = &vertices[worn.index_range.start as usize..worn.index_range.end as usize];
+    assert_eq!(triangles(worn), 12);
+    let local = stream.authority().local_player_ui();
+    let rig = local.rig().unwrap();
+    let head = rig
+        .bone_names
+        .iter()
+        .position(|name| name.eq_ignore_ascii_case("head"))
+        .unwrap();
+    let parent = render_bone(&local.pose().unwrap()[head]).unwrap();
+    let posed = render_model::equipment::attach_to_bone(
+        parent,
+        render_model::equipment::head_block_display(),
+    )
+    .unwrap();
+    let frame = Affine3A::from_scale(
+        Vec3::new(-1., 1., -1.) * rig.scale / player_preview::PLAYER_MODEL_SCALE,
+    ) * render_matrix(&posed).unwrap();
+    let projection =
+        player_preview::Rig::new(Default::default(), PreviewView::default(), 0., [false; 2]);
+    // A live renderer turns the head, and the block with it, toward the pointer.
+    let (pitch, yaw) = projection.head_look();
+    let frame = ui
+        .gui_models
+        .live_player
+        .head_turn(pitch, yaw)
+        .map_or(frame, |turn| turn * frame);
+    let source = render_model::textured_cube_vertices([[0., 0., 1., 1.]; 6]);
+    for (actual, source) in worn.iter().zip(source) {
+        let expected = projection.project(render_model::ActorVertex {
+            position: frame
+                .transform_point3(Vec3::from_array(source.position))
+                .to_array(),
+            uv: source.uv,
+            part: 6,
+        });
+        for axis in 0..2 {
+            let extent = [
+                player_preview::PREVIEW_WIDTH,
+                player_preview::PREVIEW_HEIGHT,
+            ][axis];
+            assert!(
+                (actual.position[axis] - expected.screen[axis] / extent as f32).abs() < 1e-5,
+                "axis {axis}"
+            );
+        }
+    }
 }
 
 #[test]
