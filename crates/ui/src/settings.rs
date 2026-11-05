@@ -16,8 +16,17 @@ pub const DEFAULT_FOV_DEGREES: i32 = 60;
 pub const MIN_FOV_DEGREES: i32 = 30;
 pub const MAX_FOV_DEGREES: i32 = 130;
 
-/// Desktop vanilla starts with two coverage samples per pixel.
-pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = 2;
+/// Whether this build runs on a platform Bedrock classifies as Mobile.
+const MOBILE_PLATFORM: bool = cfg!(any(target_os = "android", target_os = "ios"));
+/// Coverage samples per pixel this platform starts with.
+pub const DEFAULT_ANTI_ALIASING_SAMPLES: u32 = default_anti_aliasing_samples(MOBILE_PLATFORM);
+
+/// Bedrock's starting coverage samples: one (off) on Mobile platforms, two on desktop and
+/// console platforms.
+const fn default_anti_aliasing_samples(mobile: bool) -> u32 {
+    if mobile { 1 } else { 2 }
+}
+
 /// Lowest supported world-rendering resolution relative to the output.
 pub const MIN_RENDER_SCALE_PERCENT: u8 = 10;
 /// Native world-rendering resolution relative to the output.
@@ -364,6 +373,17 @@ mod tests {
 #[cfg(test)]
 mod antialiasing_tests {
     use super::*;
+
+    /// Mobile platforms start without multisampling, while desktop keeps two samples.
+    #[test]
+    fn anti_aliasing_default_follows_the_platform_type() {
+        assert_eq!(default_anti_aliasing_samples(true), 1);
+        assert_eq!(default_anti_aliasing_samples(false), 2);
+        assert_eq!(
+            UserSettings::default().video.anti_aliasing_samples,
+            default_anti_aliasing_samples(MOBILE_PLATFORM)
+        );
+    }
 
     #[test]
     fn spatial_antialiasing_defaults_off_and_round_trips_setting_values() {

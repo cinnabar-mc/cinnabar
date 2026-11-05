@@ -233,7 +233,7 @@ impl UiPresentationRuntime {
                         vertices,
                         hand_pivots: self.gui_models.sources.hand_pivots?,
                         placements: [player_preview::PreviewHeldPlacement::Sprite {
-                            hand_equipped: false,
+                            grip: render_model::equipment::SpriteGrip::Flat,
                         }; 2],
                     },
                 }

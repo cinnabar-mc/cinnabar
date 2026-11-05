@@ -383,6 +383,10 @@ pub(super) fn fallback(key: &str) -> &str {
         }
         "Chat Position" => "Chat Position",
         "Chat Position.description" => "Position the chat HUD at the bottom or top of the screen",
+        "Chat Input" => "Chat Input",
+        "Chat Input.description" => {
+            "Type in Java's input line over the game, or in Bedrock's full chat screen"
+        }
         "hbui.Settings.category.general" => "General",
         "menu.accessibility.tab.title" | "options.accessibility" => "Accessibility",
         "menu.accessibility.tab.description" => "Minecraft is for everyone, including you",

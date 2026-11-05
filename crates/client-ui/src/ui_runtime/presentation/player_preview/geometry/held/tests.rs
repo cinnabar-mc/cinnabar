@@ -84,7 +84,7 @@ fn unresolved_grips_do_not_borrow_the_cached_upright_placement() {
     let cached = model(
         render_model::held_sprite_vertices(16, 16, &rgba, [0.0, 0.0, 1.0, 1.0]).unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: true,
+            grip: render_model::equipment::SpriteGrip::HandEquipped,
         },
     );
     let resolved = cached.with_grip(Some(assets::item::grip::builtin_item_grip(
@@ -96,7 +96,7 @@ fn unresolved_grips_do_not_borrow_the_cached_upright_placement() {
     assert!(matches!(
         resolved.placements[0],
         PreviewHeldPlacement::Sprite {
-            hand_equipped: false
+            grip: render_model::equipment::SpriteGrip::Flat
         }
     ));
     assert_ne!(
@@ -170,7 +170,7 @@ fn sprite_extrusion_keeps_original_side_texel_centres() {
         render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
             .unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         },
     );
     let mesh = draw([Some(&sprite), None]);
@@ -222,7 +222,7 @@ fn native_offhand_grip_is_not_a_main_hand_mirror() {
         render_model::held_sprite_vertices(16, 16, &[255; 16 * 16 * 4], [0.0, 0.0, 1.0, 1.0])
             .unwrap(),
         PreviewHeldPlacement::Sprite {
-            hand_equipped: true,
+            grip: render_model::equipment::SpriteGrip::HandEquipped,
         },
     );
     let (main, _) = placement(&sprite, 0).unwrap();
@@ -332,10 +332,13 @@ fn live_item_placement_matches_world_equipment_for_both_hands() {
             let held = model(
                 vec![],
                 PreviewHeldPlacement::Sprite {
-                    hand_equipped: upright,
+                    grip: render_model::equipment::SpriteGrip::new(upright, false),
                 },
             );
-            let mut display = held_sprite_display_for_hand(upright, hand == 1);
+            let mut display = held_sprite_display_for_hand(
+                render_model::equipment::SpriteGrip::new(upright, false),
+                hand == 1,
+            );
             display.scale *= 1.7;
             let expected = attach_to_bone(parent, display).unwrap();
             let (actual, pivot) = placement_on_bone(&held, hand, parent, 1.7).unwrap();
