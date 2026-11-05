@@ -321,6 +321,83 @@ fn section_membership_stamps_track_insert_remove_replace_and_retire() {
     assert_eq!(stream.terrain_publication_source(), empty);
 }
 
+/// Applying changed columns reproduces current sections, with a full snapshot after retirement.
+#[test]
+fn changed_publication_columns_match_current_sections() {
+    let mut stream = WorldStream::new(WorldBootstrap {
+        local_player_unique_id: 1,
+        dimension: 0,
+        local_player_runtime_id: 1,
+        player_position: [0.0; 3],
+        world_spawn_position: [0; 3],
+        air_network_id: 0,
+        block_network_ids_are_hashes: false,
+    });
+    let sections = |stream: &WorldStream| {
+        stream
+            .terrain_publication_sections()
+            .collect::<std::collections::BTreeSet<_>>()
+    };
+    let mut seed = 0x9e37_79b9_7f4a_7c15_u64;
+    let mut next = |bound: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % bound
+    };
+    let mut mirror = sections(&stream);
+    let cursor = TerrainPublicationCursor::default();
+    assert!(stream.take_terrain_publication_columns(&cursor).0);
+    for step in 0..400 {
+        for _ in 0..next(40) {
+            let key = SubChunkKey::new(0, next(4) as i32, next(6) as i32 - 2, next(4) as i32);
+            match next(6) {
+                0 => {
+                    stream.record_known_air(key);
+                }
+                1 => {
+                    stream.sync_resident(key);
+                }
+                2 => {
+                    stream.resident.remove(&key);
+                }
+                3 => {
+                    stream.known_air.remove(&key);
+                }
+                4 => {
+                    let keys = (0..next(4)).map(|y| SubChunkKey { y: y as i32, ..key });
+                    stream.resident.replace_column(key.chunk(), keys);
+                }
+                _ => stream.known_air.replace_column(key.chunk(), [key]),
+            }
+        }
+        let retired = step % 97 == 96;
+        if retired {
+            stream.resident.retire();
+        }
+        let (reset, columns) = stream.take_terrain_publication_columns(&cursor);
+        if reset {
+            mirror.clear();
+        }
+        for (column, keys) in columns {
+            mirror.retain(|key| key.chunk() != column);
+            mirror.extend(keys);
+        }
+        assert_eq!(mirror, sections(&stream), "step {step}");
+    }
+    let key = SubChunkKey::new(0, 9, 0, 9);
+    for _ in 0..8193 {
+        stream.record_known_air(key);
+        stream.resident.remove(&key);
+    }
+    let (reset, columns) = stream.take_terrain_publication_columns(&cursor);
+    assert!(!reset);
+    assert_eq!(columns.count(), 1, "repeated changes coalesce");
+    let (reset, mut columns) = stream.take_terrain_publication_columns(&cursor);
+    assert!(!reset);
+    assert!(columns.next().is_none());
+}
+
 /// First delivery publishes air evidence at either radius; missing data never proves emptiness.
 #[test]
 fn first_delivery_publishes_air_evidence_independently_of_mesh_radius() {

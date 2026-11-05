@@ -11,9 +11,10 @@ use ui_engine::test_support::fixture_font;
 use ui_engine::text_metrics::TextMetrics;
 
 #[test]
-fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
+fn native_video_settings_exposes_animation_choices_and_hud_toggles() {
     use launcher::menu::settings_options::{
-        ANIMATIONS_OPTION, INVERT_CROSSHAIR_OPTION, THIRD_PERSON_CROSSHAIR_OPTION,
+        ANIMATIONS_OPTION, BEDROCK_HOTBAR_OPTION, INVERT_CROSSHAIR_OPTION,
+        THIRD_PERSON_CROSSHAIR_OPTION,
     };
 
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
@@ -27,7 +28,11 @@ fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
     let animation = index(ANIMATIONS_OPTION.name);
     for value in [0, 1] {
         Arc::make_mut(&mut view.settings_options).set(animation, value);
-        for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        for option in [
+            THIRD_PERSON_CROSSHAIR_OPTION,
+            INVERT_CROSSHAIR_OPTION,
+            BEDROCK_HOTBAR_OPTION,
+        ] {
             Arc::make_mut(&mut view.settings_options).set(index(option.name), value);
         }
         present(&mut presentation, &view, [1280.0, 720.0]);
@@ -35,7 +40,11 @@ fn native_video_settings_exposes_animation_choices_and_crosshair_preferences() {
         for choice in ANIMATIONS_OPTION.min..=ANIMATIONS_OPTION.max {
             assert!(actions.contains(&MenuAction::SettingsOption(animation as u16, choice)));
         }
-        for option in [THIRD_PERSON_CROSSHAIR_OPTION, INVERT_CROSSHAIR_OPTION] {
+        for option in [
+            THIRD_PERSON_CROSSHAIR_OPTION,
+            INVERT_CROSSHAIR_OPTION,
+            BEDROCK_HOTBAR_OPTION,
+        ] {
             assert!(
                 actions.contains(&MenuAction::SettingsOption(
                     index(option.name) as u16,
@@ -269,11 +278,72 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
     );
 }
 
+/// Draws through the full menu adapter, which owns when a route forgets its scroll positions.
+fn present_menu(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
+    let metrics = TextMetrics::for_viewport(
+        [size[0] as u32, size[1] as u32],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation.set_menu_view(Some(view.clone()));
+    presentation.menu_hit_targets = presentation
+        .append_menu(
+            &crate::ui_runtime::UiRuntime::new(1),
+            &mut nodes,
+            &mut next,
+            metrics,
+            size[0],
+            size[1],
+        )
+        .unwrap();
+}
+
+#[test]
+fn selecting_a_category_keeps_the_sidebar_where_it_was_scrolled() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("accessibility_forced_index");
+    let size = [1280.0, 360.0];
+    present_menu(&mut presentation, &view, size);
+    let row = presentation
+        .menu_hit_targets
+        .iter()
+        .find_map(|(action, bounds)| {
+            matches!(action, MenuAction::SettingsSection(_)).then_some(*bounds)
+        })
+        .expect("the sidebar must accept scrolling");
+    assert!(presentation.scroll_menu(centre(row), -3.0, false));
+    presentation.menu_seconds += 0.2;
+    present_menu(&mut presentation, &view, size);
+    let scrolled = presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY];
+    assert!(scrolled > 0.0, "the regression needs a scrolled sidebar");
+    let clicked = presentation
+        .menu_hit_targets
+        .iter()
+        .filter_map(|(action, bounds)| match action {
+            MenuAction::SettingsSection(section) if *section != view.settings.section => {
+                Some((*section, *bounds))
+            }
+            _ => None,
+        })
+        .find(|(_, bounds)| bounds.max().y() < size[1] && bounds.min().y() > 100.0)
+        .map(|(section, _)| section)
+        .expect("a fully visible category to click");
+    view.settings.section = clicked;
+    view.focused_action = Some(MenuAction::SettingsSection(clicked));
+    present_menu(&mut presentation, &view, size);
+    assert_eq!(
+        presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY],
+        scrolled,
+        "clicking a visible category must not move the list it sits in"
+    );
+}
+
 #[test]
 fn settings_picker_close_focus_preserves_the_scrolled_choice_list() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    let mut view = settings_view("creator_forced_index");
-    let index = option_index("content_log_gui_level");
+    let mut view = settings_view("video_forced_index");
+    let index = option_index("motion_blur");
     let option = &SETTINGS_OPTIONS[index];
     view.settings.dropdown = Some(index as u16);
     view.focused_action = Some(MenuAction::SettingsOption(index as u16, option.max));

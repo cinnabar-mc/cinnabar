@@ -1,9 +1,6 @@
 //! Retained block-use picks and placement observations.
-use crate::{
-    mining::verified_selection,
-    movement::{MovementTicker, PhysicsCollisionRegistries},
-};
-use bevy::prelude::{Res, ResMut, Resource};
+use crate::{mining::verified_selection, movement::PhysicsCollisionRegistries};
+use bevy::prelude::Resource;
 use client_presentation::local_player::{InteractionOriginSnapshot, LocalViewPose};
 use client_ui::ui_runtime::UiRuntime;
 use gameplay::{
@@ -19,8 +16,8 @@ mod prediction_frames;
 #[derive(Resource, Debug, Default)]
 pub struct BlockUseRuntime {
     owner: gameplay::block_use::BlockUseRuntime,
-    /// The latest published frame pick; build actions run before the next publication.
     previous_pick: Option<FramePick>,
+    pending_picks: Vec<FramePick>,
     pub prediction_frames: prediction_frames::PredictionFrames,
 }
 impl std::ops::Deref for BlockUseRuntime {
@@ -40,12 +37,22 @@ impl std::ops::DerefMut for BlockUseRuntime {
 /// One frame's eye ray; vanilla builds from the picks of the frames before each tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FramePick {
-    /// Movement authority when the pick was taken; a correction or reanchor retires it.
+    /// Position authority when the pick was taken; any correction or reanchor retires it.
     authority: (SessionGeneration, PositionAuthorityGeneration),
     pub session_generation: SessionGeneration,
     pub actor_session_id: u64,
     pub origin: bevy::prelude::Vec3,
     pub direction: bevy::prelude::Vec3,
+    pub hits: FrameHits,
+}
+
+/// Independent frame picks; None means that query was unavailable, not a clear miss.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FrameHits {
+    /// Full float segment endpoint captured before choosing or trimming either hit.
+    pub endpoint: [f32; 3],
+    pub ordinary: Option<gameplay::block_use::PickResult>,
+    pub liquid: Option<gameplay::block_use::PickResult>,
 }
 
 impl BlockUseRuntime {
@@ -54,34 +61,61 @@ impl BlockUseRuntime {
         &mut self,
         origin: &InteractionOriginSnapshot,
         authority: (SessionGeneration, PositionAuthorityGeneration),
+        hits: FrameHits,
     ) {
+        if self
+            .pending_picks
+            .last()
+            .is_some_and(|pick| pick.authority != authority)
+        {
+            self.pending_picks.clear();
+        }
         self.previous_pick = origin.outbound_ray().map(|ray| FramePick {
             authority,
             session_generation: ray.session_generation(),
             actor_session_id: ray.actor_session_id(),
             origin: ray.origin(),
             direction: ray.direction(),
+            hits,
         });
+        if let Some(pick) = self.previous_pick {
+            self.pending_picks.push(pick);
+        }
     }
 
-    /// The retained pick, if it was taken under `authority`.
-    pub fn pick(
-        &self,
-        authority: (SessionGeneration, PositionAuthorityGeneration),
-    ) -> Option<FramePick> {
+    /// Consumes the accumulated frame picks once, retiring observations from older authority.
+    pub fn take_picks(&mut self, movement: &gameplay::movement::MovementTicker) -> Vec<FramePick> {
+        let authority = movement.position_authority_identity();
+        std::mem::take(&mut self.pending_picks)
+            .into_iter()
+            .filter(|pick| pick.authority == authority)
+            .collect()
+    }
+
+    /// Retires only the tick's buffered observations, preserving the latest pick for presses.
+    pub fn discard_pending_picks(&mut self) {
+        self.pending_picks.clear();
+    }
+
+    /// Marks a failed frame query without discarding the earlier observations awaiting a tick.
+    pub fn unavailable_pick(&mut self) {
+        self.previous_pick = None;
+    }
+
+    /// Drops observations when a frame has no usable interaction origin or world.
+    pub fn clear_picks(&mut self) {
+        self.previous_pick = None;
+        self.pending_picks.clear();
+    }
+
+    /// The retained pick, unless any reanchor (a replayed correction included) moved the
+    /// player since it was taken.
+    pub fn pick(&self, movement: &gameplay::movement::MovementTicker) -> Option<FramePick> {
         self.previous_pick
-            .filter(|previous| previous.authority == authority)
+            .filter(|previous| previous.authority == movement.position_authority_identity())
     }
 }
 
-/// Retains each frame's published (and assisted) pick for the next tick's build actions.
-pub fn retain_block_use_pick(
-    origin: Res<InteractionOriginSnapshot>,
-    movement: Res<MovementTicker>,
-    mut runtime: ResMut<BlockUseRuntime>,
-) {
-    runtime.retain_pick(&origin, movement.interaction_authority_identity());
-}
 /// Freezes player backing unless its local mutation or hotbar change still awaits transport.
 pub fn verified_use_selection(
     player_runtime: &client_state::PlayerRuntime,
@@ -101,7 +135,86 @@ pub fn verified_use_selection(
 }
 
 #[cfg(test)]
+mod pick_tests;
+#[cfg(test)]
 mod tests;
+
+/// The cell a held seed item plants into from this click and its crop's default state,
+/// resolved through the session's item components and the caller's palette view.
+pub fn predicted_seed_planting(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    ui: &UiRuntime,
+    observed: &FrozenBlockObservation,
+) -> Option<([i32; 3], u32)> {
+    let mode = stream.network_id_mode();
+    let identifier = stream
+        .authority()
+        .item_identifier(observed.selection.item.network_id())?;
+    let seed = ui.item_components(&identifier)?.seed.as_deref()?;
+    let crop = collisions.block_default_runtime_id(mode, &seed.crop_result)?;
+    let clicked = world.primary_runtime_id(observed.target.position).ok()?;
+    let cell = gameplay::block_use::seed_planting_cell(
+        seed,
+        observed.target.position,
+        observed.target.face,
+        collisions.block_identifier(mode, clicked)?,
+        |cell| {
+            world.primary_runtime_id(cell).is_ok_and(|block| {
+                collisions
+                    .block_facts(mode, block)
+                    .traits
+                    .contains(assets::registry::BlockTraits::AIR)
+            })
+        },
+    )?;
+    Some((cell, crop))
+}
+
+/// The block a selected door or bed item places, which vanilla items name without carrying
+/// a block of their own. Block items resolve through [`held_block_store_id`] instead.
+pub fn paired_item_block(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    item: &protocol::VerifiedNetworkItemStack,
+) -> Option<u32> {
+    if item.block_runtime_id() != 0 {
+        return None;
+    }
+    let identifier = stream.authority().item_identifier(item.network_id())?;
+    gameplay::block_use::paired_item_block(collisions, stream.network_id_mode(), &identifier)
+}
+
+/// Whether the observed click has room for the door or bed `block`, read through the caller's
+/// palette view and the same yaw placement prediction uses.
+pub fn paired_item_fits(
+    collisions: &PhysicsCollisionRegistries,
+    stream: &chunk_pipeline::WorldStream,
+    world: &PaletteWorld<'_>,
+    block: u32,
+    observed: &FrozenBlockObservation,
+    surroundings: &UseSurroundings,
+    view: LocalViewPose,
+) -> bool {
+    let mode = stream.network_id_mode();
+    let Some(build_height) = build_height(stream) else {
+        return false;
+    };
+    let (yaw, _, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
+    gameplay::block_use::paired_item_fits(
+        collisions.block_facts(mode, block),
+        observed.target.position,
+        observed.target.face,
+        gameplay::movement::wire_yaw(180.0 - yaw.to_degrees()),
+        surroundings,
+        build_height,
+        |cell| {
+            let block = world.primary_runtime_id(cell).ok()?;
+            Some(collisions.block_facts(mode, block))
+        },
+    )
+}
 
 /// Resolves switch prediction through the caller's observed palette view.
 pub fn predicted_toggle(
@@ -124,20 +237,18 @@ pub fn predicted_placement(
     collisions: &PhysicsCollisionRegistries,
     stream: &chunk_pipeline::WorldStream,
     world: &PaletteWorld<'_>,
-    item_block: i32,
+    held: u32,
     observed: &FrozenBlockObservation,
     surroundings: &UseSurroundings,
     view: LocalViewPose,
 ) -> Option<gameplay::block_use::PredictedPlacement> {
     let mode = stream.network_id_mode();
-    let range = stream
-        .authority()
-        .dimension_range(stream.current_dimension())?;
+    let build_height = build_height(stream)?;
     let (yaw, pitch, _) = view.rotation().to_euler(bevy::math::EulerRot::YXZ);
     gameplay::block_use::predicted_placement(
         collisions,
         mode,
-        held_block_store_id(stream, item_block)?,
+        held,
         world,
         &gameplay::block_use::PlacementContext {
             clicked: observed.target.position,
@@ -148,10 +259,17 @@ pub fn predicted_placement(
                 pitch: -pitch.to_degrees(),
             },
             surroundings,
-            build_height: range.base_sub_chunk_y * 16
-                ..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16,
+            build_height,
         },
     )
+}
+
+/// The block heights of the current dimension, or `None` before its range is known.
+fn build_height(stream: &chunk_pipeline::WorldStream) -> Option<std::ops::Range<i32>> {
+    let range = stream
+        .authority()
+        .dimension_range(stream.current_dimension())?;
+    Some(range.base_sub_chunk_y * 16..(range.base_sub_chunk_y + range.sub_chunk_count as i32) * 16)
 }
 /// Resolves an item block through the production gameplay boundary.
 pub fn held_block_store_id(stream: &chunk_pipeline::WorldStream, item_block: i32) -> Option<u32> {

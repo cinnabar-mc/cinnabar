@@ -1,3 +1,5 @@
+import render::chunk_records::{chunk_origins, animations, animation_frames, clock};
+
 import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_cube_uv, texture_gradient_scale, material_face_is_visible, material_uses_native_leaf_colour, material_uses_overlay_mask, material_uv_flags, material_leaf_shade};
 @if(ENHANCED_SHADOW)
 import render::enhanced::caster::caster_clip;
@@ -17,21 +19,6 @@ struct PackedQuad {
     material_id: u32,
 }
 
-struct ChunkOrigin {
-    value: vec4<i32>,
-    stream_bases: vec4<u32>,
-}
-
-
-// ANIMATION_GPU_LAYOUT
-
-struct AnimationClockGpu {
-    tick: u32,
-    partial_tick: f32,
-    padding_0: u32,
-    padding_1: u32,
-}
-
 struct AtmosphereUniform {
     sun_direction_daylight: vec4<f32>,
     moon_direction_phase: vec4<f32>,
@@ -45,16 +32,12 @@ struct AtmosphereUniform {
 
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> quads: array<PackedQuad>;
-@group(0) @binding(2) var<storage, read> chunk_origins: array<ChunkOrigin>;
 @group(0) @binding(4) var block_textures_page_0: texture_2d_array<f32>;
 @group(0) @binding(5) var block_textures_page_1: texture_2d_array<f32>;
 @group(0) @binding(19) var block_textures_page_2: texture_2d_array<f32>;
 @group(0) @binding(20) var block_textures_page_3: texture_2d_array<f32>;
 @group(0) @binding(21) var block_textures_page_4: texture_2d_array<f32>;
 @group(0) @binding(6) var block_sampler: sampler;
-@group(0) @binding(9) var<storage, read> animations: array<AnimationGpu>;
-@group(0) @binding(10) var<storage, read> animation_frames: array<u32>;
-@group(0) @binding(11) var<uniform> clock: AnimationClockGpu;
 @group(0) @binding(13) var<storage, read> geometry_streams: array<u32>;
 @group(0) @binding(15) var<uniform> atmosphere: AtmosphereUniform;
 @group(0) @binding(NATIVE_LEAF_TEXTURE_BINDING_0) var native_leaf_textures_page_0: texture_2d_array<f32>;
@@ -74,15 +57,15 @@ fn select_animation_frames_gpu(material: MaterialGpu) -> AnimationFrameSampleGpu
     if (material.animation == 0xffffffffu) {
         return AnimationFrameSampleGpu(material.texture, material.texture, 0.0);
     }
-    let animation = animations[material.animation];
+    let animation = animations(material.animation);
     let current_index =
         (clock.tick / animation.ticks_per_frame) % animation.frame_count;
-    let current_texture = animation_frames[animation.frame_start + current_index];
+    let current_texture = animation_frames(animation.frame_start + current_index);
     if ((animation.flags & 1u) == 0u || animation.frame_count == 1u) {
         return AnimationFrameSampleGpu(current_texture, current_texture, 0.0);
     }
     let next_index = (current_index + 1u) % animation.frame_count;
-    let next_texture = animation_frames[animation.frame_start + next_index];
+    let next_texture = animation_frames(animation.frame_start + next_index);
     let frame_tick = clock.tick % animation.ticks_per_frame;
     let blend = (f32(frame_tick) + clamp(clock.partial_tick, 0.0, 0.99999994)) /
         f32(animation.ticks_per_frame);
@@ -93,14 +76,17 @@ struct VertexOutput {
     @builtin(position) @invariant clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) @interpolate(flat) current_texture: u32,
-    @location(2) normal: vec3<f32>,
+    // Face, extents and UV turn of the quad; see `pack_quad_shape`.
+    @location(2) @interpolate(flat) quad_shape: u32,
     @location(3) @interpolate(flat) material_flags: u32,
     @location(4) local_position: vec3<f32>,
     @location(5) @interpolate(flat) biome_record: u32,
     @location(6) @interpolate(flat) next_texture: u32,
-    // x: animation frame blend; yz: `greedy_uv_limit` of the face.
-    @location(7) @interpolate(flat) frame_blend_uv_limit: vec3<f32>,
+    @location(7) @interpolate(flat) frame_blend: f32,
     @location(8) world_position: vec3<f32>,
+    // Only Enhanced shading reads the baked lightmap colour; vanilla samples the
+    // native table from `native_light_levels` per fragment.
+    @if(ENHANCED)
     @location(9) lighting: vec3<f32>,
     @if(ENHANCED)
     @location(10) sky_light: f32,
@@ -248,6 +234,24 @@ fn greedy_uv_limit(width: f32, height: f32, flags: u32) -> vec2<f32> {
     return extents - vec2(CUBE_UV_EDGE_INSET);
 }
 
+/// One flat word of what fragments read about a quad: the face in bits 0-2, width and height
+/// less one in bits 3-6 and 7-10, and the UV quarter-turn bit of `uv_flags` in bit 11. It
+/// replaces an interpolated normal and two flat UV limits with exact integer fields.
+fn pack_quad_shape(face: u32, width: f32, height: f32, uv_flags: u32) -> u32 {
+    return face | ((u32(width) - 1u) << 3u) | ((u32(height) - 1u) << 7u) | ((uv_flags & 1u) << 11u);
+}
+
+fn quad_shape_normal(shape: u32) -> vec3<f32> {
+    return face_normal(shape & 7u);
+}
+
+/// `greedy_uv_limit` of a packed quad.
+fn quad_shape_uv_limit(shape: u32) -> vec2<f32> {
+    let width = f32(((shape >> 3u) & 15u) + 1u);
+    let height = f32(((shape >> 7u) & 15u) + 1u);
+    return greedy_uv_limit(width, height, shape >> 11u);
+}
+
 // Consecutive units share an instance; reject padding before fetching a descriptor or geometry.
 @if(TERRAIN_UNITS)
 @group(2) @binding(0) var<storage, read> terrain_units: array<vec4<u32>>;
@@ -296,7 +300,7 @@ const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
 const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
 // Largest in-plane step per unit of clip w, reached only when an edge points
 // along the view ray and moving along it barely changes the screen position.
-const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
+const CUBE_SEAM_MAX_STEP: f32 = CUBE_SEAM_MAX_STEP_VALUE;
 
 /// Returns bounded in-plane corner steps that advance both projected edges by seal_pixels.
 /// Reverses steps behind the camera to preserve sealing after near-plane clipping.
@@ -347,7 +351,7 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
         f32((geometry >> 5u) & 0x1fu),
         f32((geometry >> 10u) & 0x1fu),
     );
-    let chunk_origin = chunk_origins[metadata_index];
+    let chunk_origin = chunk_origins(metadata_index);
     let local_quad_index = instance_index - chunk_origin.stream_bases.x;
     return CubeQuad(
         local_origin,
@@ -362,7 +366,8 @@ fn cube_quad(instance_index: u32, metadata_index: u32) -> CubeQuad {
 }
 
 /// Packed light sample of `corner`: block light in bits 0-3, sky light in bits 4-7, the
-/// ambient-occlusion level in bits 8-10 and the emitting-face flag in bit 11.
+/// ambient-occlusion level in bits 8-10 and the emitting-face flag in bit 11. Model samples
+/// may add a shade face in bits 12-14 (see `model_shade_normal`).
 fn cube_light_sample(lighting_record_index: u32, corner: u32) -> u32 {
     let lighting_word = geometry_streams[lighting_record_index * 2u + corner / 2u];
     return select(lighting_word & 0xffffu, lighting_word >> 16u, (corner & 1u) != 0u);
@@ -381,7 +386,7 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let local_position = quad_corner(face, corner, local_origin, width, height);
     let world_position = vec3<f32>(cube.chunk_origin.xyz) + local_position;
     let camera_offset = section_camera_offset(cube.chunk_origin.xyz, local_position, view.world_position);
-    let material = materials[cube.selected_material_id];
+    let material = materials(cube.selected_material_id);
     let animation_sample = select_animation_frames_gpu(material);
 
     var out: VertexOutput;
@@ -391,16 +396,17 @@ fn sealed_cube_vertex(vertex_index: u32, instance_index: u32, seal_pixels: f32) 
     let uv_flags = material_uv_flags(material.flags, cube.chunk_origin.xyz + vec3<i32>(local_origin));
     let corner_position = quad_position(face, local_position - local_origin);
     out.uv = greedy_uv(face, corner_position, width, height, uv_flags);
-    out.frame_blend_uv_limit = vec3(animation_sample.blend, greedy_uv_limit(width, height, uv_flags));
+    out.frame_blend = animation_sample.blend;
+    out.quad_shape = pack_quad_shape(face, width, height, uv_flags);
     out.current_texture = animation_sample.current_texture;
-    out.normal = face_normal(face);
     out.material_flags = material.flags;
     out.local_position = local_position;
     out.biome_record = u32(cube.chunk_origin.w);
     out.next_texture = animation_sample.next_texture;
     out.world_position = world_position;
     let ao = material_ambient_occlusion(light_ao_factor((light_sample >> 8u) & 7u), material.flags);
-    let dimming = material_face_shade(out.normal, (light_sample & 2048u) != 0u, material.flags);
+    let dimming = material_face_shade(face_normal(face), (light_sample & 2048u) != 0u, material.flags);
+    @if(ENHANCED)
     out.lighting = light_colour(light_sample) * ao * dimming;
     @if(ENHANCED)
     out.sky_light = sky_illumination(light_sample);
@@ -650,8 +656,8 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> @location(0
     @if(ALPHA_TO_COVERAGE)
     if ((in.material_flags & (1u << 8u)) != 0u) {
         // Same face-clamped coordinates as the colour sample, so sealed edges never reach outside the face.
-        let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
-        let frame_blend = in.frame_blend_uv_limit.x;
+        let uv = clamp(in.uv, vec2(0.0), quad_shape_uv_limit(in.quad_shape));
+        let frame_blend = in.frame_blend;
         var cutout = cube_alpha_footprint(in.current_texture, uv, uv_dx, uv_dy, sampled, in.material_flags);
         if (frame_blend > 0.0) {
             cutout = cutout_mix(cutout, cube_alpha_footprint(in.next_texture, uv, uv_dx, uv_dy, sampled, in.material_flags), frame_blend);
@@ -749,8 +755,8 @@ fn fragment_solid(in: VertexOutput) -> @location(0) vec4<f32> {
 
 // Sealed quad edges extend past the face, so their pixels clamp to its edge texels.
 fn sample_cube_texture(in: VertexOutput, uv_dx: vec2<f32>, uv_dy: vec2<f32>) -> vec4<f32> {
-    let uv = clamp(in.uv, vec2(0.0), in.frame_blend_uv_limit.yz);
-    let frame_blend = in.frame_blend_uv_limit.x;
+    let uv = clamp(in.uv, vec2(0.0), quad_shape_uv_limit(in.quad_shape));
+    let frame_blend = in.frame_blend;
     let current_sample = sample_material_texture_ref(in.current_texture, uv, uv_dx, uv_dy, in.material_flags);
     var sampled = current_sample;
     if (frame_blend > 0.0) {
@@ -772,7 +778,7 @@ in: VertexOutput) -> vec3<f32> {
             tint_kind,
             in.material_flags,
             in.biome_record,
-            in.local_position - in.normal * 0.001,
+            in.local_position - quad_shape_normal(in.quad_shape) * 0.001,
             in.world_position - in.local_position,
         ).rgb;
     }
@@ -786,13 +792,13 @@ fn shade_cube(in: VertexOutput, sampled: vec4<f32>) -> vec4<f32> {
         in.material_flags,
         in.biome_record,
         in.local_position,
-        in.normal,
+        quad_shape_normal(in.quad_shape),
         in.world_position - in.local_position,
     );
     @if(ENHANCED)
     let shaded = shade_surface(
         colour.rgb,
-        in.normal,
+        quad_shape_normal(in.quad_shape),
         in.world_position,
         in.clip_position.xy,
         in.lighting,
@@ -828,8 +834,8 @@ in: VertexOutput, @if(ENHANCED_SHADOW)
     let dy = dpdy(in.uv);
     if (!material_face_is_visible(in.material_flags, front)) { discard; }
     var sampled = sample_material_texture_ref(in.current_texture, in.uv, dx, dy, in.material_flags);
-    if (in.frame_blend_uv_limit.x > 0.0) {
-        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend_uv_limit.x);
+    if (in.frame_blend > 0.0) {
+        sampled = mix(sampled, sample_material_texture_ref(in.next_texture, in.uv, dx, dy, in.material_flags), in.frame_blend);
     }
     if ((in.material_flags & (1u << 8u)) != 0u && sampled.a < TERRAIN_ALPHA_THRESHOLD) { discard; }
 }

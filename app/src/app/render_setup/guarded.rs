@@ -1,16 +1,19 @@
 //! Collects guarded adapter probes before creating the best available renderer.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{Arc, Mutex, PoisonError},
+};
 
 use super::device::{
-    backends, flags, force_fallback, identity, instance, log, meets_requirements, request_device,
-    requested_adapter_name,
+    backends, dxc_failed, flags, force_fallback, identity, instance, log, meets_requirements,
+    request_device, requested_adapter_name,
 };
 use super::selection::{
     Candidate, VideoFallback, eligible, probe_backend, rank, summary, try_candidates,
     with_recovery, with_video_fallback,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use bevy::{
     app::OnAppExitSystems,
     prelude::{
@@ -23,13 +26,34 @@ use bevy::{
         settings::{RenderCreation, WgpuSettings},
     },
 };
-use launcher::graphics_backend::{Backend, Platform, candidates, default_order};
+use launcher::graphics_backend::{Backend, Platform, candidates};
 use launcher_host::renderer_startup::StartupGuard;
 
+/// The startup guard and the worker, if any, that is saving the working renderer with it.
 #[derive(Resource)]
-struct RendererGuard(StartupGuard);
+struct RendererGuard {
+    guard: Arc<Mutex<StartupGuard>>,
+    saving: Option<std::thread::JoinHandle<()>>,
+}
 
-/// Applies explicit overrides, vendor defaults and crash recovery before device creation.
+impl RendererGuard {
+    fn new(guard: StartupGuard) -> Self {
+        Self {
+            guard: Arc::new(Mutex::new(guard)),
+            saving: None,
+        }
+    }
+
+    /// Runs `change` after any background save, so cancellation never overtakes a success.
+    fn settled<T>(&mut self, change: impl FnOnce(&mut StartupGuard) -> T) -> T {
+        if let Some(worker) = self.saving.take() {
+            let _ = worker.join();
+        }
+        change(&mut self.guard.lock().unwrap_or_else(PoisonError::into_inner))
+    }
+}
+
+/// Applies explicit overrides, platform defaults and crash recovery before device creation.
 pub(super) fn render_plugin(
     app: &mut App,
     root: &Path,
@@ -42,6 +66,24 @@ pub(super) fn render_plugin(
     if let Some(previous) = &guard.interrupted {
         log(format_args!("Renderer startup interrupted: {previous:?}"));
     }
+    // Only Windows has a bundled DXC location; DX12 runs nowhere else.
+    if let (wgpu::Dx12Compiler::Fxc, Some(dxc)) = (
+        &settings.dx12_shader_compiler,
+        render::device_settings::bundled_dxc(),
+    ) {
+        if dxc.is_file() {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, as WGPU_DX12_COMPILER requests"
+            ));
+        } else {
+            log(format_args!(
+                "Renderer DX12 shader compiler: FXC, since {} is missing",
+                dxc.display()
+            ));
+        }
+    }
+    // Every probe shares it, so DXC that fails to load is logged once and later probes use FXC.
+    let dx12_shader_compiler = std::cell::RefCell::new(settings.dx12_shader_compiler.clone());
     let platform = Platform::current();
     let supported: Vec<_> = backends(wgpu::Instance::enabled_backend_features())
         .into_iter()
@@ -49,19 +91,11 @@ pub(super) fn render_plugin(
         .collect();
     let environment =
         std::env::var_os("WGPU_BACKEND").map(|_| backends(settings.backends.unwrap_or_default()));
-    let defaults = guard
-        .recovery
-        .working
-        .as_ref()
-        .and_then(|attempt| attempt.adapter.as_ref())
-        .map_or_else(
-            || platform.backends().to_vec(),
-            |adapter| default_order(platform, adapter),
-        );
+    let defaults = platform.backends();
     let requested_name = requested_adapter_name(&settings);
     let software = force_fallback(&settings);
     let crashed = guard.recovery.crashed_choice();
-    let automatic = candidates(&defaults, &supported, None, None, &[]);
+    let automatic = candidates(defaults, &supported, None, None, &[]);
     let ((creation, chosen), fallback) = with_video_fallback(
         environment.is_some(),
         video,
@@ -70,7 +104,7 @@ pub(super) fn render_plugin(
         |video, excluded| {
             let explicit = environment.is_some() || video.is_some();
             let allowed = candidates(
-                &defaults,
+                defaults,
                 &supported,
                 environment.as_deref(),
                 video,
@@ -83,25 +117,54 @@ pub(super) fn render_plugin(
                     "Renderer trying {order:?} (allowed {allowed:?}; excluded after interrupted startups: {failed:?})"
                 ));
                 let mut adapters = Vec::new();
+                let mut failures = Vec::new();
                 for backend in order {
                     let found = probe_backend(guard, backend, explicit, || {
+                        let compiler = dx12_shader_compiler.borrow().clone();
                         log(format_args!(
-                            "Renderer probing {backend:?}; DX12 shader compiler: {:?}",
-                            settings.dx12_shader_compiler
+                            "Renderer probing {backend:?}; DX12 shader compiler: {compiler:?}"
                         ));
-                        let display = app
-                            .world()
-                            .get_resource::<bevy::winit::DisplayHandleWrapper>()
-                            .map(|display| {
-                                Box::new(display.0.clone())
-                                    as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
-                            });
-                        let instance = instance(backend, &settings, display);
+                        let create = |compiler| {
+                            let display = app
+                                .world()
+                                .get_resource::<bevy::winit::DisplayHandleWrapper>()
+                                .map(|display| {
+                                    Box::new(display.0.clone())
+                                        as Box<dyn wgpu::wgt::WgpuHasDisplayHandle>
+                                });
+                            instance(backend, &settings, compiler, display)
+                        };
+                        let mut instance = create(compiler.clone());
+                        if dxc_failed(backend, &compiler, &instance) {
+                            log(format_args!(
+                                "Renderer could not load DX12 with {compiler:?}; using FXC"
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
+                        }
+                        let mut native =
+                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        let current = dx12_shader_compiler.borrow().clone();
+                        if let Some(legacy) = render::device_settings::adapter_requiring_fxc(
+                            &current,
+                            native.iter().map(wgpu::Adapter::get_info),
+                        ) {
+                            log(format_args!(
+                                "Renderer DX12 shader compiler: FXC, since {} driver {} loses the device with DXC",
+                                legacy.name, legacy.driver
+                            ));
+                            *dx12_shader_compiler.borrow_mut() = wgpu::Dx12Compiler::Fxc;
+                            instance = create(wgpu::Dx12Compiler::Fxc);
+                            native =
+                                bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)));
+                        }
                         let mut found = Vec::new();
-                        for adapter in
-                            bevy::tasks::block_on(instance.enumerate_adapters(flags(backend)))
-                        {
+                        for adapter in native {
                             if let Err(error) = meets_requirements(&adapter) {
+                                failures.push(format!(
+                                    "{} ({backend:?}): {error:#}",
+                                    adapter.get_info().name
+                                ));
                                 log(format_args!(
                                     "Renderer skipping incompatible adapter {:?}: {error:#}",
                                     adapter.get_info()
@@ -129,6 +192,7 @@ pub(super) fn render_plugin(
                     match found {
                         Ok(found) => adapters.extend(found),
                         Err(error) => {
+                            failures.push(format!("{backend:?}: {error:#}"));
                             log(format_args!("Renderer {backend:?} probe failed: {error:#}"));
                         }
                     }
@@ -139,6 +203,16 @@ pub(super) fn render_plugin(
                     let (instance, adapter) = candidate.native;
                     bevy::tasks::block_on(create_renderer(instance, adapter, &settings))
                         .map(|creation| (creation, backend))
+                })
+                .with_context(|| {
+                    if failures.is_empty() {
+                        "No compatible graphics adapter could be initialized".to_owned()
+                    } else {
+                        format!(
+                            "Graphics adapters lack required capabilities: {}",
+                            failures.join("; ")
+                        )
+                    }
                 })
             })
         },
@@ -153,6 +227,7 @@ pub(super) fn render_plugin(
     }
     Ok(RenderPlugin {
         render_creation: creation,
+        synchronous_pipeline_compilation: false,
         ..Default::default()
     })
 }
@@ -193,15 +268,26 @@ fn show_fallback_notice(
 
 /// Tracks presentation and cancels startup on a controlled exit before window teardown.
 fn install_guard(app: &mut App, guard: StartupGuard) {
-    app.insert_resource(RendererGuard(guard))
+    app.insert_resource(RendererGuard::new(guard))
         .add_systems(Update, mark_presented)
         .add_systems(Last, cancel_on_exit.in_set(OnAppExitSystems));
+}
+
+/// Cancels this app's pending presentation marker after an orderly pre-loop failure.
+pub(super) fn cancel_startup(app: &mut App) {
+    if let Some(mut guard) = app.world_mut().get_resource_mut::<RendererGuard>()
+        && let Err(error) = guard.settled(StartupGuard::cancel)
+    {
+        log(format_args!(
+            "Renderer could not cancel startup sentinel: {error:#}"
+        ));
+    }
 }
 
 /// Leaves crash recovery untouched when the application requests an orderly shutdown.
 fn cancel_on_exit(mut exits: MessageReader<AppExit>, mut guard: ResMut<RendererGuard>) {
     if exits.read().next().is_some()
-        && let Err(error) = guard.0.cancel()
+        && let Err(error) = guard.settled(StartupGuard::cancel)
     {
         log(format_args!(
             "Renderer could not cancel startup sentinel: {error:#}"
@@ -217,7 +303,11 @@ async fn create_renderer(
 ) -> Result<RenderCreation> {
     let info = adapter.get_info();
     log(format_args!("Renderer creating device: {info:?}"));
+    let started = std::time::Instant::now();
     let (device, queue) = request_device(&adapter, settings).await?;
+    if let Some(timing) = render_scene::startup_timing::current() {
+        timing.record("device", started.elapsed());
+    }
     log(format_args!(
         "Renderer device ready; awaiting first presentation: {info:?}"
     ));
@@ -230,27 +320,40 @@ async fn create_renderer(
     ))
 }
 
-/// Clears the guard only after a primary-window presentation and GPU completion.
+/// Clears the guard after a GPU-completed primary-window presentation. The save syncs files to
+/// storage (a full flush on macOS, tens of milliseconds), so it runs on a worker.
 fn mark_presented(
     feedback: Res<render_scene::startup_presentation::StartupPresentation>,
     mut guard: ResMut<RendererGuard>,
     mut done: Local<bool>,
 ) {
-    if !*done && feedback.has_presented() {
-        match guard.0.presented() {
-            Ok(()) => {
-                *done = true;
-                log(format_args!(
-                    "Renderer first frame completed; saved working backend and adapter"
-                ));
-            }
-            Err(error) => {
-                *done = true;
-                log(format_args!(
-                    "Renderer could not clear startup sentinel: {error:#}"
-                ));
-            }
+    if *done || !feedback.has_presented() {
+        return;
+    }
+    *done = true;
+    let elapsed = crate::lifecycle::launched_at().elapsed();
+    let shared = Arc::clone(&guard.guard);
+    let save = move || {
+        let result = shared
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .presented();
+        match result {
+            Ok(()) => log(format_args!(
+                "Renderer first frame completed {:.1} ms after launch; saved working backend and adapter",
+                elapsed.as_secs_f64() * 1e3
+            )),
+            Err(error) => log(format_args!(
+                "Renderer could not clear startup sentinel: {error:#}"
+            )),
         }
+    };
+    match std::thread::Builder::new()
+        .name("renderer-choice".into())
+        .spawn(save.clone())
+    {
+        Ok(worker) => guard.saving = Some(worker),
+        Err(_) => save(),
     }
 }
 

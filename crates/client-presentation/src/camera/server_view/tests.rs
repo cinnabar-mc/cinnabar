@@ -940,3 +940,36 @@ fn boom_explicit_rotation_overrides_starting_angles() {
             > 0.99999
     );
 }
+
+#[test]
+fn perspective_cameras_carry_only_root_presets_named_for_them() {
+    use semantic_input::PerspectiveMode;
+    let mut view = ServerCameraView::default();
+    assert!(
+        view.perspective_preset(PerspectiveMode::FirstPerson)
+            .is_none()
+    );
+    let mut last = preset("minecraft:third_person", "");
+    last.radius = Some(7.0);
+    view.apply(
+        1,
+        &registry(vec![
+            preset("custom:first", "minecraft:first_person"),
+            preset("minecraft:third_person", ""),
+            last.clone(),
+        ]),
+        &ctx(Transform::IDENTITY),
+    );
+    assert!(
+        view.perspective_preset(PerspectiveMode::FirstPerson)
+            .is_none()
+    );
+    assert!(
+        view.perspective_preset(PerspectiveMode::ThirdPersonFront)
+            .is_none()
+    );
+    assert_eq!(
+        view.perspective_preset(PerspectiveMode::ThirdPersonBack),
+        Some(&last)
+    );
+}

@@ -89,7 +89,7 @@ impl Fixture {
 
     /// Appends an independently identified local chat row, including future timestamps.
     fn chat(&mut self, text: &str, received_millis: u64) {
-        self.runtime.chat.push_local(ChatMessage {
+        self.runtime.session.chat.push_local(ChatMessage {
             fifo_sequence: 0,
             received_millis,
             kind: ChatMessageKind::System,
@@ -119,11 +119,16 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
     fixture.chat("§kMoving glyphs", 0);
     fixture.frame.hotbar_stacks[0] = Some(stack(4));
     fixture.frame.hotbar_icons[0] = Some(IconRef {
+        color_mask: None,
         page: 2,
         uv: [0, 0, 16, 16],
         glint: false,
     });
-    fixture.runtime.hud.set_title(Arc::from("Title"), 1, 0);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_title(Arc::from("Title"), 1, 0);
     let mut cache = SemanticHud::default();
     assert_eq!(fixture.check(&mut cache), HudChanges::ALL);
     let before = cache.constructions;
@@ -142,10 +147,12 @@ fn idle_and_live_paint_inputs_do_not_reconstruct_semantic_components() {
         fixture.frame.hotbar_cooldowns[0] = now as f32 / 500.0;
         fixture.frame.attack_indicator_charge = Some(0.5);
         fixture.frame.mount_jump = Some(0.4);
-        fixture
-            .runtime
-            .hud
-            .set_stats(BoundedStat::new(3, 20), BoundedStat::new(2, 20), None, None);
+        fixture.runtime.session.hud.set_stats(
+            BoundedStat::new(3, 20),
+            BoundedStat::new(2, 20),
+            None,
+            None,
+        );
         assert_eq!(fixture.check(&mut cache), HudChanges::default());
         assert_eq!(cache.constructions, before);
         assert_eq!(cache.model.chat[0].text.as_ptr(), text);
@@ -180,6 +187,7 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
     ] {
         fixture.frame.hotbar_stacks[slot] = (count != 0).then(|| stack(count));
         fixture.frame.hotbar_icons[slot] = Some(IconRef {
+            color_mask: None,
             page,
             uv: [0, 0, 16, 16],
             glint: false,
@@ -198,18 +206,35 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 #[test]
 fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     let mut fixture = Fixture::default();
-    fixture.runtime.hud.set_durations(ui::TitleDurations {
-        fade_in_ticks: 2,
-        stay_ticks: 2,
-        fade_out_ticks: 2,
-    });
-    fixture.runtime.hud.set_title(Arc::from("Same"), 1, 100);
-    fixture.runtime.hud.set_subtitle(Arc::from("Sub"), 2, 50);
     fixture
         .runtime
+        .session
+        .hud
+        .set_durations(ui::TitleDurations {
+            fade_in_ticks: 2,
+            stay_ticks: 2,
+            fade_out_ticks: 2,
+        });
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_title(Arc::from("Same"), 1, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_subtitle(Arc::from("Sub"), 2, 50);
+    fixture
+        .runtime
+        .session
         .hud
         .set_actionbar(Arc::from("Action"), 3, 100);
-    fixture.runtime.hud.set_tip(Arc::from("Tip"), 4, 100);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_tip(Arc::from("Tip"), 4, 100);
     fixture
         .runtime
         .observe_selected_item_identity_value(Some((0, 1, 0)), 100);
@@ -220,12 +245,20 @@ fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
         fixture.check(&mut cache);
     }
     assert_eq!(cache.model.title.as_ref().unwrap().creation_id, 1);
-    fixture.runtime.hud.set_durations(ui::TitleDurations {
-        fade_in_ticks: 1,
-        stay_ticks: 8,
-        fade_out_ticks: 1,
-    });
-    fixture.runtime.hud.set_title(Arc::from("Same"), 5, 150);
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_durations(ui::TitleDurations {
+            fade_in_ticks: 1,
+            stay_ticks: 8,
+            fade_out_ticks: 1,
+        });
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_title(Arc::from("Same"), 5, 150);
     assert!(fixture.check(&mut cache).text);
     let title = cache.model.title.as_ref().unwrap();
     assert_eq!((title.creation_id, title.born, title.stay), (5, 0.15, 0.4));
@@ -267,17 +300,17 @@ fn chat_membership_tracks_future_timestamps_settings_and_both_clock_directions()
         ui_screens::settings_chat::chat_text(&fixture.settings)
     );
     assert_ne!(cache.model.chat_text, json_ui::ChatText::default());
-    fixture.runtime.chat_focused = true;
+    fixture.runtime.session.chat_focused = true;
     fixture.check(&mut cache);
     assert!(!cache.model.chat_visible);
-    fixture.runtime.chat_focused = false;
-    fixture.runtime.inventory_open = true;
+    fixture.runtime.session.chat_focused = false;
+    fixture.runtime.session.inventory_open = true;
     fixture.check(&mut cache);
     assert!(!cache.model.chat_visible);
-    fixture.runtime.inventory_open = false;
+    fixture.runtime.session.inventory_open = false;
     fixture.check(&mut cache);
     assert!(cache.model.chat_visible);
-    fixture.runtime.chat.clear();
+    fixture.runtime.session.chat.clear();
     fixture.chat("Replacement", 0);
     fixture.check(&mut cache);
     assert!(cache.model.chat[0].text.ends_with("Replacement"));
@@ -316,7 +349,7 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
         cache.model.player_position.as_deref(),
         Some("At 2 / 64 / -3")
     );
-    fixture.runtime.last_known_local_player_alive = Some(false);
+    fixture.runtime.session.last_known_local_player_alive = Some(false);
     fixture.check(&mut cache);
     assert!(cache.model.player_position.is_none());
     fixture
@@ -337,6 +370,7 @@ fn sidebar_owner_names_and_boss_changes_rebuild_only_their_components() {
     let mut fixture = Fixture::default();
     fixture
         .runtime
+        .session
         .scoreboards
         .apply(
             1,
@@ -351,6 +385,7 @@ fn sidebar_owner_names_and_boss_changes_rebuild_only_their_components() {
         .unwrap();
     fixture
         .runtime
+        .session
         .scoreboards
         .apply(
             2,
@@ -399,6 +434,7 @@ fn sidebar_owner_names_and_boss_changes_rebuild_only_their_components() {
     ] {
         fixture
             .runtime
+            .session
             .boss_bars
             .apply(
                 sequence,
@@ -437,13 +473,13 @@ fn offhand_preview_and_mod_visibility_remain_live() {
         slots: vec![stack(2)].into(),
         storage_item: protocol::NetworkItemStack::empty(),
     });
-    let mut ledger = inventory::PlayerInventoryLedger::default();
-    ledger.apply(&event);
     fixture
         .runtime
-        .gameplay_hud
-        .apply_inventory(&event, &ledger);
+        .enqueue_inventory_event(&mut fixture.player, 1, 1, event)
+        .unwrap();
+    fixture.runtime.drain_pending_inventory(&mut fixture.player);
     fixture.frame.offhand_icon = Some(IconRef {
+        color_mask: None,
         page: 5,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -452,6 +488,7 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     fixture.frame.paper_doll_visible = true;
     assert!(fixture.check(&mut cache).status);
     fixture.frame.player_preview = Some(IconRef {
+        color_mask: None,
         page: 6,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -462,6 +499,7 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     assert!(!cache.model.paper_doll);
     fixture
         .runtime
+        .session
         .gameplay_hud
         .apply_effect(protocol::ActorEffectEvent {
             dimension: 0,
@@ -478,6 +516,7 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     fixture.runtime.observe_presentation_tick(10, 0);
     fixture
         .runtime
+        .session
         .gameplay_hud
         .apply_effect(protocol::ActorEffectEvent {
             dimension: 0,
@@ -500,10 +539,52 @@ fn offhand_preview_and_mod_visibility_remain_live() {
     assert!(!cache.model.effects_visible);
 }
 
+/// Vanilla ignores the local player's own offhand MobEquipment. An echo carrying an empty or
+/// older stack must not blank or replace the offhand frame while the inventory holds the item.
+#[test]
+fn stale_local_offhand_echo_keeps_the_inventory_offhand() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    let event = protocol::InventoryEvent::Content(protocol::InventoryContentEvent {
+        container: protocol::ContainerIdentity::window(protocol::OFFHAND_WINDOW_ID),
+        slots: vec![stack(1)].into(),
+        storage_item: protocol::NetworkItemStack::empty(),
+    });
+    fixture
+        .runtime
+        .enqueue_inventory_event(&mut fixture.player, 1, 1, event)
+        .unwrap();
+    fixture.runtime.drain_pending_inventory(&mut fixture.player);
+    fixture.frame.offhand_icon = Some(IconRef {
+        color_mask: None,
+        page: 5,
+        uv: [0, 0, 16, 16],
+        glint: false,
+    });
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.offhand.as_ref().map(|slot| slot.count), Some(1));
+    for (sequence, echoed) in [(2, protocol::NetworkItemStack::empty()), (3, stack(3))] {
+        fixture.runtime.retain_local_selected_equipment(
+            &mut fixture.player,
+            sequence,
+            protocol::EquipmentEvent {
+                actor_runtime_id: 1,
+                stack: echoed,
+                inventory_slot: 0,
+                selected_slot: 0,
+                window_id: protocol::OFFHAND_WINDOW_ID as u8,
+                handedness: Some(protocol::ActorHandedness::Left),
+            },
+        );
+        fixture.check(&mut cache);
+        assert_eq!(cache.model.offhand.as_ref().map(|slot| slot.count), Some(1));
+    }
+}
+
 #[test]
 fn chat_translation_and_duration_refresh_without_rebuilding_hotbar() {
     let mut fixture = Fixture::default();
-    fixture.runtime.chat.push_local(ChatMessage {
+    fixture.runtime.session.chat.push_local(ChatMessage {
         fifo_sequence: 0,
         received_millis: 0,
         kind: ChatMessageKind::Translation,
@@ -546,14 +627,17 @@ fn title_controller_inputs_survive_native_title_expiry_without_truncation() {
     let text = "x".repeat(ui_screens::text::MAX_PRESENTED_TEXT_BYTES + 1);
     fixture
         .runtime
+        .session
         .hud
         .set_title(Arc::from(text.as_str()), 1, 0);
     fixture
         .runtime
+        .session
         .hud
         .set_subtitle(Arc::from("retained subtitle"), 2, 0);
     fixture
         .runtime
+        .session
         .hud
         .set_actionbar(Arc::from(text.as_str()), 3, 0);
     let mut cache = SemanticHud::default();
@@ -575,7 +659,7 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let mut fixture = Fixture::default();
     fixture.frame.now_millis = 1000;
     fixture.settings.set(SettingId::ChatColor.index(), 1);
-    let message = ui_screens::test_support::hover_chat::message();
+    let message = ui_screens::test_support::hover_chat::message_with_caption("Hello @Alex");
     fixture.chat(&message, 1);
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
@@ -605,8 +689,25 @@ fn chat_color_keeps_encoded_hud_message_inputs_unmodified() {
     let caption = bound
         .find(&|control: &json_ui::ResolvedControl| control.name == "caption")
         .unwrap();
-    assert_eq!(
-        caption.properties["text"],
-        ui_screens::test_support::hover_chat::CAPTION
-    );
+    assert_eq!(caption.properties["text"], "Hello @Alex");
+}
+
+#[test]
+fn chat_mentions_follow_display_name_changes_without_rewriting_messages() {
+    let mut fixture = Fixture::default();
+    fixture.chat("@Alex @Steve @here", 0);
+    fixture
+        .runtime
+        .set_chat_identity(Arc::from("LoginName"), Arc::from(""));
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    for name in ["Alex", "Steve", ""] {
+        fixture
+            .runtime
+            .set_local_player_display_name(Arc::from(name));
+        assert!(fixture.check(&mut cache).chat);
+        assert_eq!(cache.model.chat_local_player.as_ref(), name);
+        assert_eq!(cache.model.chat[0].text, "@Alex @Steve @here");
+        assert!(!fixture.check(&mut cache).chat);
+    }
 }

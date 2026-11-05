@@ -45,6 +45,7 @@ impl UiPresentationRuntime {
         {
             return Ok(());
         }
+        let available_y = self.touch_roster_region(runtime, nodes, next, metrics, content)?;
         let Some(renderer) = self.engine.as_deref() else {
             return Ok(());
         };
@@ -66,14 +67,13 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
-        let esthetic = self
-            .screens
-            .chat
-            .settings
-            .options()
-            .esthetic_tab();
-        let server_title = "- Motaz -";
-        list.paint_styled(renderer, runtime.player_roster.rows(), &mut paint_frame, esthetic, Some(server_title))?;
+        list.set_header(runtime.session.player_roster.level_name());
+        list.paint(
+            renderer,
+            runtime.session.player_roster.rows(),
+            &mut paint_frame,
+            available_y,
+        )?;
         Ok(())
     }
 }

@@ -29,27 +29,43 @@ const PACKAGE_ENV: &str = "CINNABAR_MOD_PACKAGE";
 const DEMO_KEY: KeyCode = KeyCode::F8;
 const RELOAD_INTERVAL: Duration = Duration::from_millis(500);
 
+mod action_filter;
+mod actor_lives;
 mod admission;
-mod anchors;
-mod drawing_policy;
+pub(crate) mod anchors;
+pub(crate) mod bindings;
+pub(crate) mod block_geometry;
+mod block_search;
+pub(crate) mod drawing_policy;
 mod drive;
 
 use drive::drive_mod;
 mod environment_loader;
-mod hud_editor;
 mod library;
 mod native_camera;
 mod native_input;
 mod packet_highlights;
-mod packet_menu;
+mod packet_panel;
 mod packet_render;
 pub(crate) mod packets;
+mod pointer;
 pub(crate) mod registration;
+mod teleport_handler;
+pub(crate) use teleport_handler::handle_move_player_rotation;
 mod terrain;
 
 /// Every loaded mod's presentation cues committed this frame, in load order.
 #[derive(Resource, Default)]
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
+
+/// Mods' control modes for this frame, replacing the player's toggle sprint, toggle sneak and
+/// always sprint settings while present.
+#[derive(Default, Resource)]
+pub(crate) struct ModControlModes(pub(crate) Option<mod_host::GameplayControlModes>);
+
+/// Whether a granted mod supplied the current frame's resolved control vector.
+#[derive(Default, Resource)]
+pub(crate) struct ModMovementInputActive(pub(crate) bool);
 
 #[derive(Resource)]
 pub(crate) struct ModRuntime {
@@ -60,13 +76,26 @@ pub(crate) struct ModRuntime {
     render_sources: Vec<u64>,
     render_merge: mod_render::RenderMerge,
     controls: mod_host::ControlFrame,
+    /// The panel owner whose native editor owned the sampled frame's keys.
+    native_editing: Option<usize>,
+    /// Chat-action clicks since the last frame, for the chat-action owner's next callback.
+    chat_events: Vec<mod_host::ControlEvent>,
     suspended: bool,
-    hud_editor_owner: Option<hud_editor::Owner>,
     /// The screen owner's input and layout between frames, and which mod that is.
     screens: screens::ScreenState,
 }
 
 impl ModRuntime {
+    /// Borrows sound handlers only while personal components are running and opted in.
+    pub(crate) fn sound_handlers(&mut self) -> Option<&mut ModHosts> {
+        (!self.suspended && self.hosts.has_sound_handlers()).then_some(&mut self.hosts)
+    }
+
+    /// Borrows teleport handlers only while personal components are running and opted in.
+    pub(crate) fn teleport_handlers(&mut self) -> Option<&mut ModHosts> {
+        (!self.suspended && self.hosts.has_teleport_handlers()).then_some(&mut self.hosts)
+    }
+
     /// Starts a runtime with one host and its stable presentation metadata.
     fn new(host: ModHost, metadata: registration::HostMetadata) -> Self {
         Self {
@@ -75,8 +104,9 @@ impl ModRuntime {
             render_sources: Vec::new(),
             render_merge: Default::default(),
             controls: mod_host::empty_controls(),
+            native_editing: None,
+            chat_events: Vec::new(),
             suspended: false,
-            hud_editor_owner: None,
             screens: Default::default(),
         }
     }
@@ -96,12 +126,6 @@ impl ModRuntime {
         presentation: &mut client_ui::ui_runtime::presentation::UiPresentationRuntime,
     ) -> ModHost {
         self.screens.replace_host(index);
-        if self
-            .hud_editor_owner
-            .is_some_and(|owner| owner.host == index)
-        {
-            hud_editor::cancel(self, presentation, false);
-        }
         prepared
             .host
             .activate_settings(Some(self.hosts.host_mut(index)));
@@ -116,26 +140,11 @@ impl ModRuntime {
         retired
     }
 
-    /// The first active local mod may select ordinary input modes for this frame.
-    pub(crate) fn movement_toggles(&self) -> Option<&mod_host::MovementToggles> {
-        if self.suspended {
-            return None;
-        }
-        (0..self.hosts.host_count()).find_map(|index| self.hosts.host(index).movement_toggles())
-    }
-
     /// Moves metadata, guest and index-based input ownership together without a restart.
     fn swap_hosts(&mut self, left: usize, right: usize) {
         self.hosts.swap(left, right);
         self.metadata.swap(left, right);
         self.screens.swap_hosts(left, right);
-        if let Some(owner) = self.hud_editor_owner.as_mut() {
-            if owner.host == left {
-                owner.host = right;
-            } else if owner.host == right {
-                owner.host = left;
-            }
-        }
         self.render_sources.clear();
     }
     /// Removes one guest and adjusts the surviving input and presentation owners together.
@@ -143,13 +152,6 @@ impl ModRuntime {
         let host = self.hosts.remove(index);
         self.metadata.remove(index);
         self.screens.remove_host(index);
-        if let Some(owner) = self.hud_editor_owner.as_mut() {
-            if owner.host == index {
-                self.hud_editor_owner = None;
-            } else if owner.host > index {
-                owner.host -= 1;
-            }
-        }
         self.render_sources.clear();
         self.controls = mod_host::empty_controls();
         host
@@ -159,17 +161,18 @@ impl ModRuntime {
         self.metadata[host].owner
     }
 
-    /// Projects each live guest's HUD and native-binding revision with its stable UI owner.
-    fn hud_sources(
-        &self,
-    ) -> impl Iterator<Item = (mod_ui::PanelUiOwner, u64, &ui::mod_hud::Hud)> + Clone {
+    /// Each live guest's committed HUD surface in load order, with its stable UI owner and
+    /// the actors its projections may follow.
+    fn hud_surfaces(&self) -> impl Iterator<Item = mod_ui::PublishedHudSurface<'_>> {
         (0..self.hosts.host_count()).filter_map(|index| {
             let host = self.hosts.host(index);
-            Some((
-                self.panel_ui_owner(index),
-                host.hud_revision()?,
-                host.hud()?,
-            ))
+            let (surface, revision) = host.hud_surface()?;
+            Some(mod_ui::PublishedHudSurface {
+                owner: self.panel_ui_owner(index),
+                revision,
+                surface,
+                authority: actor_authority(host.grants()),
+            })
         })
     }
 
@@ -191,6 +194,14 @@ impl ModRuntime {
     }
 }
 
+/// The actors a mod's surface projections may follow under its grants.
+fn actor_authority(grants: &ModGrants) -> mod_ui::ActorAuthority {
+    mod_ui::ActorAuthority {
+        players: grants.players,
+        entities: grants.entities,
+    }
+}
+
 /// Bounded personal-extension diagnostics, only through the developer control endpoint.
 #[cfg(feature = "developer-control")]
 pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
@@ -207,14 +218,18 @@ pub(crate) fn developer_state(world: &World) -> Option<serde_json::Value> {
                 "movement_granted": host.grants().movement,
                 "refused_outputs": host.refused_outputs(),
                 "last_fuel_used": host.last_fuel_used(),
-                "hud_cards": host.hud().map_or(0, |hud| hud.cards.len()),
-                "hud": host.hud(),
+                "hud_surface_revision": host.hud_surface().map(|(_, revision)| revision),
+                "hud_surface": host.hud_surface().map(|(surface, _)| surface.as_ref()),
                 "panel": host.panel(),
             })
         })
         .collect();
     Some(serde_json::json!({ "suspended": runtime.suspended, "hosts": hosts }))
 }
+
+/// Publishes personal and packet drawing before session-owned client-part drawing.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DrawingPublication;
 
 /// Installs the developer extension only when its component path is explicit.
 pub(crate) fn configure_from_environment(app: &mut App) {
@@ -406,6 +421,9 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
     };
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.insert_resource(VisualTimeOverride(host.time_override()));
+    app.insert_resource(crate::environment::VisualWeatherOverride(
+        host.weather_override(),
+    ));
     let mut runtime = ModRuntime::new(host, metadata);
     for (host, metadata) in hosts {
         runtime.push_host(host, metadata);
@@ -417,7 +435,10 @@ fn install(app: &mut App, mut hosts: Vec<ModHost>) {
 }
 
 fn configure_systems(app: &mut App, watching: bool) {
+    pointer::configure(app);
     app.init_resource::<native_input::NativeInput>();
+    app.init_resource::<ModControlModes>();
+    app.init_resource::<ModMovementInputActive>();
     app.init_resource::<packet_render::Drawing>();
     app.init_resource::<render_scene::mod_scene::ActorCoverageRequests>();
     app.add_systems(
@@ -429,15 +450,14 @@ fn configure_systems(app: &mut App, watching: bool) {
     app.init_resource::<ReservedControls>();
     app.init_resource::<client_presentation::actor_publication::ActorPresentationStyle>();
     app.add_systems(Update, environment_loader::poll.before(begin_mod_frame));
-    ghost::configure(app);
     app.add_systems(
         Update,
         anchors::publish
+            .in_set(DrawingPublication)
             .after(ClientFrameSet::ActorPublication)
             .after(drive_mod)
             .before(ClientFrameSet::UiPublication),
     );
-    block_highlights::configure(app);
     fullbright::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
         .init_resource::<ModCueFeed>()
@@ -457,6 +477,8 @@ fn configure_systems(app: &mut App, watching: bool) {
         drive_mod
             .in_set(client_state::ModCameraInputSet)
             .after(ClientFrameSet::SemanticFinalize)
+            // An unordered hotbar selection is visible to this frame's read-selected-slot.
+            .after(client_interaction::hotbar::queue_hotbar_selection)
             .before(ClientFrameSet::UiPublication)
             .before(crate::environment::update_atmosphere_frame),
     );
@@ -640,10 +662,8 @@ mod tests {
 #[cfg(test)]
 mod time_changer_tests;
 
-pub(crate) mod block_highlights;
 pub(super) mod fullbright;
 mod gameplay;
-pub(crate) mod ghost;
 mod input;
 use crate::interaction_override as interaction;
 mod inventory;

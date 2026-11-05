@@ -114,8 +114,8 @@ fn ordered_mouse_use_before_attack_is_not_replaced_by_a_frame_wide_attack_veto()
 #[test]
 fn ordered_mouse_attack_use_attack_preserves_both_attacks_and_the_use_timing_policy() {
     let (mut world, mut captured) = mouse_fixture();
-    let scope = item_use_tests::hold_snowball(&mut world);
-    world.insert_resource(crate::item_use::ModItemUsePolicy { scope: Some(scope) });
+    item_use_tests::hold_snowball(&mut world);
+    world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });
     tap(&mut world, MouseButton::Left);
     tap(&mut world, MouseButton::Right);
     tap(&mut world, MouseButton::Left);
@@ -194,7 +194,7 @@ fn ordered_mouse_a_refused_attack_cannot_replay_its_old_pick_or_pose() {
 }
 
 #[test]
-fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
+fn ordered_mouse_ui_cancellation_keeps_local_selection_and_drops_its_later_attack() {
     let (mut world, _) = selection_fixture();
     let (network, mut captured) =
         NetworkHandle::<PackApplication>::stub_capturing_packets_with_capacity(2);
@@ -212,7 +212,7 @@ fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
         world
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(0)
+        Some(1)
     );
     captured.drain();
     world.resource_mut::<client_state::ScreenFocus>().ui_focused = true;
@@ -225,13 +225,14 @@ fn ordered_mouse_ui_cancellation_drops_a_full_selection_and_its_later_attack() {
             .resource::<client_state::PlayerRuntime>()
             .inventory
             .pending_hotbar_selection(),
-        None
+        Some(1),
+        "the local selection still awaits its tick announcement"
     );
     assert_eq!(
         world
             .resource::<client_state::PlayerRuntime>()
             .selected_hotbar_slot(),
-        Some(0)
+        Some(1)
     );
 }
 
@@ -291,7 +292,8 @@ fn ordered_mouse_older_movement_and_held_release_fence_the_entire_mixed_burst() 
             world
                 .resource::<client_state::PlayerRuntime>()
                 .selected_hotbar_slot(),
-            Some(0)
+            Some(if release { 0 } else { 1 }),
+            "selection is local, so only an accepted release can still refuse it",
         );
         flush_movement(&mut world);
         assert_eq!(

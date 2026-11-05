@@ -1,4 +1,11 @@
 //! The GPU terrain cull keeps the CPU path's visible set and pixels, and its Hi-Z is conservative.
+#[path = "../../src/chunk/gpu_cull/raster.rs"]
+#[allow(
+    dead_code,
+    reason = "fixtures drive the production encoder without environment selection"
+)]
+mod box_occlusion;
+mod box_occlusion_tests;
 mod direct;
 mod hiz;
 #[path = "../../src/chunk/gpu_cull/kernels.rs"]
@@ -7,7 +14,12 @@ mod kernels;
 mod model;
 #[path = "../../src/chunk/gpu_cull/occlusion.rs"]
 mod occlusion;
+#[path = "../../src/chunk/gpu_cull/order.rs"]
+mod order;
+mod order_draws;
 mod raster;
+#[path = "../../src/chunk/gpu_cull/storage.rs"]
+mod storage;
 #[path = "../../src/chunk/gpu_cull/unit_mask.rs"]
 mod unit_mask;
 mod units;
@@ -23,12 +35,13 @@ use meshing::{CubeQuadLayout, Face, PackedQuad};
 
 use crate::{chunk_constants, gpu_snapshot, material_shader, shader_source, solid_terrain_raster};
 use gpu_snapshot::{Gpu, SNAPSHOT_SIDE};
-use kernels::{CullKernels, CullStorage, HizPyramid};
+use kernels::{CullKernels, HizPyramid};
 use model::{
     ARGS_WORDS, CullCamera, CullPhase, CullRecord, CullRecordSource, CullStream, CullViewInput,
     CullViewUniform, OFFSET_CORNERS, STREAM_COUNT, args_region, count_index, frustum_slack,
     reference_args, region_draws, resolve_culled_args,
 };
+use storage::CullStorage;
 
 const SIDE: f32 = world::SUB_CHUNK_SIDE as f32;
 const INDEX_COUNTS: [u32; STREAM_COUNT] = [6; STREAM_COUNT];
@@ -147,6 +160,8 @@ struct Culler<'a> {
     kernels: CullKernels,
     storage: CullStorage,
     slots: u32,
+    /// The slot visited at each rank: a fixed shuffle, so compaction must follow it.
+    order: Vec<u32>,
 }
 
 impl<'a> Culler<'a> {
@@ -156,12 +171,28 @@ impl<'a> Culler<'a> {
             .write_buffer(&storage.records, 0, bytemuck::cast_slice(records));
         gpu.queue
             .write_buffer(&storage.enabled, 0, bytemuck::cast_slice(enabled));
+        let mut order = (0..records.len() as u32).collect::<Vec<_>>();
+        let mut lcg = Lcg(0x5eed);
+        for rank in (1..order.len()).rev() {
+            order.swap(rank, lcg.next(rank as u32 + 1) as usize);
+        }
+        storage.write_order(&gpu.queue, 0, &order);
+        storage.write_stream_order(&gpu.queue, 1, 0, &order);
         Self {
             gpu,
             kernels: CullKernels::new(&gpu.device),
             storage,
             slots: records.len() as u32,
+            order,
         }
+    }
+
+    /// Visits slots in `order` from now on.
+    fn set_order(&mut self, order: Vec<u32>) {
+        self.storage.write_order(&self.gpu.queue, 0, &order);
+        self.storage
+            .write_stream_order(&self.gpu.queue, 1, 0, &order);
+        self.order = order;
     }
 
     fn set_history(&self, history: &[u32]) {
@@ -188,7 +219,13 @@ impl<'a> Culler<'a> {
         phase: CullPhase,
         pyramid: Option<&HizPyramid>,
     ) {
-        let uniform = CullViewUniform::new(input, phase, self.slots, self.storage.capacity);
+        let uniform = CullViewUniform::new(
+            input,
+            phase,
+            self.slots,
+            self.storage.capacity,
+            self.kernels.workgroup,
+        );
         self.storage.write_uniform(&self.gpu.queue, phase, &uniform);
         let groups = self
             .kernels
@@ -324,7 +361,7 @@ fn mixed_records() -> (Vec<CullRecord>, Vec<u32>) {
 #[test]
 fn cull_and_pyramid_kernels_validate() {
     for source in [
-        kernels::cull_shader_source(),
+        kernels::cull_shader_source(model::CULL_WORKGROUP),
         kernels::pyramid_shader_source().to_owned(),
     ] {
         let module = naga::front::wgsl::parse_str(&source).unwrap();
@@ -401,7 +438,15 @@ fn cull_counts_and_commands_stay_inside_their_regions() {
 /// two-phase history match the CPU reference draw for draw.
 #[test]
 fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
-    let Some(gpu) = Gpu::for_fixture("gpu terrain cull") else {
+    let Some(gpu) = Gpu::for_fixture_with_limits(
+        "gpu terrain cull on a 128-thread device",
+        wgpu::Features::empty(),
+        wgpu::Limits {
+            max_compute_invocations_per_workgroup: 128,
+            max_compute_workgroup_size_x: 128,
+            ..Default::default()
+        },
+    ) else {
         return;
     };
     let (records, enabled) = mixed_records();
@@ -441,9 +486,13 @@ fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
         );
         checked_boundary_free += usize::from(visible == must);
         let camera_split = CullCamera::new(Some(camera.eye.as_dvec3().to_array()));
-        let expected = reference_args(&records, camera_split, INDEX_COUNTS, |slot| {
-            visible.contains(&slot)
-        });
+        let expected = reference_args(
+            &records,
+            &culler.order,
+            camera_split,
+            INDEX_COUNTS,
+            |slot| visible.contains(&slot),
+        );
         assert_eq!(late, expected, "late compaction");
 
         // Next frame draws everything early and nothing late.
@@ -469,12 +518,13 @@ fn gpu_cull_matches_cpu_visibility_and_compacts_every_stream() {
             .collect::<BTreeSet<_>>();
         assert_eq!(
             early,
-            reference_args(&records, camera_split, INDEX_COUNTS, |s| drawn_early
-                .contains(&s))
+            reference_args(&records, &culler.order, camera_split, INDEX_COUNTS, |s| {
+                drawn_early.contains(&s)
+            })
         );
         assert_eq!(
             late,
-            reference_args(&records, camera_split, INDEX_COUNTS, |s| {
+            reference_args(&records, &culler.order, camera_split, INDEX_COUNTS, |s| {
                 visible.contains(&s) && !stale.contains(&s)
             })
         );
@@ -761,6 +811,8 @@ struct Raster {
     depth_only: Option<wgpu::RenderPipeline>,
     depth_group: Option<wgpu::BindGroup>,
     solid: wgpu::RenderPipeline,
+    early_solid: wgpu::RenderPipeline,
+    early_group: wgpu::BindGroup,
     cutout: wgpu::RenderPipeline,
     solid_group: wgpu::BindGroup,
     cutout_group: wgpu::BindGroup,
@@ -833,7 +885,7 @@ impl Raster {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Uint32x2],
         })];
-        let pipeline = |fragment, cull_mode, depth_only: bool| {
+        let pipeline = |fragment, cull_mode, depth_only: bool, colour: bool| {
             gpu.device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: None,
@@ -871,7 +923,7 @@ impl Raster {
                         targets: &[Some(wgpu::ColorTargetState {
                             format: color,
                             blend: None,
-                            write_mask: if write_depth {
+                            write_mask: if write_depth && colour {
                                 wgpu::ColorWrites::ALL
                             } else {
                                 wgpu::ColorWrites::empty()
@@ -882,10 +934,11 @@ impl Raster {
                     cache: None,
                 })
         };
-        let solid = pipeline("fragment_solid", Some(wgpu::Face::Back), false);
+        let solid = pipeline("fragment_solid", Some(wgpu::Face::Back), false, true);
+        let early_solid = pipeline("fragment_solid", Some(wgpu::Face::Back), false, false);
         let depth_only = (vertex == "vertex_unit")
-            .then(|| pipeline("fragment_solid", Some(wgpu::Face::Back), true));
-        let cutout = pipeline("fragment", None, false);
+            .then(|| pipeline("fragment_solid", Some(wgpu::Face::Back), true, false));
+        let cutout = pipeline("fragment", None, false, true);
         let storage = wgpu::BufferUsages::STORAGE;
         let quad_words = terrain
             .quads
@@ -1013,6 +1066,8 @@ impl Raster {
             depth_group: depth_only.as_ref().map(|pipeline| group(pipeline, true)),
             depth_only,
             solid_group: group(&solid, false),
+            early_group: group(&early_solid, false),
+            early_solid,
             cutout_group: group(&cutout, false),
             solid,
             cutout,
@@ -1039,6 +1094,14 @@ impl Raster {
         };
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, group, &[]);
+        pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.set_vertex_buffer(0, offsets.slice(..));
+    }
+
+    /// Binds the ordinary solid shader with colour writes disabled for early depth.
+    fn bind_early(&self, pass: &mut wgpu::RenderPass<'_>, offsets: &wgpu::Buffer) {
+        pass.set_pipeline(&self.early_solid);
+        pass.set_bind_group(0, &self.early_group, &[]);
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         pass.set_vertex_buffer(0, offsets.slice(..));
     }

@@ -37,10 +37,12 @@ mod hd_textures;
 mod legacy;
 mod lighting;
 mod mining;
+mod multi_page;
 mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod top_rotation;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
@@ -167,12 +169,14 @@ fn materials(texture: &str) -> Option<Box<[CustomMaterialInstance]>> {
 fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBlock {
     CustomBlock {
         mining: Default::default(),
+        sound: None,
         state_physics_complete: false,
         state_physics: Default::default(),
         state_mining: Default::default(),
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

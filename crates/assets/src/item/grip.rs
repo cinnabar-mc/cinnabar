@@ -9,11 +9,11 @@ use sha2::{Digest, Sha256};
 use crate::{AssetError, EntityAssetSource, ItemVisualDefinition};
 
 /// The retained compatibility grip catalog included in carrier fingerprints.
-pub const GRIP_SOURCE_PATH: &str = "registry/item-grips-v2193.tsv";
+pub const GRIP_SOURCE_PATH: &str = "registry/item-grips-v2225.tsv";
 /// Checkout input used by the entity carrier recipe.
-pub const GRIP_INPUT_PATH: &str = "crates/assets/data/item-grips-v2193.tsv";
+pub const GRIP_INPUT_PATH: &str = "crates/assets/data/item-grips-v2225.tsv";
 /// The single positive compatibility catalog used by compilation and validation.
-pub const GRIP_SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-grips-v2193.tsv");
+pub const GRIP_SOURCE_BYTES: &[u8] = include_bytes!("../../data/item-grips-v2225.tsv");
 /// Unresolved grip is separate from an admitted flat or upright placement.
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case", tag = "support", deny_unknown_fields)]

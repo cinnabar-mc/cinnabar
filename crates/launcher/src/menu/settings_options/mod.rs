@@ -14,8 +14,10 @@ pub mod layout;
 pub mod macro_modifier;
 pub mod persistence;
 pub mod render_distance;
+pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
+pub mod touch_layout;
 pub mod video_presets;
 pub use chat::CHAT_POSITION_OPTION;
 pub use reset::SettingsGroup;
@@ -28,23 +30,21 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub use bindings::{
-    BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS, SHADER_PACK_BINDINGS,
-};
+pub use bindings::{BindingId, EXTRA_GAMEPAD, EXTRA_KEYS, GAMEPAD_BINDINGS, KEY_BINDINGS};
 pub use command_macros::{
     COMMAND_MACRO_COUNT, MAX_COMMAND_MACRO_BYTES, macro_message, macro_row, macro_row_index,
     macro_title,
 };
 pub use control_bindings::{GAMEPAD_OFFSET, gamepad_icon};
 pub use definitions::{
-    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, CINNABAR_VISIBILITY_OPTION,
-    DISCORD_ALLOW_JOINS_OPTION, DISCORD_PARTY_SIZE_OPTION, DISCORD_PRESENCE_OPTION,
-    DISCORD_SERVER_DETAILS_OPTION, DISCORD_TIMESTAMP_OPTION, FRAME_RATE_UNLIMITED,
-    INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE, MIN_FIXED_FRAME_RATE,
-    MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION, NATIVE_SKYBOX_OFFSET_OPTION,
-    SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition, SettingId, SettingKind,
-    THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION, VIEW_BOBBING_CHOICES, VRR_CHOICES,
-    VRR_OPTION,
+    ANIMATION_CHOICES, ANIMATIONS_OPTION, AUTO_UPDATE_OPTION, BEDROCK_HOTBAR_OPTION,
+    CINNABAR_VISIBILITY_OPTION, DISCORD_ALLOW_JOINS_OPTION, DISCORD_PARTY_SIZE_OPTION,
+    DISCORD_PRESENCE_OPTION, DISCORD_SERVER_DETAILS_OPTION, DISCORD_TIMESTAMP_OPTION,
+    FRAME_RATE_UNLIMITED, INSTALL_ON_QUIT_OPTION, INVERT_CROSSHAIR_OPTION, MAX_FIXED_FRAME_RATE,
+    MIN_FIXED_FRAME_RATE, MOTION_BLUR_CHOICES, MOTION_BLUR_OPTION, MOUSE_SENSITIVITY_OPTION,
+    NATIVE_SKYBOX_OFFSET_OPTION, SETTINGS_OPTIONS, SMAA_CHOICES, SMAA_OPTION, SettingDefinition,
+    SettingId, SettingKind, THIRD_PERSON_CROSSHAIR_OPTION, UPDATE_CHANNEL_OPTION,
+    VIEW_BOBBING_CHOICES, VRR_CHOICES, VRR_OPTION, VSYNC_CHOICES,
 };
 pub use emotes::EMOTE_SLOT_COUNT;
 pub use keybindings::{
@@ -96,6 +96,7 @@ pub struct SettingsOptions {
     /// None means the original custom catalog supplies first-run defaults.
     emote_slots: Option<[Option<String>; EMOTE_SLOT_COUNT]>,
     server_list: super::server_list::ServerListPreferences,
+    touch_layout: touch_layout::TouchLayout,
 }
 
 impl Default for SettingsOptions {
@@ -112,6 +113,7 @@ impl Default for SettingsOptions {
             command_macros: None,
             emote_slots: None,
             server_list: super::server_list::ServerListPreferences::default(),
+            touch_layout: Default::default(),
         }
     }
 }
@@ -164,8 +166,8 @@ impl SettingsOptions {
         self.value(SettingId::OreuiDarkMode) != 0
     }
 
-    pub fn esthetic_tab(&self) -> bool {
-        self.value(SettingId::EstheticTab) != 0
+    pub fn f5_self_visuals(&self) -> bool {
+        self.value(SettingId::F5SelfVisuals) != 0
     }
 
     /// Whether launch and Settings layer debug levels for the net, session, core and packs
@@ -246,8 +248,11 @@ impl SettingsOptions {
             .copied()
             .unwrap_or_else(|| self.option_default(definition))
             == value
-            && (definition.id != SettingId::RenderDistance
-                || self.values.contains_key(definition.name))
+            && (self.values.contains_key(definition.name)
+                || !matches!(
+                    definition.id,
+                    SettingId::RenderDistance | SettingId::RenderResolution
+                ))
         {
             return false;
         }

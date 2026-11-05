@@ -8,6 +8,8 @@ use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
 mod auto_craft;
+#[cfg(test)]
+pub(crate) use auto_craft::take_source_validations;
 mod bundles;
 mod cancellation;
 mod cells;
@@ -52,6 +54,7 @@ mod queue;
 mod quick_move;
 #[cfg(test)]
 mod quick_move_role_tests;
+mod recipe_allocation;
 mod recovery;
 #[cfg(test)]
 mod recovery_tests;
@@ -62,6 +65,7 @@ mod response;
 mod revisions;
 mod screen_actions;
 mod trading;
+pub(crate) use auto_craft::AutoCraftMaterials;
 pub use trading::{ResolvedTrade, TradeState};
 #[cfg(test)]
 mod screens_tests;
@@ -71,7 +75,7 @@ mod validation;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination};
+pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, ShieldCraft};
 pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
@@ -165,7 +169,7 @@ pub enum InventoryGestureError {
     #[error("player inventory slot {0} is outside the authoritative container")]
     InvalidSlot(u8),
     #[error("generic storage slot {0} is outside the authoritative window")]
-    InvalidStorageSlot(u8),
+    InvalidStorageSlot(u16),
     #[error("player inventory slot {0} is not known yet")]
     UnknownSlot(u8),
     #[error("the inventory request queue is full")]
@@ -202,8 +206,6 @@ pub struct PlayerInventoryLedger {
     known: [bool; PLAYER_INVENTORY_SLOT_COUNT],
     /// Personal cells written by the latest event, consumed by the FIFO observer.
     personal_writes: u8,
-    /// Whether the latest inventory event restated the backing offhand cell.
-    offhand_written: bool,
     armor_known: [bool; cells::ARMOR_CELLS],
     offhand_known: bool,
     slot_revisions: [u64; PLAYER_INVENTORY_SLOT_COUNT],
@@ -229,6 +231,8 @@ pub struct PlayerInventoryLedger {
     /// Acknowledged closes whose requests still await answers; they stay current.
     storage: Option<StorageWindow>,
     pub(crate) furnace_selection: Option<crate::furnace_recipes::Selection>,
+    /// The last recipe-book placement into the crafting grid.
+    recipe_placement: Option<crafting::RecipePlacement>,
     /// Each window kind retains one desired state and at most one outstanding request.
     controls: control::WindowControls,
     /// Admitted requests abandoned unanswered and the surfaces each put into
@@ -257,7 +261,6 @@ impl Default for PlayerInventoryLedger {
             view: None,
             known: [false; PLAYER_INVENTORY_SLOT_COUNT],
             personal_writes: 0,
-            offhand_written: false,
             armor_known: [false; cells::ARMOR_CELLS],
             offhand_known: false,
             slot_revisions: [0; PLAYER_INVENTORY_SLOT_COUNT],
@@ -278,6 +281,7 @@ impl Default for PlayerInventoryLedger {
             personal: None,
             storage: None,
             furnace_selection: None,
+            recipe_placement: None,
             controls: control::WindowControls::default(),
             abandoned: VecDeque::new(),
             recovery_since_millis: None,
@@ -307,11 +311,6 @@ impl PlayerInventoryLedger {
                     .map(|held| &held.stack)
             })
         })
-    }
-
-    /// Reports an admitted offhand write in the most recently applied inventory event.
-    pub const fn offhand_authority_changed(&self) -> bool {
-        self.offhand_written
     }
 
     pub fn begin_session(&mut self, session_generation: u64) {
@@ -365,7 +364,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+    pub fn storage_stack(&self, slot: u16) -> Option<&NetworkItemStack> {
         self.view_stack(Cell::Storage(slot))
     }
 
@@ -558,7 +557,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_slot_pending(&self, slot: u8) -> bool {
+    pub fn storage_slot_pending(&self, slot: u16) -> bool {
         self.cell_pending(Cell::Storage(slot))
     }
 
@@ -634,12 +633,20 @@ impl PlayerInventoryLedger {
             .iter()
             .filter(|pending| pending.state == InventoryPendingState::AwaitingTransport)
             .peekable();
+        if ready
+            .peek()
+            .is_some_and(|pending| self.personal_request_waits_for_open(pending))
+        {
+            return Ok(None);
+        }
         if let Some(drop) = ready.next_if(|pending| pending.world_drop.is_some()) {
             return self.world_drop_packet(drop).map(|packet| Some((packet, 1)));
         }
         // A later drop leaves in its own packet, after the requests queued before it.
         let requests: Vec<_> = ready
-            .take_while(|pending| pending.world_drop.is_none())
+            .take_while(|pending| {
+                pending.world_drop.is_none() && !self.personal_request_waits_for_open(pending)
+            })
             .map(|pending| {
                 (
                     pending.request_id,

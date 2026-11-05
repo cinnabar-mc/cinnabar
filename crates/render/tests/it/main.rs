@@ -79,6 +79,7 @@ mod material_variations;
 mod mod_render;
 mod model_alpha;
 mod model_tint_raster;
+mod model_turn;
 mod model_uv_raster;
 mod nametag_opacity;
 mod nametag_transparency;

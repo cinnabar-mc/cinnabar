@@ -59,6 +59,7 @@ mod expansion_buffers;
 mod gpu;
 pub(crate) mod jobs;
 mod pipelines;
+pub(super) use pipelines::required_storage_buffers;
 mod residency;
 pub(super) mod shadow_cull;
 mod vertex;
@@ -71,13 +72,14 @@ pub use block_ids::{BlockEntityIdFn, ShaderpackBlockIds, UNASSIGNED_BLOCK_ID};
 pub(crate) use gpu::prepare_shaderpack_geometry;
 pub use gpu::{FRAME_EXPANSION_FACES, ShaderpackGeometry, ShaderpackGeometrySettings};
 pub use jobs::GeometryCategory;
+pub(super) use pipelines::load_shaders;
 pub use residency::{DEFAULT_GEOMETRY_BUDGET_BYTES, device_geometry_budget};
 pub(crate) use shadow_cull::{ShadowCulling, ShadowFrustum};
 #[cfg(test)]
-pub(crate) use vertex::{BLOCK_ID, LIGHTMAP, NORMAL, POSITION, UV0};
+pub(crate) use vertex::{BLOCK_ID, COLOR, LIGHTMAP, NORMAL, POSITION, UV0, draw_origin};
 pub(crate) use vertex::{
-    CONSTANT_STREAM_WORDS, f32_to_half, host_vertex, substitute_layout_constants,
-    textured_host_vertex,
+    CONSTANT_STREAM_WORDS, DRAW_ORIGIN_BYTES, f32_to_half, host_vertex,
+    substitute_layout_constants, textured_host_vertex,
 };
 pub use vertex::{
     CONSTANT_VERTEX_BUFFER, DRAW_ORIGIN_VERTEX_BUFFER, GEOMETRY_VERTEX_BUFFER, IRIS_VERTEX_STRIDE,
@@ -110,19 +112,30 @@ pub struct ShaderpackGeometryPlugin;
 
 impl Plugin for ShaderpackGeometryPlugin {
     fn build(&self, app: &mut App) {
-        pipelines::load_shaders(app);
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
+        super::scheduling::configure_render(render_app);
         render_app
             .init_resource::<ShaderpackGeometrySettings>()
+            .add_systems(
+                bevy::render::ExtractSchedule,
+                super::kernels::extract_shared_shaders.in_set(super::scheduling::ShaderPackSystems),
+            )
+            .add_systems(
+                Render,
+                super::kernels::prepare_kernels
+                    .before(RenderSystems::PrepareViews)
+                    .in_set(super::scheduling::ShaderPackSystems),
+            )
             .add_systems(
                 Render,
                 crate::chunk::shaderpack_sources::after_packed_chunk_upload(
                     (prepare_geometry_resources, gpu::prepare_shaderpack_geometry)
                         .chain()
                         .after(RenderSystems::PrepareViews)
-                        .before(RenderSystems::Queue),
+                        .before(RenderSystems::Queue)
+                        .in_set(super::scheduling::ShaderPackSystems),
                 ),
             )
             .add_systems(bevy::render::RenderStartup, install_expansion_recording);
@@ -130,15 +143,27 @@ impl Plugin for ShaderpackGeometryPlugin {
 }
 
 /// Creates terrain state and queues its kernels only after a pack enables expansion.
-pub(crate) fn prepare_geometry_resources(
+pub(super) fn prepare_geometry_resources(
     mut commands: Commands,
     settings: Res<ShaderpackGeometrySettings>,
     geometry: Option<Res<ShaderpackGeometry>>,
     pipelines: Option<Res<pipelines::ExpansionPipelines>>,
+    kernels: Option<Res<super::kernels::Kernels>>,
 ) {
-    if settings.enabled && (geometry.is_none() || pipelines.is_none()) {
-        commands.init_resource::<pipelines::ExpansionPipelines>();
-        commands.init_resource::<ShaderpackGeometry>();
+    if !settings.enabled || kernels.is_none() {
+        if geometry.is_some() {
+            commands.remove_resource::<ShaderpackGeometry>();
+        }
+        if pipelines.is_some() {
+            commands.remove_resource::<pipelines::ExpansionPipelines>();
+        }
+    } else {
+        if pipelines.is_none() {
+            commands.init_resource::<pipelines::ExpansionPipelines>();
+        }
+        if geometry.is_none() {
+            commands.init_resource::<ShaderpackGeometry>();
+        }
     }
 }
 
@@ -149,7 +174,8 @@ fn install_expansion_recording(world: &mut World) {
             gpu::record_geometry_expansion
                 .after(crate::upload_staging::BufferUploads)
                 .before(bevy::core_pipeline::schedule::camera_driver)
-                .in_set(bevy::render::renderer::RenderGraphSystems::Render),
+                .in_set(bevy::render::renderer::RenderGraphSystems::Render)
+                .run_if(super::scheduling::render_work_pending),
         );
     });
 }

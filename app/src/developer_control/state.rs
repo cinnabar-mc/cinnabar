@@ -129,6 +129,9 @@ fn evaluate(world: &World, condition: &Condition) -> Result<Value, String> {
             Some(camera) if !camera.finished() => Err(camera.summary().to_string()),
             _ => Ok(json!({})),
         },
+        Condition::InventoryReady | Condition::InventorySettled => {
+            super::inventory::evaluate(world, condition)
+        }
     }
 }
 
@@ -198,12 +201,41 @@ fn actors(world: &World) -> Vec<Value> {
                     "position": actor.position,
                     "distance": distance,
                     "health": health,
+                    "visible_parts": authority.actor_rig(actor.runtime_id).map(|rig| visible_parts(
+                        rig.render
+                            .iter()
+                            .filter(|layer| layer.geometry.is_none())
+                            .map(|layer| layer.hidden_bones.as_ref()),
+                        rig.bone_names,
+                    )),
                 }),
             )
         })
         .collect();
     actors.sort_by(|a, b| a.0.total_cmp(&b.0));
     actors.into_iter().map(|(_, actor)| actor).collect()
+}
+
+/// Bones of an actor's posed model that at least one drawn layer leaves visible, sorted and
+/// deduplicated. Each layer lists the sorted indices into `names` it hides; layers drawing a
+/// controller's own geometry index that model instead, so callers leave them out.
+fn visible_parts<'a>(
+    hidden_by_layer: impl IntoIterator<Item = &'a [u32]>,
+    names: &'a [Box<str>],
+) -> Vec<&'a str> {
+    let mut parts: Vec<&str> = hidden_by_layer
+        .into_iter()
+        .flat_map(|hidden| {
+            names
+                .iter()
+                .enumerate()
+                .filter(move |(index, _)| hidden.binary_search(&(*index as u32)).is_err())
+                .map(|(_, name)| name.as_ref())
+        })
+        .collect();
+    parts.sort_unstable();
+    parts.dedup();
+    parts
 }
 
 fn player_motion(world: &World) -> Option<Value> {
@@ -322,10 +354,14 @@ pub(super) fn snapshot(world: &World) -> Value {
             .map(|settings| settings.feel().java_animations),
         "perspective": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| format!("{:?}", settings.perspective())),
-        "hurt_camera_style": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
+        "view_tilt": world.get_resource::<client_presentation::camera::CameraSettingsAuthority>()
             .map(|settings| {
-                let style = settings.hurt_camera_style();
-                json!({"intensity": style.intensity(), "old_tilt": style.old_tilt()})
+                let tilt = settings.view_tilt();
+                json!({
+                    "roll_degrees": tilt.map(|tilt| tilt.roll_degrees),
+                    "pitch_degrees": tilt.map(|tilt| tilt.pitch_degrees),
+                    "hurt_shake_intensity": settings.hurt_shake_intensity(),
+                })
             }),
         "dimension": stream.map(|stream| stream.current_dimension()),
         "chunks": stream.map(|stream| json!({
@@ -393,6 +429,16 @@ pub(super) fn snapshot(world: &World) -> Value {
         })),
     });
     // Keep added diagnostics outside the large snapshot macro's expansion budget.
+    snapshot["frame_stats"] = frame_stats(world);
+    snapshot["terrain_culling"] = json!({
+        "occlusion_enabled": world.get_resource::<render_scene::ChunkOcclusionCulling>().map(|preference| preference.0),
+        "sections": world.get_resource::<crate::runtime::visibility::CaveVisibilityCache>().map(|cache| json!({
+            "resident": cache.rendered.len(),
+            "cave_visible": cache.visible_rendered,
+        })),
+    });
+    snapshot["inventory"] = super::inventory::snapshot(world);
+    snapshot["client_part_screens"] = json!(crate::server_experiences::developer_screens(world));
     snapshot["chat"] = json!(world.get_resource::<UiRuntimeResource>().map(|ui| {
         let messages = ui.chat().messages();
         messages
@@ -465,4 +511,90 @@ fn aim_assist(world: &World) -> Option<Value> {
             "point": target.point.to_array(),
         })),
     }))
+}
+
+/// Copies the current stage-profile interval without draining logging or other readers.
+fn frame_stats(world: &World) -> Value {
+    let Some(samples) = world
+        .get_resource::<render_scene::RuntimeStageProfiler>()
+        .and_then(render_scene::RuntimeStageProfiler::stage_samples)
+    else {
+        return Value::Null;
+    };
+    let stages: serde_json::Map<String, Value> = render_scene::RuntimeStage::ALL
+        .into_iter()
+        .zip(samples)
+        .filter(|(_, sample)| sample.count != 0)
+        .map(|(stage, sample)| {
+            let mut value = json!({"count": sample.count,
+                "wall_ns": u64::try_from(sample.total.as_nanos()).unwrap_or(u64::MAX),
+                "max_wall_ns": u64::try_from(sample.maximum.as_nanos()).unwrap_or(u64::MAX)});
+            if sample.thread_cpu_count != 0 {
+                value["thread_cpu_count"] = json!(sample.thread_cpu_count);
+                value["thread_cpu_ns"] =
+                    json!(u64::try_from(sample.thread_cpu_total.as_nanos()).unwrap_or(u64::MAX));
+                value["max_thread_cpu_ns"] =
+                    json!(u64::try_from(sample.thread_cpu_maximum.as_nanos()).unwrap_or(u64::MAX));
+            }
+            (stage.name().to_owned(), value)
+        })
+        .collect();
+    json!({"interval": "since_stage_profile_drain", "scope": "overlapping", "stages": stages})
+}
+
+#[cfg(test)]
+mod frame_stats_tests {
+    use super::*;
+    use render_scene::{RuntimeStage, RuntimeStageProfiler};
+
+    /// Reading developer stats preserves the logging interval and omits unavailable clocks.
+    #[test]
+    fn frame_stats_include_optional_cpu_without_draining_samples() {
+        for available in [false, true] {
+            let mut world = World::new();
+            let profiler = RuntimeStageProfiler::new(true).with_thread_cpu_clock(if available {
+                || Some(Duration::ZERO)
+            } else {
+                || None
+            });
+            drop(profiler.time(RuntimeStage::WorldPoll));
+            world.insert_resource(profiler.clone());
+            let stats = frame_stats(&world);
+            let sample = &stats["stages"]["world_poll"];
+            assert_eq!(sample["count"], 1);
+            assert!(sample.get("wall_ns").is_some());
+            assert_eq!(sample.get("thread_cpu_ns").is_some(), available);
+            if available {
+                assert_eq!(sample["thread_cpu_ns"], 0);
+                assert_eq!(sample["thread_cpu_count"], 1);
+            }
+            assert_eq!(frame_stats(&world), stats);
+            assert_eq!(
+                profiler
+                    .take_snapshot_if_due(Duration::ZERO)
+                    .unwrap()
+                    .samples[RuntimeStage::WorldPoll as usize]
+                    .count,
+                1
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod visible_parts_tests {
+    use super::visible_parts;
+
+    #[test]
+    fn a_part_is_visible_when_any_drawn_layer_leaves_it_shown() {
+        let names: Vec<Box<str>> = ["body", "head", "tracer"].map(Into::into).into();
+        let body: &[u32] = &[2];
+        let tracer: &[u32] = &[0, 1];
+        assert_eq!(visible_parts([body], &names), ["body", "head"]);
+        assert_eq!(
+            visible_parts([body, tracer], &names),
+            ["body", "head", "tracer"]
+        );
+        assert!(visible_parts([], &names).is_empty());
+    }
 }

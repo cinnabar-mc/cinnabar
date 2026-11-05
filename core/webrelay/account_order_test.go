@@ -24,7 +24,7 @@ func (source relayOAuthSource) Token() (*oauth2.Token, error) { return source() 
 func TestAccountCleanupDoesNotBlockOtherSessions(t *testing.T) {
 	relay := testRelay(t)
 	client := netip.MustParseAddr("192.0.2.1")
-	controller, detach, err := relay.openControl(client, "", time.Now())
+	controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestAccountCleanupDoesNotBlockOtherSessions(t *testing.T) {
 	// Other operations on this same account must also wait outside the shared lock.
 	takeoverDone := make(chan *sessionController, 1)
 	go func() {
-		resumed, detach, err := relay.openControl(client, token, time.Now())
+		resumed, detach, err := relay.openControl(client, token, time.Now(), testBrowserUserAgent, false)
 		if err == nil {
 			detach(time.Now())
 		}
@@ -86,7 +86,7 @@ func TestAccountCleanupDoesNotBlockOtherSessions(t *testing.T) {
 			return
 		}
 		defer release()
-		current, detach, err := relay.openControl(other, "", time.Now())
+		current, detach, err := relay.openControl(other, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			otherDone <- err
 			return
@@ -95,7 +95,7 @@ func TestAccountCleanupDoesNotBlockOtherSessions(t *testing.T) {
 		defer func() { oldDetach(time.Now()) }()
 		welcome, err := relay.welcome(current, true, time.Now())
 		if err == nil {
-			current, detach, err = relay.openControl(other, welcome.Resume, time.Now())
+			current, detach, err = relay.openControl(other, welcome.Resume, time.Now(), testBrowserUserAgent, false)
 			if err == nil {
 				defer func() { detach(time.Now()) }()
 				welcome, err = relay.welcome(current, true, time.Now())

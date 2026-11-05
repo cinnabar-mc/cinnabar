@@ -205,6 +205,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
         subject: MovementCorrectionSubject::Player,
         on_ground: true,
         tick,
+        vehicle_angular_velocity: None,
     };
     let newer = correction(100, [100.0, 80.0, 100.0]);
     let older = correction(99, [10.0, 70.0, 10.0]);
@@ -230,7 +231,7 @@ fn older_movement_correction_tick_cannot_rewind_newer_correction() {
 }
 
 #[test]
-fn vehicle_correction_subject_commits_nothing_and_cannot_advance_the_tick_guard() {
+fn vehicle_corrections_never_advance_the_player_tick_guard() {
     let mut stream = WorldStream::new(WorldBootstrap {
         dimension: 0,
         local_player_runtime_id: 1,
@@ -248,11 +249,12 @@ fn vehicle_correction_subject_commits_nothing_and_cannot_advance_the_tick_guard(
         subject,
         on_ground: true,
         tick,
+        vehicle_angular_velocity: None,
     };
 
-    // A vehicle rewind has no local-player consumer yet: it must not resolve a
-    // server position, commit a control, or advance the monotonic guard that
-    // would silence a later ordinary player correction.
+    // A vehicle rewind names the vehicle's position: it must leave the player's monotonic
+    // guard alone, which would otherwise silence a later ordinary player correction. With
+    // no steered vehicle nothing predicts it, so it is dropped.
     stream
         .submit(
             1,
@@ -617,6 +619,7 @@ fn local_movement_authority_commits_in_fifo_order_and_accepts_zero_updates() {
                 sequence: 2,
                 dimension: 0,
                 movement: Some(value),
+                movement_received: true,
                 underwater: None,
                 lava: None,
                 air_drag_modifier: None,
@@ -670,7 +673,16 @@ fn movement_authority_skips_wrong_actor_dimension_and_invalid_values_then_clears
             })),
         )
         .unwrap();
-    assert_eq!(stream.local_movement_speed(), Some(f64::from(0.3_f32)));
+    assert_eq!(stream.local_movement_speed(), Some(0.25));
+    assert!(matches!(
+        stream.take_committed_controls().last(),
+        Some(CommittedControlEvent::LocalMovementSpeed {
+            sequence: 7,
+            movement: None,
+            movement_received: true,
+            ..
+        })
+    ));
 
     stream
         .submit(

@@ -55,7 +55,7 @@ impl BrewingMix {
 mod tests {
     use super::*;
     use crate::inventory::recipes::{budget::Credits, decode::decode_with_credits};
-    use bedrock_protocol_1_26_51::{
+    use bedrock_protocol_1_26_60::{
         packets::CraftingData,
         types::{ContainerMixDataEntry, PotionMixDataEntry},
         wire::{self, Encode},

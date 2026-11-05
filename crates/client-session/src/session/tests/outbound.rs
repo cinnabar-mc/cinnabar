@@ -885,3 +885,73 @@ fn command_queued_during_a_blocked_inbound_decode_is_written_before_the_decode_e
         "the batch must be written while the inbound decode still holds the pump"
     );
 }
+
+/// Ordinary gameplay packet families keep call order and share the explicit frame boundary.
+#[test]
+fn gameplay_packet_families_share_a_batch_in_admission_order() {
+    let (handle, mut captured) = NetworkHandle::stub_capturing_packets();
+    let movement = protocol::player_auth_input(protocol::PlayerAuthInputSnapshot {
+        tick: 11,
+        position: [0.0; 3],
+        delta: [0.0; 3],
+        move_vector: [0.0; 2],
+        analogue_move_vector: [0.0; 2],
+        raw_move_vector: [0.0; 2],
+        pitch: 0.0,
+        yaw: 0.0,
+        head_yaw: 0.0,
+        interact_rotation: [0.0, 0.0],
+        camera_orientation: [0.0, 0.0, 1.0],
+        flags: protocol::PlayerInputFlags::NONE,
+        input_mode: protocol::PlayerInputMode::Mouse,
+        vehicle: None,
+    })
+    .unwrap();
+    let transaction = protocol::click_air_packet(
+        protocol::HeldItemRequest {
+            hand: protocol::ItemUseHand::Mainhand,
+            selected_slot: 0,
+            selected_item: protocol::VerifiedNetworkItemStack::try_new(
+                protocol::NetworkItemStack::empty(),
+                protocol::NetworkItemStack::empty().nbt_digest,
+            )
+            .unwrap(),
+            player_position: [0.0; 3],
+        },
+        None,
+    )
+    .unwrap();
+    let expected = [
+        movement,
+        transaction,
+        protocol::swing_arm_packet(42, protocol::SwingSource::Attack),
+        protocol::entity_hover_packet(Some((9, [0.0; 3]))),
+        protocol::stop_sleeping_packet(42),
+        protocol::select_hotbar_slot_packet(42, 0, &protocol::NetworkItemStack::empty()).unwrap(),
+        protocol::network_stack_latency_reply(17),
+    ];
+    // Repeat with latency at each boundary; it must never split or reorder the surrounding sends.
+    for latency_index in 0..expected.len() {
+        for packet in &expected[..latency_index] {
+            handle.send_inventory_packet(packet.clone()).unwrap();
+        }
+        handle.send_latency_reply(99).unwrap();
+        for packet in &expected[latency_index..] {
+            handle.send_inventory_packet(packet.clone()).unwrap();
+        }
+        assert!(captured.take_flushed_frame().is_none());
+        handle.flush_frame();
+        let frame = captured.take_flushed_frame().expect("one frame");
+        let ordered = expected[..latency_index]
+            .iter()
+            .cloned()
+            .chain([protocol::network_stack_latency_reply(99)])
+            .chain(expected[latency_index..].iter().cloned());
+        let bytes = |packet: &protocol::Packet| protocol::encode(packet).unwrap();
+        assert_eq!(
+            frame.iter().map(bytes).collect::<Vec<_>>(),
+            ordered.map(|packet| bytes(&packet)).collect::<Vec<_>>()
+        );
+        assert!(captured.take_flushed_frame().is_none());
+    }
+}

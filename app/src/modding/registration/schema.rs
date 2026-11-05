@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// The canonical list and per-component status protocol version.
-pub(super) const VERSION: u32 = 2;
+pub(in crate::modding) const VERSION: u32 = 2;
 
 /// One installed component's retained authority and reload request.
 #[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
@@ -62,7 +62,7 @@ impl Registration {
         let version = serde_json::from_slice::<serde_json::Value>(bytes)
             .map_err(|error| error.to_string())?["version"]
             .as_u64();
-        let result = if version == Some(1) {
+        let mut result = if version == Some(1) {
             let old: Single = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
             debug_assert_eq!(old.version, 1);
             Self {
@@ -80,6 +80,14 @@ impl Registration {
         } else {
             serde_json::from_slice(bytes).map_err(|error| error.to_string())?
         };
+        for entry in &mut result.mods {
+            if entry.grants.has_packet_only()
+                && mod_host::read_source(&entry.component)
+                    .is_ok_and(|bytes| mod_host::is_frame_source(&bytes))
+            {
+                entry.grants.retain_applicable(false);
+            }
+        }
         result.validate()?;
         Ok(result)
     }
@@ -120,7 +128,7 @@ impl Registration {
                 && self.mods[..index].iter().any(|old| {
                     old.enabled
                         && old.grants.settings
-                        && super::selection::same_path(
+                        && launcher_host::mod_library::paths::same_path(
                             &mod_host::settings_companion(&old.component),
                             &mod_host::settings_companion(&entry.component),
                         )
@@ -128,10 +136,9 @@ impl Registration {
             {
                 return Err("active mods must not share a settings companion".into());
             }
-            if self.mods[..index]
-                .iter()
-                .any(|old| super::selection::same_path(&old.component, &entry.component))
-            {
+            if self.mods[..index].iter().any(|old| {
+                launcher_host::mod_library::paths::same_path(&old.component, &entry.component)
+            }) {
                 return Err("duplicate local extension identity".into());
             }
         }

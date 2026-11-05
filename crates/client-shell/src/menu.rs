@@ -61,7 +61,7 @@ use {auth::AuthSupervisor, launcher::menu::auth::AuthState};
 use core_process::{auth_cache_path, core_executable};
 pub use input::clipboard::MenuClipboard;
 pub(crate) use input::context::observe_keyboard_labels;
-pub use input::{HOTKEY_OPTIONS, drive_menu_ime, drive_menu_input};
+pub use input::{HOTKEY_OPTIONS, drive_menu_input, drive_window_ime};
 use launcher::menu::view::{CatalogFile, MenuFeeds};
 
 use launcher::menu::view::{
@@ -100,6 +100,7 @@ pub struct MenuRuntime {
     pressed: Option<MenuAction>,
     pointer_down: bool,
     touch_available: bool,
+    touch_editor_open: bool,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
@@ -147,6 +148,7 @@ pub struct MenuRuntime {
     shader_pack_reload: bool,
     shader_pack_removing: Option<std::sync::Arc<str>>,
     shader_pack_remove_request: Option<String>,
+    shader_pack_import: renderer::PackImport,
     vsync_override: Option<bool>,
     display_name: String,
     launcher: bool,
@@ -173,6 +175,8 @@ pub struct MenuRuntime {
     player_skin: crate::player_skin::LocalPlayerSkin,
     dressing_room: std::sync::Arc<launcher::dressing_room::DressingRoomView>,
     dressing_room_worker: Option<dressing_room::Worker>,
+    /// Fallback pixels for catalog entries created before world assets were ready.
+    default_player_skin: Option<render_api::StandardSkin>,
     skin_update_pending: bool,
     skin_outbound: Option<(u64, protocol::Packet)>,
     skin_packet_pending: Option<protocol::Packet>,
@@ -328,6 +332,9 @@ impl MenuRuntime {
     }
 
     pub fn set_visible(&mut self, visible: bool) {
+        if !visible {
+            self.apply_global_resources_on_leave();
+        }
         self.visible = visible;
         if !visible {
             self.field = None;
@@ -384,10 +391,10 @@ impl MenuRuntime {
         if launcher::menu::disconnect::requires_client_update(&message) {
             launcher_host::lifecycle::update::protocol_required();
         }
+        bevy::log::warn!(error = %message, kind = ?self.feeds.join.kind, "join failed");
         if self.feeds.join.kind == JoinKind::Local || !self.launcher {
             self.message = Some(message);
         } else {
-            bevy::log::warn!(error = %message, "join failed");
             self.message = None;
             self.disconnect_message = Some(message);
             self.focused = 0;
@@ -431,6 +438,10 @@ impl MenuRuntime {
 
     pub fn take_disconnect_request(&mut self) -> bool {
         std::mem::take(&mut self.intents.disconnect)
+    }
+
+    pub fn exit_requested(&self) -> bool {
+        self.intents.exit
     }
 
     pub fn take_exit_request(&mut self) -> bool {
@@ -558,14 +569,14 @@ impl MenuRuntime {
                     self.death_loading = true;
                     self.death_presentation.exiting_world = true;
                     self.death_presentation.respawn_seconds = Some(0.0);
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.dialog = None;
                 }
             }
             MenuAction::ConfirmDeathQuit => {
                 if self.dialog == Some(MenuDialog::DeathQuit) {
                     self.dialog = None;
-                    self.intents.disconnect = true;
+                    self.request_disconnect();
                     self.set_visible(false);
                 }
             }
@@ -695,6 +706,7 @@ impl MenuRuntime {
             MenuAction::AddBack => self.go_back(),
             MenuAction::SelectRenderer(choice) => self.select_renderer(choice),
             MenuAction::ReloadShaders => self.activate_shader_reload(),
+            MenuAction::ImportShaderPacks => self.request_shader_pack_import(),
             MenuAction::RemoveShaderPackDialog(index, revision) => {
                 self.remove_shader_pack_dialog(index, revision)
             }
@@ -716,7 +728,7 @@ impl MenuRuntime {
             }
             MenuAction::PauseResume => self.set_visible(false),
             MenuAction::PauseDisconnect => {
-                self.intents.disconnect = true;
+                self.request_disconnect();
                 self.set_visible(false);
             }
             MenuAction::PauseSettings => {
@@ -757,7 +769,8 @@ impl MenuRuntime {
             | MenuAction::SettingsResetKey(_)
             | MenuAction::SettingsMacroCommand(_)
             | MenuAction::SettingsResetChat
-            | MenuAction::SettingsAdvancedGraphics) => self.activate_settings(action),
+            | MenuAction::SettingsAdvancedGraphics
+            | MenuAction::EditTouchControls) => self.activate_settings(action),
             MenuAction::Respawn => {
                 if self.death_controls_ready() {
                     self.request_respawn();
@@ -776,6 +789,7 @@ impl MenuRuntime {
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
+                    self.apply_global_resources_on_leave();
                     self.settings.section = launcher::menu::settings_sections::SettingSection::Mods
                         .definition()
                         .index;
@@ -805,6 +819,7 @@ impl MenuRuntime {
                 }
             }
             MenuAction::LocalWorld(action) => self.queue_local_action(action),
+            MenuAction::WorldSettings(action) => self.activate_world_settings(action),
             MenuAction::ServerTrust(trusted) => self.answer_server_trust(trusted),
             MenuAction::Invite(action) => self.activate_invite(action),
             MenuAction::JoinRequest(accept) => self.answer_join_request(accept),

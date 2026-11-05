@@ -32,14 +32,14 @@ impl WorldStream {
     pub fn new_with_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
-        entity_assets: Arc<RuntimeEntityAssets>,
+        entity_assets: impl Into<actor_animation::ActorAnimationCatalog>,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         Self::with_first_sequence_and_asset_sets(
             bootstrap,
             runtime_assets,
-            Some(entity_assets),
+            Some(entity_assets.into()),
             1,
             current_position,
             existing_anchor,
@@ -64,15 +64,16 @@ impl WorldStream {
     fn with_first_sequence_and_asset_sets(
         bootstrap: WorldBootstrap,
         runtime_assets: Arc<RuntimeAssets>,
-        entity_assets: Option<Arc<RuntimeEntityAssets>>,
+        entity_assets: Option<actor_animation::ActorAnimationCatalog>,
         first_sequence: u64,
         current_position: [f32; 3],
         existing_anchor: Option<[i32; 2]>,
     ) -> Self {
         let _ = &*workers::WORKERS;
-        let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
-        let authority = client_world::WorldAuthority::new(
+        warm_block_mutation_facts();
+        let (decode_tx, decode_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let (mesh_tx, mesh_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let authority = client_world::WorldAuthority::new_with_actor_catalog(
             bootstrap,
             runtime_assets,
             entity_assets,
@@ -144,13 +145,16 @@ impl WorldStream {
             poll_budget: commit_budget::WORLD_POLL_BUDGET,
             polling: false,
             poll_heavy_guarantee: false,
+            worker_service_due: false,
             service_yield: None,
             between_frames_service: false,
-            service_window: Duration::ZERO,
+            service_poll_time: Duration::ZERO,
             retention_due: false,
             retention_cursor: None,
             maintenance_items: 0,
             service_item_max: Duration::ZERO,
+            #[cfg(test)]
+            after_service_item: None,
             maintenance_guarantee: true,
             chunk_data_offloaded: false,
             commit_steps: 0,
@@ -278,23 +282,23 @@ impl WorldStream {
         level_chunk_payload: Option<Bytes>,
     ) -> Result<(), WorldStreamError> {
         self.order.validate_sequence(sequence)?;
-        self.promote_deferred_ingress();
         let footprint = self.ingress_footprint(&event);
         if let WorldEvent::ChangeDimension(change) = &event {
             self.ingress_dimension = change.dimension;
         }
+        // Admit against the state the caller's `can_admit` saw: promotion below may commit
+        // events whose retained deltas take the light credit this event was promised.
+        let retained_commits = self.authority.retained_commit_count();
         if self.defers_preparation(&event, &footprint) {
-            self.order.admit_deferred(
-                sequence,
-                footprint,
-                self.authority.retained_commit_count(),
-            )?;
+            self.order
+                .admit_deferred(sequence, footprint, retained_commits)?;
             self.deferred_ingress
                 .push_back((sequence, event, level_chunk_payload));
+            self.promote_deferred_ingress();
             return Ok(());
         }
-        let retained_commits = self.authority.retained_commit_count();
         self.order.admit(sequence, footprint, retained_commits)?;
+        self.promote_deferred_ingress();
         self.prepare_admitted(sequence, event, level_chunk_payload)
     }
 
@@ -538,4 +542,16 @@ fn creates_request(event: &WorldEvent) -> bool {
             .map_or(event.requested_sub_chunks != Some(0), |ys| !ys.is_empty()),
         _ => false,
     }
+}
+
+/// Builds the pinned liquid facts every block mutation reads, once per process and off the
+/// commit thread. Built on first use instead, they decode the whole pinned block registry,
+/// about 50 ms, inside the frame that commits the session's first block update.
+fn warm_block_mutation_facts() {
+    static WARMING: std::sync::Once = std::sync::Once::new();
+    WARMING.call_once(|| {
+        workers::detach(|| {
+            let _ = assets::facts::liquid::pinned_facts(assets::NetworkIdMode::Sequential, 0);
+        });
+    });
 }

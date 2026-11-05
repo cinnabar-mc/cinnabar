@@ -57,6 +57,8 @@ struct RenderCountProbe {
     candidates: SequenceCount,
     visibility: SequenceCount,
     #[serde(default)]
+    material_selections: SequenceCount,
+    #[serde(default)]
     geometries: SequenceCount,
 }
 
@@ -186,6 +188,8 @@ struct BoneProbe {
     binding: Option<de::IgnoredAny>,
     #[serde(default)]
     texture_meshes: SequenceCount,
+    #[serde(default)]
+    poly_mesh: Option<de::IgnoredAny>,
     cubes: SequenceCount,
     #[serde(default)]
     locators: SequenceCount,
@@ -228,6 +232,7 @@ impl<'de> Deserialize<'de> for BoneSequenceCount {
                         reset: _,
                         binding: _,
                         texture_meshes: bone_meshes,
+                        poly_mesh: _,
                         cubes: bone_cubes,
                         locators: bone_locators,
                     } = bone;
@@ -340,6 +345,10 @@ pub(crate) fn payload_counts(bytes: &[u8]) -> Result<[usize; 7], serde_json::Err
         (counts.render.layers.0, MAX_ENTITY_RENDER_LAYERS),
         (counts.render.slots.0, MAX_ENTITY_RENDER_SLOTS),
         (counts.render.candidates.0, MAX_ENTITY_RENDER_CANDIDATES),
+        (
+            counts.render.material_selections.0,
+            MAX_ENTITY_RENDER_CANDIDATES,
+        ),
         (counts.render.visibility.0, MAX_ENTITY_RENDER_VISIBILITY),
         (counts.render.geometries.0, MAX_ENTITY_RENDER_CANDIDATES),
         (counts.item_use_profiles.0, MAX_ITEM_VISUALS * 2),

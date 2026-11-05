@@ -168,12 +168,20 @@ impl WorldStream {
                 let now = Instant::now();
                 let preexpanded_dirty = applied.dirty;
                 let mut changed_sources = applied.changed.into_iter().collect::<BTreeSet<_>>();
-                changed_sources.extend(new_keys.difference(&old_keys).copied());
-                changed_sources.extend(old_keys.difference(&new_keys).copied());
+                let mut relight_sources = applied
+                    .block_changed
+                    .into_iter()
+                    .filter(|key| !light_neutral.contains(key))
+                    .collect::<BTreeSet<_>>();
+                // New or removed residency needs light initialization even with equal block inputs.
+                for changed in new_keys.symmetric_difference(&old_keys).copied() {
+                    changed_sources.insert(changed);
+                    relight_sources.insert(changed);
+                }
                 self.mark_inline_changed_sources(
                     changed_sources,
                     preexpanded_dirty,
-                    &light_neutral,
+                    &relight_sources,
                     now,
                 );
                 self.note_far_column_complete(key);
@@ -274,13 +282,33 @@ impl WorldStream {
                     return;
                 }
                 match decoded {
-                    Ok(nbt) => match self.authority.commit_block_entity_update(key, nbt) {
-                        Ok(true) => self.refresh_block_entity_visual(key),
-                        Ok(false) => {}
-                        Err(_) => {
-                            self.stats.decode_errors = self.stats.decode_errors.saturating_add(1);
+                    Ok(nbt) => {
+                        // The mesh draws an overlay host's block-state overlays, so a change to
+                        // its block entity, or a host's taking another one, remeshes the cell.
+                        let remesh = nbt.cell_overlays().is_some()
+                            || self
+                                .authority
+                                .terrain()
+                                .block_entity(key)
+                                .is_some_and(|previous| previous.cell_overlays().is_some());
+                        match self.authority.commit_block_entity_update(key, nbt) {
+                            Ok(true) => {
+                                self.refresh_block_entity_visual(key);
+                                if remesh {
+                                    self.mark_dirty_exact_with_priority(
+                                        key.sub_chunk(),
+                                        Instant::now(),
+                                        true,
+                                    );
+                                }
+                            }
+                            Ok(false) => {}
+                            Err(_) => {
+                                self.stats.decode_errors =
+                                    self.stats.decode_errors.saturating_add(1);
+                            }
                         }
-                    },
+                    }
                     Err(_) => self.stats.decode_errors = self.stats.decode_errors.saturating_add(1),
                 }
             }
@@ -480,6 +508,7 @@ impl WorldStream {
                     return;
                 }
                 self.chunk_radius = Some(radius.min(MAX_VIEW_RADIUS_CHUNKS));
+                self.reserve_connectivity_for_view();
                 self.reevaluate_chunk_retention();
             }
             WorldEvent::PublisherUpdate(update) => {
@@ -519,6 +548,7 @@ impl WorldStream {
                 self.publisher.provisional_rebase = false;
             }
             WorldEvent::OpenSign(event) => self.consume_open_sign(event),
+            WorldEvent::OpenCommandBlock(event) => self.authority.consume_open_command_block(event),
             WorldEvent::MapData(event) => self.consume_map_data(&event),
             WorldEvent::BlockEvent(event) => {
                 let sequence = sequence.expect("sequenced block events commit through submit");
@@ -561,8 +591,7 @@ impl WorldStream {
             WorldEvent::Respawn(respawn) => {
                 let sequence = sequence.expect("sequenced respawns commit through submit");
                 let resolved = if respawn.ready_to_spawn() {
-                    self.authority
-                        .push_committed_ui(CommittedUiEvent::LocalRespawnReady { sequence });
+                    self.authority.commit_local_respawn_ready(sequence);
                     let resolved = self.authority.resolve_position(sequence, respawn.position);
                     self.local_player_chunk = None;
                     self.provisionally_rebase_for_local_teleport(resolved.position);
@@ -605,15 +634,18 @@ impl WorldStream {
                     });
             }
             WorldEvent::PlayerMovementCorrection(correction) => {
-                // Vehicle rewind subjects have no local-player consumer yet;
-                // skipping here keeps them out of resolution, retention, and
-                // the correction-tick guard until riding rewind handling
-                // exists. The protocol record itself is retained upstream.
+                let sequence =
+                    sequence.expect("sequenced movement corrections commit through submit");
+                // A vehicle correction names the predicted vehicle's position, so it stays out
+                // of the player's position resolution, retention and correction-tick guard.
+                if correction.subject.is_vehicle() {
+                    self.authority
+                        .commit_vehicle_correction(sequence, correction);
+                    return;
+                }
                 if !correction.subject.is_player() {
                     return;
                 }
-                let sequence =
-                    sequence.expect("sequenced movement corrections commit through submit");
                 if !self
                     .authority
                     .accept_movement_correction_tick(correction.tick)

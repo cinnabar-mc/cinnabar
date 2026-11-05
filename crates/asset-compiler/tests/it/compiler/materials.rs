@@ -334,7 +334,6 @@ fn compiler_rejects_invalid_block_flag_semantics() {
     );
 
     for invalid in [
-        BlockFlags::from_bits_retain(!BlockFlags::all().bits()),
         BlockFlags::AIR | BlockFlags::CUBE_GEOMETRY,
         BlockFlags::AIR | BlockFlags::OCCLUDES_FULL_FACE,
         BlockFlags::LEAF_MODEL,

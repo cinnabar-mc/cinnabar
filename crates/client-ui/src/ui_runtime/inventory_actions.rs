@@ -8,7 +8,6 @@ use super::UiRuntime;
 use super::inventory_drag::PointerAction;
 use super::presentation::inventory_pointer::InventoryScreen;
 use super::presentation::screens::{BOOK_CELLS, GRID_CELLS, GRID_COLUMNS, LOOM_COLUMNS};
-use super::screen_state::creative_entries;
 use inventory::inventory_ledger::{
     CellGesture, CraftSink, CreativeDestination, DistributeMode, InventoryGestureError,
     InventoryTarget, PlayerInventoryLedger, ScreenCraft,
@@ -143,20 +142,11 @@ pub fn recipe_book_entries<'a>(
         }
         return entries;
     }
-    let shown: std::collections::HashSet<i32> = ledger
-        .creative_catalog()
-        .map(|catalog| {
-            creative_entries(
-                catalog,
-                runtime.creative_tab(player_runtime),
-                &state.search,
-                |item| item_name(ledger, runtime, item),
-            )
-            .iter()
-            .map(|item| item.stack.network_id)
-            .collect()
-        })
-        .unwrap_or_default();
+    // The retained creative filter answers the same tab and search without renaming every item.
+    let shown: std::collections::HashSet<i32> = visible_creative_entries(player_runtime, runtime)
+        .iter()
+        .map(|item| item.stack.network_id)
+        .collect();
     runtime
         .book_recipes(player_runtime, 0, usize::MAX)
         .into_iter()
@@ -279,7 +269,17 @@ impl UiRuntime {
         player_runtime: &mut player_state::PlayerState,
         action: PointerAction,
     ) {
-        let _ = match action {
+        let _ = self.try_pointer_action(player_runtime, action);
+    }
+
+    /// Runs one pointer action and returns the queued request id, or why the
+    /// ledger refused the gesture.
+    pub fn try_pointer_action(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        action: PointerAction,
+    ) -> Outcome {
+        match action {
             PointerAction::Click(hit) => {
                 let before = place_snapshot(player_runtime, hit);
                 let result = self.click_hit(player_runtime, hit);
@@ -315,8 +315,19 @@ impl UiRuntime {
                 self.screen_state_mut().pointer.distribution = None;
                 Ok(0)
             }
-            PointerAction::Gather => self.inventory_ledger_mut(player_runtime).begin_gather(),
-        };
+            PointerAction::Gather { hit, shift, focus } => {
+                let ledger = self.inventory_ledger_mut(player_runtime);
+                match hit {
+                    InventoryCellHit::Player(slot) if shift => ledger
+                        .begin_gather_to_storage_with_focus(InventoryTarget::Player(slot), focus),
+                    InventoryCellHit::Storage(slot) if shift => ledger
+                        .begin_gather_to_player_with_focus(InventoryTarget::Storage(slot), focus),
+                    InventoryCellHit::Craft(slot) if shift => ledger
+                        .begin_gather_to_player_with_focus(InventoryTarget::Craft(slot), focus),
+                    _ => ledger.begin_gather(),
+                }
+            }
+        }
     }
 
     /// Lets a drag that continues from a press-time placement rebalance it.
@@ -368,7 +379,7 @@ impl UiRuntime {
             }
             InventoryCellHit::CraftOutput => self.output_click(player_runtime, false),
             InventoryCellHit::Storage(slot) if self.crafter_slot_disables(player_runtime, slot) => {
-                self.set_crafter_slot(player_runtime, slot, true)
+                self.set_crafter_slot(player_runtime, slot as u8, true)
             }
             hit if self.bundle_insert_target(player_runtime, hit).is_some() => {
                 let target = self
@@ -388,7 +399,7 @@ impl UiRuntime {
 
     /// Whether a click on crafter slot `slot` disables it: an empty, enabled
     /// slot clicked with nothing held, as in vanilla's crafter screen.
-    fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u8) -> bool {
+    fn crafter_slot_disables(&self, player_runtime: &player_state::PlayerState, slot: u16) -> bool {
         let ledger = player_runtime.inventory.ledger();
         ledger.window_kind() == Some(WindowKind::Crafter)
             && slot < 9
@@ -396,7 +407,7 @@ impl UiRuntime {
             && ledger
                 .target_stack(InventoryTarget::Storage(slot))
                 .is_none()
-            && !self.screen_state().crafter.is_disabled(slot)
+            && !self.screen_state().crafter.is_disabled(slot as u8)
     }
 
     /// Shows crafter slot `slot` toggled at once and asks the server to follow.
@@ -437,12 +448,12 @@ impl UiRuntime {
         if let InventoryCellHit::RecipeBook(index) = hit {
             return self.recipe_book_click(player_runtime, index, false, Some(1));
         }
-        if let InventoryCellHit::Widget(widget @ Widget::BookRecipe(_)) = hit {
+        if let InventoryCellHit::Widget(Widget::BookRecipe(index)) = hit {
             // A secondary click crafts once only with an empty cursor.
             if player_runtime.inventory.ledger().cursor_stack().is_some() {
                 return Err(InventoryGestureError::InvalidRequest);
             }
-            return self.activate_widget(player_runtime, widget);
+            return self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftOnce);
         }
         let Some(target) = gesture_target(hit) else {
             return Err(InventoryGestureError::InvalidRequest);
@@ -553,7 +564,7 @@ impl UiRuntime {
                 self.recipe_book_click(player_runtime, index, true, None)
             }
             InventoryCellHit::Widget(Widget::BookRecipe(index)) => {
-                self.book_widget_craft(player_runtime, index, true)
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::CraftAll)
             }
             // Shift does not stop the close button closing the screen.
             InventoryCellHit::Widget(Widget::Close) => {
@@ -826,11 +837,17 @@ impl UiRuntime {
                         options.filtering = !options.filtering
                     });
                 }
+                self.inventory_ledger_mut(player_runtime)
+                    .clear_recipe_selection();
                 self.change_inventory_options(player_runtime, true, |controller| {
                     controller.options.filtering = !controller.options.filtering
                 })
             }
             Widget::InventoryRightTab(tab) => self.select_inventory_right_tab(player_runtime, tab),
+            Widget::StorageRadio { group, index } => {
+                self.screen_state_mut().storage_radios.insert(group, index);
+                Ok(0)
+            }
             Widget::FurnaceTab(tab) => {
                 let tab = protocol::FurnaceTab::from_index(i32::from(tab));
                 if matches!(
@@ -863,7 +880,9 @@ impl UiRuntime {
                 self.screen_state_mut().book_page = target;
                 Ok(0)
             }
-            Widget::BookRecipe(index) => self.book_widget_craft(player_runtime, index, false),
+            Widget::BookRecipe(index) => {
+                self.book_widget_craft(player_runtime, index, catalog::BookClick::Place)
+            }
             Widget::FurnaceClearRecipe => self
                 .inventory_ledger_mut(player_runtime)
                 .begin_clear_furnace_recipe(),

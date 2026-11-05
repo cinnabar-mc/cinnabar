@@ -526,7 +526,7 @@ fn loom_controls(source: &dyn ContainerSource, data: &mut DataSource) {
 /// Encodes the base, existing overlays and selected overlay in native UI order.
 fn banner_bindings(
     base: u8,
-    current: &[protocol::ItemBannerPattern],
+    current: &[render_api::BannerPattern],
     selected: Option<(&str, u8)>,
 ) -> (String, String) {
     let mut patterns = vec!["0".to_owned()];
@@ -668,6 +668,7 @@ mod banner_tests {
 
     static EXPANDED: BTreeSet<u32> = BTreeSet::new();
     static SCROLL: BTreeMap<String, f64> = BTreeMap::new();
+    static RADIOS: BTreeMap<u64, u16> = BTreeMap::new();
 
     /// Answers only what the loom bindings read.
     pub(super) struct LoomSource {
@@ -776,6 +777,7 @@ mod banner_tests {
                 creative_expanded: &EXPANDED,
                 search: "",
                 container_scroll: &SCROLL,
+                storage_radios: &RADIOS,
                 text_focused: false,
                 book: None,
             },
@@ -842,6 +844,7 @@ mod banner_tests {
                     .contains(assets::facts::ContainerRoles::BEACON_PAYMENT)
             );
             Some(IconRef {
+                color_mask: None,
                 page: u16::try_from(record.network_id).unwrap(),
                 uv: [0, 0, 16, 16],
                 glint: false,
@@ -913,7 +916,7 @@ mod banner_tests {
 
     #[test]
     fn loom_result_preserves_existing_layers_and_adds_the_selected_pattern() {
-        let current = [protocol::ItemBannerPattern {
+        let current = [render_api::BannerPattern {
             pattern: "bs".into(),
             color: 1,
         }];

@@ -12,9 +12,10 @@ use assets::{
     MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED,
     MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_KELP,
     MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION,
-    NO_MODEL_TEMPLATE, NetworkIdMode, RegistryRecord, RuntimeAssets, TextureArray, TextureMip,
-    TexturePage, TextureRef, VisualKind, encode_blob, read_registry,
+    MODEL_TEMPLATE_FLAG_TWISTING_VINE, MODEL_TEMPLATE_FLAG_WEEPING_VINE, Material, ModelFamily,
+    ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, NO_MODEL_TEMPLATE, NetworkIdMode,
+    RegistryRecord, RuntimeAssets, TextureArray, TextureMip, TexturePage, TextureRef, VisualKind,
+    encode_blob, read_registry,
 };
 use image::{ExtendedColorType, ImageEncoder, codecs::png::PngEncoder};
 use meshing::{
@@ -41,6 +42,8 @@ const KELP: u32 = 62;
 const MODEL_32: u32 = 63;
 const COMPOUND_40: u32 = 64;
 const MIXED_ALPHA_MODEL: u32 = 65;
+const WEEPING_VINE: u32 = 66;
+const TWISTING_VINE: u32 = 67;
 const MODEL_TEMPLATE_FLAG_COMPOUND_NEXT_TEST: u32 = 1 << 2;
 
 fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAssets, AssetError> {
@@ -266,6 +269,20 @@ fn runtime_assets() -> &'static RuntimeAssets {
             variant: 0,
             destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
         };
+        for (runtime_id, template) in [(WEEPING_VINE, 7), (TWISTING_VINE, 8)] {
+            visuals[runtime_id as usize] = BlockVisual {
+                native_material: assets::native_material::NativeMaterialFacts::Unresolved,
+                support: assets::VisualSupport::Exact,
+                faces: [1; 6],
+                flags: BlockFlags::empty(),
+                kind: VisualKind::Cross,
+                contributor_role: assets::ContributorRole::Primary,
+                model_template: template,
+                animation: NO_ANIMATION,
+                variant: 0,
+                destroy: assets::compiled::block_destroy::BlockDestroyFacts::Unresolved,
+            };
+        }
 
         let textures = TextureArray {
             layers: 1,
@@ -340,6 +357,16 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     quad_count: 2,
                     flags: 0,
                 },
+                ModelTemplate {
+                    quad_start: 82,
+                    quad_count: 4,
+                    flags: MODEL_TEMPLATE_FLAG_WEEPING_VINE,
+                },
+                ModelTemplate {
+                    quad_start: 86,
+                    quad_count: 4,
+                    flags: MODEL_TEMPLATE_FLAG_TWISTING_VINE,
+                },
             ]
             .into_boxed_slice(),
             model_quads: [
@@ -407,6 +434,15 @@ fn runtime_assets() -> &'static RuntimeAssets {
                     flags: MODEL_QUAD_FLAG_TWO_SIDED,
                 },
             ])
+            .chain(std::iter::repeat_n(
+                ModelQuad {
+                    positions: [[0, 0, 0], [256, 0, 256], [256, 256, 256], [0, 256, 0]],
+                    uvs: [[0, 4096], [4096, 4096], [4096, 0], [0, 0]],
+                    material: 1,
+                    flags: MODEL_QUAD_FLAG_TWO_SIDED,
+                },
+                8,
+            ))
             .collect::<Vec<_>>()
             .into_boxed_slice(),
             animations: Box::new([]),
@@ -610,6 +646,79 @@ fn kelp_body_selection_crosses_the_positive_y_subchunk_boundary() {
     );
     assert_eq!(mesh.model_refs().len(), 1);
     assert_eq!(mesh.model_refs()[0].words()[3], 0b1111);
+}
+
+/// Quad masks of the vine cells a mesh draws, ordered by rising height.
+fn vine_masks(block: u32, cells: &[[u8; 3]], neighbourhood: &Neighbourhood<'_>) -> Vec<u32> {
+    mesh(
+        &classifier(),
+        NetworkIdMode::Sequential,
+        neighbourhood,
+        &blocks(block, cells),
+    )
+    .model_refs()
+    .iter()
+    .map(|model| model.words()[3])
+    .collect()
+}
+
+#[test]
+fn weeping_vines_draw_stems_above_their_tip_and_only_continue_into_the_same_vine() {
+    const STEM: u32 = 0b0011;
+    const TIP: u32 = 0b1100;
+    assert_eq!(
+        vine_masks(WEEPING_VINE, &[[8, 8, 8]], &Neighbourhood::empty()),
+        [TIP]
+    );
+    assert_eq!(
+        vine_masks(
+            WEEPING_VINE,
+            &[[8, 8, 8], [8, 9, 8]],
+            &Neighbourhood::empty()
+        ),
+        [TIP, STEM]
+    );
+    let below = blocks(WEEPING_VINE, &[[8, 15, 8]]);
+    assert_eq!(
+        vine_masks(
+            WEEPING_VINE,
+            &[[8, 0, 8]],
+            &Neighbourhood::empty().with_negative_y(&below)
+        ),
+        [STEM]
+    );
+    let other_vine = blocks(TWISTING_VINE, &[[8, 15, 8]]);
+    assert_eq!(
+        vine_masks(
+            WEEPING_VINE,
+            &[[8, 0, 8]],
+            &Neighbourhood::empty().with_negative_y(&other_vine)
+        ),
+        [TIP]
+    );
+}
+
+#[test]
+fn twisting_vines_draw_stems_below_their_tip() {
+    const STEM: u32 = 0b0011;
+    const TIP: u32 = 0b1100;
+    assert_eq!(
+        vine_masks(
+            TWISTING_VINE,
+            &[[8, 8, 8], [8, 9, 8]],
+            &Neighbourhood::empty()
+        ),
+        [STEM, TIP]
+    );
+    let above = blocks(TWISTING_VINE, &[[8, 0, 8]]);
+    assert_eq!(
+        vine_masks(
+            TWISTING_VINE,
+            &[[8, 15, 8]],
+            &Neighbourhood::empty().with_positive_y(&above)
+        ),
+        [STEM]
+    );
 }
 
 #[test]

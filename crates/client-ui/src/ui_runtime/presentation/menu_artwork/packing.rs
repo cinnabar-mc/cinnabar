@@ -33,12 +33,8 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
         .iter()
         .filter_map(|source| {
             let key = source.key();
-            let art = cache.decoded.get(&key)?;
-            Some((
-                key.0,
-                art.as_ref(),
-                matches!(source, Source::Item(_, false)),
-            ))
+            let art = cache.get(&key)?;
+            Some((key.0, art, matches!(source, Source::Item(_, false))))
         })
         .collect();
     let decoded: Vec<(String, &Artwork, bool)> = title()
@@ -141,6 +137,7 @@ fn copy_image(page: &mut [u8], side: u32, [x, y]: [u32; 2], art: &Artwork, clamp
 
 fn icon(page: usize, [x, y]: [u32; 2], art: &Artwork) -> IconRef {
     IconRef {
+        color_mask: None,
         page: page as u16,
         uv: [
             x as u16,

@@ -57,16 +57,13 @@ fn partial_reads_keep_waiting_and_in_flight_versions() {
     let a = ColumnPos::new(0, 0);
     let b = ColumnPos::new(1, 0);
     let (mut cache, namespace) = reading(vec![(a, column(1, 10))]);
-    cache.dirty.insert(
+    cache.pending.insert(
         (namespace, RegionPos::of(a)),
-        DirtyRegion {
-            since: Instant::now(),
-            columns: BTreeMap::from([(a, column(4, 10)), (b, column(5, 10))]),
+        PendingRegion {
+            age: Some(BatchAge::Since(Instant::now())),
+            columns: BTreeMap::from([(a, column(6, 10)), (b, column(5, 10))]),
+            in_flight: true,
         },
-    );
-    cache.writing.insert(
-        (namespace, RegionPos::of(a)),
-        BTreeMap::from([(a, column(6, 10))]),
     );
     let now = Instant::now();
     cache.poll_budgeted(now, &mut SummaryBudget::new(1, 100));
@@ -86,20 +83,25 @@ fn partial_acknowledgements_keep_newer_writes() {
     let b = ColumnPos::new(1, 0);
     let (mut cache, namespace) = reading(Vec::new());
     let region = RegionPos::of(a);
-    cache.writing.insert(
+    cache.pending.insert(
         (namespace, region),
-        BTreeMap::from([(a, column(5, 10)), (b, column(7, 10))]),
+        PendingRegion {
+            age: Some(BatchAge::Since(Instant::now())),
+            columns: BTreeMap::from([(a, column(5, 10)), (b, column(7, 10))]),
+            in_flight: true,
+        },
     );
     cache.pending_event = Some(PendingEvent::Written {
         namespace,
+        region,
         columns: vec![(a, 5), (b, 6)].into_iter(),
     });
     let now = Instant::now();
     cache.poll_budgeted(now, &mut SummaryBudget::new(1, 100));
-    assert!(!cache.writing[&(namespace, region)].contains_key(&a));
+    assert!(!cache.pending[&(namespace, region)].columns.contains_key(&a));
     assert!(cache.pending_event.is_some());
     cache.poll_budgeted(now, &mut SummaryBudget::new(1, 100));
-    assert_eq!(cache.writing[&(namespace, region)][&b].version, 7);
+    assert_eq!(cache.pending[&(namespace, region)].columns[&b].version, 7);
 }
 
 /// A namespace switch rejects the remainder of an old read instead of mixing its columns.
@@ -129,7 +131,7 @@ fn empty_events_obey_the_event_limit() {
     );
     let disk = cache.disk.as_ref().unwrap();
     for x in 0..CACHE_EVENTS_PER_UPDATE + 10 {
-        disk.load(namespace, RegionPos { x: x as i32, z: 0 });
+        assert!(disk.write(namespace, RegionPos { x: x as i32, z: 0 }, Vec::new()));
     }
     disk.sync();
     cache.poll(Instant::now());

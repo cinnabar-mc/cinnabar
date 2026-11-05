@@ -19,7 +19,8 @@ use web_time::Instant;
 use assets::{Material, ModelTemplate, RuntimeAssets, TextureArray, TextureRef};
 #[cfg(test)]
 use bevy::prelude::{
-    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, TransformPlugin, UVec4, Vec3A,
+    Assets, Camera, Image, Mat3, MinimalPlugins, Mut, Quat, Shader, Transform, TransformPlugin,
+    UVec4, Vec3A,
 };
 use bevy::{
     asset::{AssetId, load_internal_asset},
@@ -38,7 +39,7 @@ use bevy::{
         App, BevyError, Camera3d, Changed, Color, Commands, Component, Entity, ExtractSchedule,
         FromWorld, GlobalTransform, Has, InheritedVisibility, Last, Local, Mat4, Msaa, ParamSet,
         Plugin, Query, RemovedComponents, Res, ResMut, Resource, Result, Schedule, SubApp,
-        SystemSet, Time, Transform, Update, Vec3, Visibility, With, World, default,
+        SystemSet, Time, Update, Vec3, Visibility, With, World, default,
     },
     render::{
         Render, RenderApp, RenderStartup, RenderSystems,
@@ -92,6 +93,7 @@ use {
     },
 };
 
+pub(crate) mod blocks;
 mod bounds;
 mod constants;
 mod draw;
@@ -105,19 +107,19 @@ pub(crate) use gpu_cull::app_tests::noop_render_plugin;
 pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
 
 pub(crate) mod pipeline;
-pub use pipeline::layouts::required_vertex_storage_buffers;
+pub use pipeline::layouts::{minimum_vertex_storage_buffers, required_vertex_storage_buffers};
 mod coverage;
 pub(crate) mod plugin;
 mod presentation;
 #[cfg(feature = "publication-test-support")]
 mod publication_test_support;
 mod queue;
-#[cfg(feature = "shaderpacks")]
 pub(crate) mod shaderpack_sources;
 pub(crate) use coverage::TerrainCoverage;
 
 use render_scene::chunk::texture_reload::ChunkTextureReload;
 pub(crate) mod transparent;
+mod visibility;
 
 use constants::{
     BIOME_TINT_SHADER_HANDLE, BIOME_WORD_BYTES, CHUNK_BINDINGS_SHADER_HANDLE, CHUNK_ORIGIN_BYTES,
@@ -129,15 +131,15 @@ use constants::{
 };
 #[allow(unused_imports)]
 use gpu::arena::{
-    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreshChunkRanges, GPU_UPDATE_OVERDUE_FRAMES,
-    GPU_UPDATE_STARVED_FRAMES, GpuUpdateCandidate, GpuUpdateFairness,
+    ArenaLimits, ChunkGpuArena, ChunkGpuUploadStats, FreeRanges, FreshChunkRanges,
+    GPU_UPDATE_OVERDUE_FRAMES, GPU_UPDATE_STARVED_FRAMES, GpuUpdateCandidate, GpuUpdateFairness,
     MAX_GPU_UPDATE_FAIRNESS_ENTRIES, allocate_aligned_quad_range,
     allocate_aligned_range_for_update, allocate_origin, allocate_quad_range,
     allocate_range_for_update, arena_limits_from_device_limits, checked_geometry_range,
     chunk_tint_identity_is_active, commit_fresh_chunk_ranges, create_indirect_buffer,
-    create_storage_buffer, init_chunk_gpu_arena, insert_free_quad_range, plan_fresh_chunk_ranges,
-    plan_gpu_chunk_updates, plan_origin_allocation, release_completed_transparent_retirements,
-    release_origin, release_quad_range, take_free_quad_range,
+    create_storage_buffer, init_chunk_gpu_arena, plan_fresh_chunk_ranges, plan_gpu_chunk_updates,
+    plan_origin_allocation, release_completed_transparent_retirements, release_origin,
+    release_quad_range,
 };
 pub use gpu::bind_groups::ChunkTextureUploadStats;
 #[allow(unused_imports)]
@@ -164,12 +166,12 @@ use gpu::types::{
     ArenaAllocation, ChunkDepthLiquidIndirectBatches, ChunkDrawMode, ChunkIndirectBatch,
     ChunkIndirectBatches, ChunkModelIndirectBatches, GpuChunkAllocation, GpuChunkOrigin,
     LEGACY_FIXED_MODEL_QUADS_PER_REF, MODEL_INDEX_COUNT, QueueFrameProbeParams,
-    RetiredArenaAllocation, StreamAddresses, apple_gpu, apple_gpu_identity, cube_draw_base,
+    RetiredArenaAllocation, StreamAddresses, apple_gpu_identity, cube_draw_base,
     cube_lighting_record_address, cube_stream_addresses_valid, cube_stream_drawable,
     cutout_indirect_command, depth_liquid_direct_draw_command, depth_liquid_draw_command,
-    depth_liquid_mdi_draw_command, diagnostic_draw_mode, direct_stream_addresses,
-    extracted_camera_identity, gpu_chunk_origin, mdi_stream_addresses, metadata_base_vertex,
-    model_direct_draw_command, model_draw_command, model_mdi_draw_command,
+    depth_liquid_mdi_draw_command, diagnostic_draw_mode, direct_draws_required,
+    direct_stream_addresses, extracted_camera_identity, gpu_chunk_origin, mdi_stream_addresses,
+    metadata_base_vertex, model_direct_draw_command, model_draw_command, model_mdi_draw_command,
     model_ref_count_for_witness, opaque_allocation_is_drawable, select_chunk_draw_mode,
     shared_stream_ranges_disjoint, solid_indirect_commands, stamp_liquid_metadata_index,
     summarize_model_workload, transparent_liquid_direct_draw_command,
@@ -234,10 +236,11 @@ use transparent::face_metric::{FaceOrderCamera, FaceOrderClass, TransparentFaceM
 #[allow(unused_imports)]
 use transparent::model::{
     TransparentModelAddressIdentity, TransparentModelAllocationIdentity,
-    TransparentModelCandidateCache, TransparentModelSortBatch, TransparentModelSortCandidate,
-    TransparentModelSortKey, TransparentModelSortRuntime, TransparentModelSortWork,
-    TransparentModelStagedSort, TransparentModelWorkerResult, TransparentUploadBudget,
-    clear_active_transparent_metrics, fail_closed_transparent_sort_key_error,
+    TransparentModelCandidateCache, TransparentModelResidentChanges, TransparentModelSortBatch,
+    TransparentModelSortCandidate, TransparentModelSortKey, TransparentModelSortRuntime,
+    TransparentModelSortWork, TransparentModelStagedSort, TransparentModelWorkerResult,
+    TransparentUploadBudget, clear_active_transparent_metrics,
+    fail_closed_transparent_sort_key_error, has_transparent_model_streams,
     prepare_transparent_model_sorts, sort_transparent_model_candidates,
     spawn_transparent_model_sort, take_transparent_model_upload_batches,
     transparent_model_draw_candidate, transparent_model_phase_distance,
@@ -273,7 +276,11 @@ use transparent::sort::{
     transparent_indirect_args, transparent_liquid_phase_groups, transparent_ref_buffer,
     transparent_ref_offset, transparent_snapshot_addresses_are_resident, view_displaces_water,
 };
-use transparent::visible_order::{VisibleWater, VisibleWaterOrder, each_visible_key};
+#[allow(unused_imports)]
+use transparent::visible_order::{
+    ViewVisibility, VisibleModel, VisibleTransparentChunks, VisibleWater, each_visible_key,
+    install_visible_transparent_tracking, track_visible_transparent_chunks,
+};
 #[cfg(test)]
 mod tests;
 

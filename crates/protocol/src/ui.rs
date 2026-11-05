@@ -1,18 +1,19 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     BossBarColor, BossBarOverlay, BossEventUpdateType, PlayStatusType, SoftEnumUpdateType,
     TextPacketType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     BossEvent as BossEventPacket, CommandOutput, CommandRequest, LevelEvent, PlayStatus,
     RemoveObjective, SetDisplayObjective, SetHealth, SetScore, Text, ToastRequest, UpdateSoftEnum,
 };
-use bedrock_protocol_1_26_51::types::{CommandOriginData, SetScoreInfoItem, TextData};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::types::{CommandOriginData, SetScoreInfoItem, TextData};
+use bedrock_protocol_1_26_60::wire;
 use thiserror::Error;
 
 mod commands;
+pub mod ddui;
 mod death;
 mod forms;
 mod text;
@@ -20,9 +21,11 @@ pub(crate) mod validation;
 
 pub(crate) use commands::normalize_available_commands;
 pub use commands::{
-    ChatAutocompleteCatalog, ChatAutocompleteCatalogError, ChatAutocompleteCompletion,
-    CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent, CompletionContext,
+    ALL_PLAYERS_MENTION, ChatAutocompleteCatalog, ChatAutocompleteCatalogError,
+    ChatAutocompleteCompletion, CommandParam, CommandParamKind, CommandSpec, CommandTreeEvent,
+    CompletionContext, quote_chat_player_name,
 };
+pub(crate) use ddui::{normalize_close_screen, normalize_data_store, normalize_show_screen};
 pub(crate) use death::normalize_death_info;
 pub use death::{DeathInfoEvent, DeathRules};
 
@@ -188,6 +191,8 @@ pub enum UiEvent {
     },
     /// The world's sleep status (LevelEventGeneric `SleepingPlayers`).
     SleepStatus(SleepStatusEvent),
+    /// A data-driven UI screen or data store packet.
+    DataDrivenUi(ddui::DataDrivenUiEvent),
 }
 
 /// The `SleepingPlayers` level event's NetworkLittleEndian NBT compound
@@ -522,20 +527,20 @@ pub(crate) fn normalize_health(packet: SetHealth) -> UiEvent {
 pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiPacketError> {
     // Map the reserved edition-mismatch statuses to one neutral local state.
     let status = match packet.status {
-        PlayStatusType::Loginsuccess => PlayerStatus::LoginSuccess,
-        PlayStatusType::LoginfailedClientold => PlayerStatus::FailedClient,
-        PlayStatusType::LoginfailedServerold => PlayerStatus::FailedSpawn,
-        PlayStatusType::Playerspawn => PlayerStatus::PlayerSpawn,
-        PlayStatusType::LoginfailedInvalidtenant
-        | PlayStatusType::LoginfailedEditionmismatchedutovanilla
-        | PlayStatusType::LoginfailedEditionmismatchvanillatoedu => {
+        PlayStatusType::LoginSuccess => PlayerStatus::LoginSuccess,
+        PlayStatusType::LoginFailedClientOld => PlayerStatus::FailedClient,
+        PlayStatusType::LoginFailedServerOld => PlayerStatus::FailedSpawn,
+        PlayStatusType::PlayerSpawn => PlayerStatus::PlayerSpawn,
+        PlayStatusType::LoginFailedInvalidTenant
+        | PlayStatusType::LoginFailedEditionMismatchEduToVanilla
+        | PlayStatusType::LoginFailedEditionMismatchVanillaToEdu => {
             PlayerStatus::UnsupportedEdition
         }
-        PlayStatusType::LoginfailedServerfullsubclient => PlayerStatus::FailedServerFull,
-        PlayStatusType::LoginfailedEditormismatcheditortovanilla => {
+        PlayStatusType::LoginFailedServerFullSubClient => PlayerStatus::FailedServerFull,
+        PlayStatusType::LoginFailedEditorMismatchEditorToVanilla => {
             PlayerStatus::FailedEditorVanillaMismatch
         }
-        PlayStatusType::LoginfailedEditormismatchvanillatoeditor => {
+        PlayStatusType::LoginFailedEditorMismatchVanillaToEditor => {
             PlayerStatus::FailedVanillaEditorMismatch
         }
         PlayStatusType::Unknown(value) => {
@@ -551,11 +556,20 @@ pub(crate) fn normalize_player_status(packet: PlayStatus) -> Result<UiEvent, UiP
 pub(crate) fn normalize_display_objective(
     packet: SetDisplayObjective,
 ) -> Result<UiEvent, UiPacketError> {
+    let objective_name = bounded_text(packet.objective_name)?;
+    let (display_name, criteria_name) = if objective_name.is_empty() {
+        (Arc::from(""), Arc::from(""))
+    } else {
+        (
+            bounded_text(packet.objective_display_name)?,
+            bounded_text(packet.criteria_name)?,
+        )
+    };
     Ok(UiEvent::Objective(ObjectiveEvent::Display {
         display_slot: bounded_text(packet.display_slot_name)?,
-        objective_name: bounded_text(packet.objective_name)?,
-        display_name: bounded_text(packet.objective_display_name)?,
-        criteria_name: bounded_text(packet.criteria_name)?,
+        objective_name,
+        display_name,
+        criteria_name,
         sort_order: packet.sort_order.0,
     }))
 }
@@ -678,9 +692,9 @@ pub(crate) fn normalize_boss(packet: BossEventPacket) -> Result<UiEvent, UiPacke
     // is value 7, the one gophertunnel calls `BossEventTexture`.
     let action = match packet.event_type {
         BossEventUpdateType::Add => BossAction::Show,
-        BossEventUpdateType::Playeradded => BossAction::RegisterPlayer,
+        BossEventUpdateType::PlayerAdded => BossAction::RegisterPlayer,
         BossEventUpdateType::Remove => BossAction::Hide,
-        BossEventUpdateType::Playerremoved => BossAction::UnregisterPlayer,
+        BossEventUpdateType::PlayerRemoved => BossAction::UnregisterPlayer,
         BossEventUpdateType::UpdatePercent => BossAction::SetProgress,
         BossEventUpdateType::UpdateName => BossAction::SetTitle,
         BossEventUpdateType::UpdateProperties => BossAction::UpdateProperties,

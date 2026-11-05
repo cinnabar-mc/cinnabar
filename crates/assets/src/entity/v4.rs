@@ -46,10 +46,10 @@ mod render;
 use render::validate_render_payload;
 pub use render::{
     ENTITY_ALPHA_TEST_THRESHOLD, EntityRenderCandidate, EntityRenderData, EntityRenderGeometry,
-    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialState, EntityRenderSlot,
-    EntityRenderVisibility, MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS,
-    MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY,
-    entity_render_pattern_matches,
+    EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
+    EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility,
+    MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
+    MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, entity_render_pattern_matches,
 };
 #[path = "v4/rig.rs"]
 mod rig;
@@ -267,6 +267,40 @@ pub struct EntityRigBinding {
     /// Optional main-hand item scale expression; omitted descriptions retain unit scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_item_scale: Option<u32>,
+    /// Optional held-item visibility expression, evaluated in the actor render context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide_held_items: Option<u32>,
+}
+
+impl EntityRigBinding {
+    /// Every description expression reference, with exhaustive field classification.
+    fn expressions(self) -> impl Iterator<Item = u32> {
+        let Self {
+            placement_frame: _,
+            entity_symbol: _,
+            render_controller: _,
+            first_geometry: _,
+            geometry_count: _,
+            fallback: _,
+            scale: _,
+            initialize,
+            pre_animation,
+            item_condition,
+            scale_expressions,
+            held_item_scale,
+            hide_held_items,
+        } = self;
+        [
+            initialize,
+            pre_animation,
+            item_condition,
+            held_item_scale,
+            hide_held_items,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(scale_expressions.into_iter().flatten())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -523,7 +557,7 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
     let durability_hash: [u8; 32] =
         Sha256::digest(crate::item::durability::ITEM_DURABILITY_SOURCE_BYTES).into();
     let facts_hash: [u8; 32] = Sha256::digest(crate::item::armour::ITEM_ARMOUR_SOURCE_BYTES).into();
-    let retail = include_str!("../../../protocol/data/retail_items_1_26_50.tsv")
+    let retail = include_str!("../../../protocol/data/retail_items_1_26_60.tsv")
         .lines()
         .filter_map(|line| line.split('\t').nth(1))
         .collect::<std::collections::BTreeSet<_>>();
@@ -612,6 +646,15 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
                     "compiled item facts source requires a missing retail visual",
                 ));
             }
+        } else if defining_path.as_ref() == crate::item::names::SOURCE_PATH {
+            if visual.key.metadata != 0
+                || crate::item::names::serialization_ids(&visual.key.identifier).is_none()
+                || visual.route != ItemVisualDefinitionRoute::Missing
+            {
+                return Err(invalid(
+                    "item registry source requires a missing registry visual",
+                ));
+            }
         } else if !valid_item_definition_source(defining_path) {
             return Err(invalid("item visual defining source is not reviewed"));
         }
@@ -628,8 +671,13 @@ pub(super) fn validate_extended_payload(compiled: &CompiledEntityAssets) -> Resu
 const LEGACY_ICON_ROUTES_PATH: &str = "registry/legacy-icon-routes-26.30.tsv";
 const LEGACY_ICON_ROUTES: &[u8] = include_bytes!("../../data/legacy-icon-routes-26.30.tsv");
 
-/// Whether the embedded legacy table lists `(identifier, metadata)`.
+/// Whether the embedded legacy table lists `(identifier, metadata)`, or it is a tipped arrow.
 fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
+    if identifier == crate::facts::ARROW_IDENTIFIER
+        && (1..=crate::potion::MAX_TIPPED_ARROW_AUXILIARY).contains(&metadata)
+    {
+        return true;
+    }
     std::str::from_utf8(LEGACY_ICON_ROUTES)
         .into_iter()
         .flat_map(str::lines)
@@ -640,9 +688,9 @@ fn legacy_icon_route_listed(identifier: &str, metadata: u32) -> bool {
         .any(|row| row == (identifier, metadata))
 }
 
-const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.50.json";
+const DEFAULT_SPRITE_BINDINGS_PATH: &str = "registry/default-sprite-bindings-1.26.60.json";
 const DEFAULT_SPRITE_BINDINGS: &[u8] =
-    include_bytes!("../../data/default-sprite-bindings-1.26.50.json");
+    include_bytes!("../../data/default-sprite-bindings-1.26.60.json");
 
 #[derive(Deserialize)]
 struct DefaultSpriteBindings {
@@ -657,11 +705,13 @@ struct DefaultSpriteBinding {
 fn valid_item_definition_source(path: &str) -> bool {
     (path.starts_with("entity/") && path.ends_with(".json"))
         || path == "textures/item_texture.json"
-        || path == "registry/block-item-routes-v2193.json"
+        || path == "registry/block-item-routes-v2225.json"
 }
 
 fn valid_item_raster_source(path: &str) -> bool {
-    (path.starts_with("textures/items/") || path.starts_with("textures/entity/"))
+    (path.starts_with("textures/items/")
+        || path.starts_with("textures/entity/")
+        || path.starts_with("textures/blocks/"))
         && (path.ends_with(".png") || path.ends_with(".tga"))
 }
 

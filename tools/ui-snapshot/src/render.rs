@@ -1,6 +1,8 @@
 //! Production screen painting into the JSON-UI editor's existing CPU target.
 
 mod backup_font;
+#[cfg(feature = "test-support")]
+mod bedrock_hotbar;
 mod character;
 #[cfg(feature = "test-support")]
 mod control_locked;
@@ -8,10 +10,12 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+mod crosshair_coverage;
+#[cfg(feature = "test-support")]
+mod data_driven;
 mod edit_selection;
 #[cfg(feature = "test-support")]
 mod form_overlap;
-mod hud_editor;
 #[cfg(feature = "test-support")]
 mod menu_keyboard;
 mod panorama;
@@ -20,6 +24,10 @@ mod saturation_overlap;
 mod settings_draft;
 mod sprite_outline;
 mod tiled_image;
+#[cfg(feature = "test-support")]
+mod touch_editor;
+#[cfg(feature = "test-support")]
+mod touch_utilities;
 
 use std::{
     collections::HashMap,
@@ -30,7 +38,7 @@ use std::{
 use image::ImageEncoder;
 use jsonui_editor::raster::{Canvas, Page};
 use oreui::menu_screen::{MenuGeometry, MenuInput};
-use ui::{DpiScale, SafeArea, TextLayoutCache, UiScale, UiTree};
+use ui::{DpiScale, SafeArea, TextLayoutCache, UiNode, UiNodeId, UiScale, UiTree, UiVisual};
 use ui_engine::{
     engine::{
         FormEngine,
@@ -77,12 +85,17 @@ impl RemoteSource for Offline {
 /// Paints a named state at fixed times and encodes deterministic RGBA PNG bytes.
 #[cfg(test)]
 pub fn png(state: &State, dir: &Path) -> Result<Vec<u8>, Error> {
-    png_at(state, dir, CAPTURE_SECONDS)
+    png_at(state, dir, CAPTURE_SECONDS, None)
 }
 
 /// Samples caller-owned UI and cosmetic animation time without reading the clock.
-pub fn png_at(state: &State, dir: &Path, seconds: f64) -> Result<Vec<u8>, Error> {
-    png_fixture(state, (state.fixture)(), dir, seconds, None)
+pub fn png_at(
+    state: &State,
+    dir: &Path,
+    seconds: f64,
+    resource_pack: Option<&Path>,
+) -> Result<Vec<u8>, Error> {
+    png_fixture(state, (state.fixture)(), dir, seconds, resource_pack)
 }
 
 /// Renders an authored panel at an explicit animation sample without creating a window.
@@ -118,6 +131,9 @@ fn png_fixture(
     seconds: f64,
     resource_pack: Option<&Path>,
 ) -> Result<Vec<u8>, Error> {
+    if let Fixture::CrosshairCoverage { fixed } = &fixture {
+        return crosshair_coverage::png(state.size, *fixed, resource_pack);
+    }
     if let Fixture::MaskRegression = &fixture {
         return saturation_overlap::regression_png(state.size);
     }
@@ -139,8 +155,16 @@ fn png_fixture(
         return cosmetic_particles::png(state.size, *view, seconds, *emitting);
     }
     #[cfg(feature = "test-support")]
+    if let Fixture::FormHandoff { retained } = &fixture {
+        return form_overlap::handoff_png(state, dir, *retained);
+    }
+    #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::FormOverlap) {
         return form_overlap::png(state, dir);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::DataDriven(screen) = &fixture {
+        return data_driven::png(state, dir, *screen);
     }
     #[cfg(feature = "test-support")]
     if matches!(&fixture, Fixture::SettingsDraft) {
@@ -150,13 +174,30 @@ fn png_fixture(
     if matches!(&fixture, Fixture::MenuKeyboard) {
         return menu_keyboard::png(state, dir);
     }
-    let menu = matches!(&fixture, Fixture::Menu(_) | Fixture::Loading(_));
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchEditor { phase } = &fixture {
+        return touch_editor::png(state, dir, *phase, seconds);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::TouchUtilities(view) = &fixture {
+        return touch_utilities::png(state, dir, *view);
+    }
+    #[cfg(feature = "test-support")]
+    if let Fixture::BedrockHotbar { raised } = &fixture {
+        return bedrock_hotbar::png(state, dir, *raised);
+    }
+    let menu = matches!(
+        &fixture,
+        Fixture::Menu(_) | Fixture::Loading(_) | Fixture::ResourcePackLoading
+    );
     let show_panorama = match &fixture {
         Fixture::Menu(view) => view.out_of_game(),
         Fixture::Loading(stage) => stage.is_world_entry(),
+        Fixture::ResourcePackLoading => false,
         Fixture::Chat { .. }
-        | Fixture::TabList(_)
+        | Fixture::TabList(..)
         | Fixture::EditSelection
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::SpriteOutline { .. }
@@ -164,11 +205,16 @@ fn png_fixture(
         | Fixture::BackupFont
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(..)
-        | Fixture::HudEditor { .. } => false,
+        | Fixture::HudSurface(..) => false,
         #[cfg(feature = "test-support")]
-        Fixture::CraftOverlap { .. }
+        Fixture::TouchEditor { .. }
+        | Fixture::TouchUtilities(..)
+        | Fixture::BedrockHotbar { .. }
+        | Fixture::CraftOverlap { .. }
         | Fixture::CursorDurability
         | Fixture::FormOverlap
+        | Fixture::FormHandoff { .. }
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
         | Fixture::ControlLocked
@@ -212,6 +258,7 @@ fn png_fixture(
             backup_font::paint(&engine, &mut frame)?;
         }
         Fixture::SpriteOutline { .. }
+        | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
         | Fixture::SaturationOverlap { .. }
         | Fixture::TiledImage { .. } => {
@@ -220,8 +267,11 @@ fn png_fixture(
         #[cfg(feature = "test-support")]
         Fixture::CosmeticParticles { .. }
         | Fixture::FormOverlap
+        | Fixture::FormHandoff { .. }
+        | Fixture::DataDriven(_)
         | Fixture::SettingsDraft
         | Fixture::MenuKeyboard
+        | Fixture::BedrockHotbar { .. }
         | Fixture::ControlLocked => {
             unreachable!("specialized capture returned above")
         }
@@ -266,9 +316,30 @@ fn png_fixture(
             .map_err(|error| error.to_string())?;
             add_server_pages(&mut engine, &mut carriers.pages);
         }
-        Fixture::HudEditor { hud, edited } => {
+        #[cfg(feature = "test-support")]
+        Fixture::TouchEditor { .. } | Fixture::TouchUtilities(..) => {
+            unreachable!("touch editor uses the complete presentation path")
+        }
+        Fixture::HudSurface(surface) => {
             let mut engine = json_engine(&carriers)?;
-            hud_editor::paint(&engine, &mut frame, &hud, edited)?;
+            let surface = Arc::new(*surface);
+            let mut ui = mod_ui::ModUi::default();
+            ui.set_hud_surfaces(std::iter::once(mod_ui::PublishedHudSurface {
+                owner: mod_ui::PanelUiOwner::Environment(0),
+                revision: 1,
+                surface: &surface,
+                authority: Default::default(),
+            }));
+            // The first paint lays out the root the projection then measures against.
+            for _ in 0..2 {
+                frame.nodes.clear();
+                *frame.next = 1;
+                ui.paint_hud_surfaces(Some(&engine), &mut frame, &|_, _| None);
+                ui.set_hud_projection(
+                    Some(crate::fixtures::hud_surface::camera(size[0] / size[1])),
+                    &|_| None,
+                );
+            }
             add_server_pages(&mut engine, &mut carriers.pages);
         }
         Fixture::ModPanel(panel, hud, identity) => {
@@ -293,10 +364,14 @@ fn png_fixture(
                     .set_local_player_head(Some(&portrait));
                 ui.set_local_player_panel_identity(name, true);
             }
-            if let Some(hud) = &hud {
-                ui.set_mod_hud_sources(
-                    [(mod_ui::PanelUiOwner::Environment(0), 1, hud.as_ref())].into_iter(),
-                )?;
+            if let Some(hud) = hud {
+                let hud = Arc::new(*hud);
+                ui.set_hud_surfaces(std::iter::once(mod_ui::PublishedHudSurface {
+                    owner: mod_ui::PanelUiOwner::Environment(0),
+                    revision: 1,
+                    surface: &hud,
+                    authority: Default::default(),
+                }));
             }
             ui.set_mod_panel(mod_ui::PanelUiOwner::Environment(0), Some(&panel))?;
             ui.set_mod_panel_open(true);
@@ -326,6 +401,7 @@ fn png_fixture(
                     (
                         key.clone(),
                         ui::IconRef {
+                            color_mask: None,
                             page: first + sprite.page,
                             uv: sprite.bounds,
                             glint: false,
@@ -343,6 +419,7 @@ fn png_fixture(
                 .map_err(|error| Error::Invalid(format!("embedded title artwork: {error}")))?
                 .into_rgba8();
             let title_artwork = ui::IconRef {
+                color_mask: None,
                 page: carriers.pages.len() as u16,
                 uv: [0, 0, logo.width() as u16, logo.height() as u16],
                 glint: false,
@@ -425,15 +502,16 @@ fn png_fixture(
                 }
             }
         }
-        Fixture::TabList(rows) => {
+        Fixture::TabList(rows, header) => {
             carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
+            list.set_header(header);
             for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
-                list.paint(&engine, &rows, &mut frame)
+                list.paint(&engine, &rows, &mut frame, 0. ..state.size[1] as f32)
                     .map_err(|error| error.to_string())?;
             }
             add_server_pages(&mut engine, &mut carriers.pages);
@@ -470,12 +548,53 @@ fn png_fixture(
                 )
                 .map_err(|error| error.to_string())?;
         }
+        Fixture::ResourcePackLoading => {
+            carriers::validate_oreui(dir)?;
+            let images = oreui::images::load_optional_oreui_images(dir)
+                .ok_or_else(|| Error::Invalid("OreUI artwork is unusable; make assets".into()))?;
+            let first = carriers.pages.len() as u16;
+            let artwork = HashMap::new();
+            carriers.pages.extend(images.pages.iter().map(|page| Page {
+                repeat_content: None,
+                width: page.dimensions[0],
+                height: page.dimensions[1],
+                rgba: Arc::clone(&page.pixels),
+            }));
+            let mut screen = oreui_screen(first, images);
+            let viewport = ui_engine::engine::rect(0.0, 0.0, size[0], size[1])
+                .map_err(|error| error.to_string())?;
+            frame.nodes.push(
+                UiNode::new(UiNodeId::new(*frame.next), None, viewport).with_visual(
+                    UiVisual::Solid {
+                        texture_page: frame.solid_page,
+                        color: oreui::loading_screen::RESOURCE_PACK_BACKGROUND,
+                    },
+                ),
+            );
+            *frame.next = (*frame.next).saturating_add(1);
+            frame.now = seconds;
+            screen
+                .paint_loading(
+                    oreui::loading_screen::LoadingInput {
+                        stage: ui::LoadingStage::BuildingTerrain,
+                        words: oreui::loading_screen::RESOURCE_PACK_WORDS,
+                        size,
+                        title_artwork: None,
+                        destination_icon: None,
+                        artwork: &artwork,
+                        dimension: 0,
+                    },
+                    &mut frame,
+                )
+                .map_err(|error| error.to_string())?;
+        }
         Fixture::Chat {
             draft,
             suggestions,
-            messages,
+            mut messages,
             options,
             server_hover,
+            receive_while_scrolled,
         } => {
             let mut engine = json_engine(&carriers)?;
             #[cfg(feature = "test-support")]
@@ -489,7 +608,7 @@ fn png_fixture(
             frame.now = seconds;
             let mut screen = ChatScreen::default();
             screen.settings.set_snapshot((options, None));
-            for now in [0.0, seconds, seconds] {
+            for (step, now) in [0.0, seconds, seconds].into_iter().enumerate() {
                 frame.nodes.clear();
                 *frame.next = 1;
                 frame.now = now;
@@ -497,8 +616,10 @@ fn png_fixture(
                     .paint(
                         &engine,
                         ChatInput {
+                            local_player: "Alex",
                             editor: &editor,
                             messages: &messages,
+                            first_message_id: 1,
                             suggestions: &suggestions,
                             usage: None,
                             selected_suggestion: Some(0),
@@ -509,6 +630,20 @@ fn png_fixture(
                         &mut frame,
                     )
                     .map_err(|error| error.to_string())?;
+                if receive_while_scrolled {
+                    if step == 0 {
+                        screen.scroll(120.0, true);
+                    } else if step == 1 {
+                        messages.push_back(ui::ChatMessage {
+                            fifo_sequence: messages.back().map_or(1, |row| row.fifo_sequence + 1),
+                            received_millis: 0,
+                            kind: ui::ChatMessageKind::System,
+                            source: None,
+                            message: "NEW incoming message: this longer row wraps while the reader is looking at older messages.".into(),
+                            parameters: Arc::from([]),
+                        });
+                    }
+                }
                 if server_hover == Some(true)
                     && let Some(caption) = screen.nodes().iter().find(|node| node.name == "caption")
                 {
@@ -609,11 +744,8 @@ fn panel_textures(
     panel: &ui::mod_panel::Panel,
     root: &Path,
 ) -> Result<Vec<(String, Vec<u8>)>, Error> {
-    let Some(surface) = &panel.surface else {
-        return Ok(Vec::new());
-    };
-    let document: serde_json::Value =
-        serde_json::from_str(&surface.resolved_document()?).map_err(|error| error.to_string())?;
+    let document: serde_json::Value = serde_json::from_str(&panel.surface.resolved_document()?)
+        .map_err(|error| error.to_string())?;
     let mut paths = std::collections::BTreeSet::new();
     collect_textures(&document, &mut paths);
     let mut files = Vec::new();
@@ -718,6 +850,7 @@ fn mod_icons(
         artwork.insert(
             key,
             ui::IconRef {
+                color_mask: None,
                 page,
                 uv: [0, 0, width as u16, height as u16],
                 glint: false,
@@ -755,6 +888,7 @@ fn cosmetic_icons(artwork: &mut HashMap<String, ui::IconRef>, pages: &mut Vec<Pa
         artwork.insert(
             item.thumbnail_key(),
             ui::IconRef {
+                color_mask: None,
                 page: pages.len() as u16,
                 uv: [0, 0, image.width as u16, image.height as u16],
                 glint: false,

@@ -172,10 +172,11 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         handedness: Some(ActorHandedness::Right),
     };
     runtime.retain_local_selected_equipment(&mut player_runtime, 1, held.clone());
-    runtime.retain_local_selected_equipment(
+    set_offhand(
+        &mut runtime,
         &mut player_runtime,
         2,
-        equipment(1, NetworkItemStack::empty()),
+        NetworkItemStack::empty(),
     );
     let mut presentation = UiPresentationRuntime::with_hud(fixture_font(), fixture_hud()).unwrap();
     presentation.set_player_preview_skin(Some(&vec![255; 64 * 64 * 4]), Default::default());
@@ -183,7 +184,10 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        world.stream.as_ref(),
+        world
+            .stream
+            .as_ref()
+            .map(|stream| stream.authority().inventory_ui()),
         client_presentation::camera::CameraSettingsAuthority::default().perspective(),
         0,
     );
@@ -205,7 +209,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut app = App::new();
     let mut movement = client_interaction::movement::MovementTicker::default();
     let mut physics = client_interaction::movement::LocalPhysicsController::default();
-    gameplay::movement::reset_start_game_prediction(&mut movement, &mut physics, 1, [0., 64., 0.]);
+    gameplay::movement::bootstrap::reset_start_game_prediction(
+        &mut movement,
+        &mut physics,
+        1,
+        [0., 64., 0.],
+    );
     movement.set_source(gameplay::movement::MovementSource::Physics);
     let mut avatar = client_presentation::local_player::LocalAvatarPresentation::default();
     let mut view = client_presentation::local_player::LocalViewPose::default();
@@ -296,12 +305,12 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
     let mut weather = client_presentation::environment::WeatherState::default();
     client_presentation::environment::bind_session_generation(&mut clock, &mut weather, 1);
     let breg = assets::pinned_block_registry_bytes();
-    let records = assets::read_registry_for_protocol(breg, 2193).unwrap();
+    let records = assets::read_registry_for_protocol(breg, 2225).unwrap();
     let collisions = client_interaction::movement::PhysicsCollisionRegistries::from_assets(
         breg,
         &records,
-        include_bytes!("../../../../crates/assets/data/block-physics-v2193.bin"),
-        2193,
+        include_bytes!("../../../../crates/assets/data/block-physics-v2225.bin"),
+        2225,
     )
     .unwrap();
     let (network, mut packets) = NetworkHandle::<PackApplication>::stub_capturing_packets();
@@ -543,11 +552,7 @@ fn real_selected_block_provider_and_rotated_ui_publisher_bind_cube_and_clear_rej
             .publish_local_runtime_id(player_runtime, 2, 1)
             .unwrap();
         runtime.retain_local_selected_equipment(player_runtime, 1, held);
-        runtime.retain_local_selected_equipment(
-            player_runtime,
-            2,
-            equipment(1, NetworkItemStack::empty()),
-        );
+        set_offhand(runtime, player_runtime, 2, NetworkItemStack::empty());
     });
     app.world_mut()
         .resource_mut::<client_interaction::movement::MovementTicker>()

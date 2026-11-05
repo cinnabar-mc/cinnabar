@@ -2,6 +2,12 @@
 use super::*;
 
 impl<'a> ActorAnimationVariables<'a> {
+    /// Changes the script component while retaining its actor clocks and query inputs.
+    pub(crate) fn with_variables(mut self, variables: &'a MolangVariables) -> Self {
+        self.variables = Some(variables);
+        self
+    }
+
     /// Selects the ordinary legacy attack path using the owner's retained posture and equipment.
     pub fn uses_legacy_swing(self, actor: &dyn AnimatedActor) -> bool {
         self.item_context.is_some_and(|context| {

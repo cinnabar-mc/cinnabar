@@ -145,8 +145,9 @@ fn publish(world: &mut World, candidate: Candidate) -> Result<(), Box<Candidate>
         unreachable!()
     };
     let mut prepared = *prepared;
-    let owner =
-        mod_ui::PanelUiOwner::Registration(selection::component_id(&registration.component));
+    let owner = mod_ui::PanelUiOwner::Registration(
+        launcher_host::mod_library::paths::component_id(&registration.component),
+    );
     let old_packet = world
         .get_resource_mut::<crate::modding::packets::PacketMods>()
         .and_then(|mut packets| packets.remove(&registration.component));
@@ -355,7 +356,10 @@ pub(super) fn apply(world: &mut World, update: Update) {
                     } else {
                         "loaded"
                     };
-                    statuses.push(Status::new(component, state, None, reload));
+                    let message = (state == "next-join").then(|| {
+                        "Reconnect to start this packet mod with complete chunk data.".into()
+                    });
+                    statuses.push(Status::new(component, state, message, reload));
                     continue;
                 }
                 Err(candidate) => {

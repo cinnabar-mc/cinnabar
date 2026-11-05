@@ -8,7 +8,7 @@ mod states;
 use states::MAX_STATES_PER_BLOCK;
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::StartGame;
+use bedrock_protocol_1_26_60::packets::StartGame;
 
 use crate::nbt_tree::{Nbt, read_root};
 #[cfg(test)]
@@ -25,16 +25,20 @@ const MAX_BONE_VISIBILITY: usize = 256;
 /// Collision primitives one custom block may contribute before extras are ignored.
 const MAX_COLLISION_BOXES: usize = 256;
 /// The namespace of vanilla's own blocks.
-const VANILLA_NAMESPACE: &str = "minecraft";
+pub(crate) const VANILLA_NAMESPACE: &str = "minecraft";
 
 /// One server-defined block from StartGame.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CustomBlock {
     /// Mining values shared by every state unless a permutation replaces them.
     pub mining: Arc<CustomBlockMining>,
+    /// `minecraft:sound` material declared by the block's base component set.
+    pub sound: Option<Arc<str>>,
     pub name: Arc<str>,
     /// Server-declared block tags used by target priorities and exclusions.
     pub tags: Arc<[Arc<str>]>,
+    /// False when any server tag was discarded during decoding or state admission.
+    pub tags_complete: bool,
     /// Palette states: the value combinations that fit the client's 16 state bits.
     pub state_count: u32,
     /// False when the definition disables its collision box.
@@ -126,6 +130,8 @@ pub struct CustomVisualComponents {
     pub geometry: Option<Arc<str>>,
     /// Geometry's legacy `useBlockTypeLightAbsorption` flag; absent means false.
     pub geometry_use_block_type_light_absorption: bool,
+    /// Geometry's `needsLegacyTopRotation` flag; absent means false.
+    pub geometry_needs_legacy_top_rotation: bool,
     /// `bone_visibility` of the same geometry component: bone name and Molang expression.
     pub bone_visibility: Box<[(Arc<str>, Arc<str>)]>,
     pub materials: Option<Box<[CustomMaterialInstance]>>,
@@ -475,8 +481,10 @@ impl CustomBlocks {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
                         mining: definition.mining,
+                        sound: definition.sound,
                         name: Arc::from(name),
                         tags: definition.tags,
+                        tags_complete: definition.tags_complete,
                         state_count: definition.state_count,
                         collides: definition.collides,
                         collision_boxes: definition.collision_boxes,
@@ -504,6 +512,7 @@ impl CustomBlocks {
                 exhausted = true;
                 skipped += 1;
                 block.tags = Arc::default();
+                block.tags_complete = false;
                 block.collision_boxes = None;
                 block.visual = Arc::new(CustomBlockVisuals {
                     state_identity_incomplete: true,
@@ -532,7 +541,9 @@ impl CustomBlocks {
 
 struct Definition {
     mining: Arc<CustomBlockMining>,
+    sound: Option<Arc<str>>,
     tags: Arc<[Arc<str>]>,
+    tags_complete: bool,
     skipped: usize,
     state_count: u32,
     collides: bool,
@@ -640,7 +651,9 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
         );
     Some(Definition {
         mining: mining.unwrap_or_default(),
+        sound: sound_component(components),
         tags,
+        tags_complete: tag_skips == 0,
         skipped: tag_skips + mining_skips + physical_skips + permutation_skips,
         state_count: states.count,
         collides,
@@ -675,6 +688,17 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             materialization_disabled: false,
         },
     })
+}
+
+/// Reads a nonempty material from a scalar or compound sound component.
+fn sound_component(components: Option<&Nbt>) -> Option<Arc<str>> {
+    let component = components?.field("minecraft:sound")?;
+    let sound = component
+        .field("sound")
+        .and_then(Nbt::as_str)
+        .or_else(|| component.as_str())
+        .filter(|sound| !sound.is_empty())?;
+    Some(sound.into())
 }
 
 /// Whether using a block with these components interacts with it: a crafting table, an
@@ -769,6 +793,10 @@ fn visual_descriptions(
         geometry,
         geometry_use_block_type_light_absorption: matches!(
             geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
+            Some(Nbt::Byte(value)) if *value != 0
+        ),
+        geometry_needs_legacy_top_rotation: matches!(
+            geometry_component.and_then(|geometry| geometry.field("needsLegacyTopRotation")),
             Some(Nbt::Byte(value)) if *value != 0
         ),
         bone_visibility,

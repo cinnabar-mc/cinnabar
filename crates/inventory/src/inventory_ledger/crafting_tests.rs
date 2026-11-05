@@ -16,6 +16,7 @@ use super::*;
 mod action_scopes;
 mod auto_allocation;
 mod book_output;
+mod book_placement;
 #[path = "crafting_tests/creative.rs"]
 mod creative;
 mod extra_results;
@@ -37,7 +38,7 @@ fn placed_outputs(ledger: &PlayerInventoryLedger) -> Vec<(u8, NetworkItemStack)>
             } if source.container == StackRequestContainer::CreatedOutput
                 && destination.container == StackRequestContainer::CombinedInventory =>
             {
-                let slot = destination.slot;
+                let slot = u8::try_from(destination.slot).unwrap();
                 ledger
                     .target_stack(InventoryTarget::Player(slot))
                     .map(|stack| (slot, stack.clone()))
@@ -51,6 +52,35 @@ const LOG: i32 = 6;
 const PLANKS: i32 = 7;
 const COBBLE: i32 = 8;
 const FURNACE: i32 = 9;
+const BIRCH_PLANKS: i32 = 10;
+
+/// Supplies settled oak and birch planks after admitting their shared wood tag.
+fn plank_ledger(stacks: &[(u8, i32, i32, u16)]) -> PlayerInventoryLedger {
+    let mut ledger = ledger(PERSONAL_INVENTORY_WINDOW_TYPE);
+    let mut entries = registry().entries.to_vec();
+    let oak = entries
+        .iter_mut()
+        .find(|entry| entry.network_id == PLANKS)
+        .unwrap();
+    oak.item_tags = Arc::from([Arc::from("test:wood")]);
+    let mut birch = oak.clone();
+    birch.network_id = BIRCH_PLANKS;
+    birch.identifier = Arc::from("minecraft:birch_planks");
+    entries.push(birch);
+    ledger.apply_registry(&ItemRegistryEvent {
+        entries: entries.into(),
+    });
+    let mut slots = vec![NetworkItemStack::empty(); PLAYER_INVENTORY_SLOT_COUNT];
+    for &(slot, item, id, count) in stacks {
+        slots[usize::from(slot)] = stack(item, id, count);
+    }
+    ledger.apply(&InventoryEvent::Content(InventoryContentEvent {
+        container: ContainerIdentity::window(0),
+        slots: slots.into(),
+        storage_item: NetworkItemStack::empty(),
+    }));
+    ledger
+}
 
 fn varuint(out: &mut Vec<u8>, mut value: u32) {
     while value >= 0x80 {
@@ -290,7 +320,7 @@ fn shift_crafted_output_uses_hotbar_before_main_inventory() {
                 matches!(
                     ledger.newest_request().unwrap().actions.last(),
                     Some(StackRequestAction::Place { destination, .. })
-                        if destination.slot == expected_slot
+                        if destination.slot == u16::from(expected_slot)
                 ),
                 "expected crafted output in player slot {expected_slot}"
             );
@@ -469,7 +499,7 @@ fn workbench_crafts_three_by_three_from_its_grid() {
     let recipe = unique(&ledger, &catalog);
     assert_eq!(recipe.network_id(), 2);
     let request = ledger.begin_craft(&recipe, 1).unwrap();
-    let consumed: Vec<u8> = ledger
+    let consumed: Vec<u16> = ledger
         .newest_request()
         .unwrap()
         .actions

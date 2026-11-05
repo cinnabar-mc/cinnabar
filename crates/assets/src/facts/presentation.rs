@@ -9,6 +9,16 @@ pub enum AmbientBlock {
     Other,
     Fire,
     Portal,
+    /// Every candle block and candle cake, whose flames depend on its state.
+    Candle,
+}
+
+/// Resolves a block's ambient callback from its policy entry and its render kind.
+pub(super) fn ambient_callback(name: &str, render: super::BlockRenderKind) -> AmbientBlock {
+    match render {
+        super::BlockRenderKind::Candle | super::BlockRenderKind::CandleCake => AmbientBlock::Candle,
+        _ => super::presentation_generated::ambient_block(name),
+    }
 }
 
 /// Resolves a leaf species' authored effect through the pinned particle vocabulary.
@@ -21,6 +31,24 @@ pub fn leaf_particle(identifier: &str) -> Option<super::ParticleEffect> {
 /// Classifies the pinned vocabulary's dedicated and biome-tinted falling-leaf effects.
 pub fn is_leaf_particle(effect: super::ParticleEffect) -> bool {
     effect.name().ends_with("leaves_particle")
+}
+
+/// The kinds of command block, each its own block.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CommandBlockKind {
+    Impulse,
+    Repeating,
+    Chain,
+}
+
+/// The kind of command block `identifier` names; any other name reads as impulse.
+#[must_use]
+pub fn command_block_kind(identifier: Option<&str>) -> CommandBlockKind {
+    match identifier {
+        Some("minecraft:repeating_command_block") => CommandBlockKind::Repeating,
+        Some("minecraft:chain_command_block") => CommandBlockKind::Chain,
+        _ => CommandBlockKind::Impulse,
+    }
 }
 
 /// Resolves sign editor artwork using the compiled texture naming contract.

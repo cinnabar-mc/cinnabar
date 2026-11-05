@@ -169,6 +169,7 @@ fn death_immediate_respawn_finishes_the_backdrop_animation() {
 fn home_owns_oreui_actions_and_directional_focus() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     presentation.player_preview_icon = Some(ui::IconRef {
+        color_mask: None,
         page: 0,
         uv: [0, 0, 64, 64],
         glint: false,
@@ -322,6 +323,19 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
                 .menu_sound(MenuAction::Navigate(MenuScreen::Profile))
                 .is_none()
         );
+    }
+}
+
+/// No OreUI control on a screen declares a press sound, so none plays.
+#[test]
+fn oreui_controls_stay_silent() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Play;
+    let hits = append(&mut presentation, &view, [1280.0, 720.0]);
+    assert!(!hits.is_empty());
+    for (action, _) in hits {
+        assert_eq!(presentation.menu_sound(action), None, "{action:?}");
     }
 }
 

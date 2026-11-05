@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"math"
@@ -104,8 +105,8 @@ func TestSessionConnectFixtureDecodes(t *testing.T) {
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
 		t.Fatal(err)
 	}
-	if request.Protocol != 2193 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
-		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != "1.26.50" {
+	if request.Protocol != 2225 || request.Target == nil || *request.Target != (sessionTarget{Kind: "raknet", Value: "play.example.net:19132"}) ||
+		!request.ClientCache || clientData.DeviceOS != 7 || clientData.GameVersion != bridgecontract.GameVersion {
 		t.Fatalf("connect = %+v, client data = %+v", request, clientData)
 	}
 }
@@ -151,7 +152,7 @@ func TestSessionDownstreamAcceptsOnlyThePinnedProtocolAndValidClientData(t *test
 // The core's device replaces whatever device the client claims, so a client that sends none still
 // logs in, and every login claims the platform the core signs in as.
 func TestSessionDownstreamClaimsTheCoreDevice(t *testing.T) {
-	profile := device.New(protocol.DeviceAndroid)
+	profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 	request := testSessionConnect(t)
 	var claims map[string]any
 	if err := json.Unmarshal(request.ClientData, &claims); err != nil {
@@ -212,7 +213,7 @@ func TestSessionDownstreamPreservesSignedClientRandomID(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			profile := device.New(protocol.DeviceAndroid)
+			profile := device.Profile{OS: protocol.DeviceAndroid, Model: "Fixture Android", ID: "00112233445566778899aabbccddeeff"}
 			downstream, err := newSessionDownstream(decoded, &profile)
 			if err != nil {
 				t.Fatal(err)
@@ -450,6 +451,37 @@ func TestSessionPrepareExposesThePlayerRuntimeID(t *testing.T) {
 // A real join: the core logs in upstream, hands off packs and StartGame, relays both ways and ends
 // the session with a Transfer message it also records for the next Connect.
 func TestSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
+	for _, saved := range []bool{false, true} {
+		t.Run(fmt.Sprintf("saved=%t", saved), func(t *testing.T) {
+			if saved {
+				root := t.TempDir()
+				t.Setenv("CINNABAR_USER_ROOT", "")
+				t.Setenv("LOCALAPPDATA", "")
+				t.Setenv("XDG_DATA_HOME", root)
+				global := filepath.Join(root, "cinnabar", "resource-packs", "global")
+				if err := os.MkdirAll(global, 0o755); err != nil {
+					t.Fatal(err)
+				}
+				id := "11223344-5566-7788-99aa-bbccddeeff00"
+				if err := os.WriteFile(filepath.Join(global, id+"-1.0.0-1.mcpack"), admissionPackArchiveWithID(t, id), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				catalog := fmt.Sprintf(`{"active":[{"id":%q,"revision":1}]}`, id)
+				if err := os.WriteFile(filepath.Join(global, "global_packs.json"), []byte(catalog), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				// Exercise the production executable identity with the isolated user data.
+				original := os.Args
+				os.Args = []string{"cinnabar-core"}
+				t.Cleanup(func() { os.Args = original })
+			}
+			testSessionServerHandsOffAndRelaysARealJoin(t)
+		})
+	}
+}
+
+// testSessionServerHandsOffAndRelaysARealJoin verifies that only server packs cross the handoff.
+func testSessionServerHandsOffAndRelaysARealJoin(t *testing.T) {
 	pack := testAdmissionPack(t)
 	upstreamListener, upstreamNetwork := newAdmissionTestListener(t, func(_ context.Context, conn *minecraft.Conn) error {
 		return conn.ConfigureResourcePackOffer([]*resource.Pack{pack}, true)

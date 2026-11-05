@@ -20,7 +20,6 @@ use super::{
 impl PlayerInventoryLedger {
     pub fn apply(&mut self, event: &InventoryEvent) {
         self.personal_writes = 0;
-        self.offhand_written = false;
         for update in event.slot_updates() {
             tracing::debug!(target: "cinnabar::inventory_requests",
                 identity = ?update.identity, network_id = update.stack.network_id,
@@ -330,12 +329,11 @@ impl PlayerInventoryLedger {
             CanonicalCell::Cursor => Some(Cell::Cursor),
             CanonicalCell::GenericStorage { slot, .. } => {
                 self.storage.as_ref()?;
-                let cell = Cell::Storage(u8::try_from(slot).ok()?);
+                let cell = Cell::Storage(slot);
                 self.confirmed.contains(cell).then_some(cell)
             }
             CanonicalCell::WindowSlot { name, slot } => {
                 let storage = self.storage.as_ref()?;
-                let slot = u8::try_from(slot).ok()?;
                 let (protocol::StackRequestContainer::OpenWindow { name: expected, .. }, _) =
                     protocol::open_cell_request(storage.kind, slot, None, None)?
                 else {

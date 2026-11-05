@@ -20,6 +20,8 @@ fn body_layer(hidden_bones: Arc<[u32]>) -> RenderTextureLayer {
         ignore_lighting: false,
         light_color_multiplier: 1.0,
         sampled_scale: None,
+        runtime_skin: true,
+        pack: false,
     }
 }
 

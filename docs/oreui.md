@@ -93,8 +93,9 @@ use a generic label. Terrain and dimension cards use a neutral edge and shadow. 
 treatment. Unknown progress uses the OreUI
 cube loader; pack downloads show their actual completion fraction. Pause has no decorative green
 stripe above its logo.
-Interface click sounds are disabled at the owner's request. Other authored interface feedback and
-gameplay sounds keep their existing playback path.
+OreUI controls play no click sound, at the owner's request; see `plan.md` for the open vanilla
+question. JSON-UI and container screens play the sounds their controls declare. Other authored
+interface feedback and gameplay sounds keep their existing playback path.
 
 The owner-requested home layout places the shipped logo above the Play and interactive character
 panels. Servers and Settings are secondary; Realms remains a quiet text action. Compact utility buttons group account, friends, inbox and quit below the panels.
@@ -173,5 +174,6 @@ Create New World uses the installed preview and category art, solid form rows an
 choice faces as Settings. Sidebar/form tabs scroll independently and retain their surrounding
 screen during quick category changes. The world backend's unsupported categories, Hardcore and
 Realm creation remain disabled; the Realms action keeps the owner's quieter commerce treatment.
-Advanced separates Backend (Dragonfly/BDS) from World generator (Normal/Flat). Dragonfly is the
+Advanced separates Backend (Dragonfly/BDS) from World generator (Normal/Flat). BDS is the
 default; selecting unavailable BDS shows its detected Docker warning without changing the generator.
+Dragonfly supports only Flat; creating a Normal world with it shows a validation message.

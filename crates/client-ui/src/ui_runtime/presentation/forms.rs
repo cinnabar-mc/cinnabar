@@ -7,6 +7,7 @@ mod chat_position_tests;
 pub mod chat_screen;
 pub mod containers;
 pub mod credits_screen;
+mod data_driven_screen;
 mod debug_overlay;
 #[cfg(test)]
 mod disconnect_retry_tests;
@@ -23,6 +24,8 @@ pub mod hud;
 #[cfg(test)]
 pub mod inbox_tests;
 #[cfg(test)]
+mod inventory_work_probe;
+#[cfg(test)]
 mod item_renderer_tests;
 #[cfg(test)]
 mod join_request_tests;
@@ -34,6 +37,7 @@ pub(super) mod menu_caret;
 pub mod menu_latency;
 mod menu_title;
 pub mod menus;
+pub mod mob_effect_screen;
 mod mod_surfaces;
 pub mod model;
 pub mod npc;
@@ -61,6 +65,7 @@ pub mod regression_snapshots;
 use launcher::menu::settings_options::SettingId;
 #[cfg(test)]
 mod accounts;
+pub mod command_block;
 #[cfg(test)]
 pub mod play_flow_snapshots;
 mod player_list;
@@ -94,7 +99,8 @@ use crate::ui_runtime::scene_stack::ScreenSettingsTable;
 use crate::ui_runtime::{LocalFormAction, ServerFormIdentity, UiRuntime};
 use assets::RuntimeUiAssets;
 pub use containers::{container_screen_reference, engine_screen_for};
-pub use recipe_book::{recipe_book_hover, recipe_book_icons, recipe_book_shown};
+pub(crate) use recipe_book::BookIconCache;
+pub use recipe_book::{BookIconSources, recipe_book_hover, recipe_book_icons, recipe_book_shown};
 use ui_engine::{
     engine::{FormEngine, PreparedCatalog, screen::PaintFrame},
     frame::EngineFrame,
@@ -134,8 +140,12 @@ pub(super) struct ScreenStates {
     /// The open chat's cached screen.
     chat: ui_screens::chat_screen::ChatScreen,
     emote: ui_screens::emote_screen::EmoteScreen,
+    mob_effects: ui_screens::mob_effect_screen::MobEffectScreen,
     /// The bed screen's hits and pointer.
     bed: oreui::BedScreen,
+    /// The data-driven form's hits, pointer and scroll, and the form instance they belong to.
+    data_driven: oreui::data_driven_screen::DataDrivenScreen,
+    data_driven_form: Option<u64>,
     /// The sign editor's cached screen.
     sign: ui_screens::sign_editor::SignScreen,
     credits: ui_screens::credits_screen::CreditsScreen,
@@ -146,6 +156,12 @@ pub(super) struct ScreenStates {
     touch: touch_controls::TouchControls,
 }
 
+/// The pressable cells of one drawn container frame, with the hit regions they came from.
+type ContainerCells = std::sync::OnceLock<(
+    std::sync::Arc<[json_ui::HitRegion]>,
+    Vec<(ui_screens::container_actions::InventoryCellHit, [f32; 2])>,
+)>;
+
 /// What the last build exposes to input and the next build; reset as each build starts.
 #[derive(Default)]
 pub(super) struct FrameProjections {
@@ -155,6 +171,11 @@ pub(super) struct FrameProjections {
     container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
     /// Last build's container frame, for this build's pointer hover.
     previous_container: Option<(EngineFrame, ui_screens::containers::ScreenLayout)>,
+    /// The container's pressable cells, found once per drawn frame and keyed by that frame's
+    /// hit regions, so repeated queries in one build reuse them.
+    container_cells: ContainerCells,
+    /// The command block editor drawn this build.
+    command_block: Option<EngineFrame>,
     /// Keyboard controls include rows outside the pointer's clipped viewports.
     pub(super) menu_focus: Vec<launcher::menu::MenuAction>,
     /// Screen and popup context owning the painted menu controls.
@@ -244,6 +265,17 @@ impl UiPresentationRuntime {
             prepared,
             texture_sources::downloads(),
             texture_sources::image_work(),
+        )
+    }
+
+    /// [`Self::enable_json_ui`] decoding every image on the calling thread, so a single paint
+    /// holds all of them instead of deferring past the host's frame budget.
+    #[cfg(all(not(target_arch = "wasm32"), any(test, feature = "test-support")))]
+    pub fn enable_json_ui_inline(&mut self, assets: Arc<RuntimeUiAssets>) -> Result<(), String> {
+        self.enable_prepared_json_ui_with_sources(
+            PreparedJsonUi::new(assets)?,
+            texture_sources::downloads(),
+            ui_engine::sources::ImageWork::inline(),
         )
     }
 
@@ -339,6 +371,19 @@ impl UiPresentationRuntime {
         self.sync_server_ui_pages();
     }
 
+    /// Starts container lifetimes afresh and releases the old trees away from the frame.
+    pub(super) fn reset_container_screens(&mut self) {
+        let retired = std::mem::take(&mut self.screens.containers);
+        self.projections.container = None;
+        self.projections.previous_container = None;
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = std::thread::Builder::new()
+            .name("container-cleanup".into())
+            .spawn(move || drop(retired));
+        #[cfg(target_arch = "wasm32")]
+        drop(retired);
+    }
+
     /// Draws oversized server textures from their server-page downscale again.
     #[cfg(test)]
     pub fn drop_full_res_art(&mut self) {
@@ -365,16 +410,22 @@ impl UiPresentationRuntime {
 
     /// Publishes completed original images before a saved menu frame can be reused.
     pub(super) fn poll_server_ui_images(&mut self) {
-        if self
+        use ui_engine::engine::ImageUpdate;
+        let update = self
             .engine
             .as_mut()
-            .is_some_and(|engine| engine.poll_native_images())
-        {
-            self.retained_menu = None;
+            .map_or(ImageUpdate::None, |engine| engine.poll_native_images());
+        if update == ImageUpdate::None {
+            return;
+        }
+        self.retained_menu = None;
+        if update == ImageUpdate::Metadata {
             self.screens.hud.invalidate_textures();
             self.screens.containers.invalidate_textures();
-            self.sync_server_ui_pages();
+        } else {
+            self.screens.containers.refresh_artwork();
         }
+        self.sync_server_ui_pages();
     }
 
     /// Hands changed server atlas pages to the dynamic texture pages; runs
@@ -445,7 +496,7 @@ impl UiPresentationRuntime {
     }
 
     /// Reads vanilla images the carrier lacks from the local pack at `vanilla`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub fn set_vanilla_texture_root(&mut self, vanilla: std::path::PathBuf) {
         if let Some(engine) = self.engine.as_mut() {
             engine.textures.set_fallbacks(
@@ -779,6 +830,7 @@ pub fn host_screen_references() -> impl Iterator<Item = &'static str> {
         ui_screens::sign_editor::SIGN_SCREEN,
         ui_screens::emote_screen::EMOTE_SCREEN,
         ui_screens::emote_screen::EMOTE_EQUIP_POPUP,
+        ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN,
         ui_screens::npc::NPC_SCREEN,
         ui_screens::toast_screen::TOAST_SCREEN,
         ui_screens::credits_screen::CREDITS_SCREEN,

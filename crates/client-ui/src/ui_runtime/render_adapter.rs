@@ -40,6 +40,23 @@ pub fn adapt_ui_draw_list(
     textures: Arc<UiRenderTextureArray>,
     viewport: UiRenderViewport,
 ) -> Result<UiRenderInput, UiRenderAdapterError> {
+    adapt_ui_draw_list_with_models(
+        draw_list,
+        textures,
+        viewport,
+        Default::default(),
+        &mut Default::default(),
+    )
+}
+
+/// Adapts a retained draw list with its independently sampled model palettes.
+pub fn adapt_ui_draw_list_with_models(
+    draw_list: &UiDrawList,
+    textures: Arc<UiRenderTextureArray>,
+    viewport: UiRenderViewport,
+    models: Arc<[render_model::UiModelPose]>,
+    buffers: &mut render_model::FrameBuffers<UiRenderVertex>,
+) -> Result<UiRenderInput, UiRenderAdapterError> {
     if draw_list.vertices.len() > UiLimits::MAX_UI_VERTICES {
         return Err(UiRenderAdapterError::VertexLimitExceeded);
     }
@@ -53,11 +70,12 @@ pub fn adapt_ui_draw_list(
         return Err(UiRenderAdapterError::InvalidPhysicalViewport);
     }
     let scale = viewport.dpi_scale.get();
-    let vertices = draw_list
-        .vertices
-        .iter()
-        .map(|vertex| adapt_vertex(vertex, scale))
-        .collect::<Result<Vec<_>, _>>()?;
+    let vertices = buffers.write(draw_list.vertices.len(), |output| {
+        for (target, vertex) in output.iter_mut().zip(&draw_list.vertices) {
+            *target = adapt_vertex(vertex, scale)?;
+        }
+        Ok::<_, UiRenderAdapterError>(())
+    })?;
     let mut indices = Vec::with_capacity(draw_list.indices.len());
     let mut batches = Vec::with_capacity(draw_list.batches.len());
     for (batch_index, batch) in draw_list.batches.iter().enumerate() {
@@ -99,10 +117,11 @@ pub fn adapt_ui_draw_list(
         );
     }
     let input = UiRenderInput {
+        models,
         revision: draw_list.revision,
         viewport_size: viewport.physical_size,
         safe_area: physical_safe_area(viewport.safe_area, scale)?,
-        vertices: vertices.into(),
+        vertices,
         indices: indices.into(),
         batches: batches.into(),
         textures,
@@ -115,7 +134,11 @@ pub fn adapt_ui_draw_list(
 
 /// One logical vertex in physical pixels for the renderer.
 fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiRenderAdapterError> {
-    let position = [vertex.position[0] * scale, vertex.position[1] * scale];
+    let position = if vertex.style_flags & render_api::UI_STYLE_MODEL_VERTEX == 0 {
+        [vertex.position[0] * scale, vertex.position[1] * scale]
+    } else {
+        vertex.position
+    };
     if !position.iter().all(|value| value.is_finite()) {
         return Err(UiRenderAdapterError::CoordinateOverflow);
     }
@@ -125,12 +148,7 @@ fn adapt_vertex(vertex: &ui::UiVertex, scale: f32) -> Result<UiRenderVertex, UiR
         clip_w: vertex.clip_w,
         uv: vertex.uv,
         color: vertex.color,
-        style_flags: u32::from(vertex.style_flags)
-            | if vertex.alpha_test {
-                render_model::UI_STYLE_ALPHA_TEST
-            } else {
-                0
-            },
+        style_flags: vertex.style_flags,
         alpha_cutoff: vertex.alpha_cutoff,
         model_light: vertex.model_light,
         overlay_color: vertex.overlay_color,
@@ -144,23 +162,36 @@ pub fn patch_ui_vertices(
     draw_list: &UiDrawList,
     ranges: &[std::ops::Range<usize>],
     dpi_scale: DpiScale,
+    buffers: &mut render_model::FrameBuffers<UiRenderVertex>,
 ) -> Result<Option<UiRenderInput>, UiRenderAdapterError> {
     let scale = dpi_scale.get();
-    let mut vertices: Option<Vec<UiRenderVertex>> = None;
+    let mut changed = false;
     for range in ranges {
         for index in range.clone() {
             let vertex = adapt_vertex(&draw_list.vertices[index], scale)?;
-            if vertices.is_none() && previous.vertices[index] == vertex {
-                continue;
+            if previous.vertices[index] != vertex {
+                changed = true;
+                break;
             }
-            vertices.get_or_insert_with(|| previous.vertices.to_vec())[index] = vertex;
+        }
+        if changed {
+            break;
         }
     }
-    let Some(vertices) = vertices else {
+    if !changed {
         return Ok(None);
-    };
+    }
+    let vertices = buffers.write(previous.vertices.len(), |output| {
+        output.copy_from_slice(&previous.vertices);
+        for range in ranges {
+            for index in range.clone() {
+                output[index] = adapt_vertex(&draw_list.vertices[index], scale)?;
+            }
+        }
+        Ok::<_, UiRenderAdapterError>(())
+    })?;
     let input = UiRenderInput {
-        vertices: vertices.into(),
+        vertices,
         ..previous.clone()
     };
     input
@@ -227,6 +258,70 @@ mod tests {
     use ui::{UiDrawBatch, UiPoint, UiVertex};
 
     #[test]
+    fn patched_vertex_publications_reuse_released_storage_and_keep_readers_immutable() {
+        let mut tree = ui::UiTree::new(vec![
+            ui::UiNode::new(ui::UiNodeId::new(1), None, rect(0.0, 0.0, 8.0, 8.0)).with_visual(
+                ui::UiVisual::Solid {
+                    texture_page: 0,
+                    color: [100, 40, 60, 255],
+                },
+            ),
+        ])
+        .unwrap();
+        tree.layout(
+            rect(0.0, 0.0, 64.0, 64.0),
+            ui::UiScale::default(),
+            SafeArea::ZERO,
+        )
+        .unwrap();
+        let mut draw = tree.build_draw_list().unwrap();
+        let dpi = DpiScale::new(1.0).unwrap();
+        let mut input = adapt_ui_draw_list(
+            &draw,
+            Arc::new(
+                UiRenderTextureArray::new(
+                    vec![render_model::UiTexturePage::owned([1, 1], vec![255; 4].into()).unwrap()],
+                    1,
+                )
+                .unwrap(),
+            ),
+            UiRenderViewport {
+                physical_size: [64, 64],
+                dpi_scale: dpi,
+                safe_area: SafeArea::ZERO,
+            },
+        )
+        .unwrap();
+        let mut buffers = render_model::FrameBuffers::default();
+        let changed = 0..1;
+        let ranges = std::slice::from_ref(&changed);
+        for _ in 0..10 {
+            draw.vertices[0].color[0] ^= 1;
+            input = patch_ui_vertices(&input, &draw, ranges, dpi, &mut buffers)
+                .unwrap()
+                .unwrap();
+        }
+        let held = input.clone();
+        let previous_color = held.vertices[0].color;
+        let weak = Arc::downgrade(&held.vertices);
+        draw.vertices[0].color[0] ^= 1;
+        let (next, allocations) = test_alloc::count(|| {
+            patch_ui_vertices(&input, &draw, ranges, dpi, &mut buffers)
+                .unwrap()
+                .unwrap()
+        });
+        assert_eq!(
+            allocations, 0,
+            "vertex publication allocated {allocations} times"
+        );
+        assert_eq!(held.vertices[0].color, previous_color);
+        assert_eq!(next.vertices[0].color, draw.vertices[0].color);
+        assert!(Arc::ptr_eq(&weak.upgrade().unwrap(), &held.vertices));
+        assert!(Arc::ptr_eq(&next.indices, &held.indices));
+        assert!(Arc::ptr_eq(&next.batches, &held.batches));
+    }
+
+    #[test]
     fn fully_clipped_batches_are_dropped_and_remaining_indices_are_repacked() {
         let draw_list = UiDrawList {
             revision: 7,
@@ -238,7 +333,6 @@ mod tests {
                     uv: [0.0, 0.0],
                     color: [255; 4],
                     style_flags: 0,
-                    alpha_test: false,
                     alpha_cutoff: -1.0,
                     model_light: 1.0,
                     overlay_color: [0.0; 4],
@@ -349,10 +443,10 @@ mod tests {
             input
                 .vertices
                 .iter()
-                .all(|vertex| { vertex.style_flags & render_model::UI_STYLE_ALPHA_TEST != 0 })
+                .all(|vertex| { vertex.style_flags & render_api::UI_STYLE_ALPHA_TEST != 0 })
         );
         assert_eq!(
-            render_model::UI_STYLE_ALPHA_TEST
+            render_api::UI_STYLE_ALPHA_TEST
                 & u32::from(ui::UI_STYLE_GRAYSCALE | ui::UI_STYLE_BILINEAR | ui::UI_STYLE_GLINT),
             0
         );
@@ -367,13 +461,13 @@ mod tests {
         let mesh = ui::UiMesh::new(
             [[0.0, 0.0], [2.0, 0.0], [0.0, 2.0]]
                 .map(|position| ui::UiMeshVertex {
+                    alpha_test: false,
                     position,
                     clip_z: 0.75,
                     clip_w: 2.0,
                     uv: [8.5, 4.5],
                     color: [255; 4],
                     style_flags: 0,
-                    alpha_test: false,
                     model_light: 0.718_629,
                     overlay_color: [0.8, 0.248_176, 0.0, 0.7],
                 })

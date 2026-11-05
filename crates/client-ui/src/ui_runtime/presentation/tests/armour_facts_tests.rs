@@ -23,7 +23,7 @@ fn armour_presentation() -> UiPresentationRuntime {
             rgba8,
         }
     });
-    let hud = assets::encode_hud_catalog(assets::HUD_SOURCE_MANIFEST_SHA256, &textures).unwrap();
+    let hud = assets::encode_hud_catalog(assets::hud_source_manifest_sha256(), &textures).unwrap();
     let mut files = [
         ("ui/_ui_defs.json", r#"{"ui_defs":["ui/hud_screen.json"]}"#),
         ("ui/_global_variables.json", "{}"),
@@ -54,7 +54,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         .facts
         .publish_player_game_mode(protocol::PlayerGameMode::Survival);
     let mut runtime = UiRuntime::new(1);
-    runtime.hud.set_stats(
+    runtime.session.hud.set_stats(
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
         BoundedStat::new(20, 20),
@@ -114,7 +114,7 @@ fn custom_wearable_protection_reaches_the_rendered_hud() {
         &player,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         0,
         Default::default(),

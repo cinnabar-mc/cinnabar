@@ -56,6 +56,10 @@ pub enum RopeKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RopeView {
     pub kind: RopeKind,
+    /// Runtime id of the actor holding a fishing rod; leads do not have an owner.
+    pub owner_runtime_id: Option<u64>,
+    /// Runtime id and interpolated feet of the actor a lead holds, whose light shades the lead.
+    pub leashed: Option<(u64, [f32; 3])>,
     pub from: [f32; 3],
     pub to: [f32; 3],
 }
@@ -86,6 +90,19 @@ pub fn tnt_presentation(fuse: f32) -> (f32, bool) {
 }
 
 impl ActorStore {
+    /// Reports whether an owned fishing hook is currently tracked for a player.
+    pub(crate) fn has_fishing_hook(&self, owner_unique_id: i64) -> bool {
+        self.effect_members
+            .ropes
+            .iter()
+            .filter_map(|runtime| self.actors.get(runtime))
+            .any(|actor| {
+                actor.entity_fact.native_class == NativeEntityClass::FishingHook
+                    && metadata_i64(actor, ActorDataKey::Owner.wire_value())
+                        == Some(owner_unique_id)
+            })
+    }
+
     /// Replaces `candidates` with every block actor's view and terrain-interlock visibility.
     pub(crate) fn block_entity_candidates_into(
         &self,
@@ -218,6 +235,8 @@ impl ActorStore {
                 };
                 ropes.push(RopeView {
                     kind: RopeKind::Lead,
+                    owner_runtime_id: None,
+                    leashed: Some((actor.runtime_id, interpolated(actor, alpha))),
                     from: attach(actor),
                     to: attach(holder),
                 });
@@ -236,10 +255,12 @@ impl ActorStore {
             let (sine, cosine) = yaw.sin_cos();
             ropes.push(RopeView {
                 kind: RopeKind::FishingLine,
+                owner_runtime_id: Some(owner.runtime_id),
+                leashed: None,
                 from: [
-                    base[0] - sine * ROD_TIP_FORWARD - cosine * ROD_TIP_RIGHT,
+                    base[0] - sine * ROD_TIP_FORWARD + cosine * ROD_TIP_RIGHT,
                     base[1] + ROD_TIP_HEIGHT,
-                    base[2] + cosine * ROD_TIP_FORWARD - sine * ROD_TIP_RIGHT,
+                    base[2] + cosine * ROD_TIP_FORWARD + sine * ROD_TIP_RIGHT,
                 ],
                 to: interpolated(actor, alpha),
             });
@@ -254,13 +275,18 @@ impl ActorStore {
         ropes
     }
 
-    fn actor_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
+    pub(super) fn actor_by_unique(&self, unique_id: i64) -> Option<&ActorSnapshot> {
         self.actors.get(self.unique_to_runtime.get(&unique_id)?)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use protocol::{ActorEvent, ActorKind, ActorMetadata, ActorMetadataValue};
+    use protocol_ids::ActorDataKey;
+
     use super::*;
 
     #[test]
@@ -270,6 +296,69 @@ mod tests {
         assert!(tnt_presentation(2.0).0 > 1.0);
         assert!(tnt_presentation(2.0).0 <= 1.0 + TNT_SWELL_SCALE);
         assert_eq!(tnt_presentation(-3.0), tnt_presentation(0.0));
+    }
+
+    #[test]
+    fn fishing_line_starts_from_the_players_right_hand() {
+        let mut store = ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut owner) = super::super::tests::spawn(1, 10) else {
+            unreachable!()
+        };
+        owner.kind = ActorKind::Player {
+            uuid: [1; 16],
+            username: "owner".into(),
+        };
+        owner.position = [0.0; 3];
+        owner.body_yaw = 0.0;
+        store.apply(1, 1, ActorEvent::Spawn(owner));
+
+        let ActorEvent::Spawn(mut hook) = super::super::tests::spawn(2, 20) else {
+            unreachable!()
+        };
+        hook.kind = ActorKind::Entity {
+            identifier: "minecraft:fishing_hook".into(),
+        };
+        hook.position = [0.0; 3];
+        hook.metadata = Arc::from([ActorMetadata {
+            key: ActorDataKey::Owner.wire_value(),
+            value: ActorMetadataValue::Long(10),
+        }]);
+        store.apply(1, 2, ActorEvent::Spawn(hook));
+
+        let ropes = store.ropes(0.0);
+        assert_eq!(ropes.len(), 1);
+        assert_eq!(ropes[0].kind, RopeKind::FishingLine);
+        assert_eq!(ropes[0].owner_runtime_id, Some(1));
+        assert_eq!(
+            ropes[0].from,
+            [ROD_TIP_RIGHT, ROD_TIP_HEIGHT, ROD_TIP_FORWARD]
+        );
+        assert_eq!(ropes[0].leashed, None);
+    }
+
+    #[test]
+    fn lead_names_the_leashed_actor_and_its_feet() {
+        let mut store = ActorStore::new(1, 0);
+        let ActorEvent::Spawn(mut holder) = super::super::tests::spawn(1, 10) else {
+            unreachable!()
+        };
+        holder.position = [4.0, 0.0, 0.0];
+        store.apply(1, 1, ActorEvent::Spawn(holder));
+        let ActorEvent::Spawn(mut leashed) = super::super::tests::spawn(2, 20) else {
+            unreachable!()
+        };
+        leashed.position = [1.0, 2.0, 3.0];
+        leashed.metadata = Arc::from([ActorMetadata {
+            key: ActorDataKey::LeashHolder.wire_value(),
+            value: ActorMetadataValue::Long(10),
+        }]);
+        store.apply(1, 2, ActorEvent::Spawn(leashed));
+
+        let ropes = store.ropes(0.0);
+        assert_eq!(ropes.len(), 1);
+        assert_eq!(ropes[0].kind, RopeKind::Lead);
+        assert_eq!(ropes[0].leashed, Some((2, [1.0, 2.0, 3.0])));
+        assert_eq!(ropes[0].from, [1.0, 2.0 + LEASH_ATTACH_HEIGHT, 3.0]);
     }
 }
 

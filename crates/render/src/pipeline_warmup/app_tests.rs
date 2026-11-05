@@ -33,7 +33,19 @@ const GRADE: &str = "fn effect(uv: vec2<f32>) -> vec3<f32> { return scene(uv) * 
 
 /// Builds standalone custom renderers with an output format different from their scene pipelines.
 fn app() -> App {
+    app_with_admission(
+        render_scene::startup_work::WorldWorkAdmission::default(),
+        false,
+    )
+}
+
+/// Builds the same renderer with an explicit menu admission boundary.
+fn app_with_admission(
+    admission: render_scene::startup_work::WorldWorkAdmission,
+    world_owners: bool,
+) -> App {
     let mut app = App::new();
+    app.insert_resource(admission);
     app.add_plugins(MinimalPlugins)
         .add_plugins(WindowPlugin {
             primary_window: None,
@@ -46,6 +58,7 @@ fn app() -> App {
             MeshPlugin,
             CameraPlugin,
             CorePipelinePlugin,
+            crate::ClientPostProcessPlugin,
         ))
         .add_plugins((
             AtmospherePlugin,
@@ -53,7 +66,25 @@ fn app() -> App {
             AimAssistHighlightPlugin,
             UiRenderPlugin,
             ModRenderPlugin,
+            crate::startup_presentation::StartupPresentationPlugin,
         ));
+    if world_owners {
+        app.add_plugins((
+            crate::ChunkRenderPlugin::default(),
+            crate::ActorRenderPlugin,
+            crate::HandRigRenderPlugin,
+            crate::ViewmodelRenderPlugin,
+            crate::DroppedItemRenderPlugin,
+            crate::ScreenOverlayRenderPlugin,
+            crate::ParticleRenderPlugin,
+            crate::BlockEntityRenderPlugin,
+            crate::EntityShadowRenderPlugin,
+            crate::DepthSmaaPlugin,
+            crate::motion_blur::CameraMotionBlurPlugin,
+            crate::FarTerrainRenderPlugin,
+            crate::PrimitiveShapesRenderPlugin,
+        ));
+    }
     // A window surface's format, distinct from the main texture, so the output composite counts.
     let image = app
         .world_mut()
@@ -95,6 +126,29 @@ fn standalone_renderers_keep_scene_format_independent_of_output() {
     );
 }
 
+#[test]
+fn disabling_msaa_after_loading_creates_no_pipelines() {
+    let mut app = app();
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    test_time::eventually("world pipeline warmup", || {
+        app.update();
+        readiness.is_ready()
+    });
+    let warmed = created(&app);
+
+    let mut cameras = app
+        .world_mut()
+        .query_filtered::<&mut Msaa, With<Camera3d>>();
+    for mut msaa in cameras.iter_mut(app.world_mut()) {
+        *msaa = Msaa::Off;
+    }
+    for _ in 0..4 {
+        app.update();
+        assert!(readiness.is_ready());
+        assert_eq!(created(&app), warmed);
+    }
+}
+
 fn pass(revision: u64, enabled: bool) -> mod_render::Pass {
     mod_render::Pass {
         name: format!("grade-{revision}"),
@@ -123,6 +177,7 @@ fn mods(app: &mut App, enabled: bool) {
 
 fn ui() -> UiRenderInput {
     UiRenderInput {
+        models: Default::default(),
         revision: 1,
         viewport_size: [64, 48],
         safe_area: [0; 4],
@@ -173,13 +228,10 @@ fn first_use_after_readiness_creates_no_pipelines() {
     let mut app = app();
     mods(&mut app, false);
     let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
-    for _ in 0..64 {
+    test_time::eventually("world pipeline warmup", || {
         app.update();
-        if readiness.is_ready() {
-            break;
-        }
-    }
-    assert!(readiness.is_ready(), "warmup never reported ready");
+        readiness.is_ready()
+    });
     for _ in 0..2 {
         app.update();
     }
@@ -215,4 +267,165 @@ fn first_use_after_readiness_creates_no_pipelines() {
         app.update();
     }
     assert_eq!(created(&app), warmed);
+}
+
+#[test]
+fn menu_first_frame_queues_only_menu_variants_then_warms_the_world() {
+    let admission = render_scene::startup_work::WorldWorkAdmission::after_menu();
+    let mut app = app_with_admission(admission.clone(), true);
+    let stats = app.world().resource::<UiRenderStatsResource>().clone();
+    let mut input = ui();
+    let mut avatar = input.batches[0];
+    avatar.depth_test = 1;
+    avatar.depth_write = 1;
+    avatar.isolated_depth_scope = Some(1);
+    avatar.first_index = input.indices.len() as u32;
+    input.indices = input.indices.iter().copied().cycle().take(12).collect();
+    input.batches = std::sync::Arc::from([input.batches[0], avatar]);
+    app.world_mut()
+        .resource_mut::<UiRenderSceneResource>()
+        .publish(input, &stats)
+        .unwrap();
+    app.world_mut()
+        .resource_mut::<PanoramaScene>()
+        .show(Some(PanoramaView {
+            yaw_radians: 0.0,
+            pitch_radians: 0.0,
+            vertical_fov_radians: 1.0,
+            aspect: 1.0,
+            tint: [0.0; 4],
+        }));
+    for _ in 0..10 {
+        app.update();
+    }
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    let mut labels: Vec<_> = cache
+        .pipelines()
+        .map(|pipeline| match &pipeline.descriptor {
+            bevy::render::render_resource::PipelineDescriptor::RenderPipelineDescriptor(
+                descriptor,
+            ) => descriptor
+                .label
+                .as_deref()
+                .unwrap_or("unlabeled")
+                .to_owned(),
+            bevy::render::render_resource::PipelineDescriptor::ComputePipelineDescriptor(
+                descriptor,
+            ) => format!(
+                "compute: {}",
+                descriptor.label.as_deref().unwrap_or("unlabeled")
+            ),
+            _ => "unexpected mesh pipeline".to_owned(),
+        })
+        .collect();
+    labels.sort();
+    assert_eq!(
+        labels,
+        [
+            "blit pipeline",
+            "gamma-space UI composite",
+            "gamma-space UI composite",
+            "menu panorama pipeline",
+            "retained UI damage clear",
+            "shared retained UI overlay pipeline",
+            "shared retained UI overlay pipeline",
+            "tonemapping pipeline",
+        ]
+    );
+    let before = labels.len();
+    assert_eq!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count,
+        0,
+        "uncompleted menu frames must not upload a world atlas"
+    );
+    admission.menu_presented();
+    test_time::eventually("idle menu prepares the world atlas and pipelines", || {
+        app.update();
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count
+            > 0
+            && app.world().resource::<PipelineWarmupReadiness>().is_ready()
+    });
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<crate::ChunkTextureUploadStats>()
+            .upload_count
+            > 0,
+        "a requested world must upload its atlas"
+    );
+    assert!(
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<PipelineCache>()
+            .pipelines()
+            .count()
+            > before
+    );
+}
+
+#[test]
+fn a_requested_sample_count_compiles_before_the_camera_switches_to_it() {
+    let mut app = app_with_admission(
+        render_scene::startup_work::WorldWorkAdmission::default(),
+        true,
+    );
+    // Start single-sampled: the validation backend guarantees only one and four samples.
+    set_samples(&mut app, Msaa::Off);
+    let readiness = app.world().resource::<PipelineWarmupReadiness>().clone();
+    test_time::eventually("world pipeline warmup", || {
+        app.update();
+        readiness.is_ready()
+    });
+    let warmed = created(&app);
+
+    app.world_mut()
+        .resource_mut::<render_scene::SampleCountPreflight>()
+        .request(Some(render_scene::SampleCountRequest {
+            samples: Msaa::Sample4,
+            hdr: false,
+            enhanced: false,
+        }));
+    test_time::eventually("requested sample count compiles", || {
+        app.update();
+        app.world()
+            .resource::<render_scene::SampleCountPreflight>()
+            .is_ready(render_scene::SampleCountRequest {
+                samples: Msaa::Sample4,
+                hdr: false,
+                enhanced: false,
+            })
+    });
+    let prepared = created(&app);
+    assert!(
+        prepared.0 > warmed.0,
+        "the new count needs its own variants"
+    );
+    let cache = app.sub_app(RenderApp).world().resource::<PipelineCache>();
+    assert_eq!(cache.waiting_pipelines().count(), 0);
+
+    set_samples(&mut app, Msaa::Sample4);
+    app.world_mut()
+        .resource_mut::<render_scene::SampleCountPreflight>()
+        .request(None);
+    for _ in 0..4 {
+        app.update();
+        assert!(readiness.is_ready());
+        assert_eq!(created(&app), prepared, "switching compiled nothing new");
+    }
+}
+
+/// Sets every world camera's sample count, as the settings system does after a switch.
+fn set_samples(app: &mut App, samples: Msaa) {
+    let mut cameras = app
+        .world_mut()
+        .query_filtered::<&mut Msaa, With<Camera3d>>();
+    for mut msaa in cameras.iter_mut(app.world_mut()) {
+        *msaa = samples;
+    }
 }

@@ -55,7 +55,7 @@ fn a_fractional_deadline_preserves_the_forward_placement_opportunity() {
         })
     );
     runtime.record(trigger, due, 7, LocalUse::Nothing, next);
-    assert_eq!(runtime.due(true, 7, next), None);
+    assert_eq!(runtime.due(true, 7, next), Some((trigger, due)));
     assert_eq!(runtime.due(true, 8, next), Some((trigger, due)));
 }
 

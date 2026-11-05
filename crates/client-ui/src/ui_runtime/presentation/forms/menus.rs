@@ -75,11 +75,16 @@ impl UiPresentationRuntime {
         }
         let shown = view.as_ref();
         self.menu_scrolls.begin_frame(format!(
-            "{:?}/{:?}/{:?}/{}",
-            shown.screen, shown.server_tab, shown.profile_tab, shown.settings.section
+            "{:?}/{:?}/{:?}",
+            shown.screen, shown.server_tab, shown.profile_tab
         ));
+        self.menu_scrolls
+            .begin_page(shown.settings.section, oreui::SETTINGS_SIDEBAR_SCROLL_KEY);
         self.menu_scrolls.clear_areas();
-        let drawn = if shown.visible {
+        let drawn = if shown.visible && shown.touch_editor_open {
+            self.append_touch_editor(runtime, shown, nodes, next, metrics, [width, height])
+                .map(|()| Some(Vec::new()))
+        } else if shown.visible {
             self.append_engine_menu(runtime, shown, nodes, next, metrics, width, height)
         } else {
             Ok(Some(Vec::new()))

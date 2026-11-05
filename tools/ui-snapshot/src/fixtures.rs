@@ -4,18 +4,21 @@ mod chat;
 mod collection_reveal;
 #[cfg(feature = "test-support")]
 mod cosmetics;
-mod hud_card_fit;
-mod hud_cards;
-mod hud_editor;
+mod hud_hotbar;
+pub(crate) mod hud_surface;
 mod local_identity;
 mod minecraft_import;
 mod mods;
 mod out_of_game;
 mod roster;
+mod server_forms;
 mod settings_screens;
 mod shader_options;
 mod shader_pack;
 mod social_settings;
+mod touch_editor;
+#[cfg(feature = "test-support")]
+pub(crate) use touch_editor::TouchUtilityView;
 mod updates;
 
 use std::sync::Arc;
@@ -39,6 +42,10 @@ pub struct State {
 pub enum Fixture {
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
+    /// Opaque black-backed cursor art on contrasting backgrounds.
+    CrosshairCoverage {
+        fixed: bool,
+    },
     /// Original sprite samples before and after alpha-only outline shading.
     SpriteOutline {
         outline: bool,
@@ -64,32 +71,55 @@ pub enum Fixture {
         emitting: bool,
     },
     Menu(Box<MenuView>),
+    /// Built-in touch editor interactions through production rendering and pointer routing.
+    #[cfg(feature = "test-support")]
+    TouchEditor {
+        phase: u8,
+    },
+    /// Gameplay touch controls and their utility overlays.
+    #[cfg(feature = "test-support")]
+    TouchUtilities(TouchUtilityView),
+    /// The survival HUD's hotbar flush with the bottom edge or at vanilla Bedrock's height.
+    #[cfg(feature = "test-support")]
+    BedrockHotbar {
+        raised: bool,
+    },
     Loading(ui::LoadingStage),
+    /// The client-owned cover shown while a resource-pack snapshot is published.
+    ResourcePackLoading,
     Chat {
         draft: &'static str,
         suggestions: Vec<Arc<str>>,
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
         server_hover: Option<bool>,
+        /// Scroll into history, then receive a wrapped message before the final capture.
+        receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
-    TabList(Vec<RosterRow>),
+    TabList(Vec<RosterRow>, &'static str),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
-    /// An externally supplied bounded native mod panel.
+    /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed
+    /// controls of, and the local player's portrait.
     ModPanel(
         Box<ui::mod_panel::Panel>,
-        Option<Box<ui::mod_hud::Hud>>,
+        Option<Box<ui::mod_panel::Surface>>,
         Option<(&'static str, render_model::UiTexturePage)>,
     ),
-    /// A selected HUD card before or after retained placement and visibility edits.
-    HudEditor {
-        hud: Box<ui::mod_hud::Hud>,
-        edited: bool,
-    },
+    /// A mod's HUD surface over gameplay, projected through a forward-looking camera.
+    HudSurface(Box<ui::mod_panel::Surface>),
     /// Two same-ID requests arriving while the first menu is still open.
     #[cfg(feature = "test-support")]
     FormOverlap,
+    /// An answered form after immediate retirement or during its visual handoff.
+    #[cfg(feature = "test-support")]
+    FormHandoff {
+        retained: bool,
+    },
+    /// A script form shown through data-driven UI.
+    #[cfg(feature = "test-support")]
+    DataDriven(protocol::ddui::ScriptedScreen),
     /// An edited settings draft after switching away from and back to its tab.
     #[cfg(feature = "test-support")]
     SettingsDraft,
@@ -133,6 +163,18 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    State {
+        name: "chat-incoming-while-scrolled",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::incoming_while_scrolled,
+    },
+    asset_free("crosshair-coverage-before", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: false }
+    }),
+    asset_free("crosshair-coverage", [640, 240], || {
+        Fixture::CrosshairCoverage { fixed: true }
+    }),
     asset_free("sprite-outline-before", [800, 240], || {
         Fixture::SpriteOutline { outline: false }
     }),
@@ -161,16 +203,16 @@ const STATES: &[State] = &[
         }
     }),
     State {
-        name: "mod-hud-card-fit-before",
+        name: "mod-hud-surface",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || hud_card_fit::fixture(false),
+        fixture: hud_surface::gameplay,
     },
     State {
-        name: "mod-hud-card-fit-after",
+        name: "mod-hud-control-previews",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || hud_card_fit::fixture(true),
+        fixture: hud_surface::panel,
     },
     State {
         name: "collection-reveal-before",
@@ -185,18 +227,6 @@ const STATES: &[State] = &[
         fixture: || collection_reveal::fixture(true),
     },
     State {
-        name: "hud-editor-before",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_editor::fixture(false),
-    },
-    State {
-        name: "hud-editor-after",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_editor::fixture(true),
-    },
-    State {
         name: "mod-local-player-neutral",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -207,18 +237,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || local_identity::fixture(true),
-    },
-    State {
-        name: "mod-hud-card-previews",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_cards::fixture(true),
-    },
-    State {
-        name: "mod-hud-card-previews-empty",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || hud_cards::fixture(false),
     },
     State {
         name: "sign-in-cache-error",
@@ -263,20 +281,6 @@ const STATES: &[State] = &[
         size: SIZE,
         gui_scale: GUI_SCALE,
         fixture: || Fixture::SettingsDraft,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-overlap",
-        size: SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::FormOverlap,
-    },
-    #[cfg(feature = "test-support")]
-    State {
-        name: "form-control-locked",
-        size: [1280, 960],
-        gui_scale: GUI_SCALE,
-        fixture: || Fixture::ControlLocked,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -516,6 +520,18 @@ const STATES: &[State] = &[
         fixture: || Fixture::Loading(ui::LoadingStage::BuildingTerrain),
     },
     State {
+        name: "resource-pack-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
+    },
+    State {
+        name: "resource-pack-loading-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::ResourcePackLoading,
+    },
+    State {
         name: "disconnect",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -719,6 +735,12 @@ const STATES: &[State] = &[
         fixture: minecraft_import::preview,
     },
     State {
+        name: "chat-colored-mentions",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::colored_mentions,
+    },
+    State {
         name: "chat-mentions",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -765,10 +787,16 @@ const STATES: &[State] = &[
         },
     },
     State {
-        name: "settings-video",
+        name: "settings-video-culling-on",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: shader_pack::settings_video,
+        fixture: || settings_screens::settings_video_culling(true),
+    },
+    State {
+        name: "settings-video-culling-off",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || settings_screens::settings_video_culling(false),
     },
     State {
         name: "settings-video-shader-shortcut",
@@ -795,6 +823,12 @@ const STATES: &[State] = &[
         fixture: shader_pack::empty_library,
     },
     State {
+        name: "settings-shaders-empty-without-drops",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: shader_pack::empty_library_without_drops,
+    },
+    State {
         name: "settings-shaders-narrow-library",
         size: [800, 720],
         gui_scale: GUI_SCALE,
@@ -816,7 +850,7 @@ const STATES: &[State] = &[
         name: "settings-general",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || settings_screens::settings_general_toggle(SettingId::EcomodeToggle),
+        fixture: || settings_screens::settings_general_toggle(SettingId::FilterProfanity),
     },
     State {
         name: "settings-updates",
@@ -871,54 +905,6 @@ const STATES: &[State] = &[
         fixture: || settings_screens::settings_keyboard_layout(true),
     },
     State {
-        name: "settings-mods",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::declared,
-    },
-    State {
-        name: "settings-mods-undeclared",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::undeclared,
-    },
-    State {
-        name: "settings-mods-permissions-collapsed",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::collapsed,
-    },
-    State {
-        name: "settings-mods-permissions-consent",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::consent,
-    },
-    State {
-        name: "settings-mods-permissions-requested",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::requested_only,
-    },
-    State {
-        name: "settings-mods-permissions-all",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::show_all,
-    },
-    State {
-        name: "settings-mods-permissions-narrow",
-        size: [360, 900],
-        gui_scale: GUI_SCALE,
-        fixture: mods::show_all,
-    },
-    State {
-        name: "settings-mods-permissions-undeclared-consent",
-        size: TALL_SIZE,
-        gui_scale: GUI_SCALE,
-        fixture: mods::undeclared_permissions,
-    },
-    State {
         name: "settings-shaders-options-button",
         size: SIZE,
         gui_scale: GUI_SCALE,
@@ -964,4 +950,10 @@ pub fn states() -> impl Iterator<Item = &'static State> {
         .chain(shader_pack::STATES)
         .chain(social_settings::STATES)
         .chain(settings_screens::SEARCH_STATES)
+        .chain(settings_screens::WORLD_STATES)
+        .chain(settings_screens::PAGE_STATES)
+        .chain(server_forms::STATES)
+        .chain(hud_hotbar::STATES)
+        .chain(touch_editor::STATES)
+        .chain(mods::STATES)
 }

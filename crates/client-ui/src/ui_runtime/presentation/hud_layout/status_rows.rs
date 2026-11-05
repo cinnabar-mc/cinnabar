@@ -149,6 +149,7 @@ fn hearts(
 ) -> HeartPaint {
     let variant = runtime.gameplay_hud().heart_variant(now_tick);
     let damage = runtime
+        .session
         .local_actor_damage
         .filter(|damage| damage.flash_active());
     let hardcore = runtime.gameplay_hud().hardcore();
@@ -243,11 +244,6 @@ fn hunger(runtime: &UiRuntime, now_tick: Option<u64>) -> HungerPaint {
         ]
     };
     HungerPaint {
-        saturation_overlay: None,
-        overlay_color: [255; 4],
-        inverse_overlay: false,
-        food_preview: None,
-        food_saturation_preview: None,
         current,
         saturation_empty: runtime.gameplay_hud().saturation_empty(),
         sprites: Some(roles.map(path)),

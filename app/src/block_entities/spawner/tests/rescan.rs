@@ -90,3 +90,63 @@ fn regression_distant_spawner_scans_are_budgeted_and_near_edits_are_immediate() 
         );
     }
 }
+
+/// The settled terrain revision and listed requests of the last column pass.
+fn listing(world: &bevy::prelude::World) -> (Option<u64>, Vec<(ChunkKey, usize)>) {
+    let pool = world
+        .resource::<SpawnerDisplayPublisher>()
+        .0
+        .as_ref()
+        .unwrap();
+    let listing = pool.listing.as_ref().unwrap();
+    (
+        listing.settled.as_ref().map(|inputs| inputs.window.terrain),
+        listing.requests.clone(),
+    )
+}
+
+#[test]
+fn regression_settled_listing_is_reused_only_while_the_terrain_is_unchanged() {
+    let mut world = system_fixture(serde_json::json!({}), "1");
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    let (settled, requests) = listing(&world);
+    assert!(
+        settled.is_some(),
+        "an unchanged neighbourhood settles in one pass"
+    );
+    assert_eq!(requests.len(), 1);
+    assert_eq!(published(&world), 2);
+
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    assert_eq!(listing(&world), (settled, requests.clone()));
+    assert_eq!(published(&world), 2);
+    // A fresh pass over the same terrain lists exactly what the reused listing held.
+    world
+        .resource_mut::<SpawnerDisplayPublisher>()
+        .0
+        .as_mut()
+        .unwrap()
+        .listing = None;
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    assert_eq!(listing(&world).1, requests);
+    assert_eq!(published(&world), 2);
+
+    let mut sequence = 2;
+    update_identifiers(
+        &mut world,
+        &[[1024, 64, 1024]],
+        "custom:missing",
+        &mut sequence,
+    );
+    prepare_displays(&mut world, simulation_clock::TICK_DURATION);
+    assert_ne!(
+        listing(&world).0,
+        settled,
+        "a block-entity edit retires the settled terrain"
+    );
+    assert_eq!(
+        published(&world),
+        0,
+        "the edited spawner's display retires on the next frame"
+    );
+}

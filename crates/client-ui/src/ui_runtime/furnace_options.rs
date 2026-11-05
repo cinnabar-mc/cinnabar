@@ -18,22 +18,24 @@ fn screen_options(mut options: FurnaceOptions) -> FurnaceOptions {
 impl UiRuntime {
     /// Starts one controller per window generation, retaining incoming updates separately.
     pub fn observe_inventory_window(&mut self, player: &player_state::PlayerState) {
-        self.screen
+        self.session
+            .screen
             .observe_window(player.inventory.ledger().storage_generation());
         if self.inventory_open() {
             self.initialize_inventory_controller(player);
         } else {
-            self.screen.inventory = None;
-            self.screen.search_focused = false;
+            self.session.screen.inventory = None;
+            self.session.screen.search_focused = false;
         }
-        if self.screen.furnace.is_none()
+        if self.session.screen.furnace.is_none()
             && let Some(kind) = player
                 .inventory
                 .ledger()
                 .window_kind()
                 .and_then(FurnaceKind::from_window)
         {
-            self.screen.furnace = Some(screen_options(player.inventory.furnace_options(kind)));
+            self.session.screen.furnace =
+                Some(screen_options(player.inventory.furnace_options(kind)));
         }
     }
 
@@ -45,10 +47,12 @@ impl UiRuntime {
             .window_kind()
             .and_then(FurnaceKind::from_window)?;
         Some(
-            self.screen
+            self.session
+                .screen
                 .furnace
                 .filter(|_| {
-                    self.screen
+                    self.session
+                        .screen
                         .observes_window(player.inventory.ledger().storage_generation())
                 })
                 .unwrap_or_else(|| screen_options(player.inventory.furnace_options(kind))),
@@ -69,6 +73,7 @@ impl UiRuntime {
             .and_then(FurnaceKind::from_window)
             .ok_or(InventoryGestureError::InvalidRequest)?;
         let mut options = self
+            .session
             .screen
             .furnace
             .ok_or(InventoryGestureError::InvalidRequest)?;
@@ -79,6 +84,7 @@ impl UiRuntime {
         }
         let packet = protocol::furnace_options_packet(kind, options);
         let conflicts_with_pending = self
+            .session
             .client_packets
             .iter()
             .rev()
@@ -90,8 +96,8 @@ impl UiRuntime {
             return Err(InventoryGestureError::Busy);
         }
         player.inventory.set_furnace_options(kind, options);
-        self.screen.furnace = Some(options);
-        self.screen.container_scroll.clear();
+        self.session.screen.furnace = Some(options);
+        self.session.screen.container_scroll.clear();
         Ok(0)
     }
 }

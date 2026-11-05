@@ -10,6 +10,27 @@ use {
 };
 
 impl MenuRuntime {
+    /// Records the accepted leave action once before the session controller consumes it.
+    pub(super) fn request_disconnect(&mut self) {
+        if !self.intents.disconnect {
+            bridge::leave_profile::LeaveProfile::begin();
+            self.intents.disconnect = true;
+        }
+    }
+
+    /// Invokes the enabled Apply action before leaving Global Resources.
+    pub(super) fn apply_global_resources_on_leave(&mut self) {
+        if self.scene() == Some(MenuScreen::Settings)
+            && self.settings_section()
+                == Some(launcher::menu::settings_sections::SettingSection::GlobalTexturePack)
+            && self.global_resources.can_apply()
+        {
+            self.activate(MenuAction::GlobalResources(
+                launcher::global_resources::Action::Apply,
+            ));
+        }
+    }
+
     /// Opens pause over gameplay when no other menu or connection screen is active.
     pub fn open_pause(&mut self) {
         if self.visible || self.is_connecting() {
@@ -25,6 +46,7 @@ impl MenuRuntime {
 
     /// The session is live: the menu gives way to the world.
     pub fn show_world(&mut self) {
+        self.apply_global_resources_on_leave();
         self.reset_death();
         self.visible = false;
         self.navigation_focus = NavigationFocus::default();
@@ -35,6 +57,7 @@ impl MenuRuntime {
     }
 
     pub fn show_connecting(&mut self) {
+        self.apply_global_resources_on_leave();
         self.reset_death();
         self.visible = true;
         self.navigation_focus = NavigationFocus::default();
@@ -45,6 +68,7 @@ impl MenuRuntime {
     }
 
     pub fn show_home(&mut self) {
+        self.apply_global_resources_on_leave();
         self.reset_death();
         self.visible = true;
         self.navigation_focus = NavigationFocus::default();
@@ -132,6 +156,9 @@ impl MenuRuntime {
     /// Shows the history's top screen with fresh focus.
     pub(super) fn show_top(&mut self) {
         let screen = self.history.top().unwrap_or(MenuScreen::Home);
+        if screen != MenuScreen::Settings {
+            self.apply_global_resources_on_leave();
+        }
         self.close_realm_membership();
         if screen == MenuScreen::Death
             && self.screen != MenuScreen::Death
@@ -239,7 +266,9 @@ impl MenuRuntime {
         }
         // Back on the join progress screen is its cancel button, where vanilla offers one.
         if self.is_connecting() {
-            self.intents.disconnect |= self.feeds.join.cancellable();
+            if self.feeds.join.cancellable() {
+                self.request_disconnect();
+            }
             return;
         }
         if self.shader_options_back() {
@@ -268,3 +297,6 @@ mod tests;
 
 #[cfg(test)]
 mod focus_tests;
+
+#[cfg(test)]
+mod global_resources_tests;

@@ -15,24 +15,28 @@ pub fn capture_hud_frame(
     player_runtime: &player_state::PlayerState,
     runtime: &mut UiRuntime,
     presentation: &mut UiPresentationRuntime,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
     perspective: semantic_input::PerspectiveMode,
     now_millis: u64,
     icon_frames: ItemIconFrames,
 ) -> (Option<IconRef>, Option<IconRef>) {
-    presentation.capture_local_player_identity(stream, runtime.session_id());
+    dynamic_textures::observe_session(presentation, runtime.session_id());
+    presentation.capture_local_player_identity(
+        world.map(|world| world.local_player()),
+        runtime.session_id(),
+    );
     runtime.sync_anvil_name(player_runtime);
-    observe_storage_block(runtime, player_runtime, stream);
+    observe_storage_block(runtime, player_runtime, world);
     // Inventory capture precedes lectern opening and screen selection. Selected-item
     // and sleep observations run after item capture, immediately before publication.
-    let armor = observations::armor(
-        player_runtime,
-        runtime,
-        stream.map(|stream| stream.authority()),
-    );
+    let armor = observations::armor(player_runtime, runtime, world);
     runtime.set_derived_armor(armor);
-    let mount_health = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
-        stream.and_then(|stream| stream.authority().actor_health_by_unique(unique))
+    let mount_health = runtime
+        .gameplay_hud()
+        .mount_unique_id()
+        .and_then(|unique| world.and_then(|world| world.actor_health_by_unique(unique)));
+    prepare_shield_art(player_runtime, runtime, presentation, world, |stack| {
+        world?.canonical_item_stack(stack)
     });
     let mut inventory_cache = presentation
         .inventory_cache
@@ -41,7 +45,7 @@ pub fn capture_hud_frame(
     let items = ItemResolver {
         runtime,
         presentation,
-        authority: stream.map(|stream| stream.authority()),
+        authority: world,
     };
     let projections = inventory_cache.capture(player_runtime, &items, &icon_frames);
     presentation.inventory_cache = Some(inventory_cache);
@@ -50,13 +54,13 @@ pub fn capture_hud_frame(
         .decorations
         .as_ref()
         .map_or(presentation.hud_frame.window_icons.ui, |(_, icons)| *icons);
-    observations::open_lectern(player_runtime, runtime, stream);
+    observations::open_lectern(player_runtime, runtime, world);
     let items = ItemResolver {
         runtime,
         presentation,
-        authority: stream.map(|stream| stream.authority()),
+        authority: world,
     };
-    let window_text = container::capture(player_runtime, &items, stream, &mut window_icons);
+    let window_text = container::capture(player_runtime, &items, world, &mut window_icons);
     let cursor_icon = runtime
         .inventory_ledger(player_runtime)
         .cursor_stack()
@@ -84,25 +88,21 @@ pub fn capture_hud_frame(
         &ItemResolver {
             runtime,
             presentation,
-            authority: stream.map(|stream| stream.authority()),
+            authority: world,
         },
         &icon_frames,
     );
     let mount_jump = runtime.gameplay_hud().mount_unique_id().and_then(|unique| {
-        stream
-            .filter(|stream| {
-                stream
-                    .authority()
-                    .actor_has_attribute_by_unique(unique, "minecraft:horse.jump_strength")
-            })
+        world
+            .filter(|world| world.mount_has_jump(unique))
             .map(|_| runtime.mount_jump_charge(now_millis))
     });
     let first_person = perspective == semantic_input::PerspectiveMode::FirstPerson;
     let player_preview_icon = presentation.player_preview_icon();
     let (left_hand_icon, right_hand_icon) = presentation.player_hand_icons();
     runtime.observe_selected_item_identity_value(selected.identity(), now_millis);
-    let sleeping = stream
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+    let sleeping = world
+        .and_then(|world| world.local_player().actor())
         .is_some_and(|actor| actor.is_sleeping());
     runtime.set_local_sleeping(sleeping);
     let frame = presentation.hud_frame_mut();
@@ -136,19 +136,74 @@ pub fn capture_hud_frame(
     frame.player_preview = player_preview_icon;
     frame.left_hand = left_hand_icon;
     frame.right_hand = right_hand_icon;
-    frame.viewmodel_pitch_degrees = stream
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
+    frame.viewmodel_pitch_degrees = world
+        .and_then(|world| world.local_player().actor())
         .map_or(0.0, |actor| actor.pitch);
-    frame.selected_food = selected
-        .stack
-        .and_then(|stack| stream?.authority().canonical_item_stack(stack)?.identifier)
-        .and_then(|identifier| runtime.food_properties(&identifier));
     frame.selected_item_name = equipment.selected_item_name;
     frame.holding_filled_map = equipment.holding_filled_map;
     frame.mount_jump = mount_jump;
     frame.attack_indicator_charge = Some(1.0);
     observations::note_diagnostics(runtime, presentation);
     (equipment.held_item_icon, equipment.offhand_icon)
+}
+
+/// Keeps the visible stack set stable before inventory caches retain any icon addresses.
+pub(super) fn prepare_shield_art(
+    player: &player_state::PlayerState,
+    runtime: &UiRuntime,
+    presentation: &mut UiPresentationRuntime,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
+    resolve: impl Fn(&protocol::NetworkItemStack) -> Option<client_world::CanonicalItemStack>,
+) {
+    use inventory::inventory_ledger::InventoryTarget;
+    let mut inventory_cache = presentation
+        .inventory_cache
+        .take()
+        .expect("inventory cache retained");
+    inventory_cache.prepare(
+        player,
+        &ItemResolver {
+            runtime,
+            presentation,
+            authority: world,
+        },
+    );
+    let ledger = runtime.inventory_ledger(player);
+    let mut appearances = Vec::new();
+    let mut observe = |stack: &protocol::NetworkItemStack| {
+        if let Some(pattern) = resolve(stack).and_then(|item| item.shield_pattern) {
+            appearances.push(pattern);
+        }
+    };
+    for stack in inventory_cache.stacks() {
+        observe(stack);
+    }
+    if runtime.inventory_open() {
+        let creative =
+            crate::ui_runtime::inventory_actions::visible_creative_entries(player, runtime);
+        for item in creative
+            .iter()
+            .skip(runtime.screen_state().creative_row * screens::GRID_COLUMNS)
+            .take(screens::GRID_CELLS)
+        {
+            observe(&item.stack);
+        }
+        for stack in recipes::screen_previews(player, runtime).stacks() {
+            observe(stack);
+        }
+        for stack in (0..4).filter_map(|slot| ledger.target_stack(InventoryTarget::Armor(slot))) {
+            observe(stack);
+        }
+    }
+    for stack in ledger
+        .cursor_stack()
+        .into_iter()
+        .chain(runtime.local_offhand_stack(player))
+    {
+        observe(stack);
+    }
+    presentation.inventory_cache = Some(inventory_cache);
+    presentation.prepare_shield_icons(appearances);
 }
 
 /// The hovered container cell's stack and its custom name: what the tooltip shows, and what a
@@ -169,17 +224,28 @@ pub fn hovered_stack(
             ),
             Hit::Storage(slot) => (ledger.storage_stack(slot), None),
             Hit::Craft(slot) => (
-                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot)),
+                ledger
+                    .target_stack(inventory::inventory_ledger::InventoryTarget::Craft(slot))
+                    .or_else(|| ledger.crafting_ghost_stack(slot)),
                 None,
             ),
             Hit::Armor(row) => (
                 ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Armor(row)),
                 None,
             ),
-            Hit::Offhand => (
-                ledger.target_stack(inventory::inventory_ledger::InventoryTarget::Offhand),
-                None,
-            ),
+            Hit::Offhand => (runtime.local_offhand_stack(player_runtime), None),
+            Hit::CraftOutput
+                if matches!(
+                    ledger.window_kind(),
+                    None | Some(protocol::WindowKind::Workbench)
+                ) =>
+            {
+                return ui_screens::inventory_capture::crafting_output(
+                    ledger,
+                    player_runtime.inventory.crafting_match(),
+                )
+                .map(|(stack, _)| (stack, None));
+            }
             Hit::CraftOutput if ledger.window_kind() == Some(protocol::WindowKind::Anvil) => {
                 return runtime
                     .anvil_output(player_runtime)
@@ -247,22 +313,26 @@ pub fn hovered_stack(
 fn observe_storage_block(
     runtime: &mut UiRuntime,
     player_runtime: &player_state::PlayerState,
-    stream: Option<&chunk_pipeline::WorldStream>,
+    world: Option<client_world::ui_read::InventoryUi<'_>>,
 ) {
     let position = runtime.inventory_ledger(player_runtime).window_position();
     let block = position
-        .zip(stream)
-        .and_then(|(position, stream)| stream.block_entity_compound(position));
+        .zip(world)
+        .and_then(|(position, world)| world.block_entity_compound(position.into()));
     let (Some(position), Some(id)) = (position, block.as_deref().and_then(|nbt| nbt.string("id")))
     else {
-        runtime.storage_block = None;
+        runtime.session.storage_block = None;
         return;
     };
     if runtime
+        .session
         .storage_block
         .as_ref()
         .is_none_or(|(retained, old)| *retained != position || **old != *id)
     {
-        runtime.storage_block = Some((position, std::sync::Arc::from(id)));
+        runtime.session.storage_block = Some((position, std::sync::Arc::from(id)));
     }
 }
+
+#[cfg(test)]
+mod world_read_tests;
