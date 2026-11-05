@@ -192,6 +192,11 @@ impl Plugin for GpuTimingPlugin {
 #[extract_app(bevy::render::RenderApp)]
 pub struct DetailedGpuTiming(pub bool);
 
+/// Whether opt-in category profiling splits the opaque scene into one pass per category.
+pub(crate) fn splits_opaque_pass(world: &World) -> bool {
+    world.contains_resource::<categories::CategoryProfiling>()
+}
+
 /// Adds markers to stock post-processing systems while keeping their schedule boundaries.
 fn install_builtin_timing(world: &mut World) {
     if world.contains_resource::<categories::CategoryProfiling>()

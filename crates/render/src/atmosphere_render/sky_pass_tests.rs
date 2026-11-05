@@ -368,3 +368,15 @@ fn stock_sky_fills_clear_samples_without_covering_opaque_geometry() {
         }
     }
 }
+
+/// The sky rides the opaque scene pass instead of opening a render pass of its own whenever
+/// that pass replaces Bevy's, and falls back to its own pass only without it.
+#[test]
+fn ordinary_sky_draws_inside_the_opaque_pass_instead_of_its_own() {
+    use super::sky_pass::{SkyHost, host};
+    let mut world = crate::render_test_support::empty_render_world();
+    let view = world.spawn_empty().id();
+    assert_eq!(host(&world, view), SkyHost::Own);
+    crate::scene_target::install_graph(&mut world);
+    assert_eq!(host(&world, view), SkyHost::Opaque);
+}

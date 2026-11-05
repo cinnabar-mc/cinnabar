@@ -72,6 +72,26 @@ mod screen_overlay_render {
     }
 }
 
+mod atmosphere_render {
+    /// The standalone UI fixture draws no sky.
+    pub(crate) mod sky_pass {
+        #[derive(PartialEq, Eq)]
+        pub(crate) enum SkyHost {
+            Own,
+            Opaque,
+        }
+        pub(crate) fn host(_: &bevy::prelude::World, _: bevy::prelude::Entity) -> SkyHost {
+            SkyHost::Own
+        }
+        pub(crate) fn draw(
+            _: &bevy::prelude::World,
+            _: bevy::prelude::Entity,
+            _: &mut bevy::render::render_phase::TrackedRenderPass,
+        ) {
+        }
+    }
+}
+
 mod shaderpack {
     /// Standalone UI views use the ordinary scene boundary without a shader pack.
     pub(crate) fn native_pass_enabled(

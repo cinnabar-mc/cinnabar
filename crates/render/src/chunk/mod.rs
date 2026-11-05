@@ -104,6 +104,7 @@ mod gpu;
 mod gpu_cull;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
+pub(crate) use gpu_cull::direct::terrain_pass_draws_color;
 pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
 
 pub(crate) mod pipeline;
