@@ -1144,3 +1144,19 @@ fn keyboard_focus_keeps_hover_until_the_pointer_moves() {
         "leaving the controls keeps the last one the pointer was over"
     );
 }
+
+/// A resting pointer only takes hover back after travelling past the slop on either axis, or
+/// when it enters or leaves the window.
+#[test]
+fn the_pointer_counts_as_moved_only_past_the_slop_or_across_the_window_edge() {
+    let rested = Some([10.0, 20.0]);
+    assert!(!pointer_moved(rested, rested));
+    let within = POINTER_MOVE_SLOP * 0.5;
+    assert!(!pointer_moved(rested, Some([10.0 + within, 20.0 - within])));
+    let past = POINTER_MOVE_SLOP * 2.0;
+    assert!(pointer_moved(rested, Some([10.0 + past, 20.0])));
+    assert!(pointer_moved(rested, Some([10.0, 20.0 - past])));
+    assert!(!pointer_moved(None, None));
+    assert!(pointer_moved(None, rested));
+    assert!(pointer_moved(rested, None));
+}
