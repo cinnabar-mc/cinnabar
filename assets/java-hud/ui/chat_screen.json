@@ -138,6 +138,33 @@
   "chat_screen_content/messages_panel": {
     "bindings": [ { "binding_name": "#chat_visible", "binding_name_override": "#visible" } ]
   },
+  // Bedrock completions rest on the input bar. The grid keeps its rows' natural height and sits
+  // at the top of a bottom-anchored panel that fits it, up to the completion area. A longer list
+  // therefore fills the area from the top, and the panel clips rows past its bottom edge.
+  "auto_complete_panel/panel": {
+    "size": [ "100%", "100%c" ],
+    "clips_children": true
+  },
+  "auto_complete_panel/panel/auto_complete_grid": {
+    "size": [ "100%", "default" ],
+    "anchor_from": "top_left",
+    "anchor_to": "top_left",
+    "grid_rescaling_type": "horizontal",
+    "modifications": [
+      {
+        "array_name": "bindings",
+        "operation": "insert_back",
+        "value": [
+          {
+            "binding_name": "#collection_total_items",
+            "binding_name_override": "#maximum_grid_items",
+            "binding_type": "collection",
+            "binding_collection_name": "auto_complete"
+          }
+        ]
+      }
+    ]
+  },
   "messages_stack_panel": {
     "variables": [{
       "requires": "($cinnabar_chat_top and (not $cinnabar_chat_input_bedrock))",
@@ -212,8 +239,16 @@
     ]
   },
   "messages_text/text": {
-    "offset": [ 4, 0 ],
-    "size": [ "100% - 8px", "default" ],
+    // Java insets history text; Bedrock's chat screen keeps vanilla's flush-left text.
+    "$cinnabar_message_offset": [ 4, 0 ],
+    "$cinnabar_message_size": [ "100% - 8px", "default" ],
+    "variables": [{
+      "requires": "$cinnabar_chat_input_bedrock",
+      "$cinnabar_message_offset": [ 0, 0 ],
+      "$cinnabar_message_size": [ "100% - 3px", "default" ]
+    }],
+    "offset": "$cinnabar_message_offset",
+    "size": "$cinnabar_message_size",
     "anchor_from": "top_left",
     "anchor_to": "top_left",
     "font_type": "$chat_font_type",
