@@ -213,8 +213,15 @@ fn observed_actors_resolve_for_depth_tested_masks_without_through_walls() {
         runtime_id: 9,
         spawn_revision: 1,
     };
-    store.publish_targets(&[(key, 36)]);
+    let far = MaskEntity {
+        runtime_id: 10,
+        ..key
+    };
+    store.publish_targets(&[(key, 36), (far, 36)]);
+    assert_eq!(store.entity(9), Err(MaskError::StaleHandle));
+    store.publish_observed([key]);
     let actor = store.entity(9).unwrap();
+    assert_eq!(store.entity(10), Err(MaskError::StaleHandle));
     let mask = store.create(MaskDepth::Test).unwrap();
     assert_eq!(store.select(mask, &[actor]), Ok(()));
     assert_eq!(store.create(MaskDepth::Always), Err(MaskError::Denied));

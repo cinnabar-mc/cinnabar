@@ -218,7 +218,9 @@ impl RenderState {
         candidates: Vec<mod_render::retained::EntityKey>,
         despawned: &[mod_render::retained::EntityKey],
     ) -> Result<(), mod_render::retained::DrawError> {
+        let observed: Vec<_> = candidates.iter().copied().map(Into::into).collect();
         self.retained.reconcile_entities(candidates, despawned)?;
+        self.masks.publish_observed(observed);
         let removed = despawned
             .iter()
             .copied()
