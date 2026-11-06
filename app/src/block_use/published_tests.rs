@@ -67,6 +67,8 @@ mod attack_progress_tests;
 
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
+#[path = "published_tests/freeform_pick.rs"]
+mod freeform_pick_tests;
 
 #[path = "published_tests/held_equipment.rs"]
 mod held_equipment_tests;
@@ -88,6 +90,9 @@ mod touch_tests;
 
 #[path = "published_tests/harvesting.rs"]
 mod harvesting_tests;
+
+#[path = "published_tests/held_book.rs"]
+mod held_book_tests;
 
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {

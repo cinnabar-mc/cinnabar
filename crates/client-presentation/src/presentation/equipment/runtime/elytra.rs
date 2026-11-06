@@ -17,6 +17,7 @@ const WING_MATERIAL_STATE: assets::EntityRenderMaterialState = assets::EntityRen
     depth_equal: false,
     disable_alpha_write: false,
     disable_color_write: false,
+    color_mask: false,
 };
 
 impl EquipmentRuntime {
@@ -97,7 +98,11 @@ impl EquipmentRuntime {
             .get(parent)
             .zip(body.input.current_bones.get(parent))
             .and_then(|(previous, current)| {
-                modern::interpolate_parent(*previous, *current, animation.frame_alpha)
+                actor_animation::attachment::interpolate_parent(
+                    *previous,
+                    *current,
+                    animation.frame_alpha,
+                )
             })
         else {
             return;
@@ -156,7 +161,7 @@ impl EquipmentRuntime {
                     if hidden.contains(&(index as u32)) {
                         Some(hidden_bone())
                     } else {
-                        modern::compose_parent(parent, *bone)
+                        actor_animation::attachment::compose_parent(parent, *bone)
                     }
                 })
                 .collect::<Option<Vec<_>>>()

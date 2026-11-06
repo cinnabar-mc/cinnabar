@@ -8,8 +8,8 @@ use bedrock_protocol_1_26_60::{
 use protocol::{
     ActorUseAction, ActorUseRequest, BlockItemInteraction, BlockUseRequest, HeldItemRequest,
     ItemUseHand, ItemUseTrigger, NetworkItemStack, PlayerAuthInputInteractions,
-    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PredictedSlotChange,
-    VerifiedNetworkItemStack,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+    PredictedSlotChange, VerifiedNetworkItemStack,
 };
 use sha2::{Digest, Sha256};
 
@@ -224,6 +224,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }

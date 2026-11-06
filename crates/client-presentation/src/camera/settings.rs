@@ -27,6 +27,8 @@ pub struct CameraSettingsAuthority {
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
+    /// A developer-scripted camera is rendering the scene from outside the body.
+    scripted_view: bool,
     view_scale: [f32; 2],
     view_tilt: Option<ViewTilt>,
 }
@@ -141,6 +143,7 @@ impl Default for CameraSettingsAuthority {
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
+            scripted_view: false,
             view_scale: [1.0, 1.0],
             view_tilt: None,
         }
@@ -241,6 +244,17 @@ impl CameraSettingsAuthority {
             PerspectiveMode::ThirdPersonBack
         } else {
             self.perspective
+        }
+    }
+
+    /// The perspective the local body is drawn for: `perspective`, except that a scripted camera filming
+    /// from outside the body draws it as third-person-back. Only drawing reads this; anything a server
+    /// can observe, such as aim-assist activation, keeps reading `perspective`.
+    #[must_use]
+    pub fn rendered_perspective(&self) -> PerspectiveMode {
+        match self.perspective() {
+            PerspectiveMode::FirstPerson if self.scripted_view => PerspectiveMode::ThirdPersonBack,
+            perspective => perspective,
         }
     }
 
@@ -345,6 +359,12 @@ impl CameraSettingsAuthority {
         } else {
             self.feel.damage_bob
         }
+    }
+
+    /// Marks a developer-scripted camera as active, so the local body is drawn in its shots without
+    /// changing the player's perspective; clearing stops drawing it.
+    pub fn set_scripted_view(&mut self, active: bool) {
+        self.scripted_view = active;
     }
 
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.

@@ -634,6 +634,7 @@ pub(super) fn carrier_v4_fixture() -> CompiledEntityAssetsV4 {
             scale: assets::EntityGeometryScalar::new(1.0).unwrap(),
             scale_expressions: None,
             held_item_scale: None,
+            hide_held_items: None,
         }]
         .into_boxed_slice(),
         rig_geometries: vec![EntityRigGeometryBinding {
@@ -1115,5 +1116,19 @@ fn material_selection_graph_is_optional_and_validated() {
         no: 0,
     }]
     .into();
+    assert!(compiled.validate().is_err());
+}
+
+#[test]
+fn hide_held_items_validates_and_roundtrips_optional_expression() {
+    let mut compiled = carrier_v4_fixture();
+    let encoded = serde_json::to_value(compiled.rig_bindings[0]).unwrap();
+    assert!(encoded.get("hide_held_items").is_none());
+    let binding: EntityRigBinding = serde_json::from_value(encoded).unwrap();
+    assert_eq!(binding.hide_held_items, None);
+    compiled.rig_bindings[0].hide_held_items = Some(0);
+    let runtime = RuntimeEntityAssets::decode(&encode_entity_blob(&compiled).unwrap()).unwrap();
+    assert_eq!(runtime.rig_bindings()[0].hide_held_items, Some(0));
+    compiled.rig_bindings[0].hide_held_items = Some(compiled.molang_expressions.len() as u32);
     assert!(compiled.validate().is_err());
 }

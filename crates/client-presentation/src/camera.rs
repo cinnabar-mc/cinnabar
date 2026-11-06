@@ -211,11 +211,16 @@ impl Plugin for CameraPresentationPlugin {
 #[path = "camera/rig_tests.rs"]
 mod rig_tests;
 
-/// CPU hand carriers follow the same camera capability as the animated hand rig.
+/// Whether first-person hands draw: the rendered perspective is first person and no server camera
+/// takes the view. The animated hand rig, the CPU hand carriers and hand particles all read this one
+/// decision, so they never disagree. Without settings, first person is assumed.
 pub fn hand_first_person(
-    perspective: semantic_input::PerspectiveMode,
+    settings: Option<&CameraSettingsAuthority>,
     server: Option<&ServerCameraView>,
 ) -> bool {
-    let fallback = perspective == semantic_input::PerspectiveMode::FirstPerson;
+    let fallback = settings.map_or(
+        semantic_input::PerspectiveMode::FirstPerson,
+        CameraSettingsAuthority::rendered_perspective,
+    ) == semantic_input::PerspectiveMode::FirstPerson;
     server.map_or(fallback, |camera| camera.renders_first_person(fallback))
 }

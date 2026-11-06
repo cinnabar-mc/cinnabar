@@ -568,7 +568,7 @@ fn display_batch(
     pool.layers.begin_frame();
     apply_render_layers_cached(
         &mut batch,
-        |runtime| sampled.layers(runtime),
+        |runtime| sampled.layers_with_skin(runtime),
         artwork,
         &mut pool.layers,
     );

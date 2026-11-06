@@ -25,6 +25,30 @@ pub(super) fn from_facing(pitch: f32, yaw: f32) -> [f32; 2] {
 }
 
 impl MovementTicker {
+    /// Sets the interaction model the touch control mode reports while input is touch.
+    pub fn set_touch_control_mode(&mut self, mode: semantic_input::TouchControlMode) {
+        self.touch_interaction_model = match mode {
+            semantic_input::TouchControlMode::Touch => protocol::PlayerInteractionModel::Touch,
+            semantic_input::TouchControlMode::Crosshair => {
+                protocol::PlayerInteractionModel::Crosshair
+            }
+            semantic_input::TouchControlMode::Classic => protocol::PlayerInteractionModel::Classic,
+        };
+    }
+
+    /// The interaction model reported for a tick sampled from `input_mode`. Only touch input
+    /// has a control mode; other inputs aim with the crosshair.
+    pub(super) fn interaction_model(
+        &self,
+        input_mode: protocol::PlayerInputMode,
+    ) -> protocol::PlayerInteractionModel {
+        if input_mode == protocol::PlayerInputMode::Touch {
+            self.touch_interaction_model
+        } else {
+            protocol::PlayerInteractionModel::Crosshair
+        }
+    }
+
     /// Publishes assisted aim for one unsent tick; a policy without a target uses actor facing.
     pub fn publish_interaction_aim(&mut self, tick: u64, direction: Option<[f32; 3]>) -> bool {
         let rotation = match direction.map(from_direction) {
@@ -48,6 +72,35 @@ impl MovementTicker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Touch ticks report the touch control mode's interaction model; other inputs report the
+    /// crosshair, whatever the touch mode.
+    #[test]
+    fn only_touch_ticks_report_the_touch_interaction_model() {
+        use crate::{movement::MovementSource, test_support::survival_mining::completed};
+        use protocol::{PlayerInputMode, PlayerInteractionModel};
+        let mut ticker = MovementTicker::default();
+        ticker.reset(7, 100, completed(101).position);
+        ticker.set_source(MovementSource::Physics);
+        ticker.set_touch_control_mode(semantic_input::TouchControlMode::Classic);
+        for (tick, input_mode) in [(101, PlayerInputMode::Touch), (102, PlayerInputMode::Mouse)] {
+            let mut sample = completed(tick);
+            sample.input_mode = input_mode;
+            ticker.enqueue_completed_physics(sample).unwrap();
+        }
+        let models: Vec<_> = ticker
+            .outbox
+            .iter()
+            .map(|sample| sample.snapshot.interaction_model)
+            .collect();
+        assert_eq!(
+            models,
+            [
+                PlayerInteractionModel::Classic,
+                PlayerInteractionModel::Crosshair
+            ]
+        );
+    }
 
     #[test]
     fn picked_directions_keep_their_independent_pitch_and_unwrapped_yaw() {

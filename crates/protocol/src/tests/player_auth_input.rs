@@ -1,8 +1,8 @@
 use bedrock_protocol_1_26_60::enums::{ClientPlayMode, InputData, InputMode, NewInteractionModel};
 use bedrock_protocol_1_26_60::packets::{self, PacketId};
 use protocol::{
-    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, decode_batch, encode,
-    player_auth_input,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+    decode_batch, encode, player_auth_input,
 };
 
 fn snapshot() -> PlayerAuthInputSnapshot {
@@ -23,7 +23,36 @@ fn snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
+    }
+}
+
+/// Each interaction model reaches the wire as Bedrock's matching value.
+#[test]
+fn interaction_models_map_to_their_wire_values() {
+    for (model, wire) in [
+        (PlayerInteractionModel::Touch, NewInteractionModel::Touch),
+        (
+            PlayerInteractionModel::Crosshair,
+            NewInteractionModel::Crosshair,
+        ),
+        (
+            PlayerInteractionModel::Classic,
+            NewInteractionModel::Classic,
+        ),
+    ] {
+        let packet = player_auth_input(PlayerAuthInputSnapshot {
+            interaction_model: model,
+            input_mode: PlayerInputMode::Touch,
+            ..snapshot()
+        })
+        .unwrap();
+        let packets::Packet::PlayerAuthInput(input) = *packet.data else {
+            panic!("expected PlayerAuthInput payload");
+        };
+        assert_eq!(input.new_interaction_model, wire);
+        assert_eq!(input.new_interaction_model.to_raw(), wire.to_raw());
     }
 }
 

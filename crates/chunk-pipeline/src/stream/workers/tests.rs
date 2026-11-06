@@ -258,7 +258,12 @@ fn dispatch_batch_publishes_independent_jobs_together() {
 
 /// Work on the borrowed world cores runs as wide as the world pool, below frame priority, so a
 /// join's compile cannot crowd out the main and render threads.
-#[cfg(any(windows, target_os = "linux", target_os = "macos"))]
+#[cfg(any(
+    windows,
+    target_os = "linux",
+    target_os = "android",
+    target_os = "macos"
+))]
 #[test]
 fn borrowed_world_cores_run_as_wide_as_the_world_pool_at_normal_priority() {
     let cores = std::thread::available_parallelism().map_or(1, usize::from);

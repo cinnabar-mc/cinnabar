@@ -14,6 +14,7 @@ pub(crate) fn instance_supported(instance: &ActorGpuInstance) -> bool {
         && kind != EntityRenderMaterial::DissolveColor as u32
         && !crate::actor::material::state(instance.material).is_some_and(|state| {
             state.emissive
+                || state.color_mask
                 || state.depth_always
                 || state.depth_equal
                 || state.disable_alpha_write
@@ -130,6 +131,11 @@ mod tests {
             },
             EntityRenderMaterialState {
                 disable_color_write: true,
+                ..Default::default()
+            },
+            EntityRenderMaterialState {
+                blend: true,
+                color_mask: true,
                 ..Default::default()
             },
         ] {

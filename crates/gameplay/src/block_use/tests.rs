@@ -12,6 +12,7 @@ use super::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
 mod classification;
+mod edible_planting;
 mod held_placement;
 mod repeat_clock;
 mod respawn_anchor;
@@ -192,6 +193,31 @@ fn local_use_decides_interaction_placement_or_nothing() {
     assert_eq!(place(&empty, [2, 63, 0], 1, &sneaking), LocalUse::Interact);
     let iron = surroundings("minecraft:iron_door", "minecraft:air");
     assert_eq!(place(&empty, [2, 63, 0], 1, &iron), LocalUse::Nothing);
+}
+
+/// A lectern is interactive and needs the open-containers ability, so a use press aimed at
+/// it places a held book instead of opening the book's own screen.
+#[test]
+fn a_lectern_takes_the_use_press_from_a_held_book() {
+    let book = verified(network_item(3, 0));
+    let lectern = surroundings("minecraft:lectern", "minecraft:air");
+    let resolve = |mode| {
+        LocalUse::resolve(
+            &book,
+            [2, 63, 0],
+            1,
+            &lectern,
+            &GameModeCapabilities::for_mode(mode),
+        )
+    };
+    assert_eq!(resolve(PlayerGameMode::Survival), LocalUse::Interact);
+    assert_eq!(resolve(PlayerGameMode::Spectator), LocalUse::Nothing);
+    assert!(super::block_takes_use_press(lectern.clicked, false));
+    assert!(!super::block_takes_use_press(lectern.clicked, true));
+    assert!(!super::block_takes_use_press(
+        block_fact("minecraft:stone"),
+        false
+    ));
 }
 
 #[test]
@@ -800,7 +826,7 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         LocalUse::for_actor(&player, false, Default::default()),
         clock,
     );
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(!runtime.press_pending());
 }
 
@@ -833,7 +859,7 @@ fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
         true
     ));
     assert!(
-        !runtime.press_interacted(),
+        !runtime.press_consumed(),
         "the same press must be available to held-item use"
     );
     assert!(!runtime.press_pending());

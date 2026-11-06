@@ -438,7 +438,7 @@ fn held_sprite() -> super::super::super::player_preview::PreviewHeldModel {
             .unwrap()
             .into(),
         placements: [PreviewHeldPlacement::Sprite {
-            hand_equipped: false,
+            grip: render_model::equipment::SpriteGrip::Flat,
         }; 2],
         hand_pivots: [[0.; 3]; 2],
     }

@@ -23,6 +23,7 @@ mod cosmetic_previews;
 mod fire;
 mod held;
 pub(super) mod hud_model;
+mod live_equipment;
 mod live_player;
 mod pack_equipment;
 mod player_layers;
@@ -136,6 +137,7 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) live_equipment: live_equipment::LiveEquipment,
     pub(super) player_layers: player_layers::PlayerLayers,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
@@ -630,7 +632,7 @@ impl UiPresentationRuntime {
                 && self.gui_models.player_layers.has_layers())
             || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
-            && self.gui_models.live_player.body.geometry.is_some()
+            && (live_renderer || self.gui_models.live_player.body.geometry.is_some())
         {
             let instances = nodes
                 .iter()
@@ -708,6 +710,13 @@ impl UiPresentationRuntime {
                         *node = node
                             .clone()
                             .with_visual(UiVisual::TintedMesh { mesh, color });
+                    }
+                }
+            } else if live_renderer {
+                // A completed empty actor draw must not reveal the placeholder player raster.
+                for (index, node) in nodes.iter_mut().enumerate() {
+                    if targets.shows(index, node.visual()) {
+                        *node = node.clone().with_visual(UiVisual::None);
                     }
                 }
             }

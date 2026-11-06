@@ -751,6 +751,32 @@ fn camera_relative_queries_aim_at_the_fed_camera_position() {
     assert!((yaw + 90.0).abs() < 1e-3, "{yaw}");
 }
 
+// Vanilla measures these from the native actor position, a player's eye height above its feet,
+// like `query.position`; a pack anchoring a part at that height then reaches the camera.
+#[test]
+fn camera_relative_queries_measure_from_the_native_actor_position() {
+    let input = ActorTickInput {
+        position: [0.0, 64.0, 0.0],
+        ..ActorTickInput::default()
+    };
+    let context = ActorTickContext {
+        camera_position: [3.0, 69.62, 0.0],
+        ..ActorTickContext::default()
+    };
+    let mut actor = actor_with_metadata(HashMap::new());
+    actor.status.network_position_offset = 1.62;
+    let number = |name: &str, arguments: &[MolangValue]| {
+        read_with(&actor, &input, &context, 0, name, arguments).number()
+    };
+    assert!((number("query.position", &[MolangValue::Number(1.0)]) - 65.62).abs() < 1e-4);
+    assert!((number("query.distance_from_camera", &[]) - 5.0).abs() < 1e-4);
+    let pitch = number("query.rotation_to_camera", &[MolangValue::Number(0.0)]);
+    assert!(
+        (pitch + 4.0_f32.atan2(3.0).to_degrees()).abs() < 1e-2,
+        "{pitch}"
+    );
+}
+
 #[test]
 fn camera_rotation_reads_the_fed_view_and_xp_orb_frames_follow_value() {
     let input = ActorTickInput::default();

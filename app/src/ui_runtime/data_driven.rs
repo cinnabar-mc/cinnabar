@@ -200,6 +200,9 @@ pub(crate) fn drive_data_driven_input(
                     .and_then(|point| presentation.hit_test_data_driven(point));
                 if down {
                     gesture.held = hit;
+                    if hit.is_some_and(|hit| clicks(form.as_ref(), hit)) {
+                        client_ui::sound_requests::ui_click();
+                    }
                     press(&mut runtime, &presentation, form.as_ref(), hit, at);
                 } else {
                     // A held slider takes the release position before the drag ends.
@@ -354,6 +357,14 @@ fn press(
         }
         _ => runtime.data_driven_action(DataDrivenAction::Blur),
     }
+}
+
+/// Whether pressing `hit` plays the OreUI theme's click; sliders and text fields have none.
+fn clicks(form: Option<&oreui::data_driven_screen::DataDrivenForm>, hit: FormHit) -> bool {
+    !matches!(
+        item_of(form, hit),
+        Some(FormItem::Slider { .. } | FormItem::TextField { .. })
+    )
 }
 
 fn release(

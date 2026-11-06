@@ -62,6 +62,12 @@ impl VoiceShared {
     pub fn finished(&self) -> bool {
         self.done.load(Ordering::Acquire)
     }
+
+    /// Whether the engine has asked the mixer to end this voice.
+    #[cfg(test)]
+    pub fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+    }
 }
 
 /// Keeps malformed controls out of the mixer state.

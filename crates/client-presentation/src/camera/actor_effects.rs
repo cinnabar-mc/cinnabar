@@ -24,7 +24,9 @@ pub struct DamageShake {
 pub struct PresentedDamageShake(pub Option<DamageShake>);
 
 /// Samples hurt and bob on their own clocks, applying movement bob to the selected views, and
-/// publishes the damage shake it samples at full strength.
+/// publishes the damage shake it samples at full strength. The native third-person cameras keep
+/// the movement bob; hurt, death and the hand stay first-person effects, and server rigs and a
+/// mod's detached presented view keep their own poses.
 #[allow(clippy::too_many_arguments)]
 pub fn apply_actor_damage_camera_rotation(
     settings: Res<CameraSettingsAuthority>,
@@ -39,27 +41,45 @@ pub fn apply_actor_damage_camera_rotation(
 ) {
     hand.legacy_effect = None;
     shake.0 = None;
+    let stream = world.and_then(|world| world.stream);
+    let actor =
+        stream.and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
+    let geometry = stream
+        .and_then(|stream| {
+            stream
+                .authority()
+                .actor_rig(stream.local_player_runtime_id())
+        })
+        .and_then(|rig| rig.skin_geometry)
+        .map(|geometry| geometry.as_ref());
+    let endpoints = legacy
+        .as_deref()
+        .map(|legacy| legacy.state.endpoints)
+        .unwrap_or_default();
     if !server.renders_first_person(settings.perspective() == PerspectiveMode::FirstPerson) {
+        if settings.presented_view().is_some()
+            || !server.renders_native_third_person()
+            || !settings.feel().view_bobbing.camera_enabled()
+        {
+            return;
+        }
+        let bob = if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
+            actor.map_or(Mat4::IDENTITY, |actor| {
+                legacy_bob(actor, endpoints, physics_partial_tick, geometry)
+            })
+        } else {
+            hand.bob.matrix()
+        };
+        if bob != Mat4::IDENTITY && bob.is_finite() {
+            for mut camera in &mut cameras {
+                *camera = Transform::from_matrix(camera.to_matrix() * bob.inverse());
+            }
+        }
         return;
     }
     let alpha = render_model::legacy_combat::partial_tick(partial_tick);
     if render_api::DEFAULT_COMBAT_VISUALS == render_api::CombatVisuals::Legacy112 {
-        let stream = world.and_then(|world| world.stream);
-        let actor =
-            stream.and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()));
         shake.0 = actor.and_then(|actor| legacy_damage_shake(actor, alpha));
-        let geometry = stream
-            .and_then(|stream| {
-                stream
-                    .authority()
-                    .actor_rig(stream.local_player_runtime_id())
-            })
-            .and_then(|rig| rig.skin_geometry)
-            .map(|geometry| geometry.as_ref());
-        let endpoints = legacy
-            .as_deref()
-            .map(|legacy| legacy.state.endpoints)
-            .unwrap_or_default();
         let tilt = tilt_view_effect(settings.view_tilt_rotation());
         let sample = |bobbing| {
             tilt * sampled_legacy_effect(
@@ -88,32 +108,28 @@ pub fn apply_actor_damage_camera_rotation(
         }
         return;
     }
-    let damage = world
-        .and_then(|world| world.stream)
-        .and_then(|stream| stream.authority().actor(stream.local_player_runtime_id()))
-        .map_or(Quat::IDENTITY, |actor| {
-            let death_ticks = actor
-                .attributes
-                .get("minecraft:health")
-                .filter(|health| health.current.ceil() < 1.0)
-                .map(|_| f32::from(actor.status.native_death_ticks()) + alpha);
-            let hurt_progress = if actor.status.hurt_time > 0 {
-                (f32::from(actor.status.hurt_time) - alpha)
-                    / f32::from(client_world::HURT_DURATION_TICKS)
-            } else {
-                0.0
-            };
-            let hurt_angle = actor.status.hurt_direction.unwrap_or(0.0).to_radians();
-            shake.0 = (hurt_progress > 0.0)
-                .then(|| axis_tilt(hurt_shake_degrees(hurt_progress), hurt_angle));
-            damage_rotation(
-                death_ticks,
-                hurt_progress,
-                hurt_angle,
-                settings.hurt_shake_intensity(),
-            )
-        })
-        * settings.view_tilt_rotation();
+    let damage = actor.map_or(Quat::IDENTITY, |actor| {
+        let death_ticks = actor
+            .attributes
+            .get("minecraft:health")
+            .filter(|health| health.current.ceil() < 1.0)
+            .map(|_| f32::from(actor.status.native_death_ticks()) + alpha);
+        let hurt_progress = if actor.status.hurt_time > 0 {
+            (f32::from(actor.status.hurt_time) - alpha)
+                / f32::from(client_world::HURT_DURATION_TICKS)
+        } else {
+            0.0
+        };
+        let hurt_angle = actor.status.hurt_direction.unwrap_or(0.0).to_radians();
+        shake.0 =
+            (hurt_progress > 0.0).then(|| axis_tilt(hurt_shake_degrees(hurt_progress), hurt_angle));
+        damage_rotation(
+            death_ticks,
+            hurt_progress,
+            hurt_angle,
+            settings.hurt_shake_intensity(),
+        )
+    }) * settings.view_tilt_rotation();
     let bob = if settings.feel().view_bobbing.camera_enabled() {
         hand.bob.matrix().inverse()
     } else {
@@ -160,15 +176,29 @@ fn sampled_legacy_effect(
         actor_alpha,
         hurt_strength,
     );
-    let bob = if view_bobbing
-        && matches!(actor.kind, protocol::ActorKind::Player { .. })
+    let bob = if view_bobbing {
+        legacy_bob(actor, endpoints, physics_alpha, geometry)
+    } else {
+        Mat4::IDENTITY
+    };
+    hurt * bob
+}
+
+/// The Bedrock 1.12 movement bob view effect for `actor` at the physics fraction: identity for
+/// non-players and for skins whose geometry suppresses head bob.
+fn legacy_bob(
+    actor: &client_world::ActorSnapshot,
+    endpoints: render_model::legacy_combat::LegacyCameraEndpoints,
+    physics_alpha: f32,
+    geometry: Option<&assets::SkinGeometry>,
+) -> Mat4 {
+    if matches!(actor.kind, protocol::ActorKind::Player { .. })
         && geometry.is_none_or(|geometry| !geometry.animation_no_head_bob)
     {
         endpoints.bob_matrix(physics_alpha)
     } else {
         Mat4::IDENTITY
-    };
-    hurt * bob
+    }
 }
 
 /// The Bedrock 1.12 shake the legacy camera samples for `actor` at full strength. The camera

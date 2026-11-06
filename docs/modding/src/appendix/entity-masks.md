@@ -8,7 +8,7 @@ remote worlds. Server grants do not authorize this interface.
 | --- | --- |
 | `create(test)` | `entity_highlight`; scene-depth-tested coverage |
 | `create(always)` | Also `render_through_walls` |
-| `entity` | `entity_observe` and `render_through_walls`; resolves an authorized runtime ID without exposing pose/mesh data |
+| `entity` | `entity_observe`; resolves an authorized runtime ID without exposing pose/mesh data. Without `render_through_walls`, only actors `observe-entities` reports resolve; others return `stale-handle` |
 | `select` | Atomically replaces membership; empty selection clears coverage |
 | `set-style` | Host outline/glow; no arbitrary shader permission |
 | `register-effect` | Also `render_post`; binds only this owner's explicit live masks |
