@@ -69,6 +69,9 @@ impl LocalPhysicsController {
             on_ground: on_ground.unwrap_or(state.on_ground),
         };
         update.apply(state);
+        if let Some(lerp) = &mut self.movement_lerp {
+            lerp.supersede_ground_write();
+        }
         self.previous_position = update.feet;
         self.actor_position_pending = Some(update);
         self.anchor_state.note_hard_anchor();
@@ -88,6 +91,102 @@ mod tests {
             _: sim::Aabb,
         ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
             Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    /// Keeps the packet ground state when a correction arrives before its first tick.
+    #[test]
+    fn pending_lerp_ground_survives_correction() {
+        for ground in [true, false] {
+            let mut physics = LocalPhysicsController::default();
+            physics.reanchor_network_position([0.0, 12.0, 0.0], 100, false);
+            let input = MovementInput {
+                jumping: true,
+                ..Default::default()
+            };
+            let anchor = physics
+                .advance(simulation_clock::TICK_DURATION, input, &Air)
+                .samples
+                .remove(0);
+            assert!(physics.start_server_movement_lerp(anchor.position, ground, &Air));
+            physics
+                .apply_correction(
+                    super::super::super::PhysicsAnchor {
+                        network_position: anchor.position,
+                        tick: anchor.tick,
+                        on_ground: !ground,
+                        velocity: Some(anchor.velocity),
+                    },
+                    PhysicsCorrectionMode::ReplayIfRetained,
+                    None,
+                    &Air,
+                )
+                .unwrap();
+            assert_eq!(physics.state().unwrap().on_ground, ground);
+            let live = physics
+                .advance(simulation_clock::TICK_DURATION, input, &Air)
+                .samples
+                .remove(0);
+            assert_eq!(live.processed.jump_initiated, ground);
+        }
+    }
+
+    /// Replayed jump decisions retain the last packet's ground state in either arrival order.
+    #[test]
+    fn replay_lerp_and_actor_ground_in_arrival_order() {
+        for actor_last in [true, false] {
+            for final_ground in [false, true] {
+                let mut physics = LocalPhysicsController::default();
+                physics.reanchor_network_position([0.0, 12.0, 0.0], 100, false);
+                let input = MovementInput {
+                    jumping: true,
+                    ..Default::default()
+                };
+                let anchor = physics
+                    .advance(simulation_clock::TICK_DURATION, input, &Air)
+                    .samples
+                    .remove(0);
+                if actor_last {
+                    assert!(physics.start_server_movement_lerp(
+                        anchor.position,
+                        !final_ground,
+                        &Air
+                    ));
+                    physics.apply_server_actor_position(anchor.position, Some(final_ground));
+                } else {
+                    physics.apply_server_actor_position(anchor.position, Some(!final_ground));
+                    assert!(physics.start_server_movement_lerp(
+                        anchor.position,
+                        final_ground,
+                        &Air
+                    ));
+                }
+                let live = physics
+                    .advance(simulation_clock::TICK_DURATION, input, &Air)
+                    .samples
+                    .remove(0);
+                assert_eq!(live.processed.jump_initiated, final_ground);
+                physics
+                    .apply_correction(
+                        super::super::super::PhysicsAnchor {
+                            network_position: anchor.position,
+                            tick: anchor.tick,
+                            on_ground: !final_ground,
+                            velocity: Some(anchor.velocity),
+                        },
+                        PhysicsCorrectionMode::ReplayIfRetained,
+                        None,
+                        &Air,
+                    )
+                    .unwrap();
+                let replayed = physics.sample_at(live.tick).unwrap();
+                assert_eq!(
+                    replayed.processed.jump_initiated, live.processed.jump_initiated,
+                    "actor_last={actor_last}, final_ground={final_ground}"
+                );
+                assert_eq!(replayed.position, live.position);
+                assert_eq!(replayed.velocity, live.velocity);
+            }
         }
     }
 

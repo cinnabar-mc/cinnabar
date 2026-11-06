@@ -587,6 +587,9 @@ impl LocalPhysicsController {
         if let (Some(position), Some(state)) = (self.actor_position_pending, self.state.as_mut()) {
             position.apply(state);
         }
+        if let (Some(lerp), Some(state)) = (self.movement_lerp, self.state.as_mut()) {
+            lerp.apply_ground_write(state);
+        }
         let state = self
             .state
             .as_ref()
