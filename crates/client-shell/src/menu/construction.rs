@@ -106,6 +106,11 @@ impl MenuRuntime {
             pointer_down: false,
             touch_available: launcher::TOUCH_PRIMARY,
             touch_editor_open: false,
+            gameplay_input_mode: if launcher::TOUCH_PRIMARY {
+                semantic_input::InputMode::Touch
+            } else {
+                semantic_input::InputMode::KeyboardMouse
+            },
             server_tab: initial.server_tab,
             profile_tab: initial.profile_tab,
             dialog: initial.dialog,

@@ -424,6 +424,7 @@ pub struct MenuView {
     pub touch_available: bool,
     /// The touch-control draft owns this settings surface.
     pub touch_editor_open: bool,
+    pub gameplay_input_mode: semantic_input::InputMode,
     pub server_tab: MenuServerTab,
     pub profile_tab: super::ProfileTab,
     pub dialog: Option<MenuDialog>,
@@ -716,6 +717,11 @@ impl MenuView {
             gamepad_input: false,
             touch_available: crate::TOUCH_PRIMARY,
             touch_editor_open: false,
+            gameplay_input_mode: if crate::TOUCH_PRIMARY {
+                semantic_input::InputMode::Touch
+            } else {
+                semantic_input::InputMode::KeyboardMouse
+            },
             server_tab: MenuServerTab::Featured,
             profile_tab: super::ProfileTab::default(),
             dialog: None,

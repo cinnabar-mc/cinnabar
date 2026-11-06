@@ -40,6 +40,11 @@ pub struct RuntimeSettings(pub ui::settings_state::SettingsState);
 #[derive(Clone, Debug, Default, Resource, Deref, DerefMut)]
 pub struct SemanticInputSnapshot(pub semantic_input::finalized::FinalizedInput);
 
+pub mod devices;
+pub use devices::{
+    ConnectedPhysicalDevices, platform_physical_devices, set_platform_physical_devices,
+};
+
 /// Screen ownership published by the shell for the current gameplay frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct ScreenFocus {
@@ -61,6 +66,8 @@ pub struct GameplayScreenControls {
     pub spyglass_gamepad_damping: f32,
     /// Hide HUD (F1) is on, so gameplay overlays such as the block selection are not drawn.
     pub hide_hud: bool,
+    /// The manually locked gameplay input mode, or `None` when unconstrained (e.g. desktop).
+    pub locked_input_mode: Option<semantic_input::InputMode>,
 }
 
 /// Interaction phases whose surrounding world and transport adapters share the frame.

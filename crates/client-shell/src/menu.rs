@@ -101,6 +101,7 @@ pub struct MenuRuntime {
     pointer_down: bool,
     touch_available: bool,
     touch_editor_open: bool,
+    pub(crate) gameplay_input_mode: semantic_input::InputMode,
     server_tab: MenuServerTab,
     profile_tab: launcher::menu::ProfileTab,
     dialog: Option<MenuDialog>,
@@ -727,6 +728,9 @@ impl MenuRuntime {
                 self.show_top();
             }
             MenuAction::PauseResume => self.set_visible(false),
+            MenuAction::ToggleGameplayInputMode => {
+                self.toggle_gameplay_input_mode();
+            }
             MenuAction::PauseDisconnect => {
                 self.request_disconnect();
                 self.set_visible(false);

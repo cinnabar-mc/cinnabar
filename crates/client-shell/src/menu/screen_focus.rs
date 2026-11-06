@@ -41,8 +41,14 @@ pub fn publish_gameplay_screen_controls(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     pads: Query<&Gamepad>,
+    mut presentation: Option<ResMut<UiPresentationResource>>,
     mut controls: ResMut<GameplayScreenControls>,
 ) {
+    if let (Some(menu), Some(ref mut presentation)) = (menu.as_deref(), presentation.as_mut()) {
+        if menu.touch_available {
+            presentation.enable_touch_controls(menu.gameplay_input_mode == InputMode::Touch);
+        }
+    }
     *controls = GameplayScreenControls {
         pick_block_pressed: menu.is_some()
             && (control_bindings::binding_gamepad(menu.as_deref(), BindingId::PickItem, &pads)
@@ -63,7 +69,41 @@ pub fn publish_gameplay_screen_controls(
         hide_hud: menu
             .as_deref()
             .is_some_and(|menu| menu.settings_snapshot().0.value(SettingId::HideHud) != 0),
+        locked_input_mode: menu
+            .as_deref()
+            .filter(|menu| menu.touch_available)
+            .map(|menu| menu.gameplay_input_mode),
     };
+}
+
+impl MenuRuntime {
+    /// The currently selected gameplay input mode.
+    pub fn gameplay_input_mode(&self) -> InputMode {
+        self.gameplay_input_mode
+    }
+
+    /// Sets the gameplay input mode, constraining it to `Touch` or `KeyboardMouse`.
+    pub fn set_gameplay_input_mode(&mut self, mode: InputMode) {
+        self.gameplay_input_mode = match mode {
+            InputMode::Touch => InputMode::Touch,
+            InputMode::KeyboardMouse | InputMode::GamePad => InputMode::KeyboardMouse,
+        };
+    }
+
+    /// Toggles between `Touch` and `KeyboardMouse`, never selecting `GamePad`.
+    pub fn toggle_gameplay_input_mode(&mut self) -> InputMode {
+        self.gameplay_input_mode = match self.gameplay_input_mode {
+            InputMode::Touch => InputMode::KeyboardMouse,
+            InputMode::KeyboardMouse | InputMode::GamePad => InputMode::Touch,
+        };
+        self.gameplay_input_mode
+    }
+
+    /// Overrides touch availability for tests.
+    #[cfg(test)]
+    pub fn set_touch_available(&mut self, available: bool) {
+        self.touch_available = available;
+    }
 }
 
 #[cfg(test)]

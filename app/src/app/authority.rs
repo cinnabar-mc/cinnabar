@@ -11,6 +11,7 @@ struct OrdinaryInputSet;
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
+    app.init_resource::<client_state::ConnectedPhysicalDevices>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
     app.add_systems(
@@ -35,6 +36,14 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         (drive_gameplay_touch_targets, collect_raw_input)
             .chain()
             .in_set(ClientFrameSet::RawInput),
+    )
+    .add_systems(
+        bevy::prelude::PreUpdate,
+        (
+            crate::platform_devices::sync_connected_physical_devices,
+            crate::platform_devices::drain_platform_mouse_events,
+        )
+            .before(bevy::input::InputSystems),
     )
     .add_systems(
         bevy::prelude::PreUpdate,
