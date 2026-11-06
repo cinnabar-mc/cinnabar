@@ -285,6 +285,12 @@ impl UiRuntime {
         self.session.chat_focused
     }
 
+    /// Whether a focused chat, search, anvil-name or editable-book box takes typed characters,
+    /// so a key binding on a character key must not also act.
+    pub fn text_entry_focused(&self) -> bool {
+        self.chat_focused() || self.screen_state().text_focused()
+    }
+
     pub const fn inventory_open(&self) -> bool {
         self.session.inventory_open
     }
