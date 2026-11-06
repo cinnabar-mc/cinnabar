@@ -2278,6 +2278,7 @@ dependencies = [
  "client-shell",
  "client-state",
  "client-ui",
+ "client-voice",
  "client-world",
  "cosmetics",
  "crash-monitor",
@@ -2805,6 +2806,13 @@ dependencies = [
  "web-time",
  "world",
  "zip",
+]
+
+[[package]]
+name = "client-voice"
+version = "0.1.31"
+dependencies = [
+ "cpal",
 ]
 
 [[package]]

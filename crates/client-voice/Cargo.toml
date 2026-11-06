@@ -1,0 +1,20 @@
+[package]
+name = "client-voice"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["device"]
+# The cpal microphone and speaker backend (WASAPI on Windows, Oboe on Android).
+device = ["dep:cpal"]
+
+[lib]
+doctest = false
+
+[dependencies]
+cpal = { version = "=0.15.3", optional = true, default-features = false }
+
+[lints]
+workspace = true

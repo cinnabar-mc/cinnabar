@@ -141,6 +141,8 @@ pub(crate) fn configure_client_production_frame_systems(app: &mut App) {
     crate::melee::server_swings::configure(app);
     crate::game_frame::configure_world(app);
     crate::audio::configure(app);
+    #[cfg(not(target_arch = "wasm32"))]
+    crate::voice::configure(app);
     app.add_plugins(client_interaction::ClientInteractionPlugin)
         .init_resource::<crate::melee::MeleeTarget>()
         .init_resource::<client_presentation::server_camera::ServerCameraInstructions>()

@@ -3,6 +3,8 @@ pub mod args;
 pub mod asset_bindings;
 mod audio;
 mod audio_observations;
+#[cfg(not(target_arch = "wasm32"))]
+mod voice;
 mod block_entities;
 mod block_selection;
 mod block_use;
