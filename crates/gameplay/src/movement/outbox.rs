@@ -388,7 +388,8 @@ impl MovementTicker {
             && !self.has_unresolved_position_authority_change()
     }
 
-    /// Unsent ticks newer than `after`, oldest first, with their post-tick motion.
+    /// Unsent ticks newer than `after`, oldest first, with the distance each moved and
+    /// its ground contact before moving.
     pub fn unstepped_interaction_ticks(
         &self,
         after: Option<u64>,
@@ -404,7 +405,8 @@ impl MovementTicker {
                     .map(|axis| axis * axis)
                     .sum::<f32>();
                 let motion = crate::survival_mining::TickMotion {
-                    on_ground: sample.evidence.grounded_after_tick,
+                    // Destroying runs before movement, so a landing tick still mines airborne.
+                    on_ground: sample.evidence.grounded_before_tick,
                     moved: if moved.is_finite() { moved.sqrt() } else { 0.0 },
                 };
                 (sample.snapshot.tick, motion)

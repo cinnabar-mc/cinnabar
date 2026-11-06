@@ -170,7 +170,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                 assert!(model.placements.iter().all(|placement| matches!(
                     placement,
                     PreviewHeldPlacement::Sprite {
-                        hand_equipped: true
+                        grip: render_model::equipment::SpriteGrip::HandEquipped
                     }
                 )));
                 let pixels = ui
@@ -221,7 +221,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                     assert!(model.placements.iter().all(|placement| matches!(
                         placement,
                         PreviewHeldPlacement::Sprite {
-                            hand_equipped: true
+                            grip: render_model::equipment::SpriteGrip::HandEquipped
                         }
                     )));
                 }
@@ -261,7 +261,7 @@ fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
                             assert!(model.placements.iter().all(|placement| matches!(
                                 placement,
                                 PreviewHeldPlacement::Sprite {
-                                    hand_equipped: true
+                                    grip: render_model::equipment::SpriteGrip::HandEquipped
                                 }
                             )));
                             let pixels = ui
@@ -284,5 +284,50 @@ fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn live_attachables_preserve_each_hands_shield_decoration() {
+    let item = assets::gui_item::SHIELD_IDENTIFIER;
+    let pack = super::fixture(item, "fixture:other_shield");
+    let mut ui = presentation(true, true, false);
+    let patterns = [1, 4].map(|color| {
+        Arc::new(render_api::ShieldPattern {
+            base: color,
+            layers: Arc::from([]),
+        })
+    });
+    dress(&mut ui, Some(&patterns));
+    let mut world = super::super::super::live_player::tests::player_stream(
+        Arc::clone(&pack.assets),
+        Arc::clone(&pack.assets),
+    );
+    world.advance_actor_interpolation_ticks(1);
+    ui.capture_hud_player(Some(world.authority().local_player_ui()), false);
+    assert!(
+        !ui.gui_models.live_player.bones.is_empty(),
+        "the owner has a captured UI pose"
+    );
+    for (hand, pattern) in patterns.iter().enumerate() {
+        let texture_id = if hand == 0 {
+            "textures/mapped"
+        } else {
+            "textures/ordinary"
+        };
+        let texture = ui
+            .gui_models
+            .pack_equipment
+            .source
+            .as_ref()
+            .unwrap()
+            .texture(texture_id)
+            .unwrap();
+        let expected = ui
+            .shield_texture(pattern, texture)
+            .unwrap()
+            .with_glint(true);
+        let draw = &ui.gui_models.live_equipment.hands[hand].as_ref().unwrap()[0];
+        assert_eq!(draw.icon, expected);
     }
 }

@@ -31,7 +31,7 @@ impl EquipmentRuntime {
         let slot = match slot {
             EquipmentSlot::Worn(slot) => slot,
             EquipmentSlot::Held { off_hand } => {
-                if self.uses_native_item_mesh(&item.identifier) {
+                if self.uses_native_item_mesh(&item.identifier, equipment.java.is_some()) {
                     return EquipmentRoute::NativeHeld;
                 }
                 let source = self

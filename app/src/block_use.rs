@@ -96,6 +96,9 @@ pub(crate) use pick::retain_block_use_pick;
 mod target;
 use target::observe_use_target;
 
+mod press_target;
+pub(crate) use press_target::UsePressTarget;
+
 /// Sends the held-use stop action before dropping its successful-placement history.
 fn stop_block_use(runtime: &mut BlockUseRuntime, context: &BlockUseContext, repress: bool) -> bool {
     let Some(stream) = context.client_world.stream.as_ref() else {

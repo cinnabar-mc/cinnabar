@@ -16,11 +16,11 @@
   "game_version": "1.26.60",
   "hashes": {
     "biome_registry": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a",
-    "block_item_routes": "b21a714b73e775e55389472f47887d6341b9059e1c52f42fa38fac256db7c9a3",
-    "block_registry": "412f29c2a15745c228c8ddefa4672e30c426222d23530b94cc0070b1f83dcc11",
+    "block_item_routes": "88f07d3a8dc387f3276d1b473e5b2ad552ffffb7d251e35b07cf4148ea26d64e",
+    "block_registry": "36526e81b9b5fe2195505f7f23456a9a3d2e19daa3f50a4051e0246edc7c122f",
     "fallback_inventory": "b0eb5906f628af95b12c0d6fd638a0df423378d802c1c56260828e8f89c19920",
-    "light_registry": "8c2c01775c6fec197a82ae45dc86941e68e20c879933b0041d618b8a1925be32",
-    "physics_registry": "549e3618d094506fbce71cdce42f54471fb203430fcc78779f5cb198b0e2ab66"
+    "light_registry": "ba28e829679518dd032dda32f8598aae9195dbe71badedff4aaf24bb2e38dc58",
+    "physics_registry": "15e9eaf9b3f74330f96cf10f7c6715db9dafc59059fb4b44292d4250b7008409"
   },
   "protocolgen_commit": "48cd9baad30cb7d78d1ca53a78b471b003cc9744",
   "schema": "cinnabar.bedrock-target.v1",

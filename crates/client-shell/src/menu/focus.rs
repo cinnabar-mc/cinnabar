@@ -71,6 +71,14 @@ impl MenuRuntime {
         self.retain_settings_slider_selection();
     }
 
+    /// What selecting the focused control would press, with its live settings value.
+    pub(super) fn focused_action(&self) -> Option<MenuAction> {
+        let actions = self.focus_actions();
+        let focused = self.focused.min(actions.len().saturating_sub(1));
+        let action = actions.get(focused).copied()?;
+        Some(self.live_settings_action(action))
+    }
+
     pub fn activate_focused(&mut self) {
         let actions = self.focus_actions();
         // A modal can replace the controls while the old focus index remains.

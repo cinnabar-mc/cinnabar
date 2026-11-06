@@ -95,7 +95,7 @@ pub struct UseFrame {
     /// Authoritative writes, including identical rejected-charge corrections.
     pub inventory_revision: Option<u64>,
     pub charge_projectile: Option<assets::item_use::ItemProjectileRole>,
-    /// A block interaction or recent attack consumed this press.
+    /// A block interaction, placement or recent attack consumed this press.
     pub press_consumed: bool,
 }
 

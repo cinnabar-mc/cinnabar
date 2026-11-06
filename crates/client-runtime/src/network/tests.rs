@@ -152,6 +152,7 @@ fn retirement_closes_old_ingress_and_releases_payloads_off_the_transition_thread
             packs: Pack(dropped),
             terrain_before_spawn: false,
             level_identity: None,
+            level_name: Default::default(),
         })
         .unwrap_or_else(|_| panic!("fixture queue has room"));
     old.retire();

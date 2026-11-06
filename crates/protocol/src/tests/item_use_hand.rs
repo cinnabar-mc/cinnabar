@@ -3,7 +3,8 @@
 use protocol::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, BlockUseRequest,
     HeldItemRequest, ItemUseHand, NetworkItemStack, PlayerAuthInputInteractions,
-    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+    VerifiedNetworkItemStack,
 };
 
 /// Supplies different authoritative stack identities for the two logical hands.
@@ -155,6 +156,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interact_rotation: [0.0, 0.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }

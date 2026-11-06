@@ -625,9 +625,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
-            settings.perspective()
-        }),
+        camera_settings.as_deref(),
         server_camera.as_deref(),
     );
     system.set_camera(view.position);

@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"log/slog"
-	"slices"
 	"sync"
 	"time"
 
@@ -20,7 +19,8 @@ const relayFetchTimeout = 10 * time.Second
 // xboxRelay supplies a signed-in account's NetherNet relay config: the STUN and TURN servers the
 // Player Messaging signaling service issues. Vanilla gathers candidates for every NetherNet
 // connection with this config, including addressed joins signaled over HTTP, so peers behind NAT
-// can reach each other. One xboxRelay serves a join and the transfers that follow it.
+// can reach each other. One xboxRelay is shared by the account's joins, which reach it through
+// their own joinRelay.
 type xboxRelay struct {
 	fetch  func(context.Context) (*nethernet.Credentials, error)
 	logger *slog.Logger
@@ -30,13 +30,11 @@ type xboxRelay struct {
 	pending *relayFetch
 }
 
-// relayFetch is one relay config request; credentials is nil when it failed. A failure is handed
-// to one connection, so a join waiting on its own prefetch does not request again.
+// relayFetch is one relay config request; credentials is nil when it failed.
 type relayFetch struct {
 	done        chan struct{}
 	credentials *nethernet.Credentials
 	expires     time.Time
-	consumed    bool // a connection took this failure; guarded by xboxRelay.mu
 }
 
 // newXboxRelay requests account's relay config over a short-lived Player Messaging connection.
@@ -56,17 +54,17 @@ func newXboxRelay(account service.TokenSource, logger *slog.Logger) *xboxRelay {
 	}
 }
 
-// start returns the running request, an unexpired config, or a failure no connection has taken,
-// and otherwise begins a request. The request outlives ctx's cancellation so a join that selected
-// NetherNet early can prefetch, and it completes by relayFetchTimeout even if the fetch does not.
+// start returns the running request or an unexpired config, and otherwise begins a request; a
+// failed request is never returned again, so every later join asks anew. The request outlives
+// ctx's cancellation so a join that selected NetherNet early can prefetch, and it completes by
+// relayFetchTimeout even if the fetch does not.
 func (r *xboxRelay) start(ctx context.Context) *relayFetch {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if current := r.pending; current != nil {
 		select {
 		case <-current.done:
-			if current.credentials == nil && !current.consumed ||
-				current.credentials != nil && r.now().Before(current.expires) {
+			if current.credentials != nil && r.now().Before(current.expires) {
 				return current
 			}
 		default:
@@ -104,25 +102,66 @@ func (r *xboxRelay) start(ctx context.Context) *relayFetch {
 	return fetch
 }
 
-// Credentials returns a copy of the relay config for one connection's candidate gathering, or
-// nil when none could be obtained, which gathers local candidates only.
-func (r *xboxRelay) Credentials(ctx context.Context) (*nethernet.Credentials, error) {
-	fetch := r.start(ctx)
+// join returns a handle for one join and the transfers that follow it.
+func (r *xboxRelay) join() *joinRelay { return &joinRelay{shared: r} }
+
+// joinRelay is one join's view of its account's shared relay config. It remembers the request the
+// join prefetched, so the join's first connection takes that request's answer, failed or not,
+// instead of requesting again; a failure never reaches another join or a later connection.
+type joinRelay struct {
+	shared *xboxRelay
+
+	mu         sync.Mutex
+	prefetched *relayFetch
+}
+
+// start prefetches the relay config for this join's next connection.
+func (j *joinRelay) start(ctx context.Context) *relayFetch {
+	fetch := j.shared.start(ctx)
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	if j.prefetched == nil {
+		j.prefetched = fetch
+	}
+	return fetch
+}
+
+// Credentials returns the relay config's STUN servers for one connection's candidate gathering,
+// or nil when none could be obtained, which gathers local candidates only.
+func (j *joinRelay) Credentials(ctx context.Context) (*nethernet.Credentials, error) {
+	j.mu.Lock()
+	fetch := j.prefetched
+	j.prefetched = nil
+	j.mu.Unlock()
+	if fetch == nil {
+		fetch = j.shared.start(ctx)
+	}
 	select {
 	case <-fetch.done:
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
 	if fetch.credentials == nil {
-		r.mu.Lock()
-		fetch.consumed = true
-		r.mu.Unlock()
 		return nil, nil
 	}
-	credentials := *fetch.credentials
-	credentials.ICEServers = slices.Clone(credentials.ICEServers)
-	for i := range credentials.ICEServers {
-		credentials.ICEServers[i].URLs = slices.Clone(credentials.ICEServers[i].URLs)
+	return stunOnly(fetch.credentials), nil
+}
+
+// accountRelays keeps the most recent signed-in account's relay config across joins, as vanilla
+// holds its config from sign-in, so only the first NetherNet join after starting or switching
+// accounts waits for the request. The config lasts as long as the service says, a week today.
+var accountRelays struct {
+	mu      sync.Mutex
+	account service.TokenSource
+	relay   *xboxRelay
+}
+
+// relayForAccount returns account's shared relay config, replacing the previous account's.
+func relayForAccount(account service.TokenSource, logger *slog.Logger) *xboxRelay {
+	accountRelays.mu.Lock()
+	defer accountRelays.mu.Unlock()
+	if accountRelays.relay == nil || accountRelays.account != account {
+		accountRelays.account, accountRelays.relay = account, newXboxRelay(account, logger)
 	}
-	return &credentials, nil
+	return accountRelays.relay
 }

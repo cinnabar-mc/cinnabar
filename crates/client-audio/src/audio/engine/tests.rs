@@ -281,6 +281,31 @@ fn interface_sounds_ignore_position_and_listener() {
 }
 
 #[test]
+fn ending_a_world_keeps_interface_sounds_and_stops_its_own() {
+    let mut engine = engine(&[("random.click", "ui"), ("dig.stone", "block")]);
+    engine.enqueue(SoundRequest::new("random.click"));
+    engine.enqueue(SoundRequest::new("dig.stone").at([0.0; 3]));
+    engine.pump(Some(LISTENER), 0.05, &AudioSettings::default());
+    assert_eq!(engine.voices.len(), 2);
+    engine.enqueue(SoundRequest::new("random.click"));
+    engine.enqueue(SoundRequest::new("dig.stone").at([0.0; 3]));
+
+    engine.stop_world_sounds();
+
+    let cancelled = |category| {
+        engine
+            .voices
+            .iter()
+            .filter(|voice| voice.category == category)
+            .all(|voice| voice.shared.cancelled())
+    };
+    assert!(!cancelled(AudioCategory::Ui));
+    assert!(cancelled(AudioCategory::Blocks));
+    let queued: Vec<_> = engine.queue.iter().map(|request| &*request.name).collect();
+    assert_eq!(queued, ["random.click"]);
+}
+
+#[test]
 fn category_sliders_scale_gain_and_unknown_definitions_are_counted() {
     let mut engine = engine(&[("dig.stone", "block")]);
     let mut settings = AudioSettings::default();
