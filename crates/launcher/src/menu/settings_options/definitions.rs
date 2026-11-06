@@ -555,7 +555,9 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
-    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+    TouchControlMode => "touch_control_mode", dropdown("options.controlMode.name", super::touch_control_mode::TOUCH_CONTROL_MODE_CHOICES, super::touch_control_mode::DEFAULT_TOUCH_CONTROL_MODE),
         [(SettingPanel::Touch, 0)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 1)], [], None, None;
 
 }
