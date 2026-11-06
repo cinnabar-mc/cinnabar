@@ -298,7 +298,17 @@ async fn serve(remote: Weak<Remote>, mut receiver: Receiver<String>, client: req
             if remote.still_wanted(&url) {
                 let client = client.clone();
                 fetches.spawn(async move {
-                    let bytes = download(&client, &FORM_IMAGES, &url, false).await;
+                    let bytes = download(&client, &FORM_IMAGES, &url, false)
+                        .await
+                        .inspect_err(|failure| {
+                            tracing::warn!(
+                                target: "server_form",
+                                url = %url,
+                                error = %failure,
+                                "form button image download failed"
+                            );
+                        })
+                        .ok();
                     (url, bytes)
                 });
             }
