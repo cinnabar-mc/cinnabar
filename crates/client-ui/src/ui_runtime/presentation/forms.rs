@@ -35,6 +35,7 @@ pub mod loading_texture_tests;
 pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
+mod menu_sounds;
 mod menu_title;
 pub mod menus;
 pub mod mob_effect_screen;
@@ -117,8 +118,8 @@ use ui::{UiNode, UiPoint, UiRect};
 pub(super) struct ScreenStates {
     /// The engine menu's regions by action, for next frame's hover state.
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
-    /// The engine menu's press sounds by action.
-    menu_sounds: Vec<(launcher::menu::MenuAction, json_ui::ControlSound)>,
+    /// Who decides the press sounds of the menu painted last.
+    menu_sounds: menu_sounds::MenuSounds,
     /// Where the installed catalog's title image draws from.
     menu_title: Option<menu_title::TitleSource>,
     /// The title splash, picked once per resource reload.
@@ -575,15 +576,6 @@ impl UiPresentationRuntime {
         self.engine
             .as_ref()
             .map(|engine| &engine.formatting_palette)
-    }
-
-    /// The sound the engine menu's control for `action` plays when pressed.
-    pub fn menu_sound(&self, action: launcher::menu::MenuAction) -> Option<&json_ui::ControlSound> {
-        self.screens
-            .menu_sounds
-            .iter()
-            .find(|(candidate, _)| *candidate == action)
-            .map(|(_, sound)| sound)
     }
 
     /// The live catalog's screen settings; empty without the JSON-UI engine.
