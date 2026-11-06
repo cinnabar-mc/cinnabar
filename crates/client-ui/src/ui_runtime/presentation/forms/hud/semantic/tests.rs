@@ -229,8 +229,12 @@ fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
     let mut cache = SemanticHud::default();
     fixture.check(&mut cache);
     assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
-    assert_eq!(cache.model.item_name.as_ref().unwrap().text, "Popup");
-    assert_eq!(cache.model.jukebox_popup.as_ref().unwrap().text, "Jukebox");
+    assert_eq!(cache.model.popup.as_ref().unwrap().text, "\nPopup");
+    assert!(cache.model.item_name.is_none(), "the popup takes the field");
+    assert_eq!(
+        cache.model.jukebox_popup.as_ref().unwrap().text,
+        "Jukebox\n"
+    );
 
     fixture
         .runtime
@@ -239,13 +243,33 @@ fn popups_use_item_text_without_replacing_actionbar_or_reviving_old_names() {
     fixture.frame.now_millis = 150;
     fixture.check(&mut cache);
     assert_eq!(cache.model.item_name.as_ref().unwrap().text, "New item");
+    assert!(cache.model.popup.is_none());
     fixture.frame.now_millis = 2_500;
     fixture.check(&mut cache);
     assert!(
-        cache.model.item_name.is_none(),
+        cache.model.item_name.is_none() && cache.model.popup.is_none(),
         "the superseded popup cannot return"
     );
     assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+}
+
+#[test]
+fn spectators_receive_the_action_bar_but_no_popups() {
+    let mut fixture = Fixture::default();
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Spectator);
+    let hud = &mut fixture.runtime.session.hud;
+    hud.set_actionbar(Arc::from("Action"), 1, 100);
+    hud.set_popup(Arc::from("Popup"), 2, 100);
+    hud.set_jukebox_popup(Arc::from("Jukebox"), 3, 100);
+    fixture.frame.now_millis = 125;
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.actionbar.as_ref().unwrap().text, "Action");
+    assert!(cache.model.popup.is_none());
+    assert!(cache.model.jukebox_popup.is_none());
 }
 
 #[test]

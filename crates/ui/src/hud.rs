@@ -483,9 +483,12 @@ impl HudStore {
     }
 
     /// Replaces only the ordinary popup; title clear/reset and action-bar updates are separate.
+    ///
+    /// The HUD text holds two lines, title then message. A text packet has no title, so the
+    /// message takes the second line.
     pub fn set_popup(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
         self.popup = Some(TimedText::new(
-            text,
+            Arc::from(format!("\n{text}")),
             fifo_sequence,
             now_millis,
             TitleDurations::default(),
@@ -493,9 +496,11 @@ impl HudStore {
     }
 
     /// Replaces only the jukebox notification.
+    ///
+    /// The HUD text holds two lines, and a text packet fills only the first.
     pub fn set_jukebox_popup(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
         self.jukebox_popup = Some(TimedText::new(
-            text,
+            Arc::from(format!("{text}\n")),
             fifo_sequence,
             now_millis,
             TitleDurations::default(),

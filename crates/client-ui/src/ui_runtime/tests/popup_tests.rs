@@ -52,10 +52,10 @@ fn popup_packets_do_not_replace_or_clear_the_action_bar() {
             .unwrap();
     }
     assert_eq!(runtime.hud().actionbar().unwrap().text.as_ref(), "Action");
-    assert_eq!(runtime.hud().popup().unwrap().text.as_ref(), "Popup");
+    assert_eq!(runtime.hud().popup().unwrap().text.as_ref(), "\nPopup");
     assert_eq!(
         runtime.hud().jukebox_popup().unwrap().text.as_ref(),
-        "Jukebox"
+        "Jukebox\n"
     );
     assert_eq!(runtime.hud().tip().unwrap().text.as_ref(), "Tip");
     assert!(runtime.chat().messages().is_empty());

@@ -8,7 +8,7 @@ use ui::{BossBarView, IconRef, TimedText};
 use ui_screens::text::bounded_text;
 
 use super::super::super::{HudFrame, bounded_visible_text, resolve_chat_line};
-use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES};
+use super::{ITEM_NAME_MILLIS, MAX_BOSS_BARS, MAX_CHAT_LINES, popups_allowed};
 use crate::ui_runtime::{Translator, UiRuntime};
 
 mod components;
@@ -283,6 +283,7 @@ impl SemanticHud {
         frame: &HudFrame,
     ) -> bool {
         let now = frame.now_millis;
+        let popups = popups_allowed(player.facts.player_game_mode());
         let title = runtime.hud().title().filter(|text| text.visible_at(now));
         let subtitle = runtime.hud().subtitle().filter(|text| text.visible_at(now));
         let mut changed = refresh_title(&mut self.model.title, title, subtitle);
@@ -310,7 +311,7 @@ impl SemanticHud {
             runtime
                 .hud()
                 .jukebox_popup()
-                .filter(|text| text.visible_at(now))
+                .filter(|text| popups && text.visible_at(now))
                 .map(|text| (text.text.as_ref(), text.started_millis)),
         );
         let item_name = runtime
@@ -322,14 +323,18 @@ impl SemanticHud {
         let popup = runtime
             .hud()
             .popup()
-            .filter(|text| text.visible_at(now))
+            .filter(|text| popups && text.visible_at(now))
             .filter(|text| {
                 runtime
                     .selected_item_changed_millis()
                     .is_none_or(|changed| text.started_millis >= changed)
             })
             .map(|text| (bounded_visible_text(&text.text), text.started_millis));
-        changed |= refresh_timed(&mut self.model.item_name, popup.or(item_name));
+        changed |= refresh_timed(&mut self.model.popup, popup);
+        changed |= refresh_timed(
+            &mut self.model.item_name,
+            item_name.filter(|_| popup.is_none()),
+        );
         changed
     }
 

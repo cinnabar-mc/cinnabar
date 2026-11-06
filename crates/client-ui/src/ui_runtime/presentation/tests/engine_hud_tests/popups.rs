@@ -22,10 +22,11 @@ fn popup_and_actionbar_remain_visible_in_separate_hud_areas() {
     *presentation.hud_frame_mut() = first_person();
     let input = build(&player, &mut presentation, &runtime, 100);
     let nodes = presentation.hud_draw_nodes();
-    let popup = text(nodes, "Popup").expect("popup stays visible");
+    let popup = text(nodes, "\nPopup").expect("popup stays visible");
     let actionbar = text(nodes, "Action bar").expect("action bar stays visible");
+    // The popup's first line is blank; its message is the lower half of the label.
     assert!(
-        actionbar.dest.y + actionbar.dest.h <= popup.dest.y,
+        actionbar.dest.y + actionbar.dest.h <= popup.dest.y + popup.dest.h * 0.5,
         "popup and action bar cannot overlap: {:?}, {:?}",
         popup.dest,
         actionbar.dest
