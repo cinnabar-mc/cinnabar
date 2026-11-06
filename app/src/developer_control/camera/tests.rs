@@ -39,6 +39,27 @@ fn realtime_routes_follow_real_time_across_a_clamped_game_frame() {
     assert_eq!(app.world().resource::<ScriptedCamera>().elapsed, 2.);
 }
 
+/// The body is drawn while the path runs, but `perspective`, which feeds server-observable state such
+/// as aim-assist activation, never changes.
+#[test]
+fn scripted_camera_draws_the_local_body_until_released() {
+    use semantic_input::PerspectiveMode::{FirstPerson, ThirdPersonBack};
+    let path = CameraPath {
+        keyframes: vec![frame(0., 0.), frame(1., 8.)],
+        easing: Easing::Linear,
+        looping: false,
+        hide_hand: false,
+    };
+    let (mut app, _) = app(path);
+    let perspectives = |app: &App| {
+        let settings = app.world().resource::<CameraSettingsAuthority>();
+        (settings.perspective(), settings.rendered_perspective())
+    };
+    assert_eq!(perspectives(&app), (FirstPerson, ThirdPersonBack));
+    release(app.world_mut()).unwrap();
+    assert_eq!(perspectives(&app), (FirstPerson, FirstPerson));
+}
+
 fn app(path: CameraPath) -> (App, Entity) {
     let mut app = App::new();
     app.init_resource::<Time>()

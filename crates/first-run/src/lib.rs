@@ -2,14 +2,16 @@
 //!
 //! Runs before the game window: consent, a download of the pinned public pack, then one
 //! `assetc prepare`. Android also tries to prepare local worlds before starting the game. A setup
-//! window in a child process shows desktop setup; without one, native dialogs do. Progress is
-//! mirrored to `logs/first-run-status.json`.
+//! window in a child process shows desktop setup; without one, native dialogs do. Android's setup
+//! activity draws setup on its startup screen. Progress is mirrored to
+//! `logs/first-run-status.json`.
 
 mod download;
 mod fs_retry;
 mod headless;
 mod next;
 mod prepare;
+mod progress;
 mod runner;
 mod screen;
 mod status;
@@ -25,6 +27,7 @@ use sha2::{Digest, Sha256};
 pub use headless::prepare_headless;
 pub use next::prepare_next_release;
 use prepare::prepare;
+pub use progress::Progress;
 use status::Status;
 pub use window::{SETUP_FLAG, run_setup_process};
 use {

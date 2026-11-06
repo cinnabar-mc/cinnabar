@@ -85,11 +85,11 @@ impl EquipmentRuntime {
                 if selected.hidden_bones.contains(&(index as u32)) {
                     return Some(hidden_bone());
                 }
-                modern::compose_parent(
-                    modern::parent_for_root(
+                actor_animation::attachment::compose_parent(
+                    actor_animation::attachment::parent_for_root(
                         &body.input.previous_bones,
                         &body.input.current_bones,
-                        &bones,
+                        &bones.names,
                         input,
                         evaluated.bone_parent(geometry_index, index)?,
                         scale,

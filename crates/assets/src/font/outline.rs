@@ -22,7 +22,8 @@ pub fn rasterize_outline_font(
         .map_err(str::to_owned)?;
     let mut cells = Vec::new();
     let characters = (0x20..=0x7e).filter_map(char::from_u32).chain([
-        '\u{b7}', '\u{d7}', '\u{2014}', '\u{2022}', '\u{2039}', '\u{203a}', '\u{2212}', '\u{fffd}',
+        '\u{b0}', '\u{b7}', '\u{d7}', '\u{2014}', '\u{2022}', '\u{2039}', '\u{203a}', '\u{2212}',
+        '\u{fffd}',
     ]);
     for codepoint in characters {
         let source = if font.lookup_glyph_index(codepoint) == 0 {

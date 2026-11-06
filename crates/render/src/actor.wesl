@@ -305,9 +305,11 @@ fn actor_colour(input: VertexOutput, front: bool) -> vec4<f32> {
     let uv_dy = dpdy(uv);
     let material = input.material & ACTOR_MATERIAL_KIND_MASK;
     let legacy = (input.material & ACTOR_MATERIAL_LEGACY112_FLAG) != 0u;
-    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
-    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let authored = (input.material & ACTOR_MATERIAL_AUTHORED_FLAG) != 0u;
+    // An authored USE_COLOR_MASK only changes dye weighting; legacy leather coverage stays per-draw.
+    let authored_mask = authored && (input.material & ACTOR_MATERIAL_COLOR_MASK_FLAG) != 0u;
+    let color_mask_material = material_class.y != 0u || (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u || authored_mask;
+    let legacy_mask = legacy && (input.material & ACTOR_COLOR_MASK_MATERIAL_FLAG) != 0u;
     let emissive = material == ACTOR_MATERIAL_DRAGON || (input.material & ACTOR_MATERIAL_EMISSIVE_FLAG) != 0u;
     if (input.skin_info.y == 0u) {
         discard;

@@ -427,79 +427,188 @@ fn minimal_bobbing_keeps_the_hand_moving_without_bobbing_the_camera() {
     }
 }
 
+/// Third-person views bob the orbiting camera only under Full bobbing and never take the hurt
+/// shake or the first-person hand effect.
 #[test]
-fn third_person_and_free_server_camera_preserve_their_base_pose() {
+fn third_person_camera_bobs_only_with_full_bobbing() {
+    for perspective in [
+        semantic_input::PerspectiveMode::ThirdPersonBack,
+        semantic_input::PerspectiveMode::ThirdPersonFront,
+    ] {
+        let mut app = camera_app();
+        for index in 0..4 {
+            tick(&mut app, index);
+        }
+        app.world_mut().run_system_cached(sample).unwrap();
+        event(
+            &mut app.world_mut().resource_mut::<TestWorld>().0,
+            2,
+            ActorStatusKind::Hurt,
+        );
+        app.world_mut()
+            .resource_mut::<TestWorld>()
+            .0
+            .advance_actor_interpolation_frame(5);
+        let base = Transform::from_xyz(2.0, 5.0, 8.0).with_rotation(Quat::from_rotation_y(0.7));
+        let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+        let bob = app
+            .world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob_matrix(0.5);
+        assert_ne!(bob, Mat4::IDENTITY);
+        let mut user = ui::UserSettings::default();
+        user.gameplay.default_perspective = perspective;
+        for (generation, mode) in ui::ViewBobbing::ALL.into_iter().enumerate() {
+            user.video.view_bobbing = mode;
+            app.world_mut()
+                .resource_mut::<CameraSettingsAuthority>()
+                .replace(generation as u64 + 1, &user)
+                .unwrap();
+            *app.world_mut().get_mut::<Transform>(camera).unwrap() = base;
+            app.world_mut().run_system_cached(apply).unwrap();
+            let view = app
+                .world()
+                .get::<Transform>(camera)
+                .unwrap()
+                .to_matrix()
+                .inverse();
+            let expected = if mode.camera_enabled() {
+                bob
+            } else {
+                Mat4::IDENTITY
+            };
+            assert!(
+                view.abs_diff_eq(expected * base.to_matrix().inverse(), 3e-5),
+                "{perspective:?} {mode:?}"
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .legacy_effect,
+                None
+            );
+        }
+    }
+}
+
+/// A mod's detached presented view reports third person but keeps its absolute pose while the
+/// body walks under Full bobbing.
+#[test]
+fn detached_presented_view_does_not_bob_with_the_body() {
     let mut app = camera_app();
-    tick(&mut app, 0);
-    tick(&mut app, 1);
+    for index in 0..4 {
+        tick(&mut app, index);
+    }
     app.world_mut().run_system_cached(sample).unwrap();
-    let mut user = ui::UserSettings::default();
-    user.gameplay.default_perspective = semantic_input::PerspectiveMode::ThirdPersonBack;
+    assert_ne!(
+        app.world()
+            .resource::<LegacyCameraMotion>()
+            .state
+            .endpoints
+            .bob_matrix(0.5),
+        Mat4::IDENTITY
+    );
+    let base = Transform::from_xyz(2.0, 5.0, 8.0).with_rotation(Quat::from_rotation_y(0.7));
     app.world_mut()
         .resource_mut::<CameraSettingsAuthority>()
-        .replace(1, &user)
-        .unwrap();
-    let base = Transform::from_xyz(2.0, 5.0, 8.0);
+        .set_presented_view(Some(crate::camera::PresentedView {
+            position: base.translation,
+            rotation: base.rotation,
+            capture_look: false,
+            capture_movement: false,
+        }));
+    assert_eq!(
+        app.world()
+            .resource::<CameraSettingsAuthority>()
+            .perspective(),
+        semantic_input::PerspectiveMode::ThirdPersonBack
+    );
     let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
     app.world_mut().run_system_cached(apply).unwrap();
     assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
-    assert_eq!(
-        app.world()
-            .resource::<FirstPersonHandMotion>()
-            .legacy_effect,
-        None
-    );
-    user.gameplay.default_perspective = semantic_input::PerspectiveMode::FirstPerson;
-    app.world_mut()
-        .resource_mut::<CameraSettingsAuthority>()
-        .replace(2, &user)
-        .unwrap();
-    let context = crate::camera::ViewContext {
-        base,
-        subject: base,
-        base_fov: 60.0,
-        actors: &|_| None,
-    };
-    let mut server = ServerCameraView::default();
-    server.apply(
-        1,
-        &protocol::CameraEvent::Presets(
-            vec![protocol::CameraPreset {
-                name: "minecraft:free".into(),
-                ..Default::default()
-            }]
-            .into(),
-        ),
-        &context,
-    );
-    server.apply(
-        2,
-        &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
-            set: Some(protocol::CameraSetInstruction {
-                preset_id: 0,
-                ease: None,
-                position: None,
-                rotation_degrees: None,
-                facing_position: None,
-                view_offset: None,
-                entity_offset: None,
-                default_preset: None,
-                remove_ignore_starting_values: false,
-            }),
-            ..Default::default()
-        })),
-        &context,
-    );
-    assert!(!server.renders_first_person(true));
-    app.insert_resource(server);
-    app.world_mut().run_system_cached(apply).unwrap();
-    assert_eq!(*app.world().get::<Transform>(camera).unwrap(), base);
-    assert_eq!(
-        app.world()
-            .resource::<FirstPersonHandMotion>()
-            .legacy_effect,
-        None
-    );
+}
+
+/// Server free, follow-orbit and fixed-boom rigs keep their own poses while the body walks under
+/// Full bobbing, even when the preset enables player effects.
+#[test]
+fn server_camera_rigs_preserve_their_base_pose() {
+    for name in [
+        "minecraft:free",
+        "minecraft:follow_orbit",
+        "minecraft:fixed_boom",
+    ] {
+        for player_effects in [None, Some(true)] {
+            let mut app = camera_app();
+            for index in 0..4 {
+                tick(&mut app, index);
+            }
+            app.world_mut().run_system_cached(sample).unwrap();
+            assert_ne!(
+                app.world()
+                    .resource::<LegacyCameraMotion>()
+                    .state
+                    .endpoints
+                    .bob_matrix(0.5),
+                Mat4::IDENTITY
+            );
+            let base = Transform::from_xyz(2.0, 5.0, 8.0);
+            let camera = app.world_mut().spawn((FlyCamera::default(), base)).id();
+            let context = crate::camera::ViewContext {
+                base,
+                subject: base,
+                base_fov: 60.0,
+                actors: &|_| None,
+            };
+            let mut server = ServerCameraView::default();
+            server.apply(
+                1,
+                &protocol::CameraEvent::Presets(
+                    vec![protocol::CameraPreset {
+                        name: name.into(),
+                        player_effects,
+                        ..Default::default()
+                    }]
+                    .into(),
+                ),
+                &context,
+            );
+            server.apply(
+                2,
+                &protocol::CameraEvent::Instruction(Box::new(protocol::CameraInstructionEvent {
+                    set: Some(protocol::CameraSetInstruction {
+                        preset_id: 0,
+                        ease: None,
+                        position: None,
+                        rotation_degrees: None,
+                        facing_position: None,
+                        view_offset: None,
+                        entity_offset: None,
+                        default_preset: None,
+                        remove_ignore_starting_values: false,
+                    }),
+                    ..Default::default()
+                })),
+                &context,
+            );
+            assert!(!server.renders_first_person(true), "{name}");
+            assert!(!server.renders_native_third_person(), "{name}");
+            app.insert_resource(server);
+            app.world_mut().run_system_cached(apply).unwrap();
+            assert_eq!(
+                *app.world().get::<Transform>(camera).unwrap(),
+                base,
+                "{name} {player_effects:?}"
+            );
+            assert_eq!(
+                app.world()
+                    .resource::<FirstPersonHandMotion>()
+                    .legacy_effect,
+                None
+            );
+        }
+    }
 }
 
 #[test]

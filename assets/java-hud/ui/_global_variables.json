@@ -2,6 +2,8 @@
   "$cinnabar_main_arm_left": false,
   "$cinnabar_status_row_y": -39,
   "$cinnabar_chat_top": false,
+  // The Video setting that opens vanilla Bedrock's full chat screen instead of Java's input line.
+  "$cinnabar_chat_input_bedrock": false,
   "$cinnabar_chat_width": 320,
   "$cinnabar_chat_history_bottom": -40,
   // The Video setting that raises the bottom HUD and chat by vanilla desktop's hotbar clearance.

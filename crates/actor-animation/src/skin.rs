@@ -20,10 +20,23 @@ pub(super) enum SkinModel {
 pub(super) struct SkinSkeleton {
     source: Arc<SkinGeometrySource>,
     pub(super) prepared: Arc<PreparedSkin>,
-    /// Default-rig bone whose animation each skin bone takes, matched by name.
+    /// Animation slot each skin bone takes: the default-rig bone of the same name, or the
+    /// skin-only slot appended after the rig in `animated`.
     driver: Vec<Option<usize>>,
+    /// The default rig followed by the skin's own bones, when the skin adds any.
+    animated: Option<AnimatedSkeleton>,
     /// Geometry binding `driver` was matched against.
     driver_binding: usize,
+}
+
+/// The skeleton a skin-modelled player's clips are sampled on. Vanilla animates the skin
+/// geometry itself, so channels naming bones only the skin defines must still pose them.
+/// The default rig keeps its indices; skin-only bones follow it, parented within this array.
+#[derive(Debug)]
+pub(super) struct AnimatedSkeleton {
+    bones: Vec<RuntimeBone>,
+    names: Vec<Box<str>>,
+    channels: Arc<pose::ChannelBindings>,
 }
 
 impl SkinModel {
@@ -53,6 +66,20 @@ impl ActorRigState {
     pub(super) fn posed_bone_names(&self) -> &[Box<str>] {
         self.skin_skeleton()
             .map_or(&self.bone_names, |skeleton| &skeleton.prepared.names)
+    }
+
+    /// Bones, names and channel bindings clips are sampled on: the default rig, extended by any
+    /// bones only the worn skin defines. Indices below the rig's bone count are the rig's.
+    pub(super) fn animated_skeleton(
+        &self,
+    ) -> (&[RuntimeBone], &[Box<str>], &pose::ChannelBindings) {
+        match self
+            .skin_skeleton()
+            .and_then(|skeleton| skeleton.animated.as_ref())
+        {
+            Some(animated) => (&animated.bones, &animated.names, &animated.channels),
+            None => (&self.bones, &self.bone_names, &self.channel_bindings),
+        }
     }
 
     /// Writes the selected skeleton into caller-owned storage without composition allocations.
@@ -89,7 +116,8 @@ impl ActorRigState {
         if let Some(SkinModel::Parsed(skeleton)) = &mut self.skin
             && skeleton.driver_binding != binding
         {
-            skeleton.driver = drivers(&skeleton.prepared.names, bone_names);
+            (skeleton.driver, skeleton.animated) =
+                drivers(&skeleton.prepared, &self.bones, bone_names);
             skeleton.driver_binding = binding;
             self.rest_on_posed_skeleton();
         }
@@ -119,10 +147,82 @@ impl ActorRigState {
     }
 }
 
-fn drivers(skin: &[Box<str>], rig: &[Box<str>]) -> Vec<Option<usize>> {
-    skin.iter()
-        .map(|name| rig.iter().position(|candidate| candidate == name))
-        .collect()
+/// How far skin bone `index` and its added descendants move so their offsets from a rig
+/// parent match the skin's: the rig bone's pivot minus the skin bone's for a matched bone,
+/// its parent's shift for an added bone, and none at a root. Results are memoized in `shift`.
+fn shift_of(
+    index: usize,
+    skin: &PreparedSkin,
+    rig: &[RuntimeBone],
+    driver: &[Option<usize>],
+    shift: &mut [Option<[f32; 3]>],
+) -> [f32; 3] {
+    if let Some(known) = shift[index] {
+        return known;
+    }
+    // Mark the bone before following its parent, so a malformed cycle ends at no shift.
+    shift[index] = Some([0.0; 3]);
+    let value = match driver[index] {
+        Some(slot) if slot < rig.len() => {
+            std::array::from_fn(|axis| rig[slot].pivot[axis] - skin.bones[index].pivot[axis])
+        }
+        _ => match skin.bones[index].parent {
+            Some(parent) if parent < skin.bones.len() => shift_of(parent, skin, rig, driver, shift),
+            _ => [0.0; 3],
+        },
+    };
+    shift[index] = Some(value);
+    value
+}
+
+/// Matches each skin bone to the rig bone of the same name, appending a skin-only animation
+/// slot for each bone the rig lacks. Returns no extended skeleton when every bone matched.
+fn drivers(
+    skin: &PreparedSkin,
+    rig: &[RuntimeBone],
+    rig_names: &[Box<str>],
+) -> (Vec<Option<usize>>, Option<AnimatedSkeleton>) {
+    let mut driver: Vec<Option<usize>> = skin
+        .names
+        .iter()
+        .map(|name| rig_names.iter().position(|candidate| candidate == name))
+        .collect();
+    let mut next = rig.len();
+    let mut own = Vec::new();
+    for (index, slot) in driver.iter_mut().enumerate() {
+        if slot.is_none() && skin.bones.get(index).is_some() {
+            *slot = Some(next);
+            own.push(index);
+            next += 1;
+        }
+    }
+    if own.is_empty() {
+        return (driver, None);
+    }
+    // An added bone keeps its skin-authored offset from its parent: channel defaults read that
+    // offset, so its pivot moves with the rig parent that now stands in for the skin parent.
+    let mut shift: Vec<Option<[f32; 3]>> = vec![None; skin.bones.len()];
+    let mut bones = rig.to_vec();
+    let mut names = rig_names.to_vec();
+    for &index in &own {
+        let mut bone = skin.bones[index].clone();
+        let offset = shift_of(index, skin, rig, &driver, &mut shift);
+        bone.pivot = std::array::from_fn(|axis| bone.pivot[axis] + offset[axis]);
+        bone.parent = bone
+            .parent
+            .and_then(|parent| driver.get(parent).copied().flatten());
+        bones.push(bone);
+        names.push(skin.names[index].clone());
+    }
+    let channels = Arc::new(pose::ChannelBindings::new(&names));
+    (
+        driver,
+        Some(AnimatedSkeleton {
+            bones,
+            names,
+            channels,
+        }),
+    )
 }
 
 /// Brings the rig's skin model in line with the skin the actor now wears. Returns whether a
@@ -176,12 +276,16 @@ pub(super) fn sync_skin(
             .expect("a source requires completed preparation");
         rejected = invalid;
         match prepared {
-            Some(prepared) => SkinModel::Parsed(SkinSkeleton {
-                source: Arc::clone(source),
-                driver: drivers(&prepared.names, &state.bone_names),
-                driver_binding: state.geometry_binding,
-                prepared,
-            }),
+            Some(prepared) => {
+                let (driver, animated) = drivers(&prepared, &state.bones, &state.bone_names);
+                SkinModel::Parsed(SkinSkeleton {
+                    source: Arc::clone(source),
+                    driver,
+                    animated,
+                    driver_binding: state.geometry_binding,
+                    prepared,
+                })
+            }
             None => SkinModel::Default(Arc::clone(source)),
         }
     });

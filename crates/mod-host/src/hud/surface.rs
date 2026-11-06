@@ -134,9 +134,22 @@ pub(in super::super) fn set_hidden(
     if let Err(error) = admit(state)? {
         return Ok(Err(error));
     }
-    state.hud.pending_hidden = Some(HiddenElements::from_elements(
-        elements.into_iter().map(element),
-    ));
+    let position = state.hud.staged_hidden().hides_position();
+    state.hud.pending_hidden = Some(
+        HiddenElements::from_elements(elements.into_iter().map(element)).with_position(position),
+    );
+    Ok(Ok(()))
+}
+
+/// Stages whether the vanilla position line is hidden, keeping the staged hidden elements.
+pub(in super::super) fn set_position_hidden(
+    state: &mut State,
+    hidden: bool,
+) -> Result<Result<(), String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    state.hud.pending_hidden = Some(state.hud.staged_hidden().with_position(hidden));
     Ok(Ok(()))
 }
 
