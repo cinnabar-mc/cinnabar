@@ -6,8 +6,8 @@ use bedrock_protocol_1_26_60::enums::{
 use bedrock_protocol_1_26_60::packets;
 use protocol::{
     BlockItemInteraction, BlockUseRequest, NetworkItemStack, PlayerAuthInputInteractions,
-    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, VerifiedNetworkItemStack,
-    player_auth_input_with_interactions,
+    PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode, PlayerInteractionModel,
+    VerifiedNetworkItemStack, player_auth_input_with_interactions,
 };
 
 fn empty_hand() -> VerifiedNetworkItemStack {
@@ -30,6 +30,7 @@ fn movement() -> PlayerAuthInputSnapshot {
         interact_rotation: [0.0, 180.0],
         flags: PlayerInputFlags::NONE,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }
@@ -251,6 +252,7 @@ fn filled_use_matches_independent_pinned_movement_fixture() {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     };
     let mut rebuilt =

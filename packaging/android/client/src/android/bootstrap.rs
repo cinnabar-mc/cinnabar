@@ -135,17 +135,20 @@ fn setup(
             )
             .unwrap_or(false)
         },
-        |line| {
+        |update| {
+            let Ok(message) = serde_json::to_string(update) else {
+                return;
+            };
             let _ = call_activity(
                 &mut env.borrow_mut(),
                 activity,
                 ("showProgress", "(Ljava/lang/String;)V"),
-                &[line],
+                &[&message],
             );
         },
     )?;
     // The game activity's UI thread waits for the game thread until its event loop starts, so
-    // the carriers load here, behind the progress dialog, to keep that wait short.
+    // the carriers load here, behind the startup screen, to keep that wait short.
     if outcome != Outcome::Quit && !CANCELLATION.flag().load(Ordering::Acquire) {
         cinnabar::lifecycle::preload(outcome == Outcome::Prepared);
     }

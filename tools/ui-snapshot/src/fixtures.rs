@@ -93,9 +93,11 @@ pub enum Fixture {
         messages: std::collections::VecDeque<ui::ChatMessage>,
         options: Arc<launcher::menu::settings_options::SettingsOptions>,
         server_hover: Option<bool>,
+        /// Scroll into history, then receive a wrapped message before the final capture.
+        receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
-    TabList(Vec<RosterRow>),
+    TabList(Vec<RosterRow>, &'static str),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed
@@ -161,6 +163,12 @@ const fn asset_free(name: &'static str, size: [u32; 2], fixture: fn() -> Fixture
 }
 
 const STATES: &[State] = &[
+    State {
+        name: "chat-incoming-while-scrolled",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: chat::incoming_while_scrolled,
+    },
     asset_free("crosshair-coverage-before", [640, 240], || {
         Fixture::CrosshairCoverage { fixed: false }
     }),
@@ -678,6 +686,24 @@ const STATES: &[State] = &[
         size: SMALL_SIZE,
         gui_scale: 1,
         fixture: chat::history_width,
+    },
+    State {
+        name: "chat-top-java-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, false, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-top-bedrock-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-bedrock-input-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "/give @", &["@a", "@e", "@p"]),
     },
     State {
         name: "chat-command-background-transparent",

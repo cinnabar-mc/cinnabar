@@ -12,6 +12,7 @@ use super::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 
 mod classification;
+mod edible_planting;
 mod held_placement;
 mod repeat_clock;
 mod respawn_anchor;
@@ -270,7 +271,7 @@ fn interactive_blocks_take_the_use_press_even_when_their_use_fails() {
             true
         ));
         assert!(
-            runtime.press_interacted(),
+            runtime.press_consumed(),
             "{name} keeps the press from the item"
         );
     }
@@ -892,7 +893,7 @@ fn actor_use_on_a_player_falls_through_unless_the_server_offers_an_interaction()
         outcome == LocalUse::Interact,
         clock,
     );
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(!runtime.press_pending());
 }
 
@@ -926,7 +927,7 @@ fn an_actor_without_an_offering_leaves_the_press_for_default_item_use() {
         true
     ));
     assert!(
-        !runtime.press_interacted(),
+        !runtime.press_consumed(),
         "the same press must be available to held-item use"
     );
     assert!(!runtime.press_pending());

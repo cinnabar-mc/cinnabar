@@ -11,6 +11,7 @@ mod animation_conflicts;
 mod held_scale;
 mod legacy_scales;
 mod player_attack;
+mod render_visibility;
 
 const MANIFEST: &[u8] = include_bytes!("../../../../../assets/vanilla-source.json");
 

@@ -93,7 +93,7 @@ fn a_held_book_leaves_the_use_press_to_a_lectern() {
     assert!(!book_open(&world), "the lectern takes the press");
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [AIMED]);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
 }
 
 /// These blocks' own use fails for a book, but vanilla still gives them the press, so the book
@@ -113,7 +113,7 @@ fn a_held_book_leaves_the_use_press_to_blocks_whose_use_fails() {
         world.run_system_cached(produce_block_use).unwrap();
         assert_eq!(transaction_targets(&mut captured), [AIMED], "{name}");
         assert!(
-            world.resource::<BlockUseRuntime>().press_interacted(),
+            world.resource::<BlockUseRuntime>().press_consumed(),
             "the {name} keeps the press from the item's air use"
         );
     }

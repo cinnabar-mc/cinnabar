@@ -274,8 +274,8 @@ pub struct BlockUseRuntime {
     slow_repeat: bool,
     /// Tick whose block interaction consumes the item-use press.
     interacted_tick: Option<u64>,
-    /// The latest press was resolved as a block interaction.
-    press_interacted: bool,
+    /// The latest press was consumed by a block interaction or placement.
+    press_consumed: bool,
     position_authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
@@ -460,14 +460,15 @@ impl BlockUseRuntime {
         self.latched_press
     }
 
-    /// Whether the latest press went to the target's own use, so the held item's use skips it.
-    pub const fn press_interacted(&self) -> bool {
-        self.press_interacted
+    /// Whether the latest press went to the target's own use or placed something, so the held
+    /// item's use skips it.
+    pub const fn press_consumed(&self) -> bool {
+        self.press_consumed
     }
 
     /// A new press edge starts without the previous press's resolution.
     pub fn forget_press_resolution(&mut self) {
-        self.press_interacted = false;
+        self.press_consumed = false;
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
@@ -485,8 +486,8 @@ impl BlockUseRuntime {
         self.rejected_tick = None;
         self.latched_press = false;
         if trigger == ItemUseTrigger::PlayerInput {
-            self.press_interacted = takes_press;
-            if self.press_interacted {
+            self.press_consumed = takes_press || local_use != LocalUse::Nothing;
+            if local_use == LocalUse::Interact {
                 self.interacted_tick = Some(tick);
             }
         }

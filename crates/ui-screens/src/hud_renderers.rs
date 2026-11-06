@@ -168,6 +168,8 @@ pub struct HudRenderer<'a> {
     pub hunger_update: Option<HungerUpdate<'a>>,
     /// Optional union of the bottom HUD's actually painted logical bounds.
     pub bounds: Option<&'a ui_engine::engine::PaintBounds>,
+    /// Optional union of the effect icons' actually painted logical bounds.
+    pub effect_bounds: Option<&'a ui_engine::engine::PaintBounds>,
 }
 
 impl CustomRenderer for HudRenderer<'_> {
@@ -176,13 +178,23 @@ impl CustomRenderer for HudRenderer<'_> {
         node: &CustomDraw<'_>,
         canvas: &mut Canvas<'_>,
     ) -> Result<bool, PaintError> {
-        let (kind, painted) = if self.bounds.is_some() {
+        let observes_effects = self.effect_bounds.is_some()
+            && matches!(
+                node.renderer,
+                MOB_EFFECTS_RENDERER | JAVA_MOB_EFFECTS_RENDERER
+            );
+        let (kind, painted) = if self.bounds.is_some() || observes_effects {
             canvas.capture_paint_bounds(|canvas| paint(canvas, self.hud, self.hunger_update, node))
         } else {
             (paint(canvas, self.hud, self.hunger_update, node), None)
         };
         if kind == PaintKind::Bottom
             && let (Some(bounds), Some(painted)) = (self.bounds, painted)
+        {
+            bounds.include(painted);
+        }
+        if kind == PaintKind::Effects
+            && let (Some(bounds), Some(painted)) = (self.effect_bounds, painted)
         {
             bounds.include(painted);
         }
@@ -200,6 +212,7 @@ impl CustomRenderer for HudRenderer<'_> {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum PaintKind {
     Bottom,
+    Effects,
     Other,
     Unknown,
 }
@@ -241,10 +254,10 @@ fn paint(
         }
         "bubbles_renderer" => (&hud.bubbles, top_left, PaintKind::Bottom),
         "horse_heart_renderer" => (&hud.mount_hearts, top_left, PaintKind::Bottom),
-        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Other),
+        JAVA_MOB_EFFECTS_RENDERER => (&hud.java_effects, [dest[2], dest[1]], PaintKind::Effects),
         MOB_EFFECTS_RENDERER => {
             mob_effects::paint(canvas, &hud.effects, dest, alpha);
-            return PaintKind::Other;
+            return PaintKind::Effects;
         }
         "hotbar_slots_renderer" => {
             let [width, height] = assets::HudTextureRole::Hotbar0
