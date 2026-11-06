@@ -17,12 +17,15 @@ pub struct HoverSnapshot {
     pub held_item: (i32, u16),
 }
 
+/// The hovered actor's unique ID and actor-data revision, with the held item key.
+type HoverReportKey = (Option<(i64, u64)>, (i32, u16));
+
 /// Remembers only reports admitted to the outbound FIFO, allowing failed sends to retry.
 #[derive(Debug, Default)]
 pub struct EntityHover {
     session: Option<SessionGeneration>,
     last_tick: Option<u64>,
-    reported: Option<(Option<(i64, u64)>, (i32, u16))>,
+    reported: Option<HoverReportKey>,
 }
 
 impl EntityHover {
@@ -44,7 +47,7 @@ impl EntityHover {
         if self.last_tick.is_some_and(|last| tick <= last) {
             return Ok(());
         }
-        let key = (
+        let key: HoverReportKey = (
             snapshot
                 .actor
                 .map(|actor| (actor.unique_id, actor.metadata_revision)),
