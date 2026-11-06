@@ -44,6 +44,8 @@ final class StartupScreen extends View {
     private Layout titleLayout;
     private Layout detailLayout;
     private long announcedAt;
+    /** Publishes the latest status once the announcement interval allows it. */
+    private final Runnable announce = this::announceSetup;
 
     StartupScreen(Context context) {
         super(context);
@@ -93,20 +95,35 @@ final class StartupScreen extends View {
     void setup(String title, String detail, float fraction) {
         if (!title.equals(setupTitle)) titleLayout = null;
         if (!detail.equals(setupDetail)) detailLayout = null;
-        long now = SystemClock.uptimeMillis();
-        if (!title.equals(setupTitle) || now - announcedAt >= ANNOUNCE_INTERVAL_MILLIS) {
-            announcedAt = now;
-            setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
-            setContentDescription(detail.isEmpty() ? title : title + ", " + detail);
-        }
+        boolean newHeading = !title.equals(setupTitle);
         setupTitle = title;
         setupDetail = detail;
         setupFraction = fraction;
+        removeCallbacks(announce);
+        long wait = announcedAt + ANNOUNCE_INTERVAL_MILLIS - SystemClock.uptimeMillis();
+        if (newHeading || wait <= 0) {
+            announce.run();
+        } else {
+            postDelayed(announce, wait);
+        }
         invalidate();
+    }
+
+    /** Publishes the current setup status to accessibility services. */
+    private void announceSetup() {
+        announcedAt = SystemClock.uptimeMillis();
+        setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
+        setContentDescription(setupDetail.isEmpty() ? setupTitle : setupTitle + ", " + setupDetail);
+    }
+
+    @Override protected void onDetachedFromWindow() {
+        removeCallbacks(announce);
+        super.onDetachedFromWindow();
     }
 
     /** Returns to the startup stage's label and dots. */
     void clearSetup() {
+        removeCallbacks(announce);
         setupTitle = null;
         setupDetail = "";
         setupFraction = INDETERMINATE;
