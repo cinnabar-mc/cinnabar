@@ -13,8 +13,8 @@ use world::{ChunkKey, SUB_CHUNK_SIDE, SubChunkKey};
 use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
-        BlockEntitySubmission, ConduitModel, CrackShapeCache, FramedMap, SceneClock, SignFace,
-        SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        BlockEntitySubmission, ConduitModel, CrackShape, CrackShapeCache, FramedMap, SceneClock,
+        SignFace, SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -474,7 +474,14 @@ pub(crate) fn update_block_entity_scene(
                         store.sub_chunk(key)?.runtime_id(0, x, y, z)
                     })
                 });
-                shapes.shape(assets, mode, runtime_id, entry.position, template)
+                let shape = shapes.shape(assets, mode, runtime_id, entry.position, template);
+                // A bed has no terrain faces, so only its own mattress-height box fits it.
+                match (shape, runtime_id) {
+                    (CrackShape::Cube, Some(id)) if bed::is_bed(&collisions, mode, id) => {
+                        render_model::bed_crack_shape()
+                    }
+                    (shape, _) => shape,
+                }
             })
         });
 
@@ -533,8 +540,13 @@ pub(crate) fn update_block_entity_scene(
                 columns::ColumnScan::is_current,
                 |previous| {
                     let mut portals = portals::column_cells(chunk_key, chunk, |id| {
-                        portal_kind(&collisions, mode, id)
-                            .or_else(|| piston_arms::resting(runtime, &collisions, mode, id))
+                        portal_kind(&collisions, mode, id).or_else(|| {
+                            piston_arms::resting(runtime, &collisions, mode, id)
+                                .or_else(|| bed::resting(runtime, &collisions, mode, id))
+                        })
+                    });
+                    bed::settle(&mut portals, |block| {
+                        bed::entity_dye(store, dimension, block)
                     });
                     // Actor data, when present, drives the head instead.
                     portals.retain(|(block, kind)| {

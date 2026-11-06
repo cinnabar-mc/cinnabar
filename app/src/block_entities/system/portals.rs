@@ -1,5 +1,6 @@
-//! Portal surfaces and resting piston heads follow the primary block palette, including chunks
-//! without NBT.
+//! Portal surfaces, resting piston heads and default-coloured bed heads follow the primary block
+//! palette, including chunks without NBT. `bed::settle` then removes or recolours bed heads
+//! against their block entities.
 
 use bevy::prelude::Vec3;
 use render_model::{BlockEntityKind, BlockEntitySubmission};
