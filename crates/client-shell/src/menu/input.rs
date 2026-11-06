@@ -272,7 +272,6 @@ impl MenuRuntime {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Selects the focused control by keyboard or gamepad, which sounds as it activates.
 fn select_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) {
     if let Some(action) = menu.focused_action() {
@@ -281,6 +280,7 @@ fn select_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) 
     menu.activate_focused();
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn drive_menu_input(
     context: MenuInputContext,
     wheel_messages: Option<Res<Messages<MouseWheel>>>,
