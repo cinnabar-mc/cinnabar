@@ -550,15 +550,83 @@ pub struct ScreenArt<'a> {
     pub edit: Option<host_edit::Feedback>,
     /// Caller nodes painted above the screen (the held stack).
     pub overlay: &'a [DrawNode],
+    /// Moves one control's paint without changing its layout.
+    pub placement: Option<ControlPlacement<'a>>,
+}
+
+/// Where a control paints instead of where it is laid out: the point of its drawn box at the
+/// fractions `anchor` lies on the same fractions of the screen, moved by `offset` GUI units and
+/// kept on screen.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ControlPlacement<'a> {
+    /// The namespace and name of the definition the control instantiates. Screens and packs
+    /// name the instance as they like, as vanilla's `sidebar@scoreboard.scoreboard_sidebar`.
+    pub definition: [&'a str; 2],
+    pub anchor: [f64; 2],
+    pub offset: [f64; 2],
+}
+
+impl ControlPlacement<'_> {
+    /// The control's instance name, and the GUI units that move its drawn box in `render` to
+    /// this placement on a `root` sized screen, in whole physical pixels so its text snaps as it
+    /// did where laid out. None while the screen has no such control or it draws nothing.
+    fn shift<'r>(
+        &self,
+        render: &'r json_ui::FormRender,
+        root: [f64; 2],
+        px: f64,
+    ) -> Option<(&'r str, [f64; 2])> {
+        let [namespace, name] = self.definition;
+        let control = render.bound.find(&|control| {
+            control
+                .base
+                .as_ref()
+                .is_some_and(|base| base.namespace == namespace && base.name == name)
+        })?;
+        let mut edges: Option<[f64; 4]> = None;
+        for node in render
+            .nodes
+            .iter()
+            .filter(|node| under_control(node, &control.name))
+        {
+            let rect = node.dest;
+            edges = Some(edges.map_or(
+                [rect.x, rect.y, rect.x + rect.w, rect.y + rect.h],
+                |edges| {
+                    [
+                        edges[0].min(rect.x),
+                        edges[1].min(rect.y),
+                        edges[2].max(rect.x + rect.w),
+                        edges[3].max(rect.y + rect.h),
+                    ]
+                },
+            ));
+        }
+        let [left, top, right, bottom] = edges?;
+        let shift = |axis: usize, start: f64, end: f64| {
+            let room = (root[axis] - (end - start)).max(0.);
+            let origin = (room * self.anchor[axis] + self.offset[axis]).clamp(0., room);
+            ((origin - start) * px).round() / px
+        };
+        Some((
+            &control.name,
+            [shift(0, left, right), shift(1, top, bottom)],
+        ))
+    }
+}
+
+/// Whether `node` lies under a control named `control`.
+fn under_control(node: &DrawNode, control: &str) -> bool {
+    node.key
+        .split('/')
+        .any(|part| part.split(['[', '~']).next() == Some(control))
 }
 
 impl ScreenArt<'_> {
     fn omits(&self, node: &DrawNode) -> bool {
-        self.omit_controls.iter().any(|name| {
-            node.key
-                .split('/')
-                .any(|part| part.split(['[', '~']).next() == Some(*name))
-        })
+        self.omit_controls
+            .iter()
+            .any(|name| under_control(node, name))
     }
 }
 

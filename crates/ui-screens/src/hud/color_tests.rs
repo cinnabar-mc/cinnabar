@@ -169,6 +169,7 @@ fn factory_notifications_paint_selected_colors_after_message_parsing() {
                             data,
                             paint: &HudPaint::default(),
                             icons: &[],
+                            sidebar_placement: None,
                         },
                         &mut frame,
                     )

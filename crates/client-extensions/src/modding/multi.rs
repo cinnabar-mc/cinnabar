@@ -289,6 +289,11 @@ impl ModHosts {
         })
     }
 
+    /// Where the earliest active host with a placement draws the vanilla sidebar.
+    pub fn sidebar_placement(&self) -> Option<ui::mod_hud::ElementPlacement> {
+        self.hosts.iter().find_map(ModHost::sidebar_placement)
+    }
+
     /// Consumes a collection containing exactly one host when its runtime is removed.
     pub fn into_single(mut self) -> ModHost {
         assert_eq!(

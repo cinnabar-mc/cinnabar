@@ -238,6 +238,13 @@ impl cinnabar::extension::hud::Host for State {
         hud::surface::set_position_hidden(self, hidden)
     }
 
+    fn set_sidebar_placement(
+        &mut self,
+        placement: Option<cinnabar::extension::hud::SidebarPlacement>,
+    ) -> Result<Result<(), String>> {
+        hud::surface::set_sidebar_placement(self, placement)
+    }
+
     fn read_elements(
         &mut self,
     ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
@@ -786,6 +793,11 @@ impl Instance {
     /// Vanilla elements the committed output hides.
     pub(super) fn hidden_hud_elements(&self) -> ui::mod_hud::HiddenElements {
         self.store.data().hud.hidden
+    }
+
+    /// Where the committed output draws the vanilla sidebar.
+    pub(super) fn sidebar_placement(&self) -> Option<ui::mod_hud::ElementPlacement> {
+        self.store.data().hud.sidebar_placement
     }
 
     /// Records the last laid-out HUD root and vanilla element states for later reads.

@@ -173,6 +173,8 @@ pub struct HudInput<'a> {
     pub paint: &'a HudPaint,
     /// Icons the model's item cells index.
     pub icons: &'a [IconRef],
+    /// Where the sidebar draws instead of where it is laid out.
+    pub sidebar_placement: Option<ui::mod_hud::ElementPlacement>,
 }
 
 impl HudScreens {
@@ -254,6 +256,7 @@ impl HudScreens {
             data,
             paint,
             icons,
+            sidebar_placement,
         } = input;
         let reference = if crosshair {
             Reference::HudCrosshairHudCrosshairScreen.as_str()
@@ -289,6 +292,14 @@ impl HudScreens {
             text_format: Some(&text_format),
             nearest_sampling: true,
             clocks: Some(&self.clocks),
+            placement: sidebar_placement.map(|placement| ui_engine::engine::ControlPlacement {
+                definition: [
+                    "scoreboard",
+                    json_ui::vanilla::Control::ScoreboardSidebar.as_str(),
+                ],
+                anchor: placement.anchor.map(f64::from),
+                offset: placement.offset.map(f64::from),
+            }),
             ..ScreenArt::default()
         };
         let mut items = ItemRenderer { icons, id_aux: &[] };

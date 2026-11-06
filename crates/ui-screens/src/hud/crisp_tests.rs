@@ -212,6 +212,7 @@ fn paint(
                         data: Arc::new(DataSource::default()),
                         paint: &hud,
                         icons: &[],
+                        sidebar_placement: None,
                     },
                     &mut frame,
                 )

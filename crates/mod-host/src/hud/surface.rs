@@ -153,6 +153,37 @@ pub(in super::super) fn set_position_hidden(
     Ok(Ok(()))
 }
 
+/// Furthest GUI units a sidebar placement may name from its anchor.
+const MAX_PLACEMENT_OFFSET: f32 = 16_384.;
+
+/// Stages a validated placement for the vanilla sidebar, or none to restore it.
+pub(in super::super) fn set_sidebar_placement(
+    state: &mut State,
+    placement: Option<wit::SidebarPlacement>,
+) -> Result<Result<(), String>> {
+    if let Err(error) = admit(state)? {
+        return Ok(Err(error));
+    }
+    let placement = placement.map(|placement| ui::mod_hud::ElementPlacement {
+        anchor: [placement.anchor_x, placement.anchor_y],
+        offset: [placement.x, placement.y],
+    });
+    if placement.is_some_and(|placement| {
+        !placement
+            .anchor
+            .iter()
+            .all(|value| (0.0..=1.0).contains(value))
+            || !placement
+                .offset
+                .iter()
+                .all(|value| value.abs() <= MAX_PLACEMENT_OFFSET)
+    }) {
+        return Ok(Err("sidebar placement is out of range".into()));
+    }
+    state.hud.stage_sidebar_placement(placement);
+    Ok(Ok(()))
+}
+
 /// Every vanilla element's last observed state, in enum order.
 pub(in super::super) fn elements(state: &State) -> Result<Vec<wit::ElementState>, String> {
     if !state.grants.hud {

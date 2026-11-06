@@ -44,6 +44,14 @@ interface hud {
     /// Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
     /// a held filled map) is not drawn. Independent of `set-hidden-elements`.
     set-position-hidden: func(hidden: bool) -> result<_, string>;
+    /// Where the vanilla sidebar draws: the point of its box at the fractions `anchor-x` and
+    /// `anchor-y`, from 0 to 1, lies on the same fractions of the HUD root, moved by `x` and `y`
+    /// GUI units and kept on screen.
+    record sidebar-placement { anchor-x: f32, anchor-y: f32, x: f32, y: f32 }
+    /// Retained; draws the vanilla sidebar at this placement, or where vanilla lays it out for
+    /// none. Only its paint moves, so a resource pack's sidebar keeps its look. The earliest mod
+    /// with a placement owns it.
+    set-sidebar-placement: func(placement: option<sidebar-placement>) -> result<_, string>;
     /// The current state of every vanilla element, in enum order.
     read-elements: func() -> result<list<element-state>, string>;
 }
