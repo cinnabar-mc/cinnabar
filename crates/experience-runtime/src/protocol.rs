@@ -61,7 +61,8 @@ pub use visuals::{
 /// 11 adds registered actors, seats, steering and entity observations; 12 adds blocks' drops and
 /// items, items' listing, whether a `break` harvests, the `pass_interaction` op, the containers
 /// in reach with the `set_container_slot` op, blocks' redstone flag, the power snapshot cells
-/// receive, the `set_redstone_power` op, and the actor's game mode in its inventory.
+/// receive, the `set_redstone_power` op, the actor's game mode in its inventory, and the
+/// `set_velocity` and `knock_back` ops.
 pub const PROTOCOL_VERSION: u32 = 12;
 
 const _: () = assert!(MAX_FRAME_BYTES <= u32::MAX as usize);
@@ -422,6 +423,19 @@ pub enum Op {
     SetRedstonePower {
         pos: BlockPos,
         power: u8,
+    },
+    /// A new velocity for `player`, the actor, in blocks per tick, once the rest commits.
+    SetVelocity {
+        player: String,
+        velocity: Position,
+    },
+    /// Knocks `player`, the actor, back from `source` by `force` horizontally and `height`
+    /// upwards, in blocks per tick, as an attack's knockback does, once the rest commits.
+    KnockBack {
+        player: String,
+        source: Position,
+        force: f64,
+        height: f64,
     },
 }
 

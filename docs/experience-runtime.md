@@ -223,6 +223,16 @@ allows rather than its type: `spectator` without collision, `creative` with the 
 inventory, `adventure` without world editing, and `survival` otherwise, so the local server's
 `/fly`, which lets a mode fly, reads as the mode it wraps.
 
+Server WIT 0.12's `callback.set-velocity` and `callback.knock-back` move the actor once the
+result commits. A velocity, in blocks per tick, replaces the player's own, as a server's motion
+packet does; a knockback pushes the player away from a source, `force` horizontally and `height`
+upwards, scaled by its knockback resistance and skipped in game modes that take no damage, as an
+attack's knockback is. The player's client moves it, so collision and server movement checks
+still apply. Only the actor can be moved (`denied` for another player, `player-unavailable`
+without an actor), every value must be finite (`out-of-bounds`), and a result holds at most one
+motion: a later call replaces the earlier. The adapter rejects a result that moves anyone else,
+moves twice or carries a value that is not finite as invalid.
+
 Server WIT 0.12 adds the `content-rules` export, which runs once after `register`:
 
 | Rule | Contract |

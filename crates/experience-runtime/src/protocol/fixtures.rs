@@ -666,6 +666,25 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                             pos: controller,
                             power: 15,
                         },
+                        // The wire format of both motions; a valid result holds at most one.
+                        Op::SetVelocity {
+                            player: player.to_owned(),
+                            velocity: Position {
+                                x: 0.25,
+                                y: 0.5,
+                                z: -0.25,
+                            },
+                        },
+                        Op::KnockBack {
+                            player: player.to_owned(),
+                            source: Position {
+                                x: 11.5,
+                                y: 64.0,
+                                z: -7.5,
+                            },
+                            force: 0.4,
+                            height: 0.375,
+                        },
                     ],
                 },
             )),

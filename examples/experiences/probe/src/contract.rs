@@ -6,8 +6,8 @@ use experience_sdk::server::{
     BlockDef, BlockDrops, BlockItem, BlockPos, BlockRule, BlockState, BlockType, Callback,
     ContentRules, Face, GameMode, ItemDef, ItemKey, Material, Mining, NewStack, Overlay,
     OverlayLook, OverlayRegistration, OverlayType, OverlayVisual, Pixel, PixelBox, PlacementStates,
-    Registration, RenderMethod, StateDef, StateValue, StateValues, TextureBinding, Visual,
-    WorldError, cube,
+    Position, Registration, RenderMethod, StateDef, StateValue, StateValues, TextureBinding,
+    Visual, WorldError, cube,
 };
 
 /// A cube with the facing placement trait and one bool state, [`LAMP_ON`].
@@ -343,6 +343,30 @@ pub(crate) fn game_mode(ctx: &Callback) -> String {
         },
     );
     format!("game mode {mode}")
+}
+
+/// Sets the actor's velocity to (0.25, 0.5, -0.25) blocks per tick, as `velocity {outcome}`.
+pub(crate) fn set_velocity(ctx: &Callback, player: &str) -> String {
+    let velocity = Position {
+        x: 0.25,
+        y: 0.5,
+        z: -0.25,
+    };
+    format!("velocity {}", refusal(ctx.set_velocity(player, velocity)))
+}
+
+/// Knocks the actor back from the centre of the block at `p`, 0.4 horizontally and 0.375
+/// upwards, as `knock back {outcome}`.
+pub(crate) fn knock_back(ctx: &Callback, player: &str, p: BlockPos) -> String {
+    let source = Position {
+        x: f64::from(p.x) + 0.5,
+        y: f64::from(p.y) + 0.5,
+        z: f64::from(p.z) + 0.5,
+    };
+    format!(
+        "knock back {}",
+        refusal(ctx.knock_back(player, source, 0.4, 0.375))
+    )
 }
 
 /// A world error's name, or `ok` for any success.

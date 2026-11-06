@@ -691,6 +691,7 @@ mod craft;
 mod entities;
 mod invoke;
 mod items;
+mod motion;
 mod overlays;
 mod prepare;
 mod redstone;
