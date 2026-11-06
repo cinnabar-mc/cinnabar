@@ -11,7 +11,6 @@ use crate::world::WorldPacketError;
 use crate::{Packet, PacketKind};
 
 const MAX_BATCH_BYTES: usize = 16 * 1024 * 1024;
-const MAX_BATCH_PACKETS: usize = 1_600;
 
 /// Errors produced by raw Bedrock batch encoding and decoding.
 #[derive(Debug, Error)]
@@ -37,9 +36,6 @@ pub enum ProtocolError {
 
     #[error("raw batch is {actual} bytes, exceeding the {max}-byte limit")]
     BatchTooLarge { actual: usize, max: usize },
-
-    #[error("raw batch contains more than {max} packets")]
-    TooManyPackets { max: usize },
 
     #[error("declared packet length {declared} exceeds {available} available bytes")]
     TruncatedPacket { declared: usize, available: usize },
@@ -103,8 +99,6 @@ pub(crate) enum SessionFailure {
     UnknownPacketId(u32),
     #[error("batch payload exceeds max size ({actual} > {max})")]
     BatchTooLarge { actual: usize, max: usize },
-    #[error("batch contains more than {max} packets")]
-    TooManyPackets { max: usize },
     #[error("unexpected startup packet: {0}")]
     UnexpectedStartup(String),
     /// A Disconnect ended the join; the texts are the server's own, unbounded.
@@ -216,13 +210,12 @@ pub fn decode_batch(bytes: Bytes) -> Result<Vec<Packet>, ProtocolError> {
             max: MAX_BATCH_BYTES,
         });
     }
-    let frames =
-        wire::Frames::from_batch(bytes, MAX_BATCH_PACKETS).map_err(|error| match error {
-            wire::DecodeError::InvalidBatchHeader(actual) => {
-                ProtocolError::InvalidBatchHeader { actual }
-            }
-            error => error.into(),
-        })?;
+    let frames = wire::Frames::from_batch(bytes, usize::MAX).map_err(|error| match error {
+        wire::DecodeError::InvalidBatchHeader(actual) => {
+            ProtocolError::InvalidBatchHeader { actual }
+        }
+        error => error.into(),
+    })?;
     let mut packets = Vec::new();
     for frame in frames {
         let frame = frame.map_err(framing_error)?;
@@ -246,7 +239,6 @@ pub fn decode_batch(bytes: Bytes) -> Result<Vec<Packet>, ProtocolError> {
 /// Maps a batch framing failure onto the protocol's framing errors.
 fn framing_error(error: wire::DecodeError) -> ProtocolError {
     match error {
-        wire::DecodeError::TooManyFrames { limit } => ProtocolError::TooManyPackets { max: limit },
         wire::DecodeError::UnexpectedEof { needed, remaining } => ProtocolError::TruncatedPacket {
             declared: needed,
             available: remaining,
