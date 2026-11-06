@@ -10,6 +10,7 @@ use tempfile::TempDir;
 mod animation_conflicts;
 mod held_scale;
 mod legacy_scales;
+mod partial_roots;
 mod player_attack;
 mod render_visibility;
 
