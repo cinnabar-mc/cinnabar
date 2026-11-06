@@ -136,6 +136,23 @@ impl Backend for Fixture {
 }
 
 #[test]
+fn marketplace_navigation_does_not_modify_the_local_library() {
+    let root = tempfile::tempdir().unwrap();
+    let mut requests = 0;
+    let result = worker::perform::<Fixture>(
+        Action::BrowseMarketplace,
+        &root.path().join("mods"),
+        &root.path().join("config"),
+        &mut requests,
+        &mut || panic!("navigation must not open a file picker"),
+        &mut |_| panic!("navigation must not retire a mod"),
+    );
+    assert_eq!(result, Ok(String::new()));
+    assert_eq!(requests, 0);
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+}
+
+#[test]
 fn scanning_caches_revisions_and_persisted_selection_survives_a_fresh_scan() {
     let root = tempfile::tempdir().unwrap();
     let mods = root.path().join("mods");

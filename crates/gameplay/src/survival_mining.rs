@@ -316,7 +316,7 @@ impl DestroyMachine {
         let creative_continue = target.instant && self.destroying.is_some();
         // A survival start may land on the deadline tick; a held Creative destroy repeats
         // only once the deadline has passed.
-        let delayed = if creative_continue {
+        let delayed = if target.instant {
             remaining > 0
         } else {
             remaining > 1

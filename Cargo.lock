@@ -2263,6 +2263,7 @@ dependencies = [
  "actor-animation",
  "anyhow",
  "assets",
+ "base64",
  "bevy",
  "block-transform",
  "bootstrap-ui",
@@ -5307,6 +5308,7 @@ version = "0.1.31"
 dependencies = [
  "anyhow",
  "async-io",
+ "base64",
  "bridge",
  "cosmetics",
  "crash-handler",
@@ -5325,6 +5327,7 @@ dependencies = [
  "render-api",
  "reqwest",
  "resource-pack",
+ "ring",
  "rustix 1.1.4",
  "serde",
  "serde_json",

@@ -276,3 +276,18 @@ pub(super) fn split(spec: &str) -> impl Iterator<Item = &str> + Clone {
         .map(str::trim)
         .filter(|directive| !directive.is_empty())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// First-time setup diagnostics follow the same filter as the launcher.
+    #[test]
+    fn first_run_targets_follow_the_core_category_filter() {
+        let expanded = expand("core=debug").unwrap();
+        assert_eq!(
+            target_level("first_run::window", expanded.iter().map(String::as_str)),
+            LevelFilter::DEBUG
+        );
+    }
+}

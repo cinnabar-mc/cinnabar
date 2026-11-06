@@ -91,6 +91,13 @@ impl Backend for AppBackend {
     fn validate_source(bytes: &[u8]) -> Result<(), String> {
         mod_host::validate_source(bytes).map_err(|error| format!("{error:#}"))
     }
+    /// Keeps signed permission/version comparisons in their native schema owner.
+    fn validate_marketplace(
+        bytes: &[u8],
+        manifest: &launcher_host::marketplace::Manifest,
+    ) -> Result<(), String> {
+        crate::modding::marketplace::declarations(bytes, manifest)
+    }
     /// Parses exact download bytes and rejects invalid new permission declarations.
     fn update_metadata(
         bytes: &[u8],

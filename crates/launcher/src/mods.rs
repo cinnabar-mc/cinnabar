@@ -6,12 +6,16 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
+pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
 /// Release tags share the installed metadata version's display bound.
 pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// Opens the website without changing the local library or its permissions.
+    BrowseMarketplace,
     ReadMore(u64),
     ToggleActive,
     ToggleAvailable,
@@ -203,6 +207,7 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
+            Action::BrowseMarketplace => None,
             Action::Customize(id) => {
                 self.customizing = (self.customizing != Some(id)).then_some(id);
                 self.show_all_permissions = false;
@@ -355,6 +360,18 @@ mod tests {
         item.metadata.icon = Some(std::sync::Arc::from([1u8].as_slice()));
         assert_eq!(item.name(), "Zoom");
         assert!(item.icon_key().is_some());
+    }
+
+    #[test]
+    fn browsing_never_queues_library_work_or_changes_grants() {
+        for busy in [false, true] {
+            let mut snapshot = Snapshot::default();
+            snapshot.library.busy = busy;
+            snapshot.library.installed.push(installed(7));
+            let before = snapshot.clone();
+            assert_eq!(snapshot.apply(Action::BrowseMarketplace), None);
+            assert_eq!(snapshot, before);
+        }
     }
 
     #[test]

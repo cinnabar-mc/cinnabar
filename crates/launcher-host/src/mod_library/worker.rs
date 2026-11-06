@@ -29,6 +29,22 @@ pub fn run<B: Backend>(
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(interval) {
+            Ok(Command::Marketplace(download)) => {
+                library.busy = true;
+                library.message = "Verifying marketplace component compatibility…".into();
+                let _ = outgoing.send(library.clone());
+                let result = (|| {
+                    let bytes = download.bytes().map_err(|error| error.to_string())?;
+                    B::validate_source(&bytes)
+                        .map_err(|error| format!("Unsupported marketplace component: {error}"))?;
+                    B::validate_marketplace(&bytes, download.manifest())?;
+                    download
+                        .install(crate::marketplace::now_ms())
+                        .map_err(|error| error.to_string())?;
+                    Ok::<_, String>("Marketplace mod added to Available. Enable it and choose its permissions in Mods.".to_owned())
+                })();
+                result.unwrap_or_else(|error| format!("Marketplace installation held: {error}"))
+            }
             Ok(Command::Message(message)) => message,
             Ok(Command::Update(download, finished)) => {
                 library.busy = true;
@@ -191,7 +207,8 @@ pub fn perform<B: Backend>(
             )
             .map(|()| String::new())
         }
-        Action::ReadMore(_)
+        Action::BrowseMarketplace
+        | Action::ReadMore(_)
         | Action::Update(_)
         | Action::ViewUpdates
         | Action::OpenUpdate(_)

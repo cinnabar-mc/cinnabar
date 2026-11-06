@@ -169,11 +169,24 @@ pub fn load_entries(mods: Vec<(ModSource, ModGrants)>) -> Vec<ModHost> {
 impl ModHosts {
     /// Keeps a nonempty collection of hosts in their original load order.
     pub fn new(host: ModHost, remaining: Vec<ModHost>) -> Self {
+        Self::with_budget(
+            host,
+            remaining,
+            mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        )
+    }
+
+    /// Initializes the collection with a caller-owned scheduling budget before any callbacks run.
+    pub fn with_budget(
+        host: ModHost,
+        remaining: Vec<ModHost>,
+        budget: mod_host::CallbackBudget,
+    ) -> Self {
         Self {
             hosts: std::iter::once(host).chain(remaining).collect(),
             panel_selection: 0,
             panel_open_order: 0,
-            budget: mod_host::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+            budget,
             next_frame_priority: None,
             label: None,
             label_inputs: Vec::new(),

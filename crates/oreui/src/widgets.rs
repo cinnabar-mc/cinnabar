@@ -5,6 +5,8 @@
 mod art;
 mod choice;
 pub(super) use choice::{choice, choice_focus, choice_height};
+mod wrapped;
+pub(super) use wrapped::{button as wrapped_button, measure as wrapped_button_size};
 
 use super::icons::{self, Icon};
 use super::motion::{Kind, mix, opacity};
