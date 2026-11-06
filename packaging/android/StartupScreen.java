@@ -7,6 +7,9 @@ import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.os.SystemClock;
+import android.text.Layout;
+import android.text.StaticLayout;
+import android.text.TextPaint;
 import android.view.View;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
@@ -15,12 +18,27 @@ import org.json.JSONObject;
 
 /** Original feedback drawn before native resources and the destination interface are ready. */
 final class StartupScreen extends View {
+    /** A setup fraction for work with no measurable extent, which keeps the animated dots. */
+    static final float INDETERMINATE = -1;
+    private static final float DETAIL_SIZE = 0.8f;
+    private static final int DETAIL_ALPHA = 180;
+    /** The opacity of unlit indicators and quiet outlines. */
+    static final int UNLIT_ALPHA = 70;
+
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private final TextPaint titlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final TextPaint detailPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final JSONObject specification;
     private final Bitmap logo;
     private final JSONObject layout;
     private String stage = "loading_assets";
     private boolean retired;
+    private String setupTitle;
+    private String setupDetail = "";
+    private float setupFraction = INDETERMINATE;
+    /** Wrapped setup text, rebuilt only when the text or the view's size changes. */
+    private Layout titleLayout;
+    private Layout detailLayout;
 
     StartupScreen(Context context) {
         super(context);
@@ -32,7 +50,10 @@ final class StartupScreen extends View {
             }
             String[] fonts = context.getAssets().list("resources/fonts");
             if (fonts != null && fonts.length == 1) {
-                paint.setTypeface(Typeface.createFromAsset(context.getAssets(), "resources/fonts/" + fonts[0]));
+                Typeface typeface = Typeface.createFromAsset(context.getAssets(), "resources/fonts/" + fonts[0]);
+                paint.setTypeface(typeface);
+                titlePaint.setTypeface(typeface);
+                detailPaint.setTypeface(typeface);
             }
         } catch (Exception error) {
             throw new IllegalStateException("Cannot load startup artwork", error);
@@ -60,6 +81,37 @@ final class StartupScreen extends View {
         }
     }
 
+    /** Replaces the startup stage with setup's own heading, detail and progress. */
+    void setup(String title, String detail, float fraction) {
+        if (!title.equals(setupTitle)) titleLayout = null;
+        if (!detail.equals(setupDetail)) detailLayout = null;
+        setupTitle = title;
+        setupDetail = detail;
+        setupFraction = fraction;
+        invalidate();
+    }
+
+    /** Returns to the startup stage's label and dots. */
+    void clearSetup() {
+        setupTitle = null;
+        setupDetail = "";
+        setupFraction = INDETERMINATE;
+        titleLayout = null;
+        detailLayout = null;
+        invalidate();
+    }
+
+    /** The bundled title artwork, for screens drawn alongside this one. */
+    Bitmap logo() { return logo; }
+
+    /** The bundled font, or null when the platform default applies. */
+    Typeface typeface() { return paint.getTypeface(); }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+        titleLayout = null;
+        detailLayout = null;
+    }
+
     /** Reads one bundled specification without depending on the unpacked prep kit. */
     private static String read(Context context, String path) throws Exception {
         try (InputStream input = context.getAssets().open(path);
@@ -71,7 +123,7 @@ final class StartupScreen extends View {
     }
 
     /** Converts the shared RGBA color to Android's ARGB representation. */
-    private int color(String key) {
+    int color(String key) {
         JSONArray rgba = specification.optJSONArray(key);
         return android.graphics.Color.argb(rgba.optInt(3), rgba.optInt(0), rgba.optInt(1), rgba.optInt(2));
     }
@@ -91,18 +143,72 @@ final class StartupScreen extends View {
             canvas.drawBitmap(logo, null, new android.graphics.RectF((width-w)/2, height*metric("logo_center_y")-h/2,
                     (width+w)/2, height*metric("logo_center_y")+h/2), paint);
         }
-        paint.setColor(color("foreground"));
-        paint.setTextSize(metric("label_size") * scale);
-        paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(specification.optString(stage), width/2, height*metric("label_top")-paint.ascent(), paint);
-        int active = (int) ((SystemClock.uptimeMillis()/layout.optLong("step_millis")) % 3);
-        for (int i=0; i<3; ++i) {
-            paint.setColor(color(i == active ? "accent" : "foreground"));
-            paint.setAlpha(i == active ? 255 : 70);
-            float x = width/2 + (i-1)*metric("dot_spacing")*scale - metric("dot_size")*.5f*scale;
-            canvas.drawRect(x, height*metric("indicator_top"), x+metric("dot_size")*scale, height*metric("indicator_top")+metric("dot_size")*scale, paint);
+        float indicatorTop = height*metric("indicator_top");
+        if (setupTitle == null) {
+            paint.setColor(color("foreground"));
+            paint.setTextSize(metric("label_size") * scale);
+            paint.setTextAlign(Paint.Align.CENTER);
+            canvas.drawText(specification.optString(stage), width/2, height*metric("label_top")-paint.ascent(), paint);
+        } else {
+            indicatorTop = drawSetup(canvas, scale, indicatorTop);
         }
-        paint.setAlpha(255);
-        if (!retired && isShown()) postInvalidateDelayed(layout.optLong("frame_millis"));
+        if (setupFraction == INDETERMINATE) {
+            int active = (int) ((SystemClock.uptimeMillis()/layout.optLong("step_millis")) % 3);
+            for (int i=0; i<3; ++i) {
+                paint.setColor(color(i == active ? "accent" : "foreground"));
+                paint.setAlpha(i == active ? 255 : UNLIT_ALPHA);
+                float x = width/2 + (i-1)*metric("dot_spacing")*scale - metric("dot_size")*.5f*scale;
+                canvas.drawRect(x, indicatorTop, x+metric("dot_size")*scale, indicatorTop+metric("dot_size")*scale, paint);
+            }
+            paint.setAlpha(255);
+            if (!retired && isShown()) postInvalidateDelayed(layout.optLong("frame_millis"));
+        }
+    }
+
+    /** Draws setup's heading, bar and detail, and returns where an animated indicator belongs. */
+    private float drawSetup(Canvas canvas, float scale, float indicatorTop) {
+        float width = getWidth(), height = getHeight();
+        float margin = metric("side_margin") * scale;
+        int textWidth = Math.max(1, (int) (width - 2*margin));
+        if (titleLayout == null) {
+            titlePaint.setTextSize(metric("label_size") * scale);
+            titleLayout = centered(setupTitle, titlePaint, textWidth);
+        }
+        if (detailLayout == null) {
+            detailPaint.setTextSize(metric("label_size") * DETAIL_SIZE * scale);
+            detailLayout = centered(setupDetail, detailPaint, textWidth);
+        }
+        float titleTop = height*metric("label_top");
+        titlePaint.setColor(color("foreground"));
+        drawAt(canvas, titleLayout, margin, titleTop);
+        float thickness = metric("dot_size") * scale;
+        float barTop = Math.max(indicatorTop, titleTop + titleLayout.getHeight() + thickness);
+        if (setupFraction != INDETERMINATE) {
+            float barWidth = Math.min(metric("logo_width") * scale, width - 2*margin);
+            float left = (width - barWidth) / 2;
+            paint.setColor(color("foreground"));
+            paint.setAlpha(UNLIT_ALPHA);
+            canvas.drawRect(left, barTop, left + barWidth, barTop + thickness, paint);
+            paint.setColor(color("accent"));
+            canvas.drawRect(left, barTop, left + barWidth*Math.min(1, setupFraction), barTop + thickness, paint);
+            paint.setAlpha(255);
+        }
+        detailPaint.setColor(color("foreground"));
+        detailPaint.setAlpha(DETAIL_ALPHA);
+        drawAt(canvas, detailLayout, margin, barTop + thickness*2);
+        return barTop;
+    }
+
+    private static Layout centered(String text, TextPaint paint, int width) {
+        return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
+                .setAlignment(Layout.Alignment.ALIGN_CENTER)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED).build();
+    }
+
+    private static void drawAt(Canvas canvas, Layout text, float x, float y) {
+        canvas.save();
+        canvas.translate(x, y);
+        text.draw(canvas);
+        canvas.restore();
     }
 }
