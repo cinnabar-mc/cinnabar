@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use render_model::{
     BannerLayer, BannerModel, BannerMount, BedModel, BellAttachment, BlockEntityKind, ChestModel,
-    ChestPair, ChestVariant, DecoratedPotModel, Facing, ITEM_FRAME_ROTATION_STEP_DEGREES,
-    ItemFrameModel, Oxidation, ShulkerModel, SignMount, SkullKind, SkullModel, SkullMount,
-    StatueModel, StatuePose, bed_color, sherd_pattern,
+    ChestPair, ChestVariant, DEFAULT_BED_DYE, DecoratedPotModel, Facing,
+    ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel, Oxidation, ShulkerModel, SignMount,
+    SkullKind, SkullModel, SkullMount, StatueModel, StatuePose, bed_color, sherd_pattern,
 };
 use world::NbtCompound;
 
@@ -239,6 +239,16 @@ fn sign_mount(backing: BlockEntityBacking<'_>, state: &BlockState) -> Option<Sig
     })
 }
 
+/// Plans one bed half from its block state and the dye id its block entity names.
+/// Without a dye the bed shows the default colour; an unknown dye id draws nothing.
+pub(super) fn bed(state: &BlockState, dye: Option<i64>) -> Option<BedModel> {
+    Some(BedModel {
+        color: bed_color(dye.unwrap_or(DEFAULT_BED_DYE))?,
+        head: state.int(BlockProperty::HeadPieceBit.name()) == Some(1),
+        direction: u8::try_from(state.int("direction")?.rem_euclid(4)).ok()?,
+    })
+}
+
 /// Plans a piston head from its block, and from its actor data when the server sent any; a piston
 /// without actor data shows a retracted head.
 pub(super) fn piston_arm(
@@ -352,11 +362,8 @@ pub(super) fn describe(
                 mount,
             })))
         }
-        BlockEntityRenderer::Bed => Some(Template::Static(BlockEntityKind::Bed(BedModel {
-            color: bed_color(nbt.integer("color")?)?,
-            head: state.int(BlockProperty::HeadPieceBit.name()) == Some(1),
-            direction: u8::try_from(state.int("direction")?.rem_euclid(4)).ok()?,
-        }))),
+        BlockEntityRenderer::Bed => bed(state, Some(nbt.integer("color")?))
+            .map(|model| Template::Static(BlockEntityKind::Bed(model))),
         BlockEntityRenderer::Chalkboard => super::chalkboard::model(state, nbt, position)
             .map(|model| Template::Static(BlockEntityKind::Chalkboard(model))),
         BlockEntityRenderer::Banner => banner(backing, state, nbt),
@@ -777,6 +784,13 @@ mod tests {
                 direction: 3,
             })))
         );
+    }
+
+    #[test]
+    fn the_default_dye_is_red_and_an_unknown_dye_draws_nothing() {
+        let state = state(r#"{"direction":{"type":"int","value":0},"head_piece_bit":true}"#);
+        assert_eq!(bed(&state, None).map(|model| model.color), Some("red"));
+        assert_eq!(bed(&state, Some(99)), None);
     }
 
     #[test]

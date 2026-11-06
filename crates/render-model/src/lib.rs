@@ -215,7 +215,7 @@ pub use block_entity::{
     BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget,
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
-pub use block_entity::{BedModel, bed_color};
+pub use block_entity::{BedModel, DEFAULT_BED_DYE, bed_color, bed_crack_shape};
 pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
