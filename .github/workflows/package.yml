@@ -841,8 +841,13 @@ jobs:
           fi
           base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
             "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
-          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --slurpfile revisions crates/mod-api/compatibility-revisions.json \
-            '{channel: $channel, mod_api_revisions: $revisions[0]}')"
+          # A source older than this file supports no revision that a released mod can name.
+          revisions='[]'
+          if [[ -f crates/mod-api/compatibility-revisions.json ]]; then
+            revisions="$(jq -c . crates/mod-api/compatibility-revisions.json)"
+          fi
+          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --argjson revisions "$revisions" \
+            '{channel: $channel, mod_api_revisions: $revisions}')"
           # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 3 --retry-all-errors -X POST "$base/v1/mod/host-revisions" \
             -A "cinnabar-release/$RELEASE_VERSION" \

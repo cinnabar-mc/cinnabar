@@ -98,6 +98,17 @@ class ReleaseHookTests(unittest.TestCase):
         self.assertEqual(json.loads((self.root / "body").read_text()),
                          {"channel": "nightly", "mod_api_revisions": self.revisions})
 
+    def test_a_source_without_the_revision_file_reports_none(self):
+        (self.root / "crates/mod-api/compatibility-revisions.json").unlink()
+        result = self.report()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads((self.root / "body").read_text()), {"channel": "nightly", "mod_api_revisions": []})
+
+    def test_a_malformed_revision_file_fails_without_reporting(self):
+        (self.root / "crates/mod-api/compatibility-revisions.json").write_text("not json")
+        self.assertNotEqual(self.report().returncode, 0)
+        self.assertFalse((self.root / "argv").exists())
+
     def test_a_failed_report_fails_so_that_the_job_can_be_rerun(self):
         result = self.report(status="500")
         self.assertEqual(result.returncode, 1)
