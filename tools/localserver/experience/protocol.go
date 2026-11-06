@@ -274,6 +274,7 @@ type Op struct {
 	PassInteraction  *PassInteractionOp
 	SetContainerSlot *SetContainerSlotOp
 	SetRedstonePower *SetRedstonePowerOp
+	Damage           *DamageOp
 }
 
 // PassInteractionOp passes an interaction's click on: once the rest of its result commits, the
@@ -742,6 +743,8 @@ func (o Op) MarshalJSON() ([]byte, error) {
 		return json.Marshal(setContainerSlotWire{variantTag{typeSetContainerSlot}, o.SetContainerSlot})
 	case o.SetRedstonePower != nil:
 		return json.Marshal(setRedstonePowerWire{variantTag{typeSetRedstonePower}, o.SetRedstonePower})
+	case o.Damage != nil:
+		return json.Marshal(damageWire{variantTag{typeDamage}, o.Damage})
 	}
 	return nil, errors.New("empty op")
 }
@@ -787,6 +790,8 @@ func (o *Op) UnmarshalJSON(data []byte) error {
 		return decodeStrict(data, &setContainerSlotWire{SetContainerSlotOp: fresh(&o.SetContainerSlot)})
 	case typeSetRedstonePower:
 		return decodeStrict(data, &setRedstonePowerWire{SetRedstonePowerOp: fresh(&o.SetRedstonePower)})
+	case typeDamage:
+		return decodeStrict(data, &damageWire{DamageOp: fresh(&o.Damage)})
 	}
 	return fmt.Errorf("unknown op type %q", tag)
 }

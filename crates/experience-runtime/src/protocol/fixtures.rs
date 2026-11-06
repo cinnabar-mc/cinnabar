@@ -666,6 +666,11 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
                             pos: controller,
                             power: 15,
                         },
+                        Op::Damage {
+                            player: player.to_owned(),
+                            amount: 3.5,
+                            reduced_by_armour: true,
+                        },
                     ],
                 },
             )),

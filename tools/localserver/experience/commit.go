@@ -190,6 +190,9 @@ func (h *Host) apply(tx *world.Tx, exp string, ev event, snap snapshot, ops []Op
 	for _, w := range plan.powers {
 		h.applyPower(tx, exp, ev.instance, w)
 	}
+	if plan.damage != nil {
+		plan.damage.apply(actor)
+	}
 	for _, drop := range plan.drops {
 		tx.AddEntity(entity.NewItem(world.EntitySpawnOpts{Position: drop.pos.Vec3Centre()}, drop.stack))
 	}
@@ -297,6 +300,8 @@ type commitPlan struct {
 	containers []containerWrite
 	// powers are the validated set_redstone_power ops, in their order.
 	powers []powerWrite
+	// damage is the validated damage op, if any.
+	damage *damageHit
 }
 
 // tickDuration is one game tick, which a scheduled update counts in.
@@ -553,6 +558,12 @@ func (h *Host) validate(exp string, ev event, snap snapshot, ops []Op) (commitPl
 				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
 			}
 			plan.powers = append(plan.powers, w)
+		case op.Damage != nil:
+			hit, err := damageOf(exp, op.Damage, actorID, plan.damage)
+			if err != nil {
+				return commitPlan{}, fmt.Errorf("%w: op %d %v", errInvalid, i, err)
+			}
+			plan.damage = hit
 		default:
 			return commitPlan{}, fmt.Errorf("%w: op %d is empty", errInvalid, i)
 		}

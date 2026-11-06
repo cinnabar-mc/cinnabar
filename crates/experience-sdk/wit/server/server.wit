@@ -297,6 +297,15 @@ interface world-access {
         /// The actor's game mode as it was snapshotted with its inventory; `player-unavailable`
         /// without an actor.
         game-mode: func() -> result<game-mode, world-error>;
+        /// Stages `amount` of damage, in health points (two to a heart), to `player`, the actor,
+        /// once the result commits, as vanilla damage applies: reduced by armour when
+        /// `reduced-by-armour` is set and by the resistance effect, taken from absorption first,
+        /// prevented by a held totem when lethal, skipped in game modes that take no damage, and
+        /// within the hurt invulnerability window counting only what exceeds the last damage.
+        /// `denied` for another player, `player-unavailable` without an actor, and
+        /// `out-of-bounds` for an amount that is negative or not finite. A later call replaces
+        /// this one.
+        damage: func(player: player-id, amount: f64, reduced-by-armour: bool) -> result<_, world-error>;
         /// Stages new content for one of the actor's inventory slots; none empties it.
         set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may
