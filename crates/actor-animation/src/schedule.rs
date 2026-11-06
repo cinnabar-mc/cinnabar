@@ -379,6 +379,7 @@ fn culled(
             .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
             .unwrap_or_default()
     };
+    let bounds = crate::actor_culling_bounds(bounds, actor);
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)
 }
