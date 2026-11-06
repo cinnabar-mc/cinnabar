@@ -438,15 +438,27 @@ impl UiPresentationRuntime {
         let changed = self.screens.mod_ui.refresh_experience_modal_pages()
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
-        // Server textures too big for a server page draw from full-resolution art.
+        // Server textures too big for a server page draw from full-resolution art; the ones
+        // this frame drew without it pack first.
+        let drawn = self
+            .engine
+            .as_ref()
+            .and_then(|engine| engine.textures.end_oversized_frame());
         let oversized = self.oversized_ui_textures();
+        let mut artwork_changed = false;
         if !oversized.shares_storage(&self.menu_artwork_set.oversized) {
-            let artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
+            artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
             self.menu_artwork_set.oversized = oversized;
-            if artwork_changed {
-                self.menu_artwork_loader
-                    .request(self.menu_artwork_set.clone());
-            }
+        }
+        if let Some(drawn) = drawn
+            && drawn != self.menu_artwork_set.drawn_oversized
+        {
+            self.menu_artwork_set.drawn_oversized = drawn;
+            artwork_changed = true;
+        }
+        if artwork_changed {
+            self.menu_artwork_loader
+                .request(self.menu_artwork_set.clone());
         }
         if changed {
             self.rebuild_dynamic_textures();

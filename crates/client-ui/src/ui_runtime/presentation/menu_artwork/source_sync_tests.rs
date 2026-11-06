@@ -504,3 +504,23 @@ fn equivalent_source_metadata_is_compared_once_then_retained_without_requests() 
     assert_eq!(allocations.calls, 0);
     assert_eq!(runtime.menu_artwork_loader.requested, requested);
 }
+
+/// Large server textures a frame draws without full-resolution art pack ahead of the
+/// launcher artwork a session keeps from the last menu, so a screenful of server-menu icons
+/// is not crowded off the art pages.
+#[test]
+fn drawn_server_art_packs_before_launcher_artwork() {
+    let mut runtime = presentation();
+    runtime.menu_artwork_set.paths = vec![("avatar".into(), MAX_ARTWORK_SIDE)];
+    runtime.menu_artwork_set.images = vec![("world-thumbnail".into(), png(4).into())];
+    install(&mut runtime, &[("textures/drawn", png(1))]);
+    runtime.sync_server_ui_pages();
+    let order: Vec<String> = sources(&runtime.menu_artwork_set)
+        .iter()
+        .map(|source| source.key().0)
+        .collect();
+    let position = |key: &str| order.iter().position(|entry| entry == key).unwrap();
+    let drawn = position(&format!("{SERVER_ART_PREFIX}textures/drawn"));
+    assert!(drawn < position("world-thumbnail"), "{order:?}");
+    assert!(drawn < position("avatar"), "{order:?}");
+}

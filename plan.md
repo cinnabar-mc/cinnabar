@@ -1032,6 +1032,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Tiled images retain full coverage with bounded repeat geometry across cropped
   regions and sliced borders; large collection admission and hardware frame-work
   acceptance remain incomplete.
+  Server UI textures larger than a 256-pixel page draw from full-resolution copies on the two
+  art pages. A full registry replaces textures no frame still draws, and the textures a frame
+  draws without a copy pack ahead of launcher artwork. Vanilla loads each image as its own
+  texture, so a screen drawing more large images than the art pages and server pages hold
+  still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
   Server language values decode newline and backslash escapes before text arguments

@@ -125,6 +125,8 @@ impl UiPresentationRuntime {
             .mod_menu_branding
             .as_ref()
             .and_then(|branding| branding.logo.clone());
+        set.drawn_oversized
+            .clone_from(&self.menu_artwork_set.drawn_oversized);
         if !set.same(&self.menu_artwork_set) {
             self.menu_artwork_set = set.clone();
             self.menu_artwork_loader.request(set);

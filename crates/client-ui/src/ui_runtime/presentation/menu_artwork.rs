@@ -83,6 +83,8 @@ pub(super) struct ArtworkSet {
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
+    /// Oversized keys the last frame drew without full-resolution art; they pack first.
+    pub(super) drawn_oversized: BTreeSet<String>,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
     pub(super) cosmetics: Vec<CosmeticArtwork>,
@@ -108,6 +110,7 @@ impl ArtworkSet {
             && self.skins.len() == other.skins.len()
             && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
             && self.oversized.same(&other.oversized)
+            && self.drawn_oversized == other.drawn_oversized
     }
 }
 
@@ -495,11 +498,19 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .paths
         .iter()
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
-        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)));
-    let engine = set
+        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)))
+        .collect::<Vec<_>>();
+    // Server textures a frame drew without full-resolution art outrank launcher artwork,
+    // which a session keeps from the last menu; the rest follow it.
+    let (drawn, idle): (Vec<_>, Vec<_>) = set
         .oversized
         .iter()
-        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
+        .partition(|(key, _)| set.drawn_oversized.contains(key));
+    let engine = |entries: Vec<&(String, Arc<[u8]>)>| {
+        entries.into_iter().map(|(key, bytes)| {
+            Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes))
+        })
+    };
     let mut all: Vec<_> = set
         .cosmetics
         .iter()
@@ -512,12 +523,18 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
     let remaining = MAX_ARTWORKS - all.len();
+    all.extend(
+        engine(drawn)
+            .filter(|source| unique.insert(source.key().0))
+            .take(remaining),
+    );
+    let remaining = MAX_ARTWORKS - all.len();
     all.extend(images.into_iter().take(remaining));
     let remaining = MAX_ARTWORKS - all.len();
-    all.extend(files.take(remaining));
+    all.extend(files.into_iter().take(remaining));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
-        engine
+        engine(idle)
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
     );
