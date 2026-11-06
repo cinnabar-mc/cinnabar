@@ -305,6 +305,9 @@ impl Blur<'_> {
         });
         pass.set_render_pipeline(self.pipelines[1]);
         pass.set_bind_group(1, shapes, &[]);
+        if let Some(profile) = profile {
+            profile.record_pass(stage);
+        }
         let nonempty = draw_batches(
             &mut pass,
             self.draw.gpu,

@@ -81,3 +81,17 @@ impl UiSegment {
         !before && !after
     }
 }
+
+/// Whether an invert batch needs the isolated model depth attached to its pass.
+pub(super) fn invert_needs_depth(batch: &UiRenderBatch) -> bool {
+    batch.isolated_depth_scope.is_some() && (batch.depth_test != 0 || batch.depth_write != 0)
+}
+
+/// Whether a segment's invert draws inside the composite pass before it.
+///
+/// The composite clears and writes the whole new main texture, which is exactly the
+/// invert's attachment, so the invert shares that pass unless it also needs depth.
+/// `invert_depth` is `None` when the segment draws no invert.
+pub(super) fn invert_shares_composite(composited: bool, invert_depth: Option<bool>) -> bool {
+    composited && invert_depth == Some(false)
+}
