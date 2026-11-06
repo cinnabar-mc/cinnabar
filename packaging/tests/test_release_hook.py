@@ -38,6 +38,9 @@ class ReleaseHookTests(unittest.TestCase):
         contract.write_text((ROOT / "crates/bridge/data/contract.json").read_text())
         (self.root / "curl").write_text(FAKE_CURL)
         (self.root / "curl").chmod(0o755)
+        revisions = self.root / "crates/mod-api/compatibility-revisions.json"
+        revisions.parent.mkdir(parents=True)
+        revisions.write_text((ROOT / "crates/mod-api/compatibility-revisions.json").read_text())
 
     def announce(self, secret=SECRET, status="204", published="true"):
         """Runs the workflow step against the fake curl."""
@@ -58,7 +61,9 @@ class ReleaseHookTests(unittest.TestCase):
         self.assertNotIn(SECRET, argv)
         self.assertNotIn(SECRET, result.stdout + result.stderr)
         self.assertEqual((self.root / "headers").read_text().strip(), f"Authorization: Bearer {SECRET}")
-        self.assertEqual(json.loads((self.root / "body").read_text()), {"channel": "nightly", "version": "0.1.18", "build": 42})
+        revisions = json.loads((ROOT / "crates/mod-api/compatibility-revisions.json").read_text())
+        self.assertEqual(json.loads((self.root / "body").read_text()),
+                         {"channel": "nightly", "version": "0.1.18", "build": 42, "mod_api_revisions": revisions})
 
     def test_a_failed_notice_warns_without_failing_the_release(self):
         result = self.announce(status="500")

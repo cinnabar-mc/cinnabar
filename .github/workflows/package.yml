@@ -813,8 +813,10 @@ jobs:
           fi
           base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
             "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
+          # The API offers first installs only the mod versions a published build can load.
           body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --arg version "$RELEASE_VERSION" --argjson build "$GITHUB_RUN_NUMBER" \
-            '{channel: $channel, version: $version, build: $build}')"
+            --slurpfile revisions crates/mod-api/compatibility-revisions.json \
+            '{channel: $channel, version: $version, build: $build, mod_api_revisions: $revisions[0]}')"
           # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$base/v1/releases" \
             -A "cinnabar-release/$RELEASE_VERSION" \
