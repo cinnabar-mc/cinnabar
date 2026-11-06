@@ -651,7 +651,7 @@ forbidden_dependencies = ["asset-compiler", "bevy", "wgpu"]
 [[crates]]
 name = "ui-snapshot"
 path = "tools/ui-snapshot"
-allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "shaderpack", "ui", "ui-engine", "ui-screens"]
+allowed_dependencies = ["update-manifest", "client-ui", "cosmetics", "assets", "bridge", "inventory", "json-ui", "jsonui-editor", "launcher", "mod-ui", "resource-pack", "oreui", "player-state", "protocol", "render-api", "render-model", "semantic-input", "shaderpack", "ui", "ui-engine", "ui-screens"]
 test_support_features = ["test-support"]
 forbidden_transitive_dependencies = ["app", "cinnabar", "bevy", "bevy_*", "wgpu*"]
 

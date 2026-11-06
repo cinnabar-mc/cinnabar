@@ -103,7 +103,7 @@ impl IngestState {
             self.stream = session;
             self.epoch = epoch;
             self.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
         }
     }
 
@@ -207,7 +207,7 @@ pub fn ingest_audio_events(
         if state.stream != 0 {
             state.stream = 0;
             state.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
             engine.clear_server_if_current();
         }
         return;

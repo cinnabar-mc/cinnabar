@@ -46,6 +46,8 @@ pub(crate) struct MeleeTarget {
         simulation_clock::identity::PositionAuthorityGeneration,
     )>,
     pub(crate) attack: Option<crosshair::ResolvedTarget>,
+    /// What this frame's ray found, whether or not an attack may press on it.
+    pub(crate) crosshair: Option<gameplay::melee::Crosshair>,
     pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
     pub(crate) hover_capture: Option<protocol::capture::PickState>,
 }
@@ -140,6 +142,7 @@ pub(crate) fn prepare_melee(
         movement.position_authority_identity().1,
     );
     target.prepared = picked.and(identity);
+    target.crosshair = picked.map(|picked| picked.crosshair);
     if let Some(picked) = picked {
         // Earlier queued movement must drain before this frame's first local tick.
         let first_tick = movement

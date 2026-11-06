@@ -103,6 +103,10 @@ OS through the framed control handshake, omit unavailable hardware models and ke
 device ID through account changes, including when HTTP transport headers are absent. Xbox sign-in still uses the Android OAuth
 registration; native Windows device authentication and other platform registrations remain
 incomplete. Live acceptance of native device claims across platforms remains open.
+Offline logins derive a stable UUID from the saved install device and exact persona spelling,
+preserving it across new core processes. Missing or unusable owned profiles remain ephemeral;
+the mapping does not recover earlier random UUIDs. Encoded-login regressions cover fresh-process
+profile reuse and separation; rendered pause-menu reconnect acceptance remains open.
 
 ## Phase 2 — World rendering
 
@@ -494,7 +498,10 @@ is a broader claim than the presence of these features.
 
 View Bobbing offers Off, Full and Minimal. Minimal retains first-person hand bobbing
 with a steady movement camera in both animation modes; hurt and death effects remain
-independent. In-world rendered acceptance evidence for this client option remains outstanding.
+independent. Full also bobs the native third-person cameras, while hurt, death and
+hand effects stay first-person; the vanilla `third_person` preset's `minecraft:camera_player_bob`
+component, which would also carry hurt and death camera motion, is not yet confirmed (incomplete).
+In-world rendered acceptance evidence for this client option remains outstanding.
 
 Historical movement acceptance scope includes sprint/double-tap/toggle timing, forced
 sneak/crawl, mode entry/exit, flight, swimming/gliding, liquid correction and scaffolding
@@ -519,7 +526,7 @@ Initial session pitch and yaw reach the local view before its first movement inp
 Interaction rotation retains picked aim independently of body, head and camera input.
 Active assistance publishes its target direction, or body facing when no target is found,
 to the matching unsent tick. Ordinary crosshair input uses the direction lookup table.
-Touch picking and camera-actor substitution remain incomplete.
+The touch and classic control modes aim interactions along the ray through the finger and report their interaction model; picking from the camera origin in third person, the idle selection between touches and camera-actor substitution remain incomplete.
 Keep raw, analogue and processed input semantics distinct. A boat steered from its
 controlling seat is client-predicted with vanilla paddle, momentum, steering and buoyancy
 constants; rendered BDS acceptance covers straight and turning rows. A seat that locks
@@ -671,7 +678,11 @@ textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
-fallback for held models. Script-based helmet inference is provisional and recognizes
+fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
+attachable's poses in Bedrock animations, matching native first- and third-person draws, and
+use native item sprites only under Java animations. Texture-only spears and tridents still
+draw as native item sprites in both styles; that choice is unverified against native.
+Script-based helmet inference is provisional and recognizes
 specific head/hand branch names. General slot inference and rendered qualification remain
 incomplete. A pack's attachables have no binding or texture count limit, and all their art
 is decoded and placed at join. Native queues each texture when it is first requested, and
@@ -680,12 +691,14 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
-Confirmed gap: native keeps and draws every render controller whose condition passes,
-while a rig holds one controller chosen at compile time. A pack that lists a cosmetic
-controller ahead of the body draws only the cosmetic, with no limb animation, and
-other passing layers such as hats and capes never appear. Closing this needs per-layer
-condition and geometry evaluation, posing and drawing, and attachable parent-bone
-lookup across the passing list.
+Client-entity render controllers evaluate each layer's activation, geometry, texture and
+pose in authored order. A completed all-false activation result suppresses the base body
+and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain
+their distinct fallback behavior. The description's `hide_held_items` expression controls
+held equipment independently of worn armor in the actor's world or UI render context.
+Tick, frame-sampled and retained outputs carry these policies. Primary rig selection still
+occurs at compilation, and attachable parent-bone lookup across multiple passing controllers
+and version-matched in-game acceptance remain incomplete.
 
 - [ ] `P4.3-RIGS` — Close bounded asset admission, Molang/controllers, protocol-driven
   poses, skeletal rendering and distinct tick/frame interpolation with native evidence.
@@ -743,7 +756,7 @@ lookup across the passing list.
 - [ ] `P4.5-ITEM-ACTIONS` — Close held items, actions, dropped items and viewmodel behavior,
   including remote/local playback and session lifecycle.
   Ordinary third-person items select separate main- and offhand grips, including native
-  weapon sprites and custom-model icon fallbacks.
+  weapon sprites, the turned-over rod grip and custom-model icon fallbacks.
   Server-defined flat items use the default in-hand tables or a declared
   `minecraft:render_offsets` component in both hands and perspectives, with the first-person
   swing that path uses in every combat profile. Remaining: retail items flagged component based
@@ -976,6 +989,9 @@ Implemented: [chat, HUD and scoreboard state](crates/ui/src/lib.rs),
 across these existing features; they are not a list of missing screens or systems.
 Outgoing chat uses the session's login name and XUID. Server-authored actor names
 remain available for local presentation and text resolution.
+Open chat follows incoming messages while at the bottom and preserves a surviving
+message's position while reading history, including wrapped rows and history eviction.
+Version-matched native scroll acceptance remains unverified.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
@@ -1049,20 +1065,34 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   layer acceptance remain open.
   Named model-part hierarchies preserve transparent depth masks while retaining animation indices.
   Controller overlays and material face culling remain independent from repeated source bounds.
+  Live player controls consume UI-context controller layers, part visibility and held-item
+  visibility, including secondary artwork on controller-owned geometry. Held attachables evaluate
+  their own controllers and animated bones in UI context and share owner-bone placement with
+  world equipment. Ordinary held meshes retain their item-bone placement and main-hand scale.
+  Menu fallback and level-view paper-doll contracts stay separate.
   A screen's live player renderer draws the same animated actor from its own palette, the
   head subtree turned toward the pointer. It replaces the head's orientation rather than
   re-evaluating the actor with native's overwritten rotations, so Molang that reads the look
   rotation still sees the world's; that remains incomplete. Rendered and hardware
   acceptance of the second palette remain open.
-  The keyboard Mob Effects binding (default Z) opens the pack's mob effect screen while
+  The Mob Effects binding (default Z), controller View button and touches on the painted
+  effect icons open the pack's mob effect screen while
   the local player has an effect, listing iconed effects in id order with potency and
   `M:SS` or infinite timers; Escape, Back, the binding and its close button dismiss it, and
-  damage closes it. Vanilla's controller View-button and touch actions, which share the
-  press with toast interaction, the opening guard's unidentified player check, close-button
-  hover and list scrolling acceptance remain incomplete.
+  damage closes it. Controller View prioritizes actionable toasts. Touch hit bounds follow
+  the painted effect artwork, including pack placement and clipping, and survive retained
+  paints. Foreground touch controls and mod buttons keep their presses when they overlap
+  effect artwork. Native touch hit-area and toast precedence qualification, the opening guard's
+  unidentified player check, close-button hover, list scrolling and target-device acceptance
+  remain incomplete.
 - [ ] `P5.3-CHAT` — Close history/autocomplete, formatting, bounded UTF-8 editing,
   clipboard, submission prefixes, command editing, rate limits and session/FIFO routing.
   Verify third-party receive/send and disconnect behavior.
+  Bedrock Chat Input rests completions on the input bar through a built-in pack
+  override. The native grid rule that does this in vanilla's full-height
+  `chat.auto_complete_panel` is unidentified, so server-restyled chat screens
+  still list completions from the top, and vanilla's `...` row for a truncated list is
+  not drawn.
 - [ ] `P5.4-SCOREBOARD` — Close objective/score and boss-bar create/update/remove,
   ordering, display positions, styles and stacking alongside titles/actionbar.
 - [ ] `P5.5-INTERACTION-COMBAT-INVENTORY` — Close targeting, mining/cracks, placement/use,
@@ -1095,6 +1125,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Digger tag programs are prepared off the frame thread at bootstrap and registry
   replacement; replacements retain only active queries and session retirement drops
   pending preparations before a new login.
+  Destroy rates read ground contact from before the tick's movement. After a multi-tick
+  block, the next start lands on the tick the 250 ms destroy deadline is reached, and a
+  held Creative destroy repeats on the tick after it.
   Sword/shears speed rules,
   effective item durability and live mining acceptance remain incomplete.
   Block-action carriers retain every accumulated action in tick order.
@@ -1111,7 +1144,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Shift-double-click transfers keep the cursor unchanged within one stack-request batch.
   Transfers exceeding the wire action budget still need deferred multi-batch handling;
   matched transfer timing and broad custom-container acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap.
+  Hover reports and actor use share the attack's game-mode actor cap. Like native, hover
+  reports the same actor again after each actor-data update for it.
   Actor rays use loaded collision defaults, authoritative dimensions and scale, and
   constructor pick radii. Attack, use and hover preserve the selected world intercept.
   Ordinary actor picks retain the frame's ticked camera-actor position for the final pick-range trim.
@@ -1161,8 +1195,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
   Items with a registry `minecraft:seed` rule predict planting on a declared block's
   declared face into air: the swing, place sound, consumed item and the crop's default
-  state, repeating while held. Solid-surface planting on undeclared blocks and legacy
-  block-name aliases such as `grass` remain incomplete.
+  state, repeating while held. Successful placement consumes the press before edible
+  items can start their air-use fallback; failed attempts still allow eating. Matched
+  native and after-fix in-world planting/eating captures remain outstanding. Solid-surface
+  planting on undeclared blocks and legacy block-name aliases such as `grass` remain
+  incomplete.
   Line anchors follow the rendered built-in sprite tip; replacement-art tips, custom attachables
   and exact cast/retrieve cadence remain incomplete.
   Furnace quick moves retain admitted fuel facts for canonical-empty item descriptors;
@@ -1309,12 +1346,15 @@ server/Realm/friend-world joins, transfers, reconnect/disconnect, account switch
 presence, invites and required-pack failures. Preserve transport/session identity
 and keep actual account details out of captures and reports published with PRs.
 Signed-in addressed NetherNet joins, and transfers from any signed-in target, gather ICE
-candidates through the account's Player Messaging relay config (STUN and TURN), as vanilla
-does; signed-out joins gather local candidates only. A refused relay request, or one past the
-10 s implementation bound, leaves the join on local candidates; that bound is unverified, since
-vanilla holds its config from sign-in. Confirmed gap: the relay config's TURN server answers
-allocations with 300 Try Alternate, which pion's TURN client does not follow, so Cinnabar gathers
-STUN but no relay candidates. NAT and relay-only join acceptance remain open.
+candidates through the STUN URL of the account's Player Messaging relay config, as vanilla
+does; signed-out joins gather local candidates only. The config is requested once per account
+and reused until its expiry (a week), as vanilla holds it from sign-in. A refused relay request,
+or one past the 10 s implementation bound, leaves the join on local candidates; that bound is
+unverified. Realm, friend and raw NetherNet joins likewise keep only the STUN URLs of their
+signaling's ICE servers. Confirmed gap: the relay config's TURN server answers allocations with
+300 Try Alternate, which pion's TURN client does not follow, so Cinnabar drops the TURN URL
+(trying it held every offer about 8 s for no candidate) and never relays a join; vanilla can
+relay when no direct path exists. NAT and relay-only join acceptance remain open.
 Leaving closes old ingress immediately and releases buffered session payloads off the
 menu frame. Uploaded panorama faces remain ready during gameplay while their CPU pixels
 are released. `CINNABAR_LEAVE` records menu GPU completion separately from background
@@ -1430,12 +1470,12 @@ Native audio follows changes to the system default output on its owner thread, r
 active and queued sounds across output replacement and retrying unavailable devices.
 The sound-definition catalog matches the current sample-pack pin; compiler coverage
 checks a UI sound and guards the manifest associated with the sound-definition digest.
-JSON-UI and container controls play their declared press sounds; OreUI controls stay silent at the
-owner's request. OreUI click parity is unverified: the 26.30 client registers
-`OreUI::SoundCommandGroup` in `OreUI::setupCommands`, and the group in 26.30 and 1.26.50.26 exposes
-callables taking (string, float, float) and returning a u64, plus (u64, float) and (u64) -> bool.
-OreUI scripts can therefore play named sounds, but which controls do is decided in the script
-bundle, which is not available here and would settle it.
+JSON-UI and container controls play their declared press sounds, and OreUI controls play the theme
+click with vanilla's press timing. Confirmed gaps in OreUI interface sound: the drawer open and close
+sounds, hardcore toggle sounds and the uneventful-navigation reject. A gamepad button aliased to a
+control and a held touch's release are unverified, so they may click differently from vanilla, and
+touch on a server list section sounds at once instead of after the resting delay. Audible capture of
+these clicks remains open.
 Automated transport tests cover switching and recovery. The polling cadence is provisional;
 native switch timing and live Bluetooth/platform acceptance remain incomplete.
 World sounds use the native distance curves: inverse from one block by default, linear
@@ -1470,7 +1510,7 @@ Bootstrap windows initialize only the platform-preferred graphics API by default
 Particle atlas updates scope dynamic tile staging as well as base allocation. A failed tile update drops its partial atlas, keeps the generation uncommitted and retries the base plus current patches after retirement. Repeated failures keep exponential backoff until both the base and tiles upload successfully. Low-memory desktop GPU acceptance remains incomplete.
 
 Menu launches validate required startup artwork before entering the event loop. Static interface preparation overlaps renderer setup. World CPU assets prepare after the first completed menu frame, while GPU owners and world pipelines prepare on workers during the idle menu. Vulkan persists its driver pipeline cache. Before joins are admitted, the retained local appearance and pending catalog results adopt the validated default skin when no player or catalog image was selected. Native launch latency and the first ten frames' hitch budgets still need hardware acceptance.
-Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
+Desktop startup feedback starts without waiting for its loading window and uses the menus' stepped GUI scale and saved offset. Android has an asset-independent starting theme and activity overlay. Android first-run consent, download and preparation progress and failure retry draw on that startup screen; an emulator fixture with scripted setup reports confirms the flow, and a clean-install run with real downloads on a phone remains pending. Feedback retires after a completed destination-interface frame. Desktop and Android-emulator recordings confirm feedback and handoff to the first menu with prepared assets. The game activity's UI thread waits on the game thread until its event loop starts, and Android reports the app as not responding after 5 s; the setup activity therefore loads the startup carriers before starting the game activity. Interface and renderer preparation and the first frame still run inside that wait, so moving them out of it, low-end-phone acceptance and broader device acceptance remain pending.
 
 The setup and crash windows use Apple's Game Controller framework on macOS for controller
 buttons and hotplugging, including controllers unavailable through HID compatibility.
@@ -1512,9 +1552,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   device-bounded shards; world textures, fallback faces and carried items share page/layer addresses.
   Mali and PowerVR adapters cull terrain on the CPU without compiling the cull kernels.
   The compute cull lost the device on a tested Mali phone, and a Galaxy A04 / PowerVR GE8320
-  tombstone shows a driver shader compiler abort. Mali Vulkan devices create one pipeline at a
-  time because a Mali-G57 tombstone showed the driver compiler faulting while two threads compile
-  pipelines. Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
+  tombstone shows two threads compiling pipelines while one aborts in the driver compiler.
+  Mali, PowerVR Rogue and PowerVR BXM-8-256 Vulkan devices now serialize shader-module and
+  pipeline creation through one device lock. PowerVR phone confirmation remains open.
+  Later Mali-G57 tombstones fault the same way with only one thread compiling. Arm's
   r51p0 offline compiler faults on the model and transparent terrain vertex programs because
   bool struct members merge across returns. Those flags are now `u32`, and a test keeps
   terrain structs free of bools. Mali phones have not confirmed the fix, so these vendor
@@ -1578,6 +1619,13 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   an acknowledgement from another HDR or rendering mode cannot authorize a switch. Pipelines
   outside warm-up still compile on first use, and hardware timing of the switch is unmeasured.
   The in-world Balanced-to-Performance transition retains the scene and settings in an Android VM capture; physical-device and startup-cost qualification remain incomplete.
+  Android and iOS start with one coverage sample, as Bedrock does on its Mobile platform type, and
+  read physical memory so the render-distance levels and resource-pack memory tiers use the
+  device's RAM. Android raises the main, render and frame-worker threads, starts threads they spawn
+  at normal priority and lowers lighting workers. On Mobile, Bedrock halves the rendered distance
+  while the top screen shows a menu; that is not implemented because terrain drawing does not yet
+  stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
+  unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
   while preserving keyboard control. Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
@@ -1595,8 +1643,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   cache publication use a no-overwrite rename instead of hard links; device acceptance and skin
   imports that need a sibling geometry file remain open.
   Keep browser gesture activation and background work within the host's event-loop rules.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The default joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, alternate touch profiles, remapping, cutout handling and physical-device layout acceptance remain open.
-  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, alternate touch profiles, remapping, customization, cutout handling and device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The joystick-and-crosshair layout uses proportional movement/action centers and height-based sizes. A Control mode option offers Bedrock's three modes, saved per install and defaulting to tap to interact: joystick or the classic D-pad (default centre and height share, forward diagonals while moving forward, centre jump) for movement, and world taps and holds (0.25 s tap window, 0.4 s hold, 0.05 screen-width turn threshold) or crosshair attack and use buttons for interaction. Unverified and provisional: which action each gesture performs on each target, crosshair visibility per mode, the turn threshold's sensitivity factor, D-pad axis values and diagonal rule, down diagonals, and sneak and sprint in the classic layout. Confirmed gap: the classic D-pad covers the start of bottom-left chat lines. Touchscreen settings offers a touch-control layout draft with dragging, alignment guides, snapping, grid, touch-accessible Undo/Redo, Save, Cancel and Reset; saved positions drive both artwork and hit regions. Mods with the controls grant add up to four labelled buttons each (sixteen shown) in the dropdown's button style; taps complete on release inside the button, reach only the owning mod's next frame, and placements persist by button id in the same editor. The sensitivity curve, movement/action parity, remapping, cutout handling and physical-device layout acceptance remain open.
+  Touch-capable hosts expose persisted look sensitivity and control guidance. A utility dropdown, chat and pause share a centered row; the dropdown toggles Debug Overlay and Player List and opens Emotes; inventory access follows the HUD hotbar. The touch Use button admits block placement and held repeats through the shared block-use handler. The sensitivity curve, movement/action layouts, remapping, customization, cutout handling and device layout acceptance remain open.
   Menu scroll regions and chat history accept captured finger drags; swipes cancel pending taps, and form slider gestures retain their own control. Native gesture calibration and full route/device acceptance remain open.
   Menu text editors request platform keyboards again on field changes and retaps. Android keyboard overlap reduces the UI layout viewport and reveals unchanged menu focus after resize. The People drawer filters the current friend list by gamertag. Global people lookup, gameplay text entry, full composition support and device IME acceptance remain open.
 - The iOS IPA (`docs/ios.md`) runs each Go core in-process from a linked C archive and loads

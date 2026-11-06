@@ -175,6 +175,7 @@ const CONTAINER_BLOCKS: &[&str] = &[
     "minecraft:cartography_table",
     "minecraft:smithing_table",
     "minecraft:beacon",
+    "minecraft:lectern",
 ];
 
 /// Retains the earlier local interaction membership for comparison.

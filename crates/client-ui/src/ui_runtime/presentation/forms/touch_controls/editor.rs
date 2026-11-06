@@ -13,14 +13,15 @@ pub(super) fn enable_placement(value: &mut serde_json::Value) {
                 .and_then(serde_json::Value::as_str)
                 .and_then(|name| control_id(Some(name)))
                 .is_some_and(placeable_control);
-            let joystick = object.get("button_mappings").is_some_and(|mappings| {
+            let movement = object.get("button_mappings").is_some_and(|mappings| {
                 mappings.as_array().is_some_and(|items| {
-                    items
-                        .iter()
-                        .any(|item| item["to_button_id"] == "cinnabar.touch.joystick")
+                    items.iter().any(|item| {
+                        item["to_button_id"] == "cinnabar.touch.joystick"
+                            || item["to_button_id"] == "cinnabar.touch.dpad"
+                    })
                 })
             });
-            if control || joystick {
+            if control || movement {
                 object.insert("draggable".into(), serde_json::json!("both"));
             }
             for child in object.values_mut() {
@@ -111,8 +112,14 @@ impl UiPresentationRuntime {
                         || *anchors.get(name).expect("authored touch control anchor"),
                         |button| button.anchor,
                     );
+                    // The factory position matches gameplay, which fits the D-pad on screen.
+                    let origin = if id == touch::DPAD {
+                        utilities::fit_inside(hit, viewport.0, viewport.1)
+                    } else {
+                        [hit.rect.x, hit.rect.y]
+                    };
                     let offset = anchor.offset_for_origin(
-                        [hit.rect.x, hit.rect.y],
+                        origin,
                         [hit.rect.w, hit.rect.h],
                         viewport.0.map(|v| f64::from(v / viewport.1)),
                     );
@@ -326,6 +333,7 @@ impl UiPresentationRuntime {
 fn builtin_label(name: &str) -> &str {
     match name {
         "joystick" => "Joystick",
+        "dpad" => "D-Pad",
         "menu" => "Pause",
         "chat" => "Chat",
         "utilities" => "Menu",

@@ -3,7 +3,7 @@
 use {
     super::*,
     render_model::equipment::{
-        BoneChannels, ItemDisplay, attach_to_bone, held_block_display_for_hand,
+        BoneChannels, ItemDisplay, SpriteGrip, attach_to_bone, held_block_display_for_hand,
         held_sprite_display_for_hand,
     },
 };
@@ -307,7 +307,7 @@ impl EquipmentRuntime {
         dimensions: impl FnOnce(&Self) -> Option<[u16; 2]>,
     ) -> ItemDisplay {
         let placement = held_sprite_placement(item, false);
-        let upright = item.grip.upright().unwrap_or(false);
+        let grip = SpriteGrip::from(item.grip);
         let side = if off_hand {
             render_api::HeldItemHandSide::Off
         } else {
@@ -318,11 +318,11 @@ impl EquipmentRuntime {
             .flatten()
             .and_then(|dimensions| {
                 render_model::equipment::offset_held_display(
-                    placement, upright, side, dimensions, scale,
+                    placement, grip, side, dimensions, scale,
                 )
             });
         offset.unwrap_or_else(|| {
-            let mut retail = held_sprite_display_for_hand(upright, off_hand);
+            let mut retail = held_sprite_display_for_hand(grip, off_hand);
             retail.scale *= scale;
             retail
         })
@@ -707,17 +707,20 @@ impl EquipmentRuntime {
                     if root == actor_animation::AttachableBoneParent::BindingExpression {
                         return Some(hidden_bone());
                     }
-                    let Some(parent) = modern::parent_for_root(
+                    let Some(parent) = actor_animation::attachment::parent_for_root(
                         &body.input.previous_bones,
                         &body.input.current_bones,
-                        bones,
+                        &bones.names,
                         input,
                         root,
                         evaluated.axis_scale.map(|axis| axis * evaluated.scale),
                     ) else {
                         return Some(hidden_bone());
                     };
-                    Some(modern::compose_parent(parent, *local).unwrap_or_else(hidden_bone))
+                    Some(
+                        actor_animation::attachment::compose_parent(parent, *local)
+                            .unwrap_or_else(hidden_bone),
+                    )
                 },
             )
             .ok_or(())?[0]
