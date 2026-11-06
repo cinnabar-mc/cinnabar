@@ -163,6 +163,7 @@ final class SetupScreen extends FrameLayout {
         overlay.addView(prompt, new LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT,
                 Gravity.CENTER_HORIZONTAL));
         primary.requestFocus();
+        announceForAccessibility(title);
     }
 
     private void dismissPrompt() {

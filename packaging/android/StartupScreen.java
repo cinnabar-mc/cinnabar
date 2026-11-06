@@ -11,6 +11,8 @@ import android.text.Layout;
 import android.text.StaticLayout;
 import android.text.TextPaint;
 import android.view.View;
+import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.ProgressBar;
 import java.io.InputStream;
 import java.io.ByteArrayOutputStream;
 import org.json.JSONArray;
@@ -24,6 +26,8 @@ final class StartupScreen extends View {
     private static final int DETAIL_ALPHA = 180;
     /** The opacity of unlit indicators and quiet outlines. */
     static final int UNLIT_ALPHA = 70;
+    /** Keeps screen readers from reading every detail update; a new heading is read at once. */
+    private static final long ANNOUNCE_INTERVAL_MILLIS = 10_000;
 
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private final TextPaint titlePaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
@@ -39,6 +43,7 @@ final class StartupScreen extends View {
     /** Wrapped setup text, rebuilt only when the text or the view's size changes. */
     private Layout titleLayout;
     private Layout detailLayout;
+    private long announcedAt;
 
     StartupScreen(Context context) {
         super(context);
@@ -59,6 +64,8 @@ final class StartupScreen extends View {
             throw new IllegalStateException("Cannot load startup artwork", error);
         }
         setBackgroundColor(color("background"));
+        setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
+        setContentDescription(specification.optString(stage));
     }
 
     /** Applies native work labels; readiness permanently removes this activity's overlay. */
@@ -74,6 +81,7 @@ final class StartupScreen extends View {
             } else {
                 String next = value.getString("stage");
                 if (specification.has(next)) stage = next;
+                if (setupTitle == null) setContentDescription(specification.optString(stage));
                 invalidate();
             }
         } catch (Exception error) {
@@ -85,6 +93,12 @@ final class StartupScreen extends View {
     void setup(String title, String detail, float fraction) {
         if (!title.equals(setupTitle)) titleLayout = null;
         if (!detail.equals(setupDetail)) detailLayout = null;
+        long now = SystemClock.uptimeMillis();
+        if (!title.equals(setupTitle) || now - announcedAt >= ANNOUNCE_INTERVAL_MILLIS) {
+            announcedAt = now;
+            setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_POLITE);
+            setContentDescription(detail.isEmpty() ? title : title + ", " + detail);
+        }
         setupTitle = title;
         setupDetail = detail;
         setupFraction = fraction;
@@ -98,7 +112,18 @@ final class StartupScreen extends View {
         setupFraction = INDETERMINATE;
         titleLayout = null;
         detailLayout = null;
+        setAccessibilityLiveRegion(ACCESSIBILITY_LIVE_REGION_NONE);
+        setContentDescription(specification.optString(stage));
         invalidate();
+    }
+
+    /** Reports measured setup progress to accessibility services as a progress bar. */
+    @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (setupFraction == INDETERMINATE) return;
+        info.setClassName(ProgressBar.class.getName());
+        info.setRangeInfo(AccessibilityNodeInfo.RangeInfo.obtain(
+                AccessibilityNodeInfo.RangeInfo.RANGE_TYPE_PERCENT, 0, 100, setupFraction * 100));
     }
 
     /** The bundled title artwork, for screens drawn alongside this one. */

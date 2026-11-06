@@ -40,9 +40,14 @@ impl Progress {
             .actions()
             .contains(&Action::Quit)
             .then(|| screen.button_label(Action::Quit).to_owned());
-        // Local-world lines already carry their own wording and have no step count.
+        // Local-world lines carry their own wording and have no step count. Their counts follow
+        // the colon and change constantly, so they belong in the detail, not the heading.
         let (title, detail, fraction) = if status.phase == Phase::LocalWorlds {
-            (status.label.clone(), String::new(), None)
+            let (title, detail) = status
+                .label
+                .split_once(": ")
+                .unwrap_or((status.label.as_str(), ""));
+            (title.to_owned(), detail.to_owned(), None)
         } else {
             (
                 screen.title(updating).to_owned(),
@@ -101,10 +106,14 @@ mod tests {
         let line = "Downloading local world server: 4 / 8 MB";
         let status = Status::new(Phase::LocalWorlds, 1, 1, line);
         let update = progress(&status, false).unwrap();
-        assert_eq!(update.title, line);
-        assert_eq!(update.detail, "");
+        assert_eq!(update.title, "Downloading local world server");
+        assert_eq!(update.detail, "4 / 8 MB");
         assert_eq!(update.fraction, None);
         assert_eq!(update.cancel.as_deref(), Some("Cancel"));
+        let plain = Status::new(Phase::LocalWorlds, 1, 1, "Preparing local worlds");
+        let update = progress(&plain, false).unwrap();
+        assert_eq!(update.title, "Preparing local worlds");
+        assert_eq!(update.detail, "");
     }
 
     #[test]
