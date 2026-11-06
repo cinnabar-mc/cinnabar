@@ -1142,7 +1142,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Shift-double-click transfers keep the cursor unchanged within one stack-request batch.
   Transfers exceeding the wire action budget still need deferred multi-batch handling;
   matched transfer timing and broad custom-container acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap.
+  Hover reports and actor use share the attack's game-mode actor cap. Like native, hover
+  reports the same actor again after each actor-data update for it.
   Actor rays use loaded collision defaults, authoritative dimensions and scale, and
   constructor pick radii. Attack, use and hover preserve the selected world intercept.
   Ordinary actor picks retain the frame's ticked camera-actor position for the final pick-range trim.

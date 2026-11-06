@@ -7,6 +7,7 @@ pub struct HoveredActor {
     pub unique_id: i64,
     pub runtime_id: u64,
     pub point: [f32; 3],
+    pub metadata_revision: u64,
 }
 
 /// Tick-time hover inputs; the held item key contains its numeric item ID and auxiliary value.
@@ -21,11 +22,12 @@ pub struct HoverSnapshot {
 pub struct EntityHover {
     session: Option<SessionGeneration>,
     last_tick: Option<u64>,
-    reported: Option<(Option<i64>, (i32, u16))>,
+    reported: Option<(Option<(i64, u64)>, (i32, u16))>,
 }
 
 impl EntityHover {
-    /// Reports actor or held-item changes once per local tick; point-only changes stay silent.
+    /// Reports actor, actor-data or held-item changes once per local tick; point-only changes
+    /// stay silent.
     pub fn send_tick<E>(
         &mut self,
         session: SessionGeneration,
@@ -43,7 +45,9 @@ impl EntityHover {
             return Ok(());
         }
         let key = (
-            snapshot.actor.map(|actor| actor.unique_id),
+            snapshot
+                .actor
+                .map(|actor| (actor.unique_id, actor.metadata_revision)),
             snapshot.held_item,
         );
         if self.reported != Some(key) {
@@ -69,6 +73,7 @@ mod tests {
                 unique_id: -12,
                 runtime_id: 99,
                 point: [4.5, 2.6, 7.9],
+                metadata_revision: 5,
             }),
             held_item: (7, 2),
         }
@@ -103,6 +108,36 @@ mod tests {
                 (99, Some(original.actor.unwrap().point)),
                 (99, Some([4.6, 2.6, 7.9])),
                 (0, None),
+            ]
+        );
+    }
+
+    #[test]
+    fn entity_hover_actor_data_update_reports_the_same_actor_with_its_current_point() {
+        let mut owner = EntityHover::default();
+        let mut packets = Vec::new();
+        let session = SessionGeneration::new(3);
+        let mut next = |owner: &mut EntityHover, tick, snapshot| {
+            owner
+                .send_tick(session, tick, snapshot, |packet| {
+                    packets.push(packet);
+                    Ok::<_, ()>(())
+                })
+                .unwrap();
+        };
+        let original = snapshot();
+        next(&mut owner, 1, original);
+        let mut updated = original;
+        let actor = updated.actor.as_mut().unwrap();
+        actor.point = [4.6, 2.7, 7.8];
+        actor.metadata_revision += 1;
+        next(&mut owner, 2, updated);
+        next(&mut owner, 3, updated);
+        assert_eq!(
+            packets.iter().filter_map(entity_hover).collect::<Vec<_>>(),
+            [
+                (99, Some(original.actor.unwrap().point)),
+                (99, Some([4.6, 2.7, 7.8])),
             ]
         );
     }
