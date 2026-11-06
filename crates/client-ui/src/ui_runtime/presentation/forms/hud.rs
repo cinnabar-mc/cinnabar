@@ -141,6 +141,7 @@ impl UiPresentationRuntime {
                 sidebar_key,
                 options,
                 hidden.contains(VanillaElement::StatusEffects),
+                hidden.hides_position(),
                 renderer.catalog(),
             );
             let touch_inventory = self.screens.touch.enabled();
