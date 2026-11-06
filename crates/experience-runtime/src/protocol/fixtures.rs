@@ -167,12 +167,13 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
         ],
         network: None,
         inventory: None,
+        pose: None,
         containers: None,
         call,
     };
     let result = |seq: u64, outcome: Outcome| Response::Result { seq, outcome };
     // A terminal right-click in a network: the anchor's network and the actor's inventory, a
-    // stack of plain stone in hand and an Experience's own cell in the offhand.
+    // stack of plain stone in hand and an Experience's own cell in the offhand, and its pose.
     let mut slots = vec![None; 37];
     slots[0] = Some(ItemStack {
         id: "minecraft:stone".to_owned(),
@@ -214,6 +215,7 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
     if let Request::Callback {
         network,
         inventory,
+        pose,
         containers,
         ..
     } = &mut networked
@@ -226,6 +228,15 @@ pub fn fixtures() -> Vec<(&'static str, String)> {
             selected: 0,
             slots,
             game_mode: GameMode::Creative,
+        });
+        *pose = Some(PlayerPose {
+            yaw: -90.5,
+            pitch: 12.25,
+            on_ground: true,
+            sneaking: true,
+            sprinting: false,
+            swimming: false,
+            gliding: false,
         });
         *containers = Some(Containers {
             blocks: vec![
