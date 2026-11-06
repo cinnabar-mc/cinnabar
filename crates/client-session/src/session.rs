@@ -109,6 +109,8 @@ pub enum NetworkControlEvent<P = ()> {
         terrain_before_spawn: bool,
         /// StartGame's hashed world identity, absent when no level ID was supplied.
         level_identity: Option<u64>,
+        /// The level display name supplied at login.
+        level_name: Arc<str>,
     },
     SubChunkRequestSent {
         receipt: SubChunkRequestReceipt,

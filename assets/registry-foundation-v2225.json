@@ -22,13 +22,13 @@
   },
   "projection_bindings": {
     "block": {
-      "sha256": "412f29c2a15745c228c8ddefa4672e30c426222d23530b94cc0070b1f83dcc11"
+      "sha256": "36526e81b9b5fe2195505f7f23456a9a3d2e19daa3f50a4051e0246edc7c122f"
     },
     "biome": {
       "sha256": "e3ba3d96a66fa49b3b7d94ae6b67b4cc5d8961789c91275080d3922909b25c2a"
     },
     "light": {
-      "sha256": "8c2c01775c6fec197a82ae45dc86941e68e20c879933b0041d618b8a1925be32"
+      "sha256": "ba28e829679518dd032dda32f8598aae9195dbe71badedff4aaf24bb2e38dc58"
     }
   }
 }

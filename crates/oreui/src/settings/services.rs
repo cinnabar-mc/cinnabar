@@ -370,14 +370,6 @@ fn touch(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             "Edit layout",
             Some(MenuAction::EditTouchControls),
         )?;
-        content.label(
-            "Touch controls",
-            "Move with the left stick. Drag outside the buttons to look around.",
-        )?;
-        content.label(
-            "",
-            "Use the on-screen buttons to jump, sneak, sprint, attack and use items.",
-        )?;
     } else {
         content.label("", "hudScreen.controlCustomization.tooltip.notouch")?;
     }

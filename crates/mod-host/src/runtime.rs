@@ -234,6 +234,10 @@ impl cinnabar::extension::hud::Host for State {
         hud::surface::set_hidden(self, elements)
     }
 
+    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
+        hud::surface::set_position_hidden(self, hidden)
+    }
+
     fn read_elements(
         &mut self,
     ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {

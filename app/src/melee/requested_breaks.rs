@@ -7,6 +7,8 @@ use protocol::BlockUseRequest;
 use sim::PaletteWorld;
 
 /// Resolves loaded cells and current permissions, attaching the complete admitted batch once.
+/// The cells stay as they are until the server updates them: it answers at most the first
+/// predicted destroy in an input packet, so local air elsewhere in a batch would never be corrected.
 pub(super) fn apply(
     player: &PlayerRuntime,
     context: &mut MeleeContext,
@@ -16,7 +18,7 @@ pub(super) fn apply(
     let Some(output) = context.mod_interaction.as_mut() else {
         return;
     };
-    let Some(stream) = context.client_world.stream.as_mut() else {
+    let Some(stream) = context.client_world.stream.as_ref() else {
         output.block_breaks.clear();
         return;
     };
@@ -102,9 +104,6 @@ pub(super) fn apply(
             caps.instant_break.then(|| stream.local_player_runtime_id()),
         )
     {
-        for request in requests {
-            stream.predict_block(request.block_position, 0, stream.air_block_id());
-        }
         output.block_breaks.clear();
     }
 }

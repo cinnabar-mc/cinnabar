@@ -95,8 +95,8 @@ impl PreviewHeldModel {
         let mut model = self.clone();
         if let Some(grip) = grip {
             for placement in &mut model.placements {
-                if let PreviewHeldPlacement::Sprite { hand_equipped } = placement {
-                    *hand_equipped = grip.upright().unwrap_or(false);
+                if let PreviewHeldPlacement::Sprite { grip: held } = placement {
+                    *held = grip.into();
                 }
             }
         }
@@ -116,7 +116,7 @@ impl PreviewHeldModel {
 #[derive(Clone, Copy, Debug)]
 pub enum PreviewHeldPlacement {
     Sprite {
-        hand_equipped: bool,
+        grip: render_model::equipment::SpriteGrip,
     },
     Block,
     /// Authored bound-root channels, already in the native mirrored rig frame.

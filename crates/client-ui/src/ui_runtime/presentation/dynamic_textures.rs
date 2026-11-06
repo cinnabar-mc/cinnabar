@@ -306,6 +306,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
     dynamic.extend(runtime.gui_models.player_layers.pages.iter().cloned());
+    dynamic.extend(runtime.gui_models.live_equipment.pages.iter().cloned());
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
         if let Some(old) = previous.get(first_dynamic + offset)

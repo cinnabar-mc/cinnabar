@@ -101,6 +101,28 @@ fn fixture_with_binding(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    fixture_with_visibility(main, clock, animated, bound, turning, hide_body, None)
+}
+
+/// Adds a frame-dependent visibility expression to the original authored player fixture.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fixture_with_visibility(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+    turning: bool,
+    hide_body: bool,
+    visibility: Option<&str>,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -202,6 +224,15 @@ fn fixture_with_binding(
             }}
         }))
         .unwrap();
+    }
+    if let Some(expression) = visibility {
+        let (_, document) = files
+            .iter_mut()
+            .find(|(name, _)| name.as_ref() == "entity/player.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(document).unwrap();
+        value["minecraft:client_entity"]["description"]["hide_held_items"] = expression.into();
+        *document = serde_json::to_vec(&value).unwrap();
     }
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
@@ -970,6 +1001,9 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
     }
     assert_eq!(cache.native_pose.sample_work, (0, 0));
 }
+
+#[path = "sampling_reuse_tests.rs"]
+mod sampling_reuse;
 
 #[path = "shield_review_tests.rs"]
 mod shield_review;
