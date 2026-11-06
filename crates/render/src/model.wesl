@@ -10,7 +10,7 @@ import render::material::{MaterialGpu, materials, positional_material_id, textur
 import render::enhanced::caster::caster_clip;
 import render::world_projection::{section_camera_offset, camera_offset_clip};
 import render::biome_tint::{blended_biome_tint, blended_biome_tint_gamma};
-import render::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, light_colour, material_ambient_occlusion, material_face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
 @if(ALPHA_TO_COVERAGE)
 import render::lighting::{CutoutSample, cutout_alpha_array, cutout_mix};
 @if(ENHANCED)
@@ -708,9 +708,9 @@ fn apply_distance_fog(colour: vec3<f32>, world_position: vec3<f32>) -> vec3<f32>
 fn ordinary_world_model_gamma_colour(@if(!ENHANCED)
 in: VertexOutput, @if(!ENHANCED)
 sampled_gamma: vec4<f32>) -> vec4<f32> {
-    let lit_gamma = ((sampled_gamma.rgb * in.tint_gamma) * in.native_ao_face) * terrain_light_colour(in.native_light_levels);
+    let base_gamma = ((sampled_gamma.rgb * in.tint_gamma) * in.native_ao_face) * point_lit_terrain_light_colour(in.native_light_levels, in.world_position);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
-    return vec4(mix(lit_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
+    return vec4(mix(base_gamma, fog_gamma, distance_fog_amount(in.world_position)), sampled_gamma.a);
 }
 
 @if(!ENHANCED)

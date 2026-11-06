@@ -103,3 +103,17 @@ fn review_overflowing_quaternion_norm_is_rejected_without_publication() {
     pose.set_rotation(invalid);
     assert_eq!(pose, before);
 }
+
+#[test]
+fn point_light_uses_local_player_body_position_in_third_person() {
+    let mut carrier = LocalPlayerFrameCarrier::default();
+    let sample = frozen_local_player_sample();
+    let player_feet = sample.feet;
+    let camera = sample.pose.translation;
+    carrier.publish(sample).unwrap();
+
+    let light_position = crate::local_player::local_player_point_light_position(&carrier).unwrap();
+
+    assert_eq!(light_position, (player_feet + Vec3::Y).to_array());
+    assert_ne!(light_position, camera.to_array());
+}

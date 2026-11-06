@@ -10,7 +10,7 @@ import render::chunk_bindings::{
 import render::material::{MaterialGpu, materials, positional_material_id, texture_layer, texture_page, texture_uv_scale, texture_gradient_scale};
 import render::world_projection::{section_camera_offset, camera_offset_clip};
 import render::biome_tint::blended_biome_tint;
-import render::lighting::{light_ao_factor, light_colour, face_shade, tint_to_gamma, tint_to_linear, terrain_light_levels, terrain_light_colour};
+import render::lighting::{light_ao_factor, light_colour, face_shade, point_lit_terrain_light_colour, tint_to_gamma, tint_to_linear, terrain_light_levels};
 @if(ENHANCED)
 import render::enhanced::common::CLASS_WATER;
 @if(ENHANCED)
@@ -62,7 +62,6 @@ struct VertexOutput {
     @location(12) native_light_levels: vec2<f32>,
     @location(13) @interpolate(flat) native_face_shade: f32,
     @location(14) @interpolate(flat) two_sided: u32,
-    @if(ENHANCED)
     @location(10) normal: vec3<f32>,
     @if(ENHANCED)
     @location(11) @interpolate(flat) surface_class: u32,
@@ -402,11 +401,11 @@ tint_linear: vec3<f32>, @if(!ENHANCED)
 in: VertexOutput) -> vec3<f32> {
     let tint_gamma = tint_to_gamma(vec4(tint_linear, 1.0)).rgb;
     let face_tint = floor(clamp(tint_gamma * in.native_face_shade, vec3(0.0), vec3(1.0)) * 255.0 + vec3(0.0001)) / 255.0;
-    let lit_gamma = sampled_gamma * face_tint * terrain_light_colour(in.native_light_levels);
+    let base_gamma = sampled_gamma * face_tint * point_lit_terrain_light_colour(in.native_light_levels, in.world_position);
     let fog_gamma = tint_to_gamma(vec4(atmosphere.fog_color_start.rgb, 1.0)).rgb;
     let distance_to_camera = distance(in.world_position, view.world_position);
     let fog = clamp((distance_to_camera - atmosphere.fog_color_start.w) / max(atmosphere.fog_end_time.x - atmosphere.fog_color_start.w, 0.0001), 0.0, 1.0);
-    return mix(lit_gamma, fog_gamma, fog);
+    return mix(base_gamma, fog_gamma, fog);
 }
 
 @fragment
