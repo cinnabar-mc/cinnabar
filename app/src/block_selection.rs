@@ -18,7 +18,7 @@ use {
 };
 
 /// Actor selected by this frame's eye-origin gameplay ray after block occlusion.
-#[derive(Resource, Default)]
+#[derive(Resource, Default, PartialEq)]
 pub(crate) struct CrosshairActor(pub(crate) Option<u64>);
 
 #[derive(SystemParam)]
@@ -62,8 +62,10 @@ pub(crate) fn publish(
 ) {
     let (target, actor) = target(&context.player, &context).unwrap_or_default();
     // Hiding the HUD hides only the drawn selection; the pick still drives interaction.
-    picked.0 = actor;
-    frame.update(
+    picked.set_if_neq(CrosshairActor(actor));
+    // An unchanged selection leaves the resource unchanged, so render extraction skips its clone.
+    let revision = frame.revision;
+    frame.bypass_change_detection().update(
         target.as_ref().filter(|_| context.selection_visible()),
         context
             .settings
@@ -72,6 +74,9 @@ pub(crate) fn publish(
             .video
             .outline_selection,
     );
+    if frame.revision != revision {
+        frame.set_changed();
+    }
 }
 
 /// Resolves the block outline or actor selected by the shared gameplay pick.
