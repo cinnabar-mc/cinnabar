@@ -628,7 +628,7 @@ fn startup_batches_stay_within_the_packet_and_byte_bounds() {
             else {
                 unreachable!("a Batch frame decodes as a batch")
             };
-            assert!(inner.len() <= MAX_RAW_BATCH_PACKETS);
+            assert!(inner.len() <= STARTUP_BATCH_PACKETS);
             decoded.extend(inner);
         }
         assert_eq!(decoded, packets);
