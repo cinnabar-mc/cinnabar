@@ -104,7 +104,9 @@ pub struct ChunkStore {
     chunks: Revised<HashMap<ChunkKey, Chunk>>,
     loaded_chunks: Revised<BTreeSet<ChunkKey>>,
     authoritative_sub_chunks: Revised<HashMap<ChunkKey, BTreeSet<i32>>>,
-    collision_revisions: HashMap<ChunkKey, ChunkCollisionRevision>,
+    collision_revisions: Revised<HashMap<ChunkKey, ChunkCollisionRevision>>,
+    /// Retired on every change to `collision_revisions`; see [`Self::collision_generation`].
+    collision_generation: u64,
     collision_revision_allocator: Arc<CollisionRevisionAllocator>,
     collision_snapshot: Mutex<Weak<Self>>,
     content_revision: u64,
@@ -120,7 +122,8 @@ impl Default for ChunkStore {
             chunks: Revised::default(),
             loaded_chunks: Revised::default(),
             authoritative_sub_chunks: Revised::default(),
-            collision_revisions: HashMap::new(),
+            collision_revisions: Revised::default(),
+            collision_generation: next_content_revision(),
             collision_revision_allocator: process_collision_revisions(),
             collision_snapshot: Mutex::default(),
             content_revision: next_content_revision(),
@@ -142,6 +145,15 @@ impl ChunkStore {
     #[must_use]
     pub const fn content_revision(&self) -> u64 {
         self.content_revision
+    }
+
+    /// Identifies the column collision revisions: every change to any column's revision, in this
+    /// or any other store, yields a value never returned before. Together with
+    /// [`Self::content_revision`] it lets a reader reuse a collision query result, including the
+    /// revisions it records, while both values are unchanged.
+    #[must_use]
+    pub const fn collision_generation(&self) -> u64 {
+        self.collision_generation
     }
 
     /// Returns a chunk column, if block data has been received for it.
@@ -611,7 +623,11 @@ impl ChunkStore {
                     .edit(&mut self.content_revision)
                     .remove(&key);
             }
-            self.collision_revisions.remove(&key);
+            if self.collision_revisions.contains_key(&key) {
+                self.collision_revisions
+                    .edit(&mut self.collision_generation)
+                    .remove(&key);
+            }
             let chunk = if self.chunks.contains_key(&key) {
                 self.chunks.edit(&mut self.content_revision).remove(&key)
             } else {
@@ -688,13 +704,15 @@ impl ChunkStore {
 
     fn set_collision_revision(&mut self, key: ChunkKey, revision: u64) {
         self.invalidate_collision_snapshot();
-        self.collision_revisions.insert(
-            key,
-            ChunkCollisionRevision {
-                chunk: key,
-                revision,
-            },
-        );
+        self.collision_revisions
+            .edit(&mut self.collision_generation)
+            .insert(
+                key,
+                ChunkCollisionRevision {
+                    chunk: key,
+                    revision,
+                },
+            );
     }
 
     fn replace_sub_chunk_block_entities(

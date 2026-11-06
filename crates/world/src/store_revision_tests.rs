@@ -33,7 +33,8 @@ fn exhausted_store_rejects_load_before_mutation() {
         chunks: Revised::default(),
         loaded_chunks: Revised::default(),
         authoritative_sub_chunks: Revised::default(),
-        collision_revisions: HashMap::new(),
+        collision_revisions: Revised::default(),
+        collision_generation: 0,
         collision_revision_allocator: allocator,
         collision_snapshot: Default::default(),
         content_revision: 0,
@@ -76,13 +77,14 @@ fn exhausted_loaded_store(key: ChunkKey) -> ChunkStore {
         chunks: Revised::default(),
         loaded_chunks: Revised(BTreeSet::from([key])),
         authoritative_sub_chunks: Revised::default(),
-        collision_revisions: HashMap::from([(
+        collision_revisions: Revised(HashMap::from([(
             key,
             ChunkCollisionRevision {
                 chunk: key,
                 revision: u64::MAX,
             },
-        )]),
+        )])),
+        collision_generation: 0,
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(0)),
         collision_snapshot: Default::default(),
         content_revision: 0,
@@ -147,7 +149,7 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
         chunks: Revised::default(),
         loaded_chunks: Revised(BTreeSet::from([first_chunk, second_chunk])),
         authoritative_sub_chunks: Revised::default(),
-        collision_revisions: HashMap::from([
+        collision_revisions: Revised(HashMap::from([
             (
                 first_chunk,
                 ChunkCollisionRevision {
@@ -162,7 +164,8 @@ fn batch_reservation_is_atomic_and_assigns_sorted_columns() {
                     revision: 2,
                 },
             ),
-        ]),
+        ])),
+        collision_generation: 0,
         collision_revision_allocator: allocator,
         collision_snapshot: Default::default(),
         content_revision: 0,
@@ -201,7 +204,8 @@ fn successful_batch_assigns_revisions_in_sorted_column_order() {
         chunks: Revised::default(),
         loaded_chunks: Revised(BTreeSet::from([first_chunk, second_chunk])),
         authoritative_sub_chunks: Revised::default(),
-        collision_revisions: HashMap::new(),
+        collision_revisions: Revised::default(),
+        collision_generation: 0,
         collision_revision_allocator: Arc::new(CollisionRevisionAllocator::with_next(100)),
         collision_snapshot: Default::default(),
         content_revision: 0,

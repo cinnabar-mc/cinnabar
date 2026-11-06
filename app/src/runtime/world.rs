@@ -115,6 +115,7 @@ pub(crate) struct TransferNotice {
 pub(crate) struct ClientWorld {
     pub(crate) stream: Option<WorldStream>,
     pub(crate) movement_colliders: crate::movement::MovementColliderCache,
+    pub(crate) block_rays: crate::block_ray_cache::BlockRayCache,
     pub(crate) runtime_assets: Arc<RuntimeAssets>,
     pub(crate) entity_assets: Option<Arc<RuntimeEntityAssets>>,
     /// The session's server-pack entities, layered over `entity_assets`.
@@ -154,6 +155,7 @@ impl ClientWorld {
         Self {
             stream: None,
             movement_colliders: Default::default(),
+            block_rays: Default::default(),
             runtime_assets,
             entity_assets: None,
             pack_entities: None,
