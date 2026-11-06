@@ -8,8 +8,9 @@ use bevy::{
     prelude::*,
     window::WindowResolution,
 };
-use client_ui::sound_requests::{UI_CLICK, take_sounds};
+use client_ui::sound_requests::UI_CLICK;
 use client_ui::ui_runtime::UiRuntime;
+use client_ui::ui_runtime::presentation::forms::CapturedMenuSounds;
 use launcher::menu::settings_options::SettingId;
 use launcher::menu::{MenuAction, MenuScreen};
 use ui::DpiScale;
@@ -19,7 +20,7 @@ use super::*;
 const PHYSICAL: [u32; 2] = [1920, 1080];
 
 /// The menu input system over a painted OreUI Settings section holding a toggle.
-fn settings_fixture() -> (App, Entity, MenuAction, Vec2) {
+fn settings_fixture() -> (App, Entity, MenuAction, Vec2, CapturedMenuSounds) {
     let mut menu = MenuRuntime::new(true, 2, "Player".into());
     menu.set_named_option(SettingId::ScreenAnimations, 0);
     menu.activate(MenuAction::Navigate(MenuScreen::Settings));
@@ -29,6 +30,9 @@ fn settings_fixture() -> (App, Entity, MenuAction, Vec2) {
             .index,
     ));
     let value = menu.settings_options.value(SettingId::CameraShake);
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let sounds = presentation.capture_menu_press_sounds();
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_message::<KeyboardInput>()
@@ -42,9 +46,7 @@ fn settings_fixture() -> (App, Entity, MenuAction, Vec2) {
             1,
         )))
         .insert_resource(menu)
-        .insert_resource(UiPresentationResource(
-            UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap(),
-        ))
+        .insert_resource(UiPresentationResource(presentation))
         .add_systems(PreUpdate, touch_screen_input_system)
         .add_systems(Update, drive_menu_input);
     let window = app
@@ -84,16 +86,13 @@ fn settings_fixture() -> (App, Entity, MenuAction, Vec2) {
         (bounds.min().x() + bounds.max().x()) * 0.5,
         (bounds.min().y() + bounds.max().y()) * 0.5,
     );
-    take_sounds();
-    (app, window, action, centre)
+    (app, window, action, centre, sounds)
 }
 
-/// Clicks queued since the last call.
-fn clicks() -> usize {
-    take_sounds()
-        .into_iter()
-        .filter(|(name, ..)| name == UI_CLICK)
-        .count()
+/// Clicks this fixture's presentation played since the last call.
+fn clicks(sounds: &CapturedMenuSounds) -> usize {
+    let played = std::mem::take(&mut *sounds.lock().unwrap());
+    played.iter().filter(|name| *name == UI_CLICK).count()
 }
 
 /// Moves the mouse to `position` with a left button edge, then runs one frame.
@@ -137,30 +136,30 @@ fn camera_shake(app: &App) -> i32 {
 /// Settings controls act on release, but vanilla sounds the press as the button goes down.
 #[test]
 fn a_mouse_press_clicks_going_down_and_not_on_release() {
-    let (mut app, window, _, centre) = settings_fixture();
+    let (mut app, window, _, centre, sounds) = settings_fixture();
     let before = camera_shake(&app);
     mouse(&mut app, window, centre, ButtonState::Pressed);
-    assert_eq!(clicks(), 1);
+    assert_eq!(clicks(&sounds), 1);
     assert_eq!(camera_shake(&app), before, "the press alone must not act");
     mouse(&mut app, window, centre, ButtonState::Released);
-    assert_eq!(clicks(), 0);
+    assert_eq!(clicks(&sounds), 0);
     assert_ne!(camera_shake(&app), before);
 }
 
 /// A press that slides off still clicks; vanilla sounds it before knowing the outcome.
 #[test]
 fn a_mouse_press_released_elsewhere_clicks_once_without_acting() {
-    let (mut app, window, _, centre) = settings_fixture();
+    let (mut app, window, _, centre, sounds) = settings_fixture();
     let before = camera_shake(&app);
     mouse(&mut app, window, centre, ButtonState::Pressed);
     mouse(&mut app, window, Vec2::ZERO, ButtonState::Released);
-    assert_eq!(clicks(), 1);
+    assert_eq!(clicks(&sounds), 1);
     assert_eq!(camera_shake(&app), before);
 }
 
 #[test]
 fn a_press_on_empty_space_is_silent() {
-    let (mut app, window, _, _) = settings_fixture();
+    let (mut app, window, _, _, sounds) = settings_fixture();
     let empty = (0..PHYSICAL[1])
         .step_by(20)
         .flat_map(|y| (0..PHYSICAL[0]).step_by(20).map(move |x| (x, y)))
@@ -175,12 +174,12 @@ fn a_press_on_empty_space_is_silent() {
         .expect("the fixture screen has space outside its controls");
     mouse(&mut app, window, empty, ButtonState::Pressed);
     mouse(&mut app, window, empty, ButtonState::Released);
-    assert_eq!(clicks(), 0);
+    assert_eq!(clicks(&sounds), 0);
 }
 
 #[test]
 fn keyboard_selection_clicks_once() {
-    let (mut app, window, action, _) = settings_fixture();
+    let (mut app, window, action, _, sounds) = settings_fixture();
     // The first frame publishes the painted controls as focus targets.
     app.update();
     app.world_mut()
@@ -196,26 +195,26 @@ fn keyboard_selection_clicks_once() {
         window,
     });
     app.update();
-    assert_eq!(clicks(), 1);
+    assert_eq!(clicks(&sounds), 1);
     assert_ne!(camera_shake(&app), before);
 }
 
 /// However long the finger rests, a tap sounds once and never again on release.
 #[test]
 fn a_touch_tap_clicks_once() {
-    let (mut app, window, _, centre) = settings_fixture();
+    let (mut app, window, _, centre, sounds) = settings_fixture();
     touch(&mut app, window, centre, TouchPhase::Started);
     touch(&mut app, window, centre, TouchPhase::Ended);
-    assert_eq!(clicks(), 1);
+    assert_eq!(clicks(&sounds), 1);
 }
 
 /// A swipe that leaves before the resting delay never becomes a press.
 #[test]
 fn a_touch_swipe_is_silent() {
-    let (mut app, window, _, centre) = settings_fixture();
+    let (mut app, window, _, centre, sounds) = settings_fixture();
     touch(&mut app, window, centre, TouchPhase::Started);
     let away = centre + Vec2::new(0.0, 80.0);
     touch(&mut app, window, away, TouchPhase::Moved);
     touch(&mut app, window, away, TouchPhase::Ended);
-    assert_eq!(clicks(), 0);
+    assert_eq!(clicks(&sounds), 0);
 }

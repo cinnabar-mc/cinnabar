@@ -12,6 +12,10 @@ use launcher::shader_options::{Action as ShaderAction, Input as ShaderInput};
 use super::super::UiPresentationRuntime;
 use crate::sound_requests;
 
+/// The sound names one presentation has played, for tests that run beside other presentations.
+#[cfg(any(test, feature = "test-support"))]
+pub type CapturedMenuSounds = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
 /// Who decides the press sounds of the menu painted last.
 pub(super) enum MenuSounds {
     /// JSON-UI: the sound each painted control declares, by action.
@@ -73,9 +77,24 @@ impl UiPresentationRuntime {
 
     /// Plays the press sound of the current menu's control for `action`, if it has one.
     pub fn play_menu_press_sound(&self, action: MenuAction) {
-        if let Some(sound) = self.menu_sound(action) {
-            sound_requests::ui_control_sound(sound);
+        let Some(sound) = self.menu_sound(action) else {
+            return;
+        };
+        #[cfg(any(test, feature = "test-support"))]
+        if let Some(capture) = &self.screens.menu_sound_capture {
+            capture.lock().unwrap().push(sound.name.clone());
+            return;
         }
+        sound_requests::ui_control_sound(sound);
+    }
+
+    /// Sends this presentation's press sounds to the returned list instead of the audio queue.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn capture_menu_press_sounds(&mut self) -> CapturedMenuSounds {
+        self.screens
+            .menu_sound_capture
+            .get_or_insert_with(Default::default)
+            .clone()
     }
 
     /// Whether the current menu's controls follow the OreUI theme's sound timing.

@@ -36,6 +36,8 @@ pub(super) mod menu_caret;
 #[cfg(test)]
 pub mod menu_latency;
 mod menu_sounds;
+#[cfg(any(test, feature = "test-support"))]
+pub use menu_sounds::CapturedMenuSounds;
 mod menu_title;
 pub mod menus;
 pub mod mob_effect_screen;
@@ -120,6 +122,9 @@ pub(super) struct ScreenStates {
     menu_keys: Vec<(launcher::menu::MenuAction, String)>,
     /// Who decides the press sounds of the menu painted last.
     menu_sounds: menu_sounds::MenuSounds,
+    /// Receives this presentation's press sounds in place of the process-wide queue.
+    #[cfg(any(test, feature = "test-support"))]
+    menu_sound_capture: Option<menu_sounds::CapturedMenuSounds>,
     /// Where the installed catalog's title image draws from.
     menu_title: Option<menu_title::TitleSource>,
     /// The title splash, picked once per resource reload.
