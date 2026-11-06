@@ -21,6 +21,8 @@ struct BuildPlan {
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
+    /// The clicked block's own use owns the press, so the held item's use skips it.
+    takes_press: bool,
     destination: [i32; 3],
     predicted: Option<Vec<([i32; 3], u32, u32)>>,
     local_runtime_id: u64,
@@ -235,6 +237,7 @@ fn prepare(
         );
         Some((
             local_use,
+            gameplay::block_use::block_takes_use_press(surroundings.clicked, state.sneaking),
             destination,
             predicted,
             repeats_while_held,
@@ -243,7 +246,8 @@ fn prepare(
         ))
     })
     .ok()?;
-    let (local_use, destination, predicted, repeats_while_held, planted, paired) = prepared.value?;
+    let (local_use, takes_press, destination, predicted, repeats_while_held, planted, paired) =
+        prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -266,6 +270,7 @@ fn prepare(
             server_selection,
             inventory_revision,
             local_use,
+            takes_press,
             destination,
             predicted,
             local_runtime_id,
@@ -318,7 +323,7 @@ pub(crate) fn advance(
         return false;
     };
     if trigger == ItemUseTrigger::SimulationTick && !plan.repeats_while_held {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, false, clock);
         return false;
     }
     // Ordered presses can precede block maintenance. Refresh the authority and selected-item
@@ -371,7 +376,15 @@ pub(crate) fn advance(
             observed.target.hit_world,
         );
     }
-    if !runtime.admit(trigger, due, tick, plan.local_use, clock, sent) {
+    if !runtime.admit(
+        trigger,
+        due,
+        tick,
+        plan.local_use,
+        plan.takes_press,
+        clock,
+        sent,
+    ) {
         runtime.refuse_transport(
             tick,
             plan.local_use,
