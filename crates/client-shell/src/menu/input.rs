@@ -81,6 +81,7 @@ pub struct GuiScaleDrag {
     touch_slider: Option<(u64, u16)>,
     pending_press: Option<launcher::menu::MenuAction>,
     touch_press: Option<(u64, launcher::menu::MenuAction, UiPoint)>,
+    touch_press_sound: touch::TouchPressSound,
     preview_touch: Option<u64>,
     server_list_touch: Option<u64>,
     scroll_touch: Option<u64>,
@@ -271,6 +272,14 @@ impl MenuRuntime {
     }
 }
 
+/// Selects the focused control by keyboard or gamepad, which sounds as it activates.
+fn select_focused(menu: &mut MenuRuntime, presentation: &UiPresentationRuntime) {
+    if let Some(action) = menu.focused_action() {
+        presentation.play_menu_press_sound(action);
+    }
+    menu.activate_focused();
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn drive_menu_input(
     context: MenuInputContext,
@@ -329,6 +338,7 @@ pub fn drive_menu_input(
             &mut gui_scale_drag.scroll_touch,
         );
     }
+    let now = time.as_ref().map_or(0.0, |time| time.elapsed_secs_f64());
     if let Some(time) = time {
         menu.advance_death_controls(time.delta_secs_f64());
     }
@@ -719,14 +729,14 @@ pub fn drive_menu_input(
         gui_scale_drag.touch_press = None;
         menu.pressed = None;
     }
-    let press = |menu: &mut MenuRuntime, action| {
+    let press = |menu: &mut MenuRuntime, action, sound: bool| {
         let action = if native_settings {
             menu.live_settings_action(action)
         } else {
             action
         };
-        if let Some(sound) = presentation.menu_sound(action) {
-            client_ui::sound_requests::ui_control_sound(sound);
+        if sound {
+            presentation.play_menu_press_sound(action);
         }
         menu.activate_from_input(action);
     };
@@ -775,8 +785,10 @@ pub fn drive_menu_input(
             if pointer_can_focus(action) {
                 menu.focus_pointer(action);
             }
+            // The press sounds now, though the control only acts on its release.
+            presentation.play_menu_press_sound(action);
         } else {
-            press(&mut menu, action);
+            press(&mut menu, action, true);
             caret_press = pointer.zip(action.text_field());
         }
     }
@@ -790,7 +802,7 @@ pub fn drive_menu_input(
         && native_settings
         && let Some(action) = native_release_action(action, menu.hovered)
     {
-        press(&mut menu, action);
+        press(&mut menu, action, false);
         caret_press = pointer.zip(action.text_field());
     }
     caret_press = touch::drive(
@@ -801,6 +813,7 @@ pub fn drive_menu_input(
         native_settings,
         server_list_owns_pointer,
         scrolled,
+        now,
     )
     .or(caret_press);
     if let Some((point, field)) = caret_press
@@ -831,7 +844,7 @@ pub fn drive_menu_input(
                 GamepadButton::South,
             ),
         ) {
-            menu.activate_focused();
+            select_focused(&mut menu, &presentation);
         }
         if gamepad.just_pressed(
             crate::menu::settings_options::control_bindings::gamepad_button(
@@ -918,9 +931,9 @@ pub fn drive_menu_input(
                     launcher::dressing_room::Action::SaveRename,
                 ));
             }
-            KeyCode::Enter | KeyCode::NumpadEnter => menu.activate_focused(),
+            KeyCode::Enter | KeyCode::NumpadEnter => select_focused(&mut menu, &presentation),
             KeyCode::Space if native_settings && !menu.has_focused_field() => {
-                menu.activate_focused()
+                select_focused(&mut menu, &presentation)
             }
             _ if menu.has_focused_field() && !modifiers.shortcut() => {
                 if let Some(text) = input.text.as_deref() {
@@ -964,3 +977,6 @@ mod sign_in_tests;
 
 #[cfg(test)]
 mod death_tests;
+
+#[cfg(test)]
+mod press_sound_tests;

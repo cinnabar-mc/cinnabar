@@ -21,10 +21,11 @@ pub(super) fn drive(
         |presentation: &mut UiPresentationRuntime, menu: &mut MenuRuntime, point, held, pressed| {
             let (captured, action) =
                 presentation.menu_server_list_pointer(screen, point, held, pressed);
+            // The press that grabs a section sounds; its later toggle or drop does not.
+            if captured && pressed {
+                client_ui::sound_requests::ui_click();
+            }
             if let Some(action) = action {
-                if let Some(sound) = presentation.menu_sound(action) {
-                    client_ui::sound_requests::ui_control_sound(sound);
-                }
                 menu.activate_from_input(action);
             }
             captured

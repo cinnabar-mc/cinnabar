@@ -4,6 +4,7 @@ use launcher::menu::settings_options::SettingId;
 use std::sync::Arc;
 
 use super::super::super::UiPresentationRuntime;
+use super::super::menu_sounds::MenuSounds;
 use launcher::menu::auth::AuthState;
 use launcher::menu::settings_options::SETTINGS_OPTIONS;
 use launcher::menu::{MenuAction, MenuField, MenuScreen, MenuView};
@@ -295,7 +296,7 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     let tabs = [MenuScreen::Play, MenuScreen::Social, MenuScreen::Servers];
-    presentation.screens.menu_sounds.push((
+    presentation.screens.menu_sounds = MenuSounds::Declared(vec![(
         MenuAction::Navigate(MenuScreen::Profile),
         json_ui::ControlSound {
             name: "stale.screen.sound".into(),
@@ -303,7 +304,7 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
             pitch: 0.5,
             min_seconds: 1.0,
         },
-    ));
+    )]);
     for screen in [
         MenuScreen::Play,
         MenuScreen::Servers,
@@ -316,26 +317,80 @@ fn play_tabs_do_not_inherit_sounds_from_the_previous_screen() {
             let action = MenuAction::Navigate(tab);
             let visible = hits.iter().any(|(candidate, _)| *candidate == action);
             assert_eq!(visible, tab != screen);
-            assert!(presentation.menu_sound(action).is_none());
+            assert_oreui_click(presentation.menu_sound(action), action);
         }
-        assert!(
-            presentation
-                .menu_sound(MenuAction::Navigate(MenuScreen::Profile))
-                .is_none()
+        assert_oreui_click(
+            presentation.menu_sound(MenuAction::Navigate(MenuScreen::Profile)),
+            MenuAction::Navigate(MenuScreen::Profile),
         );
     }
 }
 
-/// No OreUI control on a screen declares a press sound, so none plays.
+/// Asserts `sound` is the theme click at the unit volume and pitch vanilla plays it with.
+fn assert_oreui_click(sound: Option<&json_ui::ControlSound>, action: MenuAction) {
+    let expected = json_ui::ControlSound {
+        name: crate::sound_requests::UI_CLICK.into(),
+        volume: 1.0,
+        pitch: 1.0,
+        min_seconds: 0.0,
+    };
+    assert_eq!(sound, Some(&expected), "{action:?}");
+}
+
+/// Every tile, tab and button on an OreUI screen clicks when pressed.
 #[test]
-fn oreui_controls_stay_silent() {
+fn oreui_buttons_play_the_theme_click() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = MenuView::new(true, "Fixture".into());
     view.screen = MenuScreen::Play;
     let hits = append(&mut presentation, &view, [1280.0, 720.0]);
     assert!(!hits.is_empty());
     for (action, _) in hits {
-        assert_eq!(presentation.menu_sound(action), None, "{action:?}");
+        assert_oreui_click(presentation.menu_sound(action), action);
+    }
+}
+
+/// Sliders, text fields and grabbed list sections have no press click in vanilla's theme.
+#[test]
+fn oreui_sliders_and_text_fields_press_silently() {
+    use launcher::menu::settings_options::{SETTINGS_OPTIONS, SettingKind};
+    use launcher::shader_options::{Action, Input};
+
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.screen = MenuScreen::Play;
+    append(&mut presentation, &view, [1280.0, 720.0]);
+    let index_of = |wanted: fn(&SettingKind) -> bool| {
+        SETTINGS_OPTIONS
+            .iter()
+            .position(|option| wanted(&option.kind))
+            .unwrap() as u16
+    };
+    let slider = index_of(|kind| matches!(kind, SettingKind::Slider));
+    let toggle = index_of(|kind| matches!(kind, SettingKind::Toggle));
+    for silent in [
+        MenuAction::AddName,
+        MenuAction::SearchSettings,
+        MenuAction::SettingsOption(slider, 1),
+        MenuAction::SettingsScale(0),
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 1,
+            index: 0,
+            input: Input::Select(0),
+        }),
+    ] {
+        assert_eq!(presentation.menu_sound(silent), None, "{silent:?}");
+    }
+    for clicks in [
+        MenuAction::SettingsOption(toggle, 1),
+        MenuAction::SettingsDropdown(toggle),
+        MenuAction::ShaderOptions(Action::Element {
+            screen: 1,
+            index: 0,
+            input: Input::Next,
+        }),
+    ] {
+        assert_oreui_click(presentation.menu_sound(clicks), clicks);
     }
 }
 
