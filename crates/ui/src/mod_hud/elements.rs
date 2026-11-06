@@ -24,6 +24,15 @@ impl VanillaElement {
     }
 }
 
+/// Where a vanilla element draws instead of where it is laid out.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ElementPlacement {
+    /// The fractions of the element's box and of the HUD root that coincide, from 0 to 1.
+    pub anchor: [f32; 2],
+    /// GUI units from that point.
+    pub offset: [f32; 2],
+}
+
 /// A set of vanilla elements, such as those mods hide, and whether the position line is
 /// hidden. The position line has no observable state, so it is not a [`VanillaElement`].
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]

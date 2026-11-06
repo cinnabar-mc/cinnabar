@@ -229,6 +229,11 @@ impl UiPresentationRuntime {
                 } else {
                     &self.hud_cache.icons
                 },
+                sidebar_placement: self
+                    .screens
+                    .mod_ui
+                    .sidebar_placement()
+                    .filter(|_| !crosshair),
             },
             &mut paint_frame,
         )?;
