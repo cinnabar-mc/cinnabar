@@ -800,7 +800,9 @@ lookup across the passing list.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
-  Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Framed cube items retain their authored carried faces and three-dimensional geometry at
+  native's quarter-block framed cube scale; native's shape-specific framed scales and turns
+  and data-driven block display transforms remain incomplete.
   Custom block stacks resolve through the `block_id` StartGame declares when the server's item
   registry omits the block's item; a later mid-session registry drops those derived items, and
   whether that matches native behavior is unverified. Cubes declared with the versioned full-block
