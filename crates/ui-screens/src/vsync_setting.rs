@@ -9,6 +9,7 @@ pub fn install(catalog: &mut Catalog) {
     super::settings_controls::install_video_dropdown(
         catalog,
         launcher::menu::settings_options::SettingId::Vsync,
+        "advanced_graphics_options_section",
         "max_framerate_slider",
     );
 }

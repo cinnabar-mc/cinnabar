@@ -29,6 +29,7 @@ fn compose() -> ScreenRegistry {
     catalog.layer_builtin(ui_screens::java_animations_setting::install);
     catalog.layer_builtin(ui_screens::skybox_setting::install);
     catalog.layer_builtin(ui_screens::occlusion_setting::install);
+    catalog.layer_builtin(ui_screens::far_terrain_setting::install);
     catalog.layer_builtin(ui_screens::discord_presence_setting::install);
     catalog.layer_builtin(ui_screens::crosshair_settings::install);
     catalog.layer_builtin(ui_screens::hud_placement::install);

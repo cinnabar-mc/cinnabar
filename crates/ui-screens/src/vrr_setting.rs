@@ -5,7 +5,12 @@ use launcher::menu::settings_options::VRR_OPTION;
 
 /// Adds the persisted variable-refresh choice to the advanced Video controls.
 pub fn install(catalog: &mut Catalog) {
-    super::settings_controls::install_video_dropdown(catalog, VRR_OPTION.id, "vsync");
+    super::settings_controls::install_video_dropdown(
+        catalog,
+        VRR_OPTION.id,
+        "advanced_graphics_options_section",
+        "vsync",
+    );
 }
 
 #[cfg(test)]

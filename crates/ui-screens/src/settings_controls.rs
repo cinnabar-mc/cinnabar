@@ -8,8 +8,13 @@ use launcher::menu::settings_options::{
 };
 use launcher::menu::{MenuAction, MenuView};
 
-/// Inserts a registry-backed dropdown after an existing advanced Video control.
-pub(super) fn install_video_dropdown(catalog: &mut json_ui::Catalog, id: SettingId, after: &str) {
+/// Inserts a registry-backed dropdown after an existing control in the requested Video section.
+pub(super) fn install_video_dropdown(
+    catalog: &mut json_ui::Catalog,
+    id: SettingId,
+    section: &str,
+    after: &str,
+) {
     let option = id.definition();
     let SettingKind::Dropdown(choices) = option.kind else {
         return;
@@ -31,7 +36,7 @@ pub(super) fn install_video_dropdown(catalog: &mut json_ui::Catalog, id: Setting
         format!("{name}_dropdown_content@settings_common.option_radio_dropdown_group"): {
             "$radio_buttons": choices
         },
-        "advanced_graphics_options_section": {
+        section: {
             "modifications": [{
                 "array_name": "controls", "operation": "insert_after", "control_name": after,
                 "value": [{ format!("{name}@settings_common.option_dropdown"): {
@@ -189,6 +194,11 @@ fn display_value(
         }
         SettingId::RenderDistance => {
             translate("options.renderDistanceFormat").replace("%s", &value.to_string())
+        }
+        SettingId::FullDetailDistance => {
+            launcher::menu::settings_options::full_detail_label(value, &|chunks| {
+                translate("options.renderDistanceFormat").replace("%s", &chunks.to_string())
+            })
         }
         _ => format!("{value}%"),
     }

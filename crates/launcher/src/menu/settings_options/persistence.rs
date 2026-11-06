@@ -64,10 +64,10 @@ impl SettingsOptions {
                 continue;
             }
             if let Some(value) = saved.values.get(option.name) {
-                if option.id == SettingId::MaxFramerate
+                if matches!(option.id, SettingId::MaxFramerate | SettingId::FarTerrain)
                     && !(option.min..=option.max).contains(value)
                 {
-                    // Unsupported FPS values keep the default instead of clamping to one FPS.
+                    // Invalid caps and far modes retain their defaults instead of changing policy.
                     continue;
                 }
                 if option.id == SettingId::RenderDistance && *value == 4 {

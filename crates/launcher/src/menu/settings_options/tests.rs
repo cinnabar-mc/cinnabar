@@ -1,6 +1,8 @@
 use super::*;
 use semantic_input::{InputContext, PhysicalControl};
 
+mod far_terrain;
+
 use super::BindingId;
 use super::SettingId;
 #[test]
@@ -902,7 +904,7 @@ fn custom_item_models_default_on_and_persist_both_states() {
 
 /// Far terrain stays off whatever an older build saved for it.
 #[test]
-fn saved_far_terrain_settings_do_not_enable_it() {
+fn retired_saved_far_terrain_settings_do_not_enable_it() {
     use render_api::far_terrain::FarTerrainMode;
     for saved in [0, 1, 2] {
         let bytes = format!(r#"{{"values":{{"far_terrain":{saved},"full_detail_distance":16}}}}"#);

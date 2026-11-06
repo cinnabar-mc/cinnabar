@@ -1,7 +1,6 @@
 //! Far-terrain policy shared by settings, both menus and far terrain itself.
 
-/// The Far Terrain setting, in its saved order: a saved `false` reads as Auto and `true` as
-/// On, so the earlier on/off setting needs no migration.
+/// The Far Terrain modes in their stable saved order. Retired settings keys are ignored.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FarTerrainMode {
     /// On only when the render distance asks for more than this device meshes in full
@@ -12,6 +11,9 @@ pub enum FarTerrainMode {
 }
 
 impl FarTerrainMode {
+    /// Far terrain requires an explicit player choice before it runs.
+    pub const DEFAULT: Self = Self::Off;
+
     /// Every mode, in saved order.
     pub const ALL: [Self; 3] = [Self::Auto, Self::On, Self::Off];
 
@@ -163,9 +165,9 @@ mod tests {
         }
     }
 
-    /// The earlier on/off setting's saved values read as On and Auto.
+    /// Explicit mode indices retain their stable values through storage round trips.
     #[test]
-    fn saved_booleans_read_as_on_and_auto() {
+    fn explicit_modes_round_trip_through_saved_indices() {
         assert_eq!(FarTerrainMode::from_index(1), FarTerrainMode::On);
         assert_eq!(FarTerrainMode::from_index(0), FarTerrainMode::Auto);
         for mode in FarTerrainMode::ALL {
