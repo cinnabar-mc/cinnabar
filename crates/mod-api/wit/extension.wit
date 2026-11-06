@@ -41,6 +41,9 @@ interface hud {
     record element-state { element: vanilla-element, visible: bool, bounds: option<rect> }
     /// Retained; the listed elements are not drawn. An empty list restores them all.
     set-hidden-elements: func(elements: list<vanilla-element>) -> result<_, string>;
+    /// Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
+    /// a held filled map) is not drawn. Independent of `set-hidden-elements`.
+    set-position-hidden: func(hidden: bool) -> result<_, string>;
     /// The current state of every vanilla element, in enum order.
     read-elements: func() -> result<list<element-state>, string>;
 }
