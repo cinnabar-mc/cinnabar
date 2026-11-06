@@ -690,6 +690,7 @@ interface gameplay {
     /// game-mode permissions, loaded terrain and server validation. The host supplies held
     /// item and wire identities. Requests commit only after a successful callback and are
     /// discarded on focus loss or world changes. No camera or physical input is changed.
+    /// The cells change only when the server updates them; a rejected cell simply stays.
     break-blocks: func(positions: list<block-position>) -> result<_, string>;
     /// Requires packet-delay authority; 0 drains the queue, maximum 1000 milliseconds.
     /// Delays post-login application packets in both directions, without raw packet access.
