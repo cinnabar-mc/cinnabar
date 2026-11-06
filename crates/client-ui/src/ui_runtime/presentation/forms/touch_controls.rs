@@ -228,7 +228,9 @@ impl UiPresentationRuntime {
         }
         let mut data = DataSource::new();
         set_mode_bindings(&mut data, state.mode);
-        set_dpad_bindings(&mut data, &state.contacts);
+        if state.mode.uses_dpad() {
+            set_dpad_bindings(&mut data, &state.contacts);
+        }
         data.set_global("#touch_editor_open", Scalar::Bool(state.editor.is_some()));
         data.set_global(
             "#touch_utilities_open",

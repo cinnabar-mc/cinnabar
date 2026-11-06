@@ -125,7 +125,7 @@ pub(super) fn place_controls(
 }
 
 /// Where an unplaced control sits once moved fully on screen, as Bedrock fits its D-pad.
-fn fit_inside(hit: &HitRegion, content: [f32; 2], px: f32) -> [f64; 2] {
+pub(super) fn fit_inside(hit: &HitRegion, content: [f32; 2], px: f32) -> [f64; 2] {
     let fit = |origin: f64, size: f64, side: f32| origin.min(f64::from(side / px) - size).max(0.);
     [
         fit(hit.rect.x, hit.rect.w, content[0]),

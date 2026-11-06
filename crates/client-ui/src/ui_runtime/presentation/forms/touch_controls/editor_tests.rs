@@ -197,6 +197,44 @@ fn touch_editor_places_the_classic_controls() {
     );
 }
 
+/// The editor starts and resets the pad where gameplay fits it, fully on screen.
+#[test]
+fn touch_editor_keeps_the_fitted_dpad_position() {
+    let Some((mut p, runtime, _)) = setup_mode([1280, 720], TouchControlMode::Classic) else {
+        return;
+    };
+    let fitted = p.touch_editor_bounds("dpad").unwrap();
+    let [x, y, w, h] = fitted;
+    assert!(
+        x >= -0.1 && y >= -0.1 && x + w <= 1280.1 && y + h <= 720.1,
+        "{fitted:?}"
+    );
+    drag(&mut p, "dpad", [300., -120.], true);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_ne!(p.touch_editor_bounds("dpad").unwrap(), fitted);
+    let [ax, ay, aw, ah] = p.touch_editor_action_bounds("hud.reset").unwrap();
+    p.touch_editor_pointer([ax + aw / 2., ay + ah / 2.], true, true);
+    p.touch_editor_pointer([ax + aw / 2., ay + ah / 2.], false, false);
+    paint(&mut p, &runtime, [1280, 720]);
+    assert_eq!(p.touch_editor_bounds("dpad").unwrap(), fitted);
+    p.close_touch_editor();
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    let frame = p.screens.touch.frame.as_ref().unwrap();
+    let hit = frame
+        .hits
+        .iter()
+        .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::DPAD))
+        .unwrap();
+    let painted = [
+        frame.origin[0] + hit.rect.x as f32 * frame.scale,
+        frame.origin[1] + hit.rect.y as f32 * frame.scale,
+    ];
+    assert!(
+        (painted[0] - x).abs() < 0.1 && (painted[1] - y).abs() < 0.1,
+        "gameplay {painted:?} != editor {fitted:?}"
+    );
+}
+
 /// Every editable control must move its actual artwork and hit area, including packed utilities.
 #[test]
 fn touch_editor_saved_positions_move_every_control_hit_area() {

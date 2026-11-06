@@ -112,8 +112,14 @@ impl UiPresentationRuntime {
                         || *anchors.get(name).expect("authored touch control anchor"),
                         |button| button.anchor,
                     );
+                    // The factory position matches gameplay, which fits the D-pad on screen.
+                    let origin = if id == touch::DPAD {
+                        utilities::fit_inside(hit, viewport.0, viewport.1)
+                    } else {
+                        [hit.rect.x, hit.rect.y]
+                    };
                     let offset = anchor.offset_for_origin(
-                        [hit.rect.x, hit.rect.y],
+                        origin,
                         [hit.rect.w, hit.rect.h],
                         viewport.0.map(|v| f64::from(v / viewport.1)),
                     );
