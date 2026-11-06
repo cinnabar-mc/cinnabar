@@ -813,10 +813,8 @@ jobs:
           fi
           base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
             "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
-          # The API offers first installs only the mod versions a published build can load.
           body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --arg version "$RELEASE_VERSION" --argjson build "$GITHUB_RUN_NUMBER" \
-            --slurpfile revisions crates/mod-api/compatibility-revisions.json \
-            '{channel: $channel, version: $version, build: $build, mod_api_revisions: $revisions[0]}')"
+            '{channel: $channel, version: $version, build: $build}')"
           # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
           status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 -X POST "$base/v1/releases" \
             -A "cinnabar-release/$RELEASE_VERSION" \
@@ -831,3 +829,26 @@ jobs:
         env:
           DISCORD_CHANGELOG_WEBHOOK: ${{ secrets.DISCORD_CHANGELOG_WEBHOOK }}
         run: python3 "$GITHUB_WORKSPACE/release-tools/packaging/changelog.py" discord "$RELEASE_TAG"
+      - name: Report supported mod API revisions to the Cinnabar API
+        # The API offers first installs only the mod versions a published build can load. This fails
+        # the run when unreported, leaving the publication in place, so re-running the job reports it.
+        env:
+          CINNABAR_API_RELEASE_HOOK_SECRET: ${{ secrets.CINNABAR_API_RELEASE_HOOK_SECRET }}
+        run: |
+          if [[ -z "$CINNABAR_API_RELEASE_HOOK_SECRET" ]]; then
+            echo "::warning::CINNABAR_API_RELEASE_HOOK_SECRET is unset; skipping the mod API revision report"
+            exit 0
+          fi
+          base="$(jq -r '.constants[] | select(.go_name == "CinnabarAPIBaseURL") | .value' \
+            "$GITHUB_WORKSPACE/release-tools/crates/bridge/data/contract.json")"
+          body="$(jq -cn --arg channel "$RELEASE_CHANNEL" --slurpfile revisions crates/mod-api/compatibility-revisions.json \
+            '{channel: $channel, mod_api_revisions: $revisions[0]}')"
+          # The header comes from a builtin through a pipe, so the secret never reaches a process argument.
+          status="$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 3 --retry-all-errors -X POST "$base/v1/mod/host-revisions" \
+            -A "cinnabar-release/$RELEASE_VERSION" \
+            -H @<(printf 'Authorization: Bearer %s\n' "$CINNABAR_API_RELEASE_HOOK_SECRET") \
+            -H 'Content-Type: application/json' --data "$body")" || true
+          if [[ "$status" != 204 ]]; then
+            echo "::error::Mod API revision report failed (HTTP ${status:-none}); re-run this job to report the published build"
+            exit 1
+          fi
