@@ -760,6 +760,13 @@ pub(crate) fn install_graph(world: &mut World) {
 #[derive(Resource)]
 struct TerrainPassInstalled;
 
+/// Whether [`terrain_pass`] opens `view`'s scene colour this frame, ahead of the opaque pass.
+pub(crate) fn terrain_pass_draws_color(world: &World, view: Entity) -> bool {
+    world
+        .get_resource::<DirectOcclusion>()
+        .is_some_and(|occlusion| occlusion.solid_order(view).is_some())
+}
+
 type TerrainQuery = (
     &'static ExtractedCamera,
     &'static ViewTarget,
@@ -832,6 +839,10 @@ pub(crate) fn terrain_pass(
                 return Ok(());
             };
             pass.set_camera_viewport(&viewport);
+        }
+        use crate::atmosphere_render::sky_pass;
+        if sky_pass::host(world, view_entity) == sky_pass::SkyHost::Terrain {
+            crate::atmosphere_render::sky_pass::draw(world, view_entity, &mut pass);
         }
         let draw_functions = world.resource::<DrawFunctions<Opaque3d>>();
         let mut draw_functions = draw_functions.write();
