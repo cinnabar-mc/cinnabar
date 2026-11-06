@@ -148,7 +148,11 @@ fn icon_atlas(count: usize) -> (ServerAtlas, Vec<String>) {
 
 /// Keys the atlas currently offers to the art pages.
 fn offered(atlas: &ServerAtlas) -> Vec<String> {
-    atlas.oversized().iter().map(|entry| entry.0.clone()).collect()
+    atlas
+        .oversized()
+        .iter()
+        .map(|entry| entry.0.clone())
+        .collect()
 }
 
 /// A menu scrolled past more large icons than the registry holds keeps offering the ones on
@@ -164,7 +168,10 @@ fn scrolling_offers_newly_drawn_textures_in_place_of_ones_left_behind() {
     let now = offered(&atlas);
     assert_eq!(now.len(), MAX_OVERSIZED);
     for key in &scrolled {
-        assert!(now.iter().any(|offered| offered == key), "{key} drawn but not offered");
+        assert!(
+            now.iter().any(|offered| offered == key),
+            "{key} drawn but not offered"
+        );
     }
 }
 

@@ -507,7 +507,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .iter()
         .partition(|(key, _)| set.drawn_oversized.contains(key));
     let engine = |entries: Vec<&(String, Arc<[u8]>)>| {
-        entries.into_iter().map(|(key, bytes)| {
+        entries.into_iter().map(move |(key, bytes)| {
             Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes))
         })
     };
