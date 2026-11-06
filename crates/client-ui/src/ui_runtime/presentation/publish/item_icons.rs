@@ -34,15 +34,27 @@ pub(super) fn stack_icon(
             )
         });
     let icon = item
-        .shield_pattern
-        .as_deref()
-        .and_then(|pattern| presentation.shield_icon(pattern))
+        .trim
+        .as_ref()
+        .and_then(|trim| {
+            presentation.trim_icon(
+                identifier,
+                stack.metadata,
+                trim,
+                runtime.stack_facts(stack).custom_color,
+            )
+        })
         .or_else(|| {
-            runtime
-                .stack_facts(stack)
-                .custom_color
-                .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
-                .or_else(|| presentation.item_icon(icon_identifier, variant))
+            item.shield_pattern
+                .as_deref()
+                .and_then(|pattern| presentation.shield_icon(pattern))
+                .or_else(|| {
+                    runtime
+                        .stack_facts(stack)
+                        .custom_color
+                        .and_then(|rgb| presentation.color_mask_icon(icon_identifier, variant, rgb))
+                        .or_else(|| presentation.item_icon(icon_identifier, variant))
+                })
         })?;
     Some(icon.with_glint(runtime.item_glint(stack, item.glint)))
 }

@@ -46,6 +46,8 @@ mod raw_scan;
 pub mod recipes;
 mod request;
 mod trade;
+pub(crate) mod trims;
+pub use trims::TrimRegistry;
 mod transaction;
 mod validation;
 mod windows;
@@ -246,6 +248,7 @@ pub const MAX_ENCHANT_OPTIONS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InventoryEvent {
+    Trims(TrimRegistry),
     Recipes(recipes::RecipeUpdate),
     RecipeUnlocks(recipes::RecipeUnlockUpdate),
     CraftingRules(CraftingRules),

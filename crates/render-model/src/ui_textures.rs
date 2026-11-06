@@ -34,9 +34,12 @@ pub const UI_PARTICLE_PAGE_OFFSET: usize = UI_LOCAL_FONT_PAGE_OFFSET + 1;
 /// Recoverable per-stack shield artwork follows the other fixed dynamic producers.
 pub const UI_SHIELD_PAGE_OFFSET: usize = UI_PARTICLE_PAGE_OFFSET + 1;
 pub const MAX_UI_SHIELD_PAGES: usize = 8;
+/// Per-stack trim icons and worn preview sheets share one recoverable atlas.
+pub const UI_TRIM_PAGE_OFFSET: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const MAX_UI_TRIM_PAGES: usize = 4;
 /// Session art of the worn armor and held items, apart from the model atlas that base items
 /// can fill. Four armor slots and two hands each get a whole page.
-pub const UI_PACK_EQUIPMENT_PAGE_OFFSET: usize = UI_SHIELD_PAGE_OFFSET + MAX_UI_SHIELD_PAGES;
+pub const UI_PACK_EQUIPMENT_PAGE_OFFSET: usize = UI_TRIM_PAGE_OFFSET + MAX_UI_TRIM_PAGES;
 pub const MAX_UI_PACK_EQUIPMENT_PAGES: usize = 6;
 /// Shield artwork and pack equipment: whole model-atlas pages that resize within their capacity.
 const UI_SESSION_MODEL_PAGES: std::ops::Range<usize> =
@@ -70,7 +73,7 @@ pub const MAX_UI_NATIVE_TEXTURE_GROWTH_BYTES: usize = (render_api::MAX_STANDARD_
         * UI_DYNAMIC_PAGE_SIDE as usize)
     * UiTextureFormat::Rgba8.bytes_per_texel()
     + MAX_UI_NATIVE_SHEET_BYTES
-    + (MAX_UI_SHIELD_PAGES + MAX_UI_PACK_EQUIPMENT_PAGES)
+    + (MAX_UI_SHIELD_PAGES + MAX_UI_TRIM_PAGES + MAX_UI_PACK_EQUIPMENT_PAGES)
         * (UI_MODEL_ATLAS_SIDE as usize * UI_MODEL_ATLAS_SIDE as usize
             - UI_DYNAMIC_PAGE_SIDE as usize * UI_DYNAMIC_PAGE_SIDE as usize)
         * UiTextureFormat::Rgba8.bytes_per_texel()

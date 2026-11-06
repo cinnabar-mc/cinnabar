@@ -675,6 +675,13 @@ those definitions while preserving authored item conditions. Expression roots re
 the worn slot through owner placement; worn equipment counts exclude hands.
 Missing copper armour definitions reuse standard pack definitions when the matching
 textures are present. Authored item bindings retain precedence.
+Armor trim identifiers survive canonical stack and equipment admission. Inventory icons,
+player previews and worn armor compose the active pack's trim masks and palettes over
+their selected artwork, preserving dye and enchantment state. Authored pattern and palette
+aliases override the native paths. Worn and preview compositions retain their admitted
+owner definition; held session icons retain their selected sprite placement. Worn composition
+preserves authored controller color and opacity. Full native trim visual qualification remains
+incomplete.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
@@ -1135,6 +1142,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Recipe-book placement, availability and auto-crafting share exact ingredient allocation;
   each ingredient draws from one concrete variant. Missing grid ingredients and their
   result use distinct ghost cells in both renderers and retain hover names.
+  Smithing trim recipes use the server's TrimData ingredient mappings to preview and take
+  a decorated base stack, retaining its damage, enchantments and other user data. Identical
+  trims offer no output; re-trimming changes only the trim. Matched native request timing
+  and broader workstation acceptance remain incomplete.
   Shield recipe results retain their blocking timestamp in recipe admission, predicted stacks
   and result declarations. Advertised banner application recipes match current workbench inputs
   and preserve their output data. Patterned rendering, matched input/packet timing and broader

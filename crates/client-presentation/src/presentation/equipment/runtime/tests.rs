@@ -41,6 +41,8 @@ mod third_person_hand_tests;
 
 #[path = "shield_tests.rs"]
 mod shield_tests;
+#[path = "trim_tests.rs"]
+mod trim_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -305,6 +307,7 @@ fn block_fixture_with_visuals(
         overlay_rgba8: 0,
     };
     let item = WornItem {
+        trim: None,
         map_id: None,
         shield_pattern: None,
         charged_projectile: None,
