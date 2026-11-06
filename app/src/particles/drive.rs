@@ -40,6 +40,9 @@ use {
 };
 
 #[cfg(test)]
+#[path = "drive/baby_age_tests.rs"]
+mod baby_age_tests;
+#[cfg(test)]
 #[path = "drive/bite_tests.rs"]
 mod bite_tests;
 #[cfg(test)]
@@ -93,6 +96,8 @@ const BLOCK_BREAK_EFFECT: &str = assets::facts::ParticleEffect::BlockDestruct.id
 const RAIN_SPLASH_EFFECT: &str = assets::facts::ParticleEffect::RainSplashParticle.identifier();
 /// Height fraction of an actor's box where head-level effects originate.
 const HEAD_HEIGHT_FRACTION: f32 = 0.9;
+/// Height fraction of an actor's box where body-centred effects originate.
+const BODY_HEIGHT_FRACTION: f32 = 0.5;
 /// Item pieces per icon-crack event.
 const ITEM_ICON_PIECES: f32 = ITEM_ICON_PARTICLES as f32;
 
@@ -415,6 +420,17 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 1,
                 seed,
             );
+        }
+        // Provisional: pmmp's protocol definition describes event 60 as green particles like
+        // bone meal on crops, so this reuses that effect; the native origin and count are unmeasured.
+        ActorStatusKind::BabyAge => {
+            let mut body = notice.position;
+            body[1] += height * BODY_HEIGHT_FRACTION;
+            system.spawn(&native_request(
+                assets::facts::ParticleEffect::CropGrowthEmitter,
+                body,
+                None,
+            ));
         }
         ActorStatusKind::TotemActivate => {
             if notice.runtime_id == routing.stream.authority().local_player_runtime_id()
