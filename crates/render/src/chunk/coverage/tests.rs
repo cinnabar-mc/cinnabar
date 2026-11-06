@@ -112,3 +112,157 @@ fn targetless_frames_leave_empty_proofs_for_the_next_target_to_replay() {
         Some(revision)
     );
 }
+
+/// Both drawers stay admitted and unretirable for the whole fade, in both directions.
+#[test]
+fn near_and_far_handover_retain_allocations_and_publish_masks_together() {
+    use bevy::ecs::system::RunSystemOnce;
+    use render_scene::{ChunkUploadAcknowledgements, ChunkUploadBudget};
+    let now = std::time::Duration::from_secs(10);
+    let key = SubChunkKey::new(0, 0, 0, 0);
+    let mut producer = App::new();
+    producer
+        .add_plugins(MinimalPlugins)
+        .insert_resource(ChunkRenderQueue::default())
+        .add_plugins(ChunkRenderPlugin::default());
+    producer
+        .world_mut()
+        .resource_mut::<ChunkRenderQueue>()
+        .try_update_tracked(
+            key,
+            crate::chunk::tests::solid_test_mesh(),
+            ChunkUploadPriority::new(0.0),
+            ChunkUploadToken {
+                generation: 1,
+                dirty_since: Instant::now(),
+            },
+        )
+        .unwrap();
+    producer.update();
+    let instance = {
+        let world = producer.world_mut();
+        world
+            .query::<&ChunkRenderInstance>()
+            .single(world)
+            .unwrap()
+            .clone()
+    };
+    let mut app = crate::chunk::tests::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    let device = app.world().resource::<RenderDevice>().clone();
+    app.insert_resource(crate::far_terrain::FarTerrainGpu::new(&device))
+        .insert_resource(ChunkUploadBudget::new(8, u64::MAX))
+        .init_resource::<TerrainCoverage>();
+    let entity = app.world_mut().spawn(instance).id();
+    app.world_mut().run_system_once(prepare_gpu_chunks).unwrap();
+    let tile = far_terrain::TileKey {
+        level: 0,
+        x: 0,
+        z: 0,
+    };
+    let mut summary = far_terrain::ColumnSummary::default();
+    summary.cells_mut().fill(far_terrain::SurfaceCell {
+        height: 16,
+        rgb: [80; 3],
+        water_depth: 0,
+    });
+    let mesh = Arc::new(far_terrain::mesh_tile(&far_terrain::TileGrid::build(
+        tile,
+        &tile
+            .columns()
+            .map(|column| (column, summary.clone()))
+            .collect::<Vec<_>>(),
+    )));
+    let target = |near| {
+        Arc::new(far_terrain::TerrainTarget {
+            centre: key.chunk(),
+            horizon: 32,
+            near: Arc::new(if near {
+                HashMap::from([(key.chunk(), HashMap::from([(key, 1)]))])
+            } else {
+                HashMap::new()
+            }),
+            retained: Arc::new(HashSet::from([key])),
+            empty_far: Arc::new(HashSet::new()),
+        })
+    };
+    app.insert_resource(FarTerrainScene {
+        target: Some(target(true)),
+        tiles: Arc::from([mesh]),
+        ..Default::default()
+    });
+    app.world_mut()
+        .run_system_once(begin_terrain_coverage)
+        .unwrap();
+    app.world_mut()
+        .run_system_once(crate::far_terrain::gpu::prepare_far_terrain)
+        .unwrap();
+    app.insert_resource(Time::<()>::default());
+    let publish = |app: &mut App, at| {
+        app.world_mut().resource_mut::<Time>().advance_to(at);
+        app.world_mut()
+            .run_system_once(publish_terrain_coverage)
+            .unwrap();
+    };
+    let column = ColumnPos::new(key.x, key.z);
+    publish(&mut app, now);
+    assert!(
+        app.world()
+            .resource::<TerrainCoverage>()
+            .mask
+            .as_ref()
+            .unwrap()
+            .contains(column)
+    );
+    app.world_mut().resource_mut::<FarTerrainScene>().target = Some(target(false));
+    publish(&mut app, now);
+    assert!(app.world().get::<GpuChunkAllocation>(entity).is_some());
+    assert!(
+        !app.world()
+            .resource::<FarTerrainScene>()
+            .residency
+            .may_remove_near(column)
+    );
+    assert!(
+        !app.world()
+            .resource::<TerrainCoverage>()
+            .mask
+            .as_ref()
+            .unwrap()
+            .contains(column)
+    );
+    publish(&mut app, now + far_terrain::HANDOFF_DURATION / 2);
+    assert!(app.world().get::<GpuChunkAllocation>(entity).is_some());
+    publish(&mut app, now + far_terrain::HANDOFF_DURATION);
+    assert!(app.world().get::<GpuChunkAllocation>(entity).is_none());
+    assert!(
+        app.world()
+            .resource::<FarTerrainScene>()
+            .residency
+            .may_remove_near(column)
+    );
+    let back = now + far_terrain::HANDOFF_DURATION;
+    app.world_mut().resource_mut::<FarTerrainScene>().target = Some(target(true));
+    publish(&mut app, back);
+    assert!(app.world().get::<GpuChunkAllocation>(entity).is_some());
+    assert!(
+        !app.world()
+            .resource::<TerrainCoverage>()
+            .mask
+            .as_ref()
+            .unwrap()
+            .contains(column)
+    );
+    publish(&mut app, back + far_terrain::HANDOFF_DURATION);
+    assert!(
+        app.world()
+            .resource::<TerrainCoverage>()
+            .mask
+            .as_ref()
+            .unwrap()
+            .contains(column)
+    );
+    assert!(app.world().get::<GpuChunkAllocation>(entity).is_some());
+}

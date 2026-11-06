@@ -110,9 +110,21 @@ fn far_vertex(@builtin(vertex_index) vertex: u32, @builtin(instance_index) slot:
     return out;
 }
 
-@fragment
-fn far_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
-    // A coarser quad can span columns; only the part over near terrain is dropped.
+// All sixteen screen samples have a stable rank; transitions never alpha-blend depth.
+fn ordered_sample(pixel: vec2<u32>) -> u32 {
+    let x = pixel.x;
+    let y = pixel.y;
+    return ((x ^ y) & 1u) * 8u + (y & 1u) * 4u
+        + (((x >> 1u) ^ (y >> 1u)) & 1u) * 2u + ((y >> 1u) & 1u);
+}
+
+struct Surface {
+    colour: vec4<f32>,
+    depth_rank: u32,
+}
+
+// Shared coverage and lighting for steady and transitioning pipeline variants.
+fn far_surface(in: VertexOutput) -> Surface {
     if (in.coarse != 0u) {
         let block = in.origin + vec2<i32>(floor(in.owner_block));
         if (near_column(vec2(block.x >> 4u, block.y >> 4u))) {
@@ -121,8 +133,31 @@ fn far_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     let last = i32(FAR_TERRAIN_TILE_CELLS) - 1;
     let cell = clamp(vec2<i32>(floor(in.cell)), vec2(0), vec2(last));
-    let colour = textureLoad(colours, cell, i32(in.layer), 0).rgb;
-    let lit = colour * in.shade * in.light;
+    let colour = textureLoad(colours, cell, i32(in.layer), 0);
+    let presentation = u32(round(colour.a * 255.0));
+    let opacity = presentation & ((1u << FAR_TERRAIN_HANDOFF_DEPTH_SHIFT) - 1u);
+    if (ordered_sample(vec2<u32>(in.position.xy)) >= opacity) {
+        discard;
+    }
+    let lit = colour.rgb * in.shade * in.light;
     let fogged = actor_distance_fog(lit, in.offset, vec3(0.0));
-    return tint_to_linear(vec4(fogged, 1.0));
+    return Surface(tint_to_linear(vec4(fogged, 1.0)), presentation >> FAR_TERRAIN_HANDOFF_DEPTH_SHIFT);
+}
+
+@fragment
+fn far_fragment(in: VertexOutput) -> @location(0) vec4<f32> {
+    return far_surface(in).colour;
+}
+
+struct HandoffOutput {
+    @location(0) colour: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+}
+
+// Only active handoffs write fragment depth. Reverse-Z puts the incoming surface slightly
+// ahead of its coplanar predecessor; near geometry stays fully drawn underneath the fade.
+@fragment
+fn far_fragment_handoff(in: VertexOutput) -> HandoffOutput {
+    let surface = far_surface(in);
+    return HandoffOutput(surface.colour, min(1.0, in.position.z * (1.0 + f32(surface.depth_rank) * 0.0001)));
 }
