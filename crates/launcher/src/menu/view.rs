@@ -93,6 +93,16 @@ pub fn pingable(address: &str) -> bool {
     !address.starts_with(EXPERIENCE_ADDRESS_PREFIX)
 }
 
+/// Whether `address` is a raw NetherNet target, `nethernet/<signaling>/<id>`. It
+/// names no port, and the core matches its prefix case-insensitively.
+pub fn is_nethernet_target(address: &str) -> bool {
+    let prefix = bridge::contract::NETHERNET_TARGET_PREFIX;
+    address
+        .trim()
+        .get(..prefix.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(prefix))
+}
+
 /// A featured server's info-panel details; artwork is a local cached path.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ServerDetails {

@@ -188,7 +188,8 @@ pub fn join_kind(address: &str, local_world: bool) -> launcher::menu::view::Join
 }
 
 /// The `connect.v1` target for a menu address (the proxy's realm and friend
-/// prefixes, else a server that gets the default port when it names none).
+/// prefixes, a raw NetherNet target passed on unchanged, else a server that
+/// gets the default port when it names none).
 pub fn target_for(address: &str) -> ConnectTarget {
     let address = address.trim();
     if let Some(id) = address.strip_prefix(launcher::menu::EXPERIENCE_ADDRESS_PREFIX) {
@@ -199,6 +200,10 @@ pub fn target_for(address: &str) -> ConnectTarget {
     }
     if let Some(xuid) = address.strip_prefix(launcher::menu::FRIEND_ADDRESS_PREFIX) {
         return ConnectTarget::Friend(xuid.to_owned());
+    }
+    // The core rejects a raw NetherNet target whose ID carries a port.
+    if launcher::menu::is_nethernet_target(address) {
+        return ConnectTarget::RakNet(address.to_owned());
     }
     let has_port = address.rsplit_once(':').is_some_and(|(host, port)| {
         port.parse::<u16>().is_ok() && (host.ends_with(']') || !host.contains(':'))
@@ -357,6 +362,27 @@ mod tests {
                 bridge::contract::DEFAULT_BEDROCK_PORT_TEXT
             ))
         );
+    }
+    #[test]
+    fn raw_nethernet_targets_reach_the_core_without_a_port() {
+        use bridge::contract::{
+            NETHERNET_SIGNALING_JSONRPC, NETHERNET_SIGNALING_WEBSOCKET, NETHERNET_TARGET_PREFIX,
+        };
+        for target in [
+            format!("{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_JSONRPC}/1234567890"),
+            format!(
+                "{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_WEBSOCKET}/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"
+            ),
+            format!(
+                "{}{NETHERNET_SIGNALING_JSONRPC}/1234567890",
+                NETHERNET_TARGET_PREFIX.to_ascii_uppercase()
+            ),
+        ] {
+            assert_eq!(
+                target_for(&format!(" {target} ")),
+                ConnectTarget::RakNet(target)
+            );
+        }
     }
     #[test]
     fn the_launcher_core_serves_control_and_signs_in_only_when_validated() {

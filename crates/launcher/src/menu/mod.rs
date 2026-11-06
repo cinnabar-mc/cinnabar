@@ -35,7 +35,7 @@ pub use view::{
     FRIEND_ADDRESS_PREFIX, InboxItem, JoinKind, JoinProgress, JoinStage, LiveEventCard,
     LocalWorldCard, MenuCaret, MenuFeeds, MenuFriendCard, MenuGameCard, MenuHome, MenuProfile,
     MenuRealmCard, MenuServerCard, MenuView, PingInfo, SavedServer, ServerDetails,
-    ServerTrustPrompt, pingable,
+    ServerTrustPrompt, is_nethernet_target, pingable,
 };
 pub use worlds_tab::{LocalWorldAction, civil_date, file_size};
 
