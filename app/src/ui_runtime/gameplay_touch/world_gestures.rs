@@ -1,6 +1,6 @@
 //! Touch and classic modes: a finger on the world taps, holds or turns the camera.
 
-use std::time::Duration;
+use std::{collections::VecDeque, time::Duration};
 
 use semantic_input::{TouchContact, TouchGesture, TouchGestures, touch};
 
@@ -30,12 +30,30 @@ impl WorldTarget {
     }
 }
 
+/// Frames a finger's ray must be published before the pick reflects it. Touch input runs ahead of
+/// the frame's pick, and interactions read the previous frame's published ray.
+pub(crate) const RAY_SETTLE_FRAMES: u8 = 2;
+
+/// Marks a tap's routed contact, whose finger's id may already belong to a new press.
+const TAP_CONTACT_BIT: u64 = 1 << 63;
+
+/// A completed tap waiting for its ray to reach the pick.
+#[derive(Debug)]
+struct PendingTap {
+    sample: TouchContact,
+    ray_frames: u8,
+}
+
 /// Gesture state of the fingers on the world, kept between frames.
 #[derive(Debug, Default)]
 pub(crate) struct WorldTouches {
     gestures: TouchGestures,
     /// The action each holding finger performs, fixed when its hold starts.
     holds: Vec<(u64, u16)>,
+    /// Frames each held finger's ray has been published.
+    rays: Vec<(u64, u8)>,
+    /// Completed taps in order; only the first aims the ray, so each settles in turn.
+    pending: VecDeque<PendingTap>,
 }
 
 /// The interactions one frame of world touches produced.
@@ -51,7 +69,8 @@ pub(super) struct WorldFrame {
 
 impl WorldTouches {
     /// Classifies this frame's world fingers. A finger that is not turning stops looking, and a
-    /// holding finger's sample becomes its action. `size` is the window in pixels.
+    /// holding finger's sample becomes its action. A tap acts once the pick has caught up with its
+    /// ray, keeping that ray aimed until then. `size` is the window in pixels.
     pub(super) fn apply(
         &mut self,
         held: &mut [TouchContact],
@@ -67,19 +86,30 @@ impl WorldTouches {
             }
             let (turning, _) = self.advance(sample, now, size);
             let gesture = self.gestures.end(sample.contact_id, now);
-            self.holds.retain(|(id, _)| *id != sample.contact_id);
             if gesture == Some(TouchGesture::Tap) {
-                let action = target.tap_action();
-                frame.pressed.push(action);
-                frame.point = Some(sample.position);
-                frame.pulses.push(TouchContact {
-                    hit_id: Some(action),
-                    delta: [0.0; 2],
-                    ..sample.clone()
+                self.pending.push_back(PendingTap {
+                    sample: sample.clone(),
+                    ray_frames: self.ray_frames(sample.contact_id),
                 });
             }
+            self.forget_finger(sample.contact_id);
             turning
         });
+        if let Some(tap) = self.pending.front_mut() {
+            frame.point = Some(tap.sample.position);
+            if tap.ray_frames < RAY_SETTLE_FRAMES {
+                tap.ray_frames += 1;
+            } else if let Some(tap) = self.pending.pop_front() {
+                let action = target.tap_action();
+                frame.pressed.push(action);
+                frame.pulses.push(TouchContact {
+                    contact_id: tap.sample.contact_id | TAP_CONTACT_BIT,
+                    hit_id: Some(action),
+                    delta: [0.0; 2],
+                    ..tap.sample
+                });
+            }
+        }
         for sample in held
             .iter_mut()
             .filter(|sample| sample.hit_id == Some(touch::LOOK_SURFACE))
@@ -99,7 +129,10 @@ impl WorldTouches {
                 }
                 _ => {}
             }
-            frame.point = Some(sample.position);
+            if frame.point.is_none() {
+                frame.point = Some(sample.position);
+                self.note_ray(sample.contact_id);
+            }
             if let Some((_, action)) = self.holds.iter().find(|(id, _)| *id == sample.contact_id) {
                 sample.hit_id = Some(*action);
             }
@@ -107,13 +140,22 @@ impl WorldTouches {
         let is_held = |id: u64| held.iter().any(|sample| sample.contact_id == id);
         self.gestures.retain(is_held);
         self.holds.retain(|(id, _)| is_held(*id));
+        self.rays.retain(|(id, _)| is_held(*id));
         frame
     }
 
-    /// Forgets every finger without completing a gesture, as when gameplay loses input.
+    /// Forgets a cancelled finger before its id can start a new press in the same frame.
+    pub(super) fn cancel(&mut self, contact_id: u64) {
+        self.forget_finger(contact_id);
+    }
+
+    /// Forgets every finger and waiting tap without completing a gesture, as when gameplay loses
+    /// input.
     pub(super) fn clear(&mut self) {
         self.gestures.clear();
         self.holds.clear();
+        self.rays.clear();
+        self.pending.clear();
     }
 
     /// Advances one finger by its sampled movement, measured in screen widths.
@@ -128,6 +170,27 @@ impl WorldTouches {
         }
         let step = sample.delta[0].hypot(sample.delta[1] * size[1] / size[0]);
         self.gestures.advance(sample.contact_id, step, size[0], now)
+    }
+
+    fn ray_frames(&self, contact_id: u64) -> u8 {
+        self.rays
+            .iter()
+            .find(|(id, _)| *id == contact_id)
+            .map_or(0, |(_, frames)| *frames)
+    }
+
+    /// Counts a frame that published this finger's ray, saturating once it has settled.
+    fn note_ray(&mut self, contact_id: u64) {
+        match self.rays.iter_mut().find(|(id, _)| *id == contact_id) {
+            Some((_, frames)) => *frames = frames.saturating_add(1).min(RAY_SETTLE_FRAMES),
+            None => self.rays.push((contact_id, 1)),
+        }
+    }
+
+    fn forget_finger(&mut self, contact_id: u64) {
+        self.gestures.retain(|id| id != contact_id);
+        self.holds.retain(|(id, _)| *id != contact_id);
+        self.rays.retain(|(id, _)| *id != contact_id);
     }
 }
 
@@ -175,6 +238,13 @@ mod tests {
         (frame, lifted)
     }
 
+    /// Publishes the finger's ray for long enough that the pick reflects it.
+    fn settle(world: &mut WorldTouches, target: WorldTarget) {
+        for frame in 0..u64::from(RAY_SETTLE_FRAMES) {
+            down(world, [0.0; 2], frame, target);
+        }
+    }
+
     #[test]
     fn a_tap_attacks_an_actor_and_uses_anything_else() {
         for (target, action) in [
@@ -183,8 +253,7 @@ mod tests {
             (WorldTarget::Nothing, touch::USE),
         ] {
             let mut world = WorldTouches::default();
-            let (pressed, _) = down(&mut world, [0.0; 2], 0, target);
-            assert!(pressed.pressed.is_empty());
+            settle(&mut world, target);
             let (frame, routed) = up(&mut world, 100, target);
             assert_eq!(frame.pressed, [action]);
             assert_eq!(frame.pulses[0].hit_id, Some(action));
@@ -193,10 +262,95 @@ mod tests {
         }
     }
 
+    /// Runs one frame with no finger on the world.
+    fn idle(world: &mut WorldTouches, at: u64, target: WorldTarget) -> WorldFrame {
+        world.apply(&mut [], &mut Vec::new(), ms(at), SIZE, target)
+    }
+
+    /// A tap too short for the pick to see its ray keeps that ray aimed and acts on what the pick
+    /// finds there, not on what the previous ray found.
     #[test]
-    fn a_tap_shorter_than_a_frame_still_lands() {
+    fn a_short_tap_waits_for_the_pick_to_reach_its_ray() {
+        // Lifted in the frame it pressed.
         let mut world = WorldTouches::default();
         let (frame, _) = up(&mut world, 0, WorldTarget::Block);
+        assert!(frame.pulses.is_empty());
+        assert_eq!(frame.point, Some([0.6, 0.4]));
+        let frame = idle(&mut world, 16, WorldTarget::Block);
+        assert!(frame.pulses.is_empty());
+        assert_eq!(frame.point, Some([0.6, 0.4]));
+        let frame = idle(&mut world, 33, WorldTarget::Actor);
+        assert_eq!(frame.pressed, [touch::ATTACK]);
+        assert_eq!(frame.point, Some([0.6, 0.4]));
+        assert_eq!(
+            idle(&mut world, 50, WorldTarget::Actor),
+            WorldFrame::default()
+        );
+
+        // Lifted one frame after it pressed.
+        let mut world = WorldTouches::default();
+        down(&mut world, [0.0; 2], 0, WorldTarget::Block);
+        let (frame, _) = up(&mut world, 16, WorldTarget::Block);
+        assert!(frame.pulses.is_empty());
+        let frame = idle(&mut world, 33, WorldTarget::Actor);
+        assert_eq!(frame.pressed, [touch::ATTACK]);
+    }
+
+    /// A waiting tap keeps the ray until it acts, so a new finger neither redirects it nor counts
+    /// frames its own ray was not published.
+    #[test]
+    fn a_new_finger_does_not_redirect_a_waiting_tap() {
+        let mut world = WorldTouches::default();
+        up(&mut world, 0, WorldTarget::Block);
+        let mut next = TouchContact {
+            position: [0.1, 0.1],
+            ..finger([0.0; 2])
+        };
+        for at in [16, 33] {
+            let frame = world.apply(
+                std::slice::from_mut(&mut next),
+                &mut Vec::new(),
+                ms(at),
+                SIZE,
+                WorldTarget::Actor,
+            );
+            assert_eq!(frame.point, Some([0.6, 0.4]));
+        }
+        assert_eq!(world.ray_frames(4), 0);
+    }
+
+    /// A tap's routed contact cannot collide with a new finger reusing its id, which would reject
+    /// the whole device frame.
+    #[test]
+    fn a_tap_keeps_a_separate_contact_from_a_reused_id() {
+        let mut world = WorldTouches::default();
+        settle(&mut world, WorldTarget::Block);
+        let mut held = [finger([0.0; 2])];
+        let mut lifted = vec![finger([0.0; 2])];
+        let frame = world.apply(&mut held, &mut lifted, ms(100), SIZE, WorldTarget::Block);
+        assert_eq!(frame.pulses.len(), 1);
+        assert_ne!(frame.pulses[0].contact_id, held[0].contact_id);
+    }
+
+    /// Cancellation ends a gesture even when its id presses again in the same frame.
+    #[test]
+    fn a_cancelled_finger_passes_nothing_to_its_reused_id() {
+        // A hold's action does not carry over.
+        let mut world = WorldTouches::default();
+        down(&mut world, [0.0; 2], 0, WorldTarget::Block);
+        down(&mut world, [0.0; 2], 400, WorldTarget::Block);
+        world.cancel(4);
+        let (frame, sample) = down(&mut world, [0.0; 2], 416, WorldTarget::Block);
+        assert!(frame.pressed.is_empty());
+        assert_eq!(sample.hit_id, Some(touch::LOOK_SURFACE));
+        // Nor does a drag: the new touch can still tap.
+        let mut world = WorldTouches::default();
+        down(&mut world, [0.06, 0.0], 0, WorldTarget::Block);
+        world.cancel(4);
+        let (_, sample) = down(&mut world, [0.01, 0.0], 16, WorldTarget::Block);
+        assert_eq!(sample.delta, [0.0; 2], "the new touch is not turning");
+        down(&mut world, [0.0; 2], 33, WorldTarget::Block);
+        let (frame, _) = up(&mut world, 50, WorldTarget::Block);
         assert_eq!(frame.pressed, [touch::USE]);
     }
 
@@ -241,6 +395,10 @@ mod tests {
         let (frame, routed) = up(&mut world, 100, WorldTarget::Block);
         assert!(frame.pulses.is_empty(), "a drag never taps");
         assert_eq!(
+            idle(&mut world, 116, WorldTarget::Block),
+            WorldFrame::default()
+        );
+        assert_eq!(
             routed.len(),
             1,
             "a turning finger's last motion still looks"
@@ -268,7 +426,7 @@ mod tests {
     fn a_cancelled_finger_is_forgotten() {
         let mut world = WorldTouches::default();
         down(&mut world, [0.0; 2], 0, WorldTarget::Block);
-        world.apply(&mut [], &mut Vec::new(), ms(16), SIZE, WorldTarget::Block);
+        idle(&mut world, 16, WorldTarget::Block);
         let (frame, _) = down(&mut world, [0.0; 2], 500, WorldTarget::Block);
         assert!(
             frame.pressed.is_empty(),

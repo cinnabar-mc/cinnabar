@@ -19,7 +19,7 @@ use client_shell::{
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
 
-mod world_gestures;
+pub(crate) mod world_gestures;
 use world_gestures::{WorldTarget, WorldTouches};
 
 /// Look strength per viewport fraction dragged, wider across for a landscape screen.
@@ -35,6 +35,8 @@ struct TouchFrame {
     pressed: Vec<u16>,
     /// Mod buttons whose finger lifted inside them, in completion order.
     mod_taps: Vec<u16>,
+    /// Fingers cancelled this frame, whose ids may already carry a new press.
+    cancelled: Vec<u64>,
 }
 
 /// Dropdown choices retain their contact for pressed feedback until a completed tap.
@@ -123,7 +125,10 @@ fn apply_touch_events(
                     frame.lifted.push(sample);
                 }
             }
-            TouchPhase::Canceled => state.release(id),
+            TouchPhase::Canceled => {
+                state.release(id);
+                frame.cancelled.push(id);
+            }
         }
     }
     Ok(frame)
@@ -238,6 +243,7 @@ pub(crate) fn drive_gameplay_touch_targets(
         mut lifted,
         pressed,
         mod_taps,
+        cancelled,
     } = match apply_touch_events(&mut state, events, |position| {
         presentation.gameplay_touch_region(position, size)
     }) {
@@ -306,6 +312,9 @@ pub(crate) fn drive_gameplay_touch_targets(
             .as_ref()
             .map_or(Duration::ZERO, |time| time.elapsed());
         let target = world_touches.target();
+        for id in cancelled {
+            world_touches.touches.cancel(id);
+        }
         let frame = world_touches
             .touches
             .apply(&mut held, &mut lifted, now, size, target);
@@ -365,6 +374,22 @@ mod tests {
                 max: [1.0; 2],
             },
         })
+    }
+
+    /// A cancellation is reported even when the id presses again in the same frame.
+    #[test]
+    fn a_cancelled_id_that_presses_again_is_reported() {
+        let mut state = TouchControlState::default();
+        let at = [0.5, 0.5];
+        apply_touch_events(&mut state, [(3, TouchPhase::Started, at)], stick).unwrap();
+        let frame = apply_touch_events(
+            &mut state,
+            [(3, TouchPhase::Canceled, at), (3, TouchPhase::Started, at)],
+            stick,
+        )
+        .unwrap();
+        assert_eq!(frame.cancelled, [3]);
+        assert_eq!(state.sample().len(), 1);
     }
 
     /// Android may end a finger and reuse its id for a new press before the next update.
