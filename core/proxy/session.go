@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/hashimthearab/rust-mcbe/core/authcache"
 	"github.com/hashimthearab/rust-mcbe/core/internal/bridgecontract"
 	"github.com/hashimthearab/rust-mcbe/core/internal/joinprofile"
 	"github.com/hashimthearab/rust-mcbe/core/internal/redact"
@@ -465,7 +466,8 @@ func refuseSessionConnect(raw net.Conn, framed *streamnet.FramedConn, cause erro
 
 // newSessionDownstream accepts only the pinned protocol and valid login client data; a device
 // replaces the client's claimed device and lets the upstream dialer derive SelfSignedId.
-// Without a core device, the caller's device and identity claims remain intact.
+// A core device also scopes offline identity to the install and persona. Without it,
+// client device claims remain intact and offline login gets a fresh identity.
 func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile) (*sessionDownstream, error) {
 	var clientData login.ClientData
 	if err := json.Unmarshal(request.ClientData, &clientData); err != nil {
@@ -502,8 +504,12 @@ func newSessionDownstream(request sessionConnectRequest, claimed *device.Profile
 		clientData.SelfSignedID = ""
 		clientData.MarkClaims("SelfSignedId")
 	}
+	profile := device.Profile{}
+	if claimed != nil {
+		profile = *claimed
+	}
 	return &sessionDownstream{
-		identity:    login.IdentityData{DisplayName: clientData.ThirdPartyName},
+		identity:    authcache.OfflineIdentity(profile, clientData.ThirdPartyName),
 		clientData:  clientData,
 		clientCache: request.ClientCache,
 	}, nil

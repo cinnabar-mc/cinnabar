@@ -17,6 +17,7 @@ struct Fixture {
     names: ScoreboardOwnerNameAuthority,
     hide_sidebar: bool,
     hide_effects: bool,
+    hide_position: bool,
     bindings: HudBindings,
 }
 
@@ -38,6 +39,7 @@ impl Default for Fixture {
             names: Default::default(),
             hide_sidebar: false,
             hide_effects: false,
+            hide_position: false,
             bindings: Default::default(),
         }
     }
@@ -63,6 +65,7 @@ impl Fixture {
             key,
             &self.settings,
             self.hide_effects,
+            self.hide_position,
             &self.catalog,
         );
         let mut icons = Vec::new();
@@ -76,6 +79,9 @@ impl Fixture {
         );
         if self.hide_effects {
             expected.effects_visible = false;
+        }
+        if self.hide_position {
+            expected.player_position = None;
         }
         ui_screens::settings_chat::apply_hud(&self.settings, &mut expected);
         assert_eq!(cache.model, expected);
@@ -349,6 +355,14 @@ fn world_text_language_and_visibility_invalidate_without_touching_hotbar() {
         cache.model.player_position.as_deref(),
         Some("At 2 / 64 / -3")
     );
+    fixture.hide_position = true;
+    let changes = fixture.check(&mut cache);
+    assert!(changes.world_text && !changes.hotbar);
+    assert!(cache.model.player_position.is_none());
+    assert!(cache.model.days_played.is_some());
+    fixture.hide_position = false;
+    assert!(fixture.check(&mut cache).world_text);
+    assert!(cache.model.player_position.is_some());
     fixture.runtime.session.last_known_local_player_alive = Some(false);
     fixture.check(&mut cache);
     assert!(cache.model.player_position.is_none());

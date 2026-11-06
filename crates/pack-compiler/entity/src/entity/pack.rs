@@ -655,4 +655,87 @@ mod tests {
             "models/entity/_pack/mobs/a.geo.json"
         );
     }
+
+    /// A player's skin replaces its default model at runtime, so a clip naming a bone that
+    /// model lacks stays bound by name for the skin, on every geometry the player can draw;
+    /// other entities still skip such bones.
+    #[test]
+    fn player_clips_keep_bones_their_default_model_lacks_for_the_skin() {
+        let entity = |identifier: &str, short: &str| {
+            json!({"format_version":"1.10.0","minecraft:client_entity":{"description":{
+                "identifier": identifier,
+                "materials":{"default":"entity_alphatest"},
+                "textures":{"default":"textures/entity/steve"},
+                "geometry":{"default": format!("geometry.{short}"), "alt": format!("geometry.{short}_alt")},
+                "animations":{"tail": format!("animation.{short}.tail")},
+                "scripts":{"animate":["tail"]},
+                "render_controllers":["controller.render.tail"]}}})
+            .to_string()
+        };
+        let geometry = |short: &str| {
+            json!({"format_version":"1.12.0","minecraft:geometry":[{"description":{
+                "identifier": format!("geometry.{short}"),"texture_width":64,"texture_height":64},
+                "bones":[{"name":"body","pivot":[0,24,0],"cubes":[{"origin":[-4,12,-2],"size":[8,12,4],"uv":[0,0]}]}]}]})
+            .to_string()
+        };
+        let animation = |short: &str| {
+            json!({"format_version":"1.8.0","animations":{format!("animation.{short}.tail"):{
+                "loop":true,"bones":{"body":{"rotation":[0,10,0]},"Tail":{"rotation":[0,"q.life_time",0]}}}}})
+            .to_string()
+        };
+        let mut files = vec![file(
+            "render_controllers/tail.json",
+            r#"{"format_version":"1.8.0","render_controllers":{"controller.render.tail":{"geometry":"Geometry.default","materials":[{"*":"Material.default"}],"textures":["Texture.default"]}}}"#,
+        )];
+        for (identifier, short) in [("minecraft:player", "player"), ("test:mob", "mob")] {
+            files.push(file(
+                &format!("entity/{short}.json"),
+                &entity(identifier, short),
+            ));
+            files.push(file(
+                &format!("models/entity/{short}.geo.json"),
+                &geometry(short),
+            ));
+            files.push(file(
+                &format!("models/entity/{short}_alt.geo.json"),
+                &geometry(&format!("{short}_alt")),
+            ));
+            files.push(file(&format!("animations/{short}.json"), &animation(short)));
+        }
+        let compiled = compile_entity_pack(files).unwrap().unwrap().assets;
+        // Each clip also keeps a name-bound copy for server requests; the rig plays the
+        // copy compiled for its model, whose own bones are bound by index.
+        let model_clip = |clip_identifier: &str| -> Vec<Vec<Option<Box<str>>>> {
+            let clips: Vec<Vec<Option<Box<str>>>> = compiled
+                .animation_clips
+                .iter()
+                .filter(|clip| {
+                    compiled.symbols[clip.symbol as usize].identifier.as_ref() == clip_identifier
+                })
+                .map(|clip| {
+                    compiled.animation_channels[clip.first_channel as usize..]
+                        [..clip.channel_count as usize]
+                        .iter()
+                        .map(|channel| channel.bone_name.clone())
+                        .collect()
+                })
+                .filter(|channels: &Vec<Option<Box<str>>>| channels.contains(&None))
+                .collect();
+            clips
+        };
+        // The player's default and alternate models both keep the bone; a skin replaces either.
+        let player = model_clip("animation.player.tail");
+        assert_eq!(player.len(), 2, "{player:?}");
+        assert!(
+            player
+                .iter()
+                .all(|clip| clip == &[Some("tail".into()), None]),
+            "{player:?}"
+        );
+        let mob = model_clip("animation.mob.tail");
+        assert!(
+            !mob.is_empty() && mob.iter().all(|clip| clip == &[None]),
+            "other entities skip the absent bone: {mob:?}"
+        );
+    }
 }

@@ -112,12 +112,25 @@ pub(super) fn place_controls(
                     ]
                 })
             };
+            let desired = desired.or_else(|| {
+                (control_id(hit.pressed.as_deref()) == Some(touch::DPAD))
+                    .then(|| fit_inside(hit, content, px))
+            });
             if let Some(at) = desired {
                 view.drags
                     .insert(hit.key.clone(), [at[0] - hit.rect.x, at[1] - hit.rect.y]);
             }
         }
     }
+}
+
+/// Where an unplaced control sits once moved fully on screen, as Bedrock fits its D-pad.
+pub(super) fn fit_inside(hit: &HitRegion, content: [f32; 2], px: f32) -> [f64; 2] {
+    let fit = |origin: f64, size: f64, side: f32| origin.min(f64::from(side / px) - size).max(0.);
+    [
+        fit(hit.rect.x, hit.rect.w, content[0]),
+        fit(hit.rect.y, hit.rect.h, content[1]),
+    ]
 }
 
 /// Places the dropdown below its movable trigger, or above it when space is short.

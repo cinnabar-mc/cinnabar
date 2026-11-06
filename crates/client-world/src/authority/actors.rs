@@ -467,6 +467,11 @@ impl WorldAuthority {
         self.actors
             .actor_bone_descends_from(runtime_id, bone, ancestor)
     }
+    /// The live UI evaluation's owner variables and equipment properties.
+    pub fn actor_ui_rig(&self, runtime_id: u64) -> Option<actor_animation::ActorRigSnapshot<'_>> {
+        self.actors.actor_ui_rig(runtime_id)
+    }
+
     /// Full-body controller layers paired with the actor's UI pose.
     pub fn actor_ui_layers(
         &self,

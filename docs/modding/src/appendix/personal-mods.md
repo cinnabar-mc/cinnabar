@@ -186,8 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
-draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
+status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
+line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
+hiding, and its bounds in GUI units when laid out.
 
 ## Action filtering
 

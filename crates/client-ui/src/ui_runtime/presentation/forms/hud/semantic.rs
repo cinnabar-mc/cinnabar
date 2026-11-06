@@ -45,6 +45,7 @@ impl SemanticHud {
         sidebar_key: (u64, u64, bool),
         settings: &SettingsOptions,
         hide_effects: bool,
+        hide_position: bool,
         catalog: &Arc<Catalog>,
     ) -> HudChanges {
         let reset = self.session != Some(runtime.session_id())
@@ -102,7 +103,7 @@ impl SemanticHud {
             self.model.boss_bars = self.bosses.iter().map(boss_model).collect();
             changes.boss_bars = true;
         }
-        let world_text = world_text_input(runtime, frame);
+        let world_text = world_text_input(runtime, frame, hide_position);
         if reset || language_changed || world_text != self.world_text {
             (self.model.player_position, self.model.days_played) =
                 world_text_lines(runtime, world_text);
@@ -488,5 +489,5 @@ pub(super) fn world_text_lines_for_frame(
     runtime: &UiRuntime,
     frame: &HudFrame,
 ) -> (Option<String>, Option<String>) {
-    world_text_lines(runtime, world_text_input(runtime, frame))
+    world_text_lines(runtime, world_text_input(runtime, frame, false))
 }

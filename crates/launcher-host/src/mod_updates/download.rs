@@ -124,11 +124,7 @@ fn trusted(url: &url::Url) -> bool {
 /// Builds the asset client separately from the API client, which rejects all redirects.
 pub(super) fn client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent(format!(
-            "{}/{}",
-            launcher::PRODUCT_NAME,
-            launcher::PRODUCT_VERSION
-        ))
+        .user_agent(launcher::PRODUCT_USER_AGENT)
         .timeout(Duration::from_secs(60))
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() > 4 || !trusted(attempt.url()) {
