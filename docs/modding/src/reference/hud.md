@@ -118,6 +118,30 @@ record element-state {
 
 Types: [`rect`](hud.md#type-rect), [`vanilla-element`](hud.md#type-vanilla-element).
 
+<a id="type-sidebar-placement"></a>
+
+### `sidebar-placement`
+
+Where the vanilla sidebar draws: the point of its box at the fractions `anchor-x` and
+`anchor-y`, from 0 to 1, lies on the same fractions of the HUD root, moved by `x` and `y`
+GUI units and kept on screen.
+
+```wit
+record sidebar-placement {
+    anchor-x: f32,
+    anchor-y: f32,
+    x: f32,
+    y: f32,
+}
+```
+
+| Member | Type | Description |
+| --- | --- | --- |
+| `anchor-x` | `f32` |  |
+| `anchor-y` | `f32` |  |
+| `x` | `f32` |  |
+| `y` | `f32` |  |
+
 ## Functions
 
 <a id="set-label"></a>
@@ -216,6 +240,20 @@ set-position-hidden: func(hidden: bool) -> result<_, string>;
 
 Retained; while true, the vanilla position line (shown by the `showcoordinates` rule or
 a held filled map) is not drawn. Independent of `set-hidden-elements`.
+
+<a id="set-sidebar-placement"></a>
+
+### `set-sidebar-placement`
+
+```wit
+set-sidebar-placement: func(placement: option<sidebar-placement>) -> result<_, string>;
+```
+
+Retained; draws the vanilla sidebar at this placement, or where vanilla lays it out for
+none. Only its paint moves, so a resource pack's sidebar keeps its look. The earliest mod
+with a placement owns it.
+
+Types: [`sidebar-placement`](hud.md#type-sidebar-placement).
 
 <a id="read-elements"></a>
 

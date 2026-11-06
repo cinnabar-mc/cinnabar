@@ -34,6 +34,7 @@ pub struct ModUi {
     mod_hud: Option<mod_hud::ModHud>,
     /// Vanilla HUD elements mods hide.
     hidden_elements: ui::mod_hud::HiddenElements,
+    sidebar_placement: Option<ui::mod_hud::ElementPlacement>,
     /// Mods' HUD surfaces.
     hud_surfaces: hud_surface::HudSurfaces,
     /// Which actors the selected panel's projections may follow.

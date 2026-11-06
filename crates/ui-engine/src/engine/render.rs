@@ -243,7 +243,25 @@ fn paint_nodes(
     let view = art.view;
     let mut top: Vec<Range<usize>> = Vec::new();
     let overlay_start = render.nodes.len();
+    let root = [
+        f64::from(canvas.screen[2] / canvas.px),
+        f64::from(canvas.screen[3] / canvas.px),
+    ];
+    let placed = art
+        .placement
+        .and_then(|placement| placement.shift(render, root, f64::from(canvas.px)));
     for (index, node) in render.nodes.iter().chain(art.overlay).enumerate() {
+        let moved = placed
+            .filter(|(control, _)| index < overlay_start && super::under_control(node, control))
+            .map(|(_, shift)| {
+                let mut moved = node.clone();
+                moved.dest.x += shift[0];
+                moved.dest.y += shift[1];
+                moved.clip.x += shift[0];
+                moved.clip.y += shift[1];
+                moved
+            });
+        let node = moved.as_ref().unwrap_or(node);
         if !art.omits(node) && view.is_none_or(|view| node.shown(view)) {
             canvas.enter_filter(node)?;
             let start = canvas.nodes.len();
