@@ -184,16 +184,12 @@ fn settle(world: &mut World, router: &mut crate::semantic_controls::SemanticInpu
         .unwrap();
 }
 
-/// The place cues written so far, as the cell each one sounds at.
-fn place_cue_cells(world: &World) -> Vec<[i32; 3]> {
+/// Local block sounds written so far. Vanilla voices planting only from the server's sound.
+fn local_block_cues(world: &World) -> usize {
     world
         .resource::<Messages<client_audio::audio::LocalBlockCue>>()
         .iter_current_update_messages()
-        .filter_map(|cue| match *cue {
-            client_audio::audio::LocalBlockCue::Place { position, .. } => Some(position),
-            client_audio::audio::LocalBlockCue::Break { .. } => None,
-        })
-        .collect()
+        .count()
 }
 
 /// A second press before the server's block update finds the predicted crop in the cell, so
@@ -216,9 +212,9 @@ fn a_double_press_before_the_block_update_plants_and_consumes_once() {
     assert_eq!(cell(&world, FIRST_CROP), wheat);
     assert_eq!(held_count(&world), 63);
     assert_eq!(
-        place_cue_cells(&world),
-        [FIRST_SOIL],
-        "the local sound must share the clicked cell with the server's copy"
+        local_block_cues(&world),
+        0,
+        "planting must not voice a local place sound beside the server's"
     );
 
     let release = step(&mut world, &mut router, &mut captured, false);
@@ -234,7 +230,7 @@ fn a_double_press_before_the_block_update_plants_and_consumes_once() {
     );
     assert_eq!(cell(&world, FIRST_CROP), wheat);
     assert_eq!(held_count(&world), 63);
-    assert_eq!(place_cue_cells(&world), [FIRST_SOIL]);
+    assert_eq!(local_block_cues(&world), 0);
 }
 
 /// Holding Use plants the next soil cell the ray reaches after the repeat delay, then stops

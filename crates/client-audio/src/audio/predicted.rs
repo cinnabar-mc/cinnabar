@@ -1,4 +1,4 @@
-//! Client-predicted sounds tied to local interaction: block place/hit/break, eating and drinking,
+//! Client-predicted sounds tied to local interaction: block hit/break, eating and drinking,
 //! the player's own attacks, actor hurt/death status events, and dropped-item pickup.
 
 use std::sync::Arc;
@@ -36,12 +36,6 @@ pub struct LocalEatingCue {
 pub enum LocalBlockCue {
     /// A locally completed destroy; preserve its id before prediction replaces it with air.
     Break {
-        position: [i32; 3],
-        block_runtime_id: i32,
-    },
-    /// A local placement voiced at `position`, which must match the cell of the server's copy
-    /// so the two pair up. The id uses the local store palette.
-    Place {
         position: [i32; 3],
         block_runtime_id: i32,
     },
@@ -93,7 +87,9 @@ pub fn predicts_bites(consumption: assets::item_use::ItemConsumption) -> bool {
     )
 }
 
-/// Voices local block placement, mining hits and the predicted break of the mined block.
+/// Voices mining hits and the predicted break of the mined block. Placement has no local sound:
+/// vanilla's client-side `LevelSoundManager::broadcastSoundEvent` returns early, so only the
+/// server's `place` event voices it.
 #[allow(clippy::too_many_arguments)]
 pub fn drive_block_cues(
     mut cues: MessageReader<LocalBlockCue>,
@@ -123,16 +119,11 @@ pub fn drive_block_cues(
     );
     let mut requests = Vec::new();
     for cue in cues.read() {
-        let (event, position, block_runtime_id) = match *cue {
-            LocalBlockCue::Place {
-                position,
-                block_runtime_id,
-            } => ("place", position, block_runtime_id),
-            LocalBlockCue::Break {
-                position,
-                block_runtime_id,
-            } => ("break", position, block_runtime_id),
-        };
+        let LocalBlockCue::Break {
+            position,
+            block_runtime_id,
+        } = *cue;
+        let event = "break";
         let runtime_id = block_runtime_id as u32;
         requests.push(BlockSoundCue {
             event,
