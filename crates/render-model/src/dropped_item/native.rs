@@ -12,7 +12,8 @@ const RADIANS_TO_DEGREES: f32 = 57.295776;
 const DEGREES_TO_RADIANS: f32 = 0.017453292;
 const SPRITE_GROUP_SCALE: f32 = 0.3;
 const SPRITE_DEFAULT_SCALE: f32 = 1.5;
-const CUBE_SCALE: f32 = 0.25;
+/// Scale the item renderer gives an ordinary cube block item, dropped or framed.
+pub(crate) const CUBE_SCALE: f32 = 0.25;
 
 /// Rotates a block model vector by its authored quarter turn about Y.
 pub(super) fn block_item_rotation([x, y, z]: [f32; 3], rotation: u32) -> [f32; 3] {
