@@ -38,13 +38,11 @@ pub(super) fn draw(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             )
         })
         .transpose()?;
-    let inline = action_size
-        .is_some_and(|[button_width, _]| width - button_width - gap >= content.canvas.r(24.0));
-    let text_width = if inline {
-        width - action_size.unwrap()[0] - gap
-    } else {
-        width
-    };
+    let inline_width = action_size
+        .map(|[button_width, _]| width - button_width - gap)
+        .filter(|&text_width| text_width >= content.canvas.r(24.0));
+    let inline = inline_width.is_some();
+    let text_width = inline_width.unwrap_or(width);
     let text_height = content
         .canvas
         .measure_height(message, text_width, theme::CAPTION)?;

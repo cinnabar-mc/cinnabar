@@ -1,6 +1,7 @@
 //! A Mods tab library with and without self-declared component metadata.
 
 use super::{Arc, Fixture, GUI_SCALE, State, TALL_SIZE, settings};
+use launcher::menu::auth::AuthState;
 use launcher::mods::{ActiveMod, InstalledMod, Library, Permission, Snapshot, Status};
 use ui::mod_metadata::ModMetadata;
 
@@ -124,28 +125,27 @@ fn home_marketplace() -> Fixture {
     )))
 }
 
+/// The Mods page over an empty local library in the given account state.
+fn marketplace_view(auth_state: AuthState) -> Box<launcher::menu::MenuView> {
+    let mut view = settings(launcher::mods::SECTION);
+    view.auth_state = auth_state;
+    view.mods = Arc::new(Snapshot::default());
+    Box::new(view)
+}
+
 /// An empty local library before the player connects an account.
 fn marketplace_empty() -> Fixture {
-    let mut view = settings(launcher::mods::SECTION);
-    view.auth_state = launcher::menu::auth::AuthState::SignedOut;
-    view.mods = Arc::new(Snapshot::default());
-    Fixture::Menu(Box::new(view))
+    Fixture::Menu(marketplace_view(AuthState::SignedOut))
 }
 
 /// The same empty library with a signed-in account; no successful sync is implied.
 fn marketplace_signed_in() -> Fixture {
-    let Fixture::Menu(mut view) = marketplace_empty() else {
-        unreachable!("the marketplace fixture is a menu")
-    };
-    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
-    Fixture::Menu(view)
+    Fixture::Menu(marketplace_view(AuthState::Authenticated))
 }
 
 /// One expanded, verified website selection; `status` is `None` until the player enables it.
 fn marketplace_library(status: Option<Status>, message: String) -> Fixture {
-    let Fixture::Menu(mut view) = marketplace_signed_in() else {
-        unreachable!("the marketplace fixture is a menu")
-    };
+    let mut view = marketplace_view(AuthState::Authenticated);
     view.mods = Arc::new(Snapshot {
         library: Library {
             installed: vec![InstalledMod {

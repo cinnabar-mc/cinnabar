@@ -30,27 +30,23 @@ func admittedLibrary(mods []bridgecontract.CinnabarModEntry) []bridgecontract.Ci
 func (c *Client) RemoveMarketplace(entry bridgecontract.CinnabarModEntry) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.live == nil {
+	if c.live == nil || !slices.ContainsFunc(c.live.modLibrary, func(current bridgecontract.CinnabarModEntry) bool {
+		return current.Slug == entry.Slug && current.SHA256 == entry.SHA256 && current.SentAt == entry.SentAt
+	}) {
 		return false
 	}
-	for _, current := range c.live.modLibrary {
-		if current.Slug != entry.Slug || current.SHA256 != entry.SHA256 || current.SentAt != entry.SentAt {
-			continue
-		}
-		body, _ := json.Marshal(struct {
-			Type   string `json:"type"`
-			Slug   string `json:"slug"`
-			SHA256 string `json:"sha256"`
-			SentAt string `json:"sent_at"`
-		}{"mod_library_remove", entry.Slug, entry.SHA256, entry.SentAt})
-		select {
-		case c.live.out <- body:
-			return true
-		default:
-			return false
-		}
+	body, _ := json.Marshal(struct {
+		Type   string `json:"type"`
+		Slug   string `json:"slug"`
+		SHA256 string `json:"sha256"`
+		SentAt string `json:"sent_at"`
+	}{"mod_library_remove", entry.Slug, entry.SHA256, entry.SentAt})
+	select {
+	case c.live.out <- body:
+		return true
+	default:
+		return false
 	}
-	return false
 }
 
 // MarketplaceLibrary returns a detached snapshot belonging only to the live authenticated account.

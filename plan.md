@@ -2117,13 +2117,12 @@ Marketplace delivery implements account-scoped library transport, exact signed
 release/hash verification, disabled installation with explicit permission consent,
 signed revocation freshness and conditional library removal. Production signing
 public keys are pinned in the client. Home and Mods link to the catalogue and
-explains account sign-in, website sends and explicit permission review while
+explain account sign-in, website sends and explicit permission review while
 preserving local imports. Production deployment and real-domain/cross-platform
 interactive acceptance remain incomplete; see
 [marketplace installation](docs/marketplace.md). No vanilla parity gate is closed
 by this optional client feature.
 
-See [Android](docs/android.md), [mods](docs/mods/README.md),
 See [Android](docs/android.md), [iOS](docs/ios.md), [mods](docs/modding-spike.md),
 See [Android](docs/android.md), [mods](docs/modding/src/appendix/paired-mods.md),
 [server experiences](docs/server-experiences.md) and

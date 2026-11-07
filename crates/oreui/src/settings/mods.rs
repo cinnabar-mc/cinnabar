@@ -81,7 +81,7 @@ fn draw_sections(
         (
             "Reload all",
             Variant::Secondary,
-            (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
+            (!library.busy).then_some(command(Action::ReloadAll)),
         ),
     ];
     actions(
