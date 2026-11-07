@@ -283,15 +283,9 @@ public final class CinnabarActivity extends NativeActivity {
             return;
         }
         if (action == MotionEvent.ACTION_HOVER_MOVE) {
-            if (Build.VERSION.SDK_INT >= 26 && !hasPointerCapture()) {
-                requestPointerCaptureSafe();
-            }
             return;
         }
         int buttonState = event.getButtonState();
-        if (buttonState != 0 && Build.VERSION.SDK_INT >= 26 && !hasPointerCapture()) {
-            requestPointerCaptureSafe();
-        }
         dispatchMouseButtonDiff(buttonState);
     }
 
@@ -307,15 +301,6 @@ public final class CinnabarActivity extends NativeActivity {
                 }
             }
         });
-    }
-
-    private void requestPointerCaptureSafe() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            View decor = getWindow().getDecorView();
-            if (decor != null) {
-                decor.requestPointerCapture();
-            }
-        }
     }
 
     private void dispatchMouseButtonDiff(int currentButtonState) {

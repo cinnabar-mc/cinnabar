@@ -475,10 +475,7 @@ fn touch_mode_blocks_keyboard_and_mouse_gameplay_input() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::Touch),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(InputMode::Touch))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -524,10 +521,7 @@ fn touch_mode_allows_touch_gameplay_input() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::Touch),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(InputMode::Touch))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -566,10 +560,9 @@ fn keyboard_mouse_mode_blocks_touch_gameplay_input() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::KeyboardMouse),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(
+            InputMode::KeyboardMouse,
+        ))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -620,10 +613,9 @@ fn keyboard_mouse_mode_allows_keyboard_and_mouse_gameplay_input() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::KeyboardMouse),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(
+            InputMode::KeyboardMouse,
+        ))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -662,10 +654,7 @@ fn gamepad_remains_available_in_both_touch_and_keyboard_mouse_modes() {
             .init_resource::<PendingDeviceFrame>()
             .init_resource::<SemanticInputRuntime>()
             .init_resource::<SemanticRouteState>()
-            .insert_resource(client_state::GameplayScreenControls {
-                locked_input_mode: Some(mode),
-                ..Default::default()
-            })
+            .insert_resource(client_state::EffectiveGameplayInputMode(mode))
             .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
         app.world_mut().spawn((
             Window {
@@ -699,10 +688,7 @@ fn clearing_preference_with_none_restores_previous_behaviour() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::Touch),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(InputMode::Touch))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -722,10 +708,9 @@ fn clearing_preference_with_none_restores_previous_behaviour() {
     let snapshot = runtime.finalize_routed_input().unwrap();
     assert_eq!(snapshot.input_mode, InputMode::Touch);
 
-    // Clear preference to None
+    // Clear effective mode
     app.world_mut()
-        .resource_mut::<client_state::GameplayScreenControls>()
-        .locked_input_mode = None;
+        .remove_resource::<client_state::EffectiveGameplayInputMode>();
 
     // Press keyboard key
     app.world_mut()
@@ -761,10 +746,7 @@ fn switching_modes_does_not_leave_stale_touch_or_physical_input_state() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::Touch),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(InputMode::Touch))
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -801,8 +783,9 @@ fn switching_modes_does_not_leave_stale_touch_or_physical_input_state() {
 
     // Switch to Keyboard & Mouse mode
     app.world_mut()
-        .resource_mut::<client_state::GameplayScreenControls>()
-        .locked_input_mode = Some(InputMode::KeyboardMouse);
+        .insert_resource(client_state::EffectiveGameplayInputMode(
+            InputMode::KeyboardMouse,
+        ));
 
     app.update();
     assert_eq!(
@@ -827,8 +810,7 @@ fn switching_modes_does_not_leave_stale_touch_or_physical_input_state() {
 
     // Switch back to Touch mode while space is still physically held
     app.world_mut()
-        .resource_mut::<client_state::GameplayScreenControls>()
-        .locked_input_mode = Some(InputMode::Touch);
+        .insert_resource(client_state::EffectiveGameplayInputMode(InputMode::Touch));
 
     app.update();
     let mut runtime = app.world_mut().resource_mut::<SemanticInputRuntime>();
@@ -848,10 +830,6 @@ fn desktop_behaviour_remains_unchanged() {
         .init_resource::<PendingDeviceFrame>()
         .init_resource::<SemanticInputRuntime>()
         .init_resource::<SemanticRouteState>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: None,
-            ..Default::default()
-        })
         .add_systems(Update, (collect_raw_input, route_semantic_input).chain());
     app.world_mut().spawn((
         Window {
@@ -907,10 +885,9 @@ fn keyboard_mouse_mode_preserves_raw_touches_for_menu() {
         .init_resource::<Touches>()
         .init_resource::<SemanticTouchTargets>()
         .init_resource::<PendingDeviceFrame>()
-        .insert_resource(client_state::GameplayScreenControls {
-            locked_input_mode: Some(InputMode::KeyboardMouse),
-            ..Default::default()
-        })
+        .insert_resource(client_state::EffectiveGameplayInputMode(
+            InputMode::KeyboardMouse,
+        ))
         .add_systems(PreUpdate, touch_screen_input_system)
         .add_systems(Update, collect_raw_input);
     let window = app

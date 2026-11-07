@@ -67,7 +67,7 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     focus: Option<Res<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
     reserved: Option<Res<'w, crate::semantic_controls::ReservedControls>>,
-    gameplay_controls: Option<Res<'w, client_state::GameplayScreenControls>>,
+    effective_mode: Option<Res<'w, client_state::EffectiveGameplayInputMode>>,
 }
 
 pub(crate) fn collect_raw_input(
@@ -77,15 +77,12 @@ pub(crate) fn collect_raw_input(
     events: Option<Res<bevy::prelude::Messages<bevy::window::WindowEvent>>>,
     mut cursor: bevy::prelude::Local<bevy::ecs::message::MessageCursor<bevy::window::WindowEvent>>,
 ) {
-    let locked_mode = inputs
-        .gameplay_controls
-        .as_ref()
-        .and_then(|controls| controls.locked_input_mode);
+    let mode = inputs.effective_mode.as_ref().map(|m| m.0);
     let ordered = ordered::collect(&inputs, events.as_deref(), &mut cursor);
     let mut translated = translate_device_frame(inputs);
     if let Some((events, lost)) = ordered {
         translated.frame.window_focus_lost |= lost;
-        if locked_mode != Some(semantic_input::InputMode::Touch) {
+        if mode != Some(semantic_input::InputMode::Touch) {
             translated.frame.desktop_events = Some(events);
         }
     }
@@ -108,12 +105,12 @@ pub(crate) fn route_semantic_input(
     mut runtime: ResMut<SemanticInputRuntime>,
     mut route: ResMut<SemanticRouteState>,
     consent: Option<Res<client_state::ConsentInput>>,
-    gameplay_controls: Option<Res<client_state::GameplayScreenControls>>,
+    effective_mode: Option<Res<client_state::EffectiveGameplayInputMode>>,
 ) {
-    if let Some(controls) = gameplay_controls {
-        let mode = controls.locked_input_mode;
-        if runtime.preferred_input_mode() != mode {
-            runtime.set_preferred_input_mode(mode);
+    if let Some(mode) = effective_mode {
+        let preferred = Some(mode.0);
+        if runtime.preferred_input_mode() != preferred {
+            runtime.set_preferred_input_mode(preferred);
         }
     }
     if consent.is_some_and(|consent| consent.0) {
@@ -230,11 +227,9 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         focus,
         driven,
         reserved: _,
-        gameplay_controls,
+        effective_mode,
     } = inputs;
-    let locked_mode = gameplay_controls
-        .as_ref()
-        .and_then(|controls| controls.locked_input_mode);
+    let mode = effective_mode.as_ref().map(|m| m.0);
     let (_, window, cursor) = window.into_inner();
     let focused = driven.is_some()
         || (window.focused && focus.as_ref().is_none_or(|focus| focus.available()));
@@ -252,55 +247,55 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         };
     }
 
-    let keyboard_mouse = (gates.keyboard_mouse
-        && locked_mode != Some(semantic_input::InputMode::Touch))
-    .then(|| {
-        let mut keyboard_keys = keys
-            .get_pressed()
-            .filter_map(|key| keyboard_usage(*key))
-            .collect::<Vec<_>>();
-        keyboard_keys.sort_unstable();
-        keyboard_keys.dedup();
-        let mut buttons = mouse_buttons
-            .get_pressed()
-            .filter_map(|button| mouse_button_code(*button))
-            .collect::<Vec<_>>();
-        buttons.sort_unstable();
-        buttons.dedup();
-        let sampled_key = |key| keys.pressed(key) || keys.just_pressed(key);
-        KeyboardMouseFrame {
-            activity_sequence: 0,
-            keys: keyboard_keys,
-            mouse_buttons: buttons,
-            key_edges: ButtonEdges {
-                pressed: keys
-                    .get_just_pressed()
-                    .filter_map(|key| keyboard_usage(*key))
-                    .collect(),
-                released: keys
-                    .get_just_released()
-                    .filter_map(|key| keyboard_usage(*key))
-                    .collect(),
-            },
-            mouse_edges: ButtonEdges {
-                pressed: mouse_buttons
-                    .get_just_pressed()
-                    .filter_map(|button| mouse_button_code(*button))
-                    .collect(),
-                released: mouse_buttons
-                    .get_just_released()
-                    .filter_map(|button| mouse_button_code(*button))
-                    .collect(),
-            },
-            mouse_motion: mouse_motion.delta.to_array(),
-            modifiers: ModifierChord {
-                shift: sampled_key(KeyCode::ShiftLeft) || sampled_key(KeyCode::ShiftRight),
-                control: sampled_key(KeyCode::ControlLeft) || sampled_key(KeyCode::ControlRight),
-                alt: sampled_key(KeyCode::AltLeft) || sampled_key(KeyCode::AltRight),
-                super_key: sampled_key(KeyCode::SuperLeft) || sampled_key(KeyCode::SuperRight),
-            },
-        }
-    });
+    let keyboard_mouse = (gates.keyboard_mouse && mode != Some(semantic_input::InputMode::Touch))
+        .then(|| {
+            let mut keyboard_keys = keys
+                .get_pressed()
+                .filter_map(|key| keyboard_usage(*key))
+                .collect::<Vec<_>>();
+            keyboard_keys.sort_unstable();
+            keyboard_keys.dedup();
+            let mut buttons = mouse_buttons
+                .get_pressed()
+                .filter_map(|button| mouse_button_code(*button))
+                .collect::<Vec<_>>();
+            buttons.sort_unstable();
+            buttons.dedup();
+            let sampled_key = |key| keys.pressed(key) || keys.just_pressed(key);
+            KeyboardMouseFrame {
+                activity_sequence: 0,
+                keys: keyboard_keys,
+                mouse_buttons: buttons,
+                key_edges: ButtonEdges {
+                    pressed: keys
+                        .get_just_pressed()
+                        .filter_map(|key| keyboard_usage(*key))
+                        .collect(),
+                    released: keys
+                        .get_just_released()
+                        .filter_map(|key| keyboard_usage(*key))
+                        .collect(),
+                },
+                mouse_edges: ButtonEdges {
+                    pressed: mouse_buttons
+                        .get_just_pressed()
+                        .filter_map(|button| mouse_button_code(*button))
+                        .collect(),
+                    released: mouse_buttons
+                        .get_just_released()
+                        .filter_map(|button| mouse_button_code(*button))
+                        .collect(),
+                },
+                mouse_motion: mouse_motion.delta.to_array(),
+                modifiers: ModifierChord {
+                    shift: sampled_key(KeyCode::ShiftLeft) || sampled_key(KeyCode::ShiftRight),
+                    control: sampled_key(KeyCode::ControlLeft)
+                        || sampled_key(KeyCode::ControlRight),
+                    alt: sampled_key(KeyCode::AltLeft) || sampled_key(KeyCode::AltRight),
+                    super_key: sampled_key(KeyCode::SuperLeft) || sampled_key(KeyCode::SuperRight),
+                },
+            }
+        });
     let bounded_gamepads = select_lowest_by_key(gamepads.iter(), MAX_CONTROLLERS, |(entity, _)| {
         u64::from(entity.index().index())
     });
@@ -332,43 +327,42 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
             },
         });
     }
-    let (touches, ignored_touches) =
-        if locked_mode == Some(semantic_input::InputMode::KeyboardMouse) {
-            touch_targets.release_all();
-            (Vec::new(), 0)
-        } else {
-            let width = window.width().max(1.0);
-            let height = window.height().max(1.0);
-            let bounded_touches =
-                select_lowest_by_key(touches.iter(), MAX_TOUCH_CONTACTS, |touch| touch.id());
-            touch_targets
-                .retain_active_contacts(bounded_touches.samples.iter().map(|touch| touch.id()));
-            let mut contacts = Vec::with_capacity(bounded_touches.samples.len());
-            for touch in bounded_touches.samples {
-                let contact = TouchContact {
-                    contact_id: touch.id(),
-                    activity_sequence: 0,
-                    position: [
-                        (touch.position().x / width).clamp(0.0, 1.0),
-                        (touch.position().y / height).clamp(0.0, 1.0),
-                    ],
-                    delta: touch_targets
-                        .delta(touch.id())
-                        .unwrap_or([touch.delta().x / width, touch.delta().y / height]),
-                    hit_id: touch_targets.target(touch.id()),
-                };
-                if contact.hit_id.is_some() {
-                    contacts.push(contact);
-                }
+    let (touches, ignored_touches) = if mode == Some(semantic_input::InputMode::KeyboardMouse) {
+        touch_targets.release_all();
+        (Vec::new(), 0)
+    } else {
+        let width = window.width().max(1.0);
+        let height = window.height().max(1.0);
+        let bounded_touches =
+            select_lowest_by_key(touches.iter(), MAX_TOUCH_CONTACTS, |touch| touch.id());
+        touch_targets
+            .retain_active_contacts(bounded_touches.samples.iter().map(|touch| touch.id()));
+        let mut contacts = Vec::with_capacity(bounded_touches.samples.len());
+        for touch in bounded_touches.samples {
+            let contact = TouchContact {
+                contact_id: touch.id(),
+                activity_sequence: 0,
+                position: [
+                    (touch.position().x / width).clamp(0.0, 1.0),
+                    (touch.position().y / height).clamp(0.0, 1.0),
+                ],
+                delta: touch_targets
+                    .delta(touch.id())
+                    .unwrap_or([touch.delta().x / width, touch.delta().y / height]),
+                hit_id: touch_targets.target(touch.id()),
+            };
+            if contact.hit_id.is_some() {
+                contacts.push(contact);
             }
-            contacts.extend(touch_targets.take_pulses());
-            let bounded_contacts =
-                select_lowest_by_key(contacts, MAX_TOUCH_CONTACTS, |contact| contact.contact_id);
-            (
-                bounded_contacts.samples,
-                bounded_touches.ignored + bounded_contacts.ignored,
-            )
-        };
+        }
+        contacts.extend(touch_targets.take_pulses());
+        let bounded_contacts =
+            select_lowest_by_key(contacts, MAX_TOUCH_CONTACTS, |contact| contact.contact_id);
+        (
+            bounded_contacts.samples,
+            bounded_touches.ignored + bounded_contacts.ignored,
+        )
+    };
     TranslatedDeviceFrame {
         frame: DeviceFrame {
             keyboard_mouse,

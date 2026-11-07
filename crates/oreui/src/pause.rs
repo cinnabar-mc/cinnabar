@@ -21,15 +21,14 @@ const LOGO_BOTTOM_GAP: f32 = 2.0;
 const HEADING_HEIGHT: f32 = HEADER5.line + 0.8;
 const CAPTION_HEIGHT: f32 = CAPTION.line + 1.6;
 
-/// The compact card includes the wardrobe among its actions, and touch platforms include the input toggle.
-fn action_count(compact: bool, touch_available: bool) -> f32 {
-    let base = if compact { 4.0 } else { 3.0 };
-    if touch_available { base + 1.0 } else { base }
+/// The compact card includes the wardrobe among its actions.
+fn action_count(compact: bool) -> f32 {
+    if compact { 4.0 } else { 3.0 }
 }
 
 /// The space needed for the heading, full-height actions and optional title art, in rem.
-fn minimum_height(compact: bool, title: bool, touch_available: bool) -> f32 {
-    let count = action_count(compact, touch_available);
+fn minimum_height(compact: bool, title: bool) -> f32 {
+    let count = action_count(compact);
     let padding = if compact {
         COMPACT_PADDING
     } else {
@@ -58,11 +57,7 @@ pub(super) fn draw(
     let margin = canvas.r(2.4).min(size[0] * 0.04).min(size[1] * 0.025);
     let width = canvas.r(78.0).min(size[0] - margin * 2.0);
     let compact = width < canvas.r(58.0) || size[1] < canvas.r(44.0);
-    let minimum = minimum_height(
-        compact,
-        canvas.title_artwork.is_some(),
-        view.touch_available,
-    );
+    let minimum = minimum_height(compact, canvas.title_artwork.is_some());
     let scale = ((size[1] - margin * 2.0) / canvas.r(minimum)).min(1.0);
     canvas.with_scale(scale, |canvas| {
         draw_layout(canvas, view, size, translate, margin, compact, minimum)
@@ -124,7 +119,7 @@ fn draw_layout(
         )?;
         y += box_height + canvas.r(LOGO_BOTTOM_GAP);
     }
-    let count = action_count(compact, view.touch_available);
+    let count = action_count(compact);
     let heading_height = canvas.r(HEADING_HEIGHT);
     let caption_height = canvas.r(CAPTION_HEIGHT);
     if !compact {
@@ -159,22 +154,6 @@ fn draw_layout(
             variant,
             label,
             Some(action),
-        )?;
-        y += button_height + gap;
-    }
-    if view.touch_available {
-        let label = match view.gameplay_input_mode {
-            semantic_input::InputMode::Touch => "Input: Touch",
-            semantic_input::InputMode::KeyboardMouse => "Input: Keyboard & Mouse",
-            semantic_input::InputMode::GamePad => "Input: Controller",
-        };
-        widgets::button(
-            canvas,
-            view,
-            [x, y, right, y + button_height],
-            Variant::Neutral,
-            label,
-            Some(MenuAction::ToggleGameplayInputMode),
         )?;
         y += button_height + gap;
     }

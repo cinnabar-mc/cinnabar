@@ -2,8 +2,8 @@
 
 use bevy::prelude::Resource;
 use std::collections::HashSet;
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, OnceLock};
 
 /// Physical input devices observed by the platform edge (e.g. Android JNI).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
@@ -12,12 +12,41 @@ pub struct ConnectedPhysicalDevices {
     pub keyboards: u32,
 }
 
+/// The automatically detected gameplay input mode on platforms with dynamic input switching.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Resource)]
+pub struct DetectedGameplayInputMode(pub semantic_input::InputMode);
+
+impl Default for DetectedGameplayInputMode {
+    fn default() -> Self {
+        Self(if cfg!(any(target_os = "android", target_os = "ios")) {
+            semantic_input::InputMode::Touch
+        } else {
+            semantic_input::InputMode::KeyboardMouse
+        })
+    }
+}
+
+/// The effective gameplay input mode actively driving player control and presentation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Resource)]
+pub struct EffectiveGameplayInputMode(pub semantic_input::InputMode);
+
+impl Default for EffectiveGameplayInputMode {
+    fn default() -> Self {
+        Self(if cfg!(any(target_os = "android", target_os = "ios")) {
+            semantic_input::InputMode::Touch
+        } else {
+            semantic_input::InputMode::KeyboardMouse
+        })
+    }
+}
+
 static PLATFORM_PHYSICAL_DEVICES: AtomicU64 = AtomicU64::new(0);
 static PLATFORM_MOUSE_DELTA: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
 static PLATFORM_MOUSE_BUTTONS: Mutex<Vec<PlatformMouseButtonEvent>> = Mutex::new(Vec::new());
 static PLATFORM_MOUSE_SCROLLS: Mutex<Vec<PlatformMouseWheelEvent>> = Mutex::new(Vec::new());
 static PLATFORM_POINTER_CAPTURED: AtomicBool = AtomicBool::new(false);
-static CAPTURE_DRIVER: OnceLock<fn(bool)> = OnceLock::new();
+static PLATFORM_POINTER_CAPTURE_REQUESTED: Mutex<Option<bool>> = Mutex::new(None);
+static CAPTURE_DRIVER: Mutex<Option<Box<dyn Fn(bool) + Send + Sync>>> = Mutex::new(None);
 
 /// Mouse scroll wheel event from the platform.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -126,9 +155,25 @@ pub fn take_platform_mouse_scrolls() -> Vec<PlatformMouseWheelEvent> {
     }
 }
 
+/// Resets the internal capture request cache (primarily for unit tests).
+pub fn reset_platform_pointer_capture_state() {
+    PLATFORM_POINTER_CAPTURED.store(false, Ordering::Release);
+    if let Ok(mut requested) = PLATFORM_POINTER_CAPTURE_REQUESTED.lock() {
+        *requested = None;
+    }
+}
+
 /// Sets whether the OS pointer capture is currently active.
+///
+/// When the platform reports capture revocation (transition from captured `true` to `false`),
+/// the tracked capture request is cleared so that a subsequent capture request can retry.
 pub fn set_platform_pointer_captured(captured: bool) {
-    PLATFORM_POINTER_CAPTURED.store(captured, Ordering::Release);
+    let was_captured = PLATFORM_POINTER_CAPTURED.swap(captured, Ordering::AcqRel);
+    if was_captured && !captured {
+        if let Ok(mut requested) = PLATFORM_POINTER_CAPTURE_REQUESTED.lock() {
+            *requested = None;
+        }
+    }
 }
 
 /// Reads whether the OS pointer capture is currently active.
@@ -138,13 +183,56 @@ pub fn is_platform_pointer_captured() -> bool {
 
 /// Registers the platform function that requests or releases OS pointer capture.
 pub fn set_capture_driver(driver: fn(bool)) {
-    let _ = CAPTURE_DRIVER.set(driver);
+    if let Ok(mut slot) = CAPTURE_DRIVER.lock() {
+        *slot = Some(Box::new(driver));
+    }
 }
 
 /// Requests or releases OS pointer capture through the registered platform driver.
+///
+/// Deduplicates redundant requests: only invokes the underlying driver when the
+/// requested state transitions (`false` -> `true` or `true` -> `false`) or when
+/// a previously failed/revoked capture request needs to be retried.
 pub fn request_platform_pointer_capture(enable: bool) {
-    if let Some(driver) = CAPTURE_DRIVER.get() {
-        driver(enable);
+    let should_invoke = {
+        if let Ok(mut requested) = PLATFORM_POINTER_CAPTURE_REQUESTED.lock() {
+            let is_captured = PLATFORM_POINTER_CAPTURED.load(Ordering::Acquire);
+            if enable {
+                // If capture is already active and we already requested it, nothing to do.
+                if is_captured && *requested == Some(true) {
+                    false
+                } else if *requested == Some(true) && !is_captured {
+                    // Previous request was true, but capture has not succeeded or was revoked.
+                    // Do not re-request every frame; retry occurs when revoked or reset.
+                    false
+                } else {
+                    *requested = Some(true);
+                    true
+                }
+            } else {
+                // Disabling capture:
+                if !is_captured && *requested == Some(false) {
+                    false
+                } else if !is_captured && requested.is_none() {
+                    // Already not captured and no pending request to enable capture: redundant release
+                    *requested = Some(false);
+                    false
+                } else {
+                    *requested = Some(false);
+                    true
+                }
+            }
+        } else {
+            true
+        }
+    };
+
+    if should_invoke {
+        if let Ok(driver_guard) = CAPTURE_DRIVER.lock() {
+            if let Some(driver) = driver_guard.as_ref() {
+                driver(enable);
+            }
+        }
     }
 }
 

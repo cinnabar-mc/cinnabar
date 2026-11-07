@@ -317,9 +317,119 @@ fn mouse_motion_and_scroll_queues() {
 
 #[test]
 fn pointer_capture_state() {
-    set_platform_pointer_captured(false);
+    reset_platform_pointer_capture_state();
     assert!(!is_platform_pointer_captured());
     set_platform_pointer_captured(true);
     assert!(is_platform_pointer_captured());
     set_platform_pointer_captured(false);
+    assert!(!is_platform_pointer_captured());
+}
+
+static TEST_CALL_COUNT: Mutex<usize> = Mutex::new(0);
+static TEST_LAST_CALL: Mutex<Option<bool>> = Mutex::new(None);
+
+fn dummy_test_driver(enable: bool) {
+    if let Ok(mut count) = TEST_CALL_COUNT.lock() {
+        *count += 1;
+    }
+    if let Ok(mut last) = TEST_LAST_CALL.lock() {
+        *last = Some(enable);
+    }
+}
+
+fn reset_test_driver() {
+    if let Ok(mut count) = TEST_CALL_COUNT.lock() {
+        *count = 0;
+    }
+    if let Ok(mut last) = TEST_LAST_CALL.lock() {
+        *last = None;
+    }
+    reset_platform_pointer_capture_state();
+    set_capture_driver(dummy_test_driver);
+}
+
+#[test]
+fn capture_deduplication_repeated_identical_requests() {
+    reset_test_driver();
+
+    // First request enable = true
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 1);
+    assert_eq!(*TEST_LAST_CALL.lock().unwrap(), Some(true));
+
+    // Repeated identical request before capture callback
+    request_platform_pointer_capture(true);
+    assert_eq!(
+        *TEST_CALL_COUNT.lock().unwrap(),
+        1,
+        "Repeated identical request (true) must not invoke driver again"
+    );
+
+    // Platform reports capture active
+    set_platform_pointer_captured(true);
+
+    // Repeated identical request while captured
+    request_platform_pointer_capture(true);
+    assert_eq!(
+        *TEST_CALL_COUNT.lock().unwrap(),
+        1,
+        "Repeated identical request while captured must not invoke driver again"
+    );
+}
+
+#[test]
+fn capture_switching_false_to_true_and_true_to_false() {
+    reset_test_driver();
+
+    // Start disabled
+    request_platform_pointer_capture(false);
+    // Initial request for false when not captured and no previous request:
+    // It should either call false or be a no-op if already uncaptured and requested false.
+    let initial_calls = *TEST_CALL_COUNT.lock().unwrap();
+
+    // Switching false -> true
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), initial_calls + 1);
+    assert_eq!(*TEST_LAST_CALL.lock().unwrap(), Some(true));
+
+    // Platform acknowledges capture
+    set_platform_pointer_captured(true);
+
+    // Switching true -> false
+    request_platform_pointer_capture(false);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), initial_calls + 2);
+    assert_eq!(*TEST_LAST_CALL.lock().unwrap(), Some(false));
+
+    // Platform acknowledges release
+    set_platform_pointer_captured(false);
+
+    // Repeated false must not call driver again
+    request_platform_pointer_capture(false);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), initial_calls + 2);
+}
+
+#[test]
+fn capture_revocation_and_subsequent_retry() {
+    reset_test_driver();
+
+    // Request capture
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 1);
+
+    // Capture granted
+    set_platform_pointer_captured(true);
+    assert!(is_platform_pointer_captured());
+
+    // Android loses focus, user presses Home or window is revoked -> set_platform_pointer_captured(false)
+    set_platform_pointer_captured(false);
+    assert!(!is_platform_pointer_captured());
+
+    // Subsequent capture request must be able to retry
+    request_platform_pointer_capture(true);
+    assert_eq!(
+        *TEST_CALL_COUNT.lock().unwrap(),
+        2,
+        "After capture revocation, a new request must invoke driver to retry"
+    );
+    assert_eq!(*TEST_LAST_CALL.lock().unwrap(), Some(true));
 }

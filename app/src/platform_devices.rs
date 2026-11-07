@@ -3,15 +3,129 @@
 use bevy::{
     ecs::entity::Entity,
     input::{
-        ButtonState,
-        mouse::{AccumulatedMouseMotion, MouseButtonInput, MouseScrollUnit, MouseWheel},
+        ButtonInput, ButtonState,
+        keyboard::KeyCode,
+        mouse::{
+            AccumulatedMouseMotion, MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel,
+        },
+        touch::{TouchInput, TouchPhase},
     },
     math::Vec2,
-    prelude::{Messages, Query, ResMut, With},
+    prelude::{Local, MessageReader, Messages, Query, Res, ResMut, With},
     window::{PrimaryWindow, WindowEvent},
 };
-pub use client_state::ConnectedPhysicalDevices;
+use client_shell::{
+    menu::MenuRuntime,
+    ui_resources::{UiPresentationResource, UiRuntimeResource},
+};
 pub use client_state::devices::{DeviceTracker, RawInputDeviceInfo};
+pub use client_state::{
+    ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
+};
+
+/// Previous device counts tracked to detect physical device arrivals.
+#[derive(Default)]
+pub struct PreviousDeviceCounts {
+    pub mice: u32,
+    pub keyboards: u32,
+}
+
+/// Automatically arbitrates between `Touch` and `KeyboardMouse` modes based on
+/// physical device connections, physical mouse/keyboard activity, and gameplay touch contacts.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn arbitrate_gameplay_input_mode(
+    devices: Res<ConnectedPhysicalDevices>,
+    mut prev_counts: Local<PreviousDeviceCounts>,
+    motion: Option<Res<AccumulatedMouseMotion>>,
+    keys: Option<Res<ButtonInput<KeyCode>>>,
+    mouse_buttons: Option<Res<ButtonInput<MouseButton>>>,
+    mut touch_input: MessageReader<TouchInput>,
+    claimed_touches: Option<Res<crate::ui_runtime::touch_pointer::UiTouchStarts>>,
+    player: Option<Res<client_state::PlayerRuntime>>,
+    ui: Option<Res<UiRuntimeResource>>,
+    menu: Option<Res<MenuRuntime>>,
+    presentation: Option<Res<UiPresentationResource>>,
+    screen_focus: Option<Res<client_state::ScreenFocus>>,
+    mut detected: ResMut<DetectedGameplayInputMode>,
+    mut effective: ResMut<EffectiveGameplayInputMode>,
+) {
+    let mut target_mode = None;
+
+    // 1. Physical mouse activity:
+    let has_mouse_motion = motion
+        .as_ref()
+        .is_some_and(|m| m.delta.x.abs() > 0.001 || m.delta.y.abs() > 0.001);
+    let has_mouse_click = mouse_buttons
+        .as_ref()
+        .is_some_and(|b| b.get_just_pressed().next().is_some());
+    let mouse_active = (has_mouse_motion || has_mouse_click) && devices.mice > 0;
+
+    // 2. Physical keyboard activity:
+    let has_key_press = keys
+        .as_ref()
+        .is_some_and(|k| k.get_just_pressed().next().is_some());
+    let keyboard_active = has_key_press && devices.keyboards > 0;
+
+    // 3. Device connection / disconnection transitions:
+    let mice_arrived = prev_counts.mice == 0 && devices.mice > 0;
+    let keyboards_arrived = prev_counts.keyboards == 0 && devices.keyboards > 0;
+    let all_disconnected = devices.mice == 0 && devices.keyboards == 0;
+    let disconnected_all_devices =
+        all_disconnected && (prev_counts.mice > 0 || prev_counts.keyboards > 0);
+
+    prev_counts.mice = devices.mice;
+    prev_counts.keyboards = devices.keyboards;
+
+    // Priority 1: Physical keyboard/mouse activity or connection selects KeyboardMouse:
+    if mouse_active || keyboard_active || mice_arrived || keyboards_arrived {
+        target_mode = Some(semantic_input::InputMode::KeyboardMouse);
+    } else {
+        // Priority 2: Gameplay touch interaction selects Touch:
+        // Evaluate live UI and menu visibility directly so arbitration never suffers
+        // from single-frame lag compared to the Update-phase ScreenFocus publication.
+        let gameplay_active = match (player.as_deref(), ui.as_deref(), menu.as_deref()) {
+            (Some(player), Some(ui_res), menu_res) => {
+                let absorbed = client_shell::screen_policy::absorbs_input(
+                    player,
+                    Some(&ui_res.0),
+                    menu_res,
+                    presentation.as_deref().map(|p| &p.0),
+                );
+                !absorbed
+                    && !ui_res.ui_focused(player)
+                    && !menu_res.is_some_and(MenuRuntime::is_visible)
+            }
+            _ => screen_focus.as_ref().is_none_or(|focus| {
+                !focus.absorbs_input && !focus.menu_visible && !focus.ui_focused
+            }),
+        };
+
+        let mut gameplay_touch_started = false;
+        for touch in touch_input.read() {
+            if touch.phase == TouchPhase::Started {
+                let is_ui_touch = claimed_touches
+                    .as_ref()
+                    .is_some_and(|claimed| claimed.0.contains(&touch.id));
+                if !is_ui_touch && gameplay_active {
+                    gameplay_touch_started = true;
+                }
+            }
+        }
+
+        if gameplay_touch_started {
+            target_mode = Some(semantic_input::InputMode::Touch);
+        } else if disconnected_all_devices {
+            // Priority 3: Disconnection of all physical devices falls back to Touch:
+            target_mode = Some(semantic_input::InputMode::Touch);
+        }
+    }
+
+    // Apply resolved mode:
+    if let Some(mode) = target_mode {
+        detected.0 = mode;
+        effective.0 = mode;
+    }
+}
 
 /// Synchronizes the latest atomic platform-reported device state into the ECS resource.
 pub fn sync_connected_physical_devices(mut devices: ResMut<ConnectedPhysicalDevices>) {
@@ -113,3 +227,6 @@ pub fn set_capture_driver(driver: fn(bool)) {
 pub fn request_platform_pointer_capture(enable: bool) {
     client_state::devices::request_platform_pointer_capture(enable);
 }
+
+#[cfg(test)]
+mod tests;

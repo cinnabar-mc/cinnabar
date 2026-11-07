@@ -30,9 +30,7 @@ fn pause_scales_actions_together_at_the_window_minimum() {
         });
         let compact = preview.is_none();
         let margin = (rem * 2.4).min(size[0] * 0.04).min(size[1] * 0.025);
-        let scale = ((size[1] - margin * 2.0)
-            / (rem * minimum_height(compact, true, view.touch_available)))
-        .min(1.0);
+        let scale = ((size[1] - margin * 2.0) / (rem * minimum_height(compact, true))).min(1.0);
         for action in [
             MenuAction::PauseResume,
             MenuAction::PauseSettings,
@@ -84,74 +82,26 @@ fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
 }
 
 #[test]
-fn pause_shows_gameplay_input_mode_toggle_when_touch_available() {
-    for (mode, expected_label) in [
-        (semantic_input::InputMode::Touch, "Input: Touch"),
-        (
-            semantic_input::InputMode::KeyboardMouse,
-            "Input: Keyboard & Mouse",
-        ),
-    ] {
-        let mut view = MenuView::new(true, "Fixture".into());
-        view.touch_available = true;
-        view.gameplay_input_mode = mode;
-        let (_, hits, nodes) = paint(Default::default(), |c| {
-            draw(c, &view, [1280.0, 720.0], &|_| None).unwrap();
-        });
-        let toggle = hits
-            .iter()
-            .find(|(action, _)| *action == MenuAction::ToggleGameplayInputMode);
-        assert!(
-            toggle.is_some(),
-            "Input mode toggle must be present when touch_available is true"
-        );
-        let has_label = nodes.iter().any(|node| match node.visual() {
-            ui::UiVisual::Text { layout, .. } => {
-                let text: String = layout.glyphs().iter().map(|g| g.codepoint).collect();
-                text == expected_label
-            }
-            _ => false,
-        });
-        assert!(
-            has_label,
-            "Button label must be {expected_label} for {mode:?}"
-        );
-    }
-}
-
-#[test]
-fn pause_hides_gameplay_input_mode_toggle_when_touch_unavailable() {
-    let mut view = MenuView::new(true, "Fixture".into());
-    view.touch_available = false;
-    let (_, hits, _) = paint(Default::default(), |c| {
-        draw(c, &view, [1280.0, 720.0], &|_| None).unwrap();
-    });
-    let toggle = hits
-        .iter()
-        .find(|(action, _)| *action == MenuAction::ToggleGameplayInputMode);
-    assert!(
-        toggle.is_none(),
-        "Input mode toggle must be absent when touch_available is false"
-    );
-}
-
-#[test]
-fn pause_compact_layout_includes_input_toggle_when_touch_available() {
+fn pause_compact_layout_preserves_actions_without_manual_input_toggle() {
     let mut view = MenuView::new(true, "Fixture".into());
     view.touch_available = true;
-    view.gameplay_input_mode = semantic_input::InputMode::Touch;
     let (_, hits, _) = paint(Default::default(), |c| {
         draw(c, &view, [480.0, 320.0], &|_| None).unwrap();
     });
     assert!(
         hits.iter()
-            .any(|(action, _)| *action == MenuAction::ToggleGameplayInputMode),
-        "Compact pause menu must include input toggle when touch is available"
+            .any(|(action, _)| *action == MenuAction::PauseResume),
+        "Compact pause menu must preserve Resume"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseSettings),
+        "Compact pause menu must preserve Settings"
     );
     assert!(
         hits.iter()
             .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom)),
-        "Compact pause menu must also preserve Dressing Room"
+        "Compact pause menu must preserve Dressing Room"
     );
     assert!(
         hits.iter()

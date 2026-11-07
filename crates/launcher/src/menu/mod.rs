@@ -209,8 +209,6 @@ pub enum MenuAction {
     DeathExitWorld,
     ConfirmDeathQuit,
     PauseSettings,
-    /// Toggles between touch and keyboard/mouse gameplay input.
-    ToggleGameplayInputMode,
     /// Load a saved server into the add/edit draft.
     EditSaved(usize),
     /// Pick a settings section by its selector index.
