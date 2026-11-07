@@ -155,11 +155,7 @@ fn allowed(state: &State, path: &Path, now: u64) -> bool {
 fn reason(state: &State, path: &Path, now: u64) -> String {
     if let Some((owner, manifest)) = state.installed.get(path) {
         if let Some(reason) = state.revoked.get(&manifest.sha256) {
-            return if reason.is_empty() {
-                "Marketplace release withdrawn by staff.".into()
-            } else {
-                format!("Marketplace release withdrawn: {reason}")
-            };
+            return launcher::mods::marketplace_withdrawn(reason);
         }
         if owner != &state.account {
             return "Sign into this mod's account before enabling it.".into();

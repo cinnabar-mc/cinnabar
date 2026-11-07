@@ -37,6 +37,18 @@ pub(super) const STATES: &[State] = &[
         fixture: marketplace_signed_in,
     },
     State {
+        name: "settings-mods-marketplace-downloaded",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_downloaded,
+    },
+    State {
+        name: "settings-mods-marketplace-withdrawn",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_withdrawn,
+    },
+    State {
         name: "settings-mods",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -127,6 +139,63 @@ fn marketplace_signed_in() -> Fixture {
     };
     view.auth_state = launcher::menu::auth::AuthState::Authenticated;
     Fixture::Menu(view)
+}
+
+/// One expanded, verified website selection; `status` is `None` until the player enables it.
+fn marketplace_library(status: Option<Status>, message: String) -> Fixture {
+    let Fixture::Menu(mut view) = marketplace_signed_in() else {
+        unreachable!("the marketplace fixture is a menu")
+    };
+    view.mods = Arc::new(Snapshot {
+        library: Library {
+            installed: vec![InstalledMod {
+                id: 1,
+                file: "marketplace-fixture-1f2e3d.wasm".into(),
+                bytes: 96_256,
+                permissions: vec![Permission {
+                    applicable: true,
+                    name: "time override".into(),
+                    description: "Lets the mod fix the local time of day.".into(),
+                    enabled: false,
+                    requested: Some(true),
+                    requested_allowed: true,
+                    sensitive: false,
+                }],
+                metadata: ModMetadata {
+                    name: Some("Daylight Lock".into()),
+                    description: Some("Keeps your local sky at a chosen time of day.".into()),
+                    version: Some("1.0.0".into()),
+                    authors: Some("Example Author".into()),
+                    icon: Some(icon()),
+                    ..ModMetadata::default()
+                },
+            }],
+            active: status
+                .map(|status| ActiveMod { id: 1, status })
+                .into_iter()
+                .collect(),
+            message,
+            ..Library::default()
+        },
+        details_expanded: Some(1),
+        ..Snapshot::default()
+    });
+    Fixture::Menu(view)
+}
+
+/// A verified download waiting, disabled, in My mods.
+fn marketplace_downloaded() -> Fixture {
+    marketplace_library(None, launcher::mods::MARKETPLACE_ADDED.into())
+}
+
+/// An enabled marketplace mod held after staff withdrew its release.
+fn marketplace_withdrawn() -> Fixture {
+    marketplace_library(
+        Some(Status::Failed(launcher::mods::marketplace_withdrawn(
+            "Requests more permissions than its listing describes.",
+        ))),
+        String::new(),
+    )
 }
 
 /// Three components; `metadata` decides whether they describe themselves.

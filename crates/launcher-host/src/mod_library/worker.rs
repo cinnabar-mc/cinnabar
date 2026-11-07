@@ -41,7 +41,7 @@ pub fn run<B: Backend>(
                     download
                         .install(crate::marketplace::now_ms())
                         .map_err(|error| error.to_string())?;
-                    Ok::<_, String>("Marketplace mod added to Available. Enable it and choose its permissions in Mods.".to_owned())
+                    Ok::<_, String>(launcher::mods::MARKETPLACE_ADDED.to_owned())
                 })();
                 result.unwrap_or_else(|error| format!("Marketplace installation held: {error}"))
             }

@@ -8,8 +8,20 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
 pub const COMPONENT_EXTENSION: &str = "wasm";
 /// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
 pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
+/// Library message after a verified marketplace download lands, disabled, in My mods.
+pub const MARKETPLACE_ADDED: &str =
+    "Marketplace mod added to Available. Enable it and choose its permissions in Mods.";
 /// Release tags share the installed metadata version's display bound.
 pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
+
+/// Status text for a marketplace release that staff withdrew, with their optional reason.
+pub fn marketplace_withdrawn(reason: &str) -> String {
+    if reason.is_empty() {
+        "Marketplace release withdrawn by staff.".into()
+    } else {
+        format!("Marketplace release withdrawn: {reason}")
+    }
+}
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
