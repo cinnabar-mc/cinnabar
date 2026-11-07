@@ -129,11 +129,8 @@ pub use inventory::{
     TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
-};
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    ArmorDamage, ArmorDamageEvent, CONTAINER_NAME_ARMOR,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
@@ -150,6 +147,10 @@ pub use inventory::{
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
     repeated_container_open_warning_packet, validate_item_nbt_size,
+};
+pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
