@@ -937,22 +937,22 @@ impl Instance {
             .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns the movement intents from the last callback completed in its frame.
+    /// Returns the granted movement intents from the last callback completed in its frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.store
             .data()
             .world
             .movement_intents
-            .filter(|_| self.is_active())
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns the control modes from the last callback completed in its frame.
+    /// Returns the granted control modes from the last callback completed in its frame.
     pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
         self.store
             .data()
             .world
             .control_modes
-            .filter(|_| self.is_active())
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {

@@ -550,6 +550,22 @@ fn control_modes_survive_a_deferred_frame_callback() {
         Some(staged_modes()),
         "a deferred callback reverted the mod's renewed modes to the player's settings"
     );
+    host.instance.bind_drawing_policy(
+        ModGrants::default(),
+        mod_api::drawing::DrawingSession {
+            connection: 1,
+            dimension: 0,
+            local: false,
+            permissions: Default::default(),
+        },
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "retained modes outlived the movement grant"
+    );
 }
 
 /// Components compiled against the original gameplay interface still instantiate unchanged.
