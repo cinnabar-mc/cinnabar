@@ -312,9 +312,14 @@ pub struct HudStore {
     title: Option<TimedText>,
     /// The subtitle shown with `title`, sharing its timing; a new title replaces it.
     subtitle: Option<TimedText>,
-    /// A subtitle waiting for the next title. The presentation tick drops it once a title exists,
-    /// so it reaches either the title that arrives with it or the title already shown.
+    /// A subtitle waiting for a title. Until the presentation tick it joins every title set in
+    /// that tick; the tick drops it once a title exists.
     pending_subtitle: Option<(Arc<str>, u64)>,
+    /// A title arrived since the last presentation tick.
+    title_since_tick: bool,
+    /// The subtitle shown at the last presentation tick, restored when a queued update is
+    /// cancelled before it is shown.
+    presented_subtitle: Option<TimedText>,
     actionbar: Option<TimedText>,
     /// The tip text: `TextTypeTip` and its JSON variant sit above the hotbar,
     /// bound to `#tip_text` in `hud_screen.json`.
@@ -450,16 +455,23 @@ impl HudStore {
         let title = TimedText::new(text, fifo_sequence, now_millis, self.durations);
         self.subtitle = self
             .pending_subtitle
-            .take()
+            .clone()
             .map(|(text, sequence)| title.with_text(text, sequence));
         self.title = Some(title);
+        self.title_since_tick = true;
     }
 
     /// Queues a subtitle for the next title and, while a title exists, shows it there at once.
-    /// An empty subtitle only cancels the queued one.
+    /// An empty subtitle cancels the queued one: a title set since the last tick then has none,
+    /// and an earlier title keeps the subtitle it was last shown with.
     pub fn set_subtitle(&mut self, text: Arc<str>, fifo_sequence: u64, _now_millis: u64) {
         if text.is_empty() {
             self.pending_subtitle = None;
+            self.subtitle = if self.title_since_tick {
+                None
+            } else {
+                self.presented_subtitle.clone()
+            };
             return;
         }
         if let Some(title) = &self.title {
@@ -490,6 +502,8 @@ impl HudStore {
         self.title = None;
         self.subtitle = None;
         self.pending_subtitle = None;
+        self.title_since_tick = false;
+        self.presented_subtitle = None;
         self.actionbar = None;
         self.tip = None;
     }
@@ -541,6 +555,8 @@ impl HudStore {
         if self.title.is_some() {
             self.pending_subtitle = None;
         }
+        self.title_since_tick = false;
+        self.presented_subtitle.clone_from(&self.subtitle);
         if self
             .tip
             .as_ref()
