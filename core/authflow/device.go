@@ -155,8 +155,8 @@ func tolerantPollContext(ctx context.Context, lostAnswer *atomic.Bool) context.C
 	return context.WithValue(ctx, oauth2.HTTPClient, &tolerant)
 }
 
-// pollTransport passes on only the answers that settle a device code: a token, or an OAuth error
-// that is not temporary. A rate limit becomes slow_down and anything else becomes pending.
+// pollTransport passes on redirects and the answers that settle a device code: a token, or an
+// OAuth error that is not temporary. A rate limit becomes slow_down and anything else pending.
 type pollTransport struct {
 	base       http.RoundTripper
 	lostAnswer *atomic.Bool
@@ -181,12 +181,24 @@ func (t pollTransport) RoundTrip(request *http.Request) (*http.Response, error) 
 	if response.StatusCode == http.StatusTooManyRequests {
 		return syntheticPoll(request, slowDownPollResponse), nil
 	}
-	if !settlesDeviceCode(response, body) {
+	if !redirects(response) && !settlesDeviceCode(response, body) {
 		return syntheticPoll(request, pendingPollResponse), nil
 	}
 	response.Body = io.NopCloser(bytes.NewReader(body))
 	response.ContentLength = int64(len(body))
 	return response, nil
+}
+
+// redirects reports whether http.Client follows response to another request, which this transport
+// then classifies in turn.
+func redirects(response *http.Response) bool {
+	switch response.StatusCode {
+	case http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther,
+		http.StatusTemporaryRedirect, http.StatusPermanentRedirect:
+		return response.Header.Get("Location") != ""
+	default:
+		return false
+	}
 }
 
 // settlesDeviceCode reports whether the provider itself answered the poll. Pages from proxies and

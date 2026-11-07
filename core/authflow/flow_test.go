@@ -585,3 +585,27 @@ func TestDeviceFailureNamesARejectionAfterALostAnswer(t *testing.T) {
 		}
 	})
 }
+
+func TestDeviceFlowFollowsARedirectedTokenEndpoint(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://login.example.test/moved"}},
+					Body: io.NopCloser(strings.NewReader("")), Request: request,
+				}, nil
+			},
+			func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path != "/moved" || request.Method != http.MethodPost {
+					t.Errorf("redirected poll = %s %s, want POST /moved", request.Method, request.URL.Path)
+				}
+				return tokenReply(http.StatusOK, `{"access_token":"token","token_type":"bearer"}`)(request)
+			},
+		}}
+		start := time.Now()
+		token, err := pollDevice(context.Background(), endpoint, start.Add(15*time.Minute))
+		if err != nil || token == nil || token.AccessToken != "token" || time.Since(start) != 5*time.Second {
+			t.Fatalf("Request() = %v, %v after %v; want the token from the redirect on the first poll", token, err, time.Since(start))
+		}
+	})
+}
