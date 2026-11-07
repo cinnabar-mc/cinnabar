@@ -158,7 +158,8 @@ impl TextureSet {
     }
 
     /// Ends a presented frame; returns the oversized textures it drew when any of them has no
-    /// full-resolution copy installed, so the caller can pack those first.
+    /// full-resolution copy installed, so the caller can pack those first, or an empty set when
+    /// it drew none, so a closed screen's textures lose that priority.
     pub fn end_oversized_frame(&self) -> Option<std::collections::BTreeSet<String>> {
         self.lock()
             .end_oversized_frame(|key| self.full_res.contains_key(key))

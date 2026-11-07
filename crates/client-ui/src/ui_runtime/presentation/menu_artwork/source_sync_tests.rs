@@ -569,3 +569,23 @@ fn drawn_art_without_copies_repacks_after_the_pack_in_flight() {
     runtime.finish_menu_artwork();
     assert!(has_art(&runtime, second));
 }
+
+/// Closing a screen retires the priority of the large textures it drew, so launcher artwork the
+/// next screen shows packs ahead of them again.
+#[test]
+fn a_closed_screen_retires_its_drawn_art_priority() {
+    let mut runtime = presentation();
+    runtime.menu_artwork_set.images = vec![("world-thumbnail".into(), png(4).into())];
+    install(&mut runtime, &[("textures/drawn", png(1))]);
+    runtime.sync_server_ui_pages();
+    runtime.finish_menu_artwork();
+    runtime.sync_server_ui_pages();
+    assert!(runtime.menu_artwork_set.drawn_oversized.is_empty());
+    let order: Vec<String> = sources(&runtime.menu_artwork_set)
+        .iter()
+        .map(|source| source.key().0)
+        .collect();
+    let position = |key: &str| order.iter().position(|entry| entry == key).unwrap();
+    let art = position(&format!("{SERVER_ART_PREFIX}textures/drawn"));
+    assert!(position("world-thumbnail") < art, "{order:?}");
+}

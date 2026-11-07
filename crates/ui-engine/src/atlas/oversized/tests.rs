@@ -202,8 +202,9 @@ fn scrolling_back_reports_the_retained_textures_drawn_without_art() {
         .expect("the top icons have no art");
     assert!(drawn.iter().eq(top.iter()));
     assert_eq!(offered(&atlas), keys, "nothing was replaced");
-    assert!(
-        atlas.end_oversized_frame(|_| false).is_none(),
-        "a frame that draws nothing reports nothing"
+    assert_eq!(
+        atlas.end_oversized_frame(|_| false),
+        Some(Default::default()),
+        "a frame that draws nothing retires the drawn priority"
     );
 }

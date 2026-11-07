@@ -132,7 +132,8 @@ impl Registry {
         self.fitted.remove(key);
     }
 
-    /// Ends the frame; returns the offered keys it drew when any lacks art per `has_art`.
+    /// Ends the frame; returns the offered keys it drew when any lacks art per `has_art`, or an
+    /// empty set when it drew none, so a closed screen's textures lose their priority.
     pub(super) fn end_frame(&mut self, has_art: impl Fn(&str) -> bool) -> Option<BTreeSet<String>> {
         let frame = self.frame;
         self.frame += 1;
@@ -141,7 +142,7 @@ impl Registry {
             .iter()
             .filter(move |(_, drawn)| **drawn == frame)
             .map(|(key, _)| key);
-        if !drawn.clone().any(|key| !has_art(key)) {
+        if drawn.clone().next().is_some() && !drawn.clone().any(|key| !has_art(key)) {
             return None;
         }
         Some(drawn.by_ref().cloned().collect())
@@ -154,7 +155,8 @@ impl super::ServerAtlas {
         self.oversized.offered()
     }
 
-    /// Ends a presented frame; the oversized keys it drew when any lacks art per `has_art`.
+    /// Ends a presented frame; the oversized keys it drew when any lacks art per `has_art`, or an
+    /// empty set when it drew none.
     pub fn end_oversized_frame(
         &mut self,
         has_art: impl Fn(&str) -> bool,
