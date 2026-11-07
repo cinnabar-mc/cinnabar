@@ -242,8 +242,8 @@ public final class CinnabarActivity extends NativeActivity {
         }
     }
 
-    @Override public void onPointerCaptureChange(boolean hasCapture) {
-        super.onPointerCaptureChange(hasCapture);
+    @Override public void onPointerCaptureChanged(boolean hasCapture) {
+        super.onPointerCaptureChanged(hasCapture);
         try {
             nativeOnPointerCaptureChange(hasCapture);
         } catch (UnsatisfiedLinkError e) {
