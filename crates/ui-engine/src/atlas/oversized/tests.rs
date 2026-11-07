@@ -162,7 +162,7 @@ fn scrolling_offers_newly_drawn_textures_in_place_of_ones_left_behind() {
     let (mut atlas, keys) = icon_atlas(MAX_OVERSIZED + 3);
     let (first, rest) = keys.split_at(MAX_OVERSIZED);
     atlas.require(first.iter().map(String::as_str));
-    assert!(atlas.end_oversized_frame(|_| true).is_none());
+    atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
     let scrolled: Vec<&str> = first[3..].iter().chain(rest).map(String::as_str).collect();
     atlas.require(scrolled.iter().copied());
     let now = offered(&atlas);
@@ -194,17 +194,58 @@ fn scrolling_back_reports_the_retained_textures_drawn_without_art() {
     let (top, bottom) = keys.split_at(MAX_OVERSIZED / 2);
     for frame in [top, bottom] {
         atlas.require(frame.iter().map(String::as_str));
-        atlas.end_oversized_frame(|_| true);
+        atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
     }
     atlas.require(top.iter().map(String::as_str));
-    let drawn = atlas
-        .end_oversized_frame(|key| bottom.iter().any(|bottom| bottom == key))
-        .expect("the top icons have no art");
+    let priority: BTreeSet<String> = bottom.iter().cloned().collect();
+    let OversizedDraws::Uncovered(drawn) =
+        atlas.end_oversized_frame(&priority, |key| priority.contains(key))
+    else {
+        panic!("the top icons have no art");
+    };
     assert!(drawn.iter().eq(top.iter()));
     assert_eq!(offered(&atlas), keys, "nothing was replaced");
     assert_eq!(
-        atlas.end_oversized_frame(|_| false),
-        Some(Default::default()),
-        "a frame that draws nothing retires the drawn priority"
+        atlas.end_oversized_frame(&drawn, |_| false),
+        OversizedDraws::Covered(BTreeSet::new()),
+        "a frame that draws nothing retires the drawn priority without repacking"
+    );
+}
+
+/// When a form closes over a large HUD texture that keeps drawing from its copy, the priority
+/// shrinks to that texture, then stays put while the frames repeat.
+#[test]
+fn closing_a_screen_reports_the_surviving_textures_that_have_art() {
+    let (mut atlas, keys) = icon_atlas(3);
+    atlas.require(keys.iter().map(String::as_str));
+    let all: BTreeSet<String> = keys.iter().cloned().collect();
+    assert_eq!(
+        atlas.end_oversized_frame(&BTreeSet::new(), |_| true),
+        OversizedDraws::Covered(all.clone())
+    );
+    let hud: BTreeSet<String> = keys[..1].iter().cloned().collect();
+    atlas.require([keys[0].as_str()]);
+    assert_eq!(
+        atlas.end_oversized_frame(&all, |_| true),
+        OversizedDraws::Covered(hud.clone())
+    );
+    atlas.require([keys[0].as_str()]);
+    assert_eq!(
+        atlas.end_oversized_frame(&hud, |_| true),
+        OversizedDraws::Same
+    );
+}
+
+/// A texture drawn straight from its copy counts as drawn for the frame.
+#[test]
+fn art_draws_count_as_drawn() {
+    let (mut atlas, keys) = icon_atlas(1);
+    atlas.require([keys[0].as_str()]);
+    let drawn: BTreeSet<String> = keys.iter().cloned().collect();
+    atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
+    atlas.draw_art(&keys[0]);
+    assert_eq!(
+        atlas.end_oversized_frame(&drawn, |_| true),
+        OversizedDraws::Same
     );
 }
