@@ -221,7 +221,7 @@ mod tests {
             presentation.end_ui_frame();
         }
         assert!(
-            presentation.menu_artwork_loader.overflowed(),
+            presentation.menu_artwork_loader.left_out(),
             "the art pages had room to spare"
         );
         assert!(presentation.menu_artwork_set.drawn_oversized.contains(key));

@@ -477,7 +477,7 @@ impl UiPresentationRuntime {
         }
         let loader = &self.menu_artwork_loader;
         if self.frame_oversized != self.menu_artwork_set.drawn_oversized
-            && (artwork_changed || loader.settled() && (drawn.uncovered || loader.overflowed()))
+            && (artwork_changed || loader.settled() && (drawn.uncovered || loader.left_out()))
         {
             self.menu_artwork_set
                 .drawn_oversized

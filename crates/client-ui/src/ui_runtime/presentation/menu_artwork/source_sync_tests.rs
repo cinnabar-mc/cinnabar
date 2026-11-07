@@ -265,7 +265,7 @@ fn unchanged_gallery_polls_and_installs_worker_results_and_resets_its_request() 
     done.send(Packed {
         id: requested,
         complete: true,
-        overflowed: false,
+        left_out: false,
         pages: vec![
             render_model::UiTexturePage::owned(
                 [side; 2],
@@ -680,7 +680,7 @@ fn drawn_art_missing_from_an_atlas_with_room_repacks() {
     );
     runtime.rebuild_dynamic_textures();
     assert!(runtime.menu_artwork_loader.settled());
-    assert!(!runtime.menu_artwork_loader.overflowed());
+    assert!(!runtime.menu_artwork_loader.left_out());
     runtime
         .engine
         .as_mut()
@@ -690,4 +690,30 @@ fn drawn_art_missing_from_an_atlas_with_room_repacks() {
         .require(["textures/first"]);
     runtime.end_ui_frame();
     assert_eq!(runtime.menu_artwork_loader.requested, requested + 1);
+}
+
+/// Closing a screen whose large texture pushed launcher artwork past the source cap repacks
+/// with that artwork first again, even when the pages had room.
+#[test]
+fn a_closed_screen_restores_the_launcher_artwork_the_source_cap_left_out() {
+    let mut runtime = presentation();
+    let mut small = Vec::new();
+    image::RgbaImage::from_pixel(4, 4, image::Rgba([9, 9, 9, 255]))
+        .write_to(&mut Cursor::new(&mut small), image::ImageFormat::Png)
+        .unwrap();
+    let small: Arc<[u8]> = small.into();
+    runtime.menu_artwork_set.images = (0..MAX_ARTWORKS)
+        .map(|index| (format!("icon{index:02}"), Arc::clone(&small)))
+        .collect();
+    let last = format!("icon{:02}", MAX_ARTWORKS - 1);
+    install(&mut runtime, &[("textures/drawn", png(1))]);
+    runtime.end_ui_frame();
+    runtime.finish_menu_artwork();
+    assert!(
+        runtime.menu_artwork_icon(&last).is_none(),
+        "the cap kept every launcher icon"
+    );
+    runtime.end_ui_frame();
+    runtime.finish_menu_artwork();
+    assert!(runtime.menu_artwork_icon(&last).is_some());
 }
