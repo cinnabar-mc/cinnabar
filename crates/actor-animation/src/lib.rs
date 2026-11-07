@@ -71,6 +71,7 @@ mod hud;
 mod java;
 mod legacy_swing;
 mod mount;
+mod ocelot;
 mod spear;
 pub use java::retarget::JavaRetargetCache;
 pub use java::{JavaHeldItem, JavaMotion, java_mounted_body_yaw, java_walked_distance};
