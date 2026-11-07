@@ -89,6 +89,7 @@ pub(super) fn drive(
             {
                 if is_captured_slider(presentation, action, position) {
                     focus_touch(menu, presentation, action, position, native_settings);
+                    capture.gui_scale_track = presentation.gui_scale_slider_track();
                 }
                 menu.pressed = Some(action);
                 if let launcher::menu::MenuAction::SettingsOption(index, _) = action
@@ -154,7 +155,16 @@ pub(super) fn drive(
                 .and_then(|point| presentation.hit_test_menu(point));
             if !UiPoint::new(position.x, position.y)
                 .ok()
-                .is_some_and(|point| slider_drag(menu, presentation, &mut action, point, true))
+                .is_some_and(|point| {
+                    slider_drag(
+                        menu,
+                        presentation,
+                        &mut action,
+                        capture.gui_scale_track,
+                        point,
+                        true,
+                    )
+                })
                 && let Some(action) = native_release_action(action, hovered)
             {
                 if let Ok(point) = UiPoint::new(position.x, position.y) {
@@ -176,7 +186,16 @@ pub(super) fn drive(
                 .and_then(|point| presentation.hit_test_menu(point));
             let shader_dragged = UiPoint::new(position.x, position.y)
                 .ok()
-                .is_some_and(|point| slider_drag(menu, presentation, &mut action, point, false));
+                .is_some_and(|point| {
+                    slider_drag(
+                        menu,
+                        presentation,
+                        &mut action,
+                        capture.gui_scale_track,
+                        point,
+                        false,
+                    )
+                });
             if shader_dragged {
                 capture.touch_press = Some((id, action, start));
             } else if native_release_action(action, hovered).is_some() {
@@ -196,15 +215,17 @@ pub(super) fn drive(
 }
 
 /// Updates the slider that captured the finger even outside its original track.
+/// `gui_scale_track` is the GUI-scale track as laid out when the finger captured it.
 fn slider_drag(
     menu: &mut MenuRuntime,
     presentation: &UiPresentationRuntime,
     captured: &mut launcher::menu::MenuAction,
+    gui_scale_track: Option<ui::UiRect>,
     point: UiPoint,
     released: bool,
 ) -> bool {
     if matches!(captured, launcher::menu::MenuAction::SettingsScale(_)) {
-        if let Some(action) = presentation.gui_scale_drag_action(point) {
+        if let Some(action) = presentation.gui_scale_drag_action(point, gui_scale_track) {
             if released || *captured != action {
                 menu.activate_from_input(action);
             }
@@ -230,7 +251,7 @@ fn is_captured_slider(
         shader_options::{Action, Input},
     };
     match action {
-        MenuAction::SettingsScale(_) => presentation.gui_scale_drag_action(point).is_some(),
+        MenuAction::SettingsScale(_) => presentation.gui_scale_drag_action(point, None).is_some(),
         MenuAction::ShaderOptions(Action::Element {
             screen,
             index,

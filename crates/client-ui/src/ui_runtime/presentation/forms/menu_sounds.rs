@@ -40,10 +40,9 @@ static OREUI_CLICK: LazyLock<json_ui::ControlSound> = LazyLock::new(|| json_ui::
 
 /// Whether pressing an OreUI control clicks. Sliders and text fields stay silent. So do server
 /// list sections, whose click belongs to the press that grabs them, not this release action.
-fn oreui_control_clicks(action: MenuAction, scale_picker: bool) -> bool {
+fn oreui_control_clicks(action: MenuAction) -> bool {
     let silent = action.text_field().is_some()
         || match action {
-            MenuAction::SettingsScale(_) => !scale_picker,
             MenuAction::SettingsOption(index, _) => SETTINGS_OPTIONS
                 .get(usize::from(index))
                 .is_some_and(|option| matches!(option.kind, SettingKind::Slider)),
@@ -51,6 +50,7 @@ fn oreui_control_clicks(action: MenuAction, scale_picker: bool) -> bool {
                 input: ShaderInput::Select(_),
                 ..
             })
+            | MenuAction::SettingsScale(_)
             | MenuAction::ServerList(_) => true,
             _ => false,
         };
@@ -65,13 +65,7 @@ impl UiPresentationRuntime {
                 .iter()
                 .find(|(candidate, _)| *candidate == action)
                 .map(|(_, sound)| sound),
-            MenuSounds::OreUi => {
-                let scale_picker = self
-                    .menu_view
-                    .as_ref()
-                    .is_some_and(|view| view.settings.scale_picker);
-                oreui_control_clicks(action, scale_picker).then(|| &*OREUI_CLICK)
-            }
+            MenuSounds::OreUi => oreui_control_clicks(action).then(|| &*OREUI_CLICK),
         }
     }
 

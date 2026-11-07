@@ -5,12 +5,12 @@ use super::{MenuAction, SettingsSliderPointer};
 pub struct SettingsInteraction {
     pub section: u8,
     pub dropdown: Option<u16>,
-    pub scale_picker: bool,
     /// Last interactive activation and its monotonic input revision.
     pub control_activation: Option<(MenuAction, u64)>,
     pub control_activation_navigation: bool,
     /// Continuous pointer position, independent of the persisted slider step.
     pub slider_pointer: Option<SettingsSliderPointer>,
+    /// Slider rows by [`MenuAction::settings_slider_row`].
     pub slider_hovered: Option<u16>,
     pub slider_selected: Option<u16>,
     pub key_remap: Option<u16>,

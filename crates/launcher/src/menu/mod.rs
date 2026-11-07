@@ -171,7 +171,6 @@ pub enum MenuAction {
     /// Opens the native touch-control layout draft.
     EditTouchControls,
     SettingsScale(i8),
-    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),
@@ -242,6 +241,19 @@ pub enum MenuAction {
     JoinRequest(bool),
     /// A press on the Shader Pack Settings screen or its Shaders-tab button.
     ShaderOptions(crate::shader_options::Action),
+}
+
+impl MenuAction {
+    /// The settings row whose slider this step belongs to, as kept in
+    /// [`view::SettingsInteraction`]'s slider fields: an option's own index, or
+    /// [`settings_options::SettingId::GuiScale`]'s for a GUI-scale step.
+    pub fn settings_slider_row(self) -> Option<u16> {
+        match self {
+            Self::SettingsOption(index, _) => Some(index),
+            Self::SettingsScale(_) => Some(settings_options::SettingId::GuiScale.index() as u16),
+            _ => None,
+        }
+    }
 }
 
 /// Joining the featured-list entry at `index`.

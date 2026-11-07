@@ -251,6 +251,17 @@ fn settings_search(query: &str) -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// Shows the Accessibility GUI-scale slider with a 1440p window's three modifiers, set to the
+/// middle one.
+pub(super) fn settings_gui_scale() -> Fixture {
+    let mut view = settings("accessibility_forced_index");
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
+        .choices()
+        .collect();
+    view.gui_scale_offset = view.gui_scale_choices[1].offset;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Focuses the occlusion toggle at its saved value in the Video settings viewport.
 pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
     let mut view = settings("video_forced_index");

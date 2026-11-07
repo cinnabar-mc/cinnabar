@@ -245,10 +245,6 @@ impl MenuRuntime {
             self.dismiss_disconnect();
             return;
         }
-        if self.screen == MenuScreen::Settings && self.settings.scale_picker {
-            self.activate(MenuAction::SettingsScalePicker);
-            return;
-        }
         if self.screen == MenuScreen::Settings
             && let Some(index) = self.settings.dropdown
         {
