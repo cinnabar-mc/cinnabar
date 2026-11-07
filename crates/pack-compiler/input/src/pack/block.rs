@@ -300,16 +300,12 @@ pub fn resolve_texture_key(
             if facing_cube::is_record(record) {
                 return facing_cube_face(record, face)
                     .and_then(|(source_face, _)| faces.resolve(source_face))
-                    .map_or_else(TextureKey::diagnostic, |key| {
-                        TextureKey::resolved(key, 0)
-                    });
+                    .map_or_else(TextureKey::diagnostic, |key| TextureKey::resolved(key, 0));
             }
             if facing::is_record(record) {
                 return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
-                    .map_or_else(TextureKey::diagnostic, |key| {
-                        TextureKey::resolved(key, 0)
-                    });
+                    .map_or_else(TextureKey::diagnostic, |key| TextureKey::resolved(key, 0));
             }
             let axis = match state_axis(&record.canonical_state) {
                 AxisState::Absent => Axis::Y,
