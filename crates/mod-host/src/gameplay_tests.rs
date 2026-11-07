@@ -807,7 +807,7 @@ fn retained_movement_output_follows_completed_callbacks_and_eligibility() {
     });
     state.controls.frame.focused = true;
     state.controls.frame.gameplay = true;
-    let mut renew = |state: &mut State| {
+    let renew = |state: &mut State| {
         state.set_control_modes(Some(modes)).unwrap().unwrap();
         state.set_movement_intents(Some(intents)).unwrap().unwrap();
         state.set_movement_input(Some(input)).unwrap().unwrap();
