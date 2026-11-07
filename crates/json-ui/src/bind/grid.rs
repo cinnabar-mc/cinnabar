@@ -12,7 +12,9 @@ use serde_json::Value;
 use super::feed::collection_name;
 use super::spec::{Binding, Kind};
 use super::{Binder, Node, Scope, Src, with_index};
-use crate::layout::{GRID_CLIPPED_CELL_KEY, GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY};
+use crate::layout::{
+    GRID_CLIPPED_CELL_KEY, GRID_MARGIN_CELLS_KEY, GRID_PLACEHOLDER_KEY, GRID_TEMPLATE_KEY,
+};
 use crate::tree::{ControlRef, ResolvedControl};
 
 #[cfg(test)]
@@ -46,8 +48,9 @@ impl Binder<'_> {
         };
         let initial = self.state.initial_grid_window(collection);
         let clipped = self.state.clips_grid_cells(collection);
+        let margin_cells = self.state.grid_cell_margin(collection);
         let window = (self.state.virtualizes(collection) && count >= initial)
-            .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped))
+            .then(|| self.grid_window(scope.parent_key, &resolved, initial, clipped, margin_cells))
             .flatten();
         let mut cells = Vec::with_capacity(count.min(self.remaining_nodes()));
         for index in 0..count {
@@ -65,11 +68,28 @@ impl Binder<'_> {
                 (Some(name), Some(key)) => inner.enter(name, key.clone(), index),
                 _ => inner.clone(),
             };
+            if let Some(mut cached) = self
+                .state
+                .take_grid_cell(grid_cell_cache_key(scope.parent_key, index))
+            {
+                let prior = self
+                    .pool
+                    .remove(&cached.key)
+                    .map(|placeholder| self.replace(placeholder).1);
+                cached.track.restore(prior);
+                self.pool.insert(cached.key, cached);
+            }
             let cell = with_index(Src::root(Arc::clone(&resolved)), index).patched(|patch| {
                 if clipped {
                     patch
                         .properties
                         .insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+                }
+                if let Some(margin) = margin_cells {
+                    patch.properties.insert(
+                        GRID_MARGIN_CELLS_KEY.into(),
+                        Value::from(u64::try_from(margin).unwrap_or(u64::MAX)),
+                    );
                 }
                 if let Some(name) = collection {
                     patch.properties.insert(
@@ -102,6 +122,7 @@ impl Binder<'_> {
         template: &Arc<ResolvedControl>,
         initial: usize,
         clipped: bool,
+        margin_cells: Option<usize>,
     ) -> Option<(Range<usize>, Arc<ResolvedControl>)> {
         if binds_size(template) {
             return None;
@@ -109,6 +130,12 @@ impl Binder<'_> {
         let mut geometry = BTreeMap::new();
         if clipped {
             geometry.insert(GRID_CLIPPED_CELL_KEY.into(), Value::Bool(true));
+        }
+        if let Some(margin) = margin_cells {
+            geometry.insert(
+                GRID_MARGIN_CELLS_KEY.into(),
+                Value::from(u64::try_from(margin).unwrap_or(u64::MAX)),
+            );
         }
         for key in ["size", "min_size", "max_size"] {
             match template.properties.get(key) {
@@ -159,7 +186,21 @@ impl Binder<'_> {
         let key = self.control_key(&src, scope.parent_key);
         let prior = match self.pool.remove(&key) {
             Some(previous) if previous.src.same(&src) => return self.reuse(previous),
-            Some(previous) => Some(self.replace(previous).1),
+            Some(previous) => {
+                let index = src
+                    .prop("collection_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok());
+                if let Some(index) = index
+                    && previous.src.prop(GRID_PLACEHOLDER_KEY).is_none()
+                {
+                    self.state
+                        .cache_grid_cell(grid_cell_cache_key(scope.parent_key, index), previous);
+                    None
+                } else {
+                    Some(self.replace(previous).1)
+                }
+            }
             None => None,
         };
         self.created += 1;
@@ -208,6 +249,10 @@ impl Binder<'_> {
             track: super::reuse::Track::built(Default::default(), false, None, None),
         })
     }
+}
+
+fn grid_cell_cache_key(grid: u64, index: usize) -> u64 {
+    super::state::key_hash(grid ^ super::state::KEY_ROOT, &index.to_le_bytes())
 }
 
 /// A `[w, h]` of plain numbers.

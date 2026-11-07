@@ -40,16 +40,48 @@ fn screen() -> Arc<ResolvedControl> {
         "grid",
         json!({
             "size": ["100%", "default"], "grid_dimensions": [5, 60],
-            "collection_name": "items", "grid_item_template": "test.cell"
+            "collection_name": "items", "grid_item_template": "test.cell",
+            "anchor_from": "top_left", "anchor_to": "top_left",
+            "allow_clipping": false
         }),
         Vec::new(),
     );
-    let viewport = node("viewport", "panel", json!({ "size": [50, 40] }), vec![grid]);
+    let viewport = node(
+        "viewport",
+        "panel",
+        json!({
+            "size": [50, 40], "clips_children": true,
+            "anchor_from": "top_left", "anchor_to": "top_left"
+        }),
+        vec![grid],
+    );
+    let track = node(
+        "track",
+        "panel",
+        json!({
+            "size": [4, 40], "offset": [46, 0],
+            "anchor_from": "top_left", "anchor_to": "top_left"
+        }),
+        Vec::new(),
+    );
+    let thumb = node(
+        "thumb",
+        "scrollbar_box",
+        json!({
+            "size": [4, 8], "offset": [46, 0], "draggable": "vertical",
+            "anchor_from": "top_left", "anchor_to": "top_left"
+        }),
+        Vec::new(),
+    );
     let view = node(
         "view",
         "scroll_view",
-        json!({ "size": [50, 40], "scroll_content": "content", "scroll_view_port": "viewport" }),
-        vec![viewport],
+        json!({
+            "size": [50, 40], "scroll_content": "content", "scroll_view_port": "viewport",
+            "scrollbar_track": "track", "scrollbar_box": "thumb",
+            "anchor_from": "top_left", "anchor_to": "top_left"
+        }),
+        vec![viewport, track, thumb],
     );
     Arc::new(node(
         "root",
@@ -194,6 +226,8 @@ impl Session {
                     nodes: render.nodes.to_vec(),
                     hits: render.hits,
                     scrolls: render.report.scrolls,
+                    candidates: self.measures.widest_placement_candidates(),
+                    rebuilt: self.state.rebuilt(),
                 };
                 self.tree = Some(render.bound);
                 return drawn;
@@ -219,6 +253,8 @@ struct Drawn {
     hits: Arc<[crate::HitRegion]>,
     scrolls: BTreeMap<String, crate::ScrollMetrics>,
     built: usize,
+    candidates: usize,
+    rebuilt: usize,
 }
 
 fn count(control: &ResolvedControl, name: &str) -> usize {
@@ -233,6 +269,31 @@ fn count(control: &ResolvedControl, name: &str) -> usize {
 #[test]
 fn a_virtualized_grid_draws_as_one_built_in_full() {
     draws_as_built_in_full(&Cells::new(), "items", true);
+}
+
+#[test]
+fn reversing_scroll_reuses_materialized_cells() {
+    let root = screen();
+    let library = Cells::new();
+    let data = items("a");
+    let mut full = Session::new(None);
+    let mut virtualized = Session::new(Some("items"));
+
+    for scroll in [0.0, 560.0] {
+        virtualized.draw(&root, &library, &data, scroll);
+    }
+    let first_move = virtualized.state.rebuilt();
+
+    for scroll in [0.0, 560.0] {
+        let expected = full.draw(&root, &library, &data, scroll);
+        let drawn = virtualized.draw(&root, &library, &data, scroll);
+        assert_eq!(drawn.nodes, expected.nodes, "scroll at {scroll}");
+        assert!(
+            drawn.rebuilt < first_move,
+            "returning to {scroll} rebuilt {} controls after the first move rebuilt {first_move}",
+            drawn.rebuilt
+        );
+    }
 }
 
 #[test]
@@ -323,10 +384,15 @@ fn draws_as_built_in_full(library: &Cells, opted: &str, virtualizes: bool) {
                 "{} cells built at {scroll}",
                 drawn.built
             );
+            assert!(
+                drawn.candidates < CELLS,
+                "virtual scroll at {scroll} inspected {} placements for {CELLS} cells",
+                drawn.candidates
+            );
         } else {
             assert_eq!(drawn.built, CELLS + 1);
         }
-        assert!(!drawn.nodes.is_empty());
+        assert!(!drawn.nodes.is_empty(), "{prefix} at {scroll}");
         assert_eq!(drawn.nodes, expected.nodes, "{prefix} at {scroll}");
         assert_eq!(drawn.hits, expected.hits, "{prefix} at {scroll}");
         assert_eq!(drawn.scrolls, expected.scrolls);
