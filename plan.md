@@ -938,6 +938,15 @@ Modern lingering effect clouds draw the potion emitter for non-dragon profiles a
 carry their packed effect color into its RGBA variables. Potion clouds emit every two
 ticks; dragon breath retains its five-tick emitter. Legacy emission and matched
 rendered-frame qualification remain open.
+Legacy LevelEvent particle selectors use the active target's named type contract;
+colored falling dust and all three spell selectors retain their packed RGBA data.
+Matched post-change dust-trail and spell-rainbow frames, and broader particle visual
+qualification, remain open.
+Cutout particle materials retain sprite coverage independently of tint alpha, so
+zero-alpha RGB gradients in native redstone dust and explosion definitions reach
+the draw list. Blended and additive materials retain authored alpha. Regressions
+and local pack definitions pass; matched redstone-ring/trail and white-cloud frames
+remain open. See [particle materials](docs/reference/particle-materials.md).
 
 Actor art keeps its alpha when every material drawing it alpha-tests, or any blends or
 lights by it; otherwise alpha rounds at 0.5. Generated declaration states cover the

@@ -2,7 +2,7 @@
 //! block break/crack parameters and server-supplied Molang variable maps.
 
 use assets::facts::{ParticleEffect, legacy_particle_effect, level_particle_effect};
-use protocol_ids::LevelEvent;
+use protocol_ids::{LevelEvent, ParticleType};
 use serde_json::Value;
 
 use super::{
@@ -72,25 +72,24 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
     };
     if event_id & LEVEL_EVENT_PARTICLE_FLAG != 0 {
         let particle_type = event_id & !LEVEL_EVENT_PARTICLE_FLAG;
-        return match particle_type {
-            19 => Some(LevelParticle::Terrain { runtime_id: data }),
-            13 | 50 => Some(LevelParticle::ItemIcon {
+        return match ParticleType::from_wire(particle_type)? {
+            ParticleType::Terrain => Some(LevelParticle::Terrain { runtime_id: data }),
+            ParticleType::IconCrack | ParticleType::Food => Some(LevelParticle::ItemIcon {
                 network_id: data >> 16,
                 aux: data & 0xffff,
             }),
-            14 => Some(LevelParticle::FixedItemIcon {
-                identifier: assets::facts::VanillaItem::Snowball.identifier(),
-                count: ITEM_ICON_PARTICLES,
-            }),
-            15 => Some(LevelParticle::FixedItemIcon {
+            ParticleType::SnowballPoof => Some(LevelParticle::FixedItemIcon {
                 identifier: assets::facts::VanillaItem::Snowball.identifier(),
                 count: 1,
             }),
-            36 => Some(LevelParticle::FixedItemIcon {
+            ParticleType::Slime => Some(LevelParticle::FixedItemIcon {
                 identifier: assets::facts::VanillaItem::SlimeBall.identifier(),
                 count: ITEM_ICON_PARTICLES,
             }),
-            32..=34 => Some(LevelParticle::Named {
+            ParticleType::FallingDust
+            | ParticleType::MobSpell
+            | ParticleType::MobSpellAmbient
+            | ParticleType::MobSpellInstantaneous => Some(LevelParticle::Named {
                 effect: legacy_particle_effect(particle_type)?,
                 spell_color: Some(argb(data)),
             }),
@@ -131,12 +130,18 @@ pub fn classify_level_event(event_id: i32, data: i32) -> Option<LevelParticle> {
                 }),
             })
         }
-        2009 if data & 0xffff == 15 => Some(LevelParticle::FixedItemIcon {
-            identifier: assets::facts::VanillaItem::Snowball.identifier(),
-            count: 1,
-        }),
+        2009 if data & 0xffff == ParticleType::SnowballPoof.wire_value() => {
+            Some(LevelParticle::FixedItemIcon {
+                identifier: assets::facts::VanillaItem::Snowball.identifier(),
+                count: 1,
+            })
+        }
         2009 => named(legacy_particle_effect(data & 0xffff)?),
-        2025 => named(legacy_particle_effect(if data < 2 { 16 } else { 17 })?),
+        2025 => named(legacy_particle_effect(if data < 2 {
+            ParticleType::LargeExplode.wire_value()
+        } else {
+            ParticleType::HugeExplosion.wire_value()
+        })?),
         _ => level_particle_effect(event_id).and_then(named),
     }
 }
@@ -472,6 +477,9 @@ pub fn crack_cadence_due(timer: &mut f32, delta_seconds: f32) -> bool {
 }
 
 #[cfg(test)]
+mod legacy_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -485,7 +493,7 @@ mod tests {
             legacy_particle_effect(8),
             Some(ParticleEffect::BasicFlameParticle)
         );
-        assert_eq!(legacy_particle_effect(60), Some(ParticleEffect::Sneeze));
+        assert_eq!(legacy_particle_effect(62), Some(ParticleEffect::Sneeze));
         assert_eq!(legacy_particle_effect(0), None);
     }
 
@@ -512,14 +520,14 @@ mod tests {
     #[test]
     fn icon_crack_events_split_item_id_and_aux() {
         assert_eq!(
-            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 13, (300 << 16) | 2),
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 14, (300 << 16) | 2),
             Some(LevelParticle::ItemIcon {
                 network_id: 300,
                 aux: 2
             })
         );
         assert!(matches!(
-            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 14, 0),
+            classify_level_event(LEVEL_EVENT_PARTICLE_FLAG | 15, 0),
             Some(LevelParticle::FixedItemIcon { .. })
         ));
     }

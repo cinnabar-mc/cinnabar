@@ -13,3 +13,7 @@ Run `python3 tools/fixturegen/generate_ids.py` after updating these inputs.
 It reads enchantments from the vendored codec and air from the hash-checked
 active block registry, then writes `src/generated.rs`. The fixture generator
 tests reject drift in both the numeric fixture and generated declarations.
+
+`data/particle-types.json` pins the active target's native particle selectors separately
+from Gophertunnel's older particle constants. Generation rejects a different target or
+duplicate selectors. Named presentation routes and parameter decoders share this contract.
