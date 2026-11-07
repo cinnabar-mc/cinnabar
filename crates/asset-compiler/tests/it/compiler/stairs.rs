@@ -80,7 +80,7 @@ fn rotate_stair_face(face: usize, rotation: u32) -> usize {
 }
 
 #[test]
-fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_for_all_states() {
+fn compiler_stair_rotation_preserves_asymmetric_materials_and_geometry_with_world_uvs_for_all_states() {
     let directory = tempfile::tempdir().expect("create asymmetric stair fixture");
     write_asymmetric_stair_pack(directory.path());
     let mut records = read_registry(include_bytes!(
@@ -135,10 +135,6 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_f
                 "orientation must stay canonical"
             );
             assert_eq!(
-                quad.uvs, north_quad.uvs,
-                "orientation must preserve UV lock"
-            );
-            assert_eq!(
                 quad.flags, north_quad.flags,
                 "orientation changed canonical faces"
             );
@@ -164,6 +160,16 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_f
                     .flatten()
                     .all(|&coordinate| coordinate <= 4096)
             );
+            // Native stairs draw their boxes with world-space cube UVs, whatever their facing.
+            if world_face == BlockFace::Up as usize {
+                for (position, uv) in world_positions.iter().zip(quad.uvs) {
+                    assert_eq!(
+                        uv,
+                        [position[0] as u16 * 16, position[2] as u16 * 16],
+                        "half={half} orientation={orientation}"
+                    );
+                }
+            }
             let step_outer_face = if half == 0 {
                 BlockFace::Up as usize
             } else {
@@ -234,8 +240,8 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     let compiled = compile_pack(directory.path(), &records).expect("compile all oak stair states");
     assert_eq!(
         compiled.model_templates.len(),
-        10,
-        "five shapes per upside state; orientation is compact"
+        40,
+        "five shapes per upside state and facing"
     );
     let mut bases_by_half = [HashSet::new(), HashSet::new()];
     for (id, record) in records.iter().enumerate() {
@@ -278,8 +284,18 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
             }));
         }
     }
-    assert_eq!(bases_by_half[0].len(), 1);
-    assert_eq!(bases_by_half[1].len(), 1);
+    assert_eq!(bases_by_half[0].len(), 4);
+    assert_eq!(bases_by_half[1].len(), 4);
+    let north_base = |half| {
+        compiled.visuals[records
+            .iter()
+            .position(|record| {
+                record.model_state.get(ModelStateField::Orientation) == Some(2)
+                    && record.model_state.get(ModelStateField::Half) == Some(half)
+            })
+            .unwrap()]
+        .model_template as usize
+    };
     let north_lower = compiled.visuals[records
         .iter()
         .position(|record| {
@@ -290,22 +306,19 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     .model_template as usize;
     let straight = compiled.model_templates[north_lower];
     let expected_shape_digests = [
-        "2e07913dd24532f98c2e2a2352f4434cee0485f3b80a1b36346543b8f41fb381",
-        "65128da5f92158b78301af0bb455f5d5a9a74fc0434e50553787d31c64ac88da",
-        "17ed41557ef2ecfd36c077b347aafea71e8deca603f4155fe1001b2992b0deb2",
-        "a8362bb0405925933f2a24acf62338455c1f07390d136446f2e6cf34dd2166b5",
-        "3836909fd60a7bedb8e51c4b8358a42fdb5e23ad580a53536b3c81492423720b",
-        "d18605f16826c3570a3691c95793e25d4be00702d6ae7221ffaa75d75e1efee6",
-        "28c0a4d6a13b85633117437f6bb6b8263e7cd03b05ab890b69e294b84d11f990",
-        "02a8b452d0d4f1de93c604bca2175dbfac432380ce2c54036b79e6073403eb7f",
-        "f06c28159d93b5528ae9aff35580d1bae8676a2e0c72c7264c1b1b3fe046691f",
-        "f1f5f7b2c7527ca6105c875dc4e04f0d4239e46e220325147dc27e965c267760",
+        "a0a0439ced5b4b91ce1ab29efa0301784868526f6dc59b04818a6e7fc1d2e7ca",
+        "3eded422b10d5f83b18d06f8e7c5a53d3fcc6f2b21be616f5b0e0edb46c302b1",
+        "63a21a60f80f384655e48215da82534467c58641379624e9444dde9f09f34502",
+        "2d1b0c0af8ef89b60af1e7353e320a21070bbb3d50badaa543e5b32367d4e13b",
+        "969ed2e53cd06a624cc4c67333f7d38ceb6f950c785fad357a7e1c0d9db1a328",
+        "6cddd544cfc9c781e5ad2e2d0490e5fe07f22f22036d42d9cfdc948ee9e8bec7",
+        "ec9de9ba92576aed8f740a2d2b5d7d10bde01744f7fec4cca34bacb912755c49",
+        "eb7aee074c6f93a85fee2f0bbb939a990bfdefa7c83854000cdf61a88fe8580a",
+        "9ede76784c8096498f3a61a9ccbc178017a0ba575e544dee1d525476da53d9da",
+        "fb02e9bcb1b74c30edad1c3e4758680260e295410f735c01e8fc6d69af79230d",
     ];
     let mut actual_shape_digests = Vec::new();
-    for base in [
-        *bases_by_half[0].iter().next().unwrap(),
-        *bases_by_half[1].iter().next().unwrap(),
-    ] {
+    for base in [north_base(0), north_base(1)] {
         for template in &compiled.model_templates[base..base + 5] {
             let quads = &compiled.model_quads[template.quad_start as usize
                 ..(template.quad_start + template.quad_count) as usize];
@@ -414,8 +427,8 @@ fn compiler_covers_every_breg_stair_state_with_compact_stable_groups() {
     }));
     assert_eq!(
         compiled.model_templates.len(),
-        10,
-        "one symmetric-material group per half"
+        40,
+        "one symmetric-material group per half and facing"
     );
     let first = encode_blob(&compiled).expect("encode exhaustive stairs");
     let mut reversed = records.clone();
