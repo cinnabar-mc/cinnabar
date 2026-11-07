@@ -35,7 +35,10 @@ pub(super) fn hud_model(
             id_aux: stack.map(|stack| facts.id_aux(stack)),
             count: stack.map_or(0, |stack| u32::from(stack.count)),
             selected,
-            durability: stack.and(durability).map(f64::from),
+            durability: stack
+                .and(durability)
+                .filter(|_| mode != Some(protocol::PlayerGameMode::Creative))
+                .map(f64::from),
         }
     };
     let hotbar = (0..9)
