@@ -34,6 +34,8 @@ pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 pub const FILLED_MAP_IDENTIFIER: &str = "minecraft:filled_map";
 /// Canonical empty bucket identity; legacy filled variants carry nonzero metadata.
 pub const EMPTY_BUCKET_IDENTIFIER: &str = "minecraft:bucket";
+/// Canonical empty glass bottle identity, which fills from a targeted water source.
+pub const GLASS_BOTTLE_IDENTIFIER: &str = "minecraft:glass_bottle";
 
 /// Matches bucket-shaped names for conservative callers; this does not establish item behavior.
 pub fn has_bucket_name(identifier: &str) -> bool {
