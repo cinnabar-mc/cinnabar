@@ -116,8 +116,6 @@ pub struct CustomPlacement {
     pub trait_state_count: usize,
     /// Degrees subtracted from player yaw before choosing a direction state.
     pub y_rotation_offset: f32,
-    /// A server-side placing handler owns the resulting block state.
-    pub server_placing: bool,
     /// Placement filters require support checks before local prediction is admitted.
     pub has_placement_filter: bool,
 }

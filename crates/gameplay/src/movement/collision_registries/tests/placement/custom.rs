@@ -88,22 +88,60 @@ fn custom_mining_uncertainty_does_not_reject_known_placement_bounds() {
     }
 }
 
+/// Encodes `{components: {minecraft:custom_components: {<flag>: 1b}}}` as network NBT.
+fn placing_handler_block(flag: &str) -> CustomBlock {
+    let named = |tag: u8, name: &str| {
+        let mut bytes = vec![tag, u8::try_from(name.len()).unwrap()];
+        bytes.extend(name.as_bytes());
+        bytes
+    };
+    let mut bytes = named(10, "");
+    bytes.extend(named(10, "components"));
+    bytes.extend(named(10, "minecraft:custom_components"));
+    bytes.extend(named(1, flag));
+    bytes.extend([1, 0, 0, 0]);
+    let blocks = CustomBlocks::from_definitions([("test:crumbling", bytes.as_slice())]);
+    blocks.blocks[0].clone()
+}
+
+// Server-scripted bridging blocks must exist locally at once, or held placement aims through
+// their still-empty cells and keeps placing until the button is released.
 #[test]
-fn custom_server_placing_handlers_keep_prediction_disabled() {
-    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
-        let mut block = block();
-        Arc::make_mut(&mut block.visual).placement.server_placing = true;
-        let (registry, held) = admit(block, mode, 0);
-        assert!(
-            custom_predict(
+fn custom_server_placing_handlers_still_predict_locally() {
+    for flag in ["hasPlayerPlacing", "isV1Component"] {
+        for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+            let (registry, held) = admit(placing_handler_block(flag), mode, 0);
+            let prediction = custom_predict(
                 &registry,
                 held,
                 mode,
                 &store(mode),
-                &context(&surroundings())
+                &context(&surroundings()),
             )
-            .is_none()
+            .unwrap_or_else(|| panic!("{flag} blocks place before a server update"));
+            assert_eq!(prediction.position, [8, 9, 8]);
+            assert_eq!(prediction.block, held);
+        }
+    }
+}
+
+// Held bridging with a full-cube custom block, such as Hive's Crumbling Cobblestone, must
+// extend the bridge along the walk like cobblestone instead of stacking on its top faces.
+#[test]
+fn full_cube_custom_blocks_continue_held_bridges() {
+    for mode in [NetworkIdMode::Sequential, NetworkIdMode::Hashed] {
+        let (registry, held) = admit(block(), mode, 0);
+        assert!(registry.block_has_build_intention(mode, held));
+        let mut half = block();
+        half.collision_boxes = Some(
+            [protocol::CustomBox {
+                min: [0.0; 3],
+                max: [1.0, 0.5, 1.0],
+            }]
+            .into(),
         );
+        let (registry, held) = admit(half, mode, 0);
+        assert!(!registry.block_has_build_intention(mode, held));
     }
 }
 

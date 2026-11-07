@@ -3,10 +3,13 @@ use super::{BlockUseRuntime, LocalUse};
 use crate::melee::SwingTracker;
 
 impl BlockUseRuntime {
-    /// Only this owner's Full-rejected swing may retry a published tick; nonswinging uses stay ready.
+    /// Only this owner's Full-rejected swing may retry a published tick. A use that fails
+    /// locally sends at most once per tick after a failed held repeat, however many frames ran.
     pub fn may_attempt(&self, tick: u64, outcome: LocalUse, swings: &SwingTracker) -> bool {
-        outcome == LocalUse::Nothing
-            || !swings.tick_is_published(tick)
+        if outcome == LocalUse::Nothing {
+            return self.failed_repeat_tick != Some(tick);
+        }
+        !swings.tick_is_published(tick)
             || (self.rejected_tick == Some(tick)
                 && self.position_authority == swings.authority_identity())
     }
@@ -52,6 +55,32 @@ mod tests {
         assert!(!runtime.may_attempt(101, LocalUse::Place, &swings));
         assert!(!runtime.may_attempt(101, LocalUse::Interact, &swings));
         assert!(runtime.may_attempt(101, LocalUse::Nothing, &swings));
+        assert!(runtime.may_attempt(102, LocalUse::Place, &swings));
+    }
+
+    // Hundreds of frames per tick each buffer a pick; a failed held repeat (such as a bridge
+    // cell overlapping the jumping player) must not send a use for every one of them.
+    #[test]
+    fn a_failed_held_repeat_sends_once_per_tick() {
+        let (mut runtime, swings) = fixture();
+        let clock = RepeatClock {
+            now: Duration::from_millis(1_000),
+            sneaking: false,
+            speed: 4.0,
+            survival: true,
+        };
+        assert!(runtime.may_attempt(101, LocalUse::Nothing, &swings));
+        assert!(runtime.admit(
+            ItemUseTrigger::SimulationTick,
+            Duration::from_millis(1_000),
+            101,
+            LocalUse::Nothing,
+            false,
+            clock,
+            true
+        ));
+        assert!(!runtime.may_attempt(101, LocalUse::Nothing, &swings));
+        assert!(runtime.may_attempt(102, LocalUse::Nothing, &swings));
         assert!(runtime.may_attempt(102, LocalUse::Place, &swings));
     }
 

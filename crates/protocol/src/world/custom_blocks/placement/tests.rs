@@ -10,45 +10,41 @@ fn compound<const N: usize>(fields: [(&str, Nbt); N]) -> Nbt {
     )
 }
 
+// A server placing handler leaves placement admission unchanged; only filters defer it.
 #[test]
-fn custom_placing_handlers_and_legacy_triggers_disable_prediction() {
-    for placing in [0, 1] {
-        let components = compound([(
+fn placing_handlers_leave_placement_admission_to_filters() {
+    for components in [
+        compound([(
             "minecraft:custom_components",
             compound([
-                ("hasPlayerPlacing", Nbt::Byte(placing)),
-                ("hasPlayerInteract", Nbt::Byte(1)),
+                ("hasPlayerPlacing", Nbt::Byte(1)),
+                ("isV1Component", Nbt::Byte(1)),
             ]),
-        )]);
-        let definition = parse_definition(&compound([("components", components)])).unwrap();
-        assert_eq!(definition.visual.placement.server_placing, placing != 0);
-        assert!(definition.player_interact);
-    }
-    let definition = parse_definition(&compound([(
-        "components",
+        )]),
         compound([("minecraft:on_player_placing", compound([]))]),
-    )]))
-    .unwrap();
-    assert!(definition.visual.placement.server_placing);
+    ] {
+        let definition = parse_definition(&compound([("components", components)])).unwrap();
+        assert_eq!(
+            definition.visual.placement,
+            super::super::CustomPlacement::default()
+        );
+    }
 }
 
 #[test]
-fn permutation_placing_overrides_apply_to_the_block_type() {
+fn permutation_placement_filters_apply_to_the_block_type() {
     let definition = parse_definition(&compound([(
         "permutations",
         Nbt::List(vec![compound([
             ("condition", Nbt::String("q.block_state('test:on')".into())),
             (
                 "components",
-                compound([(
-                    "minecraft:custom_components",
-                    compound([("hasPlayerPlacing", Nbt::Byte(1))]),
-                )]),
+                compound([("minecraft:placement_filter", compound([]))]),
             ),
         ])]),
     )]))
     .unwrap();
-    assert!(definition.visual.placement.server_placing);
+    assert!(definition.visual.placement.has_placement_filter);
 }
 
 // Using a crafting table or a block whose permutation handles interaction must not place against it.
@@ -97,7 +93,6 @@ fn version_one_custom_components_declare_every_handler() {
     )]))
     .unwrap();
     assert!(definition.player_interact);
-    assert!(definition.visual.placement.server_placing);
 }
 
 #[test]
