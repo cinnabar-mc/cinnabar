@@ -568,6 +568,41 @@ fn control_modes_survive_a_deferred_frame_callback() {
     );
 }
 
+/// Restarting a guest after a frame fuel overrun runs `init`, which cannot renew control modes,
+/// so the modes committed before the overrun stay until the fresh guest completes a frame.
+#[test]
+fn control_modes_survive_frame_fuel_recovery() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let overrun_after_first_frame = format!(
+        "i32.const 1024 i32.load if (loop $forever br $forever) end \
+         {CONTROL_MODES} i32.const 1024 i32.const 1 i32.store"
+    );
+    let (_directory, mut host) = load("", &overrun_after_first_frame, grants);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    assert!(
+        host.frame_with_controls(false, Some(snapshot()), focused_controls())
+            .is_err()
+    );
+    assert!(host.is_recovering());
+    assert_eq!(host.control_modes(), Some(staged_modes()), "overrun frame");
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(!host.is_recovering());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "recovery initialization released the retained modes"
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "fresh guest");
+}
+
 /// Components compiled against the original gameplay interface still instantiate unchanged.
 #[test]
 fn legacy_gameplay_component_keeps_its_original_import_type() {
