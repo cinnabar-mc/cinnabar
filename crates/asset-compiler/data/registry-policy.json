@@ -7147,6 +7147,9 @@
       ]
     },
     "ambient_blocks": {
+      "EnderChest": [
+        "minecraft:ender_chest"
+      ],
       "Fire": [
         "minecraft:fire"
       ],
