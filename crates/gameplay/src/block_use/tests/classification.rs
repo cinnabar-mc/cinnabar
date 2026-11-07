@@ -384,7 +384,8 @@ const USE_TRAITS: T = T::TOGGLES_BY_HAND
     .union(T::RESPAWN_ANCHOR);
 
 /// One block per native class whose `isInteractiveBlock`, `isContainerBlock` or
-/// `isCraftingBlock` returns true.
+/// `isCraftingBlock` returns true. `ChemistryTableBlock`'s blocks are left out because the
+/// active palette doesn't admit them.
 const NATIVE_INTERACTIVE: &[&str] = &[
     "minecraft:anvil",
     "minecraft:barrel",
@@ -424,7 +425,6 @@ const NATIVE_INTERACTIVE: &[&str] = &[
     "minecraft:iron_trapdoor",
     "minecraft:jigsaw",
     "minecraft:jukebox",
-    "minecraft:lab_table",
     "minecraft:lectern",
     "minecraft:lever",
     "minecraft:loom",
