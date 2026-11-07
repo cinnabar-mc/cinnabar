@@ -1526,6 +1526,15 @@ HID-only controllers retain their existing backend, with duplicate native delive
 Gameplay enables Bevy's controller device plugin. Physical Xbox controller acceptance on
 macOS, including gameplay input, remains incomplete.
 
+Android delivers mice as cursor, button, wheel and relative-motion input through the pinned
+winit fork instead of touches. Gameplay captures the pointer through the activity, so mouse
+look reads relative motion. Controller key and joystick events reach Bevy as gamepads, which
+gilrs cannot provide on Android, with hotplug scans naming devices. Physical keyboards use
+winit's existing key path. Device acceptance with Bluetooth and USB mice, keyboards and Xbox,
+PlayStation and generic controllers remains incomplete, as do controllers whose right stick
+uses `AXIS_RX`/`AXIS_RY`. iOS still lacks hardware keyboard keys, mouse capture and
+controllers.
+
 Linux crash capture tolerates unreadable thread stacks and preserves available registers
 and other threads' stacks.
 

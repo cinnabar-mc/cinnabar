@@ -16,6 +16,7 @@ public final class CinnabarActivity extends NativeActivity {
     private volatile boolean startupActive;
     private volatile long startupGeneration;
     private ImmersiveMode immersiveMode;
+    private volatile boolean pointerCaptureWanted;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -40,6 +41,31 @@ public final class CinnabarActivity extends NativeActivity {
         startupActive = true;
         super.onResume();
         immersiveMode.restore();
+    }
+
+    @Override public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        // Android releases pointer capture when the window loses focus.
+        if (hasFocus) applyPointerCapture();
+    }
+
+    /**
+     * Native gameplay asks for mouse capture while it owns the pointer, so the mouse reports
+     * relative motion for looking around and its cursor stays hidden.
+     */
+    public void setPointerCaptureWanted(boolean wanted) {
+        pointerCaptureWanted = wanted;
+        runOnUiThread(this::applyPointerCapture);
+    }
+
+    private void applyPointerCapture() {
+        if (isFinishing() || isDestroyed()) return;
+        View decor = getWindow().getDecorView();
+        if (pointerCaptureWanted && hasWindowFocus()) {
+            decor.requestPointerCapture();
+        } else if (decor.hasPointerCapture()) {
+            decor.releasePointerCapture();
+        }
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
