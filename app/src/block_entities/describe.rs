@@ -1,7 +1,7 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
 mod item;
-use item::held_item;
+use item::{held_item, map_id};
 
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
@@ -396,10 +396,7 @@ pub(super) fn describe(
                     map: None,
                 },
                 item: nbt.compound("Item").and_then(held_item),
-                map_id: nbt
-                    .compound("Item")
-                    .and_then(|stack| stack.compound("tag"))
-                    .and_then(|tag| tag.integer("map_uuid")),
+                map_id: nbt.compound("Item").and_then(map_id),
                 rotation_degrees: frame_rotation(nbt),
             })
         }
@@ -777,6 +774,47 @@ mod tests {
                 direction: 3,
             })))
         );
+    }
+
+    #[test]
+    fn framed_maps_keep_numeric_and_decimal_string_identities() {
+        use world::NbtValue;
+        for (value, expected) in [
+            (NbtValue::Long(266), Some(266)),
+            (NbtValue::String("266".into()), Some(266)),
+            (
+                NbtValue::String("-9223372036854775808".into()),
+                Some(i64::MIN),
+            ),
+            (NbtValue::String(" \t+266suffix".into()), Some(266)),
+            (NbtValue::String("9223372036854775808".into()), None),
+            (NbtValue::String("invalid".into()), None),
+        ] {
+            let mut tag = NbtCompound::default();
+            tag.insert("map_uuid", value);
+            let mut stack = NbtCompound::default();
+            stack.insert(
+                "Name",
+                NbtValue::String(assets::facts::FILLED_MAP_IDENTIFIER.into()),
+            );
+            stack.insert("tag", NbtValue::Compound(tag));
+            let mut root = NbtCompound::default();
+            root.insert("Item", NbtValue::Compound(stack));
+            let Some(Template::ItemFrame { map_id, item, .. }) = describe(
+                "ItemFrame",
+                "minecraft:frame",
+                &state(r#"{"facing_direction":3,"item_frame_map_bit":1}"#),
+                &root,
+                [0; 3],
+            ) else {
+                panic!("framed filled map expected");
+            };
+            assert_eq!(map_id, expected);
+            assert_eq!(
+                item.unwrap().identifier.as_ref(),
+                assets::facts::FILLED_MAP_IDENTIFIER
+            );
+        }
     }
 
     #[test]

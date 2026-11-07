@@ -12,7 +12,7 @@ use cache::{CachedSubmission, PreviousFragments};
 type LayerBuffers = crate::FrameBuffers<BlockEntityVertex, 16>;
 
 use super::{
-    artwork::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork},
+    artwork::{BlockEntityArtworkPreparer, MAX_ATLAS_SIDE, PreparedBlockEntityArtwork},
     atlas::{AtlasRect, BlockEntityAtlas, DynamicCells},
     banner::BannerModel,
     beam::BeaconModel,
@@ -270,15 +270,22 @@ impl BlockEntityScene {
 
     /// Publishes shared static pixels and invalidates meshes while retaining dynamic canvases.
     pub fn reload_prepared_assets(&mut self, artwork: &PreparedBlockEntityArtwork) {
-        self.prepared = Some(artwork.clone());
-        self.chalkboards = artwork.chalkboards.clone();
         let mut atlas = artwork.atlas.clone();
         let text = self.text.get_or_insert_with(|| {
             DynamicCells::new(atlas.size()[0]).expect("prepared artwork admits dynamic atlas rows")
         });
+        if text
+            .set_height_limit(MAX_ATLAS_SIDE - atlas.static_height())
+            .is_none()
+        {
+            tracing::warn!("block-entity artwork reload cannot retain the live canvas pages");
+            return;
+        }
         text.resize_width(atlas.size()[0])
             .expect("prepared artwork admits dynamic atlas rows");
-        atlas.set_text_pages(text.text_pages());
+        atlas.set_layout(text.layout());
+        self.prepared = Some(artwork.clone());
+        self.chalkboards = artwork.chalkboards.clone();
         self.image = Some(Arc::new(BlockEntityAtlasImage::of(&atlas)));
         self.atlas = Some(Arc::new(atlas));
         self.frame = BlockEntityFrame {
@@ -325,24 +332,29 @@ impl BlockEntityScene {
 
     /// The atlas rect of the text canvas for `key`, rasterizing `make` on a miss.
     pub fn text_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let text = self.text.as_mut()?;
-        let slot = text.text_slot(key, make)?;
-        let pages = text.text_pages();
-        let atlas = self.atlas.as_mut()?;
-        if atlas.text_pages() != pages {
-            // A taller atlas renormalizes every UV, so no cached geometry survives.
-            Arc::make_mut(atlas).set_text_pages(pages);
-            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
-            self.reusable = None;
-            self.cached_submissions.clear();
-        }
-        self.atlas.as_ref()?.text_cell(slot)
+        let slot = self.text.as_mut()?.text_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.text_cell(slot?)
     }
 
     /// The atlas rect of the 128x128 map canvas for `key`, rasterizing `make` on a miss.
     pub fn map_rect(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<AtlasRect> {
-        let slot = self.text.as_mut()?.map_slot(key, make)?;
-        self.atlas.as_ref()?.map_cell(slot)
+        let slot = self.text.as_mut()?.map_slot(key, make);
+        self.sync_canvas_layout();
+        self.atlas.as_ref()?.map_cell(slot?)
+    }
+
+    /// A taller atlas changes normalized UVs, while append-only pages preserve pixel rects.
+    fn sync_canvas_layout(&mut self) {
+        let (Some(text), Some(atlas)) = (self.text.as_ref(), self.atlas.as_mut()) else {
+            return;
+        };
+        if atlas.layout() != text.layout() {
+            Arc::make_mut(atlas).set_layout(text.layout());
+            self.image = Some(Arc::new(BlockEntityAtlasImage::of(atlas)));
+            self.reusable = None;
+            self.cached_submissions.clear();
+        }
     }
 
     pub fn update(
@@ -508,6 +520,10 @@ mod skull_tests;
 #[cfg(test)]
 #[path = "scene/reach_tests.rs"]
 mod reach_tests;
+
+#[cfg(test)]
+#[path = "scene/canvas_tests.rs"]
+mod canvas_tests;
 
 fn emit_submission(
     builder: &mut MeshBuilder,

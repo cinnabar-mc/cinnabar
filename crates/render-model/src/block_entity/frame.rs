@@ -139,7 +139,8 @@ pub(super) fn emit(
     if model.glow {
         builder.light = 1.0;
     }
-    let (half, rim_front) = if model.full_face {
+    // Legacy servers can send a filled map without updating the block's map bit.
+    let (half, rim_front) = if model.full_face || model.map.is_some() {
         (MAP_PANEL_HALF, PANEL_BACK - MAP_RIM_DEPTH)
     } else {
         (PANEL_HALF, ITEM_FRAME_PANEL_FRONT_PIXELS)
@@ -444,6 +445,32 @@ mod tests {
                 }
                 let outside = pose.transform_point3(Vec3::new(8.1, 0.0, 0.0) / 16.0);
                 assert!(try_sample(&builder, outside, direction).is_none());
+            }
+        }
+    }
+
+    #[test]
+    fn legacy_framed_maps_hide_the_rim_from_oblique_views_without_the_map_bit() {
+        let atlas = test_atlas();
+        for outward in 0..6 {
+            for block in [[0; 3], [1024, 80, -1024]] {
+                let mut builder = MeshBuilder::new(atlas.size());
+                let mut model = map_frame(outward, false, Some(0.0));
+                model.full_face = false;
+                emit(&mut builder, &atlas, block, &model);
+                let pose = frame_matrix(block, outward);
+                for [x, y] in [[5.5, 0.0], [-5.5, 0.0], [0.0, 5.5], [0.0, -5.5]] {
+                    let target =
+                        pose.transform_point3(Vec3::new(x, y, PANEL_BACK - MAP_DEPTH) / 16.0);
+                    for tangent in [Vec3::ZERO, Vec3::X, -Vec3::X, Vec3::Y, -Vec3::Y] {
+                        let direction = pose.transform_vector3((Vec3::Z + tangent).normalize());
+                        let (uv_depth, _) = sample(&builder, target - direction * 2.0, direction);
+                        assert!(
+                            uv_depth.x * atlas.size()[0] as f32 >= MAP_IMAGE.x,
+                            "facing {outward}, block {block:?}, tangent {tangent}: map must cover the rim"
+                        );
+                    }
+                }
             }
         }
     }

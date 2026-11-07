@@ -1,5 +1,5 @@
-//! Block-entity texture atlas: the carrier's packed static pixels, then a map strip, then
-//! pages of runtime-rasterized sign text canvases that grow with the distinct texts in range.
+//! Block-entity texture atlas: packed static pixels followed by append-only pages of
+//! runtime-rasterized maps and sign text, retaining their pixel rects as either pool grows.
 
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -25,6 +25,38 @@ pub const MAP_CELL: [u32; 2] = [128, 128];
 const MAP_COLUMNS: u32 = 8;
 const MAP_ROWS: u32 = 2;
 const MAP_STRIP_HEIGHT: u32 = MAP_CELL[1] * MAP_ROWS;
+
+/// Append-only canvas pages keep previously returned pixel rects stable as either pool grows.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct DynamicLayout {
+    text: Vec<u32>,
+    maps: Vec<u32>,
+    height: u32,
+}
+
+impl Default for DynamicLayout {
+    fn default() -> Self {
+        Self {
+            maps: vec![0],
+            text: vec![MAP_STRIP_HEIGHT],
+            height: dynamic_height(1),
+        }
+    }
+}
+
+impl DynamicLayout {
+    /// Appends new pool pages without relocating any existing text or map cell.
+    fn extend(&mut self, text_pages: usize, map_pages: usize) {
+        while self.text.len() < text_pages {
+            self.text.push(self.height);
+            self.height += TEXT_PAGE_HEIGHT;
+        }
+        while self.maps.len() < map_pages {
+            self.maps.push(self.height);
+            self.height += MAP_STRIP_HEIGHT;
+        }
+    }
+}
 /// Minimum carrier width that fits every fixed map and text row in a prepared scene.
 pub const MIN_DYNAMIC_ATLAS_WIDTH: u32 = {
     let maps = MAP_COLUMNS * MAP_CELL[0];
@@ -79,7 +111,7 @@ pub struct BlockEntityAtlas {
     static_rgba8: Arc<[u8]>,
     placements: BTreeMap<Box<str>, AtlasRect>,
     identity: [u8; 32],
-    text_pages: u32,
+    layout: DynamicLayout,
 }
 
 impl BlockEntityAtlas {
@@ -106,20 +138,31 @@ impl BlockEntityAtlas {
                 })
                 .collect(),
             identity: assets.identity(),
-            text_pages: 1,
+            layout: DynamicLayout::default(),
         }
     }
 
     /// Text pages the atlas height currently covers.
     #[must_use]
-    pub const fn text_pages(&self) -> u32 {
-        self.text_pages
+    pub fn text_pages(&self) -> u32 {
+        self.layout.text.len() as u32
     }
 
     /// Extends the atlas to cover `pages` text pages; existing cells keep their pixel rects.
     pub fn set_text_pages(&mut self, pages: u32) {
-        self.text_pages = pages;
-        self.size[1] = self.static_height + dynamic_height(pages);
+        self.layout.extend(pages as usize, self.layout.maps.len());
+        self.size[1] = self.static_height + self.layout.height;
+    }
+
+    /// Publishes append-only canvas placement and the texture height covering it.
+    pub(super) fn set_layout(&mut self, layout: &DynamicLayout) {
+        self.layout.clone_from(layout);
+        self.size[1] = self.static_height + self.layout.height;
+    }
+
+    /// Stable pixel placement of the installed canvas pages.
+    pub(super) fn layout(&self) -> &DynamicLayout {
+        &self.layout
     }
 
     /// Full atlas size including the dynamic strip.
@@ -166,12 +209,12 @@ impl BlockEntityAtlas {
     /// The rect of dynamic map cell `slot`.
     #[must_use]
     pub fn map_cell(&self, slot: usize) -> Option<AtlasRect> {
-        let slot = u32::try_from(slot)
-            .ok()
-            .filter(|slot| *slot < MAP_COLUMNS * MAP_ROWS)?;
+        let page_slots = (MAP_COLUMNS * MAP_ROWS) as usize;
+        let offset = *self.layout.maps.get(slot / page_slots)?;
+        let slot = (slot % page_slots) as u32;
         Some(AtlasRect {
             x: ((slot % MAP_COLUMNS) * MAP_CELL[0]) as f32,
-            y: (self.static_height + (slot / MAP_COLUMNS) * MAP_CELL[1]) as f32,
+            y: (self.static_height + offset + (slot / MAP_COLUMNS) * MAP_CELL[1]) as f32,
             width: MAP_CELL[0] as f32,
             height: MAP_CELL[1] as f32,
         })
@@ -205,7 +248,7 @@ impl BlockEntityAtlas {
             self.placements.insert(texture.name.as_str().into(), rect);
         }
         self.static_height = height;
-        self.size[1] = height + dynamic_height(self.text_pages);
+        self.size[1] = height + self.layout.height;
         self.static_rgba8 = Arc::from(pixels);
         use sha2::{Digest, Sha256};
         let mut hash = Sha256::new();
@@ -239,13 +282,11 @@ impl BlockEntityAtlas {
     /// The rect of dynamic text cell `slot`.
     #[must_use]
     pub fn text_cell(&self, slot: usize) -> Option<AtlasRect> {
-        let slot = u32::try_from(slot)
-            .ok()
-            .filter(|slot| *slot < TEXT_COLUMNS * TEXT_PAGE_ROWS * self.text_pages)?;
+        let offset = *self.layout.text.get(slot / TEXT_SLOT_COUNT)?;
+        let slot = (slot % TEXT_SLOT_COUNT) as u32;
         Some(AtlasRect {
             x: ((slot % TEXT_COLUMNS) * TEXT_CELL[0]) as f32,
-            y: (self.static_height + MAP_STRIP_HEIGHT + (slot / TEXT_COLUMNS) * TEXT_CELL[1])
-                as f32,
+            y: (self.static_height + offset + (slot / TEXT_COLUMNS) * TEXT_CELL[1]) as f32,
             width: TEXT_CELL[0] as f32,
             height: TEXT_CELL[1] as f32,
         })
@@ -294,6 +335,7 @@ impl CellPool {
             capped: false,
         };
         pool.add_page();
+        pool.revision = 0;
         pool
     }
 
@@ -306,6 +348,7 @@ impl CellPool {
             .push(vec![0; self.width * self.cell[1] * self.rows_per_page * 4]);
         self.keys.resize(self.keys.len() + self.page_slots(), None);
         self.last_used.resize(self.keys.len(), 0);
+        self.revision = self.revision.wrapping_add(1);
     }
 
     /// Changes each page's row stride while retaining its slots, pixels and usage history.
@@ -391,11 +434,13 @@ impl CellPool {
     }
 }
 
-/// The runtime-rasterized strips below the static atlas: sign text canvases, then map images.
+/// Runtime-rasterized map and text pages below the static atlas.
 #[derive(Debug)]
 pub struct DynamicCells {
     text: CellPool,
     maps: CellPool,
+    layout: DynamicLayout,
+    height_limit: u32,
 }
 
 impl DynamicCells {
@@ -419,6 +464,8 @@ impl DynamicCells {
                 MAX_TEXT_PAGES,
             ),
             maps: CellPool::new(atlas_width, MAP_CELL, MAP_COLUMNS, MAP_ROWS, 1),
+            layout: DynamicLayout::default(),
+            height_limit: MAX_ATLAS_SIDE,
         })
     }
 
@@ -451,9 +498,24 @@ impl DynamicCells {
     }
 
     /// Text pages allocated so far; the atlas must cover them before their cells are drawn.
+    #[cfg(test)]
     #[must_use]
-    pub fn text_pages(&self) -> u32 {
+    fn text_pages(&self) -> u32 {
         self.text.pages.len() as u32
+    }
+
+    /// Stable pixel placement of the allocated canvas pages.
+    pub(super) fn layout(&self) -> &DynamicLayout {
+        &self.layout
+    }
+
+    /// Reserves the static artwork's rows; a reload that cannot retain live pages is refused.
+    pub(super) fn set_height_limit(&mut self, height: u32) -> Option<()> {
+        if height < self.layout.height {
+            return None;
+        }
+        self.height_limit = height;
+        Some(())
     }
 
     /// Changes whenever any strip pixel changes.
@@ -462,25 +524,41 @@ impl DynamicCells {
         self.text.revision.wrapping_add(self.maps.revision)
     }
 
-    /// The map strip, then every text page, as one upload block.
+    /// Canvas pixels in append order, matching every previously returned pixel rect.
     #[must_use]
     pub fn pixels(&self) -> Vec<u8> {
-        let pages = self.maps.pages.iter().chain(&self.text.pages);
-        let mut pixels = Vec::with_capacity(pages.clone().map(Vec::len).sum());
-        for page in pages {
-            pixels.extend_from_slice(page);
+        let stride = self.maps.width * 4;
+        let mut pixels = vec![0; stride * self.layout.height as usize];
+        for (pool, offsets) in [
+            (&self.maps, &self.layout.maps),
+            (&self.text, &self.layout.text),
+        ] {
+            for (page, offset) in pool.pages.iter().zip(offsets) {
+                let start = *offset as usize * stride;
+                pixels[start..start + page.len()].copy_from_slice(page);
+            }
         }
         pixels
     }
 
     /// The text slot holding `key`; see [`CellPool::slot`].
     pub fn text_slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
-        self.text.slot(key, make)
+        let can_grow = self.layout.height + TEXT_PAGE_HEIGHT <= self.height_limit;
+        self.text.max_pages = (self.text.pages.len() + usize::from(can_grow)).min(MAX_TEXT_PAGES);
+        let slot = self.text.slot(key, make);
+        self.layout
+            .extend(self.text.pages.len(), self.maps.pages.len());
+        slot
     }
 
     /// The map slot holding `key`; see [`CellPool::slot`].
     pub fn map_slot(&mut self, key: u64, make: impl FnOnce() -> Vec<u8>) -> Option<usize> {
-        self.maps.slot(key, make)
+        let can_grow = self.layout.height + MAP_STRIP_HEIGHT <= self.height_limit;
+        self.maps.max_pages = self.maps.pages.len() + usize::from(can_grow);
+        let slot = self.maps.slot(key, make);
+        self.layout
+            .extend(self.text.pages.len(), self.maps.pages.len());
+        slot
     }
 }
 
@@ -661,6 +739,32 @@ mod tests {
         text.begin_frame();
         assert_eq!(text.text_slot(9_999, || canvas(4)), Some(TEXT_SLOT_COUNT));
         assert_eq!(text.text_pages() as usize, MAX_TEXT_PAGES);
+    }
+
+    #[test]
+    fn map_growth_respects_reserved_static_rows_without_moving_existing_cells() {
+        let mut cells = DynamicCells::new(MIN_DYNAMIC_ATLAS_WIDTH).unwrap();
+        let initial_height = cells.layout.height;
+        cells.set_height_limit(initial_height).unwrap();
+        let page_slots = u64::from(MAP_COLUMNS * MAP_ROWS);
+        let canvas = || vec![7; (MAP_CELL[0] * MAP_CELL[1] * 4) as usize];
+        for key in 0..page_slots {
+            assert!(cells.map_slot(key, canvas).is_some());
+        }
+        cells.begin_frame();
+        for key in 0..page_slots {
+            assert!(cells.map_slot(key, || panic!("retained map")).is_some());
+        }
+        let layout = cells.layout.clone();
+        assert!(cells.map_slot(page_slots, canvas).is_none());
+        assert_eq!(cells.layout, layout);
+        cells
+            .set_height_limit(initial_height + MAP_STRIP_HEIGHT)
+            .unwrap();
+        assert!(cells.map_slot(page_slots, canvas).is_some());
+        assert_eq!(cells.layout.text, layout.text);
+        assert_eq!(cells.layout.maps[0], layout.maps[0]);
+        assert!(cells.set_height_limit(initial_height).is_none());
     }
 
     #[test]
