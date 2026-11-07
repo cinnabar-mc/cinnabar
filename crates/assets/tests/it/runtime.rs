@@ -704,7 +704,7 @@ fn decode_rejects_malformed_model_animation_and_visual_sections() {
     mutate(quads + 40, 2, "quad material ID");
     mutate(
         quads + 44,
-        assets::MODEL_QUAD_FLAG_INHERITED_SHADE << 1,
+        assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV << 1,
         "quad unknown flags",
     );
     mutate(animations, 1, "noncanonical animation start");
