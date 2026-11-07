@@ -280,7 +280,7 @@ pub(super) fn parse_components(bytes: &[u8]) -> Option<ItemComponents> {
         render_offsets: super::render_offsets::parse_render_offsets(component(
             "minecraft:render_offsets",
         )),
-        icon: super::icons::icon_key(bytes),
+        icon: super::icons::icon_key(components),
         display_name: text(
             component("minecraft:display_name").and_then(|name| name.field("value")),
         ),
