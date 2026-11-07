@@ -59,8 +59,10 @@ jni = "0.21"
 ndk-context = "0.1"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-dispatch2 = { version = "0.3", default-features = false, features = ["std", "objc2"] }
-objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+block2 = "0.6"
+dispatch2 = { version = "0.3", default-features = false, features = ["std"] }
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "block2", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSEnumerator", "NSString", "NSURL"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

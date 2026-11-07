@@ -111,8 +111,8 @@ fn selected<T: AsRef<std::path::Path>>(filter: &Filter, paths: Vec<T>) -> Result
     Ok(accepted)
 }
 
-/// Derives every platform's filter from the selected import extensions.
-#[cfg(any(not(target_os = "android"), test))]
+/// Derives the Windows and Linux filters from the selected import extensions.
+#[cfg(any(not(any(target_os = "android", target_os = "macos")), test))]
 fn patterns(filter: &Filter) -> Vec<String> {
     filter
         .extensions
