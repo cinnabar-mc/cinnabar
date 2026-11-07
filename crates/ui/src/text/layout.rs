@@ -471,7 +471,11 @@ impl Lines<'_> {
         }
         let count = i64::try_from(line_count).map_err(|_| TextError::FixedPointOverflow)?;
         let nominal_height_64 = self.metrics.block_height_64(count)?;
-        let height_64 = normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?;
+        let height_64 = if self.request.wrap.allow_vertical_overflow {
+            nominal_height_64
+        } else {
+            normalize_vertical_bounds(&mut self.glyphs, nominal_height_64)?
+        };
         let first_line = self
             .glyphs
             .iter()
