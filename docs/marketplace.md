@@ -22,7 +22,11 @@ requests carry no account credentials and follow no redirects. Responses,
 component bytes and cached metadata are bounded; account changes cancel pending
 work. Returning to an account retries selections that were not installed. Verified
 receipts retain successful installations and local removals across account changes.
-The account and exact selection are confirmed again after downloads.
+The account and exact selection are confirmed again after downloads. Selections
+held by account, freshness or withdrawal are not downloaded. A failed send is
+retried after 30 seconds, doubling to at most 30 minutes, until it succeeds, the
+account changes or the player sends it again. Component downloads allow time for
+their signed size on slow connections, within a fixed ceiling.
 
 The existing component host checks ABI compatibility without executing uploaded
 code. The component's declared version and exact requested grants, including
@@ -39,8 +43,10 @@ another file's authority. The GitHub mod updater cannot replace managed files.
 Signed revocation snapshots include issue and expiry timestamps. The API issues
 fifteen-minute snapshots; the client refreshes every minute, rejects expired,
 future-dated or rolled-back evidence, and persists the last signed checkpoint.
-Known withdrawn hashes stay held. Expired cached snapshots retain their issue
-time across restarts but never grant a fresh execution window.
+Withdrawn hashes seen during a session stay held until the client exits. After a
+restart the client starts from the persisted latest snapshot, so a hash that
+snapshot no longer lists is no longer held. Expired cached snapshots retain their issue time across restarts but
+never grant a fresh execution window.
 
 Within an established account session, a network failure does not extend the
 remaining signed window. Managed mods are held when that window expires, the
