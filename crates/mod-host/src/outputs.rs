@@ -48,7 +48,7 @@ impl ModHost {
     pub fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
         self.instance.movement_intents()
     }
-    /// Control modes replacing the player's own, from the last frame callback completed in its
+    /// Control modes added to the player's own, from the last frame callback completed in its
     /// frame.
     pub fn control_modes(&self) -> Option<crate::GameplayControlModes> {
         self.instance.control_modes()

@@ -94,7 +94,7 @@ Separate grants let a mod request actions instead of only observing input. Each 
 | --- | --- | --- |
 | `gameplay::pulse_jump` | `movement` | Stages one ordinary jump input for the next physics tick |
 | `gameplay::set_movement_intents` | `movement` | Holds sprint or sneak as if bound; renew every focused gameplay frame, omission releases both |
-| `gameplay::set_control_modes` | `movement` | Replaces toggle sprint/sneak and always-sprint while renewed every focused gameplay frame |
+| `gameplay::set_control_modes` | `movement` | Turns on toggle sprint/sneak and always-sprint while renewed every focused gameplay frame; it cannot turn off a mode the player enabled |
 | `gameplay::pulse_attack` | `interaction` | One attack-press edge, only while the physical attack control is held |
 | `gameplay::set_block_mining` | `interaction` | Holds ordinary mining on the crosshair block for this successful frame; renew while needed |
 | `gameplay::read_block_target` | `terrain` | Reads the center of the current crosshair block while gameplay owns input |
