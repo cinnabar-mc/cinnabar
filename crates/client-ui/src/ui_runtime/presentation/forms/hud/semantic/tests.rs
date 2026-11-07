@@ -210,6 +210,34 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn actionbar_controller_input_outlives_default_animation_until_explicit_clear() {
+    let mut fixture = Fixture::default();
+    let mut cache = SemanticHud::default();
+    fixture
+        .runtime
+        .session
+        .hud
+        .set_actionbar(Arc::from("Persistent status"), 1, 100);
+    fixture.frame.now_millis = 100;
+    fixture.check(&mut cache);
+    fixture.runtime.session.hud.expire(30_000);
+    fixture.frame.now_millis = 30_000;
+    fixture.check(&mut cache);
+    assert!(
+        fixture.runtime.hud().actionbar().is_none(),
+        "the default timed view expired"
+    );
+    assert_eq!(
+        cache.model.actionbar.as_ref().unwrap().text,
+        "Persistent status",
+        "an unanimated server control retains the request"
+    );
+    fixture.runtime.session.hud.clear_titles();
+    fixture.check(&mut cache);
+    assert!(cache.model.actionbar.is_none());
+}
+
+#[test]
 fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     let mut fixture = Fixture::default();
     fixture

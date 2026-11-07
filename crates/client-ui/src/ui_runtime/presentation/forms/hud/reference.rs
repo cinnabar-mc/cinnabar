@@ -140,7 +140,7 @@ pub(super) fn hud_model(
         subtitle_text: Some(
             bounded_text(runtime.hud().subtitle_text(), protocol::MAX_UI_TEXT_BYTES).to_owned(),
         ),
-        actionbar: visible(runtime.hud().actionbar(), now).map(timed),
+        actionbar: runtime.hud().actionbar_request().map(timed),
         tip: visible(runtime.hud().tip(), now).map(timed),
         item_name,
         chat,

@@ -994,6 +994,10 @@ message's position while reading history, including wrapped rows and history evi
 Version-matched native scroll acceptance remains unverified.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
+Action-bar controller inputs remain until explicit clear/reset so server controls
+without fade animations retain their text. Authored fade animations remain in control
+of visibility, and a new factory creation clock revives a previously destroyed control.
+Matched native controller timing and rendered server HUD qualification remain incomplete.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
