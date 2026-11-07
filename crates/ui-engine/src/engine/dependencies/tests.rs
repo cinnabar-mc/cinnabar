@@ -36,6 +36,7 @@ fn sprite(key: &str, path: &str) -> DrawNode {
     node(
         key,
         Draw::Sprite {
+            slice: None,
             texture: path.into(),
             uv: json_ui::UvRect::full(),
             color: [255; 4],
