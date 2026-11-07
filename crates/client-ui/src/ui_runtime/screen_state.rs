@@ -89,6 +89,15 @@ struct FieldEditor {
     editor: ui::ChatEditor,
     /// Changes with every edit and caret move, restarting the caret blink.
     revision: u64,
+    /// The field whose text the editor last took up.
+    owner: Option<FieldOwner>,
+}
+
+/// One search or anvil name field in one container window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FieldOwner {
+    anvil: bool,
+    window: Option<u64>,
 }
 
 impl Default for FieldEditor {
@@ -97,6 +106,7 @@ impl Default for FieldEditor {
             editor: ui::ChatEditor::new(FIELD_EDITOR_BYTES)
                 .expect("the field editor's size is checked at compile time"),
             revision: 0,
+            owner: None,
         }
     }
 }
@@ -260,11 +270,7 @@ impl ScreenState {
 
     /// The focused search or anvil field's selected text.
     pub fn selected_text(&self) -> Option<&str> {
-        let (field, _) = self.focused_field()?;
-        let editor = &self.field_editor.editor;
-        (editor.as_str() == field)
-            .then(|| editor.selected_text())
-            .flatten()
+        self.mirrored_editor()?.selected_text()
     }
 
     /// Removes and returns the focused search or anvil field's selected text.
@@ -293,32 +299,47 @@ impl ScreenState {
     /// The focused search or anvil field's caret, once editing has placed one; a field the
     /// editor does not mirror shows its caret at the end.
     pub fn field_caret(&self) -> Option<FieldCaret> {
-        let (field, _) = self.focused_field()?;
-        let FieldEditor { editor, revision } = &self.field_editor;
-        Some(if editor.as_str() == field {
-            FieldCaret {
+        let (field, ..) = self.focused_field()?;
+        let revision = self.field_editor.revision;
+        Some(match self.mirrored_editor() {
+            Some(editor) => FieldCaret {
                 byte: editor.cursor_byte(),
                 selection: editor.selection().map(|range| [range.start, range.end]),
-                revision: *revision,
-            }
-        } else {
-            FieldCaret {
+                revision,
+            },
+            None => FieldCaret {
                 byte: field.len(),
                 selection: None,
-                revision: *revision,
-            }
+                revision,
+            },
         })
     }
 
-    /// The focused search or anvil field and its length in characters; an editable book takes
-    /// typing instead.
-    fn focused_field(&self) -> Option<(&str, usize)> {
+    /// The field editor while it holds the focused field's caret: it took up that field in
+    /// this window and the field still has the editor's text.
+    fn mirrored_editor(&self) -> Option<&ui::ChatEditor> {
+        let (field, _, owner) = self.focused_field()?;
+        let FieldEditor {
+            editor,
+            owner: mirrored,
+            ..
+        } = &self.field_editor;
+        (*mirrored == Some(owner) && editor.as_str() == field).then_some(editor)
+    }
+
+    /// The focused search or anvil field, its length in characters and its owner; an editable
+    /// book takes typing instead.
+    fn focused_field(&self) -> Option<(&str, usize, FieldOwner)> {
+        let owner = |anvil| FieldOwner {
+            anvil,
+            window: self.window,
+        };
         if self.book.as_ref().is_some_and(|book| book.editable) {
             None
         } else if self.anvil_focused {
-            Some((&self.anvil_name, MAX_ANVIL_NAME_CHARS))
+            Some((&self.anvil_name, MAX_ANVIL_NAME_CHARS, owner(true)))
         } else if self.search_focused {
-            Some((&self.search, MAX_SEARCH_CHARS))
+            Some((&self.search, MAX_SEARCH_CHARS, owner(false)))
         } else {
             None
         }
@@ -338,9 +359,18 @@ impl ScreenState {
         } else {
             return false;
         };
-        let FieldEditor { editor, revision } = &mut self.field_editor;
-        if editor.as_str() != field.as_str() {
+        let owner = FieldOwner {
+            anvil: !search,
+            window: self.window,
+        };
+        let FieldEditor {
+            editor,
+            revision,
+            owner: mirrored,
+        } = &mut self.field_editor;
+        if *mirrored != Some(owner) || editor.as_str() != field.as_str() {
             editor.set_text(field);
+            *mirrored = Some(owner);
         }
         let before = (editor.cursor_byte(), editor.selection());
         edit(editor, limit);
@@ -519,5 +549,31 @@ mod tests {
         state.anvil_focused = false;
         assert!(!state.edit_text_key(KeyboardKey::Home, false, false));
         assert_eq!(state.field_caret(), None);
+    }
+
+    #[test]
+    fn another_field_with_the_same_text_starts_with_its_caret_at_the_end() {
+        let mut state = ScreenState {
+            search_focused: true,
+            ..ScreenState::default()
+        };
+        state.type_text("iron");
+        assert!(state.select_all_text());
+
+        state.observe_window(Some(2));
+        state.anvil_name = "iron".into();
+        state.anvil_focused = true;
+        assert_eq!(state.selected_text(), None);
+        assert_eq!(state.field_caret().map(|caret| caret.byte), Some(4));
+        state.type_text("y");
+        assert_eq!(state.anvil_name, "irony");
+
+        assert!(state.select_all_text());
+        state.anvil_focused = false;
+        state.search_focused = true;
+        state.search = "irony".into();
+        assert_eq!(state.selected_text(), None);
+        state.backspace_text();
+        assert_eq!(state.search, "iron");
     }
 }
