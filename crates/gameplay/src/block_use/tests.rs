@@ -331,6 +331,31 @@ fn placement_obstruction_uses_the_placed_shape_and_resolved_cell() {
     assert_eq!(stone.destination([2, 64, 0], 4), ([1, 64, 0], true));
 }
 
+/// A ladder clicked onto a top or bottom face neither swings nor spends the item.
+#[test]
+fn ladders_are_not_placed_on_top_or_bottom_faces() {
+    let ladder = verified(network_item(2, 77));
+    let around = UseSurroundings {
+        held: block_fact("minecraft:ladder"),
+        ..surroundings("minecraft:stone", "minecraft:air")
+    };
+    for mode in [PlayerGameMode::Survival, PlayerGameMode::Creative] {
+        let caps = GameModeCapabilities::for_mode(mode);
+        for (clicked, face) in [([2, 63, 0], 1), ([2, 66, 0], 0)] {
+            assert_eq!(
+                LocalUse::resolve(&ladder, clicked, face, &around, &caps),
+                LocalUse::Nothing,
+                "{mode:?} face {face}"
+            );
+        }
+        assert_eq!(
+            LocalUse::resolve(&ladder, [3, 64, 0], 4, &around, &caps),
+            LocalUse::Place,
+            "{mode:?} side face"
+        );
+    }
+}
+
 /// A full cube does not merge into the clicked cube; its placement is just as certain.
 #[test]
 fn a_stateless_cube_predicts_when_the_clicked_block_is_the_same_kind() {
