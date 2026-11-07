@@ -13,17 +13,17 @@ fn route() -> (
         Route {
             stream: None,
             mixer: Arc::new(Mutex::new(Some(mixer))),
+            failure: Arc::new(OnceLock::new()),
         },
         controller,
     )
 }
 
 /// Attaches a hardware-format conversion to the retained mixer without using an audio device.
-fn open(device: &u32, source: MixerLease) -> Option<TestStream> {
-    Some(rodio::source::UniformSourceIterator::new(
-        source,
-        CAPTURE_CHANNELS,
-        *device,
+fn open(device: &u32, source: MixerLease) -> Option<(TestStream, StreamFailure)> {
+    Some((
+        rodio::source::UniformSourceIterator::new(source, CAPTURE_CHANNELS, *device),
+        Arc::new(OnceLock::new()),
     ))
 }
 
@@ -258,4 +258,88 @@ fn named_sources_queue_without_failure_during_an_output_gap() {
             .take(64)
             .any(|sample| sample > 0.0)
     );
+}
+
+/// Supplies a backend error without accessing an actual sound device.
+fn fail(route: &Route<u32, TestStream>) {
+    let error = rodio::cpal::StreamError::BackendSpecific {
+        err: rodio::cpal::BackendSpecificError {
+            description: "synthetic output failure".into(),
+        },
+    };
+    hardware::error_callback(Arc::clone(&route.failure))(error);
+}
+
+#[test]
+fn a_failed_stream_reopens_the_same_endpoint_and_retains_audio() {
+    let (mut route, controller) = route();
+    let samples: Vec<_> = (0..128).map(|sample| sample as f32 / 256.0).collect();
+    controller.add(rodio::buffer::SamplesBuffer::new(
+        CAPTURE_CHANNELS,
+        MIXER_RATE,
+        samples.clone(),
+    ));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    for expected in &samples[..16] {
+        assert_eq!(route.stream.as_mut().unwrap().1.next(), Some(*expected));
+    }
+    let old_failure = Arc::clone(&route.failure);
+    fail(&route);
+    controller.add(rodio::buffer::SamplesBuffer::new(
+        CAPTURE_CHANNELS,
+        MIXER_RATE,
+        vec![0.25; 128],
+    ));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    assert!(
+        !Arc::ptr_eq(&old_failure, &route.failure),
+        "failed transport was kept alive"
+    );
+    assert!(route.failure.get().is_none());
+    for expected in &samples[16..32] {
+        assert_eq!(
+            route.stream.as_mut().unwrap().1.next(),
+            Some(*expected + 0.25)
+        );
+    }
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| {
+        panic!("stale failure reopened healthy stream")
+    });
+}
+
+#[test]
+fn a_failed_same_endpoint_retries_after_unsuccessful_open() {
+    let (mut route, controller) = route();
+    controller.add(rodio::buffer::SamplesBuffer::new(
+        CAPTURE_CHANNELS,
+        MIXER_RATE,
+        vec![0.25; 128],
+    ));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    fail(&route);
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| None);
+    assert!(route.stream.is_none(), "failed transport prevented retry");
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    assert_eq!(route.stream.as_mut().unwrap().1.next(), Some(0.25));
+}
+
+#[test]
+fn repeated_backend_errors_are_coalesced_and_old_callbacks_cannot_poison_recovery() {
+    let (mut route, _) = route();
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    let mut callback = hardware::error_callback(Arc::clone(&route.failure));
+    callback(rodio::cpal::StreamError::DeviceNotAvailable);
+    for _ in 0..10_000 {
+        fail(&route);
+    }
+    assert!(matches!(
+        route.failure.get(),
+        Some(rodio::cpal::StreamError::DeviceNotAvailable)
+    ));
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, open);
+    callback(rodio::cpal::StreamError::DeviceNotAvailable);
+    assert!(route.failure.get().is_none());
+    route.refresh(Some(MIXER_RATE), PartialEq::eq, |_, _| {
+        panic!("late error from retired callback reopened output")
+    });
 }
