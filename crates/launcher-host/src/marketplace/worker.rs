@@ -22,6 +22,7 @@ use std::{
 
 pub(super) const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_REVOCATIONS_BYTES: usize = 1024 * 1024;
+const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Public transport is fixed by the client contract; only in-module tests substitute loopback HTTP.
 struct Transport {
@@ -132,7 +133,7 @@ async fn refresh(
     let state = signed.verify(keys, now(), guard.checkpoint())?;
     // Persist before advancing the in-memory checkpoint, so restarts retain rollback protection.
     storage::save(
-        &mods.join(".marketplace/revocations.json"),
+        &storage::revocations_path(mods),
         &serde_json::to_vec(&signed)?,
     )?;
     guard.revocations(state);
@@ -202,6 +203,17 @@ async fn download(
     })
 }
 
+/// Bounds one local control call so a stalled core cannot block delivery.
+fn control<T>(
+    runtime: &tokio::runtime::Runtime,
+    call: impl Future<Output = Result<T, bridge::BridgeError>>,
+) -> Option<T> {
+    runtime
+        .block_on(async { tokio::time::timeout(CONTROL_TIMEOUT, call).await })
+        .ok()?
+        .ok()
+}
+
 /// Owns one off-frame delivery loop and exits when the app drops its request channel.
 #[allow(
     clippy::too_many_arguments,
@@ -234,7 +246,7 @@ pub(super) fn run(
     };
     if let Some(keys) = &keys
         && let Ok(bytes) = storage::read(
-            &mods.join(".marketplace/revocations.json"),
+            &storage::revocations_path(&mods),
             2 * MAX_REVOCATIONS_BYTES + 1024,
         )
         && let Ok(signed) = serde_json::from_slice::<SignedRevocations>(&bytes)
@@ -242,6 +254,9 @@ pub(super) fn run(
     {
         guard.revocations(state);
     }
+    let notify = |message: String| {
+        let _ = events.try_send(message);
+    };
     let mut deliveries = Deliveries::default();
     let mut refresh_at = 0;
     loop {
@@ -257,78 +272,58 @@ pub(super) fn run(
                 if let Err(error) =
                     runtime.block_on(refresh(&transport, &mods, keys, &guard, now_ms))
                 {
-                    let _ =
-                        events.try_send(format!("Marketplace checks could not refresh: {error:#}"));
+                    notify(format!("Marketplace checks could not refresh: {error:#}"));
                 }
                 refresh_at = now_ms().saturating_add(60_000);
             }
-            if let Ok(Ok(library)) = runtime.block_on(async {
-                tokio::time::timeout(Duration::from_secs(2), bridge::cinnabar_mods(&socket)).await
-            }) {
-                if bridge::valid_cinnabar_xuid(&library.xuid) {
-                    guard.account(epoch, library.xuid.clone());
-                }
-                if bridge::valid_cinnabar_xuid(&library.xuid)
-                    && library.mods.len() <= bridge::contract::CINNABAR_MODS_MAX_ENTRIES
+            if let Some(library) = control(&runtime, bridge::cinnabar_mods(&socket))
+                && bridge::valid_cinnabar_xuid(&library.xuid)
+            {
+                guard.account(epoch, library.xuid.clone());
+                if library.mods.len() <= bridge::contract::CINNABAR_MODS_MAX_ENTRIES
                     && generation.load(Ordering::SeqCst) == epoch
                 {
-                    for selected in library.mods {
+                    for selected in &library.mods {
                         if selected.pulled {
                             guard.hold(&selected.sha256);
                         }
                         let Some(keys) = &keys else {
-                            let _ = events.try_send("Marketplace downloads are not enabled in this build. Update Cinnabar or import a local mod.".into());
+                            notify("Marketplace downloads are not enabled in this build. Update Cinnabar or import a local mod.".into());
                             break;
                         };
-                        if storage::removed(&mods, &library.xuid, &selected, keys, limit, now_ms())
-                        {
-                            let _ = runtime.block_on(async {
-                                tokio::time::timeout(
-                                    Duration::from_secs(2),
-                                    bridge::remove_cinnabar_mod(&socket, &selected),
-                                )
-                                .await
-                            });
+                        if storage::removed(&mods, &library.xuid, selected, keys, limit, now_ms()) {
+                            let _ =
+                                control(&runtime, bridge::remove_cinnabar_mod(&socket, selected));
                             continue;
                         }
-                        if selected.pulled {
+                        let key = request(&library.xuid, selected);
+                        if selected.pulled || deliveries.requests.contains(&key) {
                             continue;
                         }
-                        let key = request(&library.xuid, &selected);
-                        if deliveries.requests.contains(&key) {
-                            continue;
-                        }
-                        let _ = events
-                            .try_send(format!("Preparing {} from the marketplace…", selected.slug));
-                        let prepared = runtime.block_on(download(
+                        notify(format!("Preparing {} from the marketplace…", selected.slug));
+                        match runtime.block_on(download(
                             &transport,
                             &mods,
                             keys,
                             &library.xuid,
-                            &selected,
+                            selected,
                             limit,
                             (generation.clone(), epoch, guard.clone()),
                             now_ms,
-                        ));
-                        match prepared {
+                        )) {
                             Ok(prepared) => {
                                 // Reconfirm the live account and exact selection after slow network I/O.
-                                let current = runtime.block_on(async {
-                                    tokio::time::timeout(
-                                        Duration::from_secs(2),
-                                        bridge::cinnabar_mods(&socket),
-                                    )
-                                    .await
-                                });
-                                if matches!(current, Ok(Ok(current)) if current.xuid == library.xuid && current.mods.contains(&selected))
-                                {
+                                if control(&runtime, bridge::cinnabar_mods(&socket)).is_some_and(
+                                    |current| {
+                                        current.xuid == library.xuid
+                                            && current.mods.contains(selected)
+                                    },
+                                ) {
                                     deliveries.queue(key, prepared, &outgoing);
                                 }
                             }
                             Err(error) => {
-                                let _ = events.try_send(format!(
-                                    "Marketplace mod could not be prepared: {error:#}"
-                                ));
+                                notify(format!("Marketplace mod could not be prepared: {error:#}"))
                             }
                         }
                     }

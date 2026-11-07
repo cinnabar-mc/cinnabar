@@ -1,6 +1,10 @@
 //! Atomic immutable components and signed receipts. Missing receipts always deny runtime admission.
 
-use super::{Guard, Keys, Manifest, SignedRelease, guard::FILE_PREFIX, verify::verify_bytes};
+use super::{
+    Guard, Keys, Manifest, SignedRelease,
+    guard::FILE_PREFIX,
+    verify::{digest_valid, verify_bytes},
+};
 use anyhow::{Result, ensure};
 use bridge::contract::CinnabarModEntry;
 use serde::{Deserialize, Serialize};
@@ -14,6 +18,19 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
+
+/// Private directory holding signed receipts and the revocation checkpoint.
+const EVIDENCE_DIR: &str = ".marketplace";
+
+/// Locates the signed receipt for a managed component file name.
+fn receipt_path(mods: &Path, name: &str) -> PathBuf {
+    mods.join(EVIDENCE_DIR).join(format!("{name}.json"))
+}
+
+/// Locates the persisted signed revocation checkpoint.
+pub(super) fn revocations_path(mods: &Path) -> PathBuf {
+    mods.join(EVIDENCE_DIR).join("revocations.json")
+}
 
 #[derive(Deserialize, Serialize)]
 pub(super) struct Receipt {
@@ -34,11 +51,6 @@ pub struct Downloaded {
 }
 
 impl Downloaded {
-    /// Exposes signed permission requests solely for comparison with the actual component declarations.
-    pub fn grants(&self) -> &serde_json::Value {
-        &self.manifest.grants
-    }
-
     /// Supplies verified metadata for the owning component host's declaration and ABI checks.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
@@ -75,7 +87,7 @@ impl Downloaded {
             })?;
         }
         save(
-            &self.mods.join(".marketplace").join(format!("{name}.json")),
+            &receipt_path(&self.mods, &name),
             &serde_json::to_vec(&self.receipt)?,
         )?;
         self.guard
@@ -87,7 +99,7 @@ impl Downloaded {
 /// Derives every destination from validated account and hash selectors; project names never select paths.
 pub(super) fn filename(owner: &str, selected: &CinnabarModEntry) -> Result<String> {
     ensure!(
-        bridge::valid_cinnabar_xuid(owner) && super::verify::digest_valid(&selected.sha256),
+        bridge::valid_cinnabar_xuid(owner) && digest_valid(&selected.sha256),
         "Invalid marketplace storage selector."
     );
     let identity = serde_json::to_vec(&(&selected.slug, &selected.version, &selected.sha256))?;
@@ -106,19 +118,19 @@ pub(super) fn removed(
     limit: usize,
     now: u64,
 ) -> bool {
-    let result = (|| -> Result<bool> {
+    (|| -> Result<bool> {
         let name = filename(owner, selected)?;
         if mods.join(&name).try_exists()? {
             return Ok(false);
         }
         let receipt: Receipt = serde_json::from_slice(&read(
-            &mods.join(".marketplace").join(format!("{name}.json")),
+            &receipt_path(mods, &name),
             super::worker::MAX_RESPONSE_BYTES,
         )?)?;
         receipt.release.verify(keys, selected, limit, now)?;
         Ok(receipt.owner == owner && receipt.selected.sent_at == selected.sent_at)
-    })();
-    result.unwrap_or(false)
+    })()
+    .unwrap_or(false)
 }
 
 /// Reads regular files with an enforced byte bound, rejecting leaf links on supported native platforms.
@@ -173,7 +185,7 @@ pub(super) fn restore(
     now: u64,
 ) -> Vec<Receipt> {
     let mut receipts = Vec::new();
-    let Ok(entries) = fs::read_dir(mods.join(".marketplace")) else {
+    let Ok(entries) = fs::read_dir(mods.join(EVIDENCE_DIR)) else {
         return receipts;
     };
     for entry in entries.flatten() {
@@ -195,9 +207,7 @@ pub(super) fn restore(
             }
             Ok(receipt)
         })();
-        if let Ok(receipt) = restored {
-            receipts.push(receipt);
-        }
+        receipts.extend(restored);
     }
     receipts
 }

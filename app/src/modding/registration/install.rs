@@ -365,9 +365,9 @@ pub(super) fn apply(world: &mut World, update: Update) {
                     .marketplace
                     .allows(&component, launcher_host::marketplace::now_ms()) =>
             {
-                candidate.retire(world.resource::<Watcher>());
-                world
-                    .resource::<Watcher>()
+                let watcher = world.resource::<Watcher>();
+                candidate.retire(watcher);
+                watcher
                     .marketplace
                     .reason(&component, launcher_host::marketplace::now_ms())
             }

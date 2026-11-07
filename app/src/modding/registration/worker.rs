@@ -121,14 +121,14 @@ pub(super) fn run(
                     observer
                         .source_snapshot(entry.clone(), now)
                         .and_then(|mut snapshot| {
-                            marketplace
+                            if let Some(manifest) = marketplace
                                 .check(
                                     &entry.component,
                                     &snapshot.component,
                                     launcher_host::marketplace::now_ms(),
                                 )
-                                .map_err(|error| error.to_string())?;
-                            if let Some(manifest) = marketplace.manifest(&entry.component) {
+                                .map_err(|error| error.to_string())?
+                            {
                                 super::super::marketplace::declarations(
                                     &snapshot.component,
                                     &manifest,

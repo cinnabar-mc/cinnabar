@@ -1,14 +1,14 @@
 //! Small shared authority snapshot; frame checks perform no filesystem or network I/O.
 
-use super::verify::{Manifest, RevocationState, verify_bytes};
+use super::verify::{CLOCK_SKEW_MS, Manifest, RevocationState, verify_bytes};
 use anyhow::{Result, ensure};
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{Mutex, MutexGuard},
 };
 
-pub const FILE_PREFIX: &str = "marketplace-";
+pub(super) const FILE_PREFIX: &str = "marketplace-";
 
 #[derive(Default)]
 struct State {
@@ -16,8 +16,42 @@ struct State {
     account: String,
     issued_at: u64,
     expires_at: u64,
-    revoked: Arc<HashMap<String, String>>,
+    revoked: HashMap<String, String>,
     installed: HashMap<PathBuf, (String, Manifest)>,
+}
+
+impl State {
+    /// Checks the live account, signed freshness window and withdrawals for one release.
+    fn authorizes(&self, owner: &str, hash: &str, now: u64) -> bool {
+        self.account == owner
+            && self.expires_at > now
+            && self.issued_at <= now.saturating_add(CLOCK_SKEW_MS)
+            && !self.revoked.contains_key(hash)
+    }
+
+    /// Returns an installed receipt's manifest only while its release is currently authorized.
+    fn admitted(&self, path: &Path, now: u64) -> Option<&Manifest> {
+        self.installed
+            .get(path)
+            .filter(|(owner, manifest)| self.authorizes(owner, &manifest.sha256, now))
+            .map(|(_, manifest)| manifest)
+    }
+
+    /// Produces plain text for the existing bounded Mods status renderer.
+    fn reason(&self, path: &Path, now: u64) -> String {
+        if let Some((owner, manifest)) = self.installed.get(path) {
+            if let Some(reason) = self.revoked.get(&manifest.sha256) {
+                return launcher::mods::marketplace_withdrawn(reason);
+            }
+            if owner != &self.account {
+                return "Sign into this mod's account before enabling it.".into();
+            }
+            if self.expires_at <= now {
+                return "Marketplace checks expired. Reconnect and reload the mod after checks refresh.".into();
+            }
+        }
+        "Marketplace release held: current signed evidence is unavailable.".into()
+    }
 }
 
 /// Live admission for managed files, independent of browser trust or persisted grants.
@@ -25,16 +59,21 @@ struct State {
 pub struct Guard(Mutex<State>);
 
 impl Guard {
+    /// Locks the snapshot, recovering it after a panicking holder.
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Switches identity immediately; existing receipts cannot grant another account authority.
     pub fn configure(&self, epoch: u64) {
-        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state();
         state.epoch = epoch;
         state.account.clear();
     }
 
     /// Applies an authenticated identity only if its control request still belongs to this epoch.
     pub fn account(&self, epoch: u64, xuid: String) {
-        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state();
         if state.epoch == epoch {
             state.account = xuid;
         }
@@ -42,129 +81,64 @@ impl Guard {
 
     /// Rechecks an uninstalled download against live account and withdrawal authority.
     pub fn permits(&self, owner: &str, hash: &str, now: u64) -> bool {
-        let state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        !owner.is_empty()
-            && state.account == owner
-            && state.expires_at > now
-            && state.issued_at <= now.saturating_add(super::verify::CLOCK_SKEW_MS)
-            && !state.revoked.contains_key(hash)
+        !owner.is_empty() && self.state().authorizes(owner, hash, now)
     }
 
     /// Retains every known revoked hash while advancing the signed freshness checkpoint.
     pub fn revocations(&self, value: RevocationState) {
-        let previous = self
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .revoked
-            .clone();
-        let mut revoked = (*previous).clone();
-        revoked.extend(value.revoked);
-        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state();
         state.issued_at = value.issued_at;
         state.expires_at = value.expires_at;
-        state.revoked = Arc::new(revoked);
+        state.revoked.extend(value.revoked);
     }
 
     /// Returns the last accepted issue time so a replay cannot roll back this session.
     pub fn checkpoint(&self) -> u64 {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).issued_at
+        self.state().issued_at
     }
 
     /// Registers a receipt only after its signature, declaration and on-disk bytes are verified.
     pub fn installed(&self, path: PathBuf, owner: String, manifest: Manifest) {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .installed
-            .insert(path, (owner, manifest));
-    }
-
-    /// Supplies signed declarations for comparison on the loader worker, never the frame thread.
-    pub fn manifest(&self, path: &Path) -> Option<Manifest> {
-        self.0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .installed
-            .get(path)
-            .map(|(_, manifest)| manifest.clone())
+        self.state().installed.insert(path, (owner, manifest));
     }
 
     /// Tests freshness and ownership at installation and immediately before frame admission.
     pub fn allows(&self, path: &Path, now: u64) -> bool {
-        if !managed(path) {
-            return true;
-        }
-        let state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        allowed(&state, path, now)
+        !managed(path) || self.state().admitted(path, now).is_some()
     }
 
     /// Validates a captured source against its receipt without reading mutable files again.
-    pub fn check(&self, path: &Path, bytes: &[u8], now: u64) -> Result<()> {
-        if managed(path) {
-            let state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-            ensure!(allowed(&state, path, now), "{}", reason(&state, path, now));
-            let (_, manifest) = state
-                .installed
-                .get(path)
-                .ok_or_else(|| anyhow::anyhow!("Missing marketplace receipt."))?;
-            let manifest = manifest.clone();
-            drop(state);
-            verify_bytes(bytes, &manifest)?;
-            ensure!(
-                self.allows(path, now),
-                "Marketplace authority changed while source bytes were checked."
-            );
+    ///
+    /// Returns the signed manifest of a managed file for declaration checks, or `None` for a
+    /// local file.
+    pub fn check(&self, path: &Path, bytes: &[u8], now: u64) -> Result<Option<Manifest>> {
+        if !managed(path) {
+            return Ok(None);
         }
-        Ok(())
+        let manifest = {
+            let state = self.state();
+            state
+                .admitted(path, now)
+                .cloned()
+                .ok_or_else(|| anyhow::Error::msg(state.reason(path, now)))?
+        };
+        verify_bytes(bytes, &manifest)?;
+        ensure!(
+            self.allows(path, now),
+            "Marketplace authority changed while source bytes were checked."
+        );
+        Ok(Some(manifest))
     }
 
     /// Blocks a withdrawal hint immediately, pending the next signed revocation refresh.
     pub fn hold(&self, hash: &str) {
-        let previous = self
-            .0
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .revoked
-            .clone();
-        if previous.contains_key(hash) {
-            return;
-        }
-        let mut revoked = (*previous).clone();
-        revoked.entry(hash.into()).or_default();
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).revoked = Arc::new(revoked);
+        self.state().revoked.entry(hash.into()).or_default();
     }
 
     /// Explains a held file using signed withdrawal text or the current account/freshness state.
     pub fn reason(&self, path: &Path, now: u64) -> String {
-        reason(&self.0.lock().unwrap_or_else(|e| e.into_inner()), path, now)
+        self.state().reason(path, now)
     }
-}
-
-/// Evaluates one immutable authority snapshot while its lock is held.
-fn allowed(state: &State, path: &Path, now: u64) -> bool {
-    state.installed.get(path).is_some_and(|(owner, manifest)| {
-        state.account == *owner
-            && state.expires_at > now
-            && state.issued_at <= now.saturating_add(super::verify::CLOCK_SKEW_MS)
-            && !state.revoked.contains_key(&manifest.sha256)
-    })
-}
-
-/// Produces plain text for the existing bounded Mods status renderer.
-fn reason(state: &State, path: &Path, now: u64) -> String {
-    if let Some((owner, manifest)) = state.installed.get(path) {
-        if let Some(reason) = state.revoked.get(&manifest.sha256) {
-            return launcher::mods::marketplace_withdrawn(reason);
-        }
-        if owner != &state.account {
-            return "Sign into this mod's account before enabling it.".into();
-        }
-        if state.expires_at <= now {
-            return "Marketplace checks expired. Reconnect and reload the mod after checks refresh.".into();
-        }
-    }
-    "Marketplace release held: current signed evidence is unavailable.".into()
 }
 
 /// Reserves managed filenames even if a receipt was deleted or corrupted.

@@ -17,6 +17,18 @@ struct Handoff {
     checked_at: u64,
 }
 
+/// Parses the synthetic website handoff with its throwaway signer and decoded artifact.
+fn handoff() -> (Handoff, Keys, Vec<u8>) {
+    let fixture: Handoff =
+        serde_json::from_str(include_str!("fixtures/website-send.json")).unwrap();
+    let keys = Keys::parse(
+        &serde_json::to_vec(&serde_json::json!({"ed25519":[fixture.public_key]})).unwrap(),
+    )
+    .unwrap();
+    let bytes = STANDARD.decode(&fixture.artifact).unwrap();
+    (fixture, keys, bytes)
+}
+
 /// Replays original response bytes, checks exact paths, and refuses credential-bearing requests.
 fn serve(
     responses: Vec<(String, Vec<u8>, Option<String>)>,
@@ -66,12 +78,7 @@ fn serve(
 
 #[test]
 fn website_send_downloads_disabled_and_signed_withdrawal_holds_the_installed_component() {
-    let fixture: Handoff =
-        serde_json::from_str(include_str!("fixtures/website-send.json")).unwrap();
-    let keys = Keys::parse(
-        &serde_json::to_vec(&serde_json::json!({"ed25519":[fixture.public_key]})).unwrap(),
-    )
-    .unwrap();
+    let (fixture, keys, bytes) = handoff();
     let shipped: serde_json::Value =
         serde_json::from_slice(include_bytes!("../../data/marketplace-keys.json")).unwrap();
     assert!(
@@ -81,7 +88,6 @@ fn website_send_downloads_disabled_and_signed_withdrawal_holds_the_installed_com
             .contains(&serde_json::json!(fixture.public_key)),
         "throwaway test signer must never be a shipped trust root"
     );
-    let bytes = STANDARD.decode(&fixture.artifact).unwrap();
     let (transport, server) = serve(vec![
         (
             "/v1/mods/revocations".into(),
@@ -154,13 +160,7 @@ fn website_send_downloads_disabled_and_signed_withdrawal_holds_the_installed_com
 
 #[test]
 fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() {
-    let fixture: Handoff =
-        serde_json::from_str(include_str!("fixtures/website-send.json")).unwrap();
-    let keys = Keys::parse(
-        &serde_json::to_vec(&serde_json::json!({"ed25519":[fixture.public_key]})).unwrap(),
-    )
-    .unwrap();
-    let bytes = STANDARD.decode(&fixture.artifact).unwrap();
+    let (fixture, keys, bytes) = handoff();
     let mut responses = vec![(
         "/v1/mods/revocations".into(),
         fixture.revocations.body.as_bytes().to_vec(),
@@ -185,8 +185,24 @@ fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() 
     let (outgoing, incoming) = crossbeam_channel::bounded(1);
     let key = request(&fixture.xuid, &fixture.selected);
     let mut deliveries = Deliveries::default();
-    guard.configure(1);
-    guard.account(1, fixture.xuid.clone());
+    // Starts a new account epoch whose identity reply arrives in time.
+    let switch = |epoch| {
+        generation.store(epoch, Ordering::SeqCst);
+        guard.configure(epoch);
+        guard.account(epoch, fixture.xuid.clone());
+    };
+    // Re-derives queue admission for an epoch from durable receipts.
+    let refresh_queue = |deliveries: &mut Deliveries, epoch| {
+        deliveries.refresh(
+            epoch,
+            root.path(),
+            Some(&keys),
+            bytes.len(),
+            &guard,
+            fixture.checked_at,
+        )
+    };
+    switch(1);
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -198,17 +214,8 @@ fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() 
         .await
         .unwrap();
         for epoch in [1, 3] {
-            generation.store(epoch, Ordering::SeqCst);
-            guard.configure(epoch);
-            guard.account(epoch, fixture.xuid.clone());
-            deliveries.refresh(
-                epoch,
-                root.path(),
-                Some(&keys),
-                bytes.len(),
-                &guard,
-                fixture.checked_at,
-            );
+            switch(epoch);
+            refresh_queue(&mut deliveries, epoch);
             assert!(!deliveries.requests.contains(&key));
             let prepared = download(
                 &transport,
@@ -223,14 +230,7 @@ fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() 
             .await
             .unwrap();
             deliveries.queue(key.clone(), prepared, &outgoing);
-            deliveries.refresh(
-                epoch,
-                root.path(),
-                Some(&keys),
-                bytes.len(),
-                &guard,
-                fixture.checked_at,
-            );
+            refresh_queue(&mut deliveries, epoch);
             assert!(
                 deliveries.requests.contains(&key),
                 "pending delivery must remain deduplicated in the same epoch"
@@ -244,34 +244,16 @@ fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() 
                 assert!(!root.path().join(name).exists());
             } else {
                 let installed = prepared.install(fixture.checked_at).unwrap();
-                generation.store(4, Ordering::SeqCst);
-                guard.configure(4);
-                guard.account(4, fixture.xuid.clone());
-                deliveries.refresh(
-                    4,
-                    root.path(),
-                    Some(&keys),
-                    bytes.len(),
-                    &guard,
-                    fixture.checked_at,
-                );
+                switch(4);
+                refresh_queue(&mut deliveries, 4);
                 assert!(
                     deliveries.requests.contains(&key),
                     "successful install must stay consumed after switching accounts"
                 );
                 assert!(guard.allows(&installed, fixture.checked_at));
                 fs::remove_file(installed).unwrap();
-                generation.store(5, Ordering::SeqCst);
-                guard.configure(5);
-                guard.account(5, fixture.xuid.clone());
-                deliveries.refresh(
-                    5,
-                    root.path(),
-                    Some(&keys),
-                    bytes.len(),
-                    &guard,
-                    fixture.checked_at,
-                );
+                switch(5);
+                refresh_queue(&mut deliveries, 5);
                 assert!(
                     deliveries.requests.contains(&key),
                     "local removal must stay consumed after switching accounts"

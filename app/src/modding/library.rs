@@ -64,15 +64,18 @@ fn drive(
             .account_generation()
             .map(|generation| (account.0.socket_dir().to_owned(), generation))
     });
-    if let Some(marketplace) = &mut library.marketplace {
+    let ModLibrary {
+        service,
+        marketplace,
+    } = &mut *library;
+    if let Some(marketplace) = marketplace {
         marketplace.configure(context);
         let downloads = marketplace.downloads();
-        let message = marketplace.message();
-        if let Some(message) = message {
-            library.service.message(message);
+        if let Some(message) = marketplace.message() {
+            service.message(message);
         }
         for download in downloads {
-            library.service.marketplace(download);
+            service.marketplace(download);
         }
     }
     let Some(mut menu) = menu else { return };
@@ -87,7 +90,5 @@ fn drive(
         .value(launcher::menu::settings_options::SettingId::ModAutoUpdate)
         != 0;
     let actions = std::mem::take(&mut menu.mod_actions);
-    library
-        .service
-        .drive(actions, &mut menu.mods, checks, automatic);
+    service.drive(actions, &mut menu.mods, checks, automatic);
 }
