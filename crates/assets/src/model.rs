@@ -443,10 +443,34 @@ pub const MODEL_QUAD_FLAG_CULL_FACE_MASK: u32 = 0x70;
 /// vertex colour or light. It keeps the shade and final vertex light of the last face that
 /// cuboid drew; the cuboid is the run of distinct faced quads just before the detail quads.
 pub const MODEL_QUAD_FLAG_INHERITED_SHADE: u32 = 1 << 7;
+/// Down or up quad whose UVs stay aligned to the world axes when its template is turned about
+/// y: renderers undo the model's quarter turns on the UVs with [`world_aligned_uv`].
+pub const MODEL_QUAD_FLAG_WORLD_ALIGNED_UV: u32 = 1 << 8;
 pub(crate) const MODEL_QUAD_FLAGS_MASK: u32 = MODEL_QUAD_FLAG_FACE_MASK
     | MODEL_QUAD_FLAG_TWO_SIDED
     | MODEL_QUAD_FLAG_CULL_FACE_MASK
-    | MODEL_QUAD_FLAG_INHERITED_SHADE;
+    | MODEL_QUAD_FLAG_INHERITED_SHADE
+    | MODEL_QUAD_FLAG_WORLD_ALIGNED_UV;
+
+/// The UV a template corner samples once its template is turned `turns` quarter turns about y,
+/// as `model.wesl::rotate_cross` turns positions.
+///
+/// Quads without [`MODEL_QUAD_FLAG_WORLD_ALIGNED_UV`] keep their authored UV. Flagged down and
+/// up quads author the native cube UV of their unturned position (down `+x/-z`, up `+x/+z`)
+/// and get the native UV of their turned position.
+#[must_use]
+pub fn world_aligned_uv(flags: u32, turns: u32, [u, v]: [f32; 2]) -> [f32; 2] {
+    if flags & MODEL_QUAD_FLAG_WORLD_ALIGNED_UV == 0 {
+        return [u, v];
+    }
+    let up = flags & MODEL_QUAD_FLAG_FACE_MASK == 2;
+    match (turns & 3, up) {
+        (1, true) | (3, false) => [1.0 - v, u],
+        (1, false) | (3, true) => [v, 1.0 - u],
+        (2, _) => [1.0 - u, 1.0 - v],
+        _ => [u, v],
+    }
+}
 
 pub(crate) const fn model_quad_flags_are_valid(flags: u32) -> bool {
     flags & !MODEL_QUAD_FLAGS_MASK == 0
