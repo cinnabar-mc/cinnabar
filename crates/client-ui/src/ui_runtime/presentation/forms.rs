@@ -445,7 +445,8 @@ impl UiPresentationRuntime {
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
         // Server textures too big for a server page draw from full-resolution art; the ones
-        // this frame drew without it pack first.
+        // this frame drew without it pack first. A priority change alone waits for the pack in
+        // flight, which a new request would discard.
         let drawn = self
             .engine
             .as_ref()
@@ -458,6 +459,7 @@ impl UiPresentationRuntime {
         }
         if let Some(drawn) = drawn
             && drawn != self.menu_artwork_set.drawn_oversized
+            && (artwork_changed || self.menu_artwork_loader.settled())
         {
             self.menu_artwork_set.drawn_oversized = drawn;
             artwork_changed = true;

@@ -524,3 +524,48 @@ fn drawn_server_art_packs_before_launcher_artwork() {
     assert!(drawn < position("world-thumbnail"), "{order:?}");
     assert!(drawn < position("avatar"), "{order:?}");
 }
+
+/// Scrolling back to large icons the art pages lost re-prioritizes them once the pack in flight
+/// lands, without discarding that pack first.
+#[test]
+fn drawn_art_without_copies_repacks_after_the_pack_in_flight() {
+    let mut runtime = presentation();
+    let keys: Vec<String> = (0..12).map(|i| format!("icon{i:02}")).collect();
+    let files: Vec<_> = (0u8..)
+        .zip(&keys)
+        .map(|(color, key)| (format!("{key}.png"), png(color)))
+        .collect();
+    let textures = &mut runtime.engine.as_mut().unwrap().textures;
+    textures.set_atlas(ServerAtlas::new(&files, None, 1), textures.server_page);
+    let draw = |runtime: &mut UiPresentationRuntime, key: &str| {
+        let textures = &mut runtime.engine.as_mut().unwrap().textures;
+        textures.atlas_mut().require([key]);
+        runtime.sync_server_ui_pages();
+    };
+    let has_art = |runtime: &UiPresentationRuntime, key: &str| {
+        let art = format!("{SERVER_ART_PREFIX}{key}");
+        runtime.menu_artwork.refs.contains_key(&art)
+    };
+    for key in &keys {
+        draw(&mut runtime, key);
+    }
+    runtime.finish_menu_artwork();
+    let missing: Vec<&String> = keys.iter().filter(|key| !has_art(&runtime, key)).collect();
+    assert!(missing.len() >= 2, "every icon fit the art pages");
+    let (first, second) = (missing[0], missing[1]);
+    let requested = runtime.menu_artwork_loader.requested;
+    draw(&mut runtime, first);
+    assert_eq!(runtime.menu_artwork_loader.requested, requested + 1);
+    draw(&mut runtime, second);
+    assert_eq!(
+        runtime.menu_artwork_loader.requested,
+        requested + 1,
+        "a priority change keeps the pack in flight"
+    );
+    runtime.finish_menu_artwork();
+    assert!(has_art(&runtime, first));
+    draw(&mut runtime, second);
+    assert_eq!(runtime.menu_artwork_loader.requested, requested + 2);
+    runtime.finish_menu_artwork();
+    assert!(has_art(&runtime, second));
+}

@@ -123,10 +123,6 @@ struct Request {
 pub(super) struct Packed {
     id: u64,
     /// Every decodable source is in; a partial atlas precedes it.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(dead_code, reason = "only tests wait for the final atlas")
-    )]
     complete: bool,
     pub(super) pages: Vec<render_model::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
@@ -141,6 +137,8 @@ pub(super) struct ArtworkLoader {
     results: Receiver<Packed>,
     requested: u64,
     ready: Option<Packed>,
+    /// The latest request's complete atlas is installed.
+    settled: bool,
     gallery: Option<request_cache::GalleryRequest>,
     /// The installed atlas's refs, page-relative, for rebasing.
     pub(super) relative: HashMap<String, IconRef>,
@@ -162,6 +160,7 @@ impl Default for ArtworkLoader {
             requested: 0,
             relative: HashMap::new(),
             ready: Some(title),
+            settled: false,
             gallery: None,
         }
     }
@@ -178,6 +177,7 @@ impl ArtworkLoader {
         self.gallery = None;
         self.requested += 1;
         self.ready = None;
+        self.settled = false;
         let request = Request {
             id: self.requested,
             set,
@@ -202,6 +202,11 @@ impl ArtworkLoader {
         self.ready.is_some()
     }
 
+    /// Whether no request is in flight: the latest one's complete atlas is installed.
+    pub(super) fn settled(&self) -> bool {
+        self.settled
+    }
+
     /// Inspects pending pixels without retiring them before texture admission succeeds.
     pub(super) fn pending(&self) -> Option<&Packed> {
         self.ready.as_ref()
@@ -210,6 +215,7 @@ impl ArtworkLoader {
     /// The admitted atlas, which becomes the installed one.
     pub(super) fn take(&mut self) -> Option<Packed> {
         let packed = self.ready.take()?;
+        self.settled = packed.complete;
         self.relative.clone_from(&packed.refs);
         Some(packed)
     }
@@ -506,11 +512,6 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .oversized
         .iter()
         .partition(|(key, _)| set.drawn_oversized.contains(key));
-    let engine = |entries: Vec<&(String, Arc<[u8]>)>| {
-        entries.into_iter().map(move |(key, bytes)| {
-            Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes))
-        })
-    };
     let mut all: Vec<_> = set
         .cosmetics
         .iter()
@@ -524,7 +525,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
-        engine(drawn)
+        server_art(drawn)
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
     );
@@ -534,7 +535,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
     all.extend(files.into_iter().take(remaining));
     let remaining = MAX_ARTWORKS - all.len();
     all.extend(
-        engine(idle)
+        server_art(idle)
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
     );
@@ -555,6 +556,13 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
             .map(|source| Source::Item(source.item, false)),
     );
     all
+}
+
+/// Art-page sources for server UI textures, keyed apart from launcher artwork.
+fn server_art(entries: Vec<&(String, Arc<[u8]>)>) -> impl Iterator<Item = Source> + '_ {
+    entries
+        .into_iter()
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)))
 }
 
 fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {
