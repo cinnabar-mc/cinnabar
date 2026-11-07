@@ -107,7 +107,8 @@ fn basis_for(
     };
     match facing {
         Facing::RotateXyz => (view.right, view.up),
-        Facing::LookatXyz => facing_axes(view.up),
+        // Faces the camera with its up kept toward world Y.
+        Facing::LookatXyz => facing_axes(world_up),
         Facing::RotateY => {
             let right = unit([view.right[0], 0.0, view.right[2]]).unwrap_or([1.0, 0.0, 0.0]);
             (right, world_up)
@@ -370,7 +371,8 @@ fn emit_emitter(
             &queries,
         );
         color[3] = color[3].clamp(0.0, 1.0);
-        if color[3] <= 0.0 {
+        // Cutout particles ignore their tint's alpha.
+        if color[3] <= 0.0 && alpha_test == 0.0 {
             continue;
         }
         // Each effect draws independent quads, including beam and trail pieces. The sum
@@ -590,6 +592,29 @@ mod tests {
         );
         // Missing texture falls back to the 1x1 white texel: u origin is half of a 1px placement.
         assert!(instance.uv[2] > 0.0);
+    }
+
+    #[test]
+    fn cutout_particles_draw_whatever_their_tint_alpha() {
+        let zero_alpha = EFFECT.replace("[1,0.5,0,0.5]", "[1,0,0,0]");
+        for (material, drawn) in [("particles_alpha", 1), ("particles_blend", 0)] {
+            let mut system = ParticleSystem::default();
+            assert!(
+                system.register_effect(zero_alpha.replace("particles_alpha", material).as_bytes())
+            );
+            system.spawn(&SpawnRequest {
+                effect: "minecraft:quad".into(),
+                position: [0.0, 0.0, -5.0],
+                ..SpawnRequest::default()
+            });
+            system.tick(0.02, &EmptyWorld);
+            let lists = system.build_draw(&view(), &EmptyWorld);
+            assert_eq!(
+                lists.opaque.len() + lists.blend.len() + lists.add.len(),
+                drawn,
+                "{material}"
+            );
+        }
     }
 
     #[test]
@@ -831,6 +856,24 @@ mod tests {
         );
         assert!(dot(right, up).abs() < 1e-5);
         assert!((dot(right, right) - 1.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn lookat_quads_stay_upright_under_a_pitched_camera() {
+        let pitched = ParticleView {
+            up: [0.0, 0.707_106_8, -0.707_106_8],
+            forward: [0.0, -0.707_106_8, -0.707_106_8],
+            ..view()
+        };
+        let (right, up) = basis_for(
+            Facing::LookatXyz,
+            &pitched,
+            &[[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            [4.0, -5.0, -3.0],
+            None,
+        );
+        assert!(right[1].abs() < 1e-5, "{right:?}");
+        assert!(up[1] > 0.0, "{up:?}");
     }
 }
 
