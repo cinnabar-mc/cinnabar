@@ -1,4 +1,5 @@
 use super::{MenuAction, SettingsSliderPointer};
+use crate::menu::settings_options::SettingId;
 
 /// Transient settings controls shared by the live menu and its presented views.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -15,6 +16,19 @@ pub struct SettingsInteraction {
     pub slider_selected: Option<u16>,
     pub key_remap: Option<u16>,
     pub advanced_graphics: bool,
+}
+
+impl MenuAction {
+    /// The settings row whose slider this step belongs to, as kept in
+    /// [`SettingsInteraction`]'s slider fields: an option's own index, or
+    /// [`SettingId::GuiScale`]'s for a GUI-scale step.
+    pub fn settings_slider_row(self) -> Option<u16> {
+        match self {
+            Self::SettingsOption(index, _) => Some(index),
+            Self::SettingsScale(_) => Some(SettingId::GuiScale.index() as u16),
+            _ => None,
+        }
+    }
 }
 
 impl SettingsInteraction {

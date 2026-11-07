@@ -243,19 +243,6 @@ pub enum MenuAction {
     ShaderOptions(crate::shader_options::Action),
 }
 
-impl MenuAction {
-    /// The settings row whose slider this step belongs to, as kept in
-    /// [`view::SettingsInteraction`]'s slider fields: an option's own index, or
-    /// [`settings_options::SettingId::GuiScale`]'s for a GUI-scale step.
-    pub fn settings_slider_row(self) -> Option<u16> {
-        match self {
-            Self::SettingsOption(index, _) => Some(index),
-            Self::SettingsScale(_) => Some(settings_options::SettingId::GuiScale.index() as u16),
-            _ => None,
-        }
-    }
-}
-
 /// Joining the featured-list entry at `index`.
 pub fn play_featured(view: &MenuView, index: usize) -> Option<MenuAction> {
     (index < view.featured.len()).then_some(MenuAction::PlayFeatured(index))
