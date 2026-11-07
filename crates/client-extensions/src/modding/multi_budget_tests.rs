@@ -337,12 +337,12 @@ fn priority_skips_inactive_hosts_and_survives_reordering_and_removal() {
     assert!(runtime.host(0).last_fuel_used() > 0);
 }
 
-/// Gives the first mod time debt at a forced yield, then stops the scheduling clock.
+/// Gives only the first mod a deterministic overshoot, then stops the scheduling clock.
 fn indebted_set(directory: &Path) -> ModHosts {
     let mut runtime = load_set(
         ["A", "BB", "CCC"]
             .into_iter()
-            .map(|label| (probe(directory, label, label == "A"), granted()))
+            .map(|label| (probe(directory, label, false), granted()))
             .collect(),
     );
     let samples = std::sync::atomic::AtomicU64::new(0);
@@ -355,8 +355,7 @@ fn indebted_set(directory: &Path) -> ModHosts {
             }
         });
     runtime.begin_frame();
-    // Bounded work forces a fuel yield before publication, regardless of epoch timing.
-    assert!(frame(&mut runtime, None).commands.is_empty());
+    assert_eq!(frame(&mut runtime, None).commands, ["/ability A"]);
     runtime
 }
 

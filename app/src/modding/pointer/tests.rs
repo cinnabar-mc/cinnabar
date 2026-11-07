@@ -135,18 +135,13 @@ fn host(app: &App, granted: bool) -> ModHost {
 
 /// Drives the production guest callbacks and stages their actual committed requests.
 fn install_driver(app: &mut App, host: ModHost) {
-    let mut runtime = ModRuntime::new(host, registration::HostMetadata::environment(0));
-    runtime.hosts = ModHosts::with_budget(
-        runtime.hosts.into_single(),
-        Vec::new(),
-        mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, || {
-            std::time::Duration::ZERO
-        }),
-    );
-    app.insert_resource(runtime)
-        .insert_resource(crate::environment::VisualTimeOverride(None))
-        .init_resource::<interaction::ModInteraction>()
-        .add_systems(Update, (begin_mod_frame, drive_mod).chain());
+    app.insert_resource(ModRuntime::new(
+        host,
+        registration::HostMetadata::environment(0),
+    ))
+    .insert_resource(crate::environment::VisualTimeOverride(None))
+    .init_resource::<interaction::ModInteraction>()
+    .add_systems(Update, (begin_mod_frame, drive_mod).chain());
 }
 
 /// Empty startup must run the installed production native system without requiring a mod.

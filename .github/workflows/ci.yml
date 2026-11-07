@@ -478,9 +478,7 @@ jobs:
       && needs.preflight.result == 'success'
       && (needs.preflight.outputs.macos == 'true' || needs.preflight.outputs.windows == 'true')
     runs-on: ${{ matrix.os }}
-    # A cold workspace build can consume most of the test budget on either platform.
-    # Keep the same limits as the full platform suites so tests can finish.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 180 || 150 }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:

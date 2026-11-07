@@ -411,17 +411,6 @@ pub fn apply_render_layers_cached<'a>(
 mod tests {
     use super::*;
 
-    /// Wraps render layers without adding visibility, skin or held-item overrides.
-    fn render_layers(layers: &[RenderTextureLayer]) -> actor_animation::ActorRenderLayers<'_> {
-        actor_animation::ActorRenderLayers {
-            render: Cow::Borrowed(layers),
-            visibility: Default::default(),
-            skin: Cow::Borrowed(&[]),
-            held_item_scale: None,
-            head_rotation: None,
-        }
-    }
-
     #[test]
     fn spectator_controller_styles_runtime_skin_and_hides_body_bones() {
         let presentation = super::super::actors::local_diagnostic_presentation(
@@ -463,7 +452,15 @@ mod tests {
         let layers = [layer];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(render_layers(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &ActorArtworkPages::default(),
             &mut LayerPoseCache::default(),
         );
@@ -531,7 +528,15 @@ mod tests {
         let layers = [layer(true, 0), layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(render_layers(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
@@ -548,7 +553,15 @@ mod tests {
         let catalog_first = [layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(render_layers(&catalog_first)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&catalog_first),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
@@ -625,7 +638,15 @@ mod tests {
             assert_eq!(body.input.current_bones, original_bones);
             apply_render_layers_cached(
                 &mut batch,
-                |_| Some(render_layers(&layers)),
+                |_| {
+                    Some(actor_animation::ActorRenderLayers {
+                        render: Cow::Borrowed(&layers),
+                        visibility: Default::default(),
+                        skin: Cow::Borrowed(&[]),
+                        held_item_scale: None,
+                        head_rotation: None,
+                    })
+                },
                 &artwork,
                 &mut cache,
             );
