@@ -915,8 +915,8 @@ while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height. Actor
-scale resizes the box, with its minimum extent, and not the clearance above it. Labels
-keep Java's 0.5-block clearance; native uses 0.7.
+scale resizes the box, with its minimum extent, and not vanilla's 0.7-block clearance
+above it.
 Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
 keep cosmetic labels complete. Ordinary on-screen anchors skip text measurement for
 visibility. Atlas text retains formatting and line slots, with guarded cell edges and

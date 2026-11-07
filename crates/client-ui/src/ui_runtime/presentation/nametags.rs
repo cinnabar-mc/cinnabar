@@ -29,7 +29,8 @@ pub(super) mod tests;
 /// Presentation resource bound, not a native visibility rule.
 pub(super) const MAX_PRESENTED_NAMETAGS: usize = 128;
 const DEFAULT_RENDER_DISTANCE: f32 = 64.0;
-const HEAD_CLEARANCE: f32 = 0.5;
+/// Vanilla's fixed label clearance above the actor's box, in blocks.
+const HEAD_CLEARANCE: f32 = 0.7;
 const DEFAULT_HEIGHT: f32 = 1.8;
 /// Java's sneaking label moves down in camera space after its head translation.
 const SNEAK_LABEL_DROP: f32 = 0.25;
