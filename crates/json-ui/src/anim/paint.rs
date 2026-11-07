@@ -145,7 +145,7 @@ impl DrawNode {
             return out;
         };
         out.transform = anim.transform;
-        if animator.hides(&self.key) {
+        if animator.hides(&self.key, clocks) {
             out.hidden = true;
             return out;
         }

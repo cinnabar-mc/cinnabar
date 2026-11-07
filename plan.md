@@ -994,6 +994,14 @@ message's position while reading history, including wrapped rows and history evi
 Version-matched native scroll acceptance remains unverified.
 Empty display-objective packets clear their slot; scores remain only while another
 display slot references the objective.
+Text-packet popups no longer replace SetTitle action bars. Ordinary popups use the
+item-text factory, while jukebox notifications keep their own text and factory clock.
+Both use the native two-line text and control names, and spectators do not see them.
+Clocked HUD controls recreate after a completed destruction animation when their request
+clock advances.
+The `ItemText` HUD element gate, the native popup background, matched native popup
+lifetime, selected-item precedence and simultaneous HUD-frame qualification remain
+incomplete.
 Gameplay mouse capture resumes after focus or occlusion returns when it was active
 before switching away. Screen ownership and focus-loss input clearing remain in effect;
 OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.

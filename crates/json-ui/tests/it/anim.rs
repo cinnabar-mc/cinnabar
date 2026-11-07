@@ -615,6 +615,38 @@ fn replays_keep_waiting_animation_clocks_current() {
     assert!(close(drawn.opacity, 0.5), "{}", drawn.opacity);
 }
 
+// Re-sending a factory request recreates a root even without an intervening empty frame.
+#[test]
+fn a_new_caller_clock_recreates_a_destroyed_factory_control() {
+    let nodes = draws(
+        r#""fade": { "anim_type": "alpha", "from": 1, "to": 0, "duration": 1,
+            "destroy_at_end": "dialog" },
+        "dialog": { "type": "panel", "size": [50,50], "anim_clock": "repeat",
+            "anim_born": 0, "controls": [
+            { "message": { "type": "image", "texture": "textures/ui/test", "size": [10,10],
+                "alpha": "@audit.fade" } } ] }"#,
+        "dialog",
+    );
+    let message = node(&nodes, "message");
+    let mut animator = Animator::new();
+    let mut clocks = std::collections::BTreeMap::from([("repeat".to_owned(), 0.0)]);
+    for born in [0.0, 2.0, 4.0] {
+        clocks.insert("repeat".into(), born);
+        let fresh = message.animate(&mut animator, born + 0.1, Some(&clocks), None);
+        assert!(
+            !fresh.hidden && fresh.opacity > 0.8,
+            "a replacement must restart its fade"
+        );
+        message.animate(&mut animator, born + 1.1, Some(&clocks), None);
+        assert!(
+            message
+                .animate(&mut animator, born + 1.2, Some(&clocks), None)
+                .hidden
+        );
+        animator.end_frame();
+    }
+}
+
 // Replays keep a destroyed control removed; a frame with neither brings it back.
 #[test]
 fn replays_keep_destroyed_controls_removed() {

@@ -281,6 +281,8 @@ pub enum HudViewRole {
     Title,
     Subtitle,
     ActionBar,
+    Popup,
+    JukeboxPopup,
     Tip,
     ToastTitle,
     ToastMessage,
@@ -321,6 +323,8 @@ pub struct HudStore {
     /// cancelled before it is shown.
     presented_subtitle: Option<TimedText>,
     actionbar: Option<TimedText>,
+    popup: Option<TimedText>,
+    jukebox_popup: Option<TimedText>,
     /// The tip text: `TextTypeTip` and its JSON variant sit above the hotbar,
     /// bound to `#tip_text` in `hud_screen.json`.
     tip: Option<TimedText>,
@@ -398,6 +402,20 @@ impl HudStore {
 
     pub fn tip(&self) -> Option<&TimedText> {
         self.tip
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
+    }
+
+    /// The ordinary popup above the hotbar, independent of title action-bar requests.
+    pub fn popup(&self) -> Option<&TimedText> {
+        self.popup
+            .as_ref()
+            .filter(|text| text.visible_at(self.presentation_millis))
+    }
+
+    /// The separate jukebox notification bound to the HUD's jukebox text role.
+    pub fn jukebox_popup(&self) -> Option<&TimedText> {
+        self.jukebox_popup
             .as_ref()
             .filter(|text| text.visible_at(self.presentation_millis))
     }
@@ -495,6 +513,31 @@ impl HudStore {
             fifo_sequence,
             now_millis,
             self.durations,
+        ));
+    }
+
+    /// Replaces only the ordinary popup; title clear/reset and action-bar updates are separate.
+    ///
+    /// The HUD text holds two lines, title then message. A text packet has no title, so the
+    /// message takes the second line.
+    pub fn set_popup(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
+        self.popup = Some(TimedText::new(
+            Arc::from(format!("\n{text}")),
+            fifo_sequence,
+            now_millis,
+            TitleDurations::default(),
+        ));
+    }
+
+    /// Replaces only the jukebox notification.
+    ///
+    /// The HUD text holds two lines, and a text packet fills only the first.
+    pub fn set_jukebox_popup(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
+        self.jukebox_popup = Some(TimedText::new(
+            Arc::from(format!("{text}\n")),
+            fifo_sequence,
+            now_millis,
+            TitleDurations::default(),
         ));
     }
 
@@ -681,6 +724,8 @@ impl HudStore {
             (HudViewRole::Title, self.title.as_ref()),
             (HudViewRole::Subtitle, self.subtitle.as_ref()),
             (HudViewRole::ActionBar, self.actionbar.as_ref()),
+            (HudViewRole::Popup, self.popup.as_ref()),
+            (HudViewRole::JukeboxPopup, self.jukebox_popup.as_ref()),
             (HudViewRole::Tip, self.tip.as_ref()),
         ] {
             if let Some(value) = value.filter(|value| value.visible_at(now_millis)) {
