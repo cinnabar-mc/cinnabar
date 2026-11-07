@@ -70,17 +70,13 @@ impl OversizedTextures {
     }
 }
 
-/// How a frame's oversized draws compare with the art pages' current priority.
+/// The oversized textures an ended frame drew.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub enum OversizedDraws {
-    /// The frame drew exactly the prioritized textures, or no frame ended.
-    #[default]
-    Same,
-    /// The frame drew another set, each texture with a full-resolution copy: the priority can
-    /// follow it without repacking.
-    Covered(BTreeSet<String>),
-    /// The frame drew another set with some textures lacking a copy: pack them first.
-    Uncovered(BTreeSet<String>),
+pub struct OversizedFrame {
+    /// The drawn keys, when they differ from the previous frame's.
+    pub changed: Option<BTreeSet<String>>,
+    /// Some drawn key has no full-resolution copy.
+    pub uncovered: bool,
 }
 
 /// Which oversized textures the art pages are offered. A texture drawn while the registry is
@@ -153,13 +149,14 @@ impl Registry {
         self.fitted.remove(key);
     }
 
-    /// Ends the frame, comparing the offered keys it drew with `priority`; `has_art` tells
-    /// whether a key has a full-resolution copy. Allocates only when the drawn set changed.
+    /// Ends the frame, comparing the offered keys it drew with the `previous` frame's;
+    /// `has_art` tells whether a key has a full-resolution copy. Allocates only when the drawn
+    /// set changed.
     pub(super) fn end_frame(
         &mut self,
-        priority: &BTreeSet<String>,
+        previous: &BTreeSet<String>,
         has_art: impl Fn(&str) -> bool,
-    ) -> OversizedDraws {
+    ) -> OversizedFrame {
         let frame = self.frame;
         self.frame += 1;
         let drawn = self
@@ -167,14 +164,9 @@ impl Registry {
             .iter()
             .filter(move |(_, drawn)| **drawn == frame)
             .map(|(key, _)| key);
-        if drawn.clone().eq(priority.iter()) {
-            return OversizedDraws::Same;
-        }
-        let set = drawn.clone().cloned().collect();
-        if drawn.clone().all(|key| has_art(key)) {
-            OversizedDraws::Covered(set)
-        } else {
-            OversizedDraws::Uncovered(set)
+        OversizedFrame {
+            changed: (!drawn.clone().eq(previous.iter())).then(|| drawn.clone().cloned().collect()),
+            uncovered: drawn.clone().any(|key| !has_art(key)),
         }
     }
 }
@@ -191,14 +183,14 @@ impl super::ServerAtlas {
         self.oversized.draw_art(key);
     }
 
-    /// Ends a presented frame, comparing the oversized textures it drew with `priority`;
-    /// `has_art` tells whether a key has a full-resolution copy.
+    /// Ends a presented frame, comparing the oversized textures it drew with the `previous`
+    /// frame's; `has_art` tells whether a key has a full-resolution copy.
     pub fn end_oversized_frame(
         &mut self,
-        priority: &BTreeSet<String>,
+        previous: &BTreeSet<String>,
         has_art: impl Fn(&str) -> bool,
-    ) -> OversizedDraws {
-        self.oversized.end_frame(priority, has_art)
+    ) -> OversizedFrame {
+        self.oversized.end_frame(previous, has_art)
     }
 }
 

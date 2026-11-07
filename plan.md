@@ -1049,8 +1049,9 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   regions and sliced borders; large collection admission and hardware frame-work
   acceptance remain incomplete.
   Server UI textures larger than a 256-pixel page draw from full-resolution copies on the two
-  art pages. A full registry replaces textures no frame still draws, and the textures a frame
-  draws without a copy pack ahead of launcher artwork. Vanilla loads each image as its own
+  art pages. A full registry replaces textures no frame still draws. The textures a frame
+  draws pack ahead of launcher artwork; the pages repack for a new drawn set when a drawn
+  texture lacks a copy or the last packing ran out of room. Vanilla loads each image as its own
   texture, so a screen drawing more large images than the art pages and server pages hold
   still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD

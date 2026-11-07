@@ -51,6 +51,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
     let (mut page, mut x, mut y, mut shelf) = (None, GUTTER, GUTTER, 0u32);
+    let mut overflowed = false;
     for (path, art, clamp_edges) in decoded {
         if art.width == 0
             || art.height == 0
@@ -63,6 +64,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
         if art.width + 2 * GUTTER > side || art.height + 2 * GUTTER > side {
             let dedicated = buffers.len();
             if dedicated >= render_model::MAX_UI_ART_PAGES {
+                overflowed = true;
                 break;
             }
             buffers.push(vec![0; page_bytes]);
@@ -84,6 +86,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
             None => {
                 let next = buffers.len();
                 if next >= render_model::MAX_UI_ART_PAGES {
+                    overflowed = true;
                     break;
                 }
                 buffers.push(vec![0; page_bytes]);
@@ -106,6 +109,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     Packed {
         id,
         complete,
+        overflowed,
         pages,
         refs,
     }

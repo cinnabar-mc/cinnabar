@@ -105,7 +105,7 @@ pub use containers::{container_screen_reference, engine_screen_for};
 pub(crate) use recipe_book::BookIconCache;
 pub use recipe_book::{BookIconSources, recipe_book_hover, recipe_book_icons, recipe_book_shown};
 use ui_engine::{
-    atlas::OversizedDraws,
+    atlas::OversizedFrame,
     engine::{FormEngine, PreparedCatalog, screen::PaintFrame},
     frame::EngineFrame,
     pages,
@@ -442,21 +442,21 @@ impl UiPresentationRuntime {
             .engine
             .as_ref()
             .map_or_else(Default::default, |engine| {
-                engine
-                    .textures
-                    .end_oversized_frame(&self.menu_artwork_set.drawn_oversized)
+                engine.textures.end_oversized_frame(&self.frame_oversized)
             });
         self.sync_server_ui_pages_with(drawn);
     }
 
     /// Hands changed server atlas pages to the dynamic texture pages outside a frame boundary.
     pub(super) fn sync_server_ui_pages(&mut self) {
-        self.sync_server_ui_pages_with(OversizedDraws::Same);
+        self.sync_server_ui_pages_with(OversizedFrame::default());
     }
 
-    /// Hands changed pages on; `drawn` compares the large textures a frame drew with the
-    /// art pages' priority.
-    fn sync_server_ui_pages_with(&mut self, drawn: OversizedDraws) {
+    /// Hands changed pages on; `drawn` is what an ended frame drew among the large textures.
+    fn sync_server_ui_pages_with(&mut self, drawn: OversizedFrame) {
+        if let Some(changed) = drawn.changed {
+            self.frame_oversized = changed;
+        }
         let server = self
             .engine
             .as_mut()
@@ -464,26 +464,25 @@ impl UiPresentationRuntime {
         let changed = self.screens.mod_ui.refresh_experience_modal_pages()
             | self.screens.mod_ui.refresh_mod_screen_pages()
             | server;
-        // Server textures too big for a server page draw from full-resolution art; the ones a
-        // frame draws pack first. When they all have art the priority follows them without
-        // repacking; otherwise a priority change alone waits for the pack in flight, which a
-        // new request would discard.
+        // Server textures too big for a server page draw from full-resolution art; the ones the
+        // last frame drew pack first. The priority changes only with a request: at once when
+        // the sources change, otherwise once the pack in flight (which a new request would
+        // discard) is installed, and only when a drawn texture lacks art or the installed
+        // atlas left sources out, since a new order could not change anything else.
         let oversized = self.oversized_ui_textures();
         let mut artwork_changed = false;
         if !oversized.shares_storage(&self.menu_artwork_set.oversized) {
             artwork_changed = !oversized.same(&self.menu_artwork_set.oversized);
             self.menu_artwork_set.oversized = oversized;
         }
-        match drawn {
-            OversizedDraws::Same => {}
-            OversizedDraws::Covered(drawn) => self.menu_artwork_set.drawn_oversized = drawn,
-            OversizedDraws::Uncovered(drawn)
-                if artwork_changed || self.menu_artwork_loader.settled() =>
-            {
-                self.menu_artwork_set.drawn_oversized = drawn;
-                artwork_changed = true;
-            }
-            OversizedDraws::Uncovered(_) => {}
+        let loader = &self.menu_artwork_loader;
+        if self.frame_oversized != self.menu_artwork_set.drawn_oversized
+            && (artwork_changed || loader.settled() && (drawn.uncovered || loader.overflowed()))
+        {
+            self.menu_artwork_set
+                .drawn_oversized
+                .clone_from(&self.frame_oversized);
+            artwork_changed = true;
         }
         if artwork_changed {
             self.menu_artwork_loader

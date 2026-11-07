@@ -29,7 +29,7 @@ pub mod jobs;
 mod local_sources;
 mod outlines;
 mod oversized;
-pub use oversized::{OversizedDraws, OversizedTextures};
+pub use oversized::{OversizedFrame, OversizedTextures};
 mod client_rasters;
 pub use client_rasters::LOCAL_PLAYER_HEAD;
 pub mod native_sheets;

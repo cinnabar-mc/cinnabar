@@ -186,53 +186,54 @@ fn one_frame_never_replaces_its_own_textures() {
     assert_eq!(now[..], keys[..MAX_OVERSIZED]);
 }
 
-/// Scrolling back to icons the registry still holds reports them as drawn again, so the art
-/// pages can bring back the ones they dropped.
+/// Scrolling back to icons the registry still holds reports them as drawn again, and which
+/// lack art, so the art pages can bring back the ones they dropped.
 #[test]
 fn scrolling_back_reports_the_retained_textures_drawn_without_art() {
     let (mut atlas, keys) = icon_atlas(MAX_OVERSIZED);
     let (top, bottom) = keys.split_at(MAX_OVERSIZED / 2);
+    let bottom_set: BTreeSet<String> = bottom.iter().cloned().collect();
     for frame in [top, bottom] {
         atlas.require(frame.iter().map(String::as_str));
         atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
     }
     atlas.require(top.iter().map(String::as_str));
-    let priority: BTreeSet<String> = bottom.iter().cloned().collect();
-    let OversizedDraws::Uncovered(drawn) =
-        atlas.end_oversized_frame(&priority, |key| priority.contains(key))
-    else {
-        panic!("the top icons have no art");
-    };
+    let ended = atlas.end_oversized_frame(&bottom_set, |key| bottom_set.contains(key));
+    let drawn = ended.changed.expect("the drawn set changed");
     assert!(drawn.iter().eq(top.iter()));
+    assert!(ended.uncovered, "the top icons have no art");
     assert_eq!(offered(&atlas), keys, "nothing was replaced");
     assert_eq!(
         atlas.end_oversized_frame(&drawn, |_| false),
-        OversizedDraws::Covered(BTreeSet::new()),
-        "a frame that draws nothing retires the drawn priority without repacking"
+        OversizedFrame {
+            changed: Some(BTreeSet::new()),
+            uncovered: false,
+        },
+        "a frame that draws nothing has nothing uncovered"
     );
 }
 
-/// When a form closes over a large HUD texture that keeps drawing from its copy, the priority
-/// shrinks to that texture, then stays put while the frames repeat.
+/// Repeated frames report no change, while still telling whether a drawn texture lacks art.
 #[test]
-fn closing_a_screen_reports_the_surviving_textures_that_have_art() {
+fn repeated_frames_report_coverage_without_a_change() {
     let (mut atlas, keys) = icon_atlas(3);
-    atlas.require(keys.iter().map(String::as_str));
     let all: BTreeSet<String> = keys.iter().cloned().collect();
+    atlas.require(keys.iter().map(String::as_str));
     assert_eq!(
         atlas.end_oversized_frame(&BTreeSet::new(), |_| true),
-        OversizedDraws::Covered(all.clone())
+        OversizedFrame {
+            changed: Some(all.clone()),
+            uncovered: false,
+        }
     );
-    let hud: BTreeSet<String> = keys[..1].iter().cloned().collect();
-    atlas.require([keys[0].as_str()]);
+    atlas.require(keys.iter().map(String::as_str));
     assert_eq!(
-        atlas.end_oversized_frame(&all, |_| true),
-        OversizedDraws::Covered(hud.clone())
-    );
-    atlas.require([keys[0].as_str()]);
-    assert_eq!(
-        atlas.end_oversized_frame(&hud, |_| true),
-        OversizedDraws::Same
+        atlas.end_oversized_frame(&all, |key| key != keys[1]),
+        OversizedFrame {
+            changed: None,
+            uncovered: true,
+        },
+        "art dropped by a later atlas shows up without a change in what was drawn"
     );
 }
 
@@ -246,6 +247,6 @@ fn art_draws_count_as_drawn() {
     atlas.draw_art(&keys[0]);
     assert_eq!(
         atlas.end_oversized_frame(&drawn, |_| true),
-        OversizedDraws::Same
+        OversizedFrame::default()
     );
 }

@@ -83,7 +83,7 @@ pub(super) struct ArtworkSet {
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
-    /// Oversized keys the last frame drew without full-resolution art; they pack first.
+    /// Oversized keys the last frame drew when the atlas was requested; they pack first.
     pub(super) drawn_oversized: BTreeSet<String>,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
@@ -124,6 +124,8 @@ pub(super) struct Packed {
     id: u64,
     /// Every decodable source is in; a partial atlas precedes it.
     complete: bool,
+    /// Sources were left out because the pages ran out.
+    overflowed: bool,
     pub(super) pages: Vec<render_model::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
@@ -139,6 +141,8 @@ pub(super) struct ArtworkLoader {
     ready: Option<Packed>,
     /// The latest request's complete atlas is installed.
     settled: bool,
+    /// The installed atlas left sources out because the pages ran out.
+    overflowed: bool,
     gallery: Option<request_cache::GalleryRequest>,
     /// The installed atlas's refs, page-relative, for rebasing.
     pub(super) relative: HashMap<String, IconRef>,
@@ -161,6 +165,7 @@ impl Default for ArtworkLoader {
             relative: HashMap::new(),
             ready: Some(title),
             settled: false,
+            overflowed: false,
             gallery: None,
         }
     }
@@ -207,6 +212,11 @@ impl ArtworkLoader {
         self.settled
     }
 
+    /// Whether the installed atlas left sources out because the pages ran out.
+    pub(super) fn overflowed(&self) -> bool {
+        self.overflowed
+    }
+
     /// Inspects pending pixels without retiring them before texture admission succeeds.
     pub(super) fn pending(&self) -> Option<&Packed> {
         self.ready.as_ref()
@@ -216,6 +226,7 @@ impl ArtworkLoader {
     pub(super) fn take(&mut self) -> Option<Packed> {
         let packed = self.ready.take()?;
         self.settled = packed.complete;
+        self.overflowed = packed.overflowed;
         self.relative.clone_from(&packed.refs);
         Some(packed)
     }
@@ -229,6 +240,7 @@ impl ArtworkLoader {
         self.ready = Some(Packed {
             id: self.requested,
             complete: true,
+            overflowed: false,
             pages,
             refs,
         });
@@ -506,8 +518,8 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
         .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)))
         .collect::<Vec<_>>();
-    // Server textures a frame drew without full-resolution art outrank launcher artwork,
-    // which a session keeps from the last menu; the rest follow it.
+    // Server textures a frame drew outrank launcher artwork, which a session keeps from the
+    // last menu; the rest follow it.
     let (drawn, idle): (Vec<_>, Vec<_>) = set
         .oversized
         .iter()

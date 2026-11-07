@@ -172,7 +172,7 @@ mod tests {
     }
 
     /// A title drawn from its full-resolution copy still counts as drawn, so frames that show
-    /// only the title keep it first on the art pages instead of dropping and repacking it.
+    /// only the title keep it first on full art pages instead of dropping and repacking it.
     #[test]
     fn art_backed_title_keeps_its_drawn_priority() {
         let mut presentation = crate::test_support::mini_engine_presentation();
@@ -197,6 +197,18 @@ mod tests {
             textures: vec![(format!("{key}.png"), png)],
             ..Default::default()
         });
+        let mut page_filler = Vec::new();
+        image::RgbaImage::from_pixel(1000, 1000, image::Rgba([7, 7, 7, 255]))
+            .write_to(
+                &mut std::io::Cursor::new(&mut page_filler),
+                image::ImageFormat::Png,
+            )
+            .unwrap();
+        let page_filler: std::sync::Arc<[u8]> = page_filler.into();
+        presentation.menu_artwork_set.images = vec![
+            ("filler-a".into(), page_filler.clone()),
+            ("filler-b".into(), page_filler),
+        ];
         test_time::eventually("oversized title drawn from its page", || {
             presentation.title_icon(&HashMap::new()).is_some()
         });
@@ -208,6 +220,10 @@ mod tests {
             assert_eq!(presentation.title_icon(&refs), Some(art));
             presentation.end_ui_frame();
         }
+        assert!(
+            presentation.menu_artwork_loader.overflowed(),
+            "the art pages had room to spare"
+        );
         assert!(presentation.menu_artwork_set.drawn_oversized.contains(key));
     }
 }

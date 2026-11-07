@@ -265,6 +265,7 @@ fn unchanged_gallery_polls_and_installs_worker_results_and_resets_its_request() 
     done.send(Packed {
         id: requested,
         complete: true,
+        overflowed: false,
         pages: vec![
             render_model::UiTexturePage::owned(
                 [side; 2],
@@ -570,22 +571,123 @@ fn drawn_art_without_copies_repacks_after_the_pack_in_flight() {
     assert!(has_art(&runtime, second));
 }
 
-/// Closing a screen retires the priority of the large textures it drew, so launcher artwork the
-/// next screen shows packs ahead of them again.
+/// Closing a screen whose large textures crowded launcher artwork off the art pages repacks
+/// with that artwork first again.
 #[test]
-fn a_closed_screen_retires_its_drawn_art_priority() {
+fn a_closed_screen_restores_the_launcher_artwork_its_art_displaced() {
     let mut runtime = presentation();
     runtime.menu_artwork_set.images = vec![("world-thumbnail".into(), png(4).into())];
-    install(&mut runtime, &[("textures/drawn", png(1))]);
+    let files: Vec<(String, Vec<u8>)> = (0u8..4)
+        .map(|index| (format!("textures/drawn{index}"), png(index)))
+        .collect();
+    let files: Vec<(&str, Vec<u8>)> = files
+        .iter()
+        .map(|(key, bytes)| (key.as_str(), bytes.clone()))
+        .collect();
+    install(&mut runtime, &files);
     runtime.end_ui_frame();
     runtime.finish_menu_artwork();
+    assert!(
+        runtime.menu_artwork_icon("world-thumbnail").is_none(),
+        "the drawn art fit beside the thumbnail"
+    );
     runtime.end_ui_frame();
-    assert!(runtime.menu_artwork_set.drawn_oversized.is_empty());
-    let order: Vec<String> = sources(&runtime.menu_artwork_set)
-        .iter()
-        .map(|source| source.key().0)
+    runtime.finish_menu_artwork();
+    assert!(runtime.menu_artwork_icon("world-thumbnail").is_some());
+    let requested = runtime.menu_artwork_loader.requested;
+    runtime.end_ui_frame();
+    assert_eq!(
+        runtime.menu_artwork_loader.requested, requested,
+        "the restored order holds"
+    );
+}
+
+/// Large icons a frame draws from art installed before the pack in flight are checked again
+/// once that pack lands, so an icon the new atlas left out is packed again.
+#[test]
+fn covered_art_a_pack_in_flight_drops_repacks() {
+    let mut runtime = presentation();
+    let keys: Vec<String> = (0..12).map(|i| format!("icon{i:02}")).collect();
+    let files: Vec<_> = (0u8..)
+        .zip(&keys)
+        .map(|(color, key)| (format!("{key}.png"), png(color)))
         .collect();
-    let position = |key: &str| order.iter().position(|entry| entry == key).unwrap();
-    let art = position(&format!("{SERVER_ART_PREFIX}textures/drawn"));
-    assert!(position("world-thumbnail") < art, "{order:?}");
+    let textures = &mut runtime.engine.as_mut().unwrap().textures;
+    textures.set_atlas(ServerAtlas::new(&files, None, 1), textures.server_page);
+    let draw = |runtime: &mut UiPresentationRuntime, key: &str| {
+        let textures = &mut runtime.engine.as_mut().unwrap().textures;
+        textures.atlas_mut().require([key]);
+        runtime.end_ui_frame();
+    };
+    let has_art = |runtime: &UiPresentationRuntime, key: &str| {
+        let art = format!("{SERVER_ART_PREFIX}{key}");
+        runtime.menu_artwork.refs.contains_key(&art)
+    };
+    for key in &keys {
+        draw(&mut runtime, key);
+    }
+    runtime.finish_menu_artwork();
+    let missing = keys.iter().find(|key| !has_art(&runtime, key)).unwrap();
+    let covered = keys.last().unwrap();
+    assert!(has_art(&runtime, covered));
+    let requested = runtime.menu_artwork_loader.requested;
+    draw(&mut runtime, missing);
+    assert_eq!(runtime.menu_artwork_loader.requested, requested + 1);
+    draw(&mut runtime, covered);
+    runtime.finish_menu_artwork();
+    assert!(
+        !has_art(&runtime, covered),
+        "the pack in flight kept the covered icon"
+    );
+    draw(&mut runtime, covered);
+    assert_eq!(runtime.menu_artwork_loader.requested, requested + 2);
+    runtime.finish_menu_artwork();
+    assert!(has_art(&runtime, covered));
+}
+
+/// A drawn large texture that an installed atlas lacks repacks even when the pages did not run
+/// out, as when the source cap leaves it out.
+#[test]
+fn drawn_art_missing_from_an_atlas_with_room_repacks() {
+    let mut runtime = presentation();
+    install(
+        &mut runtime,
+        &[("textures/first", png(1)), ("textures/second", png(2))],
+    );
+    runtime.end_ui_frame();
+    let requested = runtime.menu_artwork_loader.requested;
+    runtime
+        .engine
+        .as_mut()
+        .unwrap()
+        .textures
+        .atlas_mut()
+        .require(["textures/first"]);
+    runtime.end_ui_frame();
+    assert_eq!(runtime.menu_artwork_loader.requested, requested);
+    let (_done, results) = crossbeam_channel::unbounded();
+    runtime.menu_artwork_loader.results = results;
+    let side = render_model::UI_ART_PAGE_SIDE;
+    runtime.menu_artwork_loader.set_pending_fixture(
+        vec![
+            render_model::UiTexturePage::owned(
+                [side; 2],
+                vec![0; (side * side * 4) as usize].into(),
+            )
+            .unwrap(),
+        ],
+        HashMap::new(),
+    );
+    runtime.rebuild_dynamic_textures();
+    assert!(runtime.menu_artwork_loader.settled());
+    assert!(!runtime.menu_artwork_loader.overflowed());
+    runtime
+        .engine
+        .as_mut()
+        .unwrap()
+        .textures
+        .atlas_mut()
+        .require(["textures/first"]);
+    runtime.end_ui_frame();
+    assert_eq!(runtime.menu_artwork_loader.requested, requested + 1);
 }
