@@ -122,6 +122,9 @@ pub const MODEL_TEMPLATE_FLAG_SHELF: u32 = 1 << 22;
 pub const MODEL_TEMPLATE_FLAG_AZALEA: u32 = 1 << 23;
 /// First of a chorus plant's template bank, indexed by `chorus::template_offset`.
 pub const MODEL_TEMPLATE_FLAG_CHORUS_PLANT: u32 = 1 << 28;
+/// The item GUI draws this shape through its world tessellator, so its faces take flat world
+/// directional shading instead of the inventory cube's.
+pub const MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE: u32 = 1 << 31;
 /// Pointed dripstone and sulfur spike crosses slide around their column by a narrower offset.
 pub const MODEL_TEMPLATE_FLAG_SPELEOTHEM: u32 = 1 << 24;
 /// Downward-growing vine: two stem planes then two tip planes, chosen by the cell below.
@@ -263,6 +266,7 @@ pub(crate) const fn model_template_flags_are_valid(flags: u32) -> bool {
             | MODEL_TEMPLATE_FLAG_WEEPING_VINE
             | MODEL_TEMPLATE_FLAG_TWISTING_VINE
             | MODEL_TEMPLATE_FLAG_PISTON_BODY
+            | MODEL_TEMPLATE_FLAG_GUI_WORLD_SHADE
     ) || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_X
         || flags == MODEL_TEMPLATE_FLAG_COMPOUND_NEXT | MODEL_TEMPLATE_FLAG_GATE_AXIS_Z
         || flags == MODEL_TEMPLATE_FLAG_SHEET_TILES
