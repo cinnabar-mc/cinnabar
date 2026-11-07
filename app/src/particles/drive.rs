@@ -316,6 +316,16 @@ fn route_level_event(
         }) => {
             system.spawn(&native_request(effect, position, spell_color));
         }
+        Some(LevelParticle::Note { color }) => {
+            let mut request =
+                native_request(assets::facts::ParticleEffect::NoteParticle, position, None);
+            request.variables = vec![
+                ("note_color.r".into(), color[0]),
+                ("note_color.g".into(), color[1]),
+                ("note_color.b".into(), color[2]),
+            ];
+            system.spawn(&request);
+        }
         Some(LevelParticle::BlockBreak { runtime_id }) => {
             route_block_break(
                 system,
