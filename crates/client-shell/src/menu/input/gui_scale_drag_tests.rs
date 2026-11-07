@@ -443,4 +443,22 @@ fn native_gui_scale_slider_drag_relayouts_and_clamps_until_released() {
     pointer(&mut app, window, far, Some(ButtonState::Released));
     pointer(&mut app, window, Vec2::ZERO, None);
     assert_eq!(offset(&app), 0, "release ends the capture");
+    frame(&mut app, MenuAction::SettingsScale(0));
+    let presentation = app.world().resource::<UiPresentationResource>();
+    let track = presentation
+        .gui_scale_slider_track()
+        .expect("the OreUI GUI-scale row publishes its track");
+    let thumb = UiPoint::new(track.max().x(), (track.min().y() + track.max().y()) * 0.5).unwrap();
+    assert!(
+        presentation.settings_slider_thumb_hit_test(thumb).is_some(),
+        "the largest modifier's thumb sits at the track's right end"
+    );
+    pointer(
+        &mut app,
+        window,
+        Vec2::new(thumb.x(), thumb.y()),
+        Some(ButtonState::Pressed),
+    );
+    pointer(&mut app, window, Vec2::ZERO, None);
+    assert_eq!(offset(&app), -2, "the thumb itself captures the drag");
 }

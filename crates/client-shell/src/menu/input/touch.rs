@@ -77,12 +77,7 @@ pub(super) fn drive(
             && let Some(action) = native_settings
                 .then(|| presentation.settings_slider_thumb_hit_test(position))
                 .flatten()
-                .map(|index| {
-                    launcher::menu::MenuAction::SettingsOption(
-                        index,
-                        menu.settings_options.get(usize::from(index)),
-                    )
-                })
+                .map(|row| settings_pointer::slider_thumb_action(menu, row))
                 .or_else(|| presentation.hit_test_menu(position))
         {
             menu.input_mode = MenuInputMode::Touch;

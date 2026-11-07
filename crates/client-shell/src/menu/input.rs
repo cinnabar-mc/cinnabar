@@ -696,12 +696,9 @@ pub fn drive_menu_input(
     }
     if native_settings
         && let Some(point) = pointer
-        && let Some(index) = presentation.settings_slider_thumb_hit_test(point)
+        && let Some(row) = presentation.settings_slider_thumb_hit_test(point)
     {
-        menu.hovered = Some(launcher::menu::MenuAction::SettingsOption(
-            index,
-            menu.settings_options.get(usize::from(index)),
-        ));
+        menu.hovered = Some(settings_pointer::slider_thumb_action(&menu, row));
     }
     menu.pointer_down = pointer_pressed;
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
