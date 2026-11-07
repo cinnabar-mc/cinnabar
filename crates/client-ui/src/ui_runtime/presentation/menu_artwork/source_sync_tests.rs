@@ -514,7 +514,7 @@ fn drawn_server_art_packs_before_launcher_artwork() {
     runtime.menu_artwork_set.paths = vec![("avatar".into(), MAX_ARTWORK_SIDE)];
     runtime.menu_artwork_set.images = vec![("world-thumbnail".into(), png(4).into())];
     install(&mut runtime, &[("textures/drawn", png(1))]);
-    runtime.sync_server_ui_pages();
+    runtime.end_ui_frame();
     let order: Vec<String> = sources(&runtime.menu_artwork_set)
         .iter()
         .map(|source| source.key().0)
@@ -540,7 +540,7 @@ fn drawn_art_without_copies_repacks_after_the_pack_in_flight() {
     let draw = |runtime: &mut UiPresentationRuntime, key: &str| {
         let textures = &mut runtime.engine.as_mut().unwrap().textures;
         textures.atlas_mut().require([key]);
-        runtime.sync_server_ui_pages();
+        runtime.end_ui_frame();
     };
     let has_art = |runtime: &UiPresentationRuntime, key: &str| {
         let art = format!("{SERVER_ART_PREFIX}{key}");
@@ -577,9 +577,9 @@ fn a_closed_screen_retires_its_drawn_art_priority() {
     let mut runtime = presentation();
     runtime.menu_artwork_set.images = vec![("world-thumbnail".into(), png(4).into())];
     install(&mut runtime, &[("textures/drawn", png(1))]);
-    runtime.sync_server_ui_pages();
+    runtime.end_ui_frame();
     runtime.finish_menu_artwork();
-    runtime.sync_server_ui_pages();
+    runtime.end_ui_frame();
     assert!(runtime.menu_artwork_set.drawn_oversized.is_empty());
     let order: Vec<String> = sources(&runtime.menu_artwork_set)
         .iter()

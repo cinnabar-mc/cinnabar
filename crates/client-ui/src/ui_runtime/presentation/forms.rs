@@ -434,9 +434,23 @@ impl UiPresentationRuntime {
         self.sync_server_ui_pages();
     }
 
-    /// Hands changed server atlas pages to the dynamic texture pages; runs
-    /// after the frame's screens drew, before the frame publishes.
+    /// Ends a built frame after its screens drew, before it publishes: records the large server
+    /// textures it drew for the art pages, then hands changed pages on.
+    pub(super) fn end_ui_frame(&mut self) {
+        let drawn = self
+            .engine
+            .as_ref()
+            .and_then(|engine| engine.textures.end_oversized_frame());
+        self.sync_server_ui_pages_with(drawn);
+    }
+
+    /// Hands changed server atlas pages to the dynamic texture pages outside a frame boundary.
     pub(super) fn sync_server_ui_pages(&mut self) {
+        self.sync_server_ui_pages_with(None);
+    }
+
+    /// Hands changed pages on; `drawn` is the large textures a frame drew when it has a report.
+    fn sync_server_ui_pages_with(&mut self, drawn: Option<std::collections::BTreeSet<String>>) {
         let server = self
             .engine
             .as_mut()
@@ -447,10 +461,6 @@ impl UiPresentationRuntime {
         // Server textures too big for a server page draw from full-resolution art; the ones
         // this frame drew without it pack first. A priority change alone waits for the pack in
         // flight, which a new request would discard.
-        let drawn = self
-            .engine
-            .as_ref()
-            .and_then(|engine| engine.textures.end_oversized_frame());
         let oversized = self.oversized_ui_textures();
         let mut artwork_changed = false;
         if !oversized.shares_storage(&self.menu_artwork_set.oversized) {

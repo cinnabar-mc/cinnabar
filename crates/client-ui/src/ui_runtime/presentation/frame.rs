@@ -391,7 +391,7 @@ impl UiPresentationRuntime {
                 content,
             );
             // Personal panels can admit host portraits while painting this frame.
-            self.sync_server_ui_pages();
+            self.end_ui_frame();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {
