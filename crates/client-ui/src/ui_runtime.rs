@@ -47,6 +47,7 @@ pub mod screen_state;
 pub mod session;
 pub mod session_data;
 pub mod sign_editor;
+mod toast_audio;
 pub mod use_on_identity_evidence;
 
 pub use forms::{
@@ -787,10 +788,5 @@ impl UiRuntime {
 
     pub fn hides_toasts(&self) -> bool {
         self.hide_toasts
-    }
-
-    /// Expires retained HUD output when the app has admitted a valid viewport.
-    pub fn expire_hud(&mut self, now: u64) {
-        self.session.hud.expire(now);
     }
 }
