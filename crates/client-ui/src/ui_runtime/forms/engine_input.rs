@@ -20,7 +20,7 @@ use crate::ui_runtime::{PlatformClipboard, UiRuntime, interaction::is_chat_edit_
 use ui_engine::frame::EngineFrame;
 
 /// Longest paste a screen outside the engine's edit boxes accepts through [`typed_text`].
-const MAX_PASTE_BYTES: usize = 4096;
+pub(crate) const MAX_PASTE_BYTES: usize = 4096;
 /// The most UTF-8 bytes one character takes.
 const MAX_UTF8_BYTES_PER_CHAR: usize = 4;
 /// Animation end events one input frame relays at most.
