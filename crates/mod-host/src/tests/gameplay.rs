@@ -524,6 +524,50 @@ fn control_modes_commit_per_renewed_frame_and_clear_after_a_trap() {
     assert_eq!(trapped.control_modes(), None);
 }
 
+/// A guest that renews its modes every frame keeps them through a frame whose callback the host
+/// deferred; the guest never omitted them.
+#[test]
+fn control_modes_survive_a_deferred_frame_callback() {
+    let grants = ModGrants {
+        movement: true,
+        ..Default::default()
+    };
+    let (_directory, mut host) = load("", CONTROL_MODES, grants);
+    host.set_frame_authority(
+        CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL),
+        false,
+        false,
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(host.control_modes(), Some(staged_modes()), "control frame");
+    host.set_frame_authority(CallbackBudget::new(FRAME_FUEL - 1), false, false);
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert!(host.is_active());
+    assert_eq!(
+        host.control_modes(),
+        Some(staged_modes()),
+        "a deferred callback reverted the mod's renewed modes to the player's settings"
+    );
+    host.instance.bind_drawing_policy(
+        ModGrants::default(),
+        mod_api::drawing::DrawingSession {
+            connection: 1,
+            dimension: 0,
+            local: false,
+            permissions: Default::default(),
+        },
+    );
+    host.frame_with_controls(false, Some(snapshot()), focused_controls())
+        .unwrap();
+    assert_eq!(
+        host.control_modes(),
+        None,
+        "retained modes outlived the movement grant"
+    );
+}
+
 /// Components compiled against the original gameplay interface still instantiate unchanged.
 #[test]
 fn legacy_gameplay_component_keeps_its_original_import_type() {

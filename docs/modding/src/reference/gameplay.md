@@ -152,8 +152,8 @@ record movement-intents {
 
 ### `movement-input`
 
-A resolved local control vector: right and forward axes are finite and bounded to -1..1.
-Buttons add holds to physical controls; axes replace walking input for this frame.
+A local control vector: right and forward axes are finite and bounded to -1..1.
+Buttons hold their controls as if bound; axes replace walking input for this frame.
 
 ```wit
 record movement-input {
@@ -334,10 +334,12 @@ Types: [`movement-input`](gameplay.md#type-movement-input).
 set-movement-input: func(input: option<movement-input>) -> result<_, string>;
 ```
 
-Replaces walking axes and supplies resolved button holds for one successful frame.
-Requires movement authority and focused gameplay. Renew every frame; none restores input.
-Sprint applies to the supplied direction; hunger, item use, collision, input locks and
-server authority still apply. A complete vector belongs to the earliest supplying mod.
+Replaces walking axes and holds buttons as if bound, so the player's toggle and
+always-sprint modes still apply. Requires movement authority and focused gameplay. Renew
+every frame; none restores input. A frame whose callback the host defers keeps the last
+vector. Sprint applies to the supplied direction; hunger, item use, collision, input
+locks and server authority still apply. A complete vector belongs to the earliest
+supplying mod.
 
 Types: [`movement-input`](gameplay.md#type-movement-input).
 
@@ -349,8 +351,9 @@ Types: [`movement-input`](gameplay.md#type-movement-input).
 set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;
 ```
 
-Renew every focused gameplay frame; omission releases both intents. Requires movement
-authority; server movement, hunger and item-use restrictions still apply.
+Renew every focused gameplay frame; omission releases both intents, and a frame whose
+callback the host defers keeps them. Requires movement authority; server movement,
+hunger and item-use restrictions still apply.
 
 Types: [`movement-intents`](gameplay.md#type-movement-intents).
 
@@ -362,8 +365,9 @@ Types: [`movement-intents`](gameplay.md#type-movement-intents).
 set-control-modes: func(modes: option<control-modes>) -> result<_, string>;
 ```
 
-Renew every focused gameplay frame; omission restores the player's own settings.
-Requires movement authority. With several mods, a mode is on when any of them sets it.
+Renew every focused gameplay frame; omission restores the player's own settings, and a
+frame whose callback the host defers keeps the modes. Requires movement authority. With
+several mods, a mode is on when any of them sets it.
 
 Types: [`control-modes`](gameplay.md#type-control-modes).
 

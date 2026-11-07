@@ -404,7 +404,9 @@ impl Instance {
         // Deferred events may stage frame-only output; only this callback may publish it.
         self.begin_frame();
         if !self.is_active() {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
@@ -413,7 +415,9 @@ impl Instance {
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
@@ -429,6 +433,7 @@ impl Instance {
         state.motion.snapshot = movement;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
+        state.world.release_unrenewable(&controls);
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
         state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);
@@ -923,7 +928,7 @@ impl Instance {
         self.last_fuel
     }
 
-    /// Returns the current successful callback's granted complete movement input.
+    /// Returns the granted complete movement input from the last callback completed in its frame.
     pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
         self.store
             .data()
@@ -932,14 +937,22 @@ impl Instance {
             .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the movement intents committed by the current successful frame.
+    /// Returns the granted movement intents from the last callback completed in its frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
-        self.store.data().world.movement_intents
+        self.store
+            .data()
+            .world
+            .movement_intents
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the control modes committed by the current successful frame.
+    /// Returns the granted control modes from the last callback completed in its frame.
     pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
-        self.store.data().world.control_modes
+        self.store
+            .data()
+            .world
+            .control_modes
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {
