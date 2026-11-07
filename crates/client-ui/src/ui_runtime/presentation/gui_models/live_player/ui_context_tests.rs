@@ -267,6 +267,11 @@ fn triangles(vertices: &[UiMeshVertex]) -> usize {
 
 /// Equips an original cube in the helmet slot without adding armor or held items.
 fn wear_helmet_block(ui: &mut UiPresentationRuntime) {
+    wear_helmet_cube(ui, "minecraft:carved_pumpkin");
+}
+
+/// Equips `identifier` in the helmet slot with an original held cube as its model.
+fn wear_helmet_cube(ui: &mut UiPresentationRuntime, identifier: &str) {
     ui.set_player_preview_gear([None; 4], None);
     let block = PreviewHeldModel {
         source: IconRef {
@@ -280,14 +285,14 @@ fn wear_helmet_block(ui: &mut UiPresentationRuntime) {
         hand_pivots: [[0.; 3]; 2],
     };
     ui.gui_models.sources.held.insert(
-        "minecraft:carved_pumpkin".into(),
+        identifier.into(),
         [(0, super::super::held::HeldModel::ready(block))].into(),
     );
     ui.player_preview_gear.head = Some(player_preview::PreviewHandItem {
         shield_pattern: None,
         grip: None,
         glint: Some(false),
-        identifier: "minecraft:carved_pumpkin".into(),
+        identifier: identifier.into(),
         metadata: 0,
         use_animation: Default::default(),
         charged_projectile: Default::default(),
@@ -367,6 +372,25 @@ fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
 #[test]
 fn hud_doll_wears_a_helmet_block_on_the_posed_head_bone() {
     assert_helmet_block_on_posed_head(PreviewView::Hud);
+}
+
+#[test]
+fn a_worn_mob_head_never_draws_the_head_block_cube() {
+    let identifier = "minecraft:skeleton_skull";
+    assert!(assets::vanilla_skull_type(identifier).is_some());
+    let pack = pack();
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, None);
+    let mut ui = presentation(pack);
+    wear_helmet_cube(&mut ui, identifier);
+    for view in [PreviewView::default(), PreviewView::Hud] {
+        let drawn = draw(&mut ui, &stream, view);
+        assert!(
+            drawn
+                .is_none_or(|(mesh, _)| mesh.batches().iter().all(|batch| batch.texture_page != 0)),
+            "{view:?}"
+        );
+    }
 }
 
 #[test]

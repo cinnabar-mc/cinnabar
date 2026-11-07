@@ -250,12 +250,16 @@ impl UiPresentationRuntime {
     }
 
     /// The block the helmet slot shows on the head. Only a block with prepared held geometry
-    /// draws: a sprite item or a pack-authored hand model never does.
+    /// draws: a sprite item, a pack-authored hand model or a mob head never does.
     pub(in crate::ui_runtime::presentation::gui_models) fn preview_head_block(
         &self,
     ) -> Option<player_preview::PreviewHeldModel> {
         let head = self.player_preview_gear.head.as_ref()?;
         let (identifier, metadata) = (head.identifier.as_ref(), head.metadata);
+        // Mob heads wear their own head model in the world, never the block cube.
+        if assets::vanilla_skull_type(identifier).is_some() {
+            return None;
+        }
         let model = if let Some((source, vertices)) =
             self.session_icons.held_block(identifier, metadata)
         {
