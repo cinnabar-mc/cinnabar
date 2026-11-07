@@ -25,7 +25,7 @@ pub(in crate::compiler) fn compile_rule(
             canonical[3],
             canonical[4],
             canonical[5],
-            upside | (u32::from(fixed_shape.is_some()) << 1),
+            upside | (u32::from(fixed_shape.is_some()) << 1) | (rotation << 2),
         ];
         let base = if let Some(&base) = templates.get(&key) {
             base
@@ -37,7 +37,7 @@ pub(in crate::compiler) fn compile_rule(
             })?;
             for shape in 0..5 {
                 push_model_template(
-                    stair_quads(canonical, 2, upside != 0, shape),
+                    stair_quads(canonical, 2, upside != 0, shape, rotation),
                     if fixed_shape.is_some() {
                         0
                     } else {
@@ -103,11 +103,14 @@ fn stair_state(record: &RegistryRecord) -> Option<(u32, u32, Option<u32>)> {
     Some((direction.turns_from_north(), half, Some(shape)))
 }
 
+/// Builds a stair template facing `orientation` whose UVs are the native world-space box UVs
+/// it has once the model shader turns it by `turns` quarter turns about y.
 pub(in crate::compiler) fn stair_quads(
     materials: [u32; 6],
     orientation: u32,
     upside_down: bool,
     shape: u32,
+    turns: u32,
 ) -> Vec<ModelQuad> {
     debug_assert!(orientation < 4 && shape < 5);
     let mut occupied = [false; 8];
@@ -150,7 +153,7 @@ pub(in crate::compiler) fn stair_quads(
                         BlockFace::South => (z + 1 < 2).then_some([x, y, z + 1]),
                     };
                     if neighbour.is_none_or(|[nx, ny, nz]| !occupied[cell_index(nx, ny, nz)]) {
-                        quads.push(stair_cell_quad(materials, face, x, y, z));
+                        quads.push(stair_cell_quad(materials, face, [x, y, z], turns));
                     }
                 }
             }
@@ -204,12 +207,16 @@ pub(in crate::compiler) const fn toward(orientation: u32, x: usize, z: usize) ->
     }
 }
 
+/// One half-block cell face of a stair template.
+///
+/// `BlockTessellator::tessellateStairsInWorld` draws each stair box with the cube face UVs of its
+/// world bounds and no rotation, so planks line up with neighbouring blocks whichever way the
+/// stair faces. The UVs are those of the face's world position after `turns`.
 pub(in crate::compiler) fn stair_cell_quad(
     materials: [u32; 6],
     face: BlockFace,
-    x: usize,
-    y: usize,
-    z: usize,
+    [x, y, z]: [usize; 3],
+    turns: u32,
 ) -> ModelQuad {
     let x0 = (x * 128) as i16;
     let x1 = x0 + 128;
@@ -249,13 +256,8 @@ pub(in crate::compiler) fn stair_cell_quad(
             z == 1,
         ),
     };
-    let uvs = positions.map(|[px, py, pz]| match face {
-        BlockFace::West | BlockFace::East => [(pz as u16) * 16, (4096 - i32::from(py) * 16) as u16],
-        BlockFace::North | BlockFace::South => {
-            [(px as u16) * 16, (4096 - i32::from(py) * 16) as u16]
-        }
-        BlockFace::Down | BlockFace::Up => [(px as u16) * 16, (pz as u16) * 16],
-    });
+    let world_face = turned_face(face, turns);
+    let uvs = positions.map(|position| native_box_uv(world_face, turned_position(position, turns)));
     ModelQuad {
         positions,
         uvs,
@@ -263,3 +265,50 @@ pub(in crate::compiler) fn stair_cell_quad(
         flags: face_id | (u32::from(boundary) * (face_id << 4)),
     }
 }
+
+/// A template position (1/256 block) after the model shader's `rotate_cross` quarter turns.
+const fn turned_position([x, y, z]: [i16; 3], turns: u32) -> [i16; 3] {
+    match turns & 3 {
+        1 => [256 - z, y, x],
+        2 => [256 - x, y, 256 - z],
+        3 => [z, y, 256 - x],
+        _ => [x, y, z],
+    }
+}
+
+/// The face a template face lies on after `turns` quarter turns about y.
+const fn turned_face(face: BlockFace, turns: u32) -> BlockFace {
+    const SIDES: [BlockFace; 4] = [
+        BlockFace::North,
+        BlockFace::East,
+        BlockFace::South,
+        BlockFace::West,
+    ];
+    let index = match face {
+        BlockFace::North => 0,
+        BlockFace::East => 1,
+        BlockFace::South => 2,
+        BlockFace::West => 3,
+        BlockFace::Down | BlockFace::Up => return face,
+    };
+    // A quarter turn takes west to north and north to east.
+    SIDES[(index + turns as usize) % 4]
+}
+
+/// Native cube face UVs of a world position (1/256 block): west +z/-y, east -z/-y, north -x/-y,
+/// south +x/-y, down +x/-z, up +x/+z.
+const fn native_box_uv(face: BlockFace, [x, y, z]: [i16; 3]) -> [u16; 2] {
+    let [x, y, z] = [x as u16 * 16, y as u16 * 16, z as u16 * 16];
+    match face {
+        BlockFace::West => [z, 4096 - y],
+        BlockFace::East => [4096 - z, 4096 - y],
+        BlockFace::North => [4096 - x, 4096 - y],
+        BlockFace::South => [x, 4096 - y],
+        BlockFace::Down => [x, 4096 - z],
+        BlockFace::Up => [x, z],
+    }
+}
+
+#[cfg(test)]
+#[path = "stairs_tests.rs"]
+mod tests;
