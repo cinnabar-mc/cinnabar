@@ -189,6 +189,33 @@ pub(super) fn reset_settings() -> Fixture {
     ))
 }
 
+/// Shows the Realms tab with an owned and a selected joined Realm, optionally under a dialog.
+pub(super) fn realms_joined(dialog: Option<MenuDialog>) -> Fixture {
+    let mut view = menu();
+    view.screen = MenuScreen::Social;
+    view.auth_state = launcher::menu::auth::AuthState::Authenticated;
+    let realm = |name: &str, id: u32, member: bool| launcher::menu::MenuRealmCard {
+        name: name.to_owned(),
+        state: "OPEN".to_owned(),
+        target: format!("{}{id}", launcher::menu::REALM_ADDRESS_PREFIX),
+        address: String::new(),
+        owner: String::new(),
+        online_players: 2,
+        max_players: 10,
+        days_left: 30,
+        expired: false,
+        member,
+    };
+    view.realms = vec![
+        realm("My Realm", 3, false),
+        realm("Friend's Realm", 7, true),
+    ]
+    .into();
+    view.feeds.selected_realm = Some(1);
+    view.dialog = dialog;
+    Fixture::Menu(Box::new(view))
+}
+
 /// Shows the Worlds tab with one saved world under its create and import buttons.
 pub(super) fn play_worlds() -> Fixture {
     let mut view = menu();

@@ -426,6 +426,9 @@ impl MenuRuntime {
                     MenuAction::ConfirmRemoveSaved(index),
                     MenuAction::DismissDialog,
                 ],
+                MenuDialog::LeaveRealm(id) => {
+                    vec![MenuAction::ConfirmLeaveRealm(id), MenuAction::DismissDialog]
+                }
             };
         }
         if let Some(actions) = self.join_request_focus_actions() {

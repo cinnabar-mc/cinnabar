@@ -225,6 +225,7 @@ impl MenuRuntime {
             feeds: initial.feeds,
             invite: Default::default(),
             realm_membership: Default::default(),
+            realm_leave: Default::default(),
             join_requests: Default::default(),
         }
     }
