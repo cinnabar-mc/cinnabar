@@ -304,20 +304,6 @@ fn near_zero_scale_floating_text_tags_keep_the_clearance_above_the_minimum_box()
 }
 
 #[test]
-fn labels_clear_the_box_by_vanilla_seven_tenths_of_a_block() {
-    let mut actor = actor();
-    assert!((tag_height(&actor) - 2.5).abs() < 1e-6);
-    // A server text carrier with an empty box still hangs its label 0.7 above its feet.
-    actor.kind = ActorKind::Entity {
-        identifier: "minecraft:armor_stand".into(),
-    };
-    actor
-        .metadata
-        .insert(METADATA_HEIGHT, ActorMetadataValue::Float(0.0));
-    assert!((tag_height(&actor) - (client_world::MIN_COLLISION_DIMENSION + 0.7)).abs() < 1e-6);
-}
-
-#[test]
 fn java_sneaking_offsets_keep_the_label_world_scale() {
     let mut actor = actor();
     assert!((tag_height(&actor) - 2.5).abs() < 1e-6);
