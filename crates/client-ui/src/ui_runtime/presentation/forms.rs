@@ -142,6 +142,8 @@ pub(super) struct ScreenStates {
     pub(super) mod_ui: mod_ui::ModUi,
     /// The container screens' layout and recipe rows.
     containers: ui_screens::containers::ContainerScreen,
+    /// The blink of the container screens' search or anvil name caret.
+    container_caret: menu_caret::CaretBlink,
     /// The menu text caret's blink and its boxes' text.
     menu_caret: menu_caret::MenuCaretState,
     /// The open chat's cached screen.
