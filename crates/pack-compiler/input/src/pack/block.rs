@@ -24,22 +24,23 @@ pub const MISSING_TILE_TEXTURE_KEY: &str = "missing_tile";
 pub struct TextureKey {
     /// `None` selects the diagnostic material.
     pub key: Option<Box<str>>,
-    /// Rotate UVs by one quarter turn for a horizontal pillar side.
-    pub rotate_uv: bool,
+    /// Packed UV rotation code (`assets::MATERIAL_FLAG_UV_ROTATION_MASK`) for a horizontal
+    /// pillar's face.
+    pub uv_rotation: u32,
 }
 
 impl TextureKey {
     fn diagnostic() -> Self {
         Self {
             key: None,
-            rotate_uv: false,
+            uv_rotation: 0,
         }
     }
 
-    fn resolved(key: &str, rotate_uv: bool) -> Self {
+    fn resolved(key: &str, uv_rotation: u32) -> Self {
         Self {
             key: Some(key.into()),
-            rotate_uv,
+            uv_rotation,
         }
     }
 }
@@ -272,7 +273,7 @@ pub fn resolve_texture_key(
     face: BlockFace,
 ) -> TextureKey {
     if let Some(model) = blocks.component_model(record) {
-        return TextureKey::resolved(&model.texture, false);
+        return TextureKey::resolved(&model.texture, 0);
     }
     let block_name = record
         .name
@@ -287,27 +288,27 @@ pub fn resolve_texture_key(
         return if record.name.starts_with("minecraft:")
             || record.name.as_ref() == assets::facts::block::RESERVED_BLOCK_NAME
         {
-            TextureKey::resolved(MISSING_TILE_TEXTURE_KEY, false)
+            TextureKey::resolved(MISSING_TILE_TEXTURE_KEY, 0)
         } else {
             TextureKey::diagnostic()
         };
     };
 
     match &entry.textures {
-        TextureValue::Key(key) => TextureKey::resolved(key, false),
+        TextureValue::Key(key) => TextureKey::resolved(key, 0),
         TextureValue::Faces(faces) => {
             if facing_cube::is_record(record) {
                 return facing_cube_face(record, face)
                     .and_then(|(source_face, _)| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
-                        TextureKey::resolved(key, false)
+                        TextureKey::resolved(key, 0)
                     });
             }
             if facing::is_record(record) {
                 return facing::source_face(record, face)
                     .and_then(|source_face| faces.resolve(source_face))
                     .map_or_else(TextureKey::diagnostic, |key| {
-                        TextureKey::resolved(key, false)
+                        TextureKey::resolved(key, 0)
                     });
             }
             let axis = match state_axis(&record.canonical_state) {
@@ -318,11 +319,11 @@ pub fn resolve_texture_key(
                 }
                 AxisState::Invalid => Axis::Y,
             };
-            let (source_face, rotate_uv) = orient_face(face, axis);
+            let (source_face, uv_rotation) = orient_face(face, axis);
             faces
                 .resolve(source_face)
                 .map_or_else(TextureKey::diagnostic, |key| {
-                    TextureKey::resolved(key, rotate_uv)
+                    TextureKey::resolved(key, uv_rotation)
                 })
         }
     }
@@ -332,7 +333,7 @@ pub fn resolve_texture_key(
 pub fn runtime_binding_identity(
     blocks: &BlockTextureMap,
     record: &RegistryRecord,
-) -> (Box<str>, [u8; 6], [bool; 6]) {
+) -> (Box<str>, [u8; 6], [u8; 6]) {
     let name = record
         .name
         .strip_prefix("minecraft:")
@@ -349,7 +350,7 @@ pub fn runtime_binding_identity(
     (
         binding_name.into(),
         BlockFace::ALL.map(|face| orient_face(face, axis).0 as u8),
-        BlockFace::ALL.map(|face| orient_face(face, axis).1),
+        BlockFace::ALL.map(|face| orient_face(face, axis).1 as u8),
     )
 }
 
@@ -570,18 +571,27 @@ fn state_axis(canonical_state: &str) -> AxisState {
     }
 }
 
-fn orient_face(face: BlockFace, axis: Axis) -> (BlockFace, bool) {
+/// The source face and packed UV rotation a pillar draws on one world face.
+///
+/// `BlockTessellator::tessellateTreeInWorld` sets each face's native rotation code (1 and 2 are
+/// opposite quarter turns, 3 a half turn): x-axis down 2, up 1, north and south 1; z-axis down
+/// and up 3, west and east 1. Native codes 2 and 3 are packed codes 3 and 2.
+fn orient_face(face: BlockFace, axis: Axis) -> (BlockFace, u32) {
+    use assets::{
+        MATERIAL_FLAG_ROTATE_UV as QUARTER, MATERIAL_FLAG_UV_ROTATE_180 as HALF,
+        MATERIAL_FLAG_UV_ROTATE_270 as THREE_QUARTERS,
+    };
     match (axis, face) {
-        (Axis::X, BlockFace::West) => (BlockFace::Down, false),
-        (Axis::X, BlockFace::East) => (BlockFace::Up, false),
-        (Axis::X, BlockFace::Down) => (BlockFace::East, true),
-        (Axis::X, BlockFace::Up) => (BlockFace::West, true),
-        (Axis::X, other) => (other, true),
-        (Axis::Z, BlockFace::North) => (BlockFace::Down, false),
-        (Axis::Z, BlockFace::South) => (BlockFace::Up, false),
-        (Axis::Z, BlockFace::Down) => (BlockFace::South, true),
-        (Axis::Z, BlockFace::Up) => (BlockFace::North, true),
-        (Axis::Z, other) => (other, true),
-        (Axis::Y, other) => (other, false),
+        (Axis::X, BlockFace::West) => (BlockFace::Down, 0),
+        (Axis::X, BlockFace::East) => (BlockFace::Up, 0),
+        (Axis::X, BlockFace::Down) => (BlockFace::East, THREE_QUARTERS),
+        (Axis::X, BlockFace::Up) => (BlockFace::West, QUARTER),
+        (Axis::X, other) => (other, QUARTER),
+        (Axis::Z, BlockFace::North) => (BlockFace::Down, 0),
+        (Axis::Z, BlockFace::South) => (BlockFace::Up, 0),
+        (Axis::Z, BlockFace::Down) => (BlockFace::South, HALF),
+        (Axis::Z, BlockFace::Up) => (BlockFace::North, HALF),
+        (Axis::Z, other) => (other, QUARTER),
+        (Axis::Y, other) => (other, 0),
     }
 }
