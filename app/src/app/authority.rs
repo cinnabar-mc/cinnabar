@@ -11,6 +11,9 @@ struct OrdinaryInputSet;
 
 pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
+    app.init_resource::<client_state::ConnectedPhysicalDevices>();
+    app.init_resource::<client_state::DetectedGameplayInputMode>();
+    app.init_resource::<client_state::EffectiveGameplayInputMode>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
     app.add_systems(
@@ -38,6 +41,14 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     )
     .add_systems(
         bevy::prelude::PreUpdate,
+        (
+            crate::platform_devices::sync_connected_physical_devices,
+            crate::platform_devices::drain_platform_mouse_events,
+        )
+            .before(bevy::input::InputSystems),
+    )
+    .add_systems(
+        bevy::prelude::PreUpdate,
         crate::ui_runtime::touch_pointer::emulate_ui_pointer
             .before(bevy::input::InputSystems)
             .run_if(|| launcher::TOUCH_PRIMARY),
@@ -47,6 +58,12 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
         crate::ui_runtime::platform_back::press_mouse_back_for_platform_back
             .after(bevy::input::InputSystems)
             .run_if(|| cfg!(target_os = "android")),
+    )
+    .add_systems(
+        bevy::prelude::PreUpdate,
+        crate::platform_devices::arbitrate_gameplay_input_mode
+            .after(bevy::input::InputSystems)
+            .run_if(|| launcher::TOUCH_PRIMARY),
     )
     .add_systems(
         Update,

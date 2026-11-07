@@ -41,8 +41,17 @@ pub fn publish_gameplay_screen_controls(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     pads: Query<&Gamepad>,
+    effective_mode: Option<Res<client_state::EffectiveGameplayInputMode>>,
+    mut presentation: Option<ResMut<UiPresentationResource>>,
     mut controls: ResMut<GameplayScreenControls>,
 ) {
+    if let (Some(menu), Some(ref mut presentation)) = (menu.as_deref(), presentation.as_mut()) {
+        if !menu.touch_available {
+            presentation.enable_touch_controls(false);
+        } else if let Some(effective_mode) = effective_mode {
+            presentation.enable_touch_controls(effective_mode.0 == InputMode::Touch);
+        }
+    }
     *controls = GameplayScreenControls {
         pick_block_pressed: menu.is_some()
             && (control_bindings::binding_gamepad(menu.as_deref(), BindingId::PickItem, &pads)
@@ -64,6 +73,14 @@ pub fn publish_gameplay_screen_controls(
             .as_deref()
             .is_some_and(|menu| menu.settings_snapshot().0.value(SettingId::HideHud) != 0),
     };
+}
+
+impl MenuRuntime {
+    /// Overrides touch availability for tests.
+    #[cfg(test)]
+    pub fn set_touch_available(&mut self, available: bool) {
+        self.touch_available = available;
+    }
 }
 
 #[cfg(test)]

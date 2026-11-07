@@ -57,7 +57,42 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     fn_ptr: cancel as *mut c_void,
                 },
             ],
-        )
+        )?;
+        let cinnabar_class = format!(
+            "{}/CinnabarActivity",
+            super::runtime().application_id.replace('.', "/")
+        );
+        let _ = env.register_native_methods(
+            cinnabar_class,
+            &[
+                NativeMethod {
+                    name: "nativeOnDeviceStateChange".into(),
+                    sig: "(II)V".into(),
+                    fn_ptr: on_device_state_change as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseMotion".into(),
+                    sig: "(FF)V".into(),
+                    fn_ptr: on_mouse_motion as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseButton".into(),
+                    sig: "(IZ)V".into(),
+                    fn_ptr: on_mouse_button as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnMouseScroll".into(),
+                    sig: "(FF)V".into(),
+                    fn_ptr: on_mouse_scroll as *mut c_void,
+                },
+                NativeMethod {
+                    name: "nativeOnPointerCaptureChange".into(),
+                    sig: "(Z)V".into(),
+                    fn_ptr: on_pointer_capture_change as *mut c_void,
+                },
+            ],
+        );
+        Ok(())
     });
     match registered {
         Ok(()) => JNI_VERSION_1_6,
@@ -66,6 +101,121 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
             JNI_ERR
         }
     }
+}
+
+unsafe extern "C" fn on_device_state_change(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    mice: jni::sys::jint,
+    keyboards: jni::sys::jint,
+) {
+    on_device_state_change_raw(mice, keyboards);
+}
+
+pub fn on_device_state_change_raw(mice: jni::sys::jint, keyboards: jni::sys::jint) {
+    let mice = mice.max(0) as u32;
+    let keyboards = keyboards.max(0) as u32;
+    cinnabar::platform_devices::set_platform_physical_devices(mice, keyboards);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnDeviceStateChange(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    mice: jni::sys::jint,
+    keyboards: jni::sys::jint,
+) {
+    on_device_state_change_raw(mice, keyboards);
+}
+
+unsafe extern "C" fn on_mouse_motion(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    dx: jni::sys::jfloat,
+    dy: jni::sys::jfloat,
+) {
+    on_mouse_motion_raw(dx, dy);
+}
+
+pub fn on_mouse_motion_raw(dx: jni::sys::jfloat, dy: jni::sys::jfloat) {
+    cinnabar::platform_devices::accumulate_platform_mouse_motion(dx, dy);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseMotion(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    dx: jni::sys::jfloat,
+    dy: jni::sys::jfloat,
+) {
+    on_mouse_motion_raw(dx, dy);
+}
+
+unsafe extern "C" fn on_mouse_button(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    button_mask: jni::sys::jint,
+    pressed: jni::sys::jboolean,
+) {
+    on_mouse_button_raw(button_mask, pressed);
+}
+
+pub fn on_mouse_button_raw(button_mask: jni::sys::jint, pressed: jni::sys::jboolean) {
+    cinnabar::platform_devices::push_platform_mouse_button(button_mask.max(0) as u32, pressed != 0);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseButton(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    button_mask: jni::sys::jint,
+    pressed: jni::sys::jboolean,
+) {
+    on_mouse_button_raw(button_mask, pressed);
+}
+
+unsafe extern "C" fn on_mouse_scroll(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    vscroll: jni::sys::jfloat,
+    hscroll: jni::sys::jfloat,
+) {
+    on_mouse_scroll_raw(vscroll, hscroll);
+}
+
+pub fn on_mouse_scroll_raw(vscroll: jni::sys::jfloat, hscroll: jni::sys::jfloat) {
+    cinnabar::platform_devices::push_platform_mouse_scroll(vscroll, hscroll);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseScroll(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    vscroll: jni::sys::jfloat,
+    hscroll: jni::sys::jfloat,
+) {
+    on_mouse_scroll_raw(vscroll, hscroll);
+}
+
+unsafe extern "C" fn on_pointer_capture_change(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    has_capture: jni::sys::jboolean,
+) {
+    on_pointer_capture_change_raw(has_capture);
+}
+
+pub fn on_pointer_capture_change_raw(has_capture: jni::sys::jboolean) {
+    cinnabar::platform_devices::set_platform_pointer_captured(has_capture != 0);
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnPointerCaptureChange(
+    _env: jni::JNIEnv,
+    _class: jni::objects::JObject,
+    has_capture: jni::sys::jboolean,
+) {
+    on_pointer_capture_change_raw(has_capture);
 }
 
 extern "system" fn prepare<'local>(
