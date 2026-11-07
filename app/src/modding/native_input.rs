@@ -16,7 +16,8 @@ pub(super) struct NativeInput {
 }
 
 impl NativeInput {
-    /// Replaces axes and adds button holds within one world; omission retires owned buttons.
+    /// Replaces axes and adds button holds as if bound within one world, keeping the player's
+    /// control modes in effect; omission retires owned buttons.
     fn apply_controls(
         &mut self,
         input: &mut semantic_input::finalized::FinalizedInput,
@@ -33,7 +34,7 @@ impl NativeInput {
         }
         self.controls_scope = scope.or(self.controls_scope);
         if let Some(controls) = controls {
-            self.controls.apply(
+            self.controls.remap(
                 input,
                 Some((
                     [controls.right, controls.forward],
@@ -376,7 +377,10 @@ mod tests {
         let mut frame = fresh();
         state.apply_controls(&mut frame, Some((1, 0)), Some(controls));
         assert_eq!(frame.movement(), [-0.5, 0.75]);
-        assert!(frame.movement_is_resolved());
+        assert!(
+            !frame.movement_is_resolved(),
+            "a mod's vector must leave the player's toggle and always-sprint modes in effect"
+        );
         assert!(frame.phase(semantic_input::Action::Jump).pressed);
         assert!(frame.phase(semantic_input::Action::Sneak).held);
         assert!(!frame.phase(semantic_input::Action::Sprint).held);
