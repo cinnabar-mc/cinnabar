@@ -14,6 +14,14 @@ use crate::ui_runtime::{Translator, UiRuntime};
 mod components;
 use components::{boss_model, sidebar_model, world_text_input, world_text_lines};
 
+/// Vanilla's HUD binds `#item_durability_visible` false in Creative unless the item opts in
+/// (`Item::showsDurabilityInCreative`, which only chemistry sticks override); containers still
+/// show the bar. Chemistry sticks carry no durability maximum here, so no opt-in is reachable.
+fn hud_durability(player: &player_state::PlayerState, durability: Option<f32>) -> Option<f32> {
+    durability
+        .filter(|_| player.facts.player_game_mode() != Some(protocol::PlayerGameMode::Creative))
+}
+
 /// The current HUD model and the exact icon table its item references index.
 #[derive(Default)]
 pub(in crate::ui_runtime::presentation) struct SemanticHud {
@@ -196,7 +204,7 @@ impl SemanticHud {
                     slot,
                     frame.hotbar_stacks[index].as_ref(),
                     frame.hotbar_icons[index],
-                    frame.hotbar_durability[index],
+                    hud_durability(player, frame.hotbar_durability[index]),
                     player.selected_hotbar_slot() == Some(index as u8),
                 )
             })
@@ -207,7 +215,7 @@ impl SemanticHud {
                     slot,
                     Some(stack),
                     frame.offhand_icon,
-                    frame.offhand_durability,
+                    hud_durability(player, frame.offhand_durability),
                     false,
                 ),
                 _ => false,
@@ -253,7 +261,7 @@ impl SemanticHud {
                 id_aux: stack.map(|stack| facts.id_aux(stack)),
                 count: stack.map_or(0, |stack| u32::from(stack.count)),
                 selected,
-                durability: stack.and(durability).map(f64::from),
+                durability: stack.and(hud_durability(player, durability)).map(f64::from),
             }
         };
         self.model.hotbar = (0..frame.hotbar_stacks.len())
