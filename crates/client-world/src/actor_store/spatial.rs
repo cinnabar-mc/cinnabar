@@ -176,6 +176,11 @@ impl ActorSnapshot {
             ActorKind::Entity { .. } => match self.entity_fact.native_class {
                 NativeEntityClass::FallingBlock => self.falling_block_network_offset(),
                 NativeEntityClass::Tnt => self.primed_tnt_network_offset(),
+                // Cart packets locate the centre of the constructor's collision box.
+                NativeEntityClass::Minecart => self
+                    .entity_fact
+                    .collision
+                    .map_or(self.entity_fact.network_y_offset, |size| size[1] * 0.5),
                 _ => self.entity_fact.network_y_offset,
             },
         }

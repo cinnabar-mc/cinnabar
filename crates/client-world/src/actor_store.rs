@@ -261,7 +261,11 @@ impl ActorSnapshot {
         let position = spawn.position;
         let pitch = movement_interpolation::signed_pitch(spawn.pitch);
         let pose = ActorPose {
-            y_origin: PoseYOrigin::SPAWN,
+            y_origin: PoseYOrigin {
+                native_y: (entity_fact.native_class == NativeEntityClass::Minecart)
+                    .then_some(position[1]),
+                ..PoseYOrigin::SPAWN
+            },
             position,
             pitch,
             yaw: spawn.yaw,
@@ -307,7 +311,7 @@ impl ActorSnapshot {
             hitboxes: None,
         };
         snapshot.set_current_pose(pose);
-        // Falling-block and boat spawn positions carry their network offset, as movement does;
+        // Falling-block, boat and minecart spawns carry their network offset, as movement does;
         // a falling block's box sets it and `apply_metadata` rebases onto the spawn's box.
         let spawn_offset = snapshot.spawn_network_offset();
         if spawn_offset != 0.0 {
@@ -549,9 +553,12 @@ impl ActorSnapshot {
         self.entity_fact.native_class == NativeEntityClass::FallingBlock
     }
 
-    /// Spawn packets need vertical normalization only for falling-block and boat constructors.
+    /// Constructors whose spawn positions carry the same vertical offset as their movement.
     fn spawn_network_offset(&self) -> f32 {
-        if self.is_falling_block() || self.entity_fact.native_class == NativeEntityClass::Boat {
+        if matches!(
+            self.entity_fact.native_class,
+            NativeEntityClass::FallingBlock | NativeEntityClass::Boat | NativeEntityClass::Minecart
+        ) {
             self.network_position_offset()
         } else {
             0.0

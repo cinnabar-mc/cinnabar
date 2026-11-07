@@ -737,11 +737,17 @@ and version-matched in-game acceptance remain incomplete.
   material, tint and invisible-carrier behavior are unverified. Snow golems wear a carved pumpkin
   until sheared, turning with the head part's own X and Y rotation at the native offset and scale;
   its hurt overlay, invisible-carrier behavior and which part it reads under a controller's
-  alternate geometry are unverified. The other native additional-rendering layers (iron
-  golem, mooshroom, minecart) remain unaudited.
+  alternate geometry are unverified. Minecarts publish constructor display blocks, including
+  the hopper, and typed custom-display overrides through the carried-block renderer. Their
+  three-quarter block scale and pixel-offset placement are provisional; exact native transforms,
+  directional default states, overlays, invisibility and slope/curve alignment remain incomplete.
+  The iron golem and mooshroom additional-rendering layers remain unaudited.
 - [ ] `P4.4-LIVE-ACTOR` — Close spawn, movement, rotation and teleport ground-contact
   acceptance, including correct player-origin conversion and frame interpolation.
   Keep visual eye height and the protocol movement offset as separate owned facts.
+  Minecart spawn and movement positions share the constructor collision-centre conversion,
+  retaining the exact received spawn height. Flat-rail placement has a rendered fixture;
+  native client qualification of scaled/custom carts and slope/curve motion remains incomplete.
   Movement retains signed byte rotations and exact network heights through tick and
   frame interpolation. Interaction picks use completed actor steps while pending motion
   remains separate. Remote reset packets snap through the same
