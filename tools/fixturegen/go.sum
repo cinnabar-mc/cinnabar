@@ -18,12 +18,12 @@ github.com/go-jose/go-jose/v4 v4.1.4 h1:moDMcTHmvE6Groj34emNPLs/qtYXRVcd6S7NHbHz
 github.com/go-jose/go-jose/v4 v4.1.4/go.mod h1:x4oUasVrzR7071A4TnHLGSPpNOm2a21K9Kf04k1rs08=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/hashimthearab/go-nethernet v0.0.0-20261103192003-8eb2943f5ac9 h1:uNv+skNnZinne08HkhzIlJk5YkRFL327IKVXNbPfEYQ=
-github.com/hashimthearab/go-nethernet v0.0.0-20261103192003-8eb2943f5ac9/go.mod h1:mAr8SKYJE76IwMZjqgtAQuMJbkzR0W+DS8MIV6CekZg=
+github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f h1:wGBZ9/S7VRyf805qs9Tr0UgBeQ1NOPjn6tlT7DBGBxM=
+github.com/hashimthearab/go-nethernet v0.0.0-20261106225539-0ca813d9022f/go.mod h1:zTbB9UO72aWCHgbu1MM0iCO0IQVd8f7Nck3l5DAHeVQ=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261103140623-73175bc7e66c h1:FdSIyTWmN2YiPwe9ISCIWxS0HGTWxCQNknMTOb8WPog=
 github.com/hashimthearab/go-raknet v1.15.1-0.20261103140623-73175bc7e66c/go.mod h1:/yysjwfCXm2+2OY8mBazLzcxJ3irnylKCyG3FLgUPVU=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261104155255-270d54362db0 h1:E/d08EkkFy/z8STqs+3aLTJ3kG+alSdLkNvot/m62B0=
-github.com/hashimthearab/gophertunnel v1.25.3-0.20261104155255-270d54362db0/go.mod h1:YjJtr1A5uNcs5R3AaR/Oeqi4jWiJVWOn4bFdUxj0Izc=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261106225903-4c5f96d9c02b h1:J9hu1U81qePP/S4sbIjvkrE8oPABha83frhpN4ay1Lw=
+github.com/hashimthearab/gophertunnel v1.25.3-0.20261106225903-4c5f96d9c02b/go.mod h1:vRIfhw4guOstjaTiZ/v1BqTTFozDzNMlReZClXOMAh4=
 github.com/klauspost/compress v1.18.4 h1:RPhnKRAQ4Fh8zU2FY/6ZFDwTVTxgJ/EMydqSTzE9a2c=
 github.com/klauspost/compress v1.18.4/go.mod h1:R0h/fSBs8DE4ENlcrlib3PsXS61voFxhIs2DeRhCvJ4=
 github.com/pion/datachannel v1.6.3 h1:HZAYLpunVI0xi057ZiANl558d0uSpomcWw4UEPz3qXs=
