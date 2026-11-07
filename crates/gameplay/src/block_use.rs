@@ -45,10 +45,11 @@ fn interaction(fact: BlockFact) -> Option<Interaction> {
 }
 
 /// Whether a use press aimed at `clicked` belongs to the block rather than the held
-/// item's own use, such as opening a held book. Vanilla gives an interactive block the
-/// press unless the player sneaks, whatever the player's abilities allow.
+/// item's own use, such as opening a held book or throwing a snowball. Vanilla gives an
+/// interactive block the press unless the player sneaks, whatever the player's abilities
+/// allow and whether or not the block's own use succeeds.
 pub fn block_takes_use_press(clicked: BlockFact, sneaking: bool) -> bool {
-    !sneaking && interaction(clicked).is_some()
+    !sneaking && clicked.traits.contains(T::INTERACTIVE)
 }
 
 impl Interaction {
@@ -385,17 +386,21 @@ impl BlockUseRuntime {
     }
 
     /// Commits the use schedule after transport admission, retaining refused presses for retry.
+    /// `takes_press` says whether the target's own use owns the press, so the held item's
+    /// use skips it.
+    #[allow(clippy::too_many_arguments)]
     pub fn admit(
         &mut self,
         trigger: ItemUseTrigger,
         due: Duration,
         tick: u64,
         local_use: LocalUse,
+        takes_press: bool,
         clock: RepeatClock,
         admitted: bool,
     ) -> bool {
         if admitted {
-            self.record(trigger, due, tick, local_use, clock);
+            self.record(trigger, due, tick, local_use, takes_press, clock);
         } else if trigger == ItemUseTrigger::PlayerInput {
             self.latched_press = true;
         }
@@ -455,7 +460,8 @@ impl BlockUseRuntime {
         self.latched_press
     }
 
-    /// Whether a block interaction or placement consumed the latest press.
+    /// Whether the latest press went to the target's own use or placed something, so the held
+    /// item's use skips it.
     pub const fn press_consumed(&self) -> bool {
         self.press_consumed
     }
@@ -466,19 +472,21 @@ impl BlockUseRuntime {
     }
 
     /// Records an attempt. As in vanilla, a failed repeat keeps its schedule, so it
-    /// remains eligible for the next buffered pick.
+    /// remains eligible for the next buffered pick. `takes_press` is whether the target's
+    /// own use owns a press, whether or not that use succeeds.
     pub fn record(
         &mut self,
         trigger: ItemUseTrigger,
         due: Duration,
         tick: u64,
         local_use: LocalUse,
+        takes_press: bool,
         clock: RepeatClock,
     ) {
         self.rejected_tick = None;
         self.latched_press = false;
         if trigger == ItemUseTrigger::PlayerInput {
-            self.press_consumed = local_use != LocalUse::Nothing;
+            self.press_consumed = takes_press || local_use != LocalUse::Nothing;
             if local_use == LocalUse::Interact {
                 self.interacted_tick = Some(tick);
             }
