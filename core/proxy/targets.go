@@ -1,12 +1,14 @@
 package proxy
 
 import (
+	"cmp"
 	"context"
 	"crypto/ecdsa"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -288,6 +290,7 @@ func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, acc
 	if world == nil {
 		return nil, fmt.Errorf("friend world %q is no longer joinable", xuid)
 	}
+	preferJSONRPCSignaling(world)
 	session, err := world.Join(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("join friend world %q: %w", xuid, err)
@@ -303,6 +306,22 @@ func resolveFriendWorld(ctx context.Context, xuid string, xbl *xsapi.Client, acc
 	target.xbox = xbl
 	retained = true
 	return target, nil
+}
+
+// preferJSONRPCSignaling moves a world's JSON-RPC (Player Messaging) connection ahead of its
+// WebSocket one. Vanilla joins over JSON-RPC when a world lists both, and the join uses the first
+// listed connection.
+func preferJSONRPCSignaling(world *p2p.World) {
+	slices.SortStableFunc(world.SupportedConnections, func(a, b p2p.Connection) int {
+		return cmp.Compare(signalingRank(a.Type), signalingRank(b.Type))
+	})
+}
+
+func signalingRank(connectionType int) int {
+	if connectionType == p2p.ConnectionTypeSignalingOverJSONRPC {
+		return 0
+	}
+	return 1
 }
 
 // selectFriendWorld returns the owner's first world the friends tab lists for self, or nil.

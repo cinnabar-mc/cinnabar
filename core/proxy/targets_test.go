@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/df-mc/go-nethernet/endpoint"
+	"github.com/google/uuid"
 	"io"
 	"log/slog"
 	"net"
@@ -169,6 +170,24 @@ func dialIdentityListener(t *testing.T, dial func(scopedNetherNetNetwork, contex
 	conn, err := dial(network, ctx, "realm")
 	token, _ := seen.Load().(string)
 	return conn, err, token
+}
+
+func TestFriendWorldJoinsOverJSONRPCWhenItListsBoth(t *testing.T) {
+	world := p2p.World{
+		TransportLayer: p2p.TransportLayerNetherNet,
+		SupportedConnections: []p2p.Connection{
+			{Type: p2p.ConnectionTypeSignalingOverWebSocket, NetherNetID: "1234"},
+			{Type: p2p.ConnectionTypeSignalingOverJSONRPC, NetherNetID: "1234", PlayerMessagingID: uuid.MustParse("3313640a-415c-bc9d-9eb6-dab0dec79162")},
+		},
+	}
+	preferJSONRPCSignaling(&world)
+	connection, err := world.Connection()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if connection.Type != p2p.ConnectionTypeSignalingOverJSONRPC {
+		t.Fatalf("joined over connection type %d, want JSON-RPC", connection.Type)
+	}
 }
 
 func TestNetherNetDialPresentsTheLoginTokenBoundToTheLoginKey(t *testing.T) {
