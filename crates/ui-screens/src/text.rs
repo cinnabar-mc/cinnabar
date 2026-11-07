@@ -1,11 +1,11 @@
-//! Presented text shared by the screens and the retained HUD: chat rows resolved against the
-//! language tables, and every server string bounded before layout.
+//! Presented text shared by screens and the retained HUD: complete resolved chat messages,
+//! chat formatting, and byte-prefix helpers for other text surfaces.
 
 use std::{borrow::Cow, sync::Arc};
 
 use ui::{ChatMessage, ChatMessageKind};
 
-/// The most bytes of one server string the client presents.
+/// The presentation budget for compact text surfaces; chat messages do not use it.
 pub const MAX_PRESENTED_TEXT_BYTES: usize = 512;
 
 /// The presented text for one chat row. `Translation`/command-output rows

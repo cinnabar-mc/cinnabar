@@ -99,7 +99,7 @@ pub(super) fn hud_model(
         .map(|line| {
             let text = resolve_chat_line(line, |key| runtime.translation(key));
             Timed {
-                text: bounded_visible_text(text.as_ref()).to_owned(),
+                text: text.into_owned(),
                 // Rows stamped ahead of the local clock stay fresh.
                 born: seconds(line.received_millis.min(now)),
             }
