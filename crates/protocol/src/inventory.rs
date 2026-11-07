@@ -13,6 +13,9 @@ use thiserror::Error;
 use crate::item::{ArmorEquipmentEvent, NetworkItemStack};
 
 mod address;
+mod armor_damage;
+pub(crate) use armor_damage::normalize_armor_damage;
+pub use armor_damage::{ArmorDamage, ArmorDamageEvent};
 mod container_policy;
 mod creative;
 pub use container_policy::{
@@ -265,6 +268,8 @@ pub enum InventoryEvent {
     FurnaceOptions(FurnaceOptionsEvent),
     Options(InventoryOptions),
     Creative(CreativeContentEvent),
+    /// New absolute damage for worn armor pieces, from `PlayerArmorDamage`.
+    ArmorDamage(ArmorDamageEvent),
 }
 
 impl InventoryEvent {
