@@ -826,7 +826,7 @@ const STATES: &[State] = &[
     },
     State {
         name: "settings-gui-scale",
-        size: SIZE,
+        size: [1280, 1400],
         gui_scale: GUI_SCALE,
         fixture: settings_screens::settings_gui_scale,
     },
