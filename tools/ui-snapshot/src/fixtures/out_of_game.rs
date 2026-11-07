@@ -206,6 +206,16 @@ pub(super) fn play_worlds() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// The Worlds tab while a controller drives the menu, showing the bumper hints.
+pub(super) fn play_worlds_gamepad() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!("play_worlds is a menu fixture")
+    };
+    view.gamepad_input = true;
+    view.navigation_focus_visible = true;
+    Fixture::Menu(view)
+}
+
 /// Shows the modal over the Worlds tab while a world file is copied in.
 pub(super) fn play_worlds_importing() -> Fixture {
     let Fixture::Menu(mut view) = play_worlds() else {

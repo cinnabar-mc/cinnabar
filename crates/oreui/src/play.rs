@@ -28,11 +28,10 @@ pub(super) fn draw(
     size: [f32; 2],
     images: &HashMap<String, IconRef>,
 ) -> Result<(), PaintError> {
-    let selected = match view.screen {
-        MenuScreen::Social => 1,
-        MenuScreen::Servers => 2,
-        _ => 0,
-    };
+    let selected = launcher::menu::PLAY_TABS
+        .iter()
+        .position(|tab| *tab == view.screen)
+        .unwrap_or(0);
     draw_tab(canvas, view, size, images, selected)
 }
 
@@ -81,7 +80,11 @@ fn draw_fitted(
     let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
     let tab_top = top + space(canvas, 1);
     let tab_bottom = tab_top + canvas.r(TAB_HEIGHT);
-    tabs::draw(canvas, view, [left, tab_top, right, tab_bottom], selected)?;
+    // The keycaps sit in the page margin, narrowing the bar only where it lacks room.
+    let inset = (canvas.r(tabs::KEY_HINT_RESERVE) - left.min(width - right)).max(0.0);
+    let bar = [left + inset, tab_top, right - inset, tab_bottom];
+    tabs::draw(canvas, view, bar, selected)?;
+    tabs::key_hints(canvas, view, bar)?;
     let body: Bounds = [
         left,
         tab_bottom + space(canvas, 2),
