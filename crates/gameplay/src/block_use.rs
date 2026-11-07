@@ -220,6 +220,10 @@ impl LocalUse {
         if !caps.can_build || item.block_runtime_id() == 0 || item.count() == 0 {
             return Self::Nothing;
         }
+        // `LadderBlock::mayPlace` refuses a click on a top or bottom face before any other check.
+        if surroundings.held.traits.contains(T::LADDER) && face < 2 {
+            return Self::Nothing;
+        }
         let (cell, free) = surroundings.destination(clicked, face);
         let placed = surroundings
             .placed_boxes
