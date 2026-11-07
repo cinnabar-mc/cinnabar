@@ -143,6 +143,7 @@ pub(super) fn resolve_binding(
         attachment_bindings: Arc::clone(&plan.attachments),
         channel_bindings: Arc::clone(&plan.channels),
         render: Vec::new(),
+        visibility: RenderVisibility::default(),
         may_use_always_depth_material: plan.always_depth,
         scale: None,
         held_item_scale: None,

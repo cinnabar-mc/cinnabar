@@ -1,6 +1,8 @@
 //! Render-controller layers of entity bodies: the first replaces the body's default texture
 //! (and model, when its controller picks another), later layers draw after it.
-use std::{borrow::Cow, sync::Arc};
+#[cfg(any(test, feature = "test-support"))]
+use std::borrow::Cow;
+use std::sync::Arc;
 
 use bevy::platform::collections::HashMap;
 
@@ -336,7 +338,15 @@ pub fn apply_render_layers<'a>(
 ) {
     apply_render_layers_cached(
         batch,
-        |id| rig_of(id).map(|rig| Cow::Borrowed(rig.render)),
+        |id| {
+            rig_of(id).map(|rig| actor_animation::ActorRenderLayers {
+                render: Cow::Borrowed(rig.render),
+                visibility: rig.visibility,
+                skin: Cow::Borrowed(rig.skin_layers),
+                held_item_scale: rig.held_item_scale,
+                head_rotation: None,
+            })
+        },
         artwork,
         &mut LayerPoseCache::default(),
     );
@@ -345,7 +355,7 @@ pub fn apply_render_layers<'a>(
 /// Applies sampled controllers to placed bodies, retaining runtime player skins and their poses.
 pub fn apply_render_layers_cached<'a>(
     batch: &mut ActorPresentationBatch,
-    mut layers_of: impl FnMut(u64) -> Option<Cow<'a, [RenderTextureLayer]>>,
+    mut layers_of: impl FnMut(u64) -> Option<actor_animation::ActorRenderLayers<'a>>,
     artwork: &ActorArtworkPages,
     cache: &mut LayerPoseCache,
 ) {
@@ -354,16 +364,23 @@ pub fn apply_render_layers_cached<'a>(
     for index in 0..batch.submissions.len() {
         let body = &batch.submissions[index];
         let identity = body.input.identity;
-        let Some(player_skin) = batch.body_render_skin(body) else {
+        if identity.layer != render_model::ACTOR_LAYER_BODY {
+            continue;
+        }
+        let Some(layers) = layers_of(identity.runtime_id) else {
             continue;
         };
-        let Some(layers) = layers_of(identity.runtime_id) else {
+        if layers.visibility.hides_body() {
+            batch.submissions[index].route = render_model::ActorRigRoute::NoDraw;
+            continue;
+        }
+        let Some(player_skin) = batch.body_render_skin(body) else {
             continue;
         };
         let pristine = body.clone();
         resolve(
             &pristine,
-            &layers,
+            &layers.render,
             artwork,
             cache,
             &mut resolved,
@@ -435,7 +452,15 @@ mod tests {
         let layers = [layer];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &ActorArtworkPages::default(),
             &mut LayerPoseCache::default(),
         );
@@ -503,7 +528,15 @@ mod tests {
         let layers = [layer(true, 0), layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&layers)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&layers),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
@@ -520,7 +553,15 @@ mod tests {
         let catalog_first = [layer(false, 23)];
         apply_render_layers_cached(
             &mut batch,
-            |_| Some(Cow::Borrowed(&catalog_first)),
+            |_| {
+                Some(actor_animation::ActorRenderLayers {
+                    render: Cow::Borrowed(&catalog_first),
+                    visibility: Default::default(),
+                    skin: Cow::Borrowed(&[]),
+                    held_item_scale: None,
+                    head_rotation: None,
+                })
+            },
             &artwork,
             &mut LayerPoseCache::default(),
         );
@@ -597,7 +638,15 @@ mod tests {
             assert_eq!(body.input.current_bones, original_bones);
             apply_render_layers_cached(
                 &mut batch,
-                |_| Some(Cow::Borrowed(&layers)),
+                |_| {
+                    Some(actor_animation::ActorRenderLayers {
+                        render: Cow::Borrowed(&layers),
+                        visibility: Default::default(),
+                        skin: Cow::Borrowed(&[]),
+                        held_item_scale: None,
+                        head_rotation: None,
+                    })
+                },
                 &artwork,
                 &mut cache,
             );
@@ -624,3 +673,7 @@ mod tests {
         assert_eq!(pack_layer_tint([1.0, 0.0, 0.0, 0.5]), 0x8000_00ff);
     }
 }
+
+#[cfg(test)]
+#[path = "entity_layers/visibility_tests.rs"]
+mod visibility_tests;

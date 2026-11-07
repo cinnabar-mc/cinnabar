@@ -6,7 +6,7 @@ use bytes::Bytes;
 use protocol::{
     BlockAction, BlockActionKind, MineBlockRequest, MineBlockRequestError,
     PlayerAuthInputInteractions, PlayerAuthInputSnapshot, PlayerInputFlags, PlayerInputMode,
-    decode_batch, encode, player_auth_input_with_interactions,
+    PlayerInteractionModel, decode_batch, encode, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
 };
 
@@ -28,6 +28,7 @@ fn snapshot() -> PlayerAuthInputSnapshot {
             | PlayerInputFlags::JUMPING
             | PlayerInputFlags::SPRINTING,
         input_mode: PlayerInputMode::Mouse,
+        interaction_model: PlayerInteractionModel::Crosshair,
         vehicle: None,
     }
 }

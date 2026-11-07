@@ -77,6 +77,32 @@ pub(super) fn history_width() -> Fixture {
     fixture
 }
 
+/// Shows history, a draft and optional completions under one Chat Position and Chat Input pair.
+pub(super) fn input(
+    top: bool,
+    bedrock: bool,
+    draft: &'static str,
+    suggestions: &[&str],
+) -> Fixture {
+    use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
+
+    let mut fixture = history_width();
+    if let Fixture::Chat {
+        options,
+        draft: shown,
+        suggestions: shown_suggestions,
+        ..
+    } = &mut fixture
+    {
+        let options = Arc::make_mut(options);
+        options.set(CHAT_POSITION_OPTION.id.index(), i32::from(top));
+        options.set(CHAT_INPUT_OPTION.id.index(), i32::from(bedrock));
+        *shown = draft;
+        *shown_suggestions = suggestions.iter().map(|text| Arc::from(*text)).collect();
+    }
+    fixture
+}
+
 /// Shows completions after an anonymous draft with transparent message backgrounds.
 pub(super) fn completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;

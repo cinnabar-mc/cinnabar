@@ -439,6 +439,7 @@ impl GameplayHudState {
             | InventoryEvent::FurnaceOptions(_)
             | InventoryEvent::RecipeUnlocks(_)
             | InventoryEvent::CraftingRules(_)
+            | InventoryEvent::ArmorDamage(_)
             | InventoryEvent::Options(_) => {}
             InventoryEvent::Trade(_) => {}
             // SelectedSlot is consumed by the caller's slot-precedence logic;

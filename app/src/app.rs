@@ -594,8 +594,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]

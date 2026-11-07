@@ -312,9 +312,10 @@ fn directed_mining_preserves_actor_and_item_directed_attack_ownership() {
 }
 
 #[test]
-fn explicit_break_batch_removes_loaded_neighbors_together_and_only_once() {
-    let (mut world, _) = unpublished_attack_fixture(-30.0);
+fn explicit_break_batch_sends_once_and_leaves_terrain_to_the_server() {
+    let (mut world, mut captured) = unpublished_attack_fixture(-30.0);
     item_use_tests::hold_snowball(&mut world);
+    let cells = [[4, 2, 6], [5, 2, 6]];
     let scope = {
         let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
         let stream = client.stream.as_mut().unwrap();
@@ -334,23 +335,58 @@ fn explicit_break_batch_removes_loaded_neighbors_together_and_only_once() {
         )
     };
     world.insert_resource(ModInteraction {
-        block_breaks: vec![[4, 2, 6], [5, 2, 6]],
+        block_breaks: cells.to_vec(),
         block_break_scope: Some(scope),
         ..Default::default()
     });
+    let is_air = |world: &World, cell: [i32; 3]| {
+        let client = world.resource::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_ref().unwrap();
+        let registries = world.resource::<PhysicsCollisionRegistries>();
+        sim::PaletteWorld::new(
+            stream.collision_store(),
+            registries.registry(stream.network_id_mode()),
+            stream.current_dimension(),
+            Default::default(),
+        )
+        .is_air(cell)
+        .unwrap()
+    };
     frame(&mut world, 102);
     assert!(world.resource::<ModInteraction>().block_breaks.is_empty());
-    let client = world.resource::<crate::runtime::world::ClientWorld>();
-    let stream = client.stream.as_ref().unwrap();
-    let registries = world.resource::<PhysicsCollisionRegistries>();
-    let view = sim::PaletteWorld::new(
-        stream.collision_store(),
-        registries.registry(stream.network_id_mode()),
-        stream.current_dimension(),
-        Default::default(),
-    );
-    assert!(view.is_air([4, 2, 6]).unwrap());
-    assert!(view.is_air([5, 2, 6]).unwrap());
+    assert!(cells.iter().all(|&cell| !is_air(&world, cell)));
+    frame(&mut world, 103);
+    riptide_tests::flush_and_acknowledge(&mut world);
+    let sent: Vec<_> = captured
+        .drain()
+        .iter()
+        .flat_map(protocol::test_support::packets::predicted_block_breaks)
+        .collect();
+    assert_eq!(sent, cells);
+    // An accepted break arrives as a server update; the unanswered cell stays solid.
+    {
+        let mut client = world.resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let air = stream.air_block_id();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::BlockUpdates(vec![protocol::BlockUpdateEvent {
+                    dimension: 0,
+                    position: cells[0],
+                    layer: 0,
+                    network_id: air,
+                }]),
+            )
+            .unwrap();
+        test_time::eventually("server break", || {
+            stream.poll([4.5, 2.620_01, 8.5], 0);
+            stream.committed_sequence() >= sequence
+        });
+    }
+    assert!(is_air(&world, cells[0]));
+    assert!(!is_air(&world, cells[1]));
 }
 
 #[test]

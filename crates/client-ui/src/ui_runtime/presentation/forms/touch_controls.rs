@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use json_ui::{Catalog, Context, DataSource, HitRegion, Scalar, ViewState, hit_test};
-use semantic_input::{TouchBounds, TouchContact, TouchControlRegion, touch};
+use semantic_input::{TouchBounds, TouchContact, TouchControlMode, TouchControlRegion, touch};
 use ui::{FONT_DESIGN_PIXEL_TEXELS, UiNode, UiPoint};
 use ui_engine::{
     cached_screen::CachedScreen,
@@ -26,6 +26,7 @@ const LAYOUT: &[u8] = assets::TOUCH_LAYOUT;
 const CONTROLS: &[(&str, u16)] = &[
     ("look", touch::LOOK_SURFACE),
     ("joystick", touch::JOYSTICK),
+    ("dpad", touch::DPAD),
     ("jump", touch::JUMP),
     ("sneak", touch::SNEAK),
     ("sprint", touch::SPRINT),
@@ -45,6 +46,7 @@ const UTILITY_ACTIONS: &[(&str, u16)] = &[
 #[derive(Default)]
 pub(in super::super) struct TouchControls {
     enabled: bool,
+    mode: TouchControlMode,
     utilities_open: bool,
     debug_toggle_pending: bool,
     editor: Option<mod_ui::HudEditor>,
@@ -104,6 +106,27 @@ impl UiPresentationRuntime {
         self.screens.touch.enabled
     }
 
+    /// The touch control mode the overlay and world gestures follow.
+    pub fn touch_control_mode(&self) -> TouchControlMode {
+        self.screens.touch.mode
+    }
+
+    /// Selects the controls the touch overlay shows; measured geometry follows the new set.
+    pub fn set_touch_control_mode(&mut self, mode: TouchControlMode) {
+        let state = &mut self.screens.touch;
+        if state.mode != mode {
+            state.mode = mode;
+            state.base_viewport = None;
+            state.editor_viewport = None;
+        }
+    }
+
+    /// Whether the touch mode replaces the crosshair with interacting where the finger is.
+    pub(in super::super) fn touch_hides_crosshair(&self) -> bool {
+        let state = &self.screens.touch;
+        state.enabled && state.mode.interacts_by_touch()
+    }
+
     pub fn set_touch_contacts(&mut self, contacts: Vec<TouchContact>) {
         self.screens.touch.contacts = contacts;
     }
@@ -148,6 +171,9 @@ impl UiPresentationRuntime {
         let hit = hit_test(&frame.hits, frame.to_virtual(point))?;
         let hit_id = control_id(hit.pressed.as_deref())
             .or_else(|| (hit.name == "knob").then_some(touch::JOYSTICK))?;
+        if hit_id == touch::DPAD {
+            return dpad_region(frame, hit, position, window);
+        }
         // The knob moves, so the stick's activation area is its frame.
         let region = if hit_id == touch::JOYSTICK {
             frame
@@ -201,6 +227,10 @@ impl UiPresentationRuntime {
             );
         }
         let mut data = DataSource::new();
+        set_mode_bindings(&mut data, state.mode);
+        if state.mode.uses_dpad() {
+            set_dpad_bindings(&mut data, &state.contacts);
+        }
         data.set_global("#touch_editor_open", Scalar::Bool(state.editor.is_some()));
         data.set_global(
             "#touch_utilities_open",
@@ -255,6 +285,7 @@ impl UiPresentationRuntime {
             let base_view = ViewState::default();
             let mut base_data = DataSource::new();
             base_data.set_global("#touch_utilities_open", Scalar::Bool(true));
+            set_mode_bindings(&mut base_data, state.mode);
             state.base = renderer.draw(ScreenArt::default(), &mut paint, |env, root| {
                 screen.render_with(
                     SCREEN,
@@ -309,6 +340,67 @@ impl UiPresentationRuntime {
         });
         Ok(())
     }
+}
+
+/// Publishes which controls the mode shows.
+fn set_mode_bindings(data: &mut DataSource, mode: TouchControlMode) {
+    data.set_global("#touch_joystick_shown", Scalar::Bool(!mode.uses_dpad()));
+    data.set_global("#touch_dpad_shown", Scalar::Bool(mode.uses_dpad()));
+    data.set_global(
+        "#touch_action_buttons_shown",
+        Scalar::Bool(!mode.interacts_by_touch()),
+    );
+}
+
+/// Publishes the D-pad's pressed arrows from its finger's direction. The forward diagonals show
+/// only while that finger moves forward.
+fn set_dpad_bindings(data: &mut DataSource, contacts: &[TouchContact]) {
+    let [x, y] = contacts
+        .iter()
+        .find(|contact| contact.hit_id == Some(touch::DPAD))
+        .map_or([0.0; 2], |contact| contact.delta);
+    for (name, pressed) in [
+        ("up", x == 0.0 && y > 0.0),
+        ("down", y < 0.0),
+        ("left", x < 0.0 && y == 0.0),
+        ("right", x > 0.0 && y == 0.0),
+        ("up_left", x < 0.0 && y > 0.0),
+        ("up_right", x > 0.0 && y > 0.0),
+    ] {
+        data.set_global(format!("#touch_dpad_{name}_pressed"), Scalar::Bool(pressed));
+    }
+    data.set_global("#touch_dpad_forward", Scalar::Bool(y > 0.0));
+}
+
+/// A press on the D-pad: its centre cell is a jump button and the rest steers.
+fn dpad_region(
+    frame: &EngineFrame,
+    pad: &HitRegion,
+    position: [f32; 2],
+    window: [f32; 2],
+) -> Option<TouchControlRegion> {
+    let whole = region_bounds(frame, pad, window, touch::DPAD)?;
+    let third = |axis: usize| (whole.bounds.max[axis] - whole.bounds.min[axis]) / 3.0;
+    let centre = TouchBounds {
+        min: [
+            whole.bounds.min[0] + third(0),
+            whole.bounds.min[1] + third(1),
+        ],
+        max: [
+            whole.bounds.max[0] - third(0),
+            whole.bounds.max[1] - third(1),
+        ],
+    };
+    let in_centre =
+        (0..2).all(|axis| centre.min[axis] <= position[axis] && position[axis] <= centre.max[axis]);
+    Some(if in_centre {
+        TouchControlRegion {
+            hit_id: touch::JUMP,
+            bounds: centre,
+        }
+    } else {
+        whole
+    })
 }
 
 /// The authored layout plus presented mod buttons, all placeable, and the editor captions.
@@ -406,33 +498,63 @@ mod editor_tests;
 mod tests {
     use super::*;
 
-    /// Every overlay control names a layout button, so a renamed control cannot go unreachable.
+    /// Every overlay control names a layout button in some mode, so a renamed control cannot go
+    /// unreachable, and each mode paints exactly its own movement and action controls.
     #[test]
     fn every_control_is_a_layout_button() {
         let mut presentation = crate::test_support::mini_engine_presentation();
         presentation.enable_touch_controls(true);
         presentation.toggle_touch_utilities();
-        presentation
-            .append_touch_controls(
-                &UiRuntime::new(1),
-                &mut Vec::new(),
-                &mut 0,
-                TextMetrics::for_viewport([854, 480], ui::DpiScale::new(1.).unwrap(), None),
-                [854., 480.],
-            )
-            .unwrap();
-        let actual: std::collections::BTreeSet<_> = presentation
-            .screens
-            .touch
-            .base
-            .as_ref()
-            .unwrap()
-            .hits
-            .iter()
-            .filter_map(|hit| hit.pressed.as_deref())
-            .filter(|action| action.starts_with("cinnabar.touch."))
-            .map(|action| control_id(Some(action)).expect("painted touch action has an input id"))
-            .collect();
+        let mut actual = std::collections::BTreeSet::new();
+        for mode in [
+            TouchControlMode::Touch,
+            TouchControlMode::Crosshair,
+            TouchControlMode::Classic,
+        ] {
+            presentation.set_touch_control_mode(mode);
+            presentation
+                .append_touch_controls(
+                    &UiRuntime::new(1),
+                    &mut Vec::new(),
+                    &mut 0,
+                    TextMetrics::for_viewport([854, 480], ui::DpiScale::new(1.).unwrap(), None),
+                    [854., 480.],
+                )
+                .unwrap();
+            let painted: std::collections::BTreeSet<_> = presentation
+                .screens
+                .touch
+                .base
+                .as_ref()
+                .unwrap()
+                .hits
+                .iter()
+                .filter_map(|hit| hit.pressed.as_deref())
+                .filter(|action| action.starts_with("cinnabar.touch."))
+                .map(|action| {
+                    control_id(Some(action)).expect("painted touch action has an input id")
+                })
+                .collect();
+            assert_eq!(painted.contains(&touch::DPAD), mode.uses_dpad(), "{mode:?}");
+            assert_eq!(
+                painted.contains(&touch::JOYSTICK),
+                !mode.uses_dpad(),
+                "{mode:?}"
+            );
+            assert_eq!(
+                painted.contains(&touch::JUMP),
+                !mode.uses_dpad(),
+                "{mode:?}"
+            );
+            for action in [touch::ATTACK, touch::USE] {
+                assert_eq!(
+                    painted.contains(&action),
+                    !mode.interacts_by_touch(),
+                    "{mode:?}"
+                );
+            }
+            actual.extend(painted);
+        }
         let expected: std::collections::BTreeSet<_> = CONTROLS
             .iter()
             .chain(UTILITY_ACTIONS)
@@ -440,6 +562,51 @@ mod tests {
             .collect();
         assert_eq!(expected.len(), CONTROLS.len() + UTILITY_ACTIONS.len());
         assert_eq!(actual, expected);
+    }
+
+    /// The D-pad's centre cell presses jump with its own bounds; the rest of the pad steers.
+    #[test]
+    fn the_dpad_centre_presses_jump() {
+        let mut presentation = crate::test_support::mini_engine_presentation();
+        presentation.enable_touch_controls(true);
+        presentation.set_touch_control_mode(TouchControlMode::Classic);
+        let size = [854.0_f32, 480.0];
+        presentation
+            .append_touch_controls(
+                &UiRuntime::new(1),
+                &mut Vec::new(),
+                &mut 0,
+                TextMetrics::for_viewport([854, 480], ui::DpiScale::new(1.).unwrap(), None),
+                size,
+            )
+            .unwrap();
+        let pad = presentation
+            .screens
+            .touch
+            .frame
+            .as_ref()
+            .unwrap()
+            .hits
+            .iter()
+            .find(|hit| hit.pressed.as_deref() == Some("cinnabar.touch.dpad"))
+            .expect("classic mode paints the pad")
+            .clone();
+        let frame = presentation.screens.touch.frame.as_ref().unwrap();
+        let at = |x: f64, y: f64| {
+            [
+                (frame.origin[0] + (pad.rect.x + pad.rect.w * x) as f32 * frame.scale) / size[0],
+                (frame.origin[1] + (pad.rect.y + pad.rect.h * y) as f32 * frame.scale) / size[1],
+            ]
+        };
+        let (centre, arrow) = (at(0.5, 0.5), at(0.5, 0.1));
+        let centre_hit = presentation.gameplay_touch_region(centre, size).unwrap();
+        assert_eq!(centre_hit.hit_id, touch::JUMP);
+        let arrow_hit = presentation.gameplay_touch_region(arrow, size).unwrap();
+        assert_eq!(arrow_hit.hit_id, touch::DPAD);
+        assert!(
+            arrow_hit.bounds.max[0] - arrow_hit.bounds.min[0]
+                > 2.0 * (centre_hit.bounds.max[0] - centre_hit.bounds.min[0])
+        );
     }
 
     /// Hotbar cells and overlay controls from an earlier build cannot take touches once a build

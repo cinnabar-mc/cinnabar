@@ -13,6 +13,31 @@ impl ActorAnimationStore {
         remaining_ops: &mut usize,
         sample_skin: bool,
     ) -> Option<ActorRenderLayers<'_>> {
+        self.render_layers_reusing(
+            actor,
+            partial_tick,
+            camera_rotation,
+            camera_position,
+            remaining_ops,
+            sample_skin,
+            false,
+            &mut Vec::new(),
+        )
+    }
+
+    /// Reuses the consumer's layer allocation for both evaluated and retained frame samples.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn render_layers_reusing(
+        &self,
+        actor: &dyn AnimatedActor,
+        partial_tick: f32,
+        camera_rotation: [f32; 2],
+        camera_position: [f32; 3],
+        remaining_ops: &mut usize,
+        sample_skin: bool,
+        visibility_only: bool,
+        render: &mut Vec<RenderTextureLayer>,
+    ) -> Option<ActorRenderLayers<'_>> {
         let lifetime = self.runtime_to_lifetime.get(&actor.runtime_id())?;
         let state = self.rigs.get(lifetime)?;
         if lifetime.spawn_revision != actor.spawn_revision() {
@@ -20,6 +45,7 @@ impl ActorAnimationStore {
         }
         let completed = || ActorRenderLayers {
             render: Cow::Borrowed(state.render.as_slice()),
+            visibility: state.visibility,
             skin: Cow::Borrowed(state.skin_layers.as_slice()),
             held_item_scale: state.held_item_scale,
             head_rotation: state.head_rotation,
@@ -40,6 +66,7 @@ impl ActorAnimationStore {
                 && (!state.culled
                     || state.samples_camera_poses
                     || state.held_item_scale.is_some()
+                    || state.visibility.hide_held_items.is_some()
                     || frame.samples_rig_scale(actor))
                 && !state.reset_pending
         }) else {
@@ -147,6 +174,14 @@ impl ActorAnimationStore {
             stack: OperandStack::lease(),
             static_draw: None,
         };
+        if visibility_only
+            && let Some(visibility) = visibility::sample(&evaluator, state, swing, &mut budget)
+        {
+            return Some(ActorRenderLayers {
+                visibility,
+                ..completed()
+            });
+        }
         let mut scratch = frame.cache.lock().unwrap();
         let FrameSamplingCache {
             variables: variable_scratch,
@@ -155,6 +190,7 @@ impl ActorAnimationStore {
             layers: layer_cache,
             compositions,
             retained,
+            visibility: _,
         } = &mut *scratch;
         let retained = if cache::enabled()
             && (!state.complete_spear_variables || layout.engine.spear.is_empty())
@@ -171,37 +207,18 @@ impl ActorAnimationStore {
                 &frame.motion.variables,
                 state,
                 &budget,
+                render,
             )
         {
             return Some(layers);
         }
         let mut variables = variable_scratch.lease(&frame.motion.variables);
-        if let Some(swing) = swing {
-            variables.set(layout.engine.attack_time, swing);
-        }
         let rig = assets.rig_bindings().get(state.rig_binding)?;
         let Ok(held_item_scale) =
-            tick::scale::evaluate_held_item(&evaluator, rig, &mut variables, &mut budget)
+            sampling::prepare_variables(&evaluator, state, swing, &mut variables, &mut budget)
         else {
             return Some(fallback());
         };
-        if let Some(script) = rig.pre_animation
-            && evaluator
-                .run(script as usize, &mut variables, 0.0, &mut budget)
-                .is_err()
-        {
-            return Some(fallback());
-        }
-        if state.complete_spear_variables {
-            layout.engine.spear.apply(
-                &mut variables,
-                actor,
-                &context,
-                &current_input,
-                swing.unwrap_or(current_input.attack_time),
-            );
-        }
-        tick::set_item_rotation_factor(&layout.engine, &mut variables);
         let body_swing_changed = frame.samples_swing_poses && swing_changed;
         // Camera-dependent channels resample both endpoints with the live camera, so a camera
         // frame still blends tick motion instead of drawing one latest-tick pose.
@@ -435,13 +452,18 @@ impl ActorAnimationStore {
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         };
-        let Ok(Some(mut layers)) = render::evaluate_render_cached(
+        let Ok(rendered) = render::evaluate_render_cached(
             &evaluator,
             &mut variables,
             render_rig,
             &mut budget,
             Some(layer_cache),
+            std::mem::take(render),
         ) else {
+            return Some(fallback());
+        };
+        let visibility = rendered.visibility;
+        let Some(mut layers) = rendered.layers else {
             return Some(fallback());
         };
         if state
@@ -459,7 +481,10 @@ impl ActorAnimationStore {
                         render_rig,
                         &mut budget,
                     ),
-                    Ok(Some(_))
+                    Ok(render::RenderEvaluation {
+                        layers: Some(_),
+                        ..
+                    })
                 ) {
                     return Some(fallback());
                 }
@@ -665,6 +690,7 @@ impl ActorAnimationStore {
         if complete && let Some(retained) = retained {
             retained.store(
                 &layers,
+                visibility,
                 match &skin {
                     Cow::Owned(skin) => Some(skin.as_slice()),
                     Cow::Borrowed(_) => None,
@@ -675,6 +701,7 @@ impl ActorAnimationStore {
         }
         Some(ActorRenderLayers {
             render: Cow::Owned(layers),
+            visibility,
             skin,
             held_item_scale,
             head_rotation,

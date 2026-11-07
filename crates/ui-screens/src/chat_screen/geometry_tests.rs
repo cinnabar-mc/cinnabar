@@ -70,6 +70,12 @@ fn chat(
         .find(|(_, namespace, _)| *namespace == "chat")
         .unwrap();
     catalog.overlay_text(path, std::str::from_utf8(bytes).unwrap());
+    // The pack's globals define the Chat Input flag its Bedrock-only variants require.
+    let (_, _, globals) = crate::hud::JAVA_HUD_PACK
+        .iter()
+        .find(|(_, namespace, _)| namespace.is_empty())
+        .unwrap();
+    catalog.overlay_globals_text(std::str::from_utf8(globals).unwrap());
     let context = crate::menu_screens::retail_context()
         .with_var("cinnabar_chat_width", Value::from(history_width));
     let root = json_ui::resolve(&catalog, "chat.java_chat_content", &context)
@@ -291,6 +297,194 @@ fn history_width_is_fixed_in_gui_units_for_hud_and_open_chat() {
                 assert_eq!(labels[0].dest.w * scale, expected_width - 8.0 * scale);
                 assert!(labels[0].dest.h > 9.0, "the long message must wrap");
             }
+        }
+    }
+}
+
+/// The pinned pack's Bedrock chat history and completion geometry under the built-in pack.
+fn bedrock_screen_catalog() -> Catalog {
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/bedrock_chat_base.json",
+        r##"{
+            "namespace": "chat",
+            "messages_scrolling_panel": {
+                "type": "panel", "size": ["100%-2px", "100%-50px"], "offset": [2, -27],
+                "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                "controls": [{"rows": {
+                    "type": "stack_panel", "size": ["100%", "100%c"],
+                    "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                    "factory": {"name": "messages_factory",
+                        "control_ids": {"chat_screen_messages": "chat.messages_text"}}
+                }}]
+            },
+            "messages_text": {
+                "type": "panel", "size": ["100%", "100%c"],
+                "controls": [{"text": {
+                    "type": "label", "size": ["100% - 3px", "default"], "text": "#text",
+                    "localize": false, "bindings": [{"binding_name": "#text"}]
+                }}]
+            },
+            "auto_complete_panel_contents_with_item": {
+                "type": "panel", "anchor_from": "top_left", "anchor_to": "top_left",
+                "size": ["100%", 10],
+                "controls": [{"text": {
+                    "type": "label", "offset": [2, 0], "text": "#text", "localize": false,
+                    "anchor_from": "left_middle", "anchor_to": "left_middle",
+                    "bindings": [{"binding_type": "collection",
+                        "binding_name": "#auto_complete_text", "binding_name_override": "#text",
+                        "binding_collection_name": "auto_complete"}]
+                }}]
+            },
+            "auto_complete_panel": {
+                "type": "panel", "size": ["100%", "100%"],
+                "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                "controls": [{"panel": {
+                    "type": "panel", "size": ["100%", "100%"], "max_size": ["100%", "100%"],
+                    "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                    "controls": [{"auto_complete_grid": {
+                        "type": "grid", "grid_item_template": "chat.auto_complete_panel_contents_with_item",
+                        "grid_fill_direction": "vertical", "collection_name": "auto_complete",
+                        "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                        "size": ["100%", "100%"],
+                        "bindings": [{"binding_name": "#get_grid_size", "binding_type": "collection",
+                            "binding_collection_name": "auto_complete"}]
+                    }}]
+                }}]
+            },
+            "commands_panel": {
+                "type": "panel", "anchor_from": "bottom_left", "anchor_to": "bottom_left",
+                "offset": [0, -27], "size": ["100%", "100%-50px"],
+                "controls": [{"auto_complete_panel@chat.auto_complete_panel": {}}]
+            },
+            "chat_screen_content": {
+                "type": "panel",
+                "controls": [
+                    {"messages_panel@chat.messages_scrolling_panel": {}},
+                    {"autocomplete_commands_panel@chat.commands_panel": {"layer": 4}}
+                ]
+            }
+        }"##,
+    );
+    for (path, namespace, bytes) in crate::hud::JAVA_HUD_PACK {
+        let text = std::str::from_utf8(bytes).unwrap();
+        if namespace.is_empty() {
+            catalog.overlay_globals_text(text);
+        } else {
+            catalog.overlay_text(path, text);
+        }
+    }
+    catalog
+}
+
+#[test]
+fn bedrock_chat_input_rests_completions_on_the_input_bar_and_keeps_text_flush_left() {
+    const INPUT_BAR: f64 = 27.0;
+    const HEADER: f64 = 23.0;
+    let catalog = bedrock_screen_catalog();
+    let context = crate::chat_position::with_input(crate::menu_screens::retail_context(), true);
+    let root = json_ui::resolve(&catalog, "chat.chat_screen_content", &context)
+        .control
+        .unwrap();
+    let env = LayoutEnv {
+        text: &Resources,
+        textures: &Resources,
+    };
+    let viewport = [427.0, 240.0];
+    let mut editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES).unwrap();
+    editor.set_text("/h");
+    editor.place_cursor(2);
+    let usage = "/help [page]";
+    let clocks = BTreeMap::new();
+    for count in [2, 40, 0] {
+        let suggestions: Vec<Arc<str>> = (0..count).map(|n| Arc::from(format!("/h{n}"))).collect();
+        let mut data = chat_data(
+            &ChatInput {
+                local_player: "Alex",
+                editor: &editor,
+                messages: &VecDeque::new(),
+                first_message_id: 1,
+                suggestions: &suggestions,
+                usage: (count > 0).then_some(usage),
+                selected_suggestion: None,
+                annotations: &[],
+                clocks: &clocks,
+                now_millis: 0,
+            },
+            &ChatSettings::default(),
+            &|_| None,
+        );
+        data.set_factory(
+            "messages_factory",
+            vec![
+                FactoryItem::new("chat_screen_messages", 0.0)
+                    .value("#text", Scalar::Text("history".into())),
+            ],
+        );
+        let bound = json_ui::bind(
+            &root,
+            &data,
+            &CatalogLibrary {
+                catalog: &catalog,
+                context: &context,
+            },
+        );
+        let nodes = json_ui::emit(&json_ui::layout(&bound, viewport, &env), &env);
+        let labelled = |wanted: &str| {
+            nodes
+                .iter()
+                .find(|node| matches!(&node.draw, Draw::Text { text, .. } if text == wanted))
+        };
+        if count == 0 {
+            let history = labelled("history").expect("history line");
+            assert_eq!(
+                history.dest.x, 2.0,
+                "history text starts at vanilla's inset"
+            );
+            continue;
+        }
+        let mut centres: Vec<f64> = nodes
+            .iter()
+            .filter(|node| matches!(node.draw, Draw::Text { .. }))
+            .map(|node| {
+                let top = node.dest.y.max(node.clip.y);
+                let bottom = (node.dest.y + node.dest.h).min(node.clip.y + node.clip.h);
+                assert!(
+                    top >= HEADER && bottom <= viewport[1] - INPUT_BAR,
+                    "{count} suggestions: {} drawn outside the completion area",
+                    node.name
+                );
+                node.dest.y + node.dest.h / 2.0
+            })
+            .collect();
+        centres.sort_by(f64::total_cmp);
+        for pair in centres.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                10.0,
+                "{count} suggestions: rows keep 10 px"
+            );
+        }
+        let fully_visible = centres
+            .iter()
+            .filter(|centre| **centre + 5.0 <= viewport[1] - INPUT_BAR)
+            .count();
+        if count == 2 {
+            let usage_row = labelled(usage).expect("usage line");
+            assert_eq!(
+                (usage_row.dest.x, usage_row.dest.y + usage_row.dest.h / 2.0),
+                (2.0, viewport[1] - INPUT_BAR - 5.0),
+                "the usage line rests on the input bar"
+            );
+            assert_eq!(fully_visible, 3, "both suggestions and the usage line");
+        } else {
+            assert_eq!(centres[0], HEADER + 5.0, "a long list fills from the top");
+            let area = viewport[1] - INPUT_BAR - HEADER;
+            assert_eq!(
+                fully_visible,
+                (area / 10.0) as usize,
+                "whole rows fill the area"
+            );
         }
     }
 }

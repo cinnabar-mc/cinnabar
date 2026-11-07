@@ -98,8 +98,8 @@ pub struct ChatScreen {
     /// Logical px per virtual px, from the last frame.
     scale: f32,
     pointer: Option<UiPoint>,
-    /// The chat context, kept while the engine context and placement stay.
-    context: crate::hud_placement::PlacedContext,
+    /// The chat context, kept while the engine context, placement and input style stay.
+    context: crate::hud_placement::PlacedContext<(crate::hud_placement::HudPlacement, bool)>,
 }
 
 /// What one chat paint reads from the client's chat state.
@@ -156,10 +156,16 @@ impl ChatScreen {
             Vec::new()
         };
         self.history_revision = revision;
+        let options = &self.settings.options;
         let context = self.context.get(
             engine.context(),
-            crate::hud_placement::HudPlacement::from_settings(&self.settings.options),
-            |base, placement| placement.placed(base),
+            (
+                crate::hud_placement::HudPlacement::from_settings(options),
+                options.bedrock_chat_input(),
+            ),
+            |base, (placement, bedrock)| {
+                crate::chat_position::with_input(placement.placed(base), bedrock)
+            },
         );
         let catalog = Arc::clone(engine.screen_catalog(CHAT_SCREEN));
         let metrics = frame.metrics;

@@ -170,6 +170,7 @@ impl<P: Send + 'static> NetworkChannels<P> {
                 packs,
                 terrain_before_spawn: session.terrain_before_spawn(),
                 level_identity: game_data.level_identity,
+                level_name: game_data.level_name,
             },
         )
         .await

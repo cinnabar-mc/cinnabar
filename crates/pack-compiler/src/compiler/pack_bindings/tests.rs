@@ -212,18 +212,22 @@ fn pillar_mapping_retains_uv_rotation_independently_of_the_original_scalar_bindi
         .unwrap();
         let source = &keys.block_sources()[0];
         for face in BlockFace::ALL {
-            assert!(
-                !pack_compile_input::pack::resolve_texture_key(&pack.blocks, &record, face)
-                    .rotate_uv
+            assert_eq!(
+                pack_compile_input::pack::resolve_texture_key(&pack.blocks, &record, face)
+                    .uv_rotation,
+                0
             );
             assert_eq!(
-                source.source_rotations[face as usize],
+                u32::from(source.source_rotations[face as usize]),
                 pack_compile_input::pack::resolve_texture_key(&per_face.blocks, &record, face)
-                    .rotate_uv
+                    .uv_rotation
             );
         }
         assert_eq!(
-            source.source_rotations.iter().any(|&rotate| rotate),
+            source
+                .source_rotations
+                .iter()
+                .any(|&rotation| rotation != 0),
             axis != "y"
         );
     }

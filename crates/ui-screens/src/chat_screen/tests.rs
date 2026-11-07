@@ -249,3 +249,137 @@ fn here_and_selector_rows_use_their_translated_descriptions() {
         "§7§f@§7n§7 - §fNearest entity§r"
     );
 }
+
+/// The Chat Input setting swaps Java's input line for vanilla's full chat screen, whose history
+/// keeps vanilla's bottom anchor and drops the Java line backgrounds even with Top placement.
+#[test]
+fn bedrock_chat_input_draws_vanilla_chat_screen_content() {
+    use json_ui::Catalog;
+    use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
+
+    let mut catalog = Catalog::default();
+    catalog.overlay_text(
+        "ui/ui_common.json",
+        r#"{
+        "namespace": "common",
+        "base_screen_empty_panel": { "type": "panel" },
+        "base_screen": {
+            "type": "screen",
+            "$screen_content|default": "common.base_screen_empty_panel",
+            "$screen_bg_content|default": "common.base_screen_empty_panel",
+            "controls": [
+                { "background@$screen_bg_content": {} },
+                { "root_screen_panel@$screen_content": {} }
+            ]
+        }
+    }"#,
+    );
+    catalog.overlay_text(
+        "ui/chat_base.json",
+        r#"{
+        "namespace": "chat",
+        "messages_stack_panel": {
+            "type": "stack_panel",
+            "$scrolling_content_anchor_from": "bottom_left",
+            "anchor_from": "$scrolling_content_anchor_from"
+        },
+        "messages_scrolling_panel": {
+            "type": "panel",
+            "controls": [ { "stack@chat.messages_stack_panel": {} } ]
+        },
+        "commands_panel": { "type": "panel" },
+        "messages_text": { "type": "panel" },
+        "auto_complete_panel_contents_with_item": {
+            "type": "panel",
+            "controls": [ { "text": { "type": "label" } } ]
+        },
+        "chat_bottom_panel": { "type": "stack_panel" },
+        "chat_background": { "type": "image" },
+        "chat_screen_content": {
+            "type": "panel",
+            "controls": [
+                { "messages_panel@chat.messages_scrolling_panel": {} },
+                { "chat_bottom_panel@chat.chat_bottom_panel": {} },
+                { "messages@chat.messages_text": {} },
+                { "completion@chat.auto_complete_panel_contents_with_item": {} }
+            ]
+        },
+        "chat_screen@common.base_screen": {}
+    }"#,
+    );
+    let (path, _, bytes) = crate::hud::JAVA_HUD_PACK
+        .iter()
+        .find(|(_, namespace, _)| *namespace == "chat")
+        .unwrap();
+    catalog.overlay_text(path, std::str::from_utf8(bytes).unwrap());
+    let (global_path, _, global_bytes) = crate::hud::JAVA_HUD_PACK
+        .iter()
+        .find(|(path, ..)| path.ends_with("_global_variables.json"))
+        .unwrap();
+    catalog.overlay_text(global_path, std::str::from_utf8(global_bytes).unwrap());
+
+    let has = |control: &json_ui::ResolvedControl, name: &str| {
+        control.find(&|child| child.name == name).is_some()
+    };
+    for top in [false, true] {
+        let mut options = launcher::menu::settings_options::SettingsOptions::default();
+        options.set(CHAT_POSITION_OPTION.id.index(), i32::from(top));
+        for bedrock in [false, true] {
+            options.set(CHAT_INPUT_OPTION.id.index(), i32::from(bedrock));
+            assert_eq!(options.bedrock_chat_input(), bedrock);
+            let placement = crate::hud_placement::HudPlacement::from_settings(&options);
+            let context = crate::chat_position::with_input(
+                placement.placed(crate::menu_screens::retail_context()),
+                options.bedrock_chat_input(),
+            );
+            let screen = json_ui::resolve(&catalog, CHAT_SCREEN, &context)
+                .control
+                .expect("chat screen");
+            let case = format!("top {top}, bedrock {bedrock}");
+            assert_eq!(has(&screen, "input_line"), !bedrock, "{case}");
+            assert_eq!(has(&screen, "chat_bottom_panel"), bedrock, "{case}");
+            if !bedrock {
+                continue;
+            }
+            let stack = screen.find(&|child| child.name == "stack").unwrap();
+            assert_eq!(
+                stack.properties["anchor_from"].as_str(),
+                Some("bottom_left"),
+                "{case}"
+            );
+            for name in ["messages", "completion"] {
+                let row = screen.find(&|child| child.name == name).unwrap();
+                assert!(!has(row, "background"), "{case}: {name} background");
+            }
+            let editor = ui::ChatEditor::new(ui::MAX_CHAT_INPUT_BYTES).unwrap();
+            let clocks = BTreeMap::new();
+            for suggestions in [&[][..], &[Arc::from("/help")][..]] {
+                let input = ChatInput {
+                    local_player: "Alex",
+                    editor: &editor,
+                    messages: &VecDeque::new(),
+                    first_message_id: 1,
+                    suggestions,
+                    usage: None,
+                    selected_suggestion: None,
+                    annotations: &[],
+                    clocks: &clocks,
+                    now_millis: 0,
+                };
+                let data = chat_data(&input, &ChatSettings::default(), &|_| None);
+                let (bound, _) = json_ui::bind_stateful(
+                    &Arc::new(screen.clone()),
+                    &data,
+                    &json_ui::EmptyLibrary,
+                    &mut json_ui::BindState::new(),
+                );
+                let history = bound.find(&|child| child.name == "messages_panel").unwrap();
+                assert_eq!(
+                    history.properties["visible"].as_bool(),
+                    Some(suggestions.is_empty()),
+                    "{case}: vanilla history yields to completions"
+                );
+            }
+        }
+    }
+}

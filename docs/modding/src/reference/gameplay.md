@@ -457,6 +457,7 @@ This explicit override bypasses local mining time, reach and obstruction, but re
 game-mode permissions, loaded terrain and server validation. The host supplies held
 item and wire identities. Requests commit only after a successful callback and are
 discarded on focus loss or world changes. No camera or physical input is changed.
+The cells change only when the server updates them; a rejected cell simply stays.
 
 Types: [`block-position`](gameplay.md#type-block-position).
 
