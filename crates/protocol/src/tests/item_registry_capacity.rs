@@ -122,6 +122,37 @@ fn negotiated_capacity_retains_exact_positive_int_values_and_original_digest() {
 }
 
 #[test]
+fn component_data_larger_than_an_item_stack_extra_keeps_the_registry() {
+    // A server sent one item with 426,071 bytes of component data; that must
+    // not drop the registry and leave every custom item unresolved.
+    let mut description = vec![8];
+    write_name(&mut description, "description");
+    let text = "x".repeat(4 * protocol::MAX_ITEM_EXTRA_BYTES);
+    write_var_u32(&mut description, text.len() as u32);
+    description.extend_from_slice(text.as_bytes());
+    let component_data = root_compound(&[compound_tag(
+        "components",
+        &[
+            description,
+            compound_tag("item_properties", &[int_tag("max_stack_size", 16)]),
+        ],
+    )]);
+    let original = component_data.0.clone();
+    assert!(original.len() > protocol::MAX_ITEM_EXTRA_BYTES);
+
+    let entry = normalize(registry_entry(
+        component_data,
+        true,
+        ItemVersion::DataDriven,
+    ))
+    .unwrap();
+
+    assert_eq!(entry.negotiated_max_stack_size, Some(16));
+    let expected_digest: [u8; 32] = Sha256::digest(&original).into();
+    assert_eq!(entry.component_digest, expected_digest);
+}
+
+#[test]
 fn creative_category_survives_registry_admission_with_its_typed_default() {
     for (property, expected) in [
         (int_tag("creative_category", 3), 3),
