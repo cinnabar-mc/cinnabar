@@ -251,10 +251,9 @@ animated rig remotes use. All three below flow from that.
   hurt tilt, nausea/portal wobble, server shake and `CameraInstruction` set/clear/fade/FOV are implemented
   presentation-only under `app/src/camera/`; their magnitudes, curves and signs are provisional *(measure)* (MED).
 - Screen overlays (pumpkin blur, spyglass scope, portal, freezing, suffocation, fire, server fade) draw in a dedicated
-  pass (`ScreenOverlayRenderPlugin`); the spyglass uses the vanilla PNG when found and procedural art
-  otherwise. The pumpkin blur always draws its procedural brown vignette: it deliberately does not load the vanilla
-  `pumpkinblur.png`, which is a darker eye-and-mouth mask, so it differs from Bedrock (MED). Portal, fire and
-  freezing are procedural, suffocation is a flat tint, and the vignette stays with the HUD renderer (MED).
+  pass (`ScreenOverlayRenderPlugin`); pumpkin and spyglass use the vanilla PNGs when found and procedural art
+  otherwise; portal, fire and freezing are procedural, suffocation is a flat tint, and the vignette stays with the
+  HUD renderer (MED).
 - Presets, target, attach and detach are applied; orbit presets ignore collision. Not applied: view/entity offsets,
   spline instructions, blindness/darkness/night-vision consumers (`VisionEffects`), first-person hand consumer of
   `FirstPersonHandMotion` (MED).

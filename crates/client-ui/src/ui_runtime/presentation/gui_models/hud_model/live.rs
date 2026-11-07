@@ -203,7 +203,8 @@ impl UiPresentationRuntime {
                 }
             }
         }
-        if let Some(model) = self.preview_head_block()
+        if body_visible
+            && let Some(model) = self.preview_head_block()
             && let Some(parent) = live.head_bone
         {
             let bone = render_model::equipment::attach_to_bone(

@@ -265,12 +265,8 @@ fn triangles(vertices: &[UiMeshVertex]) -> usize {
         .count()
 }
 
-/// Draws a helmet block on the captured head and checks it sits on the posed head bone.
-fn assert_helmet_block_on_posed_head(view: PreviewView) {
-    let pack = pack();
-    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
-    equip(&mut stream, None);
-    let mut ui = presentation(pack);
+/// Equips an original cube in the helmet slot without adding armor or held items.
+fn wear_helmet_block(ui: &mut UiPresentationRuntime) {
     ui.set_player_preview_gear([None; 4], None);
     let block = PreviewHeldModel {
         source: IconRef {
@@ -296,6 +292,15 @@ fn assert_helmet_block_on_posed_head(view: PreviewView) {
         use_animation: Default::default(),
         charged_projectile: Default::default(),
     });
+}
+
+/// Draws a helmet block on the captured head and checks it sits on the posed head bone.
+fn assert_helmet_block_on_posed_head(view: PreviewView) {
+    let pack = pack();
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, None);
+    let mut ui = presentation(pack);
+    wear_helmet_block(&mut ui);
     let (mesh, vertices) = draw(&mut ui, &stream, view).unwrap();
     let worn = mesh
         .batches()
@@ -362,6 +367,21 @@ fn live_ui_wears_a_helmet_block_on_the_posed_head_bone() {
 #[test]
 fn hud_doll_wears_a_helmet_block_on_the_posed_head_bone() {
     assert_helmet_block_on_posed_head(PreviewView::Hud);
+}
+
+#[test]
+fn inactive_ui_body_controllers_hide_head_blocks_without_changing_the_hud_doll() {
+    let pack = pack();
+    let mut stream = tests::player_stream(Arc::clone(&pack.assets), Arc::clone(&pack.assets));
+    equip(&mut stream, None);
+    let mut ui = presentation(pack);
+    wear_helmet_block(&mut ui);
+    assert!(draw(&mut ui, &stream, PreviewView::default()).is_some());
+    variant(&mut stream, 2, 2);
+    assert!(draw(&mut ui, &stream, PreviewView::default()).is_none());
+    assert!(draw(&mut ui, &stream, PreviewView::Hud).is_some());
+    variant(&mut stream, 3, 0);
+    assert!(draw(&mut ui, &stream, PreviewView::default()).is_some());
 }
 
 #[test]

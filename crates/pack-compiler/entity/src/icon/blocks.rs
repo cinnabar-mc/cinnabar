@@ -149,16 +149,15 @@ impl IconBlocks {
             return self
                 .records
                 .iter()
+                .filter(|candidate| candidate.name == record.name)
                 .find(|candidate| {
                     let Ok(state) =
                         serde_json::from_str::<serde_json::Value>(&candidate.canonical_state)
                     else {
                         return false;
                     };
-                    candidate.name == record.name
-                        && state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]
-                            ["value"]
-                            == "south"
+                    state[assets::facts::BlockProperty::MinecraftCardinalDirection.name()]["value"]
+                        == "south"
                 })
                 .map_or(visual, |candidate| BlockVisualId(candidate.sequential_id));
         }
