@@ -43,8 +43,16 @@ mod tests {
             let mut rolls = AmbientRandom::new(seed);
             let mut expected = Vec::new();
             for _ in 0..30 {
-                let x = if rolls.next() % 2 == 0 { -0.25 } else { 0.25 };
-                let z = if rolls.next() % 2 == 0 { -0.25 } else { 0.25 };
+                let x = if rolls.next().is_multiple_of(2) {
+                    -0.25
+                } else {
+                    0.25
+                };
+                let z = if rolls.next().is_multiple_of(2) {
+                    -0.25
+                } else {
+                    0.25
+                };
                 let y = rolls.unit();
                 expected.push([-4.0 + 0.5 + x, 70.0 + y, 9.0 + 0.5 + z]);
             }
