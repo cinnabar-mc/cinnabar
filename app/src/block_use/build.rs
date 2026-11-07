@@ -31,8 +31,6 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
     repeats_while_held: bool,
-    /// The crop state a seed item plants; block items place their own block.
-    planted: Option<u32>,
     /// The door or bed a non-block item places, when it is not a block item.
     paired: Option<u32>,
 }
@@ -241,12 +239,11 @@ fn prepare(
             destination,
             predicted,
             repeats_while_held,
-            planted.map(|(_, crop)| crop),
             paired,
         ))
     })
     .ok()?;
-    let (local_use, takes_press, destination, predicted, repeats_while_held, planted, paired) =
+    let (local_use, takes_press, destination, predicted, repeats_while_held, paired) =
         prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
@@ -279,7 +276,6 @@ fn prepare(
             change,
             cooldown,
             repeats_while_held,
-            planted,
             paired,
         },
     })
@@ -414,26 +410,7 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    // Door and bed placement keeps only the server's sound: the cell it plays at is unverified,
-    // and a local cue at another cell would not pair with it.
-    if plan.local_use == LocalUse::Place && plan.paired.is_none() {
-        // A seed sounds at the block it was used on, where the server voices its copy too.
-        let position = if plan.planted.is_some() {
-            observed.target.position
-        } else {
-            plan.destination
-        };
-        context
-            .audio_cues
-            .write(client_audio::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: plan.planted.unwrap_or_else(|| {
-                    stream.resolve_block_network_id(u32::from_ne_bytes(
-                        observed.selection.item.block_runtime_id().to_ne_bytes(),
-                    ))
-                }) as i32,
-            });
-    }
+    // Vanilla voices placement only from the server's level sound event, never locally.
     // Java re-equips the held item after each placement.
     if plan.local_use == LocalUse::Place
         && let Some(stream) = context.client_world.stream.as_mut()

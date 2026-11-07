@@ -642,21 +642,19 @@ fn drive_particles(
     // destroyed id because the world already predicts air; a missing local texture must not
     // consume the server packet's echo slot.
     for cue in block_cues.read() {
-        if let client_audio::audio::LocalBlockCue::Break {
+        let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
-        } = *cue
-        {
-            route_block_break(
-                &mut system,
-                &routing,
-                &mut break_echoes,
-                client_audio::audio::EchoOrigin::Client,
-                block_runtime_id,
-                position,
-                time.elapsed_secs_f64(),
-            );
-        }
+        } = *cue;
+        route_block_break(
+            &mut system,
+            &routing,
+            &mut break_echoes,
+            client_audio::audio::EchoOrigin::Client,
+            block_runtime_id,
+            position,
+            time.elapsed_secs_f64(),
+        );
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {

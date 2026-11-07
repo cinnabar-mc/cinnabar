@@ -1202,9 +1202,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
   Items with a registry `minecraft:seed` rule predict planting on a declared block's
-  declared face into air: the swing, place sound, consumed item and the crop's default
-  state, repeating while held. Successful placement consumes the press before edible
-  items can start their air-use fallback; failed attempts still allow eating. Matched
+  declared face into air: the swing, consumed item and the crop's default state, repeating
+  while held. As in vanilla, placement and planting sounds come only from the server's
+  `place` level sound event; the client voices no local copy. Successful placement
+  consumes the press before edible items can start their air-use fallback; failed
+  attempts still allow eating. Matched
   native and after-fix in-world planting/eating captures remain outstanding. Solid-surface
   planting on undeclared blocks and legacy block-name aliases such as `grass` remain
   incomplete.
