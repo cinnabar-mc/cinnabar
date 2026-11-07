@@ -27,14 +27,14 @@ fn world_corner(face: BlockFace, [x, y, z]: [i16; 3], turns: u32) -> (BlockFace,
     (face, [centred[0] + 128, centred[1], centred[2] + 128])
 }
 
-/// Every stair face reads the native cube UVs of where it lands in the world, so the same
-/// world point samples the same texel whichever way the stair faces.
+/// Every stair face samples the native cube UVs of where it lands in the world once the model
+/// turn and `world_aligned_uv` apply, so planks line up whichever way the stair faces.
 #[test]
-fn stair_faces_use_world_space_cube_uvs_for_every_facing() {
+fn stair_faces_sample_world_space_cube_uvs_for_every_facing() {
     for turns in 0..4 {
         for upside_down in [false, true] {
             for shape in 0..5 {
-                for quad in stair_quads([1; 6], 2, upside_down, shape, turns) {
+                for quad in stair_quads([1; 6], 2, upside_down, shape) {
                     let face = match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
                         1 => BlockFace::Down,
                         2 => BlockFace::Up,
@@ -44,6 +44,12 @@ fn stair_faces_use_world_space_cube_uvs_for_every_facing() {
                         _ => BlockFace::South,
                     };
                     for (position, uv) in quad.positions.into_iter().zip(quad.uvs) {
+                        let turned = assets::world_aligned_uv(
+                            quad.flags,
+                            turns,
+                            uv.map(|value| f32::from(value) / 4096.0),
+                        )
+                        .map(|value| (value * 4096.0).round() as u16);
                         let (world_face, [x, y, z]) = world_corner(face, position, turns);
                         let [x, y, z] = [x, y, z].map(|value| value as u16 * 16);
                         let expected = match world_face {
@@ -55,31 +61,12 @@ fn stair_faces_use_world_space_cube_uvs_for_every_facing() {
                             BlockFace::South => [x, 4096 - y],
                         };
                         assert_eq!(
-                            uv, expected,
+                            turned, expected,
                             "turns {turns} upside {upside_down} shape {shape} {face:?}"
                         );
                     }
                 }
             }
-        }
-    }
-}
-
-#[test]
-fn turned_faces_follow_the_model_turn() {
-    for turns in 0..4 {
-        for face in BlockFace::ALL {
-            let centre = match face {
-                BlockFace::West => [0, 128, 128],
-                BlockFace::East => [256, 128, 128],
-                BlockFace::Down => [128, 0, 128],
-                BlockFace::Up => [128, 256, 128],
-                BlockFace::North => [128, 128, 0],
-                BlockFace::South => [128, 128, 256],
-            };
-            let (expected_face, expected_position) = world_corner(face, centre, turns);
-            assert_eq!(turned_face(face, turns), expected_face);
-            assert_eq!(turned_position(centre, turns), expected_position);
         }
     }
 }

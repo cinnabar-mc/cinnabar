@@ -2,8 +2,8 @@ use {
     super::support::*,
     assets::{
         BlockFace, BlockFlags, MODEL_QUAD_FLAG_CULL_FACE_MASK, MODEL_QUAD_FLAG_FACE_MASK,
-        MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField, RuntimeAssets, VisualKind,
-        encode_blob, read_registry,
+        MODEL_QUAD_FLAG_WORLD_ALIGNED_UV, MODEL_TEMPLATE_FLAG_STAIR, ModelFamily, ModelStateField,
+        RuntimeAssets, VisualKind, encode_blob, read_registry,
     },
     std::{collections::HashSet, path::Path},
 };
@@ -80,7 +80,7 @@ fn rotate_stair_face(face: usize, rotation: u32) -> usize {
 }
 
 #[test]
-fn compiler_stair_rotation_preserves_asymmetric_materials_and_geometry_with_world_uvs_for_all_states() {
+fn compiler_stair_rotation_preserves_asymmetric_materials_geometry_and_uv_lock_for_all_states() {
     let directory = tempfile::tempdir().expect("create asymmetric stair fixture");
     write_asymmetric_stair_pack(directory.path());
     let mut records = read_registry(include_bytes!(
@@ -135,6 +135,10 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_and_geometry_with_worl
                 "orientation must stay canonical"
             );
             assert_eq!(
+                quad.uvs, north_quad.uvs,
+                "orientation must preserve UV lock"
+            );
+            assert_eq!(
                 quad.flags, north_quad.flags,
                 "orientation changed canonical faces"
             );
@@ -160,16 +164,6 @@ fn compiler_stair_rotation_preserves_asymmetric_materials_and_geometry_with_worl
                     .flatten()
                     .all(|&coordinate| coordinate <= 4096)
             );
-            // Native stairs draw their boxes with world-space cube UVs, whatever their facing.
-            if world_face == BlockFace::Up as usize {
-                for (position, uv) in world_positions.iter().zip(quad.uvs) {
-                    assert_eq!(
-                        uv,
-                        [position[0] as u16 * 16, position[2] as u16 * 16],
-                        "half={half} orientation={orientation}"
-                    );
-                }
-            }
             let step_outer_face = if half == 0 {
                 BlockFace::Up as usize
             } else {
@@ -240,8 +234,8 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     let compiled = compile_pack(directory.path(), &records).expect("compile all oak stair states");
     assert_eq!(
         compiled.model_templates.len(),
-        40,
-        "five shapes per upside state and facing"
+        10,
+        "five shapes per upside state; orientation is compact"
     );
     let mut bases_by_half = [HashSet::new(), HashSet::new()];
     for (id, record) in records.iter().enumerate() {
@@ -279,23 +273,19 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
                     && b != c
                     && a != c
                     && quad.uvs.iter().all(|uv| uv[0] <= 4096 && uv[1] <= 4096)
-                    && quad.flags & !(MODEL_QUAD_FLAG_FACE_MASK | MODEL_QUAD_FLAG_CULL_FACE_MASK)
+                    && quad.flags
+                        & !(MODEL_QUAD_FLAG_FACE_MASK
+                            | MODEL_QUAD_FLAG_CULL_FACE_MASK
+                            | MODEL_QUAD_FLAG_WORLD_ALIGNED_UV)
                         == 0
+                    // Only down and up faces turn their UVs back to the world axes.
+                    && (quad.flags & MODEL_QUAD_FLAG_WORLD_ALIGNED_UV != 0)
+                        == matches!(quad.flags & MODEL_QUAD_FLAG_FACE_MASK, 1 | 2)
             }));
         }
     }
-    assert_eq!(bases_by_half[0].len(), 4);
-    assert_eq!(bases_by_half[1].len(), 4);
-    let north_base = |half| {
-        compiled.visuals[records
-            .iter()
-            .position(|record| {
-                record.model_state.get(ModelStateField::Orientation) == Some(2)
-                    && record.model_state.get(ModelStateField::Half) == Some(half)
-            })
-            .unwrap()]
-        .model_template as usize
-    };
+    assert_eq!(bases_by_half[0].len(), 1);
+    assert_eq!(bases_by_half[1].len(), 1);
     let north_lower = compiled.visuals[records
         .iter()
         .position(|record| {
@@ -306,19 +296,22 @@ fn compiler_stairs_emit_five_contiguous_bounded_exterior_templates_for_every_sta
     .model_template as usize;
     let straight = compiled.model_templates[north_lower];
     let expected_shape_digests = [
-        "a0a0439ced5b4b91ce1ab29efa0301784868526f6dc59b04818a6e7fc1d2e7ca",
-        "3eded422b10d5f83b18d06f8e7c5a53d3fcc6f2b21be616f5b0e0edb46c302b1",
-        "63a21a60f80f384655e48215da82534467c58641379624e9444dde9f09f34502",
-        "2d1b0c0af8ef89b60af1e7353e320a21070bbb3d50badaa543e5b32367d4e13b",
-        "969ed2e53cd06a624cc4c67333f7d38ceb6f950c785fad357a7e1c0d9db1a328",
-        "6cddd544cfc9c781e5ad2e2d0490e5fe07f22f22036d42d9cfdc948ee9e8bec7",
-        "ec9de9ba92576aed8f740a2d2b5d7d10bde01744f7fec4cca34bacb912755c49",
-        "eb7aee074c6f93a85fee2f0bbb939a990bfdefa7c83854000cdf61a88fe8580a",
-        "9ede76784c8096498f3a61a9ccbc178017a0ba575e544dee1d525476da53d9da",
-        "fb02e9bcb1b74c30edad1c3e4758680260e295410f735c01e8fc6d69af79230d",
+        "bdd2fc108640f1bca2a4af2cddd85f9f4a782286e9c40671da22d67609287188",
+        "d1f4332cf5165cea53ec1b7e8b8dd7235d4963650197c5df58704dabe01728c6",
+        "03868b5dec70bacf949ec194616ff6d48ce2f8bab37589ac94873e5db36cf241",
+        "94dc1872a18db5008e873cab26161040018931aaab50df3badcc606011a0d149",
+        "ce45f3cb6aa752596964defd8f4a58f8172e81bc34bf86dc6b051915e7e9e1b5",
+        "7b25a1174d78a3c6374f47b50a56000ac0d15b42bae1137163a30ce7d2fac603",
+        "b5443f39ccecc7e1314f798efeb60582064220ff40402c4e7c94f9ee8bf76399",
+        "8187ed8beb25e3f95f08ce8266e117e1f1ecad82ff508aef71d510433978b984",
+        "e53d6f89142420fa43fc58653cecb5800e2dccf675368fe639b343fa92a69875",
+        "856e3c56bbaffae96045d44a23b639909381a2558c408f14674ce0832ac5b59c",
     ];
     let mut actual_shape_digests = Vec::new();
-    for base in [north_base(0), north_base(1)] {
+    for base in [
+        *bases_by_half[0].iter().next().unwrap(),
+        *bases_by_half[1].iter().next().unwrap(),
+    ] {
         for template in &compiled.model_templates[base..base + 5] {
             let quads = &compiled.model_quads[template.quad_start as usize
                 ..(template.quad_start + template.quad_count) as usize];
@@ -427,8 +420,8 @@ fn compiler_covers_every_breg_stair_state_with_compact_stable_groups() {
     }));
     assert_eq!(
         compiled.model_templates.len(),
-        40,
-        "one symmetric-material group per half and facing"
+        10,
+        "one symmetric-material group per half"
     );
     let first = encode_blob(&compiled).expect("encode exhaustive stairs");
     let mut reversed = records.clone();
