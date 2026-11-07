@@ -368,6 +368,12 @@ impl Instance {
         state.controls.native_editing = false;
     }
 
+    /// Releases retained movement output the guest could not renew under this frame's controls,
+    /// including frames spent recovering from a fuel overrun.
+    pub(super) fn release_unrenewable_movement(&mut self, controls: &crate::ControlFrame) {
+        self.store.data_mut().world.release_unrenewable(controls);
+    }
+
     /// Validates client facts for the next frame callback only.
     pub(super) fn observe_gameplay(&mut self, facts: crate::GameplayFacts) -> Result<()> {
         gameplay::validate_facts(&facts)?;
@@ -433,7 +439,6 @@ impl Instance {
         state.motion.snapshot = movement;
         state.world.advance_command_window(snapshot_seconds);
         state.world.mobs = mobs;
-        state.world.release_unrenewable(&controls);
         state.player_state.set_snapshot(player_state)?;
         state.controls.frame = controls;
         state.controls.native_editing = std::mem::take(&mut state.controls.native_editing_next);
