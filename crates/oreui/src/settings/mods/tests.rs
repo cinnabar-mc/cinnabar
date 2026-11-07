@@ -373,6 +373,30 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
 }
 
 #[test]
+fn marketplace_customization_offers_only_requested_permissions() {
+    for enabled in [false, true] {
+        let mut item = installed(1, "marketplace-11-fixture");
+        item.permissions[0].enabled = enabled;
+        let snapshot = Snapshot {
+            library: Library {
+                installed: vec![item],
+                ..Default::default()
+            },
+            details_expanded: Some(1),
+            customizing: Some(1),
+            ..Default::default()
+        };
+        let (hits, labels) = render(snapshot);
+        assert!(hits.contains(&command(Action::Permission(1, 0, !enabled))));
+        assert!(hits.contains(&command(Action::AllowRequested(1))));
+        assert_eq!(hits.contains(&command(Action::RevokeAll(1))), enabled);
+        assert!(!hits.contains(&command(Action::GrantAll(1))));
+        assert!(!hits.contains(&command(Action::ShowAllPermissions(1))));
+        assert!(!labels.iter().any(|label| label == "Show all permissions"));
+    }
+}
+
+#[test]
 fn bulk_permissions_grant_when_none_are_enabled_and_revoke_any_existing_grant() {
     for declared in [false, true] {
         for enabled in [false, true] {

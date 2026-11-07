@@ -60,18 +60,32 @@ impl Backend for AppBackend {
         }
     }
     /// Builds permissions from the grant declaration without maintaining another capability list.
+    ///
+    /// A marketplace card offers only its requested capabilities and shows the grants the host
+    /// leaves after capping them to that request.
     fn describe(
         item: &mut InstalledMod,
         declared: &Self::Declarations,
         current: Option<&Self::Registered>,
     ) {
         let (requested, metadata, packet) = declared;
-        let grants = current.map(|current| &current.entry.grants);
+        let ceiling = item
+            .marketplace()
+            .then(|| requested.clone().unwrap_or_default());
+        let grants = current.map(|current| {
+            let mut grants = current.entry.grants.clone();
+            if let Some(ceiling) = &ceiling {
+                grants.cap(ceiling);
+            }
+            grants
+        });
+        let grants = grants.as_ref();
         item.metadata = metadata.clone();
         item.permissions = mod_host::ModGrants::CAPABILITIES
             .iter()
             .map(|capability| Permission {
-                applicable: capability.applies_to(*packet),
+                applicable: capability.applies_to(*packet)
+                    && ceiling.as_ref().is_none_or(capability.enabled),
                 name: capability.label.into(),
                 description: capability.description.trim().into(),
                 enabled: grants.is_some_and(capability.enabled),
@@ -96,7 +110,7 @@ impl Backend for AppBackend {
         bytes: &[u8],
         manifest: &launcher_host::marketplace::Manifest,
     ) -> Result<(), String> {
-        crate::modding::marketplace::declarations(bytes, manifest)
+        crate::modding::marketplace::declarations(bytes, manifest).map(drop)
     }
     /// Parses exact download bytes and rejects invalid new permission declarations.
     fn update_metadata(

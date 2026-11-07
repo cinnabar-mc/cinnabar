@@ -472,6 +472,87 @@ fn failed_send_backs_off_exponentially_and_resets_on_account_change() {
 }
 
 #[test]
+fn removal_requests_wait_for_the_failure_backoff() {
+    let (fixture, keys, bytes) = handoff();
+    let (transport, listener) = idle();
+    let root = tempfile::tempdir().unwrap();
+    let guard = Arc::new(Guard::default());
+    guard.configure(1);
+    guard.account(1, fixture.xuid.clone());
+    guard.revocations(
+        fixture
+            .revocations
+            .verify(&keys, fixture.checked_at, 0)
+            .unwrap(),
+    );
+    let response: serde_json::Value = serde_json::from_str(&fixture.release_response).unwrap();
+    let release: SignedRelease = serde_json::from_value(response["release"].clone()).unwrap();
+    let mut file = tempfile::NamedTempFile::new_in(root.path()).unwrap();
+    file.write_all(&bytes).unwrap();
+    let installed = Downloaded {
+        file,
+        manifest: release
+            .verify(&keys, &fixture.selected, bytes.len(), fixture.checked_at)
+            .unwrap(),
+        receipt: Receipt {
+            owner: fixture.xuid.clone(),
+            selected: fixture.selected.clone(),
+            release,
+        },
+        generation: Arc::new(AtomicU64::new(1)),
+        epoch: 1,
+        guard: guard.clone(),
+        mods: root.path().into(),
+    }
+    .install(fixture.checked_at)
+    .unwrap();
+    fs::remove_file(installed).unwrap();
+    let runtime = runtime();
+    let (outgoing, _incoming) = crossbeam_channel::bounded(1);
+    let mut worker = worker(
+        &runtime,
+        &transport,
+        root.path(),
+        &keys,
+        bytes.len(),
+        &guard,
+        &outgoing,
+    );
+    worker.refresh_at = u64::MAX;
+    let start = fixture.checked_at;
+    worker
+        .deliveries
+        .refresh(1, root.path(), Some(&keys), bytes.len(), &guard, start);
+    let library = CinnabarModLibrary {
+        xuid: fixture.xuid.clone(),
+        mods: vec![fixture.selected.clone()],
+    };
+    let removals = std::cell::Cell::new(0);
+    let notify = |_| {};
+    let clock = AtomicU64::new(start);
+    let now = || clock.load(Ordering::SeqCst);
+    let pass_at = |worker: &mut Worker, at| {
+        clock.store(at, Ordering::SeqCst);
+        worker.pass(
+            1,
+            &library,
+            |_| true,
+            |_| removals.set(removals.get() + 1),
+            &now,
+            &notify,
+        );
+        removals.get()
+    };
+    assert_eq!(pass_at(&mut worker, start), 1);
+    assert_eq!(pass_at(&mut worker, start + 5_000), 1);
+    assert_eq!(pass_at(&mut worker, start + 29_999), 1);
+    assert_eq!(pass_at(&mut worker, start + 30_000), 2);
+    assert_eq!(pass_at(&mut worker, start + 30_000 + 59_999), 2);
+    assert_eq!(pass_at(&mut worker, start + 30_000 + 60_000), 3);
+    assert!(!accepted(&listener), "removals never fetch the release");
+}
+
+#[test]
 fn long_pass_refreshes_revocations_once_their_refresh_time_passes() {
     let (fixture, keys, bytes) = handoff();
     let revocations = (

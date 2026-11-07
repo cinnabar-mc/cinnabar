@@ -23,10 +23,14 @@ component bytes and cached metadata are bounded; account changes cancel pending
 work. Returning to an account retries selections that were not installed. Verified
 receipts retain successful installations and local removals across account changes.
 The account and exact selection are confirmed again after downloads. Selections
-held by account, freshness or withdrawal are not downloaded. A failed send is
-retried after 30 seconds, doubling to at most 30 minutes, until it succeeds, the
-account changes or the player sends it again. Component downloads allow time for
-their signed size on slow connections, within a fixed ceiling.
+held by account, freshness or withdrawal are not downloaded. A send whose
+preparation fails (fetch, verification or a full installer queue) is retried
+after 30 seconds, doubling to at most 30 minutes, until it is prepared, the
+account changes or the player sends it again. A prepared send counts as
+delivered once the library worker accepts it; if that worker's compatibility
+check or installation (file or receipt publication) then fails, the send is not
+retried until the account changes or the client restarts. Component downloads
+allow time for their signed size on slow connections, within a fixed ceiling.
 
 The existing component host checks ABI compatibility without executing uploaded
 code. The component's declared version and exact requested grants, including
@@ -35,8 +39,12 @@ are published under immutable, account/hash-derived names; each file is complete
 before it becomes visible. Imports never overwrite existing files, enable a mod,
 copy prior grants or authorize new ones. New releases appear under Settings →
 Mods → My mods; enable them and choose permissions through the existing consent
-controls. New versions remain separate files so an update cannot silently inherit
-another file's authority. The GitHub mod updater cannot replace managed files.
+controls. A marketplace mod never runs with more than its signed grants: the host
+caps its saved permissions to the signed set, including command names, whenever
+it is admitted, and the consent controls offer only the requested permissions, so
+a player can turn signed capabilities off but cannot add others. New versions
+remain separate files so an update cannot silently inherit another file's
+authority. The GitHub mod updater cannot replace managed files.
 
 ## Withdrawal and offline behavior
 
@@ -58,7 +66,8 @@ Managed filenames remain reserved even if a receipt is deleted.
 
 Removing a managed mod through Mods leaves its signed receipt as a consumed
 request. The worker queues `mod_library_remove` through the authenticated game
-connection until the server drops that exact account/project/hash/send timestamp.
+connection until the server drops that exact account/project/hash/send timestamp,
+waiting the same backoff as a failed send between requests.
 It cannot remove another account's selection or erase a later website send. A
 new Add to Cinnabar action can intentionally reinstall the release.
 
@@ -79,7 +88,7 @@ authenticated conditional removals before enabling client downloads. Test the
 real website → account connection → disabled install → explicit consent flow,
 offline expiry, restart, account switches, withdrawals and filesystem failures
 on supported platforms. Synthetic tests cover signature tampering, exact grant
-comparison, rollback/expiry, cancelled publication, collisions, consumed removals
+comparison and capping, rollback/expiry, cancelled publication, collisions, consumed removals
 and authenticated transport. The synthetic website/API handoff is replayed through
 the native HTTP downloader, disabled installation and signed withdrawal path;
 the same component exercises native ABI validation and Mods enable/consent actions.

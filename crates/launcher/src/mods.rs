@@ -8,6 +8,8 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
 pub const COMPONENT_EXTENSION: &str = "wasm";
 /// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
 pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
+/// File-name prefix reserved for managed marketplace components.
+pub const MARKETPLACE_FILE_PREFIX: &str = "marketplace-";
 /// Library message after a verified marketplace download lands, disabled, in My mods.
 pub const MARKETPLACE_ADDED: &str =
     "Marketplace mod added to Available. Enable it and choose its permissions in Mods.";
@@ -53,7 +55,8 @@ pub enum Action {
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Permission {
-    /// Whether this capability applies to the component runtime.
+    /// Whether this capability can be granted: it applies to the component runtime and, for a
+    /// marketplace release, the component requests it.
     pub applicable: bool,
     pub name: String,
     pub description: String,
@@ -117,6 +120,11 @@ impl InstalledMod {
             .collect();
         indices.sort_by_key(|index| self.permissions[*index].requested != Some(true));
         indices
+    }
+    /// Whether this card is a managed marketplace file, whose authority is capped to its signed
+    /// request.
+    pub fn marketplace(&self) -> bool {
+        self.file.starts_with(MARKETPLACE_FILE_PREFIX)
     }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {

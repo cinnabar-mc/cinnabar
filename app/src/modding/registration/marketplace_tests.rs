@@ -1,6 +1,98 @@
-//! A held marketplace program cannot regain packet authority through pending loader results.
+//! Marketplace authority stays within signed releases and is not regained by pending results.
 
 use super::*;
+use mod_host::ModGrants;
+use sha2::{Digest, Sha256};
+
+/// Signs a fixture release for exactly `grants` and authorizes it at `path` until time 10 000.
+fn signed(path: &std::path::Path, grants: &str) -> launcher_host::marketplace::Guard {
+    let bytes = crate::modding::marketplace::component_fixture(grants);
+    fs::write(path, &bytes).unwrap();
+    let manifest = launcher_host::marketplace::Manifest {
+        slug: "fixture-mod".into(),
+        version: "1.0.0".into(),
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        bytes: bytes.len() as u64,
+        grants: serde_json::from_str(grants).unwrap(),
+        approved_at: 1,
+        client_revision: "a".repeat(40),
+        policy: "fixture".into(),
+        publication: "manual".into(),
+    };
+    launcher_host::marketplace::Guard::authorized(path.into(), "11", manifest, 10_000)
+}
+
+/// Every capability, plus a command name no fixture release signs.
+fn everything() -> ModGrants {
+    let mut grants = ModGrants::default();
+    for capability in ModGrants::CAPABILITIES {
+        (capability.set)(&mut grants, true, None);
+    }
+    grants.commands = vec!["help".into(), "op".into()];
+    grants
+}
+
+/// Captures one entry the way the registration worker does, returning its admitted grants.
+fn capture(
+    entry: &mut Entry,
+    guard: &launcher_host::marketplace::Guard,
+    now: u64,
+) -> Result<ModGrants, String> {
+    worker::capture(
+        &mut source::Observer::default(),
+        entry,
+        guard,
+        &BTreeMap::new(),
+        std::time::Instant::now(),
+        now,
+    )
+    .map(|snapshot| snapshot.registration.grants)
+}
+
+#[test]
+fn managed_admission_never_exceeds_the_signed_grants() {
+    let hud_and_help = ModGrants {
+        hud: true,
+        commands: vec!["help".into()],
+        ..Default::default()
+    };
+    for (grants, expected) in [
+        ("{}", ModGrants::default()),
+        (r#"{"hud":true,"commands":["help"]}"#, hud_and_help),
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("marketplace-11-fixture.wasm");
+        let guard = signed(&path, grants);
+        let mut entry = Entry {
+            component: path.clone(),
+            enabled: true,
+            grants: everything(),
+            ..Default::default()
+        };
+        assert_eq!(capture(&mut entry, &guard, 5_000), Ok(expected.clone()));
+        assert_eq!(entry.grants, expected, "the published selection is capped");
+
+        // Turning a signed capability off is kept.
+        entry.grants = ModGrants::default();
+        assert_eq!(capture(&mut entry, &guard, 5_000), Ok(ModGrants::default()));
+
+        // Without current signed evidence the entry keeps no authority and is held.
+        entry.grants = everything();
+        assert!(capture(&mut entry, &guard, 20_000).is_err());
+        assert_eq!(entry.grants, ModGrants::default());
+
+        // A local component keeps its explicit grants.
+        let local = root.path().join("local.wasm");
+        fs::copy(&path, &local).unwrap();
+        let mut entry = Entry {
+            component: local,
+            enabled: true,
+            grants: everything(),
+            ..Default::default()
+        };
+        assert_eq!(capture(&mut entry, &guard, 5_000), Ok(everything()));
+    }
+}
 
 #[test]
 fn pending_reload_cannot_reauthorize_a_held_marketplace_packet_program() {

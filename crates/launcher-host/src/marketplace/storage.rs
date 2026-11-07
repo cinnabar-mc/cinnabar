@@ -2,7 +2,6 @@
 
 use super::{
     Guard, Keys, Manifest, SignedRelease,
-    guard::FILE_PREFIX,
     verify::{digest_valid, verify_bytes},
 };
 use anyhow::{Result, ensure};
@@ -104,7 +103,8 @@ pub(super) fn filename(owner: &str, selected: &CinnabarModEntry) -> Result<Strin
     );
     let identity = serde_json::to_vec(&(&selected.slug, &selected.version, &selected.sha256))?;
     Ok(format!(
-        "{FILE_PREFIX}{owner}-{:x}.wasm",
+        "{}{owner}-{:x}.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX,
         Sha256::digest(identity)
     ))
 }

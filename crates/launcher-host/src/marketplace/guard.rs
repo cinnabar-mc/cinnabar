@@ -8,8 +8,6 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-pub(super) const FILE_PREFIX: &str = "marketplace-";
-
 #[derive(Default)]
 struct State {
     epoch: u64,
@@ -107,6 +105,30 @@ impl Guard {
         !managed(path) || self.state().admitted(path, now).is_some()
     }
 
+    /// Returns the signed manifest of a managed file while its release is currently authorized.
+    ///
+    /// Reads no source bytes, so callers can bound a registration's authority before capturing
+    /// the source; [`Self::check`] still verifies those bytes before admission.
+    pub fn manifest(&self, path: &Path, now: u64) -> Option<Manifest> {
+        self.state().admitted(path, now).cloned()
+    }
+
+    /// Authorizes one installed release for `owner` until `expires_at`, as verified current
+    /// revocation evidence would, so admission tests need no signer.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn authorized(path: PathBuf, owner: &str, manifest: Manifest, expires_at: u64) -> Self {
+        let guard = Self::default();
+        guard.configure(1);
+        guard.account(1, owner.into());
+        guard.revocations(RevocationState {
+            issued_at: 0,
+            expires_at,
+            revoked: HashMap::new(),
+        });
+        guard.installed(path, owner.into(), manifest);
+        guard
+    }
+
     /// Validates a captured source against its receipt without reading mutable files again.
     ///
     /// Returns the signed manifest of a managed file for declaration checks, or `None` for a
@@ -145,5 +167,5 @@ impl Guard {
 pub fn managed(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with(FILE_PREFIX))
+        .is_some_and(|name| name.starts_with(launcher::mods::MARKETPLACE_FILE_PREFIX))
 }

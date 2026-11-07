@@ -98,11 +98,14 @@ impl Deliveries {
 
     /// Reports whether a send is unconsumed and past any failure backoff at `now`.
     fn due(&self, key: &Request, now: u64) -> bool {
-        !self.requests.contains(key)
-            && self
-                .failures
-                .get(key)
-                .is_none_or(|failure| now >= failure.retry_at)
+        !self.requests.contains(key) && self.retry_due(key, now)
+    }
+
+    /// Reports whether a request has no failure backoff pending at `now`.
+    fn retry_due(&self, key: &Request, now: u64) -> bool {
+        self.failures
+            .get(key)
+            .is_none_or(|failure| now >= failure.retry_at)
     }
 
     /// Delays the next attempt of a failed send by its exponential backoff from `now`.
@@ -320,7 +323,8 @@ impl Worker<'_> {
     ///
     /// `confirm` reconfirms the live account and exact selection after network I/O, and
     /// `remove` asks the core to drop a locally removed send. Held, consumed and backed-off
-    /// sends are skipped without network I/O.
+    /// sends are skipped without network I/O. Each removal request waits for the failure
+    /// backoff before it is sent again; a completed removal leaves the library, which forgets it.
     fn pass(
         &mut self,
         epoch: u64,
@@ -350,11 +354,14 @@ impl Worker<'_> {
             if self.generation.load(Ordering::SeqCst) != epoch {
                 return;
             }
+            let key = request(owner, selected);
             if storage::removed(self.mods, owner, selected, keys, self.limit, now()) {
-                remove(selected);
+                if self.deliveries.retry_due(&key, now()) {
+                    remove(selected);
+                    self.deliveries.fail(key, now());
+                }
                 continue;
             }
-            let key = request(owner, selected);
             if selected.pulled || !self.deliveries.due(&key, now()) {
                 continue;
             }

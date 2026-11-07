@@ -32,6 +32,8 @@ trait GrantValue {
     fn covers(&self, requested: &Self) -> bool;
     /// Sets only authority explicitly named by the request for non-boolean fields.
     fn set(&mut self, enabled: bool, requested: Option<&Self>);
+    /// Removes authority the ceiling does not hold, keeping the rest unchanged.
+    fn cap(&mut self, ceiling: &Self);
 }
 impl GrantValue for bool {
     fn include(&mut self, other: &Self) {
@@ -46,6 +48,10 @@ impl GrantValue for bool {
     }
     fn set(&mut self, enabled: bool, _: Option<&Self>) {
         *self = enabled;
+    }
+    /// Stays enabled only when the ceiling enables it.
+    fn cap(&mut self, ceiling: &Self) {
+        *self &= *ceiling;
     }
 }
 impl GrantValue for Vec<String> {
@@ -66,6 +72,10 @@ impl GrantValue for Vec<String> {
             Vec::new()
         };
     }
+    /// Keeps only command names the ceiling also lists.
+    fn cap(&mut self, ceiling: &Self) {
+        self.retain(|value| ceiling.contains(value));
+    }
 }
 
 macro_rules! grants {
@@ -80,6 +90,13 @@ macro_rules! grants {
             /// Unions every declared capability for shared observations without changing host grants.
             pub fn include(&mut self, other: &Self) {
                 $(GrantValue::include(&mut self.$field, &other.$field);)*
+            }
+            /// Limits authority to a ceiling such as a signed release's exact grants.
+            ///
+            /// A boolean capability stays enabled only when the ceiling enables it, and only
+            /// command names the ceiling lists remain, so capabilities may still be turned off.
+            pub fn cap(&mut self, ceiling: &Self) {
+                $(GrantValue::cap(&mut self.$field, &ceiling.$field);)*
             }
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
@@ -294,6 +311,34 @@ mod tests {
                 .sensitive
         );
     }
+    #[test]
+    fn cap_keeps_only_authority_the_ceiling_holds() {
+        let mut grants = ModGrants::default();
+        for capability in ModGrants::CAPABILITIES {
+            (capability.set)(&mut grants, true, None);
+        }
+        grants.commands = vec!["help".into(), "op".into()];
+        let mut uncapped = grants.clone();
+        uncapped.cap(&ModGrants::default());
+        assert_eq!(uncapped, ModGrants::default());
+        let ceiling = ModGrants {
+            hud: true,
+            camera: true,
+            commands: vec!["help".into(), "say".into()],
+            ..Default::default()
+        };
+        grants.camera = false;
+        grants.cap(&ceiling);
+        assert_eq!(
+            grants,
+            ModGrants {
+                hud: true,
+                commands: vec!["help".into()],
+                ..Default::default()
+            }
+        );
+    }
+
     #[test]
     fn command_toggle_grants_only_declared_names() {
         let descriptor = ModGrants::CAPABILITIES

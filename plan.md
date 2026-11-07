@@ -2114,8 +2114,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   geometry and block/item component behavior beyond the currently supported cases.
 
 Marketplace delivery implements account-scoped library transport, exact signed
-release/hash verification, disabled installation with explicit permission consent,
-signed revocation freshness and conditional library removal. Production signing
+release/hash verification, disabled installation with explicit permission consent
+capped to the signed grants, signed revocation freshness and conditional library
+removal. A send whose compatibility check or installation fails after handoff to
+the library worker is not retried until an account change or restart. Production signing
 public keys are pinned in the client. Home and Mods link to the catalogue and
 explain account sign-in, website sends and explicit permission review while
 preserving local imports. Production deployment and real-domain/cross-platform
