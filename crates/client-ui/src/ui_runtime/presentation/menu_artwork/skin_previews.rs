@@ -148,6 +148,8 @@ impl UiPresentationRuntime {
             paths: super::view_paths(view),
             images: super::view_images(view, &self.menu_hit_targets),
             oversized: self.oversized_ui_textures(),
+            // `sync_artwork_set` keeps the frame-owned priority.
+            drawn_oversized: Default::default(),
             skins,
             capes,
             cosmetics: super::cosmetic_requests::requested(

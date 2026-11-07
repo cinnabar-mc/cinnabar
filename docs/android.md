@@ -4,7 +4,8 @@ The Android client is the desktop client built for arm64-v8a Android 8+ devices 
 The APK holds the client library, the Go core, the Dragonfly local server, `assetc` and the
 shader-pack compiler, plus the prep kit. It ships no game assets: first launch asks you to accept
 the Minecraft EULA, then downloads Mojang's sample resource pack and compiles the carriers into
-the app's private storage. Keep the app open until setup finishes.
+the app's private storage. Consent, progress and any failure appear on the startup screen. Keep
+the app open until setup finishes.
 
 ## Release APKs
 

@@ -148,6 +148,7 @@ impl UiPresentationRuntime {
         if &self.screens.touch.saved != snapshot.0.touch_layout() {
             self.screens.touch.saved = snapshot.0.touch_layout().clone();
         }
+        self.set_touch_control_mode(snapshot.0.touch_control_mode());
         self.screens.chat.settings.set_snapshot(snapshot);
     }
 

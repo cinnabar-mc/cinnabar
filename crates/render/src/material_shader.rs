@@ -187,6 +187,7 @@ pub(crate) fn source(source: &str) -> String {
             assets::bamboo::LEAF_PLANE_INSET,
         ))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
+        .replace("MODEL_WORLD_ALIGNED_UV_FLAG", &format!("{}u", assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV))
         .replace("MATERIAL_DISABLE_AO_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_AO))
         .replace("MATERIAL_DISABLE_FACE_DIMMING_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING))
         .replace("MATERIAL_CAULDRON_WATER_FLAG", &format!("{}u", assets::MATERIAL_FLAG_CAULDRON_WATER))

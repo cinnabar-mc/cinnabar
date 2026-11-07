@@ -57,6 +57,8 @@ pub enum Fixture {
     },
     /// A label whose unavailable primary face selects its installed backup.
     BackupFont,
+    /// A primary click with a held stack over the installed creative catalog's empty viewport.
+    CreativeCatalogDelete,
     /// An original checker repeated beyond a small sprite's former draw cutoff.
     TiledImage {
         scale: f64,
@@ -97,7 +99,7 @@ pub enum Fixture {
         receive_while_scrolled: bool,
     },
     /// The held tab roster's rows.
-    TabList(Vec<RosterRow>),
+    TabList(Vec<RosterRow>, &'static str),
     /// Two original custom-form inputs after selection moves from the first to the second.
     EditSelection,
     /// An externally supplied bounded mod panel, the same mod's HUD surface it may embed
@@ -365,6 +367,12 @@ const STATES: &[State] = &[
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
         fixture: || updates::mod_stage(launcher::mods::UpdatePhase::Reloading),
+    },
+    State {
+        name: "creative-catalog-delete",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || Fixture::CreativeCatalogDelete,
     },
     #[cfg(feature = "test-support")]
     State {
@@ -686,6 +694,24 @@ const STATES: &[State] = &[
         size: SMALL_SIZE,
         gui_scale: 1,
         fixture: chat::history_width,
+    },
+    State {
+        name: "chat-top-java-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, false, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-top-bedrock-input",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "Typing a message", &[]),
+    },
+    State {
+        name: "chat-bedrock-input-completion",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || chat::input(true, true, "/give @", &["@a", "@e", "@p"]),
     },
     State {
         name: "chat-command-background-transparent",

@@ -83,6 +83,8 @@ pub(super) struct ArtworkSet {
     /// Encoded images held in memory, by the key they draw under, such as world thumbnails.
     pub(super) images: Vec<(String, Arc<[u8]>)>,
     pub(super) oversized: ui_engine::atlas::OversizedTextures,
+    /// Oversized keys the last frame drew when the atlas was requested; they pack first.
+    pub(super) drawn_oversized: BTreeSet<String>,
     pub(super) skins: Vec<SkinArtwork>,
     pub(super) capes: Vec<CapeArtwork>,
     pub(super) cosmetics: Vec<CosmeticArtwork>,
@@ -108,6 +110,7 @@ impl ArtworkSet {
             && self.skins.len() == other.skins.len()
             && self.skins.iter().zip(&other.skins).all(|(a, b)| a.same(b))
             && self.oversized.same(&other.oversized)
+            && self.drawn_oversized == other.drawn_oversized
     }
 }
 
@@ -120,11 +123,9 @@ struct Request {
 pub(super) struct Packed {
     id: u64,
     /// Every decodable source is in; a partial atlas precedes it.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(dead_code, reason = "only tests wait for the final atlas")
-    )]
     complete: bool,
+    /// Sources were left out because the pages or the source cap ran out.
+    left_out: bool,
     pub(super) pages: Vec<render_model::UiTexturePage>,
     pub(super) refs: HashMap<String, IconRef>,
 }
@@ -138,6 +139,10 @@ pub(super) struct ArtworkLoader {
     results: Receiver<Packed>,
     requested: u64,
     ready: Option<Packed>,
+    /// The latest request's complete atlas is installed.
+    settled: bool,
+    /// The installed atlas left sources out because the pages or the source cap ran out.
+    left_out: bool,
     gallery: Option<request_cache::GalleryRequest>,
     /// The installed atlas's refs, page-relative, for rebasing.
     pub(super) relative: HashMap<String, IconRef>,
@@ -159,6 +164,8 @@ impl Default for ArtworkLoader {
             requested: 0,
             relative: HashMap::new(),
             ready: Some(title),
+            settled: false,
+            left_out: false,
             gallery: None,
         }
     }
@@ -175,6 +182,7 @@ impl ArtworkLoader {
         self.gallery = None;
         self.requested += 1;
         self.ready = None;
+        self.settled = false;
         let request = Request {
             id: self.requested,
             set,
@@ -199,6 +207,17 @@ impl ArtworkLoader {
         self.ready.is_some()
     }
 
+    /// Whether no request is in flight: the latest one's complete atlas is installed.
+    pub(super) fn settled(&self) -> bool {
+        self.settled
+    }
+
+    /// Whether the installed atlas left sources out because the pages or the source cap ran
+    /// out.
+    pub(super) fn left_out(&self) -> bool {
+        self.left_out
+    }
+
     /// Inspects pending pixels without retiring them before texture admission succeeds.
     pub(super) fn pending(&self) -> Option<&Packed> {
         self.ready.as_ref()
@@ -207,6 +226,8 @@ impl ArtworkLoader {
     /// The admitted atlas, which becomes the installed one.
     pub(super) fn take(&mut self) -> Option<Packed> {
         let packed = self.ready.take()?;
+        self.settled = packed.complete;
+        self.left_out = packed.left_out;
         self.relative.clone_from(&packed.refs);
         Some(packed)
     }
@@ -220,6 +241,7 @@ impl ArtworkLoader {
         self.ready = Some(Packed {
             id: self.requested,
             complete: true,
+            left_out: false,
             pages,
             refs,
         });
@@ -484,6 +506,14 @@ impl DecodeCache {
 
 /// `set`'s distinct sources in draw priority, capped like the atlas.
 fn sources(set: &ArtworkSet) -> Vec<Source> {
+    ranked_sources(set).0
+}
+
+/// `set`'s distinct sources in draw priority, capped like the atlas, and whether the cap left
+/// any out.
+fn ranked_sources(set: &ArtworkSet) -> (Vec<Source>, bool) {
+    // One past the cap, so a source the cap leaves out is seen.
+    const CAP: usize = MAX_ARTWORKS + 1;
     let mut unique = BTreeSet::new();
     let images: Vec<_> = set
         .images
@@ -495,33 +525,42 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
         .paths
         .iter()
         .filter(|(path, _)| !path.is_empty() && unique.insert(path.clone()))
-        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)));
-    let engine = set
+        .map(|(path, side)| Source::File(path.clone(), (*side).min(SERVER_BANNER_SIDE)))
+        .collect::<Vec<_>>();
+    // Server textures a frame drew outrank launcher artwork, which a session keeps from the
+    // last menu; the rest follow it.
+    let (drawn, idle): (Vec<_>, Vec<_>) = set
         .oversized
         .iter()
-        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)));
+        .partition(|(key, _)| set.drawn_oversized.contains(key));
     let mut all: Vec<_> = set
         .cosmetics
         .iter()
         .filter(|source| source.kind == CosmeticArtworkKind::EquippedTexture)
-        .take(MAX_ARTWORKS)
+        .take(CAP)
         .map(|source| Source::Item(source.item, false))
         .collect();
-    let remaining = MAX_ARTWORKS - all.len();
+    let remaining = CAP - all.len();
     all.extend(set.capes.iter().take(remaining).cloned().map(Source::Cape));
-    let remaining = MAX_ARTWORKS - all.len();
+    let remaining = CAP - all.len();
     all.extend(set.skins.iter().take(remaining).cloned().map(Source::Skin));
-    let remaining = MAX_ARTWORKS - all.len();
-    all.extend(images.into_iter().take(remaining));
-    let remaining = MAX_ARTWORKS - all.len();
-    all.extend(files.take(remaining));
-    let remaining = MAX_ARTWORKS - all.len();
+    let remaining = CAP - all.len();
     all.extend(
-        engine
+        server_art(drawn)
             .filter(|source| unique.insert(source.key().0))
             .take(remaining),
     );
-    let remaining = MAX_ARTWORKS - all.len();
+    let remaining = CAP - all.len();
+    all.extend(images.into_iter().take(remaining));
+    let remaining = CAP - all.len();
+    all.extend(files.into_iter().take(remaining));
+    let remaining = CAP - all.len();
+    all.extend(
+        server_art(idle)
+            .filter(|source| unique.insert(source.key().0))
+            .take(remaining),
+    );
+    let remaining = CAP - all.len();
     all.extend(
         set.cosmetics
             .iter()
@@ -529,7 +568,7 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
             .take(remaining)
             .map(|source| Source::Item(source.item, true)),
     );
-    let remaining = MAX_ARTWORKS - all.len();
+    let remaining = CAP - all.len();
     all.extend(
         set.cosmetics
             .iter()
@@ -537,7 +576,16 @@ fn sources(set: &ArtworkSet) -> Vec<Source> {
             .take(remaining)
             .map(|source| Source::Item(source.item, false)),
     );
-    all
+    let left_out = all.len() > MAX_ARTWORKS;
+    all.truncate(MAX_ARTWORKS);
+    (all, left_out)
+}
+
+/// Art-page sources for server UI textures, keyed apart from launcher artwork.
+fn server_art(entries: Vec<&(String, Arc<[u8]>)>) -> impl Iterator<Item = Source> + '_ {
+    entries
+        .into_iter()
+        .map(|(key, bytes)| Source::Bytes(format!("{SERVER_ART_PREFIX}{key}"), Arc::clone(bytes)))
 }
 
 fn decode(path: &Path, max_side: u32) -> Option<(Vec<u8>, u32, u32)> {

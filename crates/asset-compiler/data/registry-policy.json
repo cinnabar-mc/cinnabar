@@ -1439,6 +1439,103 @@
       ]
     },
     {
+      "id": "interactive-classes",
+      "fact": "INTERACTIVE",
+      "status": "verified",
+      "model_family": [
+        "Door",
+        "Trapdoor",
+        "Gate",
+        "Button",
+        "Lever",
+        "Bed",
+        "Chest",
+        "Sign",
+        "Statue",
+        "ChiseledBookshelf"
+      ],
+      "members": [
+        "minecraft:anvil",
+        "minecraft:barrel",
+        "minecraft:beacon",
+        "minecraft:bell",
+        "minecraft:blast_furnace",
+        "minecraft:brewing_stand",
+        "minecraft:cartography_table",
+        "minecraft:cauldron",
+        "minecraft:chain_command_block",
+        "minecraft:chalkboard",
+        "minecraft:chipped_anvil",
+        "minecraft:command_block",
+        "minecraft:composter",
+        "minecraft:compound_creator",
+        "minecraft:crafter",
+        "minecraft:crafting_table",
+        "minecraft:damaged_anvil",
+        "minecraft:daylight_detector",
+        "minecraft:daylight_detector_inverted",
+        "minecraft:decorated_pot",
+        "minecraft:deprecated_anvil",
+        "minecraft:dispenser",
+        "minecraft:dropper",
+        "minecraft:element_constructor",
+        "minecraft:enchanting_table",
+        "minecraft:end_portal_frame",
+        "minecraft:flower_pot",
+        "minecraft:frame",
+        "minecraft:furnace",
+        "minecraft:glow_frame",
+        "minecraft:grindstone",
+        "minecraft:hopper",
+        "minecraft:jigsaw",
+        "minecraft:jukebox",
+        "minecraft:lab_table",
+        "minecraft:lectern",
+        "minecraft:lit_blast_furnace",
+        "minecraft:lit_furnace",
+        "minecraft:lit_smoker",
+        "minecraft:loom",
+        "minecraft:material_reducer",
+        "minecraft:noteblock",
+        "minecraft:powered_comparator",
+        "minecraft:powered_repeater",
+        "minecraft:repeating_command_block",
+        "minecraft:respawn_anchor",
+        "minecraft:smithing_table",
+        "minecraft:smoker",
+        "minecraft:stonecutter_block",
+        "minecraft:structure_block",
+        "minecraft:sweet_berry_bush",
+        "minecraft:unpowered_comparator",
+        "minecraft:unpowered_repeater",
+        "minecraft:vault"
+      ]
+    },
+    {
+      "id": "interactive-shulker_box",
+      "fact": "INTERACTIVE",
+      "status": "verified",
+      "suffix": "shulker_box"
+    },
+    {
+      "id": "interactive-candle",
+      "fact": "INTERACTIVE",
+      "status": "verified",
+      "suffix": "candle"
+    },
+    {
+      "id": "interactive-candle_cake",
+      "fact": "INTERACTIVE",
+      "status": "verified",
+      "suffix": "candle_cake"
+    },
+    {
+      "id": "interactive-shelf",
+      "fact": "INTERACTIVE",
+      "status": "verified",
+      "suffix": "_shelf"
+    },
+    {
       "id": "humanoid_wearable-31",
       "fact": "HUMANOID_WEARABLE",
       "status": "verified",
@@ -7147,6 +7244,9 @@
       ]
     },
     "ambient_blocks": {
+      "EnderChest": [
+        "minecraft:ender_chest"
+      ],
       "Fire": [
         "minecraft:fire"
       ],

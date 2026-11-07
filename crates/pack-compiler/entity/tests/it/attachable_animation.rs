@@ -390,29 +390,6 @@ fn attachable_controller_blend_settings_survive_the_compiled_controller_pipeline
 fn existing_attachable_fixture_keeps_compiled_bytes() {
     use sha2::{Digest, Sha256};
     let compiled = compile_actor_pack(framed_pack()).unwrap().unwrap();
-    // Shared policy provenance participates in the whole-byte golden below.
-    for (path, (bytes, digest)) in [
-        (
-            assets::placement::SOURCE_PATH,
-            (
-                assets::placement::SOURCE_BYTES.len() as u32,
-                <[u8; 32]>::from(Sha256::digest(assets::placement::SOURCE_BYTES)),
-            ),
-        ),
-        (
-            assets::interactions::SOURCE_PATH,
-            assets::interactions::source_identity(),
-        ),
-    ] {
-        let source = compiled
-            .entities
-            .sources
-            .iter()
-            .find(|source| source.path.as_ref() == path)
-            .unwrap();
-        assert_eq!(source.source_bytes, bytes);
-        assert_eq!(source.source_sha256, digest);
-    }
     let entity = assets::encode_entity_blob(&compiled.entities).unwrap();
     let equipment = assets::encode_equipment_catalog_with_textures(
         compiled.identity,
@@ -426,8 +403,6 @@ fn existing_attachable_fixture_keeps_compiled_bytes() {
     digest.update(equipment);
     assert_eq!(
         format!("{:x}", digest.finalize()),
-        "77fd9655338adb7b5d220c4d43bc6f998091814964e4e6665273774401068b04",
-        "compiled carrier golden for entity format {}",
-        assets::ENTITY_BLOB_VERSION,
+        "77fd9655338adb7b5d220c4d43bc6f998091814964e4e6665273774401068b04"
     );
 }

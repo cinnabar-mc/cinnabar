@@ -269,11 +269,10 @@ fn review_faded_block_models_keep_single_layer_thumbnail_opacity() {
         })
         .into();
     presentation.gui_models.enabled = true;
-    presentation
-        .gui_models
-        .sources
-        .models
-        .insert(icon_key(icon), item_gui::block_model(&quads).unwrap());
+    presentation.gui_models.sources.models.insert(
+        icon_key(icon),
+        item_gui::block_model(&quads, assets::gui_item::GuiShading::Inventory).unwrap(),
+    );
     presentation
         .gui_models
         .sources

@@ -451,6 +451,9 @@ world_packets! {
         WorldEvent::Inventory(event)
     },
     InventorySlot(packet) => WorldEvent::Inventory(normalize_slot(packet)?),
+    PlayerArmorDamage(packet) => {
+        WorldEvent::Inventory(crate::inventory::normalize_armor_damage(packet))
+    },
     InventoryTransaction(packet) => {
         let Some(event) = crate::inventory::normalize_transaction(packet) else {
             return Ok(None);

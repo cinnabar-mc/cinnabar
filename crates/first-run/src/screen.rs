@@ -149,7 +149,7 @@ pub(super) fn from_status(status: &Status, meter: &mut Meter, now: Instant) -> S
             }
         }
         Phase::Running if status.total == 0 => Screen::Starting,
-        Phase::Running => Screen::Preparing {
+        Phase::Running | Phase::LocalWorlds => Screen::Preparing {
             step: status.step,
             total: status.total,
             label: status.label.clone(),

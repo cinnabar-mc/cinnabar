@@ -423,11 +423,15 @@ fn resolve_frame(
         crosshair = gameplay::melee::trim_actor_pick(crosshair, position, actor_reach);
     }
     let hover = match crosshair {
-        Crosshair::Actor(hit) => Some(gameplay::entity_hover::HoveredActor {
-            unique_id: world.actor(hit.runtime_id)?.unique_id,
-            runtime_id: hit.runtime_id,
-            point: hit.point,
-        }),
+        Crosshair::Actor(hit) => {
+            let actor = world.actor(hit.runtime_id)?;
+            Some(gameplay::entity_hover::HoveredActor {
+                unique_id: actor.unique_id,
+                runtime_id: hit.runtime_id,
+                point: hit.point,
+                metadata_revision: actor.metadata_revision,
+            })
+        }
         _ => None,
     };
     let capture = frame

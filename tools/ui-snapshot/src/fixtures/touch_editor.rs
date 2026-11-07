@@ -11,10 +11,45 @@ pub(crate) enum TouchUtilityView {
     DebugOverlay,
     /// Sample mod-registered buttons beside the built-in controls, one held.
     ModButtons,
+    /// The gameplay controls of one Control mode.
+    ControlMode(semantic_input::TouchControlMode),
 }
 
 /// Touchscreen settings and actual editor interactions at the standard capture viewport.
 pub(super) const STATES: &[State] = &[
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-touch",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Touch,
+            ))
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-classic",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Classic,
+            ))
+        },
+    },
+    #[cfg(feature = "test-support")]
+    State {
+        name: "touch-mode-crosshair",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            Fixture::TouchUtilities(TouchUtilityView::ControlMode(
+                semantic_input::TouchControlMode::Crosshair,
+            ))
+        },
+    },
     #[cfg(feature = "test-support")]
     State {
         name: "touch-player-list",

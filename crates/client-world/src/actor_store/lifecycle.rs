@@ -584,6 +584,7 @@ impl ActorStore {
                         std::mem::discriminant(previous) != std::mem::discriminant(&metadata.value)
                     })
                 });
+                actor.metadata_revision = sequence;
                 let rejected =
                     actor.apply_metadata(&update.metadata, sequence, &mut self.hitbox_budget)
                         | actor.apply_properties(&update.properties);

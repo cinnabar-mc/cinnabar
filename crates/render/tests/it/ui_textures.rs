@@ -2,11 +2,10 @@ use std::sync::Arc;
 
 use render_model::{
     MAX_UI_DYNAMIC_PAGES, MAX_UI_FIXED_TEXTURE_BYTES, MAX_UI_MODEL_ATLAS_PAGES,
-    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_LAYERS, MAX_UI_TEXTURE_SIDE, UI_DYNAMIC_PAGE_SIDE,
-    UI_LOCAL_FONT_PAGE_OFFSET, UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET,
-    UI_MODEL_ATLAS_SIDE, UI_PLAYER_SKIN_PAGE_OFFSET, UI_SELECTED_MODEL_PAGE_OFFSET,
-    UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason, UiTextureCatalog, UiTexturePage,
-    UiTexturePlan,
+    MAX_UI_TEXTURE_BYTES, MAX_UI_TEXTURE_SIDE, UI_DYNAMIC_PAGE_SIDE, UI_LOCAL_FONT_PAGE_OFFSET,
+    UI_LOCAL_FONT_PAGE_SIDE, UI_MODEL_ATLAS_PAGE_OFFSET, UI_MODEL_ATLAS_SIDE,
+    UI_PLAYER_SKIN_PAGE_OFFSET, UI_SESSION_ICON_PAGE_OFFSET, UiRenderRejectReason,
+    UiTextureCatalog, UiTexturePage, UiTexturePlan,
 };
 
 #[test]
@@ -95,7 +94,7 @@ fn ordered_logical_mapping_does_not_group_draw_order() {
 }
 
 #[test]
-fn art_native_and_selected_pages_follow_their_catalog_bounds() {
+fn art_native_and_selected_pages_share_the_catalog_layer_limit() {
     let small = UiTexturePage::owned([256, 256], vec![0; 256 * 256 * 4].into()).unwrap();
     let side = render_model::UI_ART_PAGE_SIDE;
     let art =
@@ -117,20 +116,24 @@ fn art_native_and_selected_pages_follow_their_catalog_bounds() {
         catalog.pages().len(),
         render_model::UI_NATIVE_SHEET_PAGE_OFFSET + render_model::MAX_UI_NATIVE_SHEET_PAGES
     );
+    // Pages after the native sheets are selected model sources, up to the layer limit.
     pages.push(small.clone());
     let selected = UiTextureCatalog::new(pages.clone(), 0).unwrap();
-    assert_eq!(selected.pages().len(), UI_SELECTED_MODEL_PAGE_OFFSET + 1);
-    pages.resize(MAX_UI_TEXTURE_LAYERS as usize, small.clone());
+    assert_eq!(
+        selected.pages().len(),
+        render_model::UI_SELECTED_MODEL_PAGE_OFFSET + 1
+    );
+    pages.resize(render_model::MAX_UI_TEXTURE_LAYERS as usize, small.clone());
     assert!(UiTextureCatalog::new(pages.clone(), 0).is_ok());
     pages.push(small.clone());
     assert_eq!(
-        UiTextureCatalog::new(pages, 0).map(|_| ()),
+        UiTextureCatalog::new(pages, 0),
         Err(UiRenderRejectReason::InvalidTextureExtent)
     );
     let mut oversized_art = reserved_dynamic_pages();
     oversized_art.push(rgba_page([MAX_UI_TEXTURE_SIDE; 2], 0));
     assert_eq!(
-        UiTextureCatalog::new(oversized_art, 0).map(|_| ()),
+        UiTextureCatalog::new(oversized_art, 0),
         Err(UiRenderRejectReason::InvalidTextureExtent)
     );
     let odd = rgba_page([UI_MODEL_ATLAS_SIDE; 2], 0);
