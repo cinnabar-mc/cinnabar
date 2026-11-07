@@ -827,11 +827,13 @@ impl MenuRuntime {
         }
     }
 
-    /// The draft's `host:port`; a host typed with its own port keeps it.
+    /// The draft's `host:port`; a host typed with its own port, or a raw
+    /// NetherNet target, which has none, keeps it.
     fn draft_endpoint(&self) -> String {
         let host = self.address.as_str().trim();
         let port = self.port.as_str().trim();
-        let own_port = host.contains("]:")
+        let own_port = launcher::menu::is_nethernet_target(host)
+            || host.contains("]:")
             || host.split_once(':').is_some_and(|(_, rest)| {
                 !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
             });
