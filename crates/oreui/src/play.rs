@@ -4,6 +4,8 @@
 //! row playing on press with a trailing Edit action).
 
 use std::collections::HashMap;
+#[cfg(test)]
+mod focus_tests;
 mod tabs;
 
 use super::grid::{Grid, space};
@@ -13,7 +15,9 @@ use super::theme::{
     BODY, CAPTION, NEUTRAL80, NEUTRAL100, SECONDARY_BUTTON, TEXT, TEXT_DIMMER, TEXT_DIMMEST,
 };
 use super::theme::{EDGE, HEADER_HEIGHT, SPACE};
-use super::widgets::{TAB_HEIGHT, Variant, button, header, panel, row, screen_overlay, tag};
+use super::widgets::{
+    FOCUS_RING, TAB_HEIGHT, Variant, button, header, panel, row, screen_overlay, tag,
+};
 use super::{play_realms, play_servers};
 use launcher::menu::{LocalWorldAction, MenuAction, MenuScreen, MenuView};
 use ui::IconRef;
@@ -70,6 +74,13 @@ fn draw_fitted(
 ) -> Result<(), PaintError> {
     let [width, height] = size;
     screen_overlay(canvas, size)?;
+    // The header, the tab bar and the tab's content are focus regions stacked top to bottom.
+    let region = canvas.begin_focus_region(
+        super::focus::HEADER,
+        [0.0, 0.0, width, canvas.r(HEADER_HEIGHT)],
+        None,
+        true,
+    )?;
     let top = header(
         canvas,
         view,
@@ -77,11 +88,19 @@ fn draw_fitted(
         width,
         Some(MenuAction::Navigate(MenuScreen::Home)),
     )?;
+    canvas.end_focus_region(region);
     let grid = Grid::new(canvas.r(1.0), width);
     let [left, right] = grid.span(0, if grid.narrow { 8 } else { 12 });
     let tab_top = top + space(canvas, 1);
     let tab_bottom = tab_top + canvas.r(TAB_HEIGHT);
+    let region = canvas.begin_focus_region(
+        super::focus::PLAY_TABS,
+        [left, tab_top, right, tab_bottom],
+        None,
+        true,
+    )?;
     tabs::draw(canvas, view, [left, tab_top, right, tab_bottom], selected)?;
+    canvas.end_focus_region(region);
     let body: Bounds = [
         left,
         tab_bottom + space(canvas, 2),
@@ -119,6 +138,12 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
         .r(25.6)
         .min((body[2] - body[0] - gap * (count - 1.0)) / count);
     let mut left = body[2] - button_width * count - gap * (count - 1.0);
+    let region = canvas.begin_focus_region(
+        super::focus::WORLD_ACTIONS,
+        [left, body[1], body[2], body[1] + button_height],
+        None,
+        true,
+    )?;
     for (variant, label, action) in buttons {
         button(
             canvas,
@@ -130,6 +155,7 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
         )?;
         left += button_width + gap;
     }
+    canvas.end_focus_region(region);
     let list_top = body[1] + button_height + space(canvas, 1);
     if view.friends.is_empty() && view.local_worlds.is_empty() {
         let card = [body[0], list_top, body[2], list_top + canvas.r(18.0)];
@@ -163,7 +189,20 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
     }
     let row_height = canvas.r(WORLD_ROW_HEIGHT);
     let gap = space(canvas, 2);
-    let scroll = canvas.begin_scroll("worlds_list", [body[0], list_top, body[2], body[3]])?;
+    // The view reaches past the rows by their focus outline, so the first
+    // row's outline is not clipped.
+    let ring = canvas.r(FOCUS_RING);
+    let view_top = list_top - ring;
+    let scroll = canvas.begin_scroll(
+        "worlds_list",
+        [body[0] - ring, view_top, body[2] + ring, body[3]],
+    )?;
+    let region = canvas.begin_focus_region(
+        super::focus::CONTENT,
+        [body[0], list_top, body[2], body[3]],
+        None,
+        true,
+    )?;
     let mut y = list_top - scroll.offset;
     let entries = view
         .friends
@@ -198,13 +237,16 @@ fn worlds_tab(canvas: &mut Canvas<'_>, view: &MenuView, body: Bounds) -> Result<
         );
     for entry in entries {
         if y + row_height < list_top || y > body[3] {
+            // A scrolled-off world keeps its place in the focus order, so keys reveal it.
+            canvas.focus_target(entry.action, [body[0], y, body[2], y + row_height])?;
             y += row_height + gap;
             continue;
         }
         world_row(canvas, view, &entry, [body[0], y, body[2], y + row_height])?;
         y += row_height + gap;
     }
-    let content = y + scroll.offset - list_top;
+    canvas.end_focus_region(region);
+    let content = y + scroll.offset - view_top;
     canvas.end_scroll(scroll, content)
 }
 

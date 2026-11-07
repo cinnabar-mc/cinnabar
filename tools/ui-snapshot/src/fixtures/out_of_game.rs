@@ -206,6 +206,16 @@ pub(super) fn play_worlds() -> Fixture {
     Fixture::Menu(Box::new(view))
 }
 
+/// The Worlds tab with keyboard focus on the first world, outlined on every side.
+pub(super) fn play_worlds_keyboard_focus() -> Fixture {
+    let Fixture::Menu(mut view) = play_worlds() else {
+        unreachable!()
+    };
+    view.focused_action = Some(MenuAction::PlayLocalWorld(0));
+    view.navigation_focus_visible = true;
+    Fixture::Menu(view)
+}
+
 /// Shows the modal over the Worlds tab while a world file is copied in.
 pub(super) fn play_worlds_importing() -> Fixture {
     let Fixture::Menu(mut view) = play_worlds() else {

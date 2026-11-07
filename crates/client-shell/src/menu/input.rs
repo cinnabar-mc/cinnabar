@@ -943,6 +943,9 @@ pub fn drive_menu_input(
             _ => {}
         }
     }
+    if let Some((point, notches)) = menu.navigation_focus.regions.take_scroll() {
+        presentation.scroll_menu(point, notches, false);
+    }
     if (!menu.is_visible()
         || (!gameplay_pending && menu.gameplay_return_pending())
         || (!respawn_pending && menu.death_loading)

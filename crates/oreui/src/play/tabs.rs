@@ -121,6 +121,9 @@ pub(super) fn draw(
         )?;
         if i != selected {
             canvas.hit(action, cell)?;
+        } else {
+            // The open tab takes keyboard focus but no click, so arrow keys cross every tab.
+            canvas.focus_target(action, cell)?;
         }
     }
     Ok(())
