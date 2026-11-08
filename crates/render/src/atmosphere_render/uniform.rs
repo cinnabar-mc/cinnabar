@@ -40,7 +40,7 @@ mod tests {
                     render_model::celestial::rgb_to_gamma(frame.fog_color())
                 );
                 let mut encoded =
-                    bevy::render::render_resource::encase::UniformBuffer::new(Vec::new());
+                    bevy::render::render_resource::encase::UniformBuffer::new(Vec::<u8>::new());
                 encoded.write(&uniform).unwrap();
                 assert_eq!(encoded.into_inner(), bytes);
             }
