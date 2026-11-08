@@ -56,6 +56,18 @@ pub(super) const SEARCH_STATES: &[State] = &[
         fixture: || settings_search("vsync"),
     },
     State {
+        name: "settings-storage-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+                unreachable!()
+            };
+            Arc::make_mut(&mut view.storage).loading = true;
+            Fixture::Menu(view)
+        },
+    },
+    State {
         name: "settings-storage-search",
         size: SIZE,
         gui_scale: GUI_SCALE,

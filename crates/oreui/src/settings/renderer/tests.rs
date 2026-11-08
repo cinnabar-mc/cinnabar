@@ -540,3 +540,28 @@ fn storage_search_keeps_original_pack_indices_and_clear_all_is_explicit() {
             .any(|label| label.contains("No matching packs"))
     );
 }
+
+#[test]
+fn storage_loading_keeps_rows_readable_and_disables_deletion() {
+    use launcher::menu::settings_storage::StorageItem;
+    let mut view = settings_view(SettingSection::StorageManagement.definition().name);
+    let storage = Arc::make_mut(&mut view.storage);
+    storage.loading = true;
+    storage.expanded.fill(true);
+    storage.cached = vec![StorageItem {
+        name: "Cloud Islands".into(),
+        ..Default::default()
+    }];
+    let (actions, labels) = controls(&view);
+    assert!(labels.iter().any(|label| label.contains("Cloud Islands")));
+    assert!(labels.iter().any(|label| label.contains("Loading storage")));
+    assert!(!actions.iter().any(|action| matches!(
+        action,
+        MenuAction::SettingsStorage(
+            StorageAction::DeletePack(_)
+                | StorageAction::RequestClear
+                | StorageAction::RequestDelete
+                | StorageAction::RequestScreenshots
+        )
+    )));
+}

@@ -22,12 +22,18 @@ pub struct StorageItem {
     pub date: String,
     pub version: String,
     pub pack_id: String,
+    pub icon: Option<std::sync::Arc<[u8]>>,
     pub game_type: String,
     pub last_played: i64,
     pub path: PathBuf,
 }
 
 impl StorageItem {
+    /// The artwork key for this archive, independent of its displayed name or search position.
+    pub fn icon_key(&self) -> String {
+        format!("storage-pack:{}", self.path.display())
+    }
+
     /// Matches the pack's display identity or cache filename without changing its inventory index.
     pub fn matches_query(&self, query: &str) -> bool {
         let query = query.trim().to_lowercase();
@@ -49,6 +55,7 @@ impl StorageItem {
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct StorageView {
+    pub loading: bool,
     pub worlds: Vec<StorageItem>,
     pub cached: Vec<StorageItem>,
     pub screenshots: Vec<StorageItem>,

@@ -69,6 +69,10 @@ fn downloaded_pack_inventory_excludes_housekeeping_and_reads_display_identity() 
         .start_file("texts/en_US.lang", zip::write::SimpleFileOptions::default())
         .unwrap();
     archive.write_all(b"pack.name=Cloud Islands\n").unwrap();
+    archive
+        .start_file("pack_icon.png", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    archive.write_all(b"encoded icon").unwrap();
     archive.finish().unwrap();
     fs::write(root.join(".packcache.lock"), b"lease").unwrap();
     fs::write(root.join(".packcache-partial"), b"partial").unwrap();
@@ -78,6 +82,7 @@ fn downloaded_pack_inventory_excludes_housekeeping_and_reads_display_identity() 
     let pack = items.iter().find(|item| item.path == path).unwrap();
     assert_eq!(pack.name, "Cloud Islands");
     assert_eq!(pack.version, "1.2.3");
+    assert_eq!(pack.icon.as_deref(), Some(b"encoded icon".as_slice()));
     assert_eq!(pack.pack_id, "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee");
     assert!(pack.matches_query("CLOUD"));
     assert!(pack.matches_query("1.2.3"));

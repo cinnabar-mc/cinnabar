@@ -21,7 +21,7 @@ use std::{
 use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 mod cached;
-pub use cached::cached_pack_metadata;
+pub use cached::{CachedPackMetadata, cached_pack_metadata};
 mod directory;
 mod java;
 mod selection;

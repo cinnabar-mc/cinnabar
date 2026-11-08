@@ -211,6 +211,7 @@ impl MenuRuntime {
             settings_input: focus::SettingsInput::default(),
             settings_options: std::sync::Arc::new(settings_options),
             storage: initial.storage,
+            storage_reader: None,
             settings_dirty: false,
             settings_writer: None,
             settings_retry_at: None,

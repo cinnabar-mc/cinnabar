@@ -315,6 +315,7 @@ pub(super) fn settings_storage() -> Fixture {
     .map(
         |(name, version, id)| launcher::menu::settings_storage::StorageItem {
             name: name.into(),
+            icon: (name == "Cloud Islands").then(super::mods::icon),
             version: version.into(),
             pack_id: id.into(),
             bytes: 12 * 1024 * 1024,

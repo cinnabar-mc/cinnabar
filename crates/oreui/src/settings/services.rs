@@ -125,6 +125,12 @@ fn resources(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
 fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     content.heading("menu.storage.tab.title", "menu.storage.tab.description")?;
     let view = content.view;
+    if view.storage.loading {
+        content.label_text(
+            "Loading storage…",
+            "Your saved content will appear here shortly.",
+        )?;
+    }
     let titles = [
         "hbui.Settings.storage.worlds.title",
         "hbui.Settings.storage.worldTemplates.title",
@@ -162,7 +168,7 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         if !view.storage.expanded[category_index] {
             continue;
         }
-        if items.is_empty() {
+        if items.is_empty() && !view.storage.loading {
             let empty = content
                 .word("hbui.Settings.storage.emptyList.title")
                 .replace("%1$s", &category_title);
@@ -228,15 +234,7 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                         item.pack_id.clone()
                     }
                 );
-                action_row_text(
-                    content,
-                    &item.name,
-                    &description,
-                    "Delete pack",
-                    Some(MenuAction::SettingsStorage(StorageAction::DeletePack(
-                        index,
-                    ))),
-                )?;
+                pack_row(content, item, &description, index)?;
                 continue;
             }
             let select = match *category {
@@ -255,7 +253,7 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 &item.name,
                 &description,
                 "gui.select",
-                Some(MenuAction::SettingsStorage(select)),
+                (!view.storage.loading).then_some(MenuAction::SettingsStorage(select)),
             )?;
             if selected {
                 action_row(
@@ -263,7 +261,8 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                     "",
                     "",
                     "hbui.Settings.storage.listHeader.delete",
-                    Some(MenuAction::SettingsStorage(StorageAction::RequestDelete)),
+                    (!view.storage.loading)
+                        .then_some(MenuAction::SettingsStorage(StorageAction::RequestDelete)),
                 )?;
             }
         }
@@ -297,7 +296,7 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "Clear all downloaded server packs",
         "Removes every downloaded pack, including packs hidden by search. Imported resource packs stay installed.",
         "Clear all",
-        (!view.storage.cached.is_empty())
+        (!view.storage.loading && !view.storage.cached.is_empty())
             .then_some(MenuAction::SettingsStorage(StorageAction::RequestClear)),
     )?;
     action_row(
@@ -305,9 +304,52 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
         "options.dev_deleteLocalScreenshots",
         "",
         "hbui.Settings.storage.listHeader.delete",
-        Some(MenuAction::SettingsStorage(
+        (!view.storage.loading).then_some(MenuAction::SettingsStorage(
             StorageAction::RequestScreenshots,
         )),
+    )?;
+    Ok(())
+}
+
+/// Adds a pack thumbnail beside the existing responsive action row without changing its hit target.
+fn pack_row(
+    content: &mut Content<'_, '_>,
+    item: &launcher::menu::settings_storage::StorageItem,
+    description: &str,
+    index: usize,
+) -> Result<(), PaintError> {
+    let span = content.span;
+    let top = content.y;
+    let side = content.canvas.r(6.4);
+    let pad = content.canvas.r(1.2);
+    let inset = side + 2.0 * pad;
+    content.span[0] += inset;
+    let result = action_row_text(
+        content,
+        &item.name,
+        description,
+        "Delete pack",
+        (!content.view.storage.loading).then_some(MenuAction::SettingsStorage(
+            StorageAction::DeletePack(index),
+        )),
+    );
+    content.span = span;
+    result?;
+    content
+        .canvas
+        .fill([span[0], top, span[0] + inset, content.y], NEUTRAL.fill)?;
+    let y = (top + content.y - side) * 0.5;
+    super::resources::thumbnail(
+        content,
+        [span[0] + pad, y, span[0] + pad + side, y + side],
+        Some(&item.icon_key()),
+        false,
+    )?;
+    widgets::divider(
+        content.canvas,
+        span[0],
+        span[0] + inset,
+        content.y - content.canvas.r(EDGE),
     )?;
     Ok(())
 }

@@ -6,6 +6,10 @@ use launcher::install_layout::InstallLayout;
 
 use launcher::menu::settings_storage::*;
 
+#[path = "settings_storage_worker.rs"]
+mod worker;
+pub use worker::StorageReader;
+
 /// Measures real world and downloaded-pack data once when Storage opens.
 pub fn read_storage(layout: &InstallLayout) -> StorageView {
     let mut view = StorageView {
@@ -58,9 +62,10 @@ pub fn cached_packs(root: &Path) -> io::Result<Vec<StorageItem>> {
             .ok()
             .and_then(resource_pack::cached_pack_metadata)
         {
-            item.name = metadata.name;
-            item.version = metadata.version.map(|part| part.to_string()).join(".");
-            item.pack_id = metadata.id.to_string();
+            item.icon = metadata.icon;
+            item.name = metadata.pack.name;
+            item.version = metadata.pack.version.map(|part| part.to_string()).join(".");
+            item.pack_id = metadata.pack.id.to_string();
         }
     }
     Ok(items)
