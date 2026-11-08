@@ -378,7 +378,7 @@ fn packed_liquid_vertices_mask_route_flags_and_use_the_records_section_tint() {
     let view = gpu.buffer(&gpu_snapshot::view(Mat4::IDENTITY, Vec3::ZERO), uniform);
     let empty = gpu.words(&[0; 8], storage);
     let clock = gpu.words(&[0; 4], uniform);
-    let atmosphere = gpu.words(&[0; 36], uniform);
+    let atmosphere = gpu.words(&[0; 40], uniform);
     let tables = gpu.words(&meshing::biome_lattice::query_table_words(), uniform);
     let lightmap = gpu.lightmap(bytemuck::cast_slice(
         &render_model::LightmapInputs::default().build(),
