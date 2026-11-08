@@ -9,7 +9,8 @@ pub fn cached_pack_metadata(reader: impl Read + Seek) -> Option<InstalledPack> {
     let mut archive = ZipArchive::new(reader).ok()?;
     let manifest = archive
         .file_names()
-        .find(|name| *name == "manifest.json" || name.ends_with("/manifest.json"))?
+        .filter(|name| *name == "manifest.json" || name.ends_with("/manifest.json"))
+        .min_by(|left, right| left.len().cmp(&right.len()).then_with(|| left.cmp(right)))?
         .to_owned();
     let bytes = read(&mut archive, &manifest)?;
     let mut metadata = super::read_metadata(&bytes).ok()??;
@@ -56,6 +57,15 @@ mod tests {
             .unwrap();
         writer
             .write_all(b"pack.name=Cloud Islands ## display name\n")
+            .unwrap();
+        writer
+            .start_file(
+                "unrelated/deeper/manifest.json",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+        writer
+            .write_all(b"incidental nested manifest must not replace the pack header")
             .unwrap();
         writer.finish().unwrap()
     }
