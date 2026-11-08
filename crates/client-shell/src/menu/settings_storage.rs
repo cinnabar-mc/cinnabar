@@ -18,6 +18,20 @@ impl MenuRuntime {
     /// Handles cache selection and confirms destructive cache operations.
     pub(super) fn activate_storage(&mut self, action: StorageAction) {
         match action {
+            StorageAction::DeletePack(index) => {
+                if index >= self.storage.cached.len() {
+                    return;
+                }
+                let storage = Arc::make_mut(&mut self.storage);
+                storage.selected = Some(index);
+                storage.selected_world = None;
+                self.activate_storage(StorageAction::RequestDelete);
+            }
+            StorageAction::Search => {}
+            StorageAction::ClearSearch => {
+                self.storage_query.set_text("");
+                self.focus_field(launcher::menu::MenuField::StorageQuery);
+            }
             StorageAction::Toggle(index) => {
                 if let Some(expanded) = Arc::make_mut(&mut self.storage)
                     .expanded
@@ -83,6 +97,19 @@ impl MenuRuntime {
                             .collect(),
                     ),
                 };
+                if paths.is_empty() {
+                    return;
+                }
+                let summary = if action == StorageAction::RequestDelete {
+                    self.storage
+                        .selected
+                        .and_then(|index| self.storage.cached.get(index))
+                        .map(|item| format!("{} {}\n{}", item.name, item.version, item.pack_id))
+                        .unwrap_or_default()
+                } else {
+                    format!("All {} downloaded server packs", paths.len())
+                };
+                Arc::make_mut(&mut self.storage).delete_summary = summary;
                 Arc::make_mut(&mut self.storage).pending_delete = Some((root, paths));
                 Arc::make_mut(&mut self.storage).deleting_screenshots =
                     action == StorageAction::RequestScreenshots;
@@ -107,7 +134,9 @@ impl MenuRuntime {
                     return;
                 };
                 let result = paths.iter().try_for_each(|path| remove_entry(&root, path));
+                let expanded = self.storage.expanded;
                 self.refresh_storage();
+                Arc::make_mut(&mut self.storage).expanded = expanded;
                 if let Err(error) = result {
                     Arc::make_mut(&mut self.storage).error =
                         Some(format!("Could not delete stored content: {error}"));

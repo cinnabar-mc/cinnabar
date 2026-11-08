@@ -122,6 +122,7 @@ pub struct MenuRuntime {
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
     settings_query: ui::ChatEditor,
+    storage_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,

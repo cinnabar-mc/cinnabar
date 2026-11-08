@@ -141,7 +141,11 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
             .iter()
             .fold(0_u64, |total, item| total.saturating_add(item.bytes));
         let description = format!("{} · {}", items.len(), size_text(content, bytes));
-        let category_title = content.word(title);
+        let category_title = if *category == "cache" {
+            "Downloaded server packs".to_owned()
+        } else {
+            content.word(title)
+        };
         action_row_text(
             content,
             &category_title,
@@ -164,7 +168,77 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
                 .replace("%1$s", &category_title);
             content.label_text("", &empty)?;
         }
+        if *category == "cache" && !items.is_empty() {
+            content.label_text("", "Search by pack name, version, ID or filename. Packs download again when a server needs them.")?;
+            let bounds = [
+                content.span[0],
+                content.y,
+                content.span[1],
+                content.y + content.canvas.r(4.8),
+            ];
+            widgets::search_field(
+                content.canvas,
+                view,
+                bounds,
+                &view.storage_query,
+                "Search downloaded packs",
+                view.field == Some(launcher::menu::MenuField::StorageQuery),
+                Some(MenuAction::SettingsStorage(StorageAction::Search)),
+            )?;
+            content.y = bounds[3] + content.canvas.r(1.2);
+            if !view.storage_query.is_empty() {
+                action_row_text(
+                    content,
+                    "",
+                    "",
+                    "Clear search",
+                    Some(MenuAction::SettingsStorage(StorageAction::ClearSearch)),
+                )?;
+                if !items
+                    .iter()
+                    .any(|item| item.matches_query(&view.storage_query))
+                {
+                    content.label_text(
+                        "No matching packs",
+                        "Try another name, version or ID, or clear the search.",
+                    )?;
+                }
+            }
+        }
         for (index, item) in items.iter().enumerate() {
+            if *category == "cache" {
+                if !item.matches_query(&view.storage_query) {
+                    continue;
+                }
+                let description = format!(
+                    "{} · {} · {}",
+                    if item.version.is_empty() {
+                        "Metadata unavailable"
+                    } else {
+                        &item.version
+                    },
+                    size_text(content, item.bytes),
+                    if item.pack_id.is_empty() {
+                        item.path
+                            .file_name()
+                            .unwrap_or_default()
+                            .to_string_lossy()
+                            .into_owned()
+                    } else {
+                        item.pack_id.clone()
+                    }
+                );
+                action_row_text(
+                    content,
+                    &item.name,
+                    &description,
+                    "Delete pack",
+                    Some(MenuAction::SettingsStorage(StorageAction::DeletePack(
+                        index,
+                    ))),
+                )?;
+                continue;
+            }
             let select = match *category {
                 "world" => StorageAction::SelectWorld(index),
                 "cache" => StorageAction::Select(index),
@@ -220,10 +294,11 @@ fn storage(content: &mut Content<'_, '_>) -> Result<(), PaintError> {
     }
     action_row(
         content,
-        "options.dev_clearDownloadeCache.name",
-        "",
-        "gui.clear",
-        Some(MenuAction::SettingsStorage(StorageAction::RequestClear)),
+        "Clear all downloaded server packs",
+        "Removes every downloaded pack, including packs hidden by search. Imported resource packs stay installed.",
+        "Clear all",
+        (!view.storage.cached.is_empty())
+            .then_some(MenuAction::SettingsStorage(StorageAction::RequestClear)),
     )?;
     action_row(
         content,

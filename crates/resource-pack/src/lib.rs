@@ -32,7 +32,8 @@ pub use dependencies::{PackDependencies, PackDependency};
 pub use fingerprint::StackFingerprint;
 pub use import::{
     GlobalSelectionEntry, PACK_IMPORT_EXTENSIONS, ParsedGlobalSelection, PreparedImport,
-    is_pack_import_path, merge_global_selection, parse_global_selection, prepare_import,
+    cached_pack_metadata, is_pack_import_path, merge_global_selection, parse_global_selection,
+    prepare_import,
 };
 pub use library::{
     ActivePack, GlobalPackLibrary, ImportReport, InstalledPack, LibraryError, Subpack,

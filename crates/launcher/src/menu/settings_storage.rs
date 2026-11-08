@@ -20,9 +20,31 @@ pub struct StorageItem {
     pub name: String,
     pub bytes: u64,
     pub date: String,
+    pub version: String,
+    pub pack_id: String,
     pub game_type: String,
     pub last_played: i64,
     pub path: PathBuf,
+}
+
+impl StorageItem {
+    /// Matches the pack's display identity or cache filename without changing its inventory index.
+    pub fn matches_query(&self, query: &str) -> bool {
+        let query = query.trim().to_lowercase();
+        [
+            &self.name,
+            &self.version,
+            &self.pack_id,
+            &self
+                .path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned(),
+        ]
+        .iter()
+        .any(|value| value.to_lowercase().contains(&query))
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -31,6 +53,7 @@ pub struct StorageView {
     pub cached: Vec<StorageItem>,
     pub screenshots: Vec<StorageItem>,
     pub deleting_screenshots: bool,
+    pub delete_summary: String,
     pub expanded: [bool; CATEGORIES.len()],
     pub selected: Option<usize>,
     pub selected_world: Option<usize>,
@@ -45,10 +68,13 @@ pub struct StorageView {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StorageAction {
     Toggle(u8),
+    Search,
+    ClearSearch,
     Select(usize),
     SelectWorld(usize),
     RequestClear,
     RequestDelete,
+    DeletePack(usize),
     RequestScreenshots,
     ConfirmDelete,
     OpenFolder(StorageFolder),

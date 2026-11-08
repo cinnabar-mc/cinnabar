@@ -25,7 +25,9 @@ fn confirmed_screenshot_delete_only_removes_saved_pngs() {
     fs::create_dir_all(layout.resource_pack_cache_dir()).unwrap();
     let screenshot = layout.screenshots_dir().join("saved.png");
     let other = layout.screenshots_dir().join("notes.txt");
-    let pack = layout.resource_pack_cache_dir().join("downloaded-pack");
+    let pack = layout
+        .resource_pack_cache_dir()
+        .join("downloaded-pack.mcpack");
     fs::write(&screenshot, b"png").unwrap();
     fs::write(&other, b"notes").unwrap();
     fs::write(&pack, b"pack").unwrap();
@@ -51,7 +53,7 @@ fn deleting_without_selection_preserves_every_cached_pack() {
     menu.layout.user_data_root = root.clone();
     let cache = menu.layout.resource_pack_cache_dir();
     fs::create_dir_all(&cache).unwrap();
-    for name in ["a", "b"] {
+    for name in ["a.mcpack", "b.mcpack"] {
         fs::write(cache.join(name), name).unwrap();
     }
     menu.refresh_storage();
@@ -71,7 +73,7 @@ fn individual_delete_keeps_the_requested_target_after_selection_changes() {
     menu.layout.user_data_root = root.clone();
     let cache = menu.layout.resource_pack_cache_dir();
     fs::create_dir_all(&cache).unwrap();
-    for name in ["a", "b"] {
+    for name in ["a.mcpack", "b.mcpack"] {
         fs::write(cache.join(name), name).unwrap();
     }
     menu.refresh_storage();
@@ -82,5 +84,62 @@ fn individual_delete_keeps_the_requested_target_after_selection_changes() {
     menu.activate_storage(StorageAction::ConfirmDelete);
     assert!(!requested.exists());
     assert_eq!(entries(&cache).unwrap().len(), 1);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn pack_delete_and_clear_all_preserve_imports_and_cache_housekeeping() {
+    let root = fixture();
+    let mut menu = MenuRuntime::new(true, 2, "Steve".into());
+    menu.layout.user_data_root = root.clone();
+    let cache = menu.layout.resource_pack_cache_dir();
+    let imported = menu.layout.global_resource_packs_dir();
+    fs::create_dir_all(&cache).unwrap();
+    fs::create_dir_all(&imported).unwrap();
+    fs::write(imported.join("keep.mcpack"), b"imported").unwrap();
+    fs::write(cache.join(".packcache.lock"), b"lease").unwrap();
+    for name in ["first.mcpack", "second.mcpack"] {
+        fs::write(cache.join(name), name).unwrap();
+    }
+    menu.refresh_storage();
+    let requested = menu.storage.cached[1].path.clone();
+    menu.activate_storage(StorageAction::DeletePack(1));
+    let summary = menu.storage.delete_summary.clone();
+    assert!(summary.contains(&menu.storage.cached[1].name));
+    assert!(requested.exists());
+    menu.storage_query.set_text("different search");
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert!(!requested.exists());
+    assert_eq!(menu.storage.cached.len(), 1);
+    menu.activate_storage(StorageAction::RequestClear);
+    assert!(menu.storage.delete_summary.contains("All 1"));
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert!(menu.storage.cached.is_empty());
+    assert!(cache.join(".packcache.lock").exists());
+    assert!(imported.join("keep.mcpack").exists());
+    menu.activate_storage(StorageAction::RequestClear);
+    assert_ne!(menu.dialog, Some(MenuDialog::StorageDelete));
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn connected_session_refuses_pack_deletion() {
+    let root = fixture();
+    let mut menu = MenuRuntime::new(true, 2, "Player".into());
+    menu.layout.user_data_root = root.clone();
+    let cache = menu.layout.resource_pack_cache_dir();
+    fs::create_dir_all(&cache).unwrap();
+    fs::write(cache.join("pack.mcpack"), b"pack").unwrap();
+    menu.refresh_storage();
+    menu.session.owns_directory = true;
+    menu.activate_storage(StorageAction::DeletePack(0));
+    assert_eq!(menu.dialog, Some(MenuDialog::StorageError));
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert!(cache.join("pack.mcpack").exists());
+    menu.session.owns_directory = false;
+    menu.activate_storage(StorageAction::DeletePack(0));
+    menu.activate(launcher::menu::MenuAction::DismissDialog);
+    menu.activate_storage(StorageAction::ConfirmDelete);
+    assert!(cache.join("pack.mcpack").exists());
     fs::remove_dir_all(root).unwrap();
 }

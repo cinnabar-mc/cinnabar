@@ -110,6 +110,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &self.friend_query,
             MenuField::SettingsQuery => &self.settings_query,
+            MenuField::StorageQuery => &self.storage_query,
             MenuField::RealmCode => &self.realm_membership.code,
             MenuField::Name => &self.name,
             MenuField::Address => &self.address,
@@ -126,6 +127,7 @@ impl MenuRuntime {
         match field {
             MenuField::FriendQuery => &mut self.friend_query,
             MenuField::SettingsQuery => &mut self.settings_query,
+            MenuField::StorageQuery => &mut self.storage_query,
             MenuField::RealmCode => &mut self.realm_membership.code,
             MenuField::Name => &mut self.name,
             MenuField::Address => &mut self.address,
