@@ -8,6 +8,7 @@ mod cache;
 mod colours;
 mod disk;
 mod extract;
+mod handoff;
 mod identity;
 mod publication;
 mod region;
@@ -31,6 +32,10 @@ pub use region::{
 pub use colours::SurfaceColours;
 pub use config::FarTerrainConfig;
 pub use extract::{ColumnSnapshot, SurfaceContext, SurfaceScan, summarise_column};
+pub use handoff::{
+    HANDOFF_DEPTH_SHIFT, HANDOFF_DIRECTION_SHIFT, HANDOFF_DURATION, HANDOFF_FAR, HANDOFF_NEAR,
+    HANDOFF_STEPS, Handoff, TerrainHandoffs,
+};
 pub use store::{Admission, ColumnPos, SummaryStore, Versioned};
 pub use summary::{
     COLUMN_CELLS, COLUMN_SIDE, ColumnSummary, EncodedSummary, SummaryDecodeError, SurfaceCell,

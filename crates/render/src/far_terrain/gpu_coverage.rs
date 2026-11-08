@@ -61,6 +61,20 @@ impl FarTerrainGpu {
             }))
     }
 
+    /// Capacity reclamation cannot remove one child while a blocked sibling hides their parent.
+    pub(super) fn reclaimable(&self, key: TileKey, tiles: &[Arc<TileMesh>], next: TileKey) -> bool {
+        self.replaced(key, tiles, Some(next))
+            && tiles
+                .iter()
+                .filter(|mesh| mesh.key.overlaps(key))
+                .all(|mesh| {
+                    self.resident
+                        .keys()
+                        .filter(|old| !self.tile_goal.contains(old) && old.overlaps(mesh.key))
+                        .all(|old| self.replaced(*old, tiles, Some(next)))
+                })
+    }
+
     /// Whether decoded evidence has a visible far drawer or an acknowledged empty selection.
     pub(crate) fn covers_column(&self, column: ColumnPos) -> bool {
         self.empty_far.contains(&column)
@@ -94,7 +108,7 @@ impl FarTerrainGpu {
 }
 
 /// Tests column containment using the same tile key mapping as selection and receipts.
-fn contains_column(key: TileKey, column: ColumnPos) -> bool {
+pub(super) fn contains_column(key: TileKey, column: ColumnPos) -> bool {
     key == TileKey::containing(
         key.level,
         column.x * far_terrain::COLUMN_SIDE as i32,
