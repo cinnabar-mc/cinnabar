@@ -6,7 +6,6 @@
 )]
 
 mod atomics;
-mod diag_atomics;
 mod dot;
 #[cfg(target_os = "windows")]
 mod fxc;
