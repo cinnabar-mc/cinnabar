@@ -198,7 +198,10 @@ pub fn prepare_actor_render_frame(
     views::refresh_interpolation(
         client_world.stream.as_deref_mut(),
         swing_progress,
-        view.camera_rotation(),
+        params
+            .presentation
+            .settings
+            .offset_view_rotation(view.camera_rotation()),
     );
     let stream = client_world.stream.as_deref();
     let authoritative_subject_eye = authoritative_local_actor_eye(

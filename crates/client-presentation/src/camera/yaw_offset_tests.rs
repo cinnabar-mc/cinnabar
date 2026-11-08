@@ -15,10 +15,17 @@ fn yaw_offset_reverses_only_the_presented_heading_and_restores() {
     assert!((backward.x + forward.x).abs() < 1e-5);
     assert!((backward.z + forward.z).abs() < 1e-5);
     assert!((backward.y - forward.y).abs() < 1e-5);
-    assert_eq!(settings.rendered_perspective(), PerspectiveMode::FirstPerson);
+    assert_eq!(
+        settings.rendered_perspective(),
+        PerspectiveMode::FirstPerson
+    );
     assert!(!hand_first_person(Some(&settings), None));
     settings.set_view_yaw_offset(None);
-    assert!(settings.offset_view_rotation(player).abs_diff_eq(player, 1e-5));
+    assert!(
+        settings
+            .offset_view_rotation(player)
+            .abs_diff_eq(player, 1e-5)
+    );
     assert!(hand_first_person(Some(&settings), None));
     settings.set_view_yaw_offset(Some(f32::NAN));
     assert!(settings.view_aligned());
