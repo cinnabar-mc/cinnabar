@@ -33,6 +33,8 @@ evidence; the [workspace map](docs/architecture/workspace.md) explains code owne
    Menus use a display-refresh ceiling. In-game frame-rate limits default to Unlimited; fixed player caps remain authoritative, and VSync or Variable Refresh Rate may lower the rate.
    Capped input admission wakes at its own deadline before considering a later render
    prediction, so completed rendering cannot hide the requested cadence.
+   Metal GPU admission uses a frame's recorded submission time once available, while
+   retaining predictions for earlier queued work and frames not yet submitted.
    macOS adaptive refresh capabilities leave automatic VRR unconfirmed, and native
    Metal presentation logs expose the layer state and software cap. Fullscreen
    VSync-off cadence still needs hardware qualification.
