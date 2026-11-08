@@ -5,6 +5,7 @@ use super::*;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct ActorPositionUpdate {
     feet: Vec3,
+    pub(super) height: movement_lerp::NetworkHeight,
     on_ground: bool,
 }
 
@@ -18,11 +19,8 @@ impl ActorPositionUpdate {
 
     /// Replaces spatial authority without replacing the correction's velocity authority.
     pub(super) fn replace_anchor_position(self, anchor: &mut super::super::PhysicsAnchor) {
-        anchor.network_position = [
-            self.feet.x as f32,
-            self.feet.y as f32 + PLAYER_NETWORK_OFFSET,
-            self.feet.z as f32,
-        ];
+        anchor.network_position =
+            movement_lerp::NetworkHeight::position(Some(self.height), self.feet);
         anchor.on_ground = self.on_ground;
     }
 }
@@ -61,6 +59,7 @@ impl LocalPhysicsController {
             return;
         };
         let update = ActorPositionUpdate {
+            height: movement_lerp::NetworkHeight::new(position[1]),
             feet: Vec3::new(
                 f64::from(position[0]),
                 f64::from(position[1] - PLAYER_NETWORK_OFFSET),
@@ -69,6 +68,7 @@ impl LocalPhysicsController {
             on_ground: on_ground.unwrap_or(state.on_ground),
         };
         update.apply(state);
+        self.network_height = Some(update.height);
         if let Some(lerp) = &mut self.movement_lerp {
             lerp.supersede_ground_write();
         }

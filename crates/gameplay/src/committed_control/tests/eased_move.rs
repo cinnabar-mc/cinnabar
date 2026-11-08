@@ -3,6 +3,8 @@
 use super::*;
 use crate::movement::{PhysicsMovementSample, flush_player_auth_inputs};
 
+mod normal_targets;
+
 /// A floor under the whole fixture; the far half reports unloaded terrain.
 struct Floor;
 
@@ -64,11 +66,23 @@ fn apply(
     physics: &mut LocalPhysicsController,
     control: CommittedControlEvent,
 ) -> ControlDisposition {
+    apply_in(movement, physics, control, &Floor, &|_| false)
+}
+
+/// Applies a control with the fixture's committed terrain and actor lookup.
+fn apply_in(
+    movement: &mut MovementTicker,
+    physics: &mut LocalPhysicsController,
+    control: CommittedControlEvent,
+    world: &impl CollisionWorld,
+    actor_exists: &dyn Fn(u64) -> bool,
+) -> ControlDisposition {
     let mut effects = LocalMovementEffectTimeline::default();
     effects.begin_session(7);
     let mut speed = LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
     CommittedGameplayState {
+        actor_exists,
         movement,
         physics,
         effects: &mut effects,
@@ -77,7 +91,7 @@ fn apply(
         dimension: 0,
         dimension_transfer_active: false,
     }
-    .apply(control, &Floor, |_| {})
+    .apply(control, world, |_| {})
 }
 
 /// Advances the loaded fixture world by complete ticks and returns their samples.
@@ -240,7 +254,7 @@ fn a_teleport_snap_cancels_the_ease() {
     assert_eq!(physics.network_position(), Some(teleport));
 }
 
-/// An unloaded target keeps the correction path, which places it directly.
+/// An unloaded target is placed directly without starting an ease.
 #[test]
 fn an_unloaded_target_does_not_ease() {
     let (mut movement, mut physics, _, _) = owners();

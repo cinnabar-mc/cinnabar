@@ -35,6 +35,8 @@ impl LocalPhysicsController {
         self.server_motions.clear();
         self.actor_position_pending = None;
         self.movement_lerp = None;
+        self.network_height = None;
+        self.eased_rotation = None;
         self.deferred_corrections = Default::default();
         self.server_control_flags = None;
         self.live_posture = Default::default();
@@ -107,6 +109,8 @@ impl LocalPhysicsController {
         self.server_flags.reset_history();
         self.actor_position_pending = None;
         self.movement_lerp = None;
+        self.network_height = Some(movement_lerp::NetworkHeight::new(network_position[1]));
+        self.eased_rotation = None;
         self.deferred_corrections = Default::default();
         self.modes.reset();
         self.live_posture = Default::default();

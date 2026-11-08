@@ -63,6 +63,7 @@ fn dimension_change_discards_a_pending_server_item_use() {
         },
     };
     CommittedGameplayState {
+        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,
@@ -82,6 +83,7 @@ fn a_spectator_game_mode_control_stops_item_use() {
     let (mut movement, mut physics, mut effects, mut speed) = owners();
     for (sequence, spectator) in [(1, false), (2, true)] {
         CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -121,6 +123,7 @@ fn dimension_observations_bracket_the_authoritative_snap_and_clear_old_speed() {
     };
     let mut observations = Vec::new();
     let disposition = CommittedGameplayState {
+        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,
@@ -184,6 +187,7 @@ fn dimension_destination_and_ready_respawn_preserve_the_global_input_clock() {
     for control in controls {
         let (mut movement, mut physics, mut effects, mut speed) = owners();
         let disposition = CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -213,6 +217,7 @@ fn motion_is_observed_without_a_frame_reset_and_only_updates_authorized_physics(
         let before = physics.state().unwrap().velocity;
         let mut observations = Vec::new();
         let disposition = CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -268,6 +273,7 @@ fn a_correction_outside_retained_history_keeps_prediction_and_still_resets_the_f
     };
     let mut observations = Vec::new();
     let disposition = CommittedGameplayState {
+        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,
@@ -307,6 +313,7 @@ fn world_clock_and_weather_cycle_controls_stay_with_the_environment_adapter() {
         },
     ] {
         let disposition = CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -365,6 +372,7 @@ fn a_failed_boost_replay_keeps_the_boost_for_later_replays() {
         assert_eq!(frame.completed_ticks, 1, "{:?}", frame.blocked);
     }
     let disposition = CommittedGameplayState {
+        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,
@@ -427,6 +435,7 @@ fn a_combined_delayed_speed_update_replays_once() {
         }
         let world = CountingAir(std::cell::Cell::new(0));
         CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -509,6 +518,7 @@ fn speed_effect_updates_refresh_current_while_sprint_is_held() {
             tick: 100,
         };
         CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,
@@ -572,6 +582,7 @@ fn an_applied_vehicle_correction_resets_presentation() {
     };
     let mut apply = || {
         CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics: &mut physics,
             effects: &mut effects,

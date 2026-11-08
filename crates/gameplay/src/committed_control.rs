@@ -24,7 +24,7 @@ pub enum SpatialReset {
 pub enum ControlDisposition {
     Handled,
     Environment,
-    /// Physics eases the position; the caller applies only the control's aim and keeps
+    /// Physics eases the pose; the caller supplies its filtered aim target and keeps
     /// its frame and camera history.
     Aim,
     Spatial(SpatialReset),
@@ -57,6 +57,8 @@ pub struct CommittedGameplayState<'a> {
     pub session_generation: u64,
     pub dimension: i32,
     pub dimension_transfer_active: bool,
+    /// Resolves packet actor IDs against the current committed actor lifetimes.
+    pub actor_exists: &'a dyn Fn(u64) -> bool,
 }
 
 impl CommittedGameplayState<'_> {
@@ -280,9 +282,15 @@ impl CommittedGameplayState<'_> {
         if let CommittedControlEvent::MovePlayer {
             movement, resolved, ..
         } = control
-            && self.eases_local_move_player(&movement, resolved.position, world)
+            && let Some(disposition) =
+                self.apply_normal_move_player(&movement, resolved.position, world)
         {
-            return ControlDisposition::Aim;
+            if matches!(disposition, ControlDisposition::Spatial(_)) {
+                observe(ControlObservation::BeforeSpatial(control));
+                self.physics
+                    .apply_server_actor_position(resolved.position, Some(movement.on_ground));
+            }
+            return disposition;
         }
         observe(ControlObservation::BeforeSpatial(control));
         let reset = match &control {
@@ -516,28 +524,31 @@ impl CommittedGameplayState<'_> {
         ControlDisposition::Spatial(reset)
     }
 
-    /// Bedrock eases a Normal-mode `MovePlayer` over its interpolation steps without a
-    /// rewind, whatever its tick. A mounted player or an unloaded target keeps the
-    /// correction path.
-    fn eases_local_move_player(
+    /// Eases resident Normal targets and places unloaded targets without replacing an ease.
+    fn apply_normal_move_player(
         &mut self,
         movement: &protocol::MovePlayerEvent,
         position: [f32; 3],
         world: &impl CollisionWorld,
-    ) -> bool {
+    ) -> Option<ControlDisposition> {
         if movement.teleported
             || movement.mode != protocol::MovePlayerMode::Normal
-            || movement.riding_runtime_id != 0
+            || (movement.riding_runtime_id != 0 && (self.actor_exists)(movement.riding_runtime_id))
             || !self.movement.physics_is_authorized()
-            || self.physics.mode() == sim::MovementMode::Riding
-            || !self
-                .physics
-                .start_server_movement_lerp(position, movement.on_ground, world)
+            || !self.physics.is_active()
+            || !position.into_iter().all(f32::is_finite)
         {
-            return false;
+            return None;
         }
         self.movement.note_unmarked_local_move_player();
-        true
+        if self
+            .physics
+            .start_server_movement_lerp(position, movement.on_ground, world)
+        {
+            Some(ControlDisposition::Aim)
+        } else {
+            Some(ControlDisposition::Spatial(SpatialReset::Correction))
+        }
     }
 }
 

@@ -14,6 +14,7 @@ pub(super) fn apply_controls(
     let mut speed = crate::movement::LocalMovementSpeedAuthority::default();
     for control in world.take_committed_controls() {
         CommittedGameplayState {
+            actor_exists: &|_| false,
             movement: &mut movement,
             physics,
             effects: &mut effects,
@@ -212,6 +213,7 @@ fn sync_actor_replacement_replaces_reported_speed() {
             world.apply_ordered_event(event, Some(sequence)).unwrap();
             for control in world.take_committed_controls() {
                 CommittedGameplayState {
+                    actor_exists: &|_| false,
                     movement: &mut movement,
                     physics: &mut physics,
                     effects: &mut effects,

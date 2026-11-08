@@ -105,15 +105,17 @@ pub(crate) fn apply_committed_control(
     *pending_surface_spawn = resolved.surface_anchor;
 }
 
-/// Applies only the aim of a committed local MovePlayer whose position physics eases,
-/// keeping the eye and camera history continuous.
+/// Gives physics the filtered aim target while keeping the current view continuous.
 pub(crate) fn apply_committed_aim(
     control: CommittedControlEvent,
-    view: &mut LocalViewPose,
+    view: &LocalViewPose,
+    physics: &mut gameplay::movement::LocalPhysicsController,
     rotation_filter: &mut dyn FnMut(MovePlayerRotation) -> Option<[f32; 2]>,
 ) {
-    if let CommittedControlEvent::MovePlayer { movement, .. } = control {
-        apply_move_player_rotation(&movement, view, rotation_filter);
+    if let CommittedControlEvent::MovePlayer { movement, .. } = control
+        && let Some(applied) = filtered_move_player_rotation(&movement, view, rotation_filter)
+    {
+        physics.set_server_movement_lerp_rotation(applied);
     }
 }
 
@@ -123,6 +125,19 @@ fn apply_move_player_rotation(
     view: &mut LocalViewPose,
     rotation_filter: &mut dyn FnMut(MovePlayerRotation) -> Option<[f32; 2]>,
 ) {
+    if let Some(applied) = filtered_move_player_rotation(movement, view, rotation_filter)
+        && applied != bedrock_view_degrees(view.rotation())
+    {
+        view.set_rotation(bedrock_camera_rotation(applied[0], applied[1]));
+    }
+}
+
+/// Offers valid server aim to mods and returns the selected target in Bedrock degrees.
+fn filtered_move_player_rotation(
+    movement: &protocol::MovePlayerEvent,
+    view: &LocalViewPose,
+    rotation_filter: &mut dyn FnMut(MovePlayerRotation) -> Option<[f32; 2]>,
+) -> Option<[f32; 2]> {
     if movement.yaw.is_finite() && movement.pitch.is_finite() {
         let presented = bedrock_view_degrees(view.rotation());
         let applied = rotation_filter(MovePlayerRotation {
@@ -131,10 +146,9 @@ fn apply_move_player_rotation(
             presented,
         })
         .unwrap_or([movement.yaw, movement.pitch]);
-        // Keeping the presented view leaves it untouched rather than round-tripping it.
-        if applied != presented {
-            view.set_rotation(bedrock_camera_rotation(applied[0], applied[1]));
-        }
+        Some(applied)
+    } else {
+        None
     }
 }
 
@@ -167,6 +181,71 @@ mod tests {
     /// Passes every control through unchanged, as a client without teleport filters does.
     fn server_rotation(_: MovePlayerRotation) -> Option<[f32; 2]> {
         None
+    }
+
+    /// Empty resident terrain keeps the aim test independent of chunk fixtures.
+    struct Air;
+
+    impl sim::CollisionWorld for Air {
+        fn collision_boxes(
+            &self,
+            _: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    #[test]
+    fn aim_only_control_keeps_the_view_and_eases_the_filtered_target() {
+        for replacement in [None, Some([60.0, 15.0])] {
+            let position = [0.5, 2.620_01, 0.5];
+            let view = LocalViewPose::new(
+                Vec3::from_array(position),
+                bedrock_camera_rotation(0.0, 0.0),
+            );
+            let mut physics = gameplay::movement::LocalPhysicsController::default();
+            physics.reanchor_network_position(position, 100, true);
+            assert!(physics.start_server_movement_lerp(position, true, &Air));
+            let before_rotation = view.rotation();
+            let before_epoch = view.camera_reanchor_epoch();
+            let mut offered = None;
+            apply_committed_aim(
+                CommittedControlEvent::MovePlayer {
+                    sequence: 1,
+                    source_cohort: None,
+                    movement: protocol::MovePlayerEvent {
+                        position,
+                        yaw: 90.0,
+                        pitch: 30.0,
+                        mode: protocol::MovePlayerMode::Normal,
+                        ..Default::default()
+                    },
+                    resolved: client_world::ResolvedServerPosition {
+                        position,
+                        surface_anchor: None,
+                    },
+                },
+                &view,
+                &mut physics,
+                &mut |rotation| {
+                    offered = Some(rotation.server);
+                    replacement
+                },
+            );
+            assert_eq!(offered, Some([90.0, 30.0]));
+            assert_eq!(view.rotation(), before_rotation);
+            assert_eq!(view.camera_reanchor_epoch(), before_epoch);
+            assert_eq!(view.eye_translation(), Vec3::from_array(position));
+            let frame = physics.advance(
+                simulation_clock::TICK_DURATION,
+                sim::MovementInput::default(),
+                &Air,
+            );
+            assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+            let target = replacement.unwrap_or([90.0, 30.0]);
+            assert_eq!(frame.samples[0].yaw, target[0] / 3.0);
+            assert_eq!(frame.samples[0].pitch, target[1] / 3.0);
+        }
     }
 
     #[test]

@@ -58,6 +58,8 @@ impl LocalPhysicsController {
         input.sneak_profile = self.modes.sneak_profile();
         input.can_stand_on_snow = context.mode_intent.can_stand_on_snow;
         let item_use_modifier = input.item_use_movement_modifier;
+        let mut rotation = [input.yaw_degrees as f32, context.pitch];
+        let mut rotation_changed = false;
         for tick_index in 0..allowed {
             let fall_distance_override = self
                 .history
@@ -90,9 +92,21 @@ impl LocalPhysicsController {
             // A Normal-mode MovePlayer ease steps before travel; rendering eases from the
             // position this tick started at.
             let movement_lerp = self.movement_lerp;
+            let eased_rotation = movement_lerp.and_then(|lerp| lerp.step_rotation(rotation));
+            if let Some([yaw, pitch]) = eased_rotation.or(rotation_changed.then_some(rotation)) {
+                input.yaw_degrees = f64::from(yaw);
+                input.pitch_degrees = f64::from(pitch);
+                context.pitch = pitch;
+                context.head_yaw = crate::movement::wire_head_yaw(yaw);
+                let (yaw_sin, yaw_cos) = yaw.to_radians().sin_cos();
+                let (pitch_sin, pitch_cos) = pitch.to_radians().sin_cos();
+                context.camera_orientation =
+                    [-yaw_sin * pitch_cos, -pitch_sin, yaw_cos * pitch_cos];
+            }
+            let previous_height = self.network_height;
             let lerp_entry = movement_lerp.map(|lerp| {
                 let entry = (state.position, state.velocity);
-                self.movement_lerp = lerp.step(state);
+                self.movement_lerp = lerp.step(state, &mut self.network_height);
                 entry
             });
             let grounded_before_tick = state.on_ground;
@@ -243,6 +257,14 @@ impl LocalPhysicsController {
             };
             match predicted {
                 Ok(output) => {
+                    self.network_height = self
+                        .network_height
+                        .filter(|height| height.matches(state.position.y));
+                    if let Some(eased) = eased_rotation {
+                        rotation = eased;
+                        rotation_changed = true;
+                        self.eased_rotation = Some(eased);
+                    }
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
@@ -287,6 +309,7 @@ impl LocalPhysicsController {
                         ride_delta: seated.map(|seated| seated.delta),
                         actor_position: self.actor_position_pending.take(),
                         movement_lerp,
+                        network_height: self.network_height,
                         input,
                         modes: self.modes,
                         environment: result.environment,
@@ -332,11 +355,10 @@ impl LocalPhysicsController {
                     tick_input.jump.released |= self.jump_pulse_held && !tick_input.jump.held;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
-                        position: [
-                            state.position.x as f32,
-                            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-                            state.position.z as f32,
-                        ],
+                        position: movement_lerp::NetworkHeight::position(
+                            self.network_height,
+                            state.position,
+                        ),
                         movement: [
                             result.movement.x as f32,
                             result.movement.y as f32,
@@ -413,6 +435,7 @@ impl LocalPhysicsController {
                         state.set_position(position);
                         state.velocity = velocity;
                         self.movement_lerp = movement_lerp;
+                        self.network_height = previous_height;
                     }
                     self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(

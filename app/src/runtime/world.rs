@@ -562,6 +562,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             movement_colliders,
         );
         let disposition = gameplay::committed_control::CommittedGameplayState {
+            actor_exists: &|runtime_id| stream.authority().actor(runtime_id).is_some(),
             movement: &mut movement,
             physics: &mut local_physics,
             effects: &mut movement_effects,
@@ -618,7 +619,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         let reset = match disposition {
             ControlDisposition::Handled => continue,
             ControlDisposition::Aim => {
-                apply_committed_aim(control, &mut view, &mut rotation_filter);
+                apply_committed_aim(control, &view, &mut local_physics, &mut rotation_filter);
                 continue;
             }
             ControlDisposition::Environment => {
