@@ -192,10 +192,14 @@ impl RuntimeActorCatalog {
             })
             .collect::<Vec<_>>()
             .into();
+        let masked_sources = alpha::masked_multitexture_sources(entities.render_data());
         let multitexture_textures = textures
             .iter()
             .map(|texture| {
-                native_actor_texture_uses_multitexture(&entities.sources()[texture.source as usize])
+                masked_sources.contains(&texture.source)
+                    || native_actor_texture_uses_multitexture(
+                        &entities.sources()[texture.source as usize],
+                    )
             })
             .collect::<Vec<_>>()
             .into();
@@ -227,7 +231,7 @@ impl RuntimeActorCatalog {
             .copied()
             .unwrap_or(false)
     }
-    /// Whether this exact raster belongs to the witnessed three-sampler material profile.
+    /// Whether this raster participates in a grouped multi-sampler draw.
     pub fn texture_uses_multitexture(&self, texture: usize) -> bool {
         self.multitexture_textures
             .get(texture)

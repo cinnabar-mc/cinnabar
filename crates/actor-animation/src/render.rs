@@ -53,7 +53,7 @@ pub struct RenderTextureLayer {
     /// Position among its controller layer's textures; a material samples later slots in the
     /// first slot's draw.
     pub texture_slot: u16,
-    /// Additional samplers of the witnessed native three-texture material, not extra draws.
+    /// Additional samplers, not extra draws. Two-texture materials repeat the second source.
     pub multitexture: Option<[u32; 2]>,
     /// Material color multiplier; inherits actor color when the controller sets none.
     pub color: [f32; 4],
@@ -439,6 +439,10 @@ mod visibility_tests;
 mod multitexture_tests;
 
 #[cfg(test)]
+#[path = "render/profession_tests.rs"]
+mod profession_tests;
+
+#[cfg(test)]
 #[path = "render/projectile_tests.rs"]
 mod projectile_tests;
 
@@ -509,6 +513,8 @@ fn evaluate_layer_into(
         return Ok(LayerStatus::Inactive);
     }
     let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
+    let masked_multitexture = material_state.is_some_and(|state| state.masked_multitexture);
+    let multitexture = multitexture || masked_multitexture;
     let choices = render
         .geometries
         .get(
@@ -628,7 +634,8 @@ fn evaluate_layer_into(
         // A live selector with no source is missing artwork, not a disabled controller.
         unresolved_artwork |= texture_slot == 0 && !resolved && visible;
     }
-    if multitexture && selected_sources.len() != 3 {
+    let sampler_count = if masked_multitexture { 2 } else { 3 };
+    if multitexture && selected_sources.len() != sampler_count {
         return Ok(if unresolved_artwork {
             LayerStatus::UnresolvedArtwork
         } else {
@@ -636,7 +643,7 @@ fn evaluate_layer_into(
         });
     }
     let grouped = if multitexture {
-        Some([selected_sources[1], selected_sources[2]])
+        Some([selected_sources[1], selected_sources[sampler_count - 1]])
     } else {
         None
     };
