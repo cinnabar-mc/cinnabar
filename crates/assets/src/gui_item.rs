@@ -10,6 +10,7 @@ mod dripleaf;
 pub use dripleaf::dripleaf_quads;
 mod sculk_sensor;
 mod sculk_shrieker;
+mod shading;
 pub use block_model::{
     GUI_BLOCK_MATERIAL_FLAGS, GuiBlockQuad, GuiBlockReject, MAX_GUI_TILE_SIDE, block_gui_quads,
     block_item_quads, cube_face, face_brightness, material_tile,
@@ -20,6 +21,7 @@ pub use sculk_sensor::{
     SENSOR_CRYSTAL_MATERIAL, SENSOR_TENDRIL_BRIGHTNESS, SENSOR_TENDRIL_MATERIAL, sculk_sensor_quads,
 };
 pub use sculk_shrieker::sculk_shrieker_quads;
+pub use shading::{GuiShading, WORLD_SHADE_DOWN, WORLD_SHADE_UP, WORLD_SHADE_X, WORLD_SHADE_Z};
 
 /// Block items with an inventory bitmap whose held presentation retains the world model.
 #[must_use]

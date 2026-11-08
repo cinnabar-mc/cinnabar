@@ -304,16 +304,16 @@ fn near_zero_scale_floating_text_tags_keep_the_clearance_above_the_minimum_box()
 }
 
 #[test]
-fn java_head_clearance_and_sneaking_offsets_keep_the_label_world_scale() {
+fn java_sneaking_offsets_keep_the_label_world_scale() {
     let mut actor = actor();
-    assert!((tag_height(&actor) - 2.3).abs() < 1e-6);
+    assert!((tag_height(&actor) - 2.5).abs() < 1e-6);
     actor.metadata.insert(
         0,
         ActorMetadataValue::Flags(
             (1 << ActorFlag::Sneaking.wire_value()) | (1 << ActorFlag::ShowName.wire_value()),
         ),
     );
-    assert!((tag_height(&actor) - 2.175).abs() < 1e-6);
+    assert!((tag_height(&actor) - 2.375).abs() < 1e-6);
     let tag = extract_nametag(
         &actor,
         view(Vec3::new(0.0, 0.0, 5.0)),
@@ -346,7 +346,7 @@ fn sleeping_players_lower_the_label_with_the_body() {
     let mut actor = actor();
     actor.metadata.insert(26, ActorMetadataValue::Byte(2));
     assert!(actor.is_sleeping());
-    assert!((tag_height(&actor) - 0.8).abs() < 1e-6);
+    assert!((tag_height(&actor) - 1.0).abs() < 1e-6);
 }
 
 #[test]

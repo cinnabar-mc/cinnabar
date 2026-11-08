@@ -63,6 +63,9 @@ pub struct EntityRenderMaterialState {
     /// Preserves target RGB and alpha while updating depth.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub disable_color_write: bool,
+    /// `USE_COLOR_MASK`: texture alpha weights the colour multiplier instead of the whole texel.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub color_mask: bool,
 }
 
 impl Default for EntityRenderMaterialState {
@@ -81,6 +84,7 @@ impl Default for EntityRenderMaterialState {
             depth_equal: false,
             disable_alpha_write: false,
             disable_color_write: false,
+            color_mask: false,
         }
     }
 }
@@ -101,6 +105,7 @@ impl EntityRenderMaterialState {
     pub const DEPTH_EQUAL: u32 = 1 << 19;
     pub const DISABLE_ALPHA_WRITE: u32 = 1 << 20;
     pub const DISABLE_COLOR_WRITE: u32 = 1 << 21;
+    pub const COLOR_MASK: u32 = 1 << 22;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -117,6 +122,7 @@ impl EntityRenderMaterialState {
             depth_equal: word & Self::DEPTH_EQUAL != 0,
             disable_alpha_write: word & Self::DISABLE_ALPHA_WRITE != 0,
             disable_color_write: word & Self::DISABLE_COLOR_WRITE != 0,
+            color_mask: word & Self::COLOR_MASK != 0,
         })
     }
 }
@@ -191,6 +197,11 @@ impl EntityRenderMaterial {
                     }
                     | if state.depth_always {
                         EntityRenderMaterialState::DEPTH_ALWAYS
+                    } else {
+                        0
+                    }
+                    | if state.color_mask {
+                        EntityRenderMaterialState::COLOR_MASK
                     } else {
                         0
                     }

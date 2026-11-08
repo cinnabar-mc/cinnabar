@@ -9,6 +9,7 @@ pub enum AmbientBlock {
     Other,
     Fire,
     Portal,
+    EnderChest,
     /// Every candle block and candle cake, whose flames depend on its state.
     Candle,
 }

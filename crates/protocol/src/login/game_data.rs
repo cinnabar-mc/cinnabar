@@ -15,6 +15,8 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct GameData {
     pub world: WorldBootstrap,
+    /// The server-provided level display name, independent of its identity.
+    pub level_name: Arc<str>,
     /// Initial local-player pitch and yaw in degrees, as supplied by the server.
     pub player_rotation: [f32; 2],
     pub environment: WorldEnvironmentBootstrap,
@@ -70,6 +72,7 @@ impl GameData {
         let movement = &start_game.movement_settings;
         Self {
             world: WorldBootstrap::from_start_game(start_game),
+            level_name: Arc::from(start_game.level_name.to_string_lossy()),
             player_rotation: start_game.rotation.to_array(),
             environment: WorldEnvironmentBootstrap::from_start_game(start_game),
             settings: StartupSettings {
@@ -165,6 +168,19 @@ mod tests {
     use crate::{ItemPacketError, WorldWireError};
     use bedrock_protocol_1_26_60::types::ItemData;
     use bedrock_protocol_1_26_60::wire;
+
+    /// The display label is retained independently from the optional hashed identity.
+    #[test]
+    fn level_name_survives_bootstrap_without_a_level_id() {
+        let start = StartGame {
+            level_name: "Example World".into(),
+            ..Default::default()
+        };
+        let data = GameData::from_wire(&start, &ItemRegistry::default());
+        assert_eq!(&*data.level_name, "Example World");
+        assert!(data.level_identity.is_none());
+        assert!(GameData::default().level_name.is_empty());
+    }
 
     fn registry(items: &[(&str, i16)]) -> ItemRegistry {
         ItemRegistry {

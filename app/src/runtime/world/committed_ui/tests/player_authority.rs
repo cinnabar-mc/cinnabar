@@ -562,6 +562,7 @@ fn actual_stale_bootstrap_is_noop_but_current_failed_setup_retires_ability_evide
                 packs,
                 terrain_before_spawn: true,
                 level_identity: None,
+                level_name: Default::default(),
             })
             .unwrap();
         app.insert_resource(handle);

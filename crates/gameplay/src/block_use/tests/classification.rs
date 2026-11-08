@@ -375,3 +375,117 @@ fn placement_traits_preserve_pinned_identity_and_state_classification() {
         }
     }
 }
+
+/// Every block whose own use the client predicts is interactive in vanilla, so its press never
+/// reaches the held item's use.
+const USE_TRAITS: T = T::TOGGLES_BY_HAND
+    .union(T::OPENS_CONTAINER)
+    .union(T::USES_LOCALLY)
+    .union(T::RESPAWN_ANCHOR);
+
+/// One block per native class whose `isInteractiveBlock`, `isContainerBlock` or
+/// `isCraftingBlock` returns true. `ChemistryTableBlock`'s blocks are left out because the
+/// active palette doesn't admit them.
+const NATIVE_INTERACTIVE: &[&str] = &[
+    "minecraft:anvil",
+    "minecraft:barrel",
+    "minecraft:beacon",
+    "minecraft:bed",
+    "minecraft:bell",
+    "minecraft:blast_furnace",
+    "minecraft:brewing_stand",
+    "minecraft:cartography_table",
+    "minecraft:cauldron",
+    "minecraft:chain_command_block",
+    "minecraft:chalkboard",
+    "minecraft:chest",
+    "minecraft:chiseled_bookshelf",
+    "minecraft:composter",
+    "minecraft:copper_chest",
+    "minecraft:copper_door",
+    "minecraft:copper_golem_statue",
+    "minecraft:copper_trapdoor",
+    "minecraft:crafter",
+    "minecraft:crafting_table",
+    "minecraft:daylight_detector",
+    "minecraft:decorated_pot",
+    "minecraft:dispenser",
+    "minecraft:dropper",
+    "minecraft:enchanting_table",
+    "minecraft:end_portal_frame",
+    "minecraft:ender_chest",
+    "minecraft:fence_gate",
+    "minecraft:flower_pot",
+    "minecraft:frame",
+    "minecraft:furnace",
+    "minecraft:glow_frame",
+    "minecraft:grindstone",
+    "minecraft:hopper",
+    "minecraft:iron_door",
+    "minecraft:iron_trapdoor",
+    "minecraft:jigsaw",
+    "minecraft:jukebox",
+    "minecraft:lectern",
+    "minecraft:lever",
+    "minecraft:loom",
+    "minecraft:noteblock",
+    "minecraft:oak_hanging_sign",
+    "minecraft:oak_shelf",
+    "minecraft:pink_candle",
+    "minecraft:pink_candle_cake",
+    "minecraft:powered_comparator",
+    "minecraft:respawn_anchor",
+    "minecraft:smithing_table",
+    "minecraft:smoker",
+    "minecraft:stone_button",
+    "minecraft:stonecutter_block",
+    "minecraft:structure_block",
+    "minecraft:sweet_berry_bush",
+    "minecraft:unpowered_repeater",
+    "minecraft:vault",
+    "minecraft:wall_sign",
+    "minecraft:white_shulker_box",
+];
+
+/// Blocks whose native classes keep the base `isInteractiveBlock`, several with their own use.
+const NATIVE_PLAIN: &[&str] = &[
+    "minecraft:stone",
+    "minecraft:cake",
+    "minecraft:stonecutter",
+    "minecraft:campfire",
+    "minecraft:beehive",
+    "minecraft:dragon_egg",
+    "minecraft:tnt",
+    "minecraft:cave_vines",
+    "minecraft:element_1",
+];
+
+#[test]
+fn interactive_facts_cover_every_native_interactive_class() {
+    for legacy in [false, true] {
+        let records = palette(legacy);
+        let facts = BlockFacts::new(&records).unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        for record in &records {
+            let name = record.name.as_ref();
+            let traits = facts.get(record.sequential_id).traits;
+            if traits.intersects(USE_TRAITS) {
+                assert!(traits.contains(T::INTERACTIVE), "{name} has its own use");
+            }
+            if NATIVE_INTERACTIVE.contains(&name) {
+                assert!(traits.contains(T::INTERACTIVE), "{name}");
+                seen.insert(name);
+            }
+            if NATIVE_PLAIN.contains(&name) {
+                assert!(!traits.contains(T::INTERACTIVE), "{name}");
+            }
+        }
+        if !legacy {
+            let missing: Vec<_> = NATIVE_INTERACTIVE
+                .iter()
+                .filter(|name| !seen.contains(*name))
+                .collect();
+            assert!(missing.is_empty(), "missing pinned names {missing:?}");
+        }
+    }
+}

@@ -234,6 +234,10 @@ impl cinnabar::extension::hud::Host for State {
         hud::surface::set_hidden(self, elements)
     }
 
+    fn set_position_hidden(&mut self, hidden: bool) -> Result<Result<(), String>> {
+        hud::surface::set_position_hidden(self, hidden)
+    }
+
     fn read_elements(
         &mut self,
     ) -> Result<Result<Vec<cinnabar::extension::hud::ElementState>, String>> {
@@ -364,6 +368,12 @@ impl Instance {
         state.controls.native_editing = false;
     }
 
+    /// Releases retained movement output the guest could not renew under this frame's controls,
+    /// including frames spent recovering from a fuel overrun.
+    pub(super) fn release_unrenewable_movement(&mut self, controls: &crate::ControlFrame) {
+        self.store.data_mut().world.release_unrenewable(controls);
+    }
+
     /// Validates client facts for the next frame callback only.
     pub(super) fn observe_gameplay(&mut self, facts: crate::GameplayFacts) -> Result<()> {
         gameplay::validate_facts(&facts)?;
@@ -400,7 +410,9 @@ impl Instance {
         // Deferred events may stage frame-only output; only this callback may publish it.
         self.begin_frame();
         if !self.is_active() {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Ok(());
         }
         let validation = gameplay::validate_snapshot(snapshot.as_ref())
@@ -409,7 +421,9 @@ impl Instance {
             .and_then(|()| player_state::validate(player_state.as_ref()))
             .and_then(|()| controls::validate_frame(&controls));
         if let Err(error) = validation {
-            self.store.data_mut().player_state.revoke();
+            let state = self.store.data_mut();
+            state.player_state.revoke();
+            state.world.release_movement();
             return Err(error);
         }
         let snapshot_seconds = snapshot.as_ref().map_or(0.0, |frame| frame.frame_seconds);
@@ -534,7 +548,11 @@ impl Instance {
         let timing = self.callback_timing();
         self.store.data_mut().begin_callback();
         if fuel == FRAME_FUEL && !self.exports.requires_synchronous_frames() {
-            crate::execution::arm_resumable(&mut self.store, allowance)?;
+            let epoch_yields = self
+                .callback_budget
+                .as_ref()
+                .is_none_or(|budget| budget.time.epoch_yields());
+            crate::execution::arm_resumable(&mut self.store, allowance, epoch_yields)?;
         } else {
             crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         }
@@ -919,7 +937,7 @@ impl Instance {
         self.last_fuel
     }
 
-    /// Returns the current successful callback's granted complete movement input.
+    /// Returns the granted complete movement input from the last callback completed in its frame.
     pub(super) fn movement_input(&self) -> Option<crate::GameplayMovementInput> {
         self.store
             .data()
@@ -928,14 +946,22 @@ impl Instance {
             .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the movement intents committed by the current successful frame.
+    /// Returns the granted movement intents from the last callback completed in its frame.
     pub(super) fn movement_intents(&self) -> Option<crate::GameplayMovementIntents> {
-        self.store.data().world.movement_intents
+        self.store
+            .data()
+            .world
+            .movement_intents
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
-    /// Returns only the control modes committed by the current successful frame.
+    /// Returns the granted control modes from the last callback completed in its frame.
     pub(super) fn control_modes(&self) -> Option<crate::GameplayControlModes> {
-        self.store.data().world.control_modes
+        self.store
+            .data()
+            .world
+            .control_modes
+            .filter(|_| self.is_active() && self.store.data().grants.movement)
     }
 
     pub(super) fn set_session(&mut self, session: Arc<SessionData>) {

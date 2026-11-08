@@ -391,6 +391,46 @@ impl ChunkStore {
         Ok(true)
     }
 
+    /// Removes the block entity stored at `key` without touching block state, and reports
+    /// whether one was stored.
+    pub fn remove_block_entity(
+        &mut self,
+        key: BlockEntityKey,
+    ) -> Result<bool, CollisionRevisionError> {
+        let Some(previous) = self
+            .chunks
+            .get(&key.chunk())
+            .and_then(|chunk| chunk.block_entities.get(&key))
+        else {
+            return Ok(false);
+        };
+        let actor_revision = self.reserve_actor_change(
+            key.chunk(),
+            previous.shape_actor() != &crate::ShapeActor::None,
+        )?;
+        let chunk = self
+            .chunks
+            .edit(&mut self.content_revision)
+            .get_mut(&key.chunk())
+            .expect("the chunk holding the removed block entity is stored");
+        let removed = Arc::make_mut(&mut chunk.block_entities)
+            .remove(&key)
+            .expect("the removed block entity is stored");
+        chunk.block_entity_bytes = chunk
+            .block_entity_bytes
+            .checked_sub(removed.bytes().len())
+            .expect("stored block-entity byte total matches its sparse map");
+        if chunk.sub_chunks.is_empty() && chunk.biomes.is_none() && chunk.block_entities.is_empty()
+        {
+            self.chunks
+                .edit(&mut self.content_revision)
+                .remove(&key.chunk());
+        }
+        self.apply_reserved_revision(key.chunk(), actor_revision);
+        self.moving_pistons.remove(&key);
+        Ok(true)
+    }
+
     /// Atomically replaces the complete sparse block-entity map for a chunk.
     /// Equal records retain their previous `Arc` snapshots.
     pub fn commit_chunk_block_entities(

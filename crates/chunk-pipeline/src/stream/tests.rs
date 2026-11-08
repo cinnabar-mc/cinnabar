@@ -892,6 +892,7 @@ mod mesh_dispatch;
 mod mesh_publication;
 mod mesh_removal;
 mod near_drawn;
+mod placed_block_entities;
 mod player_grid_interest;
 mod player_retention;
 mod prediction;
