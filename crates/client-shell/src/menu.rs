@@ -757,7 +757,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
@@ -789,6 +788,9 @@ impl MenuRuntime {
             MenuAction::ToggleReadMore(section) => self.feeds.toggle_read_more(section),
             MenuAction::OpenLiveEvent => self.open_live_event(),
             MenuAction::GlobalResources(action) => self.global_resource_actions.push(action),
+            MenuAction::Mods(launcher::mods::Action::BrowseMarketplace) => {
+                launcher_host::desktop::open_url(launcher::mods::MARKETPLACE_URL);
+            }
             MenuAction::Mods(launcher::mods::Action::ViewUpdates) => {
                 if !self.over_world() {
                     self.apply_global_resources_on_leave();

@@ -6,12 +6,38 @@ pub const SECTION: &str = crate::menu::settings_sections::SettingSection::Mods
     .name;
 /// File extension of an importable mod component.
 pub const COMPONENT_EXTENSION: &str = "wasm";
+/// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
+pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
+/// File-name prefix reserved for managed marketplace components.
+///
+/// It is distinctive so that ordinary local file names, such as `marketplace-prices.wasm`, are
+/// never mistaken for managed files and held or refused.
+pub const MARKETPLACE_FILE_PREFIX: &str = "cinnabar-marketplace-";
+/// Library message after a verified marketplace download lands, disabled, in My mods.
+pub const MARKETPLACE_ADDED: &str =
+    "Marketplace mod added to My mods. Enable it and choose its permissions in Mods.";
 /// Release tags share the installed metadata version's display bound.
 pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
+
+/// Whether `file_name` is reserved for a managed marketplace component, with or without a receipt.
+pub fn is_marketplace_file(file_name: &str) -> bool {
+    file_name.starts_with(MARKETPLACE_FILE_PREFIX)
+}
+
+/// Status text for a marketplace release that staff withdrew, with their optional reason.
+pub fn marketplace_withdrawn(reason: &str) -> String {
+    if reason.is_empty() {
+        "Marketplace release withdrawn by staff.".into()
+    } else {
+        format!("Marketplace release withdrawn: {reason}")
+    }
+}
 
 /// Commands name the card's own identity so list changes cannot retarget a press.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// Opens the website without changing the local library or its permissions.
+    BrowseMarketplace,
     ReadMore(u64),
     ToggleActive,
     ToggleAvailable,
@@ -37,7 +63,8 @@ pub enum Action {
 /// One permission supplied by the host's grant declaration, rather than a UI capability list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Permission {
-    /// Whether this capability applies to the component runtime.
+    /// Whether this capability can be granted: it applies to the component runtime and, for a
+    /// marketplace release, the component requests it.
     pub applicable: bool,
     pub name: String,
     pub description: String,
@@ -101,6 +128,11 @@ impl InstalledMod {
             .collect();
         indices.sort_by_key(|index| self.permissions[*index].requested != Some(true));
         indices
+    }
+    /// Whether this card is a managed marketplace file, whose authority is capped to its signed
+    /// request.
+    pub fn marketplace(&self) -> bool {
+        is_marketplace_file(&self.file)
     }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {
@@ -203,6 +235,7 @@ impl Snapshot {
     /// Keeps disclosure changes local and forwards work only while the library is idle.
     pub fn apply(&mut self, action: Action) -> Option<Action> {
         match action {
+            Action::BrowseMarketplace => None,
             Action::Customize(id) => {
                 self.customizing = (self.customizing != Some(id)).then_some(id);
                 self.show_all_permissions = false;
@@ -355,6 +388,27 @@ mod tests {
         item.metadata.icon = Some(std::sync::Arc::from([1u8].as_slice()));
         assert_eq!(item.name(), "Zoom");
         assert!(item.icon_key().is_some());
+    }
+
+    #[test]
+    fn only_the_reserved_prefix_marks_a_card_as_marketplace_managed() {
+        let mut item = installed(1);
+        item.file = "marketplace-prices.wasm".into();
+        assert!(!item.marketplace(), "a local file name must stay local");
+        item.file = format!("{MARKETPLACE_FILE_PREFIX}11-fixture.wasm");
+        assert!(item.marketplace());
+    }
+
+    #[test]
+    fn browsing_never_queues_library_work_or_changes_grants() {
+        for busy in [false, true] {
+            let mut snapshot = Snapshot::default();
+            snapshot.library.busy = busy;
+            snapshot.library.installed.push(installed(7));
+            let before = snapshot.clone();
+            assert_eq!(snapshot.apply(Action::BrowseMarketplace), None);
+            assert_eq!(snapshot, before);
+        }
     }
 
     #[test]

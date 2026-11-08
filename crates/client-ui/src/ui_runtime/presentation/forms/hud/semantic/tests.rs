@@ -210,6 +210,29 @@ fn hotbar_corrections_and_artwork_keep_icons_and_other_components_independent() 
 }
 
 #[test]
+fn creative_hides_hud_durability_bars_until_the_mode_changes_back() {
+    let mut fixture = Fixture::default();
+    fixture.frame.hotbar_stacks[0] = Some(stack(1));
+    fixture.frame.hotbar_durability[0] = Some(0.6);
+    let mut cache = SemanticHud::default();
+    fixture.check(&mut cache);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Creative);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, None);
+    assert_eq!(cache.model.hotbar[0].count, 1);
+    fixture
+        .player
+        .facts
+        .publish_player_game_mode(protocol::PlayerGameMode::Survival);
+    assert!(fixture.check(&mut cache).hotbar);
+    assert_eq!(cache.model.hotbar[0].durability, Some(f64::from(0.6f32)));
+}
+
+#[test]
 fn timed_text_preserves_requests_and_reacts_to_expiry_and_time_jumps() {
     let mut fixture = Fixture::default();
     fixture

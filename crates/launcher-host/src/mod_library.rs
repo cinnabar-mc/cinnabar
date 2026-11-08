@@ -21,6 +21,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 /// Ordered work sent to the library thread.
 pub enum Command {
+    Marketplace(Box<crate::marketplace::Downloaded>),
     Action(Action),
     Update(crate::mod_updates::Downloaded, Sender<()>),
     Message(String),
@@ -39,6 +40,16 @@ pub struct Service {
 }
 
 impl Service {
+    /// Orders a verified marketplace download behind prior library mutations.
+    pub fn marketplace(&self, download: crate::marketplace::Downloaded) {
+        let _ = self.commands.send(Command::Marketplace(Box::new(download)));
+    }
+
+    /// Publishes a background delivery outcome through the library's ordered worker.
+    pub fn message(&self, message: String) {
+        let _ = self.commands.send(Command::Message(message));
+    }
+
     /// Starts one ordered worker, retaining package limits and retirement authority from its owner.
     pub fn start<B: Backend>(
         mods: PathBuf,

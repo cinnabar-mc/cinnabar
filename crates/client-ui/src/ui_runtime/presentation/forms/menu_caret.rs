@@ -13,9 +13,30 @@ use ui_engine::caret::{TextSpot, nearest_boundary};
 /// The caret's blink clock and where the last menu frame drew each box's text.
 #[derive(Default)]
 pub(super) struct MenuCaretState {
-    /// The caret revision last seen, and the menu clock when it changed.
-    blink: Option<(u64, f64)>,
+    blink: CaretBlink,
     spots: Vec<TextSpot<MenuField>>,
+}
+
+/// A caret's blink clock: shown for `CARET_BLINK_SECONDS`, hidden for as long, and shown
+/// again whenever its revision changes.
+#[derive(Default)]
+pub(super) struct CaretBlink {
+    /// The caret revision last seen, and the clock when it changed.
+    since: Option<(u64, f64)>,
+}
+
+impl CaretBlink {
+    /// Whether the caret at `revision` shows at clock `now`, in seconds.
+    pub(super) fn shown(&mut self, revision: u64, now: f64) -> bool {
+        let since = match self.since {
+            Some((seen, since)) if seen == revision => since,
+            _ => {
+                self.since = Some((revision, now));
+                now
+            }
+        };
+        (((now - since).max(0.0) / json_ui::CARET_BLINK_SECONDS) as u64).is_multiple_of(2)
+    }
 }
 
 impl UiPresentationRuntime {
@@ -36,16 +57,9 @@ impl UiPresentationRuntime {
         let now = self.menu_seconds;
         let state = &mut self.screens.menu_caret;
         state.spots.clear();
-        let since = match state.blink {
-            Some((revision, since)) if revision == view.caret.revision => since,
-            _ => {
-                state.blink = Some((view.caret.revision, now));
-                now
-            }
-        };
-        let phase = ((now - since).max(0.0) / json_ui::CARET_BLINK_SECONDS) as u64;
+        let shown = state.blink.shown(view.caret.revision, now);
         if view.field.is_some() {
-            view.caret.shown = phase.is_multiple_of(2);
+            view.caret.shown = shown;
         }
     }
 

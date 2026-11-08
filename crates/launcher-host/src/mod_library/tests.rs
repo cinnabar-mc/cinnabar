@@ -87,13 +87,15 @@ impl Backend for Fixture {
     fn read_source(path: &Path) -> Result<Vec<u8>, String> {
         fs::read(path).map_err(|error| error.to_string())
     }
-    /// Accepts fixture versions and rejects a deliberately malformed package.
+    /// Accepts fixture versions and component bytes, and rejects a deliberately malformed package.
     fn validate_source(bytes: &[u8]) -> Result<(), String> {
-        bytes
-            .first()
-            .is_some_and(u8::is_ascii_digit)
+        (bytes.first().is_some_and(u8::is_ascii_digit) || bytes.starts_with(b"\0asm"))
             .then_some(())
             .ok_or("invalid fixture".into())
+    }
+    /// Accepts any verified release; declaration matching is tested with the real app port.
+    fn validate_marketplace(_: &[u8], _: &crate::marketplace::Manifest) -> Result<(), String> {
+        Ok(())
     }
     /// Supplies the canonical metadata model at the package inspection boundary.
     fn update_metadata(bytes: &[u8], _: bool) -> Result<ModMetadata, String> {
@@ -117,9 +119,16 @@ impl Backend for Fixture {
         };
         fs::write(directory.join("selection"), value).map_err(|error| error.to_string())
     }
-    /// Writes the fixture's removal request and retains the exact bytes for confirmation.
-    fn forget(directory: &Path, _: &Path, request: String) -> Result<Vec<u8>, String> {
+    /// Drops the selection naming `component`, writes the fixture's removal request and retains
+    /// the exact bytes for confirmation.
+    fn forget(directory: &Path, component: &Path, request: String) -> Result<Vec<u8>, String> {
         fs::create_dir_all(directory).unwrap();
+        if Self::registered(directory)
+            .iter()
+            .any(|(path, _)| path == component)
+        {
+            fs::write(directory.join("selection"), "").unwrap();
+        }
         fs::write(directory.join("receipt"), &request).unwrap();
         Ok(request.into_bytes())
     }
@@ -133,6 +142,23 @@ impl Backend for Fixture {
     fn settings_companion(component: &Path) -> PathBuf {
         component.with_extension("fixture-settings")
     }
+}
+
+#[test]
+fn marketplace_navigation_does_not_modify_the_local_library() {
+    let root = tempfile::tempdir().unwrap();
+    let mut requests = 0;
+    let result = worker::perform::<Fixture>(
+        Action::BrowseMarketplace,
+        &root.path().join("mods"),
+        &root.path().join("config"),
+        &mut requests,
+        &mut || panic!("navigation must not open a file picker"),
+        &mut |_| panic!("navigation must not retire a mod"),
+    );
+    assert_eq!(result, Ok(String::new()));
+    assert_eq!(requests, 0);
+    assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
 }
 
 #[test]
@@ -189,6 +215,53 @@ fn imports_validate_before_publication_and_never_replace_existing_files() {
     fs::write(&source, b"2.0.0").unwrap();
     assert!(import::<Fixture>(&mods, &source).is_err());
     assert_eq!(fs::read(mods.join("zoom.wasm")).unwrap(), b"1.0.0");
+}
+
+#[test]
+fn resent_marketplace_release_drops_a_stale_enabled_entry_and_lands_in_my_mods() {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let config = root.path().join("config");
+    fs::create_dir_all(&mods).unwrap();
+    fs::create_dir_all(&config).unwrap();
+    let (download, target) = crate::marketplace::tests::staged(&mods);
+    // The earlier copy was enabled, then its file was deleted outside Mods.
+    fs::write(config.join("selection"), target.to_str().unwrap()).unwrap();
+    let message = worker::install_marketplace::<Fixture>(download, &config, "resend".into(), 3000);
+    assert!(message.contains("My mods"), "{message}");
+    assert!(target.exists(), "{message}");
+    let library = scan_cached::<Fixture>(&mods, &config, message, &mut BTreeMap::new());
+    assert_eq!(library.installed.len(), 1);
+    assert!(
+        library.active.is_empty(),
+        "a re-sent release must wait for a fresh Enable"
+    );
+}
+
+#[test]
+fn local_files_named_like_the_marketplace_import_and_update_while_reserved_names_are_refused() {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let source = root.path().join("marketplace-prices.wasm");
+    fs::write(&source, b"1.0.0").unwrap();
+    assert_eq!(
+        import::<Fixture>(&mods, &source).unwrap(),
+        "marketplace-prices.wasm"
+    );
+    let id = installed(&mods)[0].0.id;
+    let download =
+        crate::mod_updates::Downloaded::fixture(id, "1.1.0", "example/zoom", "zoom.wasm", b"1.1.0");
+    update::install::<Fixture>(&mods, &download).unwrap();
+    assert_eq!(
+        fs::read(mods.join("marketplace-prices.wasm")).unwrap(),
+        b"1.1.0"
+    );
+    let reserved = root.path().join(format!(
+        "{}prices.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX
+    ));
+    fs::write(&reserved, b"1.0.0").unwrap();
+    assert!(import::<Fixture>(&mods, &reserved).is_err());
 }
 
 #[test]

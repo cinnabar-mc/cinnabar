@@ -29,6 +29,19 @@ pub fn run<B: Backend>(
     let _ = outgoing.send(library.clone());
     loop {
         let message = match incoming.recv_timeout(interval) {
+            Ok(Command::Marketplace(download)) => {
+                library.busy = true;
+                library.message = "Verifying marketplace component compatibility…".into();
+                let _ = outgoing.send(library.clone());
+                requests += 1;
+                let request = format!("marketplace-install-{}-{requests}", std::process::id());
+                install_marketplace::<B>(
+                    *download,
+                    registration,
+                    request,
+                    crate::marketplace::now_ms(),
+                )
+            }
             Ok(Command::Message(message)) => message,
             Ok(Command::Update(download, finished)) => {
                 library.busy = true;
@@ -115,6 +128,39 @@ pub fn run<B: Backend>(
     }
 }
 
+/// Checks a verified marketplace download against the runtime and publishes it disabled at
+/// `now`, returning the message the Mods tab shows.
+///
+/// A newly published file never inherits a registration entry left at its path, such as an
+/// enabled entry whose file was deleted outside Mods: that entry and its grants are dropped
+/// under `request` first, so the release needs a fresh Enable and permission choice.
+pub(super) fn install_marketplace<B: Backend>(
+    download: crate::marketplace::Downloaded,
+    registration: &Path,
+    request: String,
+    now: u64,
+) -> String {
+    let result = (|| {
+        let bytes = download.bytes().map_err(|error| error.to_string())?;
+        B::validate_source(&bytes)
+            .map_err(|error| format!("Unsupported marketplace component: {error}"))?;
+        B::validate_marketplace(&bytes, download.manifest())?;
+        download
+            .install(now, |target| {
+                if B::registered(registration)
+                    .iter()
+                    .any(|entry| same_path(entry.component(), target))
+                {
+                    B::forget(registration, target, request).map_err(anyhow::Error::msg)?;
+                }
+                Ok(())
+            })
+            .map_err(|error| error.to_string())?;
+        Ok::<_, String>(launcher::mods::MARKETPLACE_ADDED.to_owned())
+    })();
+    result.unwrap_or_else(|error| format!("Marketplace installation held: {error}"))
+}
+
 /// Runs one Mods-tab command; both outcomes are the message the tab shows.
 pub fn perform<B: Backend>(
     action: Action,
@@ -191,7 +237,8 @@ pub fn perform<B: Backend>(
             )
             .map(|()| String::new())
         }
-        Action::ReadMore(_)
+        Action::BrowseMarketplace
+        | Action::ReadMore(_)
         | Action::Update(_)
         | Action::ViewUpdates
         | Action::OpenUpdate(_)

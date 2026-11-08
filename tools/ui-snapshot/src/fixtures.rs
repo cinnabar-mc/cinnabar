@@ -825,6 +825,12 @@ const STATES: &[State] = &[
         fixture: || settings_screens::settings_video_culling(false),
     },
     State {
+        name: "settings-gui-scale",
+        size: [1280, 1400],
+        gui_scale: GUI_SCALE,
+        fixture: settings_screens::settings_gui_scale,
+    },
+    State {
         name: "settings-video-shader-shortcut",
         size: SIZE,
         gui_scale: GUI_SCALE,

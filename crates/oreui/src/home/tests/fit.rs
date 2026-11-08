@@ -94,7 +94,7 @@ fn assert_fits(
     );
     assert_eq!(
         hits.len(),
-        9 + usize::from(event) + usize::from(update_ready)
+        10 + usize::from(event) + usize::from(update_ready)
     );
     if update_ready {
         assert!(

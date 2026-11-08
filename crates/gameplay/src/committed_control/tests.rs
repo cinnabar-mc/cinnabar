@@ -3,6 +3,7 @@ use crate::movement::MovementSource;
 use crate::test_support::movement_speed_attribute as attribute;
 use client_world::ResolvedServerPosition;
 
+mod eased_move;
 mod local_actor_movement;
 
 /// A world that rejects any unintended spatial query during non-replay controls.
@@ -157,6 +158,7 @@ fn dimension_destination_and_ready_respawn_preserve_the_global_input_clock() {
     let controls = [
         CommittedControlEvent::MovePlayer {
             sequence: 1,
+            riding_actor_resolved: false,
             source_cohort: None,
             movement: protocol::MovePlayerEvent {
                 runtime_id: 42,

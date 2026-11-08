@@ -145,6 +145,18 @@ impl TimedText {
         now_millis < self.expires_millis
     }
 
+    /// Other text shown on this text's timeline, such as a title's subtitle.
+    fn with_text(&self, text: Arc<str>, fifo_sequence: u64) -> Self {
+        Self {
+            text,
+            fifo_sequence,
+            started_millis: self.started_millis,
+            expires_millis: self.expires_millis,
+            fade_in_millis: self.fade_in_millis,
+            fade_out_millis: self.fade_out_millis,
+        }
+    }
+
     /// Opacity in `0..=255`: ramps up over the fade-in, holds, ramps down over the fade-out.
     pub fn alpha_at(&self, now_millis: u64) -> u8 {
         if !self.visible_at(now_millis) {
@@ -298,7 +310,16 @@ pub struct HudStore {
     absorption: Option<BoundedStat>,
     experience: Option<HudExperience>,
     title: Option<TimedText>,
+    /// The subtitle shown with `title`, sharing its timing; a new title replaces it.
     subtitle: Option<TimedText>,
+    /// A subtitle waiting for a title. Until the presentation tick it joins every title set in
+    /// that tick; the tick drops it once a title exists.
+    pending_subtitle: Option<(Arc<str>, u64)>,
+    /// A title arrived since the last presentation tick.
+    title_since_tick: bool,
+    /// The subtitle shown at the last presentation tick, restored when a queued update is
+    /// cancelled before it is shown.
+    presented_subtitle: Option<TimedText>,
     actionbar: Option<TimedText>,
     /// The tip text: `TextTypeTip` and its JSON variant sit above the hotbar,
     /// bound to `#tip_text` in `hud_screen.json`.
@@ -386,7 +407,7 @@ impl HudStore {
         self.title.as_ref().map_or("", |text| text.text.as_ref())
     }
 
-    /// Latest subtitle input, independent of whether a native title is currently displayed.
+    /// The subtitle of the latest title, kept after its fade and replaced by the next title.
     pub fn subtitle_text(&self) -> &str {
         self.subtitle.as_ref().map_or("", |text| text.text.as_ref())
     }
@@ -428,22 +449,35 @@ impl HudStore {
         self.durations = durations;
     }
 
+    /// Shows a new title with the pending subtitle, or with none: a subtitle never carries over
+    /// from an earlier title.
     pub fn set_title(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
-        self.title = Some(TimedText::new(
-            text,
-            fifo_sequence,
-            now_millis,
-            self.durations,
-        ));
+        let title = TimedText::new(text, fifo_sequence, now_millis, self.durations);
+        self.subtitle = self
+            .pending_subtitle
+            .clone()
+            .map(|(text, sequence)| title.with_text(text, sequence));
+        self.title = Some(title);
+        self.title_since_tick = true;
     }
 
-    pub fn set_subtitle(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
-        self.subtitle = Some(TimedText::new(
-            text,
-            fifo_sequence,
-            now_millis,
-            self.durations,
-        ));
+    /// Queues a subtitle for the next title and, while a title exists, shows it there at once.
+    /// An empty subtitle cancels the queued one: a title set since the last tick then has none,
+    /// and an earlier title keeps the subtitle it was last shown with.
+    pub fn set_subtitle(&mut self, text: Arc<str>, fifo_sequence: u64, _now_millis: u64) {
+        if text.is_empty() {
+            self.pending_subtitle = None;
+            self.subtitle = if self.title_since_tick {
+                None
+            } else {
+                self.presented_subtitle.clone()
+            };
+            return;
+        }
+        if let Some(title) = &self.title {
+            self.subtitle = Some(title.with_text(Arc::clone(&text), fifo_sequence));
+        }
+        self.pending_subtitle = Some((text, fifo_sequence));
     }
 
     pub fn set_actionbar(&mut self, text: Arc<str>, fifo_sequence: u64, now_millis: u64) {
@@ -467,6 +501,9 @@ impl HudStore {
     pub fn clear_titles(&mut self) {
         self.title = None;
         self.subtitle = None;
+        self.pending_subtitle = None;
+        self.title_since_tick = false;
+        self.presented_subtitle = None;
         self.actionbar = None;
         self.tip = None;
     }
@@ -515,6 +552,11 @@ impl HudStore {
 
     pub fn expire(&mut self, now_millis: u64) {
         self.presentation_millis = now_millis;
+        if self.title.is_some() {
+            self.pending_subtitle = None;
+        }
+        self.title_since_tick = false;
+        self.presented_subtitle.clone_from(&self.subtitle);
         if self
             .tip
             .as_ref()

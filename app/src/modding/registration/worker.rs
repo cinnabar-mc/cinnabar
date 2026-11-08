@@ -49,6 +49,36 @@ pub(super) fn load_request(
     })
 }
 
+/// Captures one enabled entry's source for admission after capping managed authority.
+///
+/// A managed entry's grants are capped in place to its signed release before the source is read,
+/// so the published selection, frame authority checks and the candidate hold the same grants and
+/// never exceed the signed set. `now_ms` is the marketplace authority time.
+pub(super) fn capture(
+    observer: &mut source::Observer,
+    entry: &mut Entry,
+    marketplace: &launcher_host::marketplace::Guard,
+    fences: &BTreeMap<PathBuf, super::super::admission::DrawingContext>,
+    now: Instant,
+    now_ms: u64,
+) -> Result<SourceSnapshot, String> {
+    super::super::marketplace::cap(&entry.component, &mut entry.grants, marketplace, now_ms);
+    let mut snapshot = observer.source_snapshot(entry.clone(), now)?;
+    if let Some(manifest) = marketplace
+        .check(&entry.component, &snapshot.component, now_ms)
+        .map_err(|error| error.to_string())?
+    {
+        let signed = super::super::marketplace::declarations(&snapshot.component, &manifest)?;
+        let mut capped = entry.grants.clone();
+        capped.cap(&signed);
+        if capped != entry.grants {
+            return Err("Marketplace authority changed while source bytes were checked.".into());
+        }
+    }
+    snapshot.drawing = fences.get(&entry.component).cloned();
+    Ok(snapshot)
+}
+
 /// Runs one coordinator and one bounded loader, sharing no guest instances with the frame.
 #[allow(
     clippy::too_many_arguments,
@@ -63,6 +93,7 @@ pub(super) fn run(
     desired: Arc<Mutex<Desired>>,
     settings: Arc<Mutex<BTreeMap<PathBuf, SettingsSnapshot>>>,
     drawing: Arc<Mutex<BTreeMap<PathBuf, super::super::admission::DrawingContext>>>,
+    marketplace: Arc<launcher_host::marketplace::Guard>,
     poll_interval: std::time::Duration,
 ) {
     let (loads, receive_loads) = bounded::<LoadRequest>(1);
@@ -106,7 +137,7 @@ pub(super) fn run(
             next_poll = now + poll_interval;
             let observed = observer.observe(&directory.join(REGISTRATION_FILE), now);
             removal.observe(observed.request_id.as_deref());
-            let registration = observed
+            let mut registration = observed
                 .result
                 .unwrap_or_default()
                 .unwrap_or_else(Registration::empty);
@@ -115,14 +146,15 @@ pub(super) fn run(
             let mut sources = Vec::new();
             let mut settings_inputs = BTreeMap::new();
             let fences = drawing.lock().expect("mod drawing fences").clone();
-            for entry in registration.mods.iter().filter(|entry| entry.enabled) {
-                let mut snapshot =
-                    observer
-                        .source_snapshot(entry.clone(), now)
-                        .map(|mut snapshot| {
-                            snapshot.drawing = fences.get(&entry.component).cloned();
-                            snapshot
-                        });
+            for entry in registration.mods.iter_mut().filter(|entry| entry.enabled) {
+                let mut snapshot = capture(
+                    &mut observer,
+                    entry,
+                    &marketplace,
+                    &fences,
+                    now,
+                    launcher_host::marketplace::now_ms(),
+                );
                 match &snapshot {
                     Ok(snapshot) => digest.update(snapshot.identity),
                     Err(error) => digest.update(error.as_bytes()),

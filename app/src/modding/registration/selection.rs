@@ -5,7 +5,10 @@ use super::{
     status::write_json,
 };
 use launcher::mods::Status;
-use launcher_host::mod_library::paths::{resolved_component, same_path};
+use launcher_host::{
+    marketplace::managed,
+    mod_library::paths::{resolved_component, same_path},
+};
 use mod_host::ModGrants;
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -216,6 +219,9 @@ pub(in crate::modding) fn move_entry(
 }
 
 /// Updates one capability generated from the grant declaration, preserving every other mod.
+///
+/// A marketplace component can only enable capabilities it requests; its request already
+/// matched the signed release.
 pub(in crate::modding) fn permission(
     directory: &Path,
     component: &Path,
@@ -240,6 +246,9 @@ pub(in crate::modding) fn permission(
         } else {
             None
         };
+        if enabled && managed(component) && !requested.as_ref().is_some_and(descriptor.enabled) {
+            return Err("This marketplace mod did not request this permission.".into());
+        }
         (descriptor.set)(grants, enabled, requested.as_ref());
         if enabled && !(descriptor.enabled)(grants) {
             return Err("This component does not declare requested command names.".into());
@@ -268,6 +277,8 @@ pub(in crate::modding) fn allow_requested(
 }
 
 /// Grants all applicable capabilities and declared commands without changing the source's host.
+///
+/// A marketplace component receives only the capabilities it requests.
 pub(in crate::modding) fn grant_all(
     directory: &Path,
     component: &Path,
@@ -281,6 +292,9 @@ pub(in crate::modding) fn grant_all(
     change_grants(directory, component, request_id, |grants| {
         for capability in ModGrants::CAPABILITIES {
             (capability.set)(grants, capability.applies_to(packet), requested.as_ref());
+        }
+        if managed(component) {
+            grants.cap(&requested.unwrap_or_default());
         }
         Ok(())
     })

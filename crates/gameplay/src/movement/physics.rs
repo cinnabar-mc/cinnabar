@@ -29,6 +29,7 @@ mod flag_frame;
 mod input_requests;
 mod lifecycle;
 mod motion_ticks;
+mod movement_lerp;
 mod posture;
 pub(in crate::movement) use posture::ClimberFlags;
 mod timeline;
@@ -38,6 +39,8 @@ mod visual_correction;
 mod fall_tests;
 #[cfg(test)]
 mod liquid_probe_tests;
+#[cfg(test)]
+mod pick_origin_tests;
 
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
@@ -286,6 +289,12 @@ pub struct LocalPhysicsController {
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     actor_position_pending: Option<actor_move::ActorPositionUpdate>,
+    /// A Normal-mode `MovePlayer` ease the next completed tick steps.
+    movement_lerp: Option<movement_lerp::MovementLerp>,
+    /// Exact eased height retained while collision feet stay at that height.
+    network_height: Option<movement_lerp::NetworkHeight>,
+    /// Completed interpolation aim awaiting publication to the view.
+    eased_rotation: Option<[f32; 2]>,
     deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
@@ -344,6 +353,9 @@ impl Default for LocalPhysicsController {
             motion_anchor: None,
             server_motions: VecDeque::new(),
             actor_position_pending: None,
+            movement_lerp: None,
+            network_height: None,
+            eased_rotation: None,
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
@@ -505,11 +517,10 @@ impl LocalPhysicsController {
     #[must_use]
     pub fn network_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
-        Some([
-            state.position.x as f32,
-            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-            state.position.z as f32,
-        ])
+        Some(movement_lerp::NetworkHeight::position(
+            self.network_height,
+            state.position,
+        ))
     }
 
     #[must_use]
