@@ -285,6 +285,15 @@ impl UiPresentationRuntime {
             let base_view = ViewState::default();
             let mut base_data = DataSource::new();
             base_data.set_global("#touch_utilities_open", Scalar::Bool(true));
+            // The retained screen keeps the last bound scale, so measure every control at 1.
+            let slots = (0..state.mod_buttons.len()).map(mod_buttons::layout_name);
+            for name in CONTROLS
+                .iter()
+                .map(|(name, _)| (*name).to_owned())
+                .chain(slots)
+            {
+                base_data.set_global(editor::scale_binding(&name), Scalar::Num(1.));
+            }
             set_mode_bindings(&mut base_data, state.mode);
             state.base = renderer.draw(ScreenArt::default(), &mut paint, |env, root| {
                 screen.render_with(

@@ -338,6 +338,44 @@ fn touch_editor_corner_resize_scales_drawn_and_active_regions_and_survives_reloa
     }
 }
 
+/// Returning a resized control to its authored size restores its drawn touch area, and the
+/// factory measurement never inherits a scale from an earlier paint.
+#[test]
+fn touch_controls_return_to_unit_scale_after_a_resize() {
+    let Some(mut p) = pack_harness::engine_presentation() else {
+        return;
+    };
+    let runtime = pack_harness::menu_runtime();
+    p.set_touch_control_mode(TouchControlMode::Crosshair);
+    let jump_width = |p: &UiPresentationRuntime| {
+        let frame = p.screens.touch.frame.as_ref().unwrap();
+        let hit = frame
+            .hits
+            .iter()
+            .find(|hit| control_id(hit.pressed.as_deref()) == Some(touch::JUMP))
+            .unwrap();
+        region_bounds(frame, hit, [1280., 720.], touch::JUMP)
+            .map(|region| region.bounds.max[0] - region.bounds.min[0])
+            .unwrap()
+    };
+    let mut scaled = TouchLayout::default();
+    scaled.set_scaled("jump", [0.5, 0.5], 2.);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    let unit = jump_width(&p);
+    p.screens.touch.saved = scaled;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    // A new viewport remeasures the factory geometry through the same retained screen.
+    paint_overlay(&mut p, &runtime, [1000, 720]);
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - 2. * unit).abs() < 0.002);
+    let mut placed = TouchLayout::default();
+    placed.set("jump", [0.5, 0.5]);
+    p.screens.touch.saved = placed;
+    paint_overlay(&mut p, &runtime, [1280, 720]);
+    assert!((jump_width(&p) - unit).abs() < 0.002);
+}
+
 /// Snap, undo, redo and Reset use the same completed gesture history as mod layout editing.
 #[test]
 fn touch_editor_alignment_history_and_reset_keep_factory_layout_available() {

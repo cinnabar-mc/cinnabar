@@ -78,8 +78,9 @@ impl UiPresentationRuntime {
 }
 
 /// Applies the same saved or draft control positions to painting and roster avoidance, and
-/// returns each resized control's layout name with its scale. A scaled control keeps its
-/// top-left corner at the placed position.
+/// returns every placeable control's layout name with its scale, including unit scales, since
+/// a retained screen keeps a binding's last value. A scaled control keeps its top-left corner at
+/// the placed position.
 pub(super) fn place_controls(
     state: &TouchControls,
     view: &mut ViewState,
@@ -132,9 +133,7 @@ pub(super) fn place_controls(
             view.drags
                 .insert(hit.key.clone(), [at[0] - hit.rect.x, at[1] - hit.rect.y]);
         }
-        if (scale - 1.).abs() > 1e-6 {
-            scales.push((layout_name.to_owned(), scale));
-        }
+        scales.push((layout_name.to_owned(), scale));
     }
     scales
 }
