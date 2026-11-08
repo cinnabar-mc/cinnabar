@@ -30,6 +30,8 @@ impl FrameOwner {
 
 struct Schedule {
     clock: Clock,
+    /// Whether wall-clock epoch ticks add poll boundaries; false when the caller owns time.
+    epoch_yields: bool,
     enabled: bool,
     frame: u64,
     used: Duration,
@@ -45,15 +47,22 @@ impl Default for FrameTime {
     /// Reads time only at the scheduling boundary; tests supply a manual clock.
     fn default() -> Self {
         let origin = Instant::now();
-        Self::with_clock(Arc::new(move || origin.elapsed()))
+        Self::new(Arc::new(move || origin.elapsed()), true)
     }
 }
 
 impl FrameTime {
-    /// Creates a scheduler with an elapsed-time source independent of guest observations.
+    /// Creates a scheduler driven only by a caller-owned clock. Wall-clock epoch ticks never
+    /// end its polls, so the number and order of clock samples depend only on guest fuel.
     pub(crate) fn with_clock(clock: Clock) -> Self {
+        Self::new(clock, false)
+    }
+
+    /// Creates a scheduler with an elapsed-time source independent of guest observations.
+    fn new(clock: Clock, epoch_yields: bool) -> Self {
         Self(Arc::new(Mutex::new(Schedule {
             clock,
+            epoch_yields,
             enabled: false,
             frame: 0,
             used: Duration::ZERO,
@@ -92,6 +101,11 @@ impl FrameTime {
     /// Whether the production host has installed a frame-wide schedule.
     pub(crate) fn enabled(&self) -> bool {
         self.0.lock().expect("mod time budget").enabled
+    }
+
+    /// Whether resumable calls also yield on wall-clock epoch ticks, besides fuel intervals.
+    pub(crate) fn epoch_yields(&self) -> bool {
+        self.0.lock().expect("mod time budget").epoch_yields
     }
 
     /// Whether two budget handles account against the same host frame boundaries.

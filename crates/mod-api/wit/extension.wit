@@ -657,8 +657,9 @@ interface gameplay {
     /// callback the host defers keeps them. Requires movement authority; server movement,
     /// hunger and item-use restrictions still apply.
     set-movement-intents: func(intents: option<movement-intents>) -> result<_, string>;
-    /// The game's own control modes, replacing the player's toggle sprint, toggle sneak and
-    /// always sprint settings while renewed. Always sprint applies only to keyboard and mouse.
+    /// The game's own control modes, turned on in addition to the player's toggle sprint, toggle
+    /// sneak and always sprint settings while renewed; false leaves the player's own setting.
+    /// Always sprint applies only to keyboard and mouse.
     record control-modes { toggle-sprint: bool, toggle-sneak: bool, always-sprint: bool }
     /// Renew every focused gameplay frame; omission restores the player's own settings, and a
     /// frame whose callback the host defers keeps the modes. Requires movement authority. With

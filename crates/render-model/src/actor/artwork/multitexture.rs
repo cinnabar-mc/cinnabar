@@ -1,4 +1,4 @@
-//! Native three-sampler rasters share one array page. Nearest texel replication preserves
+//! Native multi-sampler rasters share one array page. Nearest texel replication preserves
 //! each source's normalized-UV lookup; RGB composition remains in the fragment shader.
 
 use crate::{ActorArtworkLocation, ActorArtworkPages};
@@ -49,7 +49,7 @@ fn append_nearest(pixels: &mut Vec<u8>, texture: &assets::ActorTexture, width: u
 }
 
 impl ActorArtworkPages {
-    /// The controller's three samplers, routed together without drawing the same mesh thrice.
+    /// Routes samplers together; two-texture materials repeat their second source.
     pub fn multitexture_location(
         &self,
         rig: EntityRigId,
@@ -62,7 +62,7 @@ impl ActorArtworkPages {
             return None;
         }
         let page = self.pages.get(usize::from(base.page).checked_sub(1)?)?;
-        if !page.multitexture {
+        if !page.multitexture && sources[1] != sources[2] {
             return None;
         }
         base.multitexture = Some([second.layer, third.layer]);
@@ -79,9 +79,11 @@ impl ActorArtworkPages {
         else {
             return false;
         };
-        page.multitexture
+        (page.multitexture || layers[0] == layers[1])
             && layers.iter().all(|&layer| {
-                layer < page.layers && self.entity_locations.contains(&(location.page, layer))
+                layer < page.layers
+                    && (self.entity_locations.contains(&(location.page, layer))
+                        || self.pack_locations.contains(&(location.page, layer)))
             })
     }
 }
@@ -90,6 +92,37 @@ impl ActorArtworkPages {
 mod tests {
     use super::*;
     use crate::ActorTexturePage;
+
+    #[test]
+    fn masked_multitexture_routes_two_session_pack_samplers_on_one_page() {
+        let rig = crate::pack_rig_id(0);
+        let first = ActorArtworkLocation {
+            page: 1,
+            layer: 0,
+            pose_mode: assets::ActorPoseMode::CompiledLiteral,
+            multitexture: None,
+        };
+        let second = ActorArtworkLocation { layer: 1, ..first };
+        let pages = ActorArtworkPages {
+            routes: Arc::new(BTreeMap::from([(rig, first)])),
+            pack_source_locations: Arc::new(BTreeMap::from([(5, first), (6, second)])),
+            pack_locations: Arc::new(BTreeSet::from([(1, 0), (1, 1)])),
+            pages: Arc::from([ActorTexturePage {
+                width: 1,
+                height: 1,
+                layers: 2,
+                rgba8: [0; 8].into(),
+                color_mask: false,
+                multitexture: false,
+            }]),
+            ..Default::default()
+        };
+        let route = pages.multitexture_location(rig, [5, 6, 6]).unwrap();
+        assert_eq!(route.multitexture, Some([1, 1]));
+        assert!(pages.valid(rig, route));
+        assert!(pages.multitexture_location(rig, [5, 6, 5]).is_none());
+        assert!(pages.multitexture_location(rig, [5, 7, 7]).is_none());
+    }
 
     #[test]
     fn nearest_expansion_preserves_partial_alpha_and_normalized_texel_boundaries() {

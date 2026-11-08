@@ -210,6 +210,49 @@ mod tests {
     use gameplay::movement::control_modes::{ControlModes, ControlObservation};
     use std::time::Duration;
 
+    /// One forward walking frame under `settings` with no sprint key input.
+    fn walk(
+        controls: &mut ControlModes,
+        millis: u64,
+        settings: ui::GameplaySettings,
+    ) -> gameplay::movement::control_modes::ControlOutput {
+        controls.update(ControlObservation {
+            now: Duration::from_millis(millis),
+            forward: 1.0,
+            toggle_sprint: settings.toggle_sprint,
+            always_sprint: settings.always_sprint,
+            toggle_sneak: settings.toggle_sneak,
+            ..ControlObservation::default()
+        })
+    }
+
+    /// The player's own always sprint keeps sprinting under a mod's toggle sprint: when the
+    /// mod's modes arrive after the player's (as while joining) and after a menu suspends input.
+    #[test]
+    fn player_always_sprint_survives_a_mods_toggle_sprint() {
+        let player = ui::GameplaySettings {
+            always_sprint: true,
+            ..Default::default()
+        };
+        let modes = ModControlModes(Some(mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }));
+        let mut controls = ControlModes::default();
+        assert!(walk(&mut controls, 0, ModControlModes(None).apply(player)).sprint_request);
+        let arrived = walk(&mut controls, 50, modes.apply(player));
+        assert!(
+            arrived.sprint_request && !arrived.stop_sprinting,
+            "the mod's modes stopped the player's always sprint"
+        );
+        controls.suspend(false);
+        assert!(
+            walk(&mut controls, 100, modes.apply(player)).sprint_request,
+            "always sprint did not resume after a menu"
+        );
+    }
+
     /// What a sprint key press leaves behind under one set of control settings.
     #[derive(Debug, PartialEq, Eq)]
     struct Presses {

@@ -59,8 +59,8 @@ mod terrain;
 #[derive(Resource, Default)]
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 
-/// Mods' control modes for this frame, replacing the player's toggle sprint, toggle sneak and
-/// always sprint settings while present.
+/// Mods' control modes for this frame, turned on in addition to the player's toggle sprint,
+/// toggle sneak and always sprint settings while present.
 #[derive(Default, Resource)]
 pub(crate) struct ModControlModes(pub(crate) Option<mod_host::GameplayControlModes>);
 

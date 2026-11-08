@@ -171,7 +171,6 @@ pub enum MenuAction {
     /// Opens the native touch-control layout draft.
     EditTouchControls,
     SettingsScale(i8),
-    SettingsScalePicker,
     SettingsFullscreen(bool),
     SettingsStorage(settings_storage::StorageAction),
     SettingsSupport(settings_support::SupportAction),

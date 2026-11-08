@@ -677,6 +677,13 @@ Missing copper armour definitions reuse standard pack definitions when the match
 textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
+Villager and zombie-villager profession layers retain their authored second sampler
+and colored transparent keep masks alongside biome clothing. Babies and unemployed
+villagers retain their authored material choices. The pinned villager brim provisionally
+uses the sibling zombie model's bind; its native villager default remains unverified.
+Matched native captures, masked-material MSAA edge qualification, single-texture masked
+material parity and independent server-pack sampler overrides remain incomplete.
+
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
 attachable's poses in Bedrock animations, matching native first- and third-person draws, and
@@ -915,8 +922,8 @@ while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height. Actor
-scale resizes the box, with its minimum extent, and not the clearance above it. Labels
-keep Java's 0.5-block clearance; native uses 0.7.
+scale resizes the box, with its minimum extent, and not vanilla's 0.7-block clearance
+above it.
 Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
 keep cosmetic labels complete. Ordinary on-screen anchors skip text measurement for
 visibility. Atlas text retains formatting and line slots, with guarded cell edges and
@@ -1060,6 +1067,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server locator packets now reach session-owned locations and the pack-positioned bar
+  in Survival and Creative, with explicit hiding and temporary XP display. Locator
+  distance-dependent icons, legacy color selection, tracked-actor fallback behavior,
+  XP/anvil/enchanting timing and exact projection remain provisional and incomplete
+  pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
@@ -1313,6 +1325,9 @@ Live acceptance of name clicks, inventory opening, typing and history together r
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
+Block outlines, mining and placement share the block-centre pick trim.
+Incomplete: exact 1.26.50 confirmation, the touch-option input remap and live
+client/server reach captures.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
@@ -1593,6 +1608,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
   on. No log confirms the compiler of that run, automatic FXC selection has not run on that
   hardware, and its terrain stays far over the frame budget.
+  Devices on WARP, the DX12 software adapter, also compile with FXC: two Windows 10 players
+  (WARP `10.0.19041.5794`, DXC) crashed in `d3d10warp.dll` on the pipeline compile workers
+  after a few seconds in the menus, while Windows CI runs its GPU tests on WARP with FXC. The FXC
+  rebuild has not run on those machines. GPUs without DX12 or Vulkan drivers, such as Intel HD
+  Graphics 4000 on Windows, still have only WARP, which is far over the frame budget; a
+  hardware path for them would need a backend the renderer does not have.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library
@@ -1875,8 +1896,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unverified.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
-  player's toggle and always-sprint settings, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on
+  toggle and always-sprint modes without turning off the player's own, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance
