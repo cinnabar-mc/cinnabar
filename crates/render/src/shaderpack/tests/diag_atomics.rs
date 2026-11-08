@@ -227,6 +227,13 @@ const RAW_SHADERS: &str = "
 @group(0) @binding(1) var<storage, read_write> out: array<u32>;
 @compute @workgroup_size(1) fn read() { out[0] = textureLoad(sampled, vec2<i32>(0), 0).r; }
 
+@group(0) @binding(0) var rw: texture_storage_2d<r32uint, read_write>;
+@compute @workgroup_size(1) fn rewrite() { textureStore(rw, vec2<i32>(0), textureLoad(rw, vec2<i32>(0))); }
+@compute @workgroup_size(1) fn touch() {
+    let v = textureLoad(rw, vec2<i32>(0));
+    if (v.r == 0xffffffffu) { textureStore(rw, vec2<i32>(0), v); }
+}
+
 @vertex fn fullscreen(@builtin(vertex_index) v: u32) -> @builtin(position) vec4<f32> {
     let uv = vec2<f32>(f32((v << 1u) & 2u), f32(v & 2u));
     return vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
@@ -237,6 +244,7 @@ const RAW_SHADERS: &str = "
 ";
 
 /// How a raw wgpu trial reads the counter after the compute pass writes it.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum RawRead {
     /// A fragment shader loads it in a render pass in the same command buffer.
@@ -249,12 +257,20 @@ enum RawRead {
     RenderNextSubmit,
     /// A render pass after the CPU waited for the compute submission.
     RenderAfterWait,
+    /// A render pass after a compute pass that loads and stores the texel without atomics.
+    RenderAfterRewrite,
+    /// A render pass after a compute pass that binds the texture read-write but never stores.
+    RenderAfterTouch,
+    /// A render pass after a compute pass that loads the texel into a buffer.
+    RenderAfterComputeRead,
 }
 
 struct RawPipelines {
     add: wgpu::ComputePipeline,
     store: wgpu::ComputePipeline,
     read: wgpu::ComputePipeline,
+    rewrite: wgpu::ComputePipeline,
+    touch: wgpu::ComputePipeline,
     show: wgpu::RenderPipeline,
 }
 
@@ -277,6 +293,8 @@ fn raw_pipelines(device: &wgpu::Device) -> RawPipelines {
         add: compute("add"),
         store: compute("store"),
         read: compute("read"),
+        rewrite: compute("rewrite"),
+        touch: compute("touch"),
         show: device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: None,
             layout: None,
@@ -402,6 +420,45 @@ fn raw_trial(gpu: &GpuContext, pipelines: &RawPipelines, atomic: bool, read: Raw
             extent,
         );
     };
+    let middle = match read {
+        RawRead::RenderAfterRewrite => Some(&pipelines.rewrite),
+        RawRead::RenderAfterTouch => Some(&pipelines.touch),
+        _ => None,
+    };
+    if let Some(middle) = middle {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &middle.get_bind_group_layout(0),
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&view),
+            }],
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(middle);
+        pass.set_bind_group(0, &group, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
+    }
+    if read == RawRead::RenderAfterComputeRead {
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &pipelines.read.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: out.as_entire_binding(),
+                },
+            ],
+        });
+        let mut pass = encoder.begin_compute_pass(&Default::default());
+        pass.set_pipeline(&pipelines.read);
+        pass.set_bind_group(0, &group, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
+    }
     match read {
         RawRead::Copy => copy_to_readback(&mut encoder, &counter),
         RawRead::Compute => {
@@ -427,7 +484,12 @@ fn raw_trial(gpu: &GpuContext, pipelines: &RawPipelines, atomic: bool, read: Raw
             }
             encoder.copy_buffer_to_buffer(&out, 0, &readback, 0, 4);
         }
-        RawRead::Render | RawRead::RenderNextSubmit | RawRead::RenderAfterWait => {
+        RawRead::Render
+        | RawRead::RenderNextSubmit
+        | RawRead::RenderAfterWait
+        | RawRead::RenderAfterRewrite
+        | RawRead::RenderAfterTouch
+        | RawRead::RenderAfterComputeRead => {
             let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: None,
                 layout: &pipelines.show.get_bind_group_layout(0),
@@ -490,10 +552,10 @@ fn diag_raw_wgpu_image_atomics() {
     const ROUNDS: usize = 4;
     let conditions = [
         (true, RawRead::Render),
-        (true, RawRead::Compute),
-        (true, RawRead::Copy),
+        (true, RawRead::RenderAfterRewrite),
+        (true, RawRead::RenderAfterTouch),
+        (true, RawRead::RenderAfterComputeRead),
         (true, RawRead::RenderNextSubmit),
-        (true, RawRead::RenderAfterWait),
         (false, RawRead::Render),
     ];
     let mut totals: BTreeMap<(bool, RawRead), BTreeMap<u32, u32>> = BTreeMap::new();
