@@ -22,6 +22,7 @@ pub struct CameraSettingsAuthority {
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
     mod_perspective: Option<PerspectiveMode>,
+    view_yaw_offset: f32,
     pub(super) freelook: bool,
     presented_view: Option<PresentedView>,
     death_rotation: Option<Quat>,
@@ -139,6 +140,7 @@ impl Default for CameraSettingsAuthority {
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
             mod_perspective: None,
+            view_yaw_offset: 0.0,
             freelook: false,
             presented_view: None,
             death_rotation: None,
@@ -394,6 +396,23 @@ impl CameraSettingsAuthority {
         self.game_sensitivity.value()
     }
 
+    /// Sets a frame-local presented heading offset without mutating player look.
+    pub fn set_view_yaw_offset(&mut self, degrees: Option<f32>) {
+        self.view_yaw_offset = degrees
+            .filter(|v| v.is_finite() && (-180.0..=180.0).contains(v))
+            .unwrap_or(0.0);
+    }
+
+    /// Whether a body-aligned first-person viewmodel belongs in the presented view.
+    pub fn view_aligned(&self) -> bool {
+        self.view_yaw_offset == 0.0
+    }
+
+    /// Turns only the presented orientation around world up, leaving the camera position intact.
+    pub fn offset_view_rotation(&self, rotation: Quat) -> Quat {
+        Quat::from_rotation_y(self.view_yaw_offset.to_radians()) * rotation
+    }
+
     /// Selects a temporary ordinary view without changing the player's perspective cycle.
     pub fn set_mod_perspective(&mut self, view: Option<PerspectiveMode>) {
         self.mod_perspective = view;
@@ -411,6 +430,7 @@ impl CameraSettingsAuthority {
         self.presented_view = None;
         self.death_rotation = None;
         self.mod_perspective = None;
+        self.view_yaw_offset = 0.0;
         self.view_scale = [1.0, 1.0];
         self.view_tilt = None;
     }

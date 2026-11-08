@@ -152,6 +152,7 @@ pub(super) fn drive_mod(
         let effects = output.and_then(|output| output.camera);
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(
                 effects
                     .as_ref()
@@ -204,6 +205,7 @@ pub(super) fn drive_mod(
         }
         if let Some(camera) = camera.as_deref_mut() {
             camera.set_mod_perspective(None);
+            camera.set_view_yaw_offset(None);
             camera.set_view_tilt(None);
             native_camera.apply(
                 camera,
@@ -599,6 +601,7 @@ pub(super) fn drive_mod(
     if let Some(mut camera) = camera {
         camera.set_rig(merged.rig.map(camera_rig));
         let native_effects = native_effects.as_ref().filter(|_| !regular_camera);
+        camera.set_view_yaw_offset(merged.yaw_offset);
         camera.set_mod_perspective(merged.perspective.map(|view| {
             use mod_api::native_camera::Perspective as Mod;
             use semantic_input::PerspectiveMode as Native;

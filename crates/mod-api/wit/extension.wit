@@ -874,6 +874,12 @@ interface inventory {
 /// Opt-in local camera policy; requires the explicit camera grant.
 /// Grants: `camera`.
 interface camera {
+    /// Presentation-only world-up yaw, in finite degrees -180..180; 0 is neutral.
+    /// Requires camera authority and focused gameplay; renew for every successful frame.
+    /// Eye position, player aim, interaction rays and movement are unchanged. Off-axis
+    /// views hide the first-person viewmodel. Omission, menus, focus loss, traps and
+    /// unload restore the aligned view. Body visibility follows the selected perspective.
+    set-view-yaw-offset: func(degrees: f32) -> result<_, string>;
     /// The ordinary local view modes, without changing the player's saved choice.
     enum perspective { first-person, third-person-back, third-person-front }
     /// Requires camera authority. Current focused gameplay frame only; renew while needed.

@@ -6,6 +6,8 @@ use mod_api::native_camera::ViewTilt;
 /// Ephemeral output published only after a successful frame callback.
 #[derive(Default)]
 pub(super) struct CameraPolicy {
+    pub pending_yaw_offset: Option<f32>,
+    pub committed_yaw_offset: Option<f32>,
     pub pending_perspective: Option<mod_api::native_camera::Perspective>,
     pub committed_perspective: Option<mod_api::native_camera::Perspective>,
     pub pending_view_scale: Option<[f32; 2]>,
@@ -15,6 +17,27 @@ pub(super) struct CameraPolicy {
 }
 
 impl cinnabar::extension::camera::Host for State {
+    /// Stages a relative presented heading without changing player look or movement.
+    fn set_view_yaw_offset(&mut self, degrees: f32) -> Result<Result<(), String>> {
+        self.camera_writes += 1;
+        if self.camera_writes > MAX_IMPORT_WRITES {
+            bail!("camera import budget exhausted");
+        }
+        if self.exclusive.camera {
+            return Ok(Err(self.exclusive.refuse()));
+        }
+        if !self.grants.camera {
+            return Ok(Err("camera capability denied".into()));
+        }
+        if !degrees.is_finite() || !(-180.0..=180.0).contains(&degrees) {
+            return Ok(Err(
+                "view yaw offset must be finite and within -180..180 degrees".into(),
+            ));
+        }
+        self.camera_policy.pending_yaw_offset = (degrees != 0.0).then_some(degrees);
+        Ok(Ok(()))
+    }
+
     /// Stages an ordinary perspective for this successful gameplay callback only.
     fn set_perspective(
         &mut self,

@@ -321,3 +321,42 @@ fn perspective_expires_and_requires_camera_authority() {
     assert!(view_frame(&mut trapped, true, false, true).is_err());
     assert_eq!(trapped.camera_perspective(), None);
 }
+
+/// Relative headings need camera authority, finite bounds and a successful gameplay lease.
+#[test]
+fn yaw_offset_is_bounded_and_expires_at_input_boundaries() {
+    let call = "f32.const 180 i32.const 256 call $yaw-offset";
+    let frame = format!("global.get $count i32.const 2 i32.ne if {call} end");
+    let (_dir, mut host) = load(&frame, true);
+    for expected in [Some(180.), None, Some(180.)] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    for (focus, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focus, panel, gameplay).unwrap();
+        assert_eq!(host.camera_yaw_offset(), None);
+    }
+    for (degrees, grant, expected) in [
+        ("-180", true, Some(-180.)),
+        ("0", true, None),
+        ("181", true, None),
+        ("-181", true, None),
+        ("nan", true, None),
+        ("inf", true, None),
+        ("180", false, None),
+    ] {
+        let (_dir, mut host) = load(
+            &format!("f32.const {degrees} i32.const 256 call $yaw-offset"),
+            grant,
+        );
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    let (_dir, mut host) = load(&format!("{call} unreachable"), true);
+    assert!(view_frame(&mut host, true, false, true).is_err());
+    assert_eq!(host.camera_yaw_offset(), None);
+}

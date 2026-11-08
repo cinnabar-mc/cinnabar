@@ -161,6 +161,11 @@ impl ModHost {
         self.instance.observe_gameplay(facts)
     }
 
+    /// Current-frame relative camera heading; absence restores player-aligned presentation.
+    pub fn camera_yaw_offset(&self) -> Option<f32> {
+        self.instance.camera_yaw_offset()
+    }
+
     /// Current-frame perspective; absence restores the player’s chosen view.
     pub fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
         self.instance.camera_perspective()
