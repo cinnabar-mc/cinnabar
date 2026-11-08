@@ -70,7 +70,7 @@ pub(crate) fn arbitrate_gameplay_input_mode(
     player: Option<Res<client_state::PlayerRuntime>>,
     ui: Option<Res<UiRuntimeResource>>,
     menu: Option<Res<MenuRuntime>>,
-    presentation: Option<Res<UiPresentationResource>>,
+    mut presentation: Option<ResMut<UiPresentationResource>>,
     screen_focus: Option<Res<client_state::ScreenFocus>>,
     mut detected: ResMut<DetectedGameplayInputMode>,
     mut effective: ResMut<EffectiveGameplayInputMode>,
@@ -138,10 +138,20 @@ pub(crate) fn arbitrate_gameplay_input_mode(
         target_mode = Some(semantic_input::InputMode::Touch);
     }
 
-    // Apply resolved mode:
     if let Some(mode) = target_mode {
         detected.0 = mode;
-        effective.0 = mode;
+        if effective.0 != mode {
+            effective.0 = mode;
+            // Show or hide touch controls now, so the touch that switched to Touch reaches
+            // gameplay touch sampling later this frame.
+            if let (Some(menu), Some(presentation)) = (menu.as_deref(), presentation.as_mut()) {
+                client_shell::menu::screen_focus::sync_touch_controls(
+                    menu,
+                    Some(mode),
+                    presentation,
+                );
+            }
+        }
     }
 }
 

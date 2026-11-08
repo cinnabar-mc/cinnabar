@@ -386,3 +386,35 @@ fn gameplay_touch_after_physical_input_selects_touch() {
         InputMode::Touch
     );
 }
+
+/// The touch that switches back to Touch finds the touch controls already shown, so gameplay
+/// touch sampling later in the same frame can capture it.
+#[test]
+fn switching_to_touch_shows_touch_controls_before_gameplay_sampling() {
+    let mut app = scheduled_arbitration_app(1, 0);
+    app.world_mut()
+        .resource_mut::<EffectiveGameplayInputMode>()
+        .0 = InputMode::KeyboardMouse;
+    let mut menu = MenuRuntime::new(false, 1, "Test".into());
+    menu.set_touch_available(true);
+    let mut presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+        ui_engine::test_support::fixture_font(),
+    )
+    .unwrap();
+    presentation.enable_touch_controls(false);
+    app.insert_resource(menu)
+        .insert_resource(UiPresentationResource(presentation));
+
+    app.world_mut().write_message(gameplay_touch_start(6));
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::Touch
+    );
+    assert!(
+        app.world()
+            .resource::<UiPresentationResource>()
+            .touch_controls_enabled()
+    );
+}
