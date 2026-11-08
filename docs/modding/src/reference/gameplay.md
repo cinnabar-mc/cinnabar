@@ -177,8 +177,9 @@ record movement-input {
 
 ### `control-modes`
 
-The game's own control modes, replacing the player's toggle sprint, toggle sneak and
-always sprint settings while renewed. Always sprint applies only to keyboard and mouse.
+The game's own control modes, turned on in addition to the player's toggle sprint, toggle
+sneak and always sprint settings while renewed; false leaves the player's own setting.
+Always sprint applies only to keyboard and mouse.
 
 ```wit
 record control-modes {

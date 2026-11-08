@@ -1896,8 +1896,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unverified.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
-  player's toggle and always-sprint settings, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on
+  toggle and always-sprint modes without turning off the player's own, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance

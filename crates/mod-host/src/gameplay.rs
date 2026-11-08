@@ -22,7 +22,7 @@ pub(super) struct WorldState {
     /// Sprint and sneak holds, retained like `movement_input`.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
-    /// Control modes replacing the player's own, retained like `movement_input`.
+    /// Control modes added to the player's own, retained like `movement_input`.
     pub control_modes: Option<GameplayControlModes>,
     pending_control_modes: Option<GameplayControlModes>,
     /// The next commit cannot renew movement output: its callback started in an earlier frame
