@@ -880,6 +880,17 @@ interface inventory {
 /// Opt-in local camera policy; requires the explicit camera grant.
 /// Grants: `camera`.
 interface camera {
+    /// Presentation-only world-up yaw, in finite degrees -180..180; 0 is neutral.
+    /// Requires camera authority and focused gameplay; renew for every successful frame.
+    /// Eye position, player aim, interaction rays and movement are unchanged. Off-axis
+    /// views hide the first-person viewmodel. Omission, menus, focus loss, traps and
+    /// unload restore the aligned view. Body visibility follows the selected perspective.
+    set-view-yaw-offset: func(degrees: f32) -> result<_, string>;
+    /// The ordinary local view modes, without changing the player's saved choice.
+    enum perspective { first-person, third-person-back, third-person-front }
+    /// Requires camera authority. Current focused gameplay frame only; renew while needed.
+    /// None, omission, UI focus, unload and failed callbacks restore the player's own view.
+    set-perspective: func(view: option<perspective>) -> result<_, string>;
     /// Degrees, each at most `MAX_VIEW_TILT_DEGREES`, added to the first-person view where the
     /// native damage shake applies; suppress-hurt-shake removes that shake. Positive pitch turns
     /// the view up. Positive roll turns it the way a native shake without direction does: the

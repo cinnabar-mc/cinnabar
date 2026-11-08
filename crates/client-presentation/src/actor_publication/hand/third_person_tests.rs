@@ -8,6 +8,7 @@ use bevy::time::Real;
 #[derive(Clone, Copy, PartialEq)]
 enum BodyCase {
     Native,
+    Offset,
     JavaFallback,
     Emote,
     InvalidEmote,
@@ -24,6 +25,16 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 if matches!(case, BodyCase::Coverage | BodyCase::CoverageEmpty) {
                     super::native_tests::fixture_with_hidden_body(
                         (case == BodyCase::Coverage).then_some("minecraft:shield"),
+                    )
+                } else if case == BodyCase::Offset {
+                    super::native_tests::fixture_with_visibility(
+                        Some("minecraft:shield"),
+                        false,
+                        false,
+                        true,
+                        false,
+                        false,
+                        Some("math.abs(query.camera_rotation(1) - 90) < 0.01"),
                     )
                 } else {
                     super::native_tests::fixture_with_appearance(
@@ -102,6 +113,9 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 };
             user.video.java_animations = case == BodyCase::JavaFallback;
             settings.replace(1, &user).unwrap();
+            if case == BodyCase::Offset {
+                settings.set_view_yaw_offset(Some(90.));
+            }
             world.insert_resource(settings);
             world.insert_resource(crate::local_player::LocalViewPose::default());
             world.spawn((
@@ -143,6 +157,26 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 |_, _| (None, None),
                 params.get_mut(&mut world).unwrap(),
             );
+            if case == BodyCase::Offset {
+                assert!(
+                    stream
+                        .authority()
+                        .actor_render_frame(actor_alpha)
+                        .visibility(1)
+                        .unwrap()
+                        .hide_held_items
+                        == Some(true),
+                    "early animation queries must use the presented heading"
+                );
+                let state = world.resource::<super::super::ActorFrameState>();
+                assert!((state.captured_sampling_camera.unwrap().0[1] - 90.).abs() < 0.01);
+                assert_eq!(
+                    world
+                        .resource::<crate::local_player::LocalViewPose>()
+                        .rotation(),
+                    Quat::IDENTITY
+                );
+            }
             world
                 .resource_mut::<super::super::ActorFrameState>()
                 .step
@@ -168,6 +202,18 @@ fn assert_native_body_sample(equipment_parent: bool, case: BodyCase) {
                 None,
                 params.get_mut(&mut world).unwrap(),
             );
+            if case == BodyCase::Offset {
+                assert!(
+                    stream
+                        .authority()
+                        .actor_render_frame(actor_alpha)
+                        .visibility(1)
+                        .unwrap()
+                        .hide_held_items
+                        == Some(true),
+                    "final rendering must retain the presented heading"
+                );
+            }
             let rig = stream.authority().actor_rig(1).unwrap();
             let actor = stream.authority().actor(1).unwrap();
             let committed = (
@@ -405,4 +451,10 @@ fn native_third_person_persona_layer_samples_its_own_physics_pose() {
 fn first_person_coverage_uses_full_body_pose_without_changing_hand_or_actor_state() {
     assert_native_body_sample(false, BodyCase::Coverage);
     assert_native_body_sample(false, BodyCase::CoverageEmpty);
+}
+
+/// Both animation stages and native pose sampling follow the camera without changing aim.
+#[test]
+fn yaw_offset_reaches_actor_queries_and_sampling_without_changing_player_aim() {
+    assert_native_body_sample(false, BodyCase::Offset);
 }
