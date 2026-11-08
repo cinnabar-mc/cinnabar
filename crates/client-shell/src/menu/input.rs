@@ -76,6 +76,9 @@ pub struct GuiScaleDrag {
     mouse_cursor: MessageCursor<MouseButtonInput>,
     left_held: bool,
     captured: bool,
+    /// The GUI-scale track as laid out when the press captured it. Each step relayouts the
+    /// menu, so following the live track could flip between two stops at a boundary.
+    gui_scale_track: Option<ui::UiRect>,
     previous_pointer: Option<bevy::prelude::Vec2>,
     pointer_anchor: Option<bevy::prelude::Vec2>,
     touch_slider: Option<(u64, u16)>,
@@ -693,12 +696,9 @@ pub fn drive_menu_input(
     }
     if native_settings
         && let Some(point) = pointer
-        && let Some(index) = presentation.settings_slider_thumb_hit_test(point)
+        && let Some(row) = presentation.settings_slider_thumb_hit_test(point)
     {
-        menu.hovered = Some(launcher::menu::MenuAction::SettingsOption(
-            index,
-            menu.settings_options.get(usize::from(index)),
-        ));
+        menu.hovered = Some(settings_pointer::slider_thumb_action(&menu, row));
     }
     menu.pointer_down = pointer_pressed;
     if !pointer_pressed || menu.screen() != launcher::menu::MenuScreen::Settings {
@@ -754,14 +754,21 @@ pub fn drive_menu_input(
             menu.hovered,
             Some(launcher::menu::MenuAction::SettingsScale(_))
         )
-        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point).is_some())
+        && pointer.is_some_and(|point| presentation.gui_scale_drag_action(point, None).is_some())
     {
         gui_scale_drag.captured = pointer_pressed;
+        gui_scale_drag.gui_scale_track = presentation.gui_scale_slider_track();
+        if native_settings && let Some(action) = menu.hovered {
+            menu.field = None;
+            menu.focus_pointer(action);
+        }
     }
     if gui_scale_drag.captured
         && pointer_pressed
         && let Some(action @ launcher::menu::MenuAction::SettingsScale(offset)) =
-            pointer.and_then(|point| presentation.gui_scale_drag_action(point))
+            pointer.and_then(|point| {
+                presentation.gui_scale_drag_action(point, gui_scale_drag.gui_scale_track)
+            })
     {
         menu.hovered = Some(action);
         if pointer_just_pressed || offset != menu.gui_scale_offset() {
