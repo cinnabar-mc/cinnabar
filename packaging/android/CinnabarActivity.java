@@ -48,14 +48,28 @@ public final class CinnabarActivity extends NativeActivity {
             decor.setOnCapturedPointerListener((view, event) -> {
                 int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_MOVE) {
-                    // Captured mice (SOURCE_MOUSE_RELATIVE) report displacement through getX and
-                    // getY; batched events carry earlier displacements as history.
-                    if (!event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)) return true;
-                    float dx = event.getX();
-                    float dy = event.getY();
-                    for (int i = 0; i < event.getHistorySize(); i++) {
-                        dx += event.getHistoricalX(i);
-                        dy += event.getHistoricalY(i);
+                    // Each sample, including batched history, is one displacement. Mice report
+                    // it on the relative axes; a captured mouse (SOURCE_MOUSE_RELATIVE) that
+                    // leaves them empty reports it through getX and getY instead.
+                    final boolean relativeSource =
+                            event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE);
+                    final int history = event.getHistorySize();
+                    float dx = 0.0f;
+                    float dy = 0.0f;
+                    for (int i = 0; i <= history; i++) {
+                        final boolean current = i == history;
+                        float sx = current
+                                ? event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+                                : event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_X, i);
+                        float sy = current
+                                ? event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+                                : event.getHistoricalAxisValue(MotionEvent.AXIS_RELATIVE_Y, i);
+                        if (sx == 0.0f && sy == 0.0f && relativeSource) {
+                            sx = current ? event.getX() : event.getHistoricalX(i);
+                            sy = current ? event.getY() : event.getHistoricalY(i);
+                        }
+                        dx += sx;
+                        dy += sy;
                     }
                     if (dx != 0.0f || dy != 0.0f) {
                         try {
