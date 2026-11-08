@@ -71,9 +71,9 @@ fn pinned_villager_masked_multitexture_tracks_profession_changes() {
     ) else {
         return;
     };
-    for (identifier, folder) in [
-        ("minecraft:villager_v2", "villager2"),
-        ("minecraft:zombie_villager_v2", "zombie_villager2"),
+    for (identifier, folder, unemployed_masked) in [
+        ("minecraft:villager_v2", "villager2", false),
+        ("minecraft:zombie_villager_v2", "zombie_villager2", true),
     ] {
         let mut actor = tests::actor_with_metadata(HashMap::new());
         actor.kind = ActorKind::Entity {
@@ -128,10 +128,10 @@ fn pinned_villager_masked_multitexture_tracks_profession_changes() {
                             .contains("/biomes/")
                     })
                     .expect("the biome clothing layer remains drawable");
-                if baby || profession == 0 {
+                if baby || (profession == 0 && !unemployed_masked) {
                     assert!(
                         clothing.multitexture.is_none(),
-                        "{identifier}: baby or unemployed clothes"
+                        "{identifier}: unmasked clothing"
                     );
                 } else {
                     let [profession_source, _] = clothing

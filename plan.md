@@ -678,8 +678,8 @@ textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
 Villager and zombie-villager profession layers retain their authored second sampler
-and colored transparent keep masks alongside biome clothing. Babies and unskilled
-villagers keep their unmasked material. The pinned villager brim provisionally uses
+and colored transparent keep masks alongside biome clothing. Babies and unemployed
+villagers retain their authored material choices. The pinned villager brim provisionally uses
 the sibling zombie model's bind; its native villager default remains unverified.
 Matched native captures, masked-material
 MSAA edge qualification and independent server-pack sampler overrides remain incomplete.
