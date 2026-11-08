@@ -18,8 +18,22 @@ fn actor_dissolve_mask_sources(render: &EntityRenderData) -> BTreeSet<u32> {
         .collect()
 }
 
+/// Every sampler that can participate in a masked two-texture draw.
+pub(super) fn masked_multitexture_sources(render: &EntityRenderData) -> BTreeSet<u32> {
+    render
+        .layers
+        .iter()
+        .filter(|layer| {
+            render
+                .materials(layer)
+                .any(|(_, state)| state.is_some_and(|state| state.masked_multitexture))
+        })
+        .flat_map(|layer| layer_sources(render, layer))
+        .collect()
+}
+
 /// Sources whose fractional alpha reaches the shader: dissolve masks, witnessed colour-mask and
-/// three-sampler rasters, art any drawing material blends, lights or colour-masks by alpha, and
+/// three-sampler rasters, masked two-sampler art, art any drawing material blends, lights or colour-masks by alpha, and
 /// art every drawing material alpha-tests. Every other raster's alpha rounds at 0.5.
 pub fn actor_sources_keeping_alpha(
     render: &EntityRenderData,
@@ -32,8 +46,9 @@ pub fn actor_sources_keeping_alpha(
             for source in layer_sources(render, layer) {
                 let (tests, reads) = drawn.entry(source).or_insert((true, false));
                 *tests &= state.is_some_and(|state| state.alpha_test);
-                *reads |=
-                    state.is_some_and(|state| state.blend || state.emissive || state.color_mask);
+                *reads |= state.is_some_and(|state| {
+                    state.blend || state.emissive || state.color_mask || state.masked_multitexture
+                });
             }
         }
     }

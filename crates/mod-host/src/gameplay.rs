@@ -16,15 +16,18 @@ use mod_api::{
 /// Mob input, the retained rig, and per-frame command and cue output.
 #[derive(Default)]
 pub(super) struct WorldState {
-    /// Complete movement input committed for one successful callback.
+    /// Complete movement input from the last frame callback that completed in its frame.
     pub movement_input: Option<crate::GameplayMovementInput>,
     pending_movement_input: Option<crate::GameplayMovementInput>,
-    /// Sprint and sneak held for the current frame only.
+    /// Sprint and sneak holds, retained like `movement_input`.
     pub movement_intents: Option<GameplayMovementIntents>,
     pending_movement_intents: Option<GameplayMovementIntents>,
-    /// Control modes replacing the player's own for the current frame only.
+    /// Control modes replacing the player's own, retained like `movement_input`.
     pub control_modes: Option<GameplayControlModes>,
     pending_control_modes: Option<GameplayControlModes>,
+    /// The next commit cannot renew movement output: its callback started in an earlier frame
+    /// or is `init`.
+    hold: bool,
     pub mobs: Vec<GameplayMob>,
     pub rig: Option<GameplayCameraRig>,
     pub commands: Vec<String>,
@@ -49,6 +52,7 @@ impl WorldState {
             pending_movement_intents: None,
             control_modes: None,
             pending_control_modes: None,
+            hold: false,
             mobs: self.mobs.clone(),
             rig: None,
             commands: Vec::new(),
@@ -65,6 +69,7 @@ impl WorldState {
 
     /// Keeps rate accounting host-owned and discards actions completed after their frame.
     pub(super) fn accept(&mut self, transaction: Self, current_frame: bool, camera_blocked: bool) {
+        self.hold = !current_frame;
         if current_frame {
             self.pending_movement_input = transaction.pending_movement_input;
             self.pending_movement_intents = transaction.pending_movement_intents;
@@ -77,14 +82,14 @@ impl WorldState {
         }
     }
 
-    /// Drops unconsumed one-frame output; the committed rig is retained.
+    /// Drops unconsumed one-frame output. The committed rig and movement output are retained
+    /// until a callback completing in its frame replaces them, so a deferred, suspended or
+    /// recovering callback does not release controls the guest renews every frame.
     pub fn begin_frame(&mut self) {
-        self.movement_input = None;
         self.pending_movement_input = None;
-        self.movement_intents = None;
         self.pending_movement_intents = None;
-        self.control_modes = None;
         self.pending_control_modes = None;
+        self.hold = false;
         self.polls = 0;
         self.mobs.clear();
         self.commands.clear();
@@ -103,10 +108,38 @@ impl WorldState {
         }
     }
 
+    /// Keeps retained movement output through the next commit, for an `init` callback, which
+    /// cannot renew it.
+    pub(super) fn hold_movement(&mut self) {
+        self.hold = true;
+    }
+
+    /// Releases retained movement output that the guest could not renew under `controls`,
+    /// with the same eligibility its imports check.
+    pub(super) fn release_unrenewable(&mut self, controls: &crate::ControlFrame) {
+        let gameplay = controls.focused && controls.gameplay;
+        if !gameplay || controls.panel_open {
+            self.movement_input = None;
+        }
+        if !gameplay {
+            self.movement_intents = None;
+            self.control_modes = None;
+        }
+    }
+
+    /// Releases all retained movement output.
+    pub(super) fn release_movement(&mut self) {
+        self.movement_input = None;
+        self.movement_intents = None;
+        self.control_modes = None;
+    }
+
     pub fn commit(&mut self) {
-        self.movement_input = self.pending_movement_input.take();
-        self.movement_intents = self.pending_movement_intents.take();
-        self.control_modes = self.pending_control_modes.take();
+        if !std::mem::take(&mut self.hold) {
+            self.movement_input = self.pending_movement_input.take();
+            self.movement_intents = self.pending_movement_intents.take();
+            self.control_modes = self.pending_control_modes.take();
+        }
         if let Some(rig) = self.pending_rig.take() {
             self.rig = rig;
         }

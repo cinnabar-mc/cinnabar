@@ -10,7 +10,7 @@ mod carried;
 mod cost;
 mod culling;
 mod mesh;
-mod native;
+pub(crate) mod native;
 mod rope;
 pub use atlas::atlas_layer_limit;
 pub use block::block_mesh;

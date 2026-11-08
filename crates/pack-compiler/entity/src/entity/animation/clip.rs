@@ -224,9 +224,11 @@ fn parse_channel(
         .as_object()
         .ok_or_else(|| invalid("animation channel must be a vector or timeline"))?;
     for (time, value) in timeline {
-        let time = time
-            .parse::<f32>()
-            .map_err(|_| invalid("malformed animation keyframe time"))?;
+        // A key that is not a time, such as a `vector` wrapper, is an unsupported authoring
+        // form of this channel, not a malformed pack.
+        let Ok(time) = time.parse::<f32>() else {
+            return Err(ChannelError::Unsupported);
+        };
         if !time.is_finite() || time < 0.0 {
             return Err(invalid("invalid animation keyframe time").into());
         }

@@ -241,6 +241,7 @@ fn dropped_and_framed_shields_keep_the_authored_model() {
         carried_block: None,
         allow_block_models: true,
         world_from_item: render_model::item_frame_item_transform([0; 3], 2, 0.0),
+        world_from_block: None,
         light: None,
     };
     let model = DroppedItemPublisher::placement_model(
@@ -357,6 +358,7 @@ fn refused_world_shield_retains_patterns_and_plain_icon_fallbacks() {
             carried_block: None,
             allow_block_models: true,
             world_from_item: render_model::item_frame_item_transform([0; 3], 2, 0.0),
+            world_from_block: None,
             light: None,
         };
         let framed = DroppedItemPublisher::placement_model(

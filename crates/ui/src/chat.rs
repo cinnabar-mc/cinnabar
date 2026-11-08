@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
+mod edit_keys;
+
 pub const MAX_CHAT_MESSAGES: usize = 512;
 pub const MAX_CHAT_RETAINED_BYTES: usize = 1_048_576;
 pub const MAX_CHAT_INPUT_BYTES: usize = 512;

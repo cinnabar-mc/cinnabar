@@ -14,7 +14,8 @@ use {
     render_model::{
         AtlasRect, BellModel, BlockEntityKind, BlockEntityLight, BlockEntityScene,
         BlockEntitySubmission, ConduitModel, CrackShapeCache, FramedMap, SceneClock, SignFace,
-        SignModel, StaticItemPlacement, item_frame_item_transform, matrix_rows,
+        SignModel, StaticItemPlacement, item_frame_block_transform, item_frame_item_transform,
+        matrix_rows,
     },
     render_scene::AtmosphereFrame,
 };
@@ -885,12 +886,18 @@ fn resolve(
             if let (Some(item), None) = (item, map)
                 && item.identifier.as_ref() != assets::facts::FILLED_MAP_IDENTIFIER
             {
-                held.push(held_placement(
+                let mut placement = held_placement(
                     item,
                     item_frame_item_transform(position, model.outward, rotation_degrees),
                     model.glow.then_some((15, 15)),
                     Some(stream),
+                );
+                placement.world_from_block = Some(item_frame_block_transform(
+                    position,
+                    model.outward,
+                    rotation_degrees,
                 ));
+                held.push(placement);
             }
             Some(BlockEntityKind::ItemFrame(model))
         }
@@ -915,6 +922,7 @@ fn resolve(
                     0.0,
                     1.0,
                 ),
+                world_from_block: None,
                 light: None,
             });
             None

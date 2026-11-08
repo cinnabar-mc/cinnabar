@@ -3,19 +3,24 @@ use super::*;
 use crate::ui_runtime::interaction::inventory::drive_world_inventory_keys;
 use protocol::{InventoryContentEvent, ItemRegistryEvent};
 
-/// The aimed fixture cell, which these tests turn into a lectern.
+/// The aimed fixture cell, which these tests turn into an interactive block.
 const AIMED: [i32; 3] = [4, 2, 6];
 
 /// Replaces the aimed block with a lectern and retakes the frame pick.
 fn aim_at_lectern(world: &mut World) {
+    aim_at(world, "minecraft:lectern");
+}
+
+/// Replaces the aimed block with `name`'s first state and retakes the frame pick.
+fn aim_at(world: &mut World, name: &str) {
     let records = assets::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
         assets::active_content_registry_protocol(),
     )
     .unwrap();
-    let lectern = records
+    let block = records
         .iter()
-        .find(|record| record.name.as_ref() == "minecraft:lectern")
+        .find(|record| record.name.as_ref() == name)
         .unwrap()
         .sequential_id;
     let mut client_world = world.resource_mut::<crate::runtime::world::ClientWorld>();
@@ -28,11 +33,11 @@ fn aim_at_lectern(world: &mut World) {
                 dimension: 0,
                 position: AIMED,
                 layer: 0,
-                network_id: lectern,
+                network_id: block,
             }]),
         )
         .unwrap();
-    test_time::eventually("lectern update decode", || {
+    test_time::eventually("block update decode", || {
         stream.poll([4.5, 2.620_01, 8.5], 0);
         stream.committed_sequence() >= sequence
     });
@@ -89,6 +94,29 @@ fn a_held_book_leaves_the_use_press_to_a_lectern() {
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(transaction_targets(&mut captured), [AIMED]);
     assert!(world.resource::<BlockUseRuntime>().press_consumed());
+}
+
+/// These blocks' own use fails for a book, but vanilla still gives them the press, so the book
+/// stays closed and its air use never runs.
+#[test]
+fn a_held_book_leaves_the_use_press_to_blocks_whose_use_fails() {
+    for name in [
+        "minecraft:jukebox",
+        "minecraft:cauldron",
+        "minecraft:composter",
+    ] {
+        let (mut world, mut captured) = fixture();
+        aim_at(&mut world, name);
+        press_use_with_book(&mut world);
+        world.run_system_cached(drive_world_inventory_keys).unwrap();
+        assert!(!book_open(&world), "the {name} takes the press");
+        world.run_system_cached(produce_block_use).unwrap();
+        assert_eq!(transaction_targets(&mut captured), [AIMED], "{name}");
+        assert!(
+            world.resource::<BlockUseRuntime>().press_consumed(),
+            "the {name} keeps the press from the item's air use"
+        );
+    }
 }
 
 #[test]

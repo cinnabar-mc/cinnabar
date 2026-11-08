@@ -165,6 +165,7 @@ pub(crate) fn source(source: &str) -> String {
         .replace("ACTOR_MATERIAL_KIND_MASK", &format!("{}u", assets::EntityRenderMaterialState::KIND_MASK))
         .replace("ACTOR_MATERIAL_AUTHORED_FLAG", &format!("{}u", assets::EntityRenderMaterialState::AUTHORED))
         .replace("ACTOR_MATERIAL_ALPHA_TEST_FLAG", &format!("{}u", assets::EntityRenderMaterialState::ALPHA_TEST))
+        .replace("ACTOR_MATERIAL_MASKED_MULTITEXTURE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::MASKED_MULTITEXTURE))
         .replace("ACTOR_MATERIAL_CULL_FLAG", &format!("{}u", assets::EntityRenderMaterialState::CULL))
         .replace("ACTOR_MATERIAL_BLEND_FLAG", &format!("{}u", assets::EntityRenderMaterialState::BLEND))
         .replace("ACTOR_MATERIAL_EMISSIVE_FLAG", &format!("{}u", assets::EntityRenderMaterialState::EMISSIVE))
@@ -187,6 +188,7 @@ pub(crate) fn source(source: &str) -> String {
             assets::bamboo::LEAF_PLANE_INSET,
         ))
         .replace("MODEL_LILY_PAD_FLAG", &format!("{}u", assets::MODEL_TEMPLATE_FLAG_LILY_PAD))
+        .replace("MODEL_WORLD_ALIGNED_UV_FLAG", &format!("{}u", assets::MODEL_QUAD_FLAG_WORLD_ALIGNED_UV))
         .replace("MATERIAL_DISABLE_AO_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_AO))
         .replace("MATERIAL_DISABLE_FACE_DIMMING_FLAG", &format!("{}u", assets::MATERIAL_FLAG_DISABLE_FACE_DIMMING))
         .replace("MATERIAL_CAULDRON_WATER_FLAG", &format!("{}u", assets::MATERIAL_FLAG_CAULDRON_WATER))

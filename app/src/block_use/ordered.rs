@@ -83,6 +83,7 @@ pub(crate) fn press(
                 clock.now,
                 state.tick.saturating_add(1),
                 LocalUse::Nothing,
+                false,
                 clock,
             );
             return true;

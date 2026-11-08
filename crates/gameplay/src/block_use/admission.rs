@@ -76,6 +76,7 @@ mod tests {
             Duration::from_millis(1_000),
             101,
             LocalUse::Place,
+            false,
             clock,
             false
         ));
@@ -85,6 +86,7 @@ mod tests {
             Duration::from_millis(1_000),
             101,
             LocalUse::Place,
+            false,
             clock,
             true
         ));

@@ -79,6 +79,9 @@ mod ledge_tests;
 #[path = "published_tests/selection.rs"]
 mod selection_tests;
 
+#[path = "published_tests/block_pick_reach.rs"]
+mod block_pick_reach_tests;
+
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
 
@@ -929,6 +932,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
             Duration::from_millis(950),
             100,
             LocalUse::Place,
+            false,
             RepeatClock {
                 now: Duration::from_millis(950),
                 sneaking: false,
@@ -1030,6 +1034,7 @@ fn a_held_nonblock_item_repeats_the_chest_use() {
         Duration::from_millis(500),
         100,
         LocalUse::Place,
+        false,
         RepeatClock {
             now: Duration::from_millis(500),
             sneaking: false,

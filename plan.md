@@ -677,6 +677,13 @@ Missing copper armour definitions reuse standard pack definitions when the match
 textures are present. Authored item bindings retain precedence.
 Multi-pass body equipment and matched native visual qualification remain incomplete.
 
+Villager and zombie-villager profession layers retain their authored second sampler
+and colored transparent keep masks alongside biome clothing. Babies and unemployed
+villagers retain their authored material choices. The pinned villager brim provisionally
+uses the sibling zombie model's bind; its native villager default remains unverified.
+Matched native captures, masked-material MSAA edge qualification, single-texture masked
+material parity and independent server-pack sampler overrides remain incomplete.
+
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
 attachable's poses in Bedrock animations, matching native first- and third-person draws, and
@@ -813,7 +820,9 @@ and version-matched in-game acceptance remain incomplete.
   and matched inventory/held-item presentation. Egg and frogspawn inventory items use their
   carried sprites; remaining special shapes and animation still need matched comparisons.
   Crystal and spike items use their flat carried sprites.
-  Framed cube items retain their authored carried faces and three-dimensional geometry.
+  Framed cube items retain their authored carried faces and three-dimensional geometry at
+  native's quarter-block framed cube scale; native's shape-specific framed scales and turns
+  and data-driven block display transforms remain incomplete.
   Custom block stacks resolve through the `block_id` StartGame declares when the server's item
   registry omits the block's item; a later mid-session registry drops those derived items, and
   whether that matches native behavior is unverified. Cubes declared with the versioned full-block
@@ -913,8 +922,8 @@ while keeping the local player's cosmetics visible.
 
 Player name tags use Java's standing player height before pose offsets, independent of
 server collision-box changes. Other actors retain their published label height. Actor
-scale resizes the box, with its minimum extent, and not the clearance above it. Labels
-keep Java's 0.5-block clearance; native uses 0.7.
+scale resizes the box, with its minimum extent, and not vanilla's 0.7-block clearance
+above it.
 Name-tag budgets admit on-screen bounds before their caps, favor nearer labels and
 keep cosmetic labels complete. Ordinary on-screen anchors skip text measurement for
 visibility. Atlas text retains formatting and line slots, with guarded cell edges and
@@ -1002,6 +1011,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   face selection across measurement and painting; broader text acceptance remains open.
   Unmapped cursor-following buttons pass held-stack presses through to inventory and
   container backgrounds, allowing outside clicks to drop items.
+  Mouse presses on a catalog scroll view's touch-drag mapping reach its background's
+  destroy-selection action; touch-mode views and explicit pack press mappings retain ownership.
   Native closed inventory binding, text measurement and layout run on a worker. Closed frames
   serve a fixed allowance of texture metadata queries, and opening finishes pending work
   before painting. Revision checks retain prepared results until their sources change.
@@ -1048,8 +1059,19 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Tiled images retain full coverage with bounded repeat geometry across cropped
   regions and sliced borders; large collection admission and hardware frame-work
   acceptance remain incomplete.
+  Server UI textures larger than a 256-pixel page draw from full-resolution copies on the two
+  art pages. A full registry replaces textures no frame still draws. The textures a frame
+  draws pack ahead of launcher artwork; the pages repack for a new drawn set when a drawn
+  texture lacks a copy or the last packing left sources out. Vanilla loads each image as its own
+  texture, so a screen drawing more large images than the art pages and server pages hold
+  still leaves some blank; that bound is incomplete parity work.
 - [ ] `P5.2-HUD` — Close received text, titles, actionbar, toasts, survival/status HUD
   and lifecycle behavior without leaking UI-owned input into movement.
+  Server locator packets now reach session-owned locations and the pack-positioned bar
+  in Survival and Creative, with explicit hiding and temporary XP display. Locator
+  distance-dependent icons, legacy color selection, tracked-actor fallback behavior,
+  XP/anvil/enchanting timing and exact projection remain provisional and incomplete
+  pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
@@ -1142,7 +1164,8 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Shift-double-click transfers keep the cursor unchanged within one stack-request batch.
   Transfers exceeding the wire action budget still need deferred multi-batch handling;
   matched transfer timing and broad custom-container acceptance remain incomplete.
-  Hover reports and actor use share the attack's game-mode actor cap.
+  Hover reports and actor use share the attack's game-mode actor cap. Like native, hover
+  reports the same actor again after each actor-data update for it.
   Actor rays use loaded collision defaults, authoritative dimensions and scale, and
   constructor pick radii. Attack, use and hover preserve the selected world intercept.
   Ordinary actor picks retain the frame's ticked camera-actor position for the final pick-range trim.
@@ -1191,9 +1214,11 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
   Items with a registry `minecraft:seed` rule predict planting on a declared block's
-  declared face into air: the swing, place sound, consumed item and the crop's default
-  state, repeating while held. Successful placement consumes the press before edible
-  items can start their air-use fallback; failed attempts still allow eating. Matched
+  declared face into air: the swing, consumed item and the crop's default state, repeating
+  while held. As in vanilla, placement and planting sounds come only from the server's
+  `place` level sound event; the client voices no local copy. Successful placement
+  consumes the press before edible items can start their air-use fallback; failed
+  attempts still allow eating. Matched
   native and after-fix in-world planting/eating captures remain outstanding. Solid-surface
   planting on undeclared blocks and legacy block-name aliases such as `grass` remain
   incomplete.
@@ -1300,6 +1325,9 @@ Live acceptance of name clicks, inventory opening, typing and history together r
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
+Block outlines, mining and placement share the block-centre pick trim.
+Incomplete: exact 1.26.50 confirmation, the touch-option input remap and live
+client/server reach captures.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
@@ -1580,6 +1608,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   their later v0.1.31 recording shows direct terrain drawing on that adapter with occlusion culling
   on. No log confirms the compiler of that run, automatic FXC selection has not run on that
   hardware, and its terrain stays far over the frame budget.
+  Devices on WARP, the DX12 software adapter, also compile with FXC: two Windows 10 players
+  (WARP `10.0.19041.5794`, DXC) crashed in `d3d10warp.dll` on the pipeline compile workers
+  after a few seconds in the menus, while Windows CI runs its GPU tests on WARP with FXC. The FXC
+  rebuild has not run on those machines. GPUs without DX12 or Vulkan drivers, such as Intel HD
+  Graphics 4000 on Windows, still have only WARP, which is far over the frame budget; a
+  hardware path for them would need a backend the renderer does not have.
   Full-app terrain streaming, shader-pack compatibility and fallback performance acceptance
   remain incomplete across physical devices.
   Android packages the Dragonfly local-world server and resolves it from the APK's native-library

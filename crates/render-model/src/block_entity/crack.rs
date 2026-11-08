@@ -168,7 +168,8 @@ pub fn crack_shape_from_template(
                     }
                 }),
                 uvs: quad.uvs.map(|uv| {
-                    let mut uv = uv.map(tile_fraction);
+                    let mut uv =
+                        assets::world_aligned_uv(quad.flags, transform, uv.map(tile_fraction));
                     if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
                         uv[0] += assets::bamboo::stem_uv_offset(transform, quad_index as u32);
                     }
