@@ -21,6 +21,9 @@ pub struct StaticItemPlacement {
     pub allow_block_models: bool,
     /// Maps the unit item model into the world.
     pub world_from_item: [[f32; 4]; 3],
+    /// Maps a cube or block model into the world when the holder poses blocks apart from
+    /// sprites, as item frames do; `None` uses `world_from_item`.
+    pub world_from_block: Option<[[f32; 4]; 3]>,
     /// Fixed light levels; `None` samples the world at the item.
     pub light: Option<(u8, u8)>,
 }

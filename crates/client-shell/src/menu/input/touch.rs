@@ -2,7 +2,40 @@
 
 use super::*;
 
+/// How long a finger rests on an OreUI control before its press sounds.
+const OREUI_TOUCH_SOUND_DELAY_SECONDS: f64 = 0.15;
+
+/// When a captured finger's press sounds: once it has rested for vanilla's delay on an OreUI
+/// control, or else as a tap completes. Swiping off the control beforehand keeps it silent.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct TouchPressSound {
+    started: f64,
+    played: bool,
+}
+
+impl TouchPressSound {
+    fn begin(now: f64) -> Self {
+        Self {
+            started: now,
+            played: false,
+        }
+    }
+
+    /// Whether the resting finger's sound is due at `now`; reports that only once.
+    fn rested(&mut self, now: f64) -> bool {
+        let due = !self.played && now - self.started >= OREUI_TOUCH_SOUND_DELAY_SECONDS;
+        self.played |= due;
+        due
+    }
+
+    /// Whether a completed tap still owes its sound; reports that only once.
+    fn tapped(&mut self) -> bool {
+        !std::mem::replace(&mut self.played, true)
+    }
+}
+
 /// Applies one captured finger while preserving slider ownership and cancelling swiped taps.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn drive(
     menu: &mut MenuRuntime,
     presentation: &UiPresentationRuntime,
@@ -11,16 +44,17 @@ pub(super) fn drive(
     native_settings: bool,
     server_list_owns_pointer: bool,
     scrolled: Option<u64>,
+    now: f64,
 ) -> Option<(UiPoint, MenuField)> {
     let mut caret_press = None;
-    let press = |menu: &mut MenuRuntime, action| {
+    let press = |menu: &mut MenuRuntime, action, sound: bool| {
         let action = if native_settings {
             menu.live_settings_action(action)
         } else {
             action
         };
-        if let Some(sound) = presentation.menu_sound(action) {
-            client_ui::sound_requests::ui_control_sound(sound);
+        if sound {
+            presentation.play_menu_press_sound(action);
         }
         menu.activate_from_input(action);
     };
@@ -74,6 +108,7 @@ pub(super) fn drive(
                     capture.touch_press = None;
                 } else {
                     capture.touch_press = Some((touch.id(), action, position));
+                    capture.touch_press_sound = TouchPressSound::begin(now);
                 }
             }
         }
@@ -125,13 +160,16 @@ pub(super) fn drive(
                 if let Ok(point) = UiPoint::new(position.x, position.y) {
                     focus_touch(menu, presentation, action, point, native_settings);
                 }
-                press(menu, action);
+                press(menu, action, capture.touch_press_sound.tapped());
                 caret_press = UiPoint::new(position.x, position.y)
                     .ok()
                     .zip(action.text_field());
             }
             capture.touch_press = None;
         } else if let Some(touch) = touches.get_pressed(id) {
+            if presentation.menu_sounds_follow_oreui() && capture.touch_press_sound.rested(now) {
+                presentation.play_menu_press_sound(action);
+            }
             let position = touch.position();
             let hovered = UiPoint::new(position.x, position.y)
                 .ok()
@@ -227,4 +265,25 @@ fn focus_touch(
         return;
     }
     menu.focus_pointer(action);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quick_tap_sounds_once_as_it_completes() {
+        let mut sound = TouchPressSound::begin(0.0);
+        assert!(!sound.rested(OREUI_TOUCH_SOUND_DELAY_SECONDS / 2.0));
+        assert!(sound.tapped());
+        assert!(!sound.tapped());
+    }
+
+    #[test]
+    fn a_resting_finger_sounds_once_at_the_delay_and_not_on_release() {
+        let mut sound = TouchPressSound::begin(0.0);
+        assert!(sound.rested(OREUI_TOUCH_SOUND_DELAY_SECONDS));
+        assert!(!sound.rested(1.0));
+        assert!(!sound.tapped());
+    }
 }

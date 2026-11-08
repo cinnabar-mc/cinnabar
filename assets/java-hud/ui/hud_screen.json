@@ -66,11 +66,24 @@
       },
       { "java_exp_bar@hud.java_exp_bar": {} },
       {
-        "horse_jump_rend@hud.horse_jump_renderer": {
-          "size": [ 182, 5 ],
+        "java_locator_bar@hud.locator_bar": {
+          "size": "$cinnabar_progress_bar_size",
           "anchor_from": "bottom_middle",
           "anchor_to": "bottom_middle",
-          "offset": [ 0, -24 ],
+          "offset": "$cinnabar_progress_bar_offset",
+          "layer": 10,
+          "bindings": [{
+            "binding_name": "#hotbar_with_locator_bar",
+            "binding_name_override": "#visible"
+          }]
+        }
+      },
+      {
+        "horse_jump_rend@hud.horse_jump_renderer": {
+          "size": "$cinnabar_progress_bar_size",
+          "anchor_from": "bottom_middle",
+          "anchor_to": "bottom_middle",
+          "offset": "$cinnabar_progress_bar_offset",
           "layer": 7
         }
       },
@@ -102,10 +115,10 @@
   // The 182x5 bar sits 29 GUI px above the bottom edge.
   "java_exp_bar": {
     "type": "panel",
-    "size": [ 182, 5 ],
+    "size": "$cinnabar_progress_bar_size",
     "anchor_from": "bottom_middle",
     "anchor_to": "bottom_middle",
-    "offset": [ 0, -24 ],
+    "offset": "$cinnabar_progress_bar_offset",
     "controls": [
       {
         "empty_progress_bar@hud.empty_progress_bar": {

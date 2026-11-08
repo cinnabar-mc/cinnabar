@@ -161,6 +161,9 @@ wgpu = { workspace = true, features = ["gles"] }
 libc = "0.2"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSMenu", "NSResponder", "NSRunningApplication", "NSScreen", "NSView", "NSWindow", "objc2-quartz-core"] }
 
+[target.'cfg(target_os = "android")'.dependencies]
+libc = "0.2"
+
 # The display link that requests full ProMotion and window refresh rates.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
@@ -185,6 +188,7 @@ wat = "1"
 actor-animation = { path = "../crates/actor-animation", features = ["test-support"] }
 test-alloc = { path = "../crates/test-alloc" }
 client-shell = { path = "../crates/client-shell", features = ["test-support"] }
+mod-ui = { path = "../crates/mod-ui", features = ["test-support"] }
 client-interaction = { path = "../crates/client-interaction", features = ["test-support"] }
 assets = { path = "../crates/assets", features = ["test-support"] }
 client-runtime = { path = "../crates/client-runtime", features = ["test-support"] }

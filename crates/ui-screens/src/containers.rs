@@ -29,6 +29,7 @@ use inventory::inventory_ledger::InventoryTarget;
 /// First UI inventory slot of the personal 2x2 and the workbench 3x3 grids.
 const PERSONAL_CRAFT_SLOT: u8 = 28;
 const WORKBENCH_CRAFT_SLOT: u8 = 32;
+mod cells;
 mod held_stack;
 #[cfg(test)]
 mod held_stack_tests;
@@ -277,12 +278,19 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
+        // A selection in the search or anvil name box draws highlighted.
+        let edit = screen
+            .search_caret
+            .or(screen.anvil_caret)
+            .and_then(|caret| caret.selection)
+            .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
             view: Some(&view),
             tooltip,
             pointer,
             clocks: Some(clocks),
             overlay: &overlay,
+            edit,
             ..ScreenArt::default()
         };
         let mut item_renderer = ItemRenderer {

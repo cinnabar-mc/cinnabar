@@ -21,6 +21,22 @@ pub fn ranged_animation_frame(
     (3.0 * power * 0.99) as u32 + 1
 }
 
+/// The attachable animation frame of a held stack: crossbows follow their projectile-aware rule
+/// and every other item the bow draw rule.
+pub fn held_animation_frame(
+    animation: ItemUseAnimation,
+    elapsed: Option<u32>,
+    duration: u32,
+    projectile: Option<ItemProjectileRole>,
+    offhand_firework: bool,
+) -> u32 {
+    if animation == ItemUseAnimation::Crossbow {
+        crossbow_animation_frame(elapsed, duration, projectile, offhand_firework)
+    } else {
+        ranged_animation_frame(animation, elapsed, duration)
+    }
+}
+
 /// Vanilla crossbow animation frame, including loaded projectile art.
 pub fn crossbow_animation_frame(
     elapsed: Option<u32>,

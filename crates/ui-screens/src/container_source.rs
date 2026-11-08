@@ -53,6 +53,8 @@ pub struct ScreenView<'a> {
     /// Admitted equipment facts of the open mount.
     pub mount_equipment: MountEquipment,
     pub anvil_name: &'a str,
+    /// The anvil name box's caret while it takes typing.
+    pub anvil_caret: Option<launcher::menu::MenuCaret>,
     /// The predicted anvil cost, when no server output takes precedence.
     pub anvil_cost: Option<AnvilCost>,
     /// The stonecutter recipe the player picked.
@@ -73,6 +75,8 @@ pub struct ScreenView<'a> {
     /// Creative catalog groups the player expanded, by group index.
     pub creative_expanded: &'a BTreeSet<u32>,
     pub search: &'a str,
+    /// The search box's caret while it takes typing.
+    pub search_caret: Option<launcher::menu::MenuCaret>,
     /// Scroll offsets of the screen's scroll views, by view key.
     pub container_scroll: &'a BTreeMap<String, f64>,
     /// Selected radio tabs of a server pack's storage screen, by group key.
@@ -81,6 +85,26 @@ pub struct ScreenView<'a> {
     pub text_focused: bool,
     /// The book, sign-off or lectern reader being shown.
     pub book: Option<BookView<'a>>,
+}
+
+impl ScreenView<'_> {
+    /// The search box's text as drawn, with its caret while it takes typing.
+    pub fn shown_search(&self) -> String {
+        shown_field(self.search, self.search_caret.as_ref())
+    }
+
+    /// The anvil name box's text as drawn, with its caret while it takes typing.
+    pub fn shown_anvil_name(&self) -> String {
+        shown_field(self.anvil_name, self.anvil_caret.as_ref())
+    }
+}
+
+/// `text` with `caret`'s glyph, if any.
+fn shown_field(text: &str, caret: Option<&launcher::menu::MenuCaret>) -> String {
+    caret.map_or_else(
+        || text.to_owned(),
+        |caret| crate::menu_caret::insert_caret(caret, text).into_owned(),
+    )
 }
 
 /// What taking the open anvil's predicted result costs.

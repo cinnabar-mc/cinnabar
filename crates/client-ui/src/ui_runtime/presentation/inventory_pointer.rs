@@ -97,14 +97,50 @@ impl UiPresentationRuntime {
             return self.engine_container_hit(gui);
         }
         let geometry = self.inventory_geometry(physical_size, dpi_scale)?;
-        let hit = cell_hit(gui, geometry, screen)?;
-        if matches!((screen, hit),
+        cell_hit(gui, geometry, screen).filter(|hit| self.fallback_cell_permitted(screen, *hit))
+    }
+
+    /// The cells the open screen lets a pointer press. An engine-drawn screen lists the cells
+    /// its active layout draws, each with a GUI point that presses it, minus those a player
+    /// mod's overlay covers; the fallback renderer lists its fixed cells without points, minus
+    /// those its pointer refuses. A shown mod view hides the screen, so it lists none.
+    pub fn inventory_screen_cells(
+        &self,
+        screen: InventoryScreen,
+    ) -> Vec<(InventoryCellHit, Option<[f32; 2]>)> {
+        let mods = self.mod_ui();
+        if mods.mod_view_shown() {
+            return Vec::new();
+        }
+        if let Some(frame) = self.engine_container_frame() {
+            return self
+                .engine_container_cells()
+                .into_iter()
+                .filter(|(_, point)| !mods.mod_screens_own(engine_logical_point(frame, *point)))
+                .map(|(hit, point)| (hit, Some(point)))
+                .collect();
+        }
+        screens::screen_slots(screen)
+            .iter()
+            .map(|placed| placed.hit)
+            .filter(|hit| self.fallback_cell_permitted(screen, *hit))
+            .map(|hit| (hit, None))
+            .collect()
+    }
+
+    /// Where an engine-drawn container screen's GUI point lies in window-logical px, for
+    /// surfaces such as player mods' screens that work in window coordinates.
+    pub fn engine_container_logical_point(&self, gui: [f32; 2]) -> Option<[f32; 2]> {
+        self.engine_container_frame()
+            .map(|frame| engine_logical_point(frame, gui))
+    }
+
+    /// Whether the fallback renderer draws and presses a cell: a mount's window hides the
+    /// equipment slots that mount does not have.
+    fn fallback_cell_permitted(&self, screen: InventoryScreen, hit: InventoryCellHit) -> bool {
+        !matches!((screen, hit),
             (InventoryScreen::Window(WindowKind::Horse, _), InventoryCellHit::Storage(index))
             if !self.hud_frame.mount_equipment.permits_inventory_slot(index))
-        {
-            return None;
-        }
-        Some(hit)
     }
 
     /// The recipe-book control under a GUI point, if the screen has a book.
@@ -233,6 +269,14 @@ fn cell_hit(
         return Some(InventoryCellHit::Widget(widget));
     }
     screens::slot_at(&screens::screen_slots(screen), local).map(|slot| slot.hit)
+}
+
+/// An engine frame's virtual (GUI) point in window-logical px.
+fn engine_logical_point(frame: &ui_engine::frame::EngineFrame, gui: [f32; 2]) -> [f32; 2] {
+    [
+        frame.origin[0] + gui[0] * frame.scale,
+        frame.origin[1] + gui[1] * frame.scale,
+    ]
 }
 
 #[cfg(test)]

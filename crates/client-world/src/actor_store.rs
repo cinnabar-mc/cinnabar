@@ -135,6 +135,8 @@ pub struct ActorSnapshot {
     /// Independently allocated render lifetime, including before a local spawn arrives.
     pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
+    /// Arrival of the latest applied actor-data update, whatever it contained; zero before any.
+    pub metadata_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
     pub entity_fact: EntityFact,
@@ -273,6 +275,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision: 0,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
             entity_fact,
@@ -343,6 +346,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player {
                 uuid,

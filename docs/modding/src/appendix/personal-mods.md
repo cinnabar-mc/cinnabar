@@ -186,8 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
-draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
+status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
+line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
+hiding, and its bounds in GUI units when laid out.
 
 ## Action filtering
 
@@ -319,8 +320,9 @@ even though the version number is unchanged.
 
 With the `movement` grant, `read_movement_input` returns admitted walking axes and
 jump, sneak and sprint holds before mod output is applied. `set_movement_input`
-accepts a complete replacement walking vector with additive button holds for
-input remapping and assisted controls. Both axes must be finite and within -1..1.
+accepts a complete replacement walking vector for input remapping and assisted
+controls. Its buttons hold their controls as if bound, so the player's toggle
+sprint, toggle sneak and always-sprint modes still apply. Both axes must be finite and within -1..1.
 The earliest active mod supplying a vector owns it for that frame.
 
 The host preserves camera direction and applies sprint to the supplied movement

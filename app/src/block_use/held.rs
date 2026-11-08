@@ -156,7 +156,7 @@ pub(super) fn maintain_block_use(
             trigger,
             &state,
         ) else {
-            runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+            runtime.record(trigger, due, tick, LocalUse::Nothing, false, clock);
             continue;
         };
         let mut attempt =

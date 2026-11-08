@@ -5,6 +5,13 @@ static PENDING_UI_SOUNDS: std::sync::Mutex<Vec<(String, f32, f32)>> =
     std::sync::Mutex::new(Vec::new());
 /// Bounds one frame's queued control sounds.
 const MAX_PENDING_UI_SOUNDS: usize = 16;
+/// The click vanilla's OreUI theme gives its buttons, toggles, links and dropdowns.
+pub const UI_CLICK: &str = "random.click";
+
+/// Requests the OreUI theme's click, which vanilla plays at unit volume and pitch.
+pub fn ui_click() {
+    ui_sound(UI_CLICK, 1.0, 1.0);
+}
 
 /// Plays a pressed launcher control's sound, holding back a repeat inside its
 /// `min_seconds_between_plays`, as vanilla's sound component does.
@@ -55,7 +62,7 @@ mod tests {
 
     #[test]
     fn interface_clicks_reach_the_audio_queue_with_their_authored_scalars() {
-        const CLICK: &str = "random.click";
+        const CLICK: &str = UI_CLICK;
         ui_sound(CLICK, 0.75, 1.0);
         ui_control_sound(&json_ui::ControlSound {
             name: CLICK.into(),

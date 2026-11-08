@@ -61,6 +61,7 @@ impl Key {
 #[derive(Debug)]
 struct Output {
     render: Vec<RenderTextureLayer>,
+    visibility: RenderVisibility,
     skin: Option<Vec<SkinRenderLayer>>,
     scale: Option<f32>,
     head_rotation: Option<HeadRotation>,
@@ -115,6 +116,7 @@ impl Sample {
     }
 
     /// A failed or changed sample invalidates its previous output before replay begins.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn get<'s>(
         &mut self,
         key: Key,
@@ -122,6 +124,7 @@ impl Sample {
         variables: &MolangVariables,
         state: &'s ActorRigState,
         budget: &EvalBudget<'_>,
+        render: &mut Vec<RenderTextureLayer>,
     ) -> Option<ActorRenderLayers<'s>> {
         let unchanged =
             self.inputs.update(evaluator, variables, budget) && self.key.as_ref() == Some(&key);
@@ -130,8 +133,10 @@ impl Sample {
             && self.valid
             && let Some(output) = &self.output
         {
+            render.clone_from(&output.render);
             return Some(ActorRenderLayers {
-                render: Cow::Owned(output.render.clone()),
+                render: Cow::Owned(std::mem::take(render)),
+                visibility: output.visibility,
                 skin: output
                     .skin
                     .as_ref()
@@ -150,6 +155,7 @@ impl Sample {
     pub(super) fn store(
         &mut self,
         render: &[RenderTextureLayer],
+        visibility: RenderVisibility,
         sampled_skin: Option<&[SkinRenderLayer]>,
         scale: Option<f32>,
         head_rotation: Option<HeadRotation>,
@@ -159,6 +165,7 @@ impl Sample {
         }
         let output = self.output.get_or_insert_with(|| Output {
             render: Vec::new(),
+            visibility,
             skin: None,
             scale,
             head_rotation,
@@ -173,6 +180,7 @@ impl Sample {
             }
             None => output.skin = None,
         }
+        output.visibility = visibility;
         output.scale = scale;
         output.head_rotation = head_rotation;
         self.valid = true;

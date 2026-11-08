@@ -299,25 +299,25 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
             1 => context.camera_rotation[1],
             _ => 0.0,
         }),
-        // Native actor-state position, before the actor store removes collision offsets.
         Q::Position if arguments.len() == 1 => {
+            let position = native_position(actor, input);
             argument(0)
                 .filter(|axis| axis.is_finite())
                 .map_or(0.0, |axis| match axis as i32 {
-                    0 => input.position[0],
-                    1 => input.position[1] + actor.network_position_offset(),
-                    2 => input.position[2],
+                    0 => position[0],
+                    1 => position[1],
+                    2 => position[2],
                     _ => 0.0,
                 })
         }
         Q::Position => 0.0,
         Q::RotationToCamera => argument(0).map_or(0.0, |axis| {
-            rotation_to_camera(input.position, context.camera_position, axis)
+            rotation_to_camera(native_position(actor, input), context.camera_position, axis)
         }),
-        Q::DistanceFromCamera => distance_from_camera(input, context),
+        Q::DistanceFromCamera => distance_from_camera(native_position(actor, input), context),
         Q::CameraDistanceRangeLerp => match arguments {
             [start, end] => camera_distance_range_lerp(
-                distance_from_camera(input, context),
+                distance_from_camera(native_position(actor, input), context),
                 start.number(),
                 end.number(),
             ),
@@ -448,9 +448,16 @@ fn number(evaluator: &QueryInputs<'_>, name: Q, arguments: &[MolangValue]) -> f3
     }
 }
 
-fn distance_from_camera(input: &ActorTickInput, context: &ActorTickContext) -> f32 {
+/// The native actor-state position queries measure from, before the actor store removes
+/// collision offsets: a player's sits at eye height, its network offset above the feet.
+fn native_position(actor: &dyn AnimatedActor, input: &ActorTickInput) -> [f32; 3] {
+    let [x, y, z] = input.position;
+    [x, y + actor.network_position_offset(), z]
+}
+
+fn distance_from_camera(position: [f32; 3], context: &ActorTickContext) -> f32 {
     (0..3)
-        .map(|axis| (context.camera_position[axis] - input.position[axis]).powi(2))
+        .map(|axis| (context.camera_position[axis] - position[axis]).powi(2))
         .sum::<f32>()
         .sqrt()
 }

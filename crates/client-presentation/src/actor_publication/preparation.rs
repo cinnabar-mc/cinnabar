@@ -276,10 +276,7 @@ pub fn advance_actor_frame(
         equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
-        camera.renders_first_person(first_person)
-    });
+    let first_person = crate::camera::hand_first_person(Some(&*settings), server_camera.as_deref());
     let java_mode = settings.feel().java_animations;
     // Java selects poses and items; the shared combat profile always owns bob, hurt and glint.
     let combat_visuals = render_api::DEFAULT_COMBAT_VISUALS;
@@ -374,7 +371,7 @@ pub fn advance_actor_frame(
         });
     publish_local_actor_visibility(
         &avatar,
-        settings.perspective(),
+        settings.rendered_perspective(),
         server_camera.as_deref(),
         authoritative_subject_eye,
         authoritative_subject_feet,

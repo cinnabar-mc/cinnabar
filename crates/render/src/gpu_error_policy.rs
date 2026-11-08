@@ -2,7 +2,7 @@
 
 use bevy::render::error_handler::{ErrorType, RenderError, RenderErrorHandler, RenderErrorPolicy};
 
-/// Hands terminal GPU errors to the main world; other errors keep Bevy's policy.
+/// Stops rendering so the app can report the GPU failure before requesting an exit.
 /// Install after the render plugin so this handler replaces the default.
 pub fn install_error_policy(app: &mut bevy::app::App) {
     app.init_resource::<GpuFailure>()
@@ -29,25 +29,26 @@ impl GpuFailure {
 fn error_policy(
     error: &RenderError,
     main_world: &mut bevy::ecs::world::World,
-    render_world: &mut bevy::ecs::world::World,
+    _render_world: &mut bevy::ecs::world::World,
 ) -> RenderErrorPolicy {
-    match error.ty {
-        ErrorType::DeviceLost | ErrorType::OutOfMemory => {
-            let description = if error.description.is_empty() {
-                match error.ty {
-                    ErrorType::OutOfMemory => "uncaptured GPU out-of-memory error",
-                    _ => "GPU device lost",
-                }
-            } else {
-                &error.description
-            };
-            main_world
-                .get_resource_or_init::<GpuFailure>()
-                .record(description);
-            RenderErrorPolicy::StopRendering
-        }
-        _ => (RenderErrorHandler::default().0)(error, main_world, render_world),
+    let failure = main_world.get_resource_or_init::<GpuFailure>();
+    if failure.message().is_none() {
+        // The source can contain validation context absent from the short description.
+        bevy::log::error!(target: "cinnabar::render", ?error, "Renderer stopped after a GPU error");
     }
+    let description = if error.description.is_empty() {
+        match error.ty {
+            ErrorType::OutOfMemory => "uncaptured GPU out-of-memory error",
+            ErrorType::DeviceLost => "GPU device lost",
+            ErrorType::Validation => "GPU validation error",
+            ErrorType::Internal => "internal GPU error",
+        }
+    } else {
+        &error.description
+    };
+    main_world.resource_mut::<GpuFailure>().record(description);
+    // Extraction follows the main update. An immediate exit here would skip cause capture.
+    RenderErrorPolicy::StopRendering
 }
 
 #[cfg(test)]
@@ -81,9 +82,33 @@ mod tests {
         }
     }
 
-    /// Unhandled GPU errors retain Bevy's default error exit.
+    /// Empty driver messages still identify the failure category.
     #[test]
-    fn other_errors_keep_bevys_default_policy() {
+    fn empty_driver_reports_have_a_specific_fallback() {
+        for (ty, expected) in [
+            (ErrorType::DeviceLost, "GPU device lost"),
+            (ErrorType::OutOfMemory, "uncaptured GPU out-of-memory error"),
+            (ErrorType::Validation, "GPU validation error"),
+            (ErrorType::Internal, "internal GPU error"),
+        ] {
+            let (mut main, mut render) = (World::new(), World::new());
+            main.init_resource::<Messages<AppExit>>();
+            error_policy(
+                &RenderError {
+                    ty,
+                    description: String::new(),
+                    source: None,
+                },
+                &mut main,
+                &mut render,
+            );
+            assert_eq!(main.resource::<GpuFailure>().message(), Some(expected));
+        }
+    }
+
+    /// Validation and internal failures wait for the app to capture their cause before exiting.
+    #[test]
+    fn other_errors_stop_rendering_without_a_premature_exit() {
         for ty in [ErrorType::Validation, ErrorType::Internal] {
             let (mut main_world, mut render_world) = (World::new(), World::new());
             main_world.init_resource::<Messages<AppExit>>();
@@ -94,8 +119,11 @@ mod tests {
             };
             let policy = error_policy(&error, &mut main_world, &mut render_world);
             assert!(matches!(policy, RenderErrorPolicy::StopRendering));
-            assert!(!main_world.resource::<Messages<AppExit>>().is_empty());
-            assert!(main_world.get_resource::<GpuFailure>().is_none());
+            assert!(main_world.resource::<Messages<AppExit>>().is_empty());
+            assert_eq!(
+                main_world.resource::<GpuFailure>().message(),
+                Some("driver report")
+            );
         }
     }
 }

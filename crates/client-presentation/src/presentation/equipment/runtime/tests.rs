@@ -3,6 +3,9 @@
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
+#[path = "retained_block_tests.rs"]
+mod retained_block_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -910,7 +913,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                 },
                 |endpoint, index| {
                     work.set(work.get() + 1);
-                    modern::compose_parent(
+                    actor_animation::attachment::compose_parent(
                         if endpoint == 0 {
                             body.input.previous_bones[index]
                         } else {

@@ -23,7 +23,9 @@ mod block_search;
 pub use block_search::{BlockSearch, BlockSearchSource, FoundBlocks, refresh_block_searches};
 mod callback_budget;
 mod callbacks;
+mod frame_time;
 pub use callback_budget::{CallbackBudget, CallbackOutcome};
+pub use frame_time::FrameOwner;
 pub use runtime::cinnabar::extension::action_filter::{
     ActionFrame, ActionVerdict, FilteredAction, Held as ActionHeld, Transition as ActionTransition,
     TransitionKind,
@@ -58,8 +60,8 @@ pub use runtime::legacy_input::{
 pub use screens::{DataSource, KeyModifiers, LoadedPackage, ModEvent, ModScreens};
 
 pub use runtime::cinnabar::extension::gameplay::{
-    CameraPose as GameplayCameraPose, CameraRig as GameplayCameraRig,
-    ControlModes as GameplayControlModes, Mob as GameplayMob,
+    BlockPosition as GameplayBlockPosition, CameraPose as GameplayCameraPose,
+    CameraRig as GameplayCameraRig, ControlModes as GameplayControlModes, Mob as GameplayMob,
     MovementInput as GameplayMovementInput, MovementIntents as GameplayMovementIntents,
     Player as GameplayPlayer, Vector3 as GameplayVector3,
 };
@@ -110,8 +112,9 @@ pub struct GameplayFacts {
 }
 
 /// Successfully committed local interaction requests, consumed once per frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct InteractionOutput {
+    pub block_breaks: Vec<GameplayBlockPosition>,
     pub attack_reach: Option<f32>,
     pub attack_pulse: bool,
     /// Ordinary crosshair mining hold, renewed by a successful mod frame.

@@ -103,7 +103,7 @@ impl IngestState {
             self.stream = session;
             self.epoch = epoch;
             self.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
         }
     }
 
@@ -176,7 +176,7 @@ impl IngestState {
 }
 
 /// Level sound events the client also voices itself: block events by cell, actor events by actor.
-const ECHOED_BLOCK_EVENTS: [&str; 2] = ["place", "break"];
+const ECHOED_BLOCK_EVENTS: [&str; 1] = ["break"];
 const ECHOED_ACTOR_EVENTS: [&str; 2] = ["hurt", "death"];
 pub const BLOCK_ECHO_SECONDS: f64 = 0.6;
 pub const ACTOR_ECHO_SECONDS: f64 = 0.4;
@@ -207,7 +207,7 @@ pub fn ingest_audio_events(
         if state.stream != 0 {
             state.stream = 0;
             state.records.clear();
-            engine.stop_all();
+            engine.stop_world_sounds();
             engine.clear_server_if_current();
         }
         return;

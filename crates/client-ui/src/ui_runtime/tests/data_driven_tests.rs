@@ -537,7 +537,7 @@ fn screen_requests_answer_busy_while_any_menu_screen_shows() {
     use crate::ui_runtime::scene_stack::SceneHost;
     use launcher::menu::MenuScreen;
     type Open = fn(&mut Session);
-    let screens: [(&str, Open); 4] = [
+    let screens: [(&str, Open); 5] = [
         ("pause menu", |session| {
             session.runtime.observe_host_screens(SceneHost {
                 menu: Some(MenuScreen::Pause),
@@ -554,6 +554,9 @@ fn screen_requests_answer_busy_while_any_menu_screen_shows() {
                     true,
                     Default::default(),
                 ));
+        }),
+        ("waiting command block request", |session| {
+            session.runtime.command_block_mut().request([0, 64, 0]);
         }),
         ("credits", |session| {
             assert!(session.runtime.credits_mut().open(42, 8, 0));
