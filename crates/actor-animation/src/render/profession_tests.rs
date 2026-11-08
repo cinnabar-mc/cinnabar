@@ -2,6 +2,68 @@ use super::super::*;
 use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
+fn masked_multitexture_ignores_unused_extra_samplers() {
+    use assets::{
+        EntityAssetSource, EntityRenderCandidate, EntityRenderMaterialState, EntityRenderSlot,
+    };
+    let identifier = "custom:profession";
+    for count in [2, 3] {
+        let mut compiled = crate::test_support::counting_random_compiled(identifier);
+        let base = compiled.render.candidates[0].source;
+        let mut sources = compiled.sources.into_vec();
+        let clothes = sources.len() as u32;
+        for name in ["z_clothes", "z_unused"] {
+            sources.push(EntityAssetSource {
+                path: format!("textures/items/{name}.png").into(),
+                source_bytes: 1,
+                source_sha256: [2; 32],
+            });
+        }
+        compiled.sources = sources.into();
+        compiled.render.layers[0].material_state = Some(EntityRenderMaterialState {
+            masked_multitexture: true,
+            ..Default::default()
+        });
+        compiled.render.layers[0].slot_count = count;
+        compiled.render.slots = (0..u32::from(count))
+            .map(|index| EntityRenderSlot {
+                first_candidate: index,
+                candidate_count: 1,
+                default_candidate: None,
+            })
+            .collect();
+        compiled.render.candidates = [base, clothes, clothes + 1]
+            .into_iter()
+            .take(usize::from(count))
+            .map(|source| EntityRenderCandidate {
+                condition: None,
+                source,
+            })
+            .collect();
+        let assets =
+            RuntimeEntityAssets::from_compiled(compiled.with_unresolved_admissions()).unwrap();
+        let mut actor = tests::actor_with_metadata(HashMap::new());
+        actor.kind = ActorKind::Entity {
+            identifier: identifier.into(),
+        };
+        let mut store = ActorAnimationStore::with_assets(Arc::new(assets));
+        store.insert(1, 0, &actor);
+        store.advance_tick(
+            &HashMap::from([(actor.runtime_id, actor.clone())]),
+            None,
+            None,
+            true,
+            true,
+            |_| ActorTickContext::default(),
+        );
+        let snapshot = store.get(actor.runtime_id).unwrap();
+        assert_eq!(snapshot.render.len(), 1);
+        assert_eq!(snapshot.render[0].source, base);
+        assert_eq!(snapshot.render[0].multitexture, Some([clothes; 2]));
+    }
+}
+
+#[test]
 fn pinned_villager_masked_multitexture_tracks_profession_changes() {
     let Some(assets) = crate::test_support::entity_assets(
         "CINNABAR_ENTITY_CARRIER",

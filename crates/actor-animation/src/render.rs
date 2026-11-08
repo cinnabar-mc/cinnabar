@@ -604,6 +604,7 @@ fn evaluate_layer_into(
         .slots
         .get(layer.first_slot as usize..layer.first_slot as usize + usize::from(layer.slot_count))
         .ok_or(EvalError::Invalid)?;
+    let sampler_count = if masked_multitexture { 2 } else { 3 };
     let mut selected_sources = Vec::with_capacity(slots.len());
     for (texture_slot, slot) in slots.iter().enumerate() {
         let candidates = render
@@ -625,7 +626,9 @@ fn evaluate_layer_into(
             if selected {
                 resolved = true;
                 // Later slots are samplers for this draw, not additional mesh layers.
-                if multitexture || texture_slot == 0 {
+                if (multitexture || texture_slot == 0)
+                    && (!masked_multitexture || texture_slot < sampler_count)
+                {
                     selected_sources.push(candidate.source);
                 }
                 break;
@@ -634,7 +637,6 @@ fn evaluate_layer_into(
         // A live selector with no source is missing artwork, not a disabled controller.
         unresolved_artwork |= texture_slot == 0 && !resolved && visible;
     }
-    let sampler_count = if masked_multitexture { 2 } else { 3 };
     if multitexture && selected_sources.len() != sampler_count {
         return Ok(if unresolved_artwork {
             LayerStatus::UnresolvedArtwork
