@@ -65,8 +65,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
+pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]

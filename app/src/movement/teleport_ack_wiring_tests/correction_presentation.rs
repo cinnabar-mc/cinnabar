@@ -83,6 +83,93 @@ fn grounded_stream(position: [f32; 3]) -> WorldStream {
 }
 
 #[test]
+fn vehicle_resolution_follows_move_commit_order_before_controls_drain() {
+    for remove_before_move in [false, true] {
+        let initial = [4.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 8.5];
+        let target = [6.5, initial[1], 8.5];
+        let mut physics = LocalPhysicsController::default();
+        physics.reanchor_network_position(initial, 100, true);
+        let mut ticker = authorized_ticker(false);
+        ticker.reset(7, 100, initial);
+        ticker.set_source(MovementSource::Physics);
+        let mut app = wiring_app(ticker, physics);
+        app.world_mut().resource_mut::<ClientWorld>().stream = Some(grounded_stream(initial));
+        submit(
+            &mut app,
+            3,
+            WorldEvent::Actor(protocol::ActorEvent::Spawn(protocol::ActorSpawnEvent {
+                dimension: 0,
+                unique_id: 77,
+                runtime_id: 77,
+                kind: protocol::ActorKind::Entity {
+                    identifier: "minecraft:boat".into(),
+                },
+                position: [0.0; 3],
+                velocity: [0.0; 3],
+                pitch: 0.0,
+                yaw: 0.0,
+                head_yaw: 0.0,
+                body_yaw: 0.0,
+                held_item: Default::default(),
+                metadata: std::sync::Arc::from([]),
+                attributes: std::sync::Arc::from([]),
+                properties: std::sync::Arc::from([]),
+                links: std::sync::Arc::from([]),
+            })),
+        );
+        assert!(
+            app.world()
+                .resource::<ClientWorld>()
+                .stream
+                .as_ref()
+                .unwrap()
+                .authority()
+                .actor(77)
+                .is_some()
+        );
+        let movement = WorldEvent::MovePlayer(MovePlayerEvent {
+            runtime_id: 1,
+            position: target,
+            mode: protocol::MovePlayerMode::Normal,
+            riding_runtime_id: 77,
+            on_ground: true,
+            source_tick: 100,
+            ..Default::default()
+        });
+        let removal = WorldEvent::Actor(protocol::ActorEvent::Remove(protocol::ActorRemoveEvent {
+            dimension: 0,
+            unique_id: 77,
+        }));
+        let events = if remove_before_move {
+            [removal, movement]
+        } else {
+            [movement, removal]
+        };
+        for (sequence, event) in (4..).zip(events) {
+            submit(&mut app, sequence, event);
+        }
+        let stream = app
+            .world()
+            .resource::<ClientWorld>()
+            .stream
+            .as_ref()
+            .unwrap();
+        assert_eq!(stream.committed_sequence(), 5);
+        assert!(stream.authority().actor(77).is_none());
+
+        app.update();
+
+        assert_eq!(
+            app.world()
+                .resource::<LocalPhysicsController>()
+                .network_position(),
+            Some(if remove_before_move { initial } else { target }),
+            "remove_before_move={remove_before_move}",
+        );
+    }
+}
+
+#[test]
 fn pending_transport_correction_keeps_the_presented_view_without_advancing_authority() {
     let initial = [4.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 8.5];
     let mut physics = LocalPhysicsController::default();
