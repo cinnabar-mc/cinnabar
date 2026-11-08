@@ -48,8 +48,15 @@ public final class CinnabarActivity extends NativeActivity {
             decor.setOnCapturedPointerListener((view, event) -> {
                 int action = event.getActionMasked();
                 if (action == MotionEvent.ACTION_MOVE) {
-                    float dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X);
-                    float dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y);
+                    // Captured mice (SOURCE_MOUSE_RELATIVE) report displacement through getX and
+                    // getY; batched events carry earlier displacements as history.
+                    if (!event.isFromSource(InputDevice.SOURCE_MOUSE_RELATIVE)) return true;
+                    float dx = event.getX();
+                    float dy = event.getY();
+                    for (int i = 0; i < event.getHistorySize(); i++) {
+                        dx += event.getHistoricalX(i);
+                        dy += event.getHistoricalY(i);
+                    }
                     if (dx != 0.0f || dy != 0.0f) {
                         try {
                             nativeOnMouseMotion(dx, dy);

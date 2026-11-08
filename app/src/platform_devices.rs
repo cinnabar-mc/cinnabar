@@ -6,15 +6,13 @@ use bevy::{
     input::{
         ButtonInput, ButtonState, InputSystems,
         keyboard::KeyCode,
-        mouse::{
-            AccumulatedMouseMotion, MouseButton, MouseButtonInput, MouseMotion, MouseScrollUnit,
-            MouseWheel,
-        },
+        mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
         touch::{TouchInput, TouchPhase},
     },
     math::Vec2,
     prelude::{
-        IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query, Res, ResMut, With,
+        IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query, Res, ResMut,
+        Resource, With,
     },
     window::{PrimaryWindow, WindowEvent},
 };
@@ -35,6 +33,7 @@ pub mod ingress;
 /// routing is unchanged.
 pub(crate) fn configure_hybrid_input(app: &mut App) {
     app.init_resource::<ConnectedPhysicalDevices>()
+        .init_resource::<PlatformMouseActivity>()
         .insert_resource(DetectedGameplayInputMode(semantic_input::InputMode::Touch))
         .insert_resource(EffectiveGameplayInputMode(semantic_input::InputMode::Touch))
         .add_systems(
@@ -43,6 +42,13 @@ pub(crate) fn configure_hybrid_input(app: &mut App) {
         )
         .add_systems(PreUpdate, arbitrate_gameplay_input_mode.after(InputSystems));
 }
+
+/// Whether the platform delivered physical mouse motion, buttons or wheel steps this frame.
+///
+/// Touch-emulated UI pointer presses also reach `ButtonInput<MouseButton>`, so mode arbitration
+/// reads this platform-origin signal instead.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
+pub struct PlatformMouseActivity(pub bool);
 
 /// Previous device counts tracked to detect physical device arrivals.
 #[derive(Default)]
@@ -57,9 +63,8 @@ pub struct PreviousDeviceCounts {
 pub(crate) fn arbitrate_gameplay_input_mode(
     devices: Res<ConnectedPhysicalDevices>,
     mut prev_counts: Local<PreviousDeviceCounts>,
-    motion: Option<Res<AccumulatedMouseMotion>>,
+    mouse_activity: Option<Res<PlatformMouseActivity>>,
     keys: Option<Res<ButtonInput<KeyCode>>>,
-    mouse_buttons: Option<Res<ButtonInput<MouseButton>>>,
     mut touch_input: MessageReader<TouchInput>,
     claimed_touches: Option<Res<crate::ui_runtime::touch_pointer::UiTouchStarts>>,
     player: Option<Res<client_state::PlayerRuntime>>,
@@ -72,19 +77,14 @@ pub(crate) fn arbitrate_gameplay_input_mode(
 ) {
     let mut target_mode = None;
 
-    // 1. Physical mouse activity:
-    let has_mouse_motion = motion
-        .as_ref()
-        .is_some_and(|m| m.delta.x.abs() > 0.001 || m.delta.y.abs() > 0.001);
-    let has_mouse_click = mouse_buttons
-        .as_ref()
-        .is_some_and(|b| b.get_just_pressed().next().is_some());
-    let mouse_active = (has_mouse_motion || has_mouse_click) && devices.mice > 0;
+    // 1. Physical mouse activity, from the platform rather than touch-emulated UI presses:
+    let mouse_active = mouse_activity.is_some_and(|activity| activity.0) && devices.mice > 0;
 
-    // 2. Physical keyboard activity:
-    let has_key_press = keys
-        .as_ref()
-        .is_some_and(|k| k.get_just_pressed().next().is_some());
+    // 2. Physical keyboard activity. Unidentified keys include the platform Back gesture.
+    let has_key_press = keys.as_ref().is_some_and(|k| {
+        k.get_just_pressed()
+            .any(|key| !matches!(key, KeyCode::Unidentified(_)))
+    });
     let keyboard_active = has_key_press && devices.keyboards > 0;
 
     // 3. Device connection / disconnection transitions:
@@ -97,48 +97,45 @@ pub(crate) fn arbitrate_gameplay_input_mode(
     prev_counts.mice = devices.mice;
     prev_counts.keyboards = devices.keyboards;
 
-    // Priority 1: Physical keyboard/mouse activity or connection selects KeyboardMouse:
+    // Touch starts are read every frame, so a start that loses this frame's arbitration cannot
+    // switch modes on a later one.
+    // Evaluate live UI and menu visibility directly so arbitration never suffers
+    // from single-frame lag compared to the Update-phase ScreenFocus publication.
+    let gameplay_active = match (player.as_deref(), ui.as_deref(), menu.as_deref()) {
+        (Some(player), Some(ui_res), menu_res) => {
+            let absorbed = client_shell::screen_policy::absorbs_input(
+                player,
+                Some(&ui_res.0),
+                menu_res,
+                presentation.as_deref().map(|p| &p.0),
+            );
+            !absorbed
+                && !ui_res.ui_focused(player)
+                && !menu_res.is_some_and(MenuRuntime::is_visible)
+        }
+        _ => screen_focus
+            .as_ref()
+            .is_none_or(|focus| !focus.absorbs_input && !focus.menu_visible && !focus.ui_focused),
+    };
+
+    let mut gameplay_touch_started = false;
+    for touch in touch_input.read() {
+        if touch.phase == TouchPhase::Started {
+            let is_ui_touch = claimed_touches
+                .as_ref()
+                .is_some_and(|claimed| claimed.0.contains(&touch.id));
+            if !is_ui_touch && gameplay_active {
+                gameplay_touch_started = true;
+            }
+        }
+    }
+
+    // Physical keyboard/mouse activity or connection wins, then a gameplay touch, then the last
+    // physical device leaving.
     if mouse_active || keyboard_active || mice_arrived || keyboards_arrived {
         target_mode = Some(semantic_input::InputMode::KeyboardMouse);
-    } else {
-        // Priority 2: Gameplay touch interaction selects Touch:
-        // Evaluate live UI and menu visibility directly so arbitration never suffers
-        // from single-frame lag compared to the Update-phase ScreenFocus publication.
-        let gameplay_active = match (player.as_deref(), ui.as_deref(), menu.as_deref()) {
-            (Some(player), Some(ui_res), menu_res) => {
-                let absorbed = client_shell::screen_policy::absorbs_input(
-                    player,
-                    Some(&ui_res.0),
-                    menu_res,
-                    presentation.as_deref().map(|p| &p.0),
-                );
-                !absorbed
-                    && !ui_res.ui_focused(player)
-                    && !menu_res.is_some_and(MenuRuntime::is_visible)
-            }
-            _ => screen_focus.as_ref().is_none_or(|focus| {
-                !focus.absorbs_input && !focus.menu_visible && !focus.ui_focused
-            }),
-        };
-
-        let mut gameplay_touch_started = false;
-        for touch in touch_input.read() {
-            if touch.phase == TouchPhase::Started {
-                let is_ui_touch = claimed_touches
-                    .as_ref()
-                    .is_some_and(|claimed| claimed.0.contains(&touch.id));
-                if !is_ui_touch && gameplay_active {
-                    gameplay_touch_started = true;
-                }
-            }
-        }
-
-        if gameplay_touch_started {
-            target_mode = Some(semantic_input::InputMode::Touch);
-        } else if disconnected_all_devices {
-            // Priority 3: Disconnection of all physical devices falls back to Touch:
-            target_mode = Some(semantic_input::InputMode::Touch);
-        }
+    } else if gameplay_touch_started || disconnected_all_devices {
+        target_mode = Some(semantic_input::InputMode::Touch);
     }
 
     // Apply resolved mode:
@@ -167,8 +164,10 @@ pub fn drain_platform_mouse_events(
     mut window_messages: Option<ResMut<Messages<WindowEvent>>>,
     mut wheel_messages: ResMut<Messages<MouseWheel>>,
     windows: Query<Entity, With<PrimaryWindow>>,
+    mut activity: ResMut<PlatformMouseActivity>,
 ) {
     let window = windows.iter().next().unwrap_or(Entity::PLACEHOLDER);
+    let mut active = false;
 
     // 1. Drain relative mouse motion:
     let (dx, dy) = ingress::take_platform_mouse_motion();
@@ -176,12 +175,15 @@ pub fn drain_platform_mouse_events(
         motion_messages.write(MouseMotion {
             delta: Vec2::new(dx, dy),
         });
+        active = true;
     }
 
     // 2. Drain button clicks:
     let buttons = ingress::take_platform_mouse_buttons();
     for event in buttons {
         if let Some(button) = ingress::android_button_to_mouse_button(event.button_mask) {
+            // Releases also arrive when capture or focus is lost, so only presses show activity.
+            active |= event.pressed;
             let state = if event.pressed {
                 ButtonState::Pressed
             } else {
@@ -209,7 +211,9 @@ pub fn drain_platform_mouse_events(
             window,
             phase: bevy::input::touch::TouchPhase::Moved,
         });
+        active = true;
     }
+    activity.0 = active;
 }
 
 #[cfg(test)]

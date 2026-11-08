@@ -135,10 +135,8 @@ fn physical_mouse_motion_overrules_gameplay_touch_in_same_frame() {
         .resource_mut::<EffectiveGameplayInputMode>()
         .0 = InputMode::Touch;
 
-    // Mouse movement + touch start in same frame
-    app.world_mut()
-        .resource_mut::<AccumulatedMouseMotion>()
-        .delta = Vec2::new(5.0, -3.0);
+    // Platform mouse movement + touch start in same frame
+    app.insert_resource(PlatformMouseActivity(true));
     app.world_mut().write_message(TouchInput {
         phase: TouchPhase::Started,
         position: Vec2::new(100.0, 100.0),
@@ -282,7 +280,8 @@ fn platform_mouse_input_survives_bevy_input_systems() {
         .add_systems(
             bevy::prelude::PreUpdate,
             drain_platform_mouse_events.before(bevy::input::InputSystems),
-        );
+        )
+        .init_resource::<PlatformMouseActivity>();
     let _ = ingress::take_platform_mouse_motion();
     let _ = ingress::take_platform_mouse_buttons();
     ingress::accumulate_platform_mouse_motion(3.0, -2.0);
@@ -298,5 +297,92 @@ fn platform_mouse_input_survives_bevy_input_systems() {
         app.world()
             .resource::<ButtonInput<MouseButton>>()
             .pressed(MouseButton::Left)
+    );
+    assert!(app.world().resource::<PlatformMouseActivity>().0);
+}
+
+fn gameplay_touch_start(id: u64) -> TouchInput {
+    TouchInput {
+        phase: TouchPhase::Started,
+        position: Vec2::new(100.0, 100.0),
+        force: None,
+        id,
+        window: bevy::ecs::entity::Entity::PLACEHOLDER,
+    }
+}
+
+/// An app that runs arbitration once per `update`, keeping its device counts and message cursor
+/// across frames like production, starting in Touch with devices already settled.
+fn scheduled_arbitration_app(mice: u32, keyboards: u32) -> App {
+    let mut app = setup_test_app();
+    app.add_systems(bevy::prelude::Update, arbitrate_gameplay_input_mode);
+    *app.world_mut().resource_mut::<ConnectedPhysicalDevices>() =
+        ConnectedPhysicalDevices { mice, keyboards };
+    app.update();
+    app.world_mut()
+        .resource_mut::<EffectiveGameplayInputMode>()
+        .0 = InputMode::Touch;
+    app
+}
+
+/// A touch start that loses to a same-frame key press is consumed, so it cannot switch back to
+/// Touch on the next frame.
+#[test]
+fn touch_start_losing_to_physical_input_does_not_switch_later() {
+    let mut app = scheduled_arbitration_app(0, 1);
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyW);
+    app.world_mut().write_message(gameplay_touch_start(4));
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::KeyboardMouse
+    );
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .clear();
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::KeyboardMouse
+    );
+}
+
+/// A touch-emulated UI pointer press is not physical mouse activity, even with a mouse connected.
+#[test]
+fn touch_emulated_mouse_press_keeps_touch_mode() {
+    let mut app = scheduled_arbitration_app(1, 0);
+
+    app.world_mut()
+        .resource_mut::<ButtonInput<MouseButton>>()
+        .press(MouseButton::Left);
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::Touch
+    );
+}
+
+/// Gameplay touch still selects Touch after physical input, with devices still connected.
+#[test]
+fn gameplay_touch_after_physical_input_selects_touch() {
+    let mut app = scheduled_arbitration_app(1, 1);
+    app.insert_resource(PlatformMouseActivity(true));
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::KeyboardMouse
+    );
+
+    app.insert_resource(PlatformMouseActivity(false));
+    app.world_mut().write_message(gameplay_touch_start(5));
+    app.update();
+    assert_eq!(
+        app.world().resource::<EffectiveGameplayInputMode>().0,
+        InputMode::Touch
     );
 }
