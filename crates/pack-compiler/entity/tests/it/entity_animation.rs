@@ -1,8 +1,8 @@
 use std::{fs, path::Path};
 
 use assets::{
-    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty, EntityRigFallback,
-    MolangOp, MolangSymbolKind, encode_entity_blob,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty,
+    EntityGeometryScalar, EntityRigFallback, MolangOp, MolangSymbolKind, encode_entity_blob,
 };
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
@@ -354,7 +354,7 @@ fn animation_time_update_accepts_general_molang_and_numeric_constants() {
 }
 
 #[test]
-fn rejects_malformed_or_unsupported_animation_time_updates() {
+fn malformed_or_unsupported_time_update_skips_only_its_animation() {
     for authored in [
         serde_json::json!(null),
         serde_json::json!(true),
@@ -365,12 +365,48 @@ fn rejects_malformed_or_unsupported_animation_time_updates() {
     ] {
         let pack = animation_pack(false);
         set_walk_time_update(pack.path(), authored.clone());
-        let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
+        let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+        let identifier = |symbol: u32| compiled.assets.symbols[symbol as usize].identifier.as_ref();
+        let clips = compiled
+            .assets
+            .animation_clips
+            .iter()
+            .map(|clip| identifier(clip.symbol))
+            .collect::<Vec<_>>();
+        assert!(!clips.contains(&"animation.test.walk"), "{authored}");
+        assert!(clips.contains(&"animation.test.attack"), "{authored}");
         assert!(
-            error.to_string().contains("anim_time_update"),
-            "{authored}: {error}"
+            compiled.reference_outcomes.iter().any(|outcome| matches!(
+                outcome,
+                pack_entity_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+                    symbol,
+                    reason: pack_entity_compiler::FallbackReason::InvalidDefinition,
+                    ..
+                } if identifier(*symbol) == "animation.test.walk"
+            )),
+            "{authored}"
         );
     }
+}
+
+#[test]
+fn timeline_keyframes_play_in_time_order() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"loop":true,"animation_length":12,"bones":{"root":{"position":{"10.0":[3,0,0],"2.0":[2,0,0],"0":{"pre":[0,0,0],"post":[1,0,0]}}}}},"animation.test.attack":{"bones":{"arm":{"rotation":[0,30,0]}}}}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        first_channel_keyframes(&compiled, "animation.test.walk"),
+        vec![
+            (0.0, [0.0, 0.0, 0.0]),
+            (0.0, [1.0, 0.0, 0.0]),
+            (2.0, [2.0, 0.0, 0.0]),
+            (10.0, [3.0, 0.0, 0.0]),
+        ]
+    );
 }
 
 #[test]
@@ -541,17 +577,144 @@ fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
     assert_eq!(compiled.rig_bindings.len(), 2);
 }
 
+/// The keyframe times and values of the first channel of the clip compiled for `identifier`.
+fn first_channel_keyframes(
+    compiled: &assets::CompiledEntityAssets,
+    identifier: &str,
+) -> Vec<(f32, [f32; 3])> {
+    let clip = compiled
+        .animation_clips
+        .iter()
+        .find(|clip| compiled.symbols[clip.symbol as usize].identifier.as_ref() == identifier)
+        .unwrap();
+    let channel = &compiled.animation_channels[clip.first_channel as usize];
+    compiled.animation_keyframes[channel.first_keyframe as usize..]
+        [..channel.keyframe_count as usize]
+        .iter()
+        .map(|keyframe| {
+            (
+                keyframe.time_seconds.get(),
+                keyframe.value.map(EntityGeometryScalar::get),
+            )
+        })
+        .collect()
+}
+
 #[test]
-fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed() {
-    for animation in [
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":{"bad":[0,0,0]}}}}}}"#.as_slice(),
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"animation_length":"NaN"}}}"#.as_slice(),
-    ] {
-        let pack = animation_pack(false);
-        write(pack.path(), "animations/test.animation.json", animation);
-        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
+fn timeline_keys_without_a_number_prefix_are_time_zero() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"loop":true,"animation_length":2,"bones":{"root":{"position":{"vector":[1,2,3],"0.5s":[4,5,6]}}}},"animation.test.attack":{"bones":{"arm":{"rotation":[0,30,0]}}}}}"#,
+    );
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    assert_eq!(
+        first_channel_keyframes(&compiled, "animation.test.walk"),
+        vec![(0.0, [1.0, 2.0, 3.0]), (0.5, [4.0, 5.0, 6.0])]
+    );
+}
+
+#[test]
+fn invalid_animation_falls_back_without_dropping_the_stack() {
+    let pack = animation_pack(false);
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"animation_length":"NaN","bones":{"root":{"position":[1,0,0]}}},"animation.test.attack":{"bones":{"arm":{"rotation":[0,30,0]}}}}}"#,
+    );
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    let identifier = |symbol: u32| compiled.assets.symbols[symbol as usize].identifier.as_ref();
+    assert!(
+        compiled
+            .assets
+            .animation_clips
+            .iter()
+            .all(|clip| identifier(clip.symbol) != "animation.test.walk")
+    );
+    assert_eq!(
+        first_channel_keyframes(&compiled.assets, "animation.test.attack"),
+        vec![(0.0, [0.0, 30.0, 0.0])]
+    );
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        pack_entity_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+            symbol,
+            reason: pack_entity_compiler::FallbackReason::InvalidDefinition,
+            ..
+        } if identifier(*symbol) == "animation.test.walk"
+    )));
+    assert_eq!(compiled.assets.rig_bindings.len(), 1);
+}
+
+#[test]
+fn animation_past_the_keyframe_budget_falls_back_alone() {
+    let pack = animation_pack(false);
+    let keyframes_per_clip = 65_536;
+    let geometries = assets::MAX_ENTITY_ANIMATION_KEYFRAMES / keyframes_per_clip + 1;
+    let timeline = (0..keyframes_per_clip)
+        .map(|index| (format!("{index}"), serde_json::json!([index % 7, 0, 0])))
+        .collect::<serde_json::Map<_, _>>();
+    let animations = serde_json::json!({"format_version":"1.8.0","animations":{
+        "animation.test.walk":{"loop":true,"bones":{"root":{"position":[1,0,0]}}},
+        "animation.test.attack":{"bones":{"arm":{"rotation":[0,30,0]}}},
+        "animation.test.big":{"bones":{"root":{"position":timeline}}},
+    }});
+    write(
+        pack.path(),
+        "animations/test.animation.json",
+        &serde_json::to_vec(&animations).unwrap(),
+    );
+    let geometry = (0..geometries)
+        .map(|index| serde_json::json!({"description":{"identifier":format!("geometry.big{index}")},"bones":[{"name":"root"}]}))
+        .collect::<Vec<_>>();
+    write(
+        pack.path(),
+        "models/entity/big.geo.json",
+        &serde_json::to_vec(
+            &serde_json::json!({"format_version":"1.21.0","minecraft:geometry":geometry}),
+        )
+        .unwrap(),
+    );
+    for index in 0..geometries {
+        let entity = serde_json::json!({"format_version":"1.10.0","minecraft:client_entity":{"description":{
+            "identifier":format!("minecraft:big{index}"),
+            "textures":{"default":"textures/entity/test"},
+            "geometry":{"default":format!("geometry.big{index}")},
+            "animations":{"big":"animation.test.big"},
+            "scripts":{"animate":["big"]},
+            "render_controllers":["controller.render.test"],
+        }}});
+        write(
+            pack.path(),
+            &format!("entity/big{index}.entity.json"),
+            &serde_json::to_vec(&entity).unwrap(),
+        );
     }
 
+    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
+    let identifier = |symbol: u32| compiled.assets.symbols[symbol as usize].identifier.as_ref();
+    let clips = compiled
+        .assets
+        .animation_clips
+        .iter()
+        .map(|clip| identifier(clip.symbol))
+        .collect::<Vec<_>>();
+    assert!(!clips.contains(&"animation.test.big"));
+    assert!(clips.contains(&"animation.test.walk"));
+    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
+        outcome,
+        pack_entity_compiler::CompileReferenceOutcome::OptionalStaticFallback {
+            symbol,
+            reason: pack_entity_compiler::FallbackReason::OverBudget,
+            ..
+        } if identifier(*symbol) == "animation.test.big"
+    )));
+    assert_eq!(compiled.assets.rig_bindings.len(), geometries + 1);
+}
+
+#[test]
+fn unsupported_transition_grammar_drops_only_the_transition() {
     let pack = animation_pack(false);
     write(
         pack.path(),

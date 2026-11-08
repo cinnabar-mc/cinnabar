@@ -691,6 +691,12 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
+Animation timeline keys read as C `atof`, as native does, so a key without a leading number
+is time 0, and each channel's keyframes play in time order. A malformed animation, or one
+past the stack's clip, channel or keyframe count, is skipped on its own while the rest of
+the stack applies. Each geometry still copies its animations' keyframes, and native has no
+known count limit, so the 2,097,152-keyframe cap remains confirmed incomplete.
+
 Client-entity render controllers evaluate each layer's activation, geometry, texture and
 pose in authored order. A completed all-false activation result suppresses the base body
 and its skin/cape/cosmetic attachments; absent controllers and unresolved artwork retain

@@ -223,10 +223,9 @@ fn parse_channel(
     let timeline = value
         .as_object()
         .ok_or_else(|| invalid("animation channel must be a vector or timeline"))?;
+    let first = output.len();
     for (time, value) in timeline {
-        let time = time
-            .parse::<f32>()
-            .map_err(|_| invalid("malformed animation keyframe time"))?;
+        let time = keyframe_time(time);
         if !time.is_finite() || time < 0.0 {
             return Err(invalid("invalid animation keyframe time").into());
         }
@@ -264,7 +263,53 @@ fn parse_channel(
             });
         }
     }
+    // Keys arrive in text order ("10" before "2"); sampling needs time order. The sort is
+    // stable, so a keyframe's pre value stays ahead of its post value.
+    output[first..]
+        .sort_by(|left, right| left.time_seconds.get().total_cmp(&right.time_seconds.get()));
     Ok(())
+}
+
+/// Reads a timeline key as vanilla does, with C `atof`: leading whitespace is skipped, the
+/// longest decimal number prefix (optional sign, digits, fraction and exponent) is the time,
+/// and a key with no such prefix, such as `"vector"`, is time 0. `inf`, `infinity` and `nan`
+/// read as their non-finite values.
+fn keyframe_time(key: &str) -> f32 {
+    let text = key.trim_start_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r']);
+    let bytes = text.as_bytes();
+    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
+    let lowered = text[end..].to_ascii_lowercase();
+    for word in ["infinity", "inf", "nan"] {
+        if lowered.starts_with(word) {
+            return text[..end + word.len()].parse().unwrap_or(0.0);
+        }
+    }
+    let digits = |from: usize| {
+        bytes[from..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count()
+    };
+    let integer = digits(end);
+    end += integer;
+    let mut fraction = 0;
+    if bytes.get(end) == Some(&b'.') {
+        fraction = digits(end + 1);
+        if integer + fraction > 0 {
+            end += 1 + fraction;
+        }
+    }
+    if integer + fraction == 0 {
+        return 0.0;
+    }
+    if matches!(bytes.get(end), Some(b'e' | b'E')) {
+        let sign = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
+        let exponent = digits(end + 1 + sign);
+        if exponent > 0 {
+            end += 1 + sign + exponent;
+        }
+    }
+    text[..end].parse().unwrap_or(0.0)
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {

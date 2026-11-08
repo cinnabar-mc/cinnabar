@@ -6,6 +6,11 @@ pub enum FallbackReason {
     UnsupportedOptionalExpression,
     UnreferencedDefinition,
     AmbiguousAnimationReference,
+    /// The definition is malformed, so its animation is skipped.
+    InvalidDefinition,
+    /// The stack's animation clip, channel or keyframe budget is spent, so its animation is
+    /// skipped instead of the whole stack.
+    OverBudget,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]

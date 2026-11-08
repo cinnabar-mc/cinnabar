@@ -17,7 +17,9 @@ use super::{
 pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
 /// One channel per animated bone property of each clip; merged server packs reach six figures.
 pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 262_144;
-pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
+/// Each geometry that plays an animation gets its own copy of its keyframes, so merged server
+/// packs pass six hundred thousand.
+pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 2_097_152;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
 pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
