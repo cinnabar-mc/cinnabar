@@ -360,6 +360,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   Matched-output frame-time and movement qualification remain incomplete;
   raster occlusion stays off by default pending hardware acceptance.
 
+  Sorted water draws coalesce adjacent contiguous reference ranges after particle
+  interleaving. Pipeline, view, reference gaps and other draw kinds end a batch;
+  model and mixed water/model runs retain their existing draws. Matched-scene
+  encoding-time and target-GPU qualification remain incomplete.
+
 - [ ] `P2.7-ATMOSPHERE` — Complete lighting, day/night, sky, fog, weather and cloud
   acceptance, together with the remaining terrain publication and remesh qualification.
 - [ ] Classify and remove moving bands/static under camera motion using coherent
