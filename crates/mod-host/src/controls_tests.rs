@@ -117,7 +117,7 @@ fn native_text_input_rejects_invalid_batches_transactionally() {
 #[test]
 fn native_text_input_survives_callback_deferral() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -163,7 +163,12 @@ fn native_text_input_survives_callback_deferral() {
 /// is rejected before any guest can read it.
 #[test]
 fn pointer_and_wheel_reach_only_an_open_panel() {
-    let engine = Engine::new(wasmtime::Config::new().consume_fuel(true)).unwrap();
+    let engine = Engine::new(
+        wasmtime::Config::new()
+            .consume_fuel(true)
+            .async_support(true),
+    )
+    .unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
         (core instance $i (instantiate $m))
@@ -644,7 +649,7 @@ fn rejects_malformed_controls_and_bounded_import_spam() {
 #[test]
 fn callback_controls_budgets_are_independent_and_preserve_retained_state() {
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))
@@ -877,7 +882,7 @@ fn native_field_input_deferred_submits_preserve_retained_values() {
 fn local_weather_policy_commits_and_revokes() {
     use cinnabar::extension::environment::{Host as _, Weather};
     let mut config = wasmtime::Config::new();
-    config.consume_fuel(true);
+    config.consume_fuel(true).async_support(true);
     let engine = Engine::new(&config).unwrap();
     let component = br#"(component
         (core module $m (func (export "init")) (func (export "frame")))

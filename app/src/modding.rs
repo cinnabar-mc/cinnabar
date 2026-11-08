@@ -42,6 +42,7 @@ mod drive;
 use drive::drive_mod;
 mod environment_loader;
 mod library;
+mod marketplace;
 mod native_camera;
 mod native_input;
 mod packet_highlights;
@@ -58,8 +59,8 @@ mod terrain;
 #[derive(Resource, Default)]
 pub(crate) struct ModCueFeed(pub Vec<mod_host::ModCue>);
 
-/// Mods' control modes for this frame, replacing the player's toggle sprint, toggle sneak and
-/// always sprint settings while present.
+/// Mods' control modes for this frame, turned on in addition to the player's toggle sprint,
+/// toggle sneak and always sprint settings while present.
 #[derive(Default, Resource)]
 pub(crate) struct ModControlModes(pub(crate) Option<mod_host::GameplayControlModes>);
 
@@ -259,6 +260,7 @@ pub(crate) fn configure_from_environment(app: &mut App) {
                     layout.mods_dir(),
                     layout.user_config_root,
                     watcher.removal_client(),
+                    watcher.marketplace.clone(),
                 );
                 app.insert_resource(watcher);
                 if configured {

@@ -65,8 +65,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
+pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -134,6 +134,8 @@ pub struct ActorSnapshot {
     /// Independently allocated render lifetime, including before a local spawn arrives.
     pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
+    /// Arrival of the latest applied actor-data update, whatever it contained; zero before any.
+    pub metadata_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
     pub entity_fact: EntityFact,
@@ -272,6 +274,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision: 0,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
             entity_fact,
@@ -342,6 +345,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player {
                 uuid,
@@ -888,6 +892,7 @@ pub(crate) mod properties;
 mod query;
 mod shadow;
 mod spatial;
+pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
 

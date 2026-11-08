@@ -41,6 +41,19 @@ impl UiRuntime {
         }
         let event_millis = envelope.local_millis;
         let outcome = match envelope.event {
+            UiEvent::Locator(events) => {
+                let before = self.session.locator.skipped;
+                for event in events {
+                    self.session.locator.apply(event);
+                }
+                if self.session.locator.skipped != before {
+                    tracing::warn!(
+                        skipped = self.session.locator.skipped - before,
+                        "skipped invalid locator data"
+                    );
+                }
+                UiApplyOutcome::Applied
+            }
             UiEvent::DeathInfo(event) => {
                 self.apply_death_info(event);
                 UiApplyOutcome::Applied
@@ -137,6 +150,7 @@ impl UiRuntime {
                 );
                 let busy = self.session.chat_focused
                     || self.container_shows_menu(player_runtime)
+                    || self.command_block_shows_menu()
                     || self.session.data_driven.owns_input();
                 self.session.forms.admit(
                     event,

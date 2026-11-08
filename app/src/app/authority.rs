@@ -13,6 +13,9 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
+    if cfg!(target_os = "android") {
+        crate::platform_devices::configure_hybrid_input(app);
+    }
     app.add_systems(
         bevy::prelude::Startup,
         (
@@ -29,6 +32,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .init_resource::<WorldStreamFramePoll>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
     .init_resource::<client_state::ScreenInputConsumed>()
+    .init_resource::<client_shell::ui_resources::FrameInputOwner>()
     .add_systems(
         Update,
         (drive_gameplay_touch_targets, collect_raw_input)
@@ -54,8 +58,10 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         (
+            crate::ui_runtime::input_owner::decide_input_owner,
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
             drive_sign_editor.in_set(OrdinaryInputSet),
+            drive_command_block.in_set(OrdinaryInputSet),
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,

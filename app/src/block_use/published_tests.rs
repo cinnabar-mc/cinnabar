@@ -67,6 +67,8 @@ mod attack_progress_tests;
 
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
+#[path = "published_tests/freeform_pick.rs"]
+mod freeform_pick_tests;
 
 #[path = "published_tests/held_equipment.rs"]
 mod held_equipment_tests;
@@ -76,6 +78,9 @@ mod ledge_tests;
 
 #[path = "published_tests/selection.rs"]
 mod selection_tests;
+
+#[path = "published_tests/block_pick_reach.rs"]
+mod block_pick_reach_tests;
 
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
@@ -88,6 +93,9 @@ mod touch_tests;
 
 #[path = "published_tests/harvesting.rs"]
 mod harvesting_tests;
+
+#[path = "published_tests/held_book.rs"]
+mod held_book_tests;
 
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
@@ -110,7 +118,7 @@ fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
 }
 
 /// Supplies loaded synthetic terrain, a current interaction ray and one real Use press.
-fn fixture() -> (World, client_session::CapturedPackets) {
+pub(crate) fn fixture() -> (World, client_session::CapturedPackets) {
     fixture_with_network(NetworkHandle::<PackApplication>::stub_capturing_packets())
 }
 
@@ -924,6 +932,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
             Duration::from_millis(950),
             100,
             LocalUse::Place,
+            false,
             RepeatClock {
                 now: Duration::from_millis(950),
                 sneaking: false,
@@ -1025,6 +1034,7 @@ fn a_held_nonblock_item_repeats_the_chest_use() {
         Duration::from_millis(500),
         100,
         LocalUse::Place,
+        false,
         RepeatClock {
             now: Duration::from_millis(500),
             sneaking: false,
@@ -1154,6 +1164,9 @@ mod bridging;
 
 #[path = "published_tests/seed_planting.rs"]
 mod seed_planting;
+
+#[path = "published_tests/paired_items.rs"]
+mod paired_items;
 
 /// Publishes another frame from the fixture's fixed camera ray against its updated world.
 fn publish_fixed_pick(world: &mut World) {

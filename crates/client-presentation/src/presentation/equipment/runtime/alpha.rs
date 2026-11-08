@@ -52,10 +52,7 @@ impl EquipmentRuntime {
                     .filter(|kind| self.held_block_entities.models.contains_key(kind))
                     .map(|_| HandItemAlphaMode::Cutout)
             })
-            .or_else(|| match item.kind {
-                HeldKind::Block(visual) => self.block_alpha_mode(visual),
-                _ => None,
-            })
+            .or_else(|| self.block_alpha_mode(self.held_block_visual(item.kind)?))
             .unwrap_or_default()
     }
 }

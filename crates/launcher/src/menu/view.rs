@@ -437,6 +437,7 @@ pub struct MenuView {
     pub friend_query: String,
     /// Transient text filtering settings across categories.
     pub settings_query: String,
+    pub storage_query: String,
     /// Command box drafts, including invalid edits that have not been saved.
     pub macro_commands: Option<[String; super::settings_options::COMMAND_MACRO_COUNT]>,
     pub message: Option<String>,
@@ -721,6 +722,7 @@ impl MenuView {
             dialog: None,
             friend_query: String::new(),
             settings_query: String::new(),
+            storage_query: String::new(),
             field: None,
             caret: MenuCaret {
                 shown: true,

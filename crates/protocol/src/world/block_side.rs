@@ -2,9 +2,16 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_60::packets::{BlockEvent, ClientboundMapItemData, OpenSign};
+use bedrock_protocol_1_26_60::packets::{
+    BlockEvent, ClientboundMapItemData, ContainerOpen, OpenSign,
+};
 
-use super::events::{BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenSignEvent};
+use super::events::{
+    BlockEventEvent, MAP_IMAGE_SIDE, MapDataEvent, OpenCommandBlockEvent, OpenSignEvent,
+};
+
+/// The `ContainerOpen` actor value of a window opened over a block.
+const NO_TARGET_ACTOR: i64 = -1;
 
 /// Preserves a pixel update or an empty rectangle that announces a newly saved map.
 /// Unrelated partial packets and invalid pixel rectangles are semantic skips.
@@ -62,6 +69,24 @@ pub(super) fn normalize_open_sign(packet: &OpenSign, dimension: i32) -> OpenSign
         position: [packet.pos.x.0, packet.pos.y.0, packet.pos.z.0],
         front: packet.is_front_side,
     }
+}
+
+/// The block command block editor a `ContainerOpen` asks for: the command block window with the
+/// no-actor target. A minecart's editor names its actor instead and stays with the inventory path.
+pub(super) fn normalize_open_command_block(
+    packet: &ContainerOpen,
+    dimension: i32,
+) -> Option<OpenCommandBlockEvent> {
+    (i8::from_ne_bytes([packet.container_type.0]) == crate::WINDOW_TYPE_COMMAND_BLOCK
+        && packet.target_actor_id.0 == NO_TARGET_ACTOR)
+        .then_some(OpenCommandBlockEvent {
+            dimension,
+            position: [
+                packet.position.x.0,
+                packet.position.y.0,
+                packet.position.z.0,
+            ],
+        })
 }
 
 pub(super) fn normalize_block_event(packet: &BlockEvent, dimension: i32) -> BlockEventEvent {

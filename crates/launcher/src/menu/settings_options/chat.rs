@@ -20,6 +20,22 @@ pub const CHAT_POSITIONS: &[SettingChoice] = &[
     },
 ];
 
+/// Client presentation preference; Java's input line over the game remains the default.
+pub const CHAT_INPUT_OPTION: SettingDefinition = super::SettingId::CinnabarChatInput.definition();
+
+/// The open chat's input presentations, in saved-value order. Each choice's name is also the
+/// built-in HUD pack's context flag for it.
+pub const CHAT_INPUTS: &[SettingChoice] = &[
+    SettingChoice {
+        name: "cinnabar_chat_input_java",
+        label: "Java",
+    },
+    SettingChoice {
+        name: "cinnabar_chat_input_bedrock",
+        label: "Bedrock",
+    },
+];
+
 /// One color's text code and rendered swatch.
 #[derive(Clone, Copy, Debug)]
 pub struct ChatColor {
@@ -64,6 +80,11 @@ impl SettingsOptions {
     /// Selects top placement only for the built-in chat presentation.
     pub fn chat_at_top(&self) -> bool {
         self.value(CHAT_POSITION_OPTION.id) == 1
+    }
+
+    /// Selects vanilla Bedrock's full chat screen instead of Java's input line.
+    pub fn bedrock_chat_input(&self) -> bool {
+        self.value(CHAT_INPUT_OPTION.id) == 1
     }
 
     /// Scales the bundled chat font independently of any retired typeface preference.

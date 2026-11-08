@@ -82,6 +82,7 @@ pub(super) fn drive_mod(
     let (network, mut camera, cues, mut item_use) = outputs;
     if let Some(interaction) = interaction.as_deref_mut() {
         interaction.block_mining = false;
+        interaction.block_mining_target = None;
     }
     if let Some(weather) = weather.as_deref_mut() {
         weather.0 = None;
@@ -106,6 +107,12 @@ pub(super) fn drive_mod(
             crate::camera::mouse_input_active(window, cursor, focus.as_deref(), driven.is_some())
         })
     });
+    if (!focused || !captured || absorbed || extension.is_none())
+        && let Some(interaction) = interaction.as_deref_mut()
+    {
+        interaction.block_breaks.clear();
+        interaction.block_break_scope = None;
+    }
     let movement_allowed = extension.as_ref().is_some_and(|runtime| {
         !runtime.suspended
             && (0..runtime.hosts.host_count()).any(|index| {
@@ -349,6 +356,7 @@ pub(super) fn drive_mod(
             chat_events: &chat_events,
             gameplay_facts: gameplay.facts(
                 captured && !absorbed,
+                &ui,
                 cameras.single().ok().map(|(camera, _)| camera),
                 world_observation
                     .as_ref()
@@ -507,8 +515,39 @@ pub(super) fn drive_mod(
     });
     gameplay.synchronize_jump_scope(movement_allowed && captured && !absorbed, &ui);
     gameplay.pulse_jump(merged.jump_pulse && !merged.jump_cancel, &ui);
+    let break_scope = gameplay
+        .world
+        .as_ref()
+        .filter(|_| enabled)
+        .and_then(|world| world.stream.as_ref())
+        .map(|stream| {
+            (
+                stream.authority().actor_session_id(),
+                stream.current_dimension(),
+            )
+        });
+    if interaction.block_break_scope != break_scope || !enabled {
+        interaction.block_breaks.clear();
+    }
+    interaction.block_break_scope = break_scope;
+    if enabled {
+        let remaining = mod_api::MAX_BLOCK_BREAKS.saturating_sub(interaction.block_breaks.len());
+        interaction.block_breaks.extend(
+            merged
+                .block_breaks
+                .into_iter()
+                .take(remaining)
+                .map(|p| [p.x, p.y, p.z]),
+        );
+        interaction.block_breaks.sort_unstable();
+        interaction.block_breaks.dedup();
+    }
     interaction.attack_reach = merged.attack_reach;
     interaction.block_mining = enabled && merged.block_mining;
+    interaction.block_mining_target = merged
+        .block_mining_target
+        .filter(|_| enabled)
+        .map(|p| [p.x, p.y, p.z]);
     let regular_camera = (0..extension.hosts.host_count()).any(|index| {
         let host = extension.hosts.host(index);
         host.is_active() && host.has_camera_output()

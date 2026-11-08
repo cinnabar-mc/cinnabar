@@ -167,7 +167,7 @@ pub(crate) fn advance_local_physics(
     if !movement_ticker.can_advance_physics_frame() {
         locals.observe_dismount(&frame, movement_ticker.session_generation());
         // Retain presses and publish the pose while transport pauses simulation.
-        publish_physics_view(&physics, &mut view);
+        publish_physics_view(&mut physics, &mut view);
         return;
     }
     let world = super::collision_world(
@@ -191,11 +191,16 @@ pub(crate) fn advance_local_physics(
             network.send_inventory_packets(vec![packet])
         });
     }
-    publish_physics_view(&physics, &mut view);
+    publish_physics_view(&mut physics, &mut view);
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.
-fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPose) {
+fn publish_physics_view(physics: &mut LocalPhysicsController, view: &mut LocalViewPose) {
+    if let Some([yaw, pitch]) = physics.take_eased_rotation() {
+        view.set_rotation(crate::runtime::telemetry::bedrock_camera_rotation(
+            yaw, pitch,
+        ));
+    }
     if let (Some(eye), Some(feet)) = (
         physics.render_eye_position(),
         physics.render_feet_position(),
@@ -210,62 +215,168 @@ mod tests {
     use gameplay::movement::control_modes::{ControlModes, ControlObservation};
     use std::time::Duration;
 
-    /// Walks forward through sprint press, release and press under `settings`, optionally with
-    /// both edges in each press frame, returning whether
-    /// the player sprints after the second press and whether that press stopped the sprint.
-    fn second_sprint_press(settings: ui::GameplaySettings, quick: bool) -> (bool, bool) {
-        let mut controls = ControlModes::default();
-        let frame = |millis, pressed: bool| ControlObservation {
+    /// An empty collision world isolates the completed-aim publication boundary.
+    struct Air;
+
+    impl sim::CollisionWorld for Air {
+        fn collision_boxes(
+            &self,
+            _: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    #[test]
+    fn physics_view_publishes_eased_aim_once_without_overwriting_later_mouse_input() {
+        let position = [0.5, 2.620_01, 0.5];
+        let mut physics = super::LocalPhysicsController::default();
+        physics.reanchor_network_position(position, 100, true);
+        assert!(physics.start_server_movement_lerp(position, true, &Air));
+        physics.set_server_movement_lerp_rotation([90.0, 30.0]);
+        let frame = physics.advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &Air,
+        );
+        assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+        let mut view = super::LocalViewPose::default();
+        super::publish_physics_view(&mut physics, &mut view);
+        assert!(view.rotation().abs_diff_eq(
+            crate::runtime::telemetry::bedrock_camera_rotation(30.0, 10.0),
+            0.0001
+        ));
+        let mouse_rotation = crate::runtime::telemetry::bedrock_camera_rotation(35.0, 12.0);
+        view.set_rotation(mouse_rotation);
+        super::publish_physics_view(&mut physics, &mut view);
+        assert_eq!(view.rotation(), mouse_rotation);
+    }
+
+    /// One forward walking frame under `settings` with no sprint key input.
+    fn walk(
+        controls: &mut ControlModes,
+        millis: u64,
+        settings: ui::GameplaySettings,
+    ) -> gameplay::movement::control_modes::ControlOutput {
+        controls.update(ControlObservation {
             now: Duration::from_millis(millis),
             forward: 1.0,
-            sprint_pressed: pressed,
-            sprint_held: pressed && !quick,
             toggle_sprint: settings.toggle_sprint,
             always_sprint: settings.always_sprint,
             toggle_sneak: settings.toggle_sneak,
             ..ControlObservation::default()
-        };
-        assert!(controls.update(frame(0, true)).sprint_request);
-        assert!(
-            controls.update(frame(50, false)).sprint_request,
-            "a released sprint key keeps sprinting"
-        );
-        let output = controls.update(frame(100, true));
-        (output.sprint_request, output.stop_sprinting)
+        })
     }
 
-    /// A sprint press released before physics still toggles on and off through mod control modes.
+    /// The player's own always sprint keeps sprinting under a mod's toggle sprint: when the
+    /// mod's modes arrive after the player's (as while joining) and after a menu suspends input.
     #[test]
-    fn control_mode_toggle_sprint_keeps_presses_released_within_one_frame() {
+    fn player_always_sprint_survives_a_mods_toggle_sprint() {
+        let player = ui::GameplaySettings {
+            always_sprint: true,
+            ..Default::default()
+        };
         let modes = ModControlModes(Some(mod_host::GameplayControlModes {
             toggle_sprint: true,
             toggle_sneak: false,
             always_sprint: false,
         }));
-        assert_eq!(
-            second_sprint_press(modes.apply(ui::GameplaySettings::default()), true),
-            (false, true)
+        let mut controls = ControlModes::default();
+        assert!(walk(&mut controls, 0, ModControlModes(None).apply(player)).sprint_request);
+        let arrived = walk(&mut controls, 50, modes.apply(player));
+        assert!(
+            arrived.sprint_request && !arrived.stop_sprinting,
+            "the mod's modes stopped the player's always sprint"
+        );
+        controls.suspend(false);
+        assert!(
+            walk(&mut controls, 100, modes.apply(player)).sprint_request,
+            "always sprint did not resume after a menu"
         );
     }
 
-    /// With toggle sprint from control modes, a second sprint press stops an ongoing sprint,
-    /// which the player's own hold sprint cannot; omitting the modes restores hold sprint.
+    /// What a sprint key press leaves behind under one set of control settings.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Presses {
+        /// Walking forward again after the first press and a stop restarts the sprint.
+        first_restarts: bool,
+        /// The second press stopped an ongoing sprint.
+        second_stops: bool,
+        /// Walking forward again after the second press and a stop restarts the sprint.
+        second_restarts: bool,
+    }
+
+    /// Walks forward under `settings` through a sprint press and release, a stop and resumption,
+    /// then a second press with the same stop and resumption. `quick` puts both edges of each
+    /// press in one frame.
+    fn sprint_presses(settings: ui::GameplaySettings, quick: bool) -> Presses {
+        let mut controls = ControlModes::default();
+        let mut millis = 0;
+        let mut step = |pressed: bool, forward: f32| {
+            millis += 50;
+            controls.update(ControlObservation {
+                now: Duration::from_millis(millis),
+                forward,
+                sprint_pressed: pressed,
+                sprint_held: pressed && !quick,
+                toggle_sprint: settings.toggle_sprint,
+                always_sprint: settings.always_sprint,
+                toggle_sneak: settings.toggle_sneak,
+                ..ControlObservation::default()
+            })
+        };
+        assert!(step(true, 1.0).sprint_request);
+        assert!(
+            step(false, 1.0).sprint_request,
+            "a released sprint key keeps sprinting"
+        );
+        assert!(!step(false, 0.0).sprint_request, "stopping ends the sprint");
+        let first_restarts = step(false, 1.0).sprint_request;
+        let second = step(true, 1.0);
+        assert!(
+            second.sprint_request,
+            "the second press leaves the player sprinting"
+        );
+        step(false, 1.0);
+        step(false, 0.0);
+        Presses {
+            first_restarts,
+            second_stops: second.stop_sprinting,
+            second_restarts: step(false, 1.0).sprint_request,
+        }
+    }
+
+    /// Toggle sprint from control modes keeps the sprint request between presses, while a
+    /// second press clears it without stopping the ongoing sprint, as the native toggle does.
+    /// Hold sprint keeps nothing; omitting the modes restores it.
     #[test]
-    fn control_mode_toggle_sprint_stops_an_ongoing_sprint_on_a_second_press() {
+    fn control_mode_toggle_sprint_second_press_clears_the_request_without_stopping() {
+        let toggled = Presses {
+            first_restarts: true,
+            second_stops: false,
+            second_restarts: false,
+        };
+        let held = Presses {
+            first_restarts: false,
+            second_stops: false,
+            second_restarts: false,
+        };
         let player = ui::GameplaySettings::default();
-        assert_eq!(second_sprint_press(player, false), (true, false));
-        let toggled = ModControlModes(Some(mod_host::GameplayControlModes {
+        let modes = ModControlModes(Some(mod_host::GameplayControlModes {
             toggle_sprint: true,
             toggle_sneak: false,
             always_sprint: false,
         }));
+        assert_eq!(sprint_presses(player, false), held);
+        assert_eq!(sprint_presses(modes.apply(player), false), toggled);
         assert_eq!(
-            second_sprint_press(toggled.apply(player), false),
-            (false, true)
+            sprint_presses(modes.apply(player), true),
+            toggled,
+            "presses released within one frame still toggle"
         );
         assert_eq!(
-            second_sprint_press(ModControlModes(None).apply(player), false),
-            (true, false)
+            sprint_presses(ModControlModes(None).apply(player), false),
+            held
         );
     }
 }

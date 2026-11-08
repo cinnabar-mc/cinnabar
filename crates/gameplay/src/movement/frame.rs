@@ -47,9 +47,10 @@ pub struct PhysicsFrameInput {
     pub active: bool,
     /// Cancels retained presses when the semantic router releases input ownership.
     pub input_authority_released: bool,
-    /// Mod-held controls bypass physical toggle latches.
+    /// Negotiated mod controls resolved the buttons and bypass physical toggle latches.
     pub resolved_movement: bool,
-    /// A mod supplied the resolved movement vector and button requests for this frame.
+    /// A personal mod supplied the walking vector for this frame; its buttons count as held
+    /// bindings, so the player's control modes still apply.
     pub movement_override: bool,
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],

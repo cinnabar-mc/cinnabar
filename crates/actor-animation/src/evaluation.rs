@@ -124,6 +124,7 @@ pub(super) struct EngineSlots {
     pub(super) use_item_interval_progress: Option<usize>,
     /// Refreshed per tick so the root controller tracks live perspective, not only its seed.
     pub(super) is_first_person: Option<usize>,
+    pub(super) is_paperdoll: Option<usize>,
     pub(super) context_first_person: Option<usize>,
     pub(super) context_paperdoll: Option<usize>,
     pub(super) context_item_slot: Option<usize>,
@@ -249,6 +250,7 @@ impl VariableLayout {
                 use_item_startup_progress: slot(V::UseItemStartupProgress.name()),
                 use_item_interval_progress: slot(V::UseItemIntervalProgress.name()),
                 is_first_person: slot(V::IsFirstPerson.name()),
+                is_paperdoll: slot(V::IsPaperdoll.name()),
                 context_first_person: slot("context.is_first_person"),
                 context_paperdoll: slot("context.is_paperdoll"),
                 context_item_slot: slot("context.item_slot"),

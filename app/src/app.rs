@@ -94,8 +94,8 @@ use {
         shell_adapters::drive_menu_services,
         ui_runtime::{
             drain_inventory_authority, drive_chat_keyboard_input, drive_chat_ui_actions,
-            drive_inventory_ui_actions, drive_server_form_input, drive_sign_editor,
-            drive_world_inventory_keys, flush_server_form_network,
+            drive_command_block, drive_inventory_ui_actions, drive_server_form_input,
+            drive_sign_editor, drive_world_inventory_keys, flush_server_form_network,
             gameplay_touch::drive_gameplay_touch_targets,
             presentation::{
                 dials::advance_dials, drive_menu_panorama, observe_mount_jump_input,
@@ -594,8 +594,8 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         .init_resource::<crate::present_mode::DisplayRefresh>()
         .add_systems(First, crate::frame_pacing::track_display_refresh)
         .add_systems(Last, crate::frame_pacing::update_frame_pacing);
-    #[cfg(target_os = "macos")]
-    crate::thread_budget::ThreadBudget::configure_render_thread(&mut app);
+    #[cfg(any(target_os = "macos", target_os = "android"))]
+    crate::thread_budget::ThreadBudget::configure_frame_threads(&mut app);
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     crate::frame_pacing::display_link::install(&mut app);
     #[cfg(target_os = "macos")]

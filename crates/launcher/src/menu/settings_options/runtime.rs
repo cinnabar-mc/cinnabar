@@ -73,6 +73,7 @@ impl SettingsOptions {
             self.value(MOUSE_SENSITIVITY_OPTION.id) as f32 / MOUSE_SENSITIVITY_OPTION.max as f32;
         settings.controls.invert_mouse_y = self.value(SettingId::KeyboardMouseInvertYAxis) != 0;
         settings.gameplay.always_sprint = self.value(SettingId::AlwaysSprint) != 0;
+        settings.gameplay.touch_control_mode = self.touch_control_mode();
         settings.gameplay.default_perspective = match self.value(SettingId::ThirdPerson) {
             1 => PerspectiveMode::ThirdPersonBack,
             2 => PerspectiveMode::ThirdPersonFront,

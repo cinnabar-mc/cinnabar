@@ -288,6 +288,14 @@ impl ActorStore {
             partial_tick,
         )
     }
+    /// Borrows the live UI component for owner-dependent attachment evaluation.
+    pub(crate) fn actor_ui_rig(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRigSnapshot<'_>> {
+        self.animation.ui_rig(runtime_id)
+    }
+
     /// Full-body controller layers paired with the actor's UI pose.
     pub(crate) fn actor_ui_layers(
         &self,
@@ -295,12 +303,28 @@ impl ActorStore {
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.animation.ui_layers(runtime_id)
     }
+    pub(crate) fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.paper_doll_layers(runtime_id)
+    }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(
         &self,
         runtime_id: u64,
     ) -> Option<&[actor_animation::BoneTransform]> {
         self.animation.ui_pose(runtime_id)
+    }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub(crate) fn actor_bone_descends_from(
+        &self,
+        runtime_id: u64,
+        bone: usize,
+        ancestor: usize,
+    ) -> bool {
+        self.animation
+            .bone_descends_from(runtime_id, bone, ancestor)
     }
     pub(crate) fn actor_retargeted_pose(
         &self,

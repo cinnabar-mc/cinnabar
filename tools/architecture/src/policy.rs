@@ -29,6 +29,8 @@ pub(super) struct Policy {
     #[serde(default)]
     pub(super) timing: TimingRules,
     #[serde(default)]
+    pub(super) input_owner: InputOwnerRules,
+    #[serde(default)]
     pub(super) identifier_literals: IdentifierRules,
     #[serde(default)]
     pub(super) identifier_literal_exceptions: Vec<IdentifierException>,
@@ -62,6 +64,24 @@ pub(super) struct IdentifierVocabulary {
 pub(super) struct IdentifierException {
     pub(super) path: String,
     pub(super) literal: String,
+    pub(super) reason: String,
+}
+
+/// Systems under `root` take input only as the frame's owner.
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InputOwnerRules {
+    #[serde(default)]
+    pub(super) root: Option<String>,
+    #[serde(default)]
+    pub(super) exceptions: Vec<InputOwnerException>,
+}
+
+/// A system that takes input without being a screen, as `path::name`; the reason says why.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct InputOwnerException {
+    pub(super) item: String,
     pub(super) reason: String,
 }
 

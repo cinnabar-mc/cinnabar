@@ -33,6 +33,7 @@ pub enum Scene {
     /// Client-owned cover while an in-session global resource-pack replacement publishes.
     ResourcePackLoading,
     SignEditor,
+    CommandBlock,
     ServerForm,
     /// A script form shown through data-driven UI.
     DataDriven,
@@ -53,6 +54,7 @@ impl Scene {
             | Self::MobEffects
             | Self::ResourcePackLoading
             | Self::SignEditor
+            | Self::CommandBlock
             | Self::ServerForm
             | Self::DataDriven
             | Self::ServerSettingsForm
@@ -63,6 +65,29 @@ impl Scene {
             | Self::Chat
             | Self::Loading
             | Self::Menu(_) => false,
+        }
+    }
+
+    /// This scene's place in the stack, bottom first, which [`UiRuntime::scenes`] visits in order.
+    pub const fn layer(self) -> u8 {
+        match self {
+            Self::Gameplay => 0,
+            Self::Crosshair => 1,
+            Self::Hud => 2,
+            Self::Bed => 3,
+            Self::Container => 4,
+            Self::Chat => 5,
+            Self::Emote => 6,
+            Self::MobEffects => 7,
+            Self::Loading => 8,
+            Self::SignEditor => 9,
+            Self::CommandBlock => 10,
+            Self::ServerForm => 11,
+            Self::DataDriven => 12,
+            Self::Menu(_) => 13,
+            Self::ServerSettingsForm => 14,
+            Self::Credits => 15,
+            Self::ResourcePackLoading => 16,
         }
     }
 
@@ -196,6 +221,23 @@ impl UiRuntime {
             .all(|scene| !scene.settings.absorbs_input)
     }
 
+    /// The scene that takes keyboard and pointer input: the top of the stack. Gameplay stands for
+    /// its overlays, and for a stack with nothing up.
+    pub fn input_scene(
+        &self,
+        player_runtime: &player_state::PlayerState,
+        host: SceneHost,
+    ) -> Scene {
+        let mut top = Scene::Gameplay;
+        self.visit_scenes_in(
+            player_runtime,
+            host,
+            &ScreenSettingsTable::default(),
+            |scene, _| top = scene,
+        );
+        top
+    }
+
     /// Whether a screen other than `own` is up over the world, whatever its pack input policy:
     /// any scene the stack pushes above gameplay and its HUD overlays, launcher menus aside.
     /// Shortcuts that open a screen, and command macros, check it so screens never open
@@ -261,6 +303,17 @@ impl UiRuntime {
             .and_then(|reference| self.screen_settings.get(reference))
             .unwrap_or_default()
             .is_showing_menu
+    }
+
+    /// Whether the command block editor, open or asked for earlier in the server's order, counts
+    /// as a menu, by the same rule as a container.
+    pub(super) fn command_block_shows_menu(&self) -> bool {
+        (self.command_block().is_open() || self.command_block().requested())
+            && self
+                .screen_settings
+                .get(ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN)
+                .unwrap_or_default()
+                .is_showing_menu
     }
 
     pub fn note_player_hurt(&mut self) {

@@ -40,6 +40,8 @@ fn superseded_personal_open_rolls_back_unsent_moves_and_recovers_admitted_moves(
         );
         assert!(ledger.cursor_stack().is_none());
         assert_eq!(ledger.resync_required(), admitted);
+        // A surface still awaiting recovery refuses clicks, so the screen is not ready.
+        assert_eq!(ledger.screen_accepts_gestures(), !admitted);
         assert_eq!(ledger.storage_stack(0), Some(&stack(23, 3)));
     }
 }
@@ -181,4 +183,49 @@ fn a_personal_open_replaces_storage_while_storage_keeps_the_active_personal_guar
     assert!(ledger.personal_inventory_desired_open());
     assert!(ledger.pending_batch().unwrap().is_none());
     assert!(ledger.begin_click(0).is_ok());
+}
+
+/// A personal screen admits clicks once its open leaves transport; a storage window admits
+/// them while it is open and stops once its close starts.
+#[test]
+fn screen_gestures_follow_open_admission_and_storage_close() {
+    let mut ledger = ledger_with_slot_zero();
+    assert!(!ledger.screen_accepts_gestures());
+    assert!(ledger.request_personal_open(42));
+    assert!(!ledger.screen_accepts_gestures());
+    assert!(ledger.mark_transport_enqueued(10));
+    assert!(ledger.screen_accepts_gestures());
+    ledger.request_personal_close();
+    assert!(!ledger.screen_accepts_gestures());
+
+    let mut ledger = ledger_with_slot_zero();
+    open_chest(&mut ledger, 3);
+    assert!(ledger.screen_accepts_gestures());
+    ledger.request_storage_close();
+    assert!(!ledger.screen_accepts_gestures());
+}
+
+/// A window with its own cells waits for their contents before admitting clicks, while a
+/// window whose cells live in the UI inventory admits them as soon as it opens.
+#[test]
+fn storage_gestures_wait_for_window_contents() {
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(3),
+        window_type: GENERIC_STORAGE_WINDOW_TYPE,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    assert!(!ledger.screen_accepts_gestures());
+    open_chest(&mut ledger, 3);
+    assert!(ledger.screen_accepts_gestures());
+
+    let mut ledger = ledger_with_slot_zero();
+    ledger.apply(&InventoryEvent::Open(ContainerOpenEvent {
+        container: ContainerIdentity::window(4),
+        window_type: protocol::WINDOW_TYPE_WORKBENCH,
+        position: [1, 64, 1],
+        runtime_entity_id: -1,
+    }));
+    assert!(ledger.screen_accepts_gestures());
 }

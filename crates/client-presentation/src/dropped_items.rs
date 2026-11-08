@@ -715,13 +715,19 @@ impl DroppedItemPublisher<'_, '_> {
                     if cache.is_planning() {
                         continue;
                     }
-                    let rows = if placement.identifier.as_ref()
-                        == assets::gui_item::SHIELD_IDENTIFIER
-                        && matches!(&cache.models[model as usize], DroppedItemModel::Block(_))
-                    {
-                        render_model::equipment::shield::framed_transform(placement.world_from_item)
-                    } else {
-                        placement.world_from_item
+                    let rows = match &cache.models[model as usize] {
+                        DroppedItemModel::Block(_)
+                            if placement.identifier.as_ref()
+                                == assets::gui_item::SHIELD_IDENTIFIER =>
+                        {
+                            render_model::equipment::shield::framed_transform(
+                                placement.world_from_item,
+                            )
+                        }
+                        DroppedItemModel::Block(_) | DroppedItemModel::Cube(_) => placement
+                            .world_from_block
+                            .unwrap_or(placement.world_from_item),
+                        _ => placement.world_from_item,
                     };
                     let (block_level, sky_level) = placement.light.unwrap_or_else(|| {
                         stream.light_level_at([rows[0][3], rows[1][3], rows[2][3]])

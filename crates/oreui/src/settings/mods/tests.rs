@@ -8,6 +8,105 @@ use {
     ui::IconRef,
 };
 
+#[test]
+fn empty_library_offers_marketplace_and_sign_in_without_blocking_local_imports() {
+    let (hits, labels) = render(Snapshot::default());
+    assert!(labels.iter().any(|label| label == "Browse marketplace"));
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
+    assert!(hits.contains(&MenuAction::StartSignIn));
+    assert!(hits.contains(&command(Action::Import)));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label.contains("same Xbox account"))
+    );
+}
+
+#[test]
+fn marketplace_guidance_uses_the_current_authentication_step() {
+    use launcher::menu::auth::AuthState;
+    for (auth, title, action) in [
+        (AuthState::Checking, "Checking your account…", None),
+        (
+            AuthState::AwaitingCode {
+                uri: "https://example.invalid/sign-in".into(),
+                code: "PRIVATE-CODE".into(),
+            },
+            "Finish signing in with your browser.",
+            Some(MenuAction::OpenSignInLink),
+        ),
+        (
+            AuthState::AwaitingXboxSignup {
+                uri: "https://example.invalid/profile".into(),
+            },
+            "Finish signing in with your browser.",
+            Some(MenuAction::OpenSignInLink),
+        ),
+        (
+            AuthState::Failed("PRIVATE-ERROR".into()),
+            "Sign in again to sync mods.",
+            Some(MenuAction::StartSignIn),
+        ),
+        (
+            AuthState::Authenticated,
+            "Choose Add to Cinnabar on the website. Downloads appear in My mods.",
+            None,
+        ),
+    ] {
+        let mut view = MenuView::new(true, "Player".into());
+        view.auth_state = auth;
+        let (hits, labels, _) = render_view(view, &HashMap::new(), 800.0);
+        assert!(labels.iter().any(|label| label == title), "{title}");
+        assert!(hits.contains(&command(Action::BrowseMarketplace)));
+        for candidate in [MenuAction::StartSignIn, MenuAction::OpenSignInLink] {
+            assert_eq!(
+                hits.contains(&candidate),
+                action == Some(candidate),
+                "{title}"
+            );
+        }
+        assert!(labels.iter().all(|label| !label.contains("PRIVATE-")));
+    }
+}
+
+#[test]
+fn busy_library_preserves_delivery_messages_and_marketplace_browsing() {
+    let mut snapshot = Snapshot::default();
+    snapshot.library.busy = true;
+    snapshot.library.message = "Preparing zoom from the marketplace…".into();
+    let (hits, labels) = render(snapshot.clone());
+    assert!(hits.contains(&command(Action::BrowseMarketplace)));
+    assert!(!hits.contains(&command(Action::Import)));
+    assert!(
+        labels
+            .iter()
+            .any(|label| label == &snapshot.library.message)
+    );
+}
+
+#[test]
+fn marketplace_action_keeps_keyboard_focus_at_narrow_widths() {
+    let browse = command(Action::BrowseMarketplace);
+    for width in [220.0, 400.0, 800.0] {
+        let (hits, labels, _) = render_at(
+            Snapshot::default(),
+            &HashMap::new(),
+            width,
+            None,
+            Some(browse),
+        );
+        assert_eq!(hits.first(), Some(&browse));
+        assert!(hits.contains(&MenuAction::StartSignIn));
+        assert!(hits.contains(&command(Action::Import)));
+        assert!(labels.iter().any(|label| {
+            label
+                .chars()
+                .filter(|character| !character.is_whitespace())
+                .eq("Browsemarketplace".chars())
+        }));
+    }
+}
+
 /// Supplies one card with a declared camera permission for interaction assertions.
 fn installed(id: u64, name: &str) -> InstalledMod {
     InstalledMod {
@@ -28,25 +127,29 @@ fn installed(id: u64, name: &str) -> InstalledMod {
 }
 
 #[test]
-fn update_actions_target_only_the_mod_with_a_newer_release() {
+fn local_mods_ignore_declared_update_sources_in_the_ui() {
     let mut snapshot = Snapshot::default();
-    snapshot.library.installed = vec![installed(1, "zoom"), installed(2, "minimap")];
+    snapshot.library.installed = vec![installed(2, "local")];
+    snapshot.library.installed[0].metadata.update_url =
+        "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
+            .parse()
+            .ok();
     snapshot.details_expanded = Some(2);
     snapshot
         .library
         .updates
         .push(launcher::mods::AvailableUpdate {
             id: 2,
-            version: "v1.1.0".into(),
-            release_url: "https://github.com/example/minimap/releases/tag/v1.1.0".into(),
+            version: "1.1.0".into(),
+            release_url: String::new(),
         });
     let (hits, labels) = render(snapshot);
-    assert!(hits.contains(&command(Action::OpenUpdate(2))));
-    assert!(!hits.contains(&command(Action::OpenUpdate(1))));
+    assert!(!hits.contains(&command(Action::Update(2))));
+    assert!(!hits.contains(&command(Action::OpenUpdate(2))));
     assert!(
-        labels
+        !labels
             .iter()
-            .any(|label| label == "Update available · v1.1.0")
+            .any(|label| label.starts_with("Update available"))
     );
 }
 
@@ -54,11 +157,7 @@ fn update_actions_target_only_the_mod_with_a_newer_release() {
 fn downloadable_mod_update_button_installs_instead_of_opening_a_browser() {
     let mut snapshot = Snapshot::default();
     let mut item = installed(2, "zoom");
-    item.metadata.update_url = Some(
-        "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
-            .parse()
-            .unwrap(),
-    );
+    item.file = format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
     snapshot.library.installed.push(item);
     snapshot.details_expanded = Some(2);
     snapshot
@@ -110,6 +209,15 @@ fn render_at(
     view.hovered = hovered;
     view.focused_action = focused;
     view.navigation_focus_visible = focused.is_some();
+    render_view(view, artwork, width)
+}
+
+/// Paints the real Mods page with a caller-selected account state and viewport width.
+fn render_view(
+    view: MenuView,
+    artwork: &HashMap<String, IconRef>,
+    width: f32,
+) -> (Vec<MenuAction>, Vec<String>, Vec<ui::UiNode>) {
     let (mut nodes, mut next, mut layouts) =
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
     let font = ui_engine::test_support::fixture_font();
@@ -265,6 +373,33 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
 }
 
 #[test]
+fn marketplace_customization_offers_only_requested_permissions() {
+    for enabled in [false, true] {
+        let mut item = installed(
+            1,
+            &format!("{}11-fixture", launcher::mods::MARKETPLACE_FILE_PREFIX),
+        );
+        item.permissions[0].enabled = enabled;
+        let snapshot = Snapshot {
+            library: Library {
+                installed: vec![item],
+                ..Default::default()
+            },
+            details_expanded: Some(1),
+            customizing: Some(1),
+            ..Default::default()
+        };
+        let (hits, labels) = render(snapshot);
+        assert!(hits.contains(&command(Action::Permission(1, 0, !enabled))));
+        assert!(hits.contains(&command(Action::AllowRequested(1))));
+        assert_eq!(hits.contains(&command(Action::RevokeAll(1))), enabled);
+        assert!(!hits.contains(&command(Action::GrantAll(1))));
+        assert!(!hits.contains(&command(Action::ShowAllPermissions(1))));
+        assert!(!labels.iter().any(|label| label == "Show all permissions"));
+    }
+}
+
+#[test]
 fn bulk_permissions_grant_when_none_are_enabled_and_revoke_any_existing_grant() {
     for declared in [false, true] {
         for enabled in [false, true] {
@@ -344,7 +479,7 @@ fn header_activation_discloses_the_whole_card_and_hides_every_action_on_collapse
         assert!(
             !hits.iter().any(|action| matches!(action,
                 MenuAction::Mods(action) if !matches!(action,
-                    Action::Import | Action::ReloadAll | Action::ToggleActive
+                    Action::BrowseMarketplace | Action::Import | Action::ReloadAll | Action::ToggleActive
                     | Action::ToggleAvailable | Action::ReadMore(_)
                 )
             )),
@@ -576,11 +711,7 @@ fn update_progress_shows_download_stats_and_distinguishes_installing_from_reload
     ] {
         let mut snapshot = Snapshot::default();
         let mut item = installed(2, "zoom");
-        item.metadata.update_url = Some(
-            "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
-                .parse()
-                .unwrap(),
-        );
+        item.file = format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
         snapshot.library.installed.push(item);
         snapshot.details_expanded = Some(2);
         let mut progress = UpdateProgress::stage(2, phase);

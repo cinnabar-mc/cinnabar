@@ -21,7 +21,7 @@ const FRAME: &str = "frame";
 /// Defines the optional callback signatures once for admission and live instances.
 macro_rules! event_callbacks {
     ($($field:ident: $params:ty = $name:literal => $event:pat),* $(,)?) => {
-        #[derive(Default)]
+        #[derive(Clone, Default)]
         struct Events {
             $($field: Option<TypedFunc<$params, ()>>),*
         }
@@ -65,6 +65,7 @@ event_callbacks! {
 /// Canonical signature of an event handler taking and returning its context.
 type Handler<C> = TypedFunc<(C,), (C,)>;
 
+#[derive(Clone)]
 pub(super) struct Exports {
     frame: TypedFunc<(), ()>,
     events: Events,
@@ -160,8 +161,8 @@ impl Exports {
             .filter
             .as_ref()
             .context("component lacks filter-actions")?;
-        let (verdict,) = filter.call(&mut *store, (frame,))?;
-        filter.post_return(store)?;
+        let (verdict,) = crate::execution::complete(filter.call_async(&mut *store, (frame,)))?;
+        crate::execution::complete(filter.post_return_async(store))?;
         Ok(verdict)
     }
 
@@ -181,9 +182,20 @@ impl Exports {
         self.events.data_changed.is_some()
     }
 
+    /// Keeps decision-handler instances synchronous at the host boundary.
     pub(super) fn frame(&self, store: &mut Store<State>) -> Result<()> {
-        self.frame.call(&mut *store, ())?;
-        self.frame.post_return(store)
+        crate::execution::complete(self.frame_async(store))
+    }
+
+    /// Finishes post-return on the same continuation before allowing publication.
+    pub(super) async fn frame_async(&self, store: &mut Store<State>) -> Result<()> {
+        self.frame.call_async(&mut *store, ()).await?;
+        self.frame.post_return_async(store).await
+    }
+
+    /// A shared decision store must remain available for immediate native decisions.
+    pub(super) fn requires_synchronous_frames(&self) -> bool {
+        self.has_filter() || self.has_sound_handler() || self.has_teleport_handler()
     }
 
     pub(super) fn event(&self, store: &mut Store<State>, event: &ModEvent) -> Result<()> {
@@ -195,8 +207,8 @@ impl Exports {
             let Some(func) = func else {
                 return Ok(());
             };
-            func.call(&mut *store, params)?;
-            func.post_return(store)
+            crate::execution::complete(func.call_async(&mut *store, params))?;
+            crate::execution::complete(func.post_return_async(store))
         }
         let events = &self.events;
         match event {
@@ -302,7 +314,7 @@ fn call_handler<
     name: &str,
 ) -> Result<C> {
     let handler = handler.with_context(|| format!("component lacks {name}"))?;
-    let (returned,) = handler.call(&mut *store, (ctx,))?;
-    handler.post_return(store)?;
+    let (returned,) = crate::execution::complete(handler.call_async(&mut *store, (ctx,)))?;
+    crate::execution::complete(handler.post_return_async(store))?;
     Ok(returned)
 }

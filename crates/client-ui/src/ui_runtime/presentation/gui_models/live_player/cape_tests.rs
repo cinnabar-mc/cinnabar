@@ -390,13 +390,14 @@ fn raster_mesh(presentation: &UiPresentationRuntime, mesh: Arc<ui::UiMesh>) -> i
         ui::TextEffects::default(),
     )
     .unwrap();
-    let models =
-        presentation
-            .gui_models
-            .hud_model
-            .lock()
-            .unwrap()
-            .poses(&draw, &nodes, 1., [192, 224]);
+    let models = super::super::hud_model::model_poses(
+        &presentation.gui_models.hud_model,
+        &presentation.gui_models.screen_model,
+        &draw,
+        &nodes,
+        1.,
+        [192, 224],
+    );
     let input = adapt_ui_draw_list_with_models(
         draw.draw_list(),
         textures,

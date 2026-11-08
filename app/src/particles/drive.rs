@@ -625,9 +625,7 @@ fn drive_particles(
     };
     let view = particle_view(&(*transform).into(), projection);
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.map_or(semantic_input::PerspectiveMode::FirstPerson, |settings| {
-            settings.perspective()
-        }),
+        camera_settings.as_deref(),
         server_camera.as_deref(),
     );
     system.set_camera(view.position);
@@ -644,21 +642,19 @@ fn drive_particles(
     // destroyed id because the world already predicts air; a missing local texture must not
     // consume the server packet's echo slot.
     for cue in block_cues.read() {
-        if let client_audio::audio::LocalBlockCue::Break {
+        let client_audio::audio::LocalBlockCue::Break {
             position,
             block_runtime_id,
-        } = *cue
-        {
-            route_block_break(
-                &mut system,
-                &routing,
-                &mut break_echoes,
-                client_audio::audio::EchoOrigin::Client,
-                block_runtime_id,
-                position,
-                time.elapsed_secs_f64(),
-            );
-        }
+        } = *cue;
+        route_block_break(
+            &mut system,
+            &routing,
+            &mut break_echoes,
+            client_audio::audio::EchoOrigin::Client,
+            block_runtime_id,
+            position,
+            time.elapsed_secs_f64(),
+        );
     }
     for committed in inbox.events.drain(..) {
         match &committed.event {

@@ -17,6 +17,7 @@ pub(super) struct ActorRigState {
     pub(super) channel_bindings: Arc<pose::ChannelBindings>,
     /// This tick's render-controller result.
     pub(super) render: Vec<RenderTextureLayer>,
+    pub(super) visibility: RenderVisibility,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
     pub(super) may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
@@ -35,6 +36,7 @@ pub(super) struct ActorRigState {
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     pub(super) ui_pose: Option<Vec<BoneTransform>>,
     pub(super) ui_animation: Option<hud::UiAnimationState>,
+    pub(super) paper_doll_animation: Option<hud::UiAnimationState>,
     pub(super) view_context: Option<bool>,
     pub(super) rest: Vec<BoneTransform>,
     pub(super) rest_completed_tick: u64,
@@ -141,6 +143,7 @@ pub(super) struct EvaluatedState {
     pub(super) skin_layers: Vec<SkinRenderLayer>,
     /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,
+    pub(super) visibility: RenderVisibility,
     pub(super) scale: Option<[f32; 4]>,
     pub(super) held_item_scale: Option<f32>,
     pub(super) controllers: Vec<ControllerState>,
