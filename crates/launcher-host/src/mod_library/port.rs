@@ -58,6 +58,23 @@ pub trait Backend: 'static {
     ) -> Result<(), String> {
         Err("Marketplace installation is unavailable for this runtime.".into())
     }
+    /// Compares exact signed grants in the runtime schema, including command values.
+    fn marketplace_subset(
+        _old: &crate::marketplace::Manifest,
+        _next: &crate::marketplace::Manifest,
+    ) -> Result<bool, String> {
+        Err("Marketplace update migration is unavailable for this runtime.".into())
+    }
+    /// Moves the predecessor's registration and capped choices to a verified successor.
+    fn replace_marketplace(
+        _directory: &Path,
+        _old: Option<&Self::Registered>,
+        _next: &Path,
+        _manifest: &crate::marketplace::Manifest,
+        _request: String,
+    ) -> Result<(), String> {
+        Err("Marketplace update migration is unavailable for this runtime.".into())
+    }
     /// Parses update metadata, optionally requiring a valid requested-permissions declaration.
     fn update_metadata(bytes: &[u8], check_requested: bool) -> Result<ModMetadata, String>;
     /// Persists a selection or permission action through the canonical registration editor.

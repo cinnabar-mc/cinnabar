@@ -105,6 +105,33 @@ impl Guard {
         self.state().installed.keys().cloned().collect()
     }
 
+    /// Forgets a retired source so it cannot regain authority from an in-memory receipt.
+    pub(super) fn forget(&self, path: &Path) {
+        self.state().installed.remove(path);
+    }
+
+    /// Lists known older releases for an authorized successor of the same project and account.
+    pub fn predecessors(&self, path: &Path, now: u64) -> Vec<PathBuf> {
+        let state = self.state();
+        let Some((owner, next)) = state.installed.get(path) else {
+            return Vec::new();
+        };
+        if !state.authorizes(owner, &next.sha256, now) {
+            return Vec::new();
+        }
+        state
+            .installed
+            .iter()
+            .filter(|(old_path, (old_owner, old))| {
+                old_path.as_path() != path
+                    && owner == old_owner
+                    && next.slug == old.slug
+                    && update_manifest::select::newer(&next.version, &old.version).unwrap_or(false)
+            })
+            .map(|(path, _)| path.clone())
+            .collect()
+    }
+
     /// Tests freshness and ownership at installation and immediately before frame admission.
     pub fn allows(&self, path: &Path, now: u64) -> bool {
         !managed(path) || self.state().admitted(path, now).is_some()

@@ -73,6 +73,7 @@ mod tests {
             grants: serde_json::json!({"commands":["help"]}),
             approved_at: 1,
             client_revision: "a".repeat(40),
+            api_revision: None,
             policy: "fixture".into(),
             publication: "manual".into(),
         };

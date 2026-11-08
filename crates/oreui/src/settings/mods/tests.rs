@@ -127,25 +127,29 @@ fn installed(id: u64, name: &str) -> InstalledMod {
 }
 
 #[test]
-fn update_actions_target_only_the_mod_with_a_newer_release() {
+fn local_mods_ignore_declared_update_sources_in_the_ui() {
     let mut snapshot = Snapshot::default();
-    snapshot.library.installed = vec![installed(1, "zoom"), installed(2, "minimap")];
+    snapshot.library.installed = vec![installed(2, "local")];
+    snapshot.library.installed[0].metadata.update_url =
+        "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
+            .parse()
+            .ok();
     snapshot.details_expanded = Some(2);
     snapshot
         .library
         .updates
         .push(launcher::mods::AvailableUpdate {
             id: 2,
-            version: "v1.1.0".into(),
-            release_url: "https://github.com/example/minimap/releases/tag/v1.1.0".into(),
+            version: "1.1.0".into(),
+            release_url: String::new(),
         });
     let (hits, labels) = render(snapshot);
-    assert!(hits.contains(&command(Action::OpenUpdate(2))));
-    assert!(!hits.contains(&command(Action::OpenUpdate(1))));
+    assert!(!hits.contains(&command(Action::Update(2))));
+    assert!(!hits.contains(&command(Action::OpenUpdate(2))));
     assert!(
-        labels
+        !labels
             .iter()
-            .any(|label| label == "Update available · v1.1.0")
+            .any(|label| label.starts_with("Update available"))
     );
 }
 
@@ -153,11 +157,7 @@ fn update_actions_target_only_the_mod_with_a_newer_release() {
 fn downloadable_mod_update_button_installs_instead_of_opening_a_browser() {
     let mut snapshot = Snapshot::default();
     let mut item = installed(2, "zoom");
-    item.metadata.update_url = Some(
-        "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
-            .parse()
-            .unwrap(),
-    );
+    item.file = format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
     snapshot.library.installed.push(item);
     snapshot.details_expanded = Some(2);
     snapshot
@@ -711,11 +711,7 @@ fn update_progress_shows_download_stats_and_distinguishes_installing_from_reload
     ] {
         let mut snapshot = Snapshot::default();
         let mut item = installed(2, "zoom");
-        item.metadata.update_url = Some(
-            "https://github.com/example/zoom/releases/latest/download/zoom.wasm"
-                .parse()
-                .unwrap(),
-        );
+        item.file = format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
         snapshot.library.installed.push(item);
         snapshot.details_expanded = Some(2);
         let mut progress = UpdateProgress::stage(2, phase);

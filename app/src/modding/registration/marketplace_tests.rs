@@ -16,6 +16,7 @@ fn signed(path: &std::path::Path, grants: &str) -> launcher_host::marketplace::G
         grants: serde_json::from_str(grants).unwrap(),
         approved_at: 1,
         client_revision: "a".repeat(40),
+        api_revision: None,
         policy: "fixture".into(),
         publication: "manual".into(),
     };

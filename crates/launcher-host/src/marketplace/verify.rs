@@ -40,7 +40,9 @@ impl Keys {
 
     /// Checks a signature over the original UTF-8 bytes, without JSON reserialization.
     fn verify(&self, text: &[u8], signature: &str) -> Result<()> {
-        let signature = URL_SAFE_NO_PAD.decode(signature)?;
+        let signature = URL_SAFE_NO_PAD
+            .decode(signature)
+            .or_else(|_| STANDARD.decode(signature))?;
         ensure!(
             self.0
                 .iter()
@@ -70,6 +72,9 @@ pub struct Manifest {
     pub grants: serde_json::Value,
     pub approved_at: u64,
     pub client_revision: String,
+    /// Stable API revision validated by the publisher; legacy deliveries may omit it.
+    #[serde(default)]
+    pub api_revision: Option<String>,
     pub policy: String,
     pub publication: String,
 }
@@ -108,6 +113,39 @@ impl SignedRelease {
             "Unsupported marketplace release evidence."
         );
         Ok(manifest)
+    }
+    /// Binds an update to the installed project, a newer version and a supported stable API.
+    pub(super) fn verify_update(
+        &self,
+        keys: &Keys,
+        installed: &CinnabarModEntry,
+        supported: &[String],
+        limit: usize,
+        now: u64,
+    ) -> Result<(Manifest, CinnabarModEntry)> {
+        keys.verify(self.statement.as_bytes(), &self.signature)?;
+        let manifest: Manifest = serde_json::from_str(&self.statement)?;
+        ensure!(
+            manifest.slug == installed.slug
+                && update_manifest::select::newer(&manifest.version, &installed.version)?
+                && manifest
+                    .api_revision
+                    .as_ref()
+                    .is_some_and(|revision| revision.len() == 40
+                        && revision.bytes().all(|b| b.is_ascii_hexdigit())
+                        && supported.contains(revision)),
+            "Incompatible or non-newer marketplace update."
+        );
+        let selected = CinnabarModEntry {
+            slug: installed.slug.clone(),
+            version: manifest.version.clone(),
+            sha256: manifest.sha256.clone(),
+            bytes: manifest.bytes,
+            sent_at: installed.sent_at.clone(),
+            pulled: false,
+        };
+        let manifest = self.verify(keys, &selected, limit, now)?;
+        Ok((manifest, selected))
     }
 }
 

@@ -25,10 +25,9 @@ pub(super) fn configure(
     removal: removal::Client,
     authority: Arc<launcher_host::marketplace::Guard>,
 ) {
-    let marketplace = launcher_host::marketplace::Service::start(
+    let marketplace = launcher_host::marketplace::Service::start::<backend::AppBackend>(
         mods.clone(),
-        mod_host::MAX_COMPONENT_SOURCE_BYTES,
-        authority,
+        authority.clone(),
     )
     .map_err(|error| warn!("Marketplace downloads unavailable: {error}"))
     .ok();
@@ -39,6 +38,7 @@ pub(super) fn configure(
         move |receipt| removal.wait(receipt),
     ) {
         Ok(service) => {
+            service.marketplace_guard(authority);
             app.insert_resource(ModLibrary {
                 service,
                 marketplace,
@@ -68,15 +68,8 @@ fn drive(
         service,
         marketplace,
     } = &mut *library;
-    if let Some(marketplace) = marketplace {
+    if let Some(marketplace) = marketplace.as_mut() {
         marketplace.configure(context);
-        let downloads = marketplace.downloads();
-        if let Some(message) = marketplace.message() {
-            service.message(message);
-        }
-        for download in downloads {
-            service.marketplace(download);
-        }
     }
     let Some(mut menu) = menu else { return };
     let checks = menu
@@ -89,6 +82,27 @@ fn drive(
         .0
         .value(launcher::menu::settings_options::SettingId::ModAutoUpdate)
         != 0;
+    if let Some(marketplace) = marketplace {
+        let manual = menu.mod_actions.iter().filter_map(|action| {
+            let launcher::mods::Action::Update(id) = action else {
+                return None;
+            };
+            menu.mods
+                .library
+                .installed
+                .iter()
+                .any(|item| item.id == *id && item.marketplace())
+                .then_some(*id)
+        });
+        marketplace.updates(checks, automatic, manual);
+        if let Some(message) = marketplace.message() {
+            service.message(message);
+        }
+        for download in marketplace.downloads() {
+            service.marketplace(download);
+        }
+        service.marketplace_offers(marketplace.offers());
+    }
     let actions = std::mem::take(&mut menu.mod_actions);
     service.drive(actions, &mut menu.mods, checks, automatic);
 }

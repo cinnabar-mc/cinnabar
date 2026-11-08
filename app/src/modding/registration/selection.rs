@@ -40,6 +40,7 @@ impl Receipt {
 /// A valid entry and the status for its list's current request.
 pub(in crate::modding) struct Registered {
     pub(in crate::modding) entry: Entry,
+    position: usize,
     pub(in crate::modding) status: Status,
 }
 
@@ -63,7 +64,8 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
     registration
         .mods
         .into_iter()
-        .map(|entry| {
+        .enumerate()
+        .map(|(position, entry)| {
             let recorded = statuses.as_ref().and_then(|statuses| {
                 statuses.mods.iter().find(|status| {
                     same_path(&status.component, &entry.component)
@@ -81,7 +83,11 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
                 }
                 _ => Status::Starting,
             };
-            Registered { entry, status }
+            Registered {
+                entry,
+                status,
+                position,
+            }
         })
         .collect()
 }
@@ -126,6 +132,31 @@ pub(in crate::modding) fn select(
         Ok(())
     })
     .map(|_| ())
+}
+
+/// Restores a retired marketplace entry at its prior position with bounded authority.
+pub(in crate::modding) fn replace_marketplace(
+    directory: &Path,
+    old: &Registered,
+    next: &Path,
+    ceiling: &ModGrants,
+    request: String,
+) -> Result<(), String> {
+    edit(directory, request, |registration| {
+        if registration.mods.iter().any(|entry| {
+            same_path(&entry.component, next) || same_path(&entry.component, &old.entry.component)
+        }) {
+            return Err("The marketplace selection changed during retirement.".into());
+        }
+        let mut entry = old.entry.clone();
+        entry.component = resolved_component(next);
+        entry.grants.cap(ceiling);
+        registration
+            .mods
+            .insert(old.position.min(registration.mods.len()), entry);
+        Ok(())
+    })
+    .map(drop)
 }
 
 /// Disables exactly the currently active card, rejecting an obsolete selection.

@@ -1,4 +1,4 @@
-//! Optional GitHub release checks and automatic downloads, kept off the frame thread.
+//! Official-package revision checks and downloads, kept off the frame thread.
 
 mod compatible;
 mod download;
@@ -122,12 +122,11 @@ impl Checker {
         self.sources = installed
             .iter()
             .filter_map(|item| {
-                let source = item
-                    .metadata
-                    .revision_update
-                    .as_ref()
-                    .map(|r| &r.source)
-                    .or(item.metadata.update_url.as_ref())?;
+                let identity = item.metadata.revision_update.as_ref()?;
+                if identity.package != ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE {
+                    return None;
+                }
+                let source = &identity.source;
                 enabled.then(|| (item.id, source.asset().to_owned()))
             })
             .collect();
@@ -144,15 +143,12 @@ impl Checker {
                     if crate::marketplace::managed(std::path::Path::new(&item.file)) {
                         return None;
                     }
-                    let source = item
-                        .metadata
-                        .revision_update
-                        .as_ref()
-                        .map(|r| &r.source)
-                        .or(item.metadata.update_url.as_ref());
-                    let repository = source
-                        .map(|source| source.repository())
-                        .or(item.metadata.update_repository.as_ref())?;
+                    let identity = item.metadata.revision_update.as_ref()?;
+                    if identity.package != ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE {
+                        return None;
+                    }
+                    let source = &identity.source;
+                    let repository = source.repository();
                     let version = item.metadata.version.as_ref()?;
                     // A non-SemVer installed version cannot establish that a release is newer.
                     update_manifest::select::newer(version, version).ok()?;
@@ -161,9 +157,7 @@ impl Checker {
                         id: item.id,
                         repository: repository.slug().into(),
                         version: version.clone(),
-                        asset: source
-                            .filter(|_| automatic)
-                            .map(|source| source.asset().into()),
+                        asset: automatic.then(|| source.asset().into()),
                     })
                 })
                 .collect()
