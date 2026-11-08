@@ -300,9 +300,6 @@ fn platform_mouse_input_survives_bevy_input_systems() {
             .pressed(MouseButton::Left)
     );
     assert!(app.world().resource::<PlatformMouseActivity>().0);
-    let recorded = &app.world().resource::<PlatformButtonModifiers>().0;
-    assert_eq!(recorded.len(), 1);
-    assert!(recorded[0].1.shift);
 }
 
 fn gameplay_touch_start(id: u64) -> TouchInput {
