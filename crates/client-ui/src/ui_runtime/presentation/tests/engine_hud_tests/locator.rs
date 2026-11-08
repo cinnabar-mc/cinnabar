@@ -5,10 +5,6 @@ use protocol::{LocatorEvent, LocatorWaypointUpdate};
 use ui_screens::hud_renderers::{LOCATOR_RENDERER, LocatorView};
 
 #[test]
-#[expect(
-    clippy::print_stderr,
-    reason = "names the missing local UI carrier when the visual fixture is unavailable"
-)]
 fn locator_bar_paints_server_markers_in_survival_and_creative() {
     for mode in [PlayerGameMode::Survival, PlayerGameMode::Creative] {
         let Some(mut presentation) =

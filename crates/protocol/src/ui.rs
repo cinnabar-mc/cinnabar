@@ -16,6 +16,7 @@ mod commands;
 pub mod ddui;
 mod death;
 mod forms;
+pub(crate) mod locator;
 mod text;
 pub(crate) mod validation;
 
@@ -28,6 +29,7 @@ pub use commands::{
 pub(crate) use ddui::{normalize_close_screen, normalize_data_store, normalize_show_screen};
 pub(crate) use death::normalize_death_info;
 pub use death::{DeathInfoEvent, DeathRules};
+pub use locator::{LocatorEvent, LocatorWaypointUpdate};
 
 pub use forms::{
     CustomForm, CustomFormElement, CustomFormValue, ElementMenuForm, FormButtonImage,

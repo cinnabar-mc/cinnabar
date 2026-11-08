@@ -18,7 +18,6 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
-mod locator;
 mod login;
 mod movement;
 mod nbt_tree;
@@ -196,7 +195,6 @@ pub use item::{
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
-pub use locator::{LocatorEvent, LocatorWaypointUpdate};
 pub use login::{
     BaseGameVersion, ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION,
     GameData, JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION,
@@ -244,14 +242,15 @@ pub use ui::{
     CommandSpec, CommandTreeEvent, CompletionContext, CustomForm, CustomFormElement,
     CustomFormValue, DeathInfoEvent, DeathRules, ElementMenuForm, FormButtonImage, FormControlLock,
     FormKind, FormNumber, FormRequestEvent, FormText, GameModeEvent, GameModeUpdate, HudEvent,
-    HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
-    MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
-    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
-    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
-    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
-    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
-    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
+    HudRules, LocatorEvent, LocatorWaypointUpdate, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
+    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
+    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
+    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
+    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
+    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
+    chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, quote_chat_player_name, server_settings_request_packet,
 };

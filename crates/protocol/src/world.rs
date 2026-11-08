@@ -376,7 +376,7 @@ world_packets! {
         }]))
     },
     LocatorBar(packet) => WorldEvent::Ui(UiEvent::Locator(
-        packet.waypoints.into_iter().filter_map(crate::locator::waypoint).collect(),
+        packet.waypoints.into_iter().filter_map(crate::ui::locator::waypoint).collect(),
     )),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
     ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
