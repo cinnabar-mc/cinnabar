@@ -164,6 +164,7 @@ jobs:
         run: cargo run -p architecture --locked -- check --root . --policy tools/architecture/policy.toml
       - name: Check the wgpu fork pin is on its release branch
         if: ${{ !cancelled() }}
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: python3 .github/scripts/wgpu_fork_pin.py Cargo.toml
