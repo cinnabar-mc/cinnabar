@@ -5307,12 +5307,14 @@ version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-io",
+ "block2 0.6.2",
  "bridge",
  "cosmetics",
  "crash-handler",
  "crash-report",
  "crossbeam-channel",
  "ctrlc",
+ "dispatch2",
  "futures-lite",
  "getrandom 0.3.4",
  "jni 0.21.1",
@@ -5321,6 +5323,9 @@ dependencies = [
  "memmap2",
  "minidumper",
  "ndk-context",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "protocol",
  "render-api",
  "reqwest",
@@ -6358,6 +6363,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.0",
+ "block2 0.6.2",
  "objc2 0.6.4",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
