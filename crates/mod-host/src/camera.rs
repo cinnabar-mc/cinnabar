@@ -16,6 +16,18 @@ pub(super) struct CameraPolicy {
     pub committed_view_tilt: Option<ViewTilt>,
 }
 
+impl State {
+    /// Derives camera ownership from current transient policy and the retained rig.
+    pub(super) fn camera_output(&self) -> bool {
+        self.world.rig.is_some()
+            || self.camera_delta.is_some()
+            || self.camera_policy.committed_yaw_offset.is_some()
+            || self.camera_policy.committed_perspective.is_some()
+            || self.camera_policy.committed_view_scale.is_some()
+            || self.camera_policy.committed_view_tilt.is_some()
+    }
+}
+
 impl cinnabar::extension::camera::Host for State {
     /// Stages a relative presented heading without changing player look or movement.
     fn set_view_yaw_offset(&mut self, degrees: f32) -> Result<Result<(), String>> {

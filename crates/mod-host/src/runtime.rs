@@ -138,16 +138,6 @@ pub(crate) struct State {
 }
 
 impl State {
-    /// Derives camera ownership from current transient policy and the retained rig.
-    fn camera_output(&self) -> bool {
-        self.world.rig.is_some()
-            || self.camera_delta.is_some()
-            || self.camera_policy.committed_yaw_offset.is_some()
-            || self.camera_policy.committed_perspective.is_some()
-            || self.camera_policy.committed_view_scale.is_some()
-            || self.camera_policy.committed_view_tilt.is_some()
-    }
-
     pub(crate) fn new(grants: ModGrants, settings: String, declared: Declared) -> Self {
         Self {
             limits: StoreLimitsBuilder::new()
