@@ -548,7 +548,11 @@ impl Instance {
         let timing = self.callback_timing();
         self.store.data_mut().begin_callback();
         if fuel == FRAME_FUEL && !self.exports.requires_synchronous_frames() {
-            crate::execution::arm_resumable(&mut self.store, allowance)?;
+            let epoch_yields = self
+                .callback_budget
+                .as_ref()
+                .is_none_or(|budget| budget.time.epoch_yields());
+            crate::execution::arm_resumable(&mut self.store, allowance, epoch_yields)?;
         } else {
             crate::execution::arm(&mut self.store, allowance, fuel == LOAD_FUEL)?;
         }
