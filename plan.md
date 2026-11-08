@@ -1332,6 +1332,9 @@ Live acceptance of name clicks, inventory opening, typing and history together r
 
 Ordered desktop interactions still need live input and overload-timing acceptance,
 global camera-sampling qualification, other input modes and device-specific chords.
+Block outlines, mining and placement share the block-centre pick trim.
+Incomplete: exact 1.26.50 confirmation, the touch-option input remap and live
+client/server reach captures.
 The bounded burst/neutrality recovery policy remains provisional. Per-frame admission
 regressions do not close the surrounding input, movement or interaction gates.
 Selection-only hotbar changes coalesce into the next tick's equipment announcement.
@@ -1900,8 +1903,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   remain unverified.
 - Local weather overrides have transactional host APIs and offline behavior
   coverage; populated-world interaction and rendering acceptance remain unverified.
-- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that replace the
-  player's toggle and always-sprint settings, use pulses, view
+- Personal-mod mechanics capabilities (sprint and sneak intents, control modes that turn on
+  toggle and always-sprint modes without turning off the player's own, use pulses, view
   tilt, the relayed and presented camera positions, loaded-block search and panel
   pointer and wheel) have host and adapter regression coverage. The tilt's sign
   follows the native damage shake. Populated-world and displayed-frame acceptance

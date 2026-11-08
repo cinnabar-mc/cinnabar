@@ -755,7 +755,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)
