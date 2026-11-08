@@ -1,4 +1,5 @@
-use super::super::{Nbt, parse_definition};
+use super::super::parse_definition;
+use crate::nbt_tree::test_tree::Nbt;
 
 /// Builds an original wire component fixture without a game pack.
 fn compound<const N: usize>(fields: [(&str, Nbt); N]) -> Nbt {
@@ -20,33 +21,39 @@ fn custom_placing_handlers_and_legacy_triggers_disable_prediction() {
                 ("hasPlayerInteract", Nbt::Byte(1)),
             ]),
         )]);
-        let definition = parse_definition(&compound([("components", components)])).unwrap();
+        let definition = parse_definition(compound([("components", components)]).view()).unwrap();
         assert_eq!(definition.visual.placement.server_placing, placing != 0);
         assert!(definition.player_interact);
     }
-    let definition = parse_definition(&compound([(
-        "components",
-        compound([("minecraft:on_player_placing", compound([]))]),
-    )]))
+    let definition = parse_definition(
+        compound([(
+            "components",
+            compound([("minecraft:on_player_placing", compound([]))]),
+        )])
+        .view(),
+    )
     .unwrap();
     assert!(definition.visual.placement.server_placing);
 }
 
 #[test]
 fn permutation_placing_overrides_apply_to_the_block_type() {
-    let definition = parse_definition(&compound([(
-        "permutations",
-        Nbt::List(vec![compound([
-            ("condition", Nbt::String("q.block_state('test:on')".into())),
-            (
-                "components",
-                compound([(
-                    "minecraft:custom_components",
-                    compound([("hasPlayerPlacing", Nbt::Byte(1))]),
-                )]),
-            ),
-        ])]),
-    )]))
+    let definition = parse_definition(
+        compound([(
+            "permutations",
+            Nbt::List(vec![compound([
+                ("condition", Nbt::String("q.block_state('test:on')".into())),
+                (
+                    "components",
+                    compound([(
+                        "minecraft:custom_components",
+                        compound([("hasPlayerPlacing", Nbt::Byte(1))]),
+                    )]),
+                ),
+            ])]),
+        )])
+        .view(),
+    )
     .unwrap();
     assert!(definition.visual.placement.server_placing);
 }
@@ -77,24 +84,27 @@ fn crafting_tables_and_permutation_interact_handlers_consume_the_use() {
         )])),
         permutation(compound([("minecraft:crafting_table", compound([]))])),
     ] {
-        assert!(parse_definition(&root).unwrap().player_interact);
+        assert!(parse_definition(root.view()).unwrap().player_interact);
     }
     let scalar = compound([(
         "components",
         compound([("minecraft:crafting_table", Nbt::Byte(1))]),
     )]);
-    assert!(!parse_definition(&scalar).unwrap().player_interact);
+    assert!(!parse_definition(scalar.view()).unwrap().player_interact);
 }
 
 #[test]
 fn version_one_custom_components_declare_every_handler() {
-    let definition = parse_definition(&compound([(
-        "components",
+    let definition = parse_definition(
         compound([(
-            "minecraft:custom_components",
-            compound([("isV1Component", Nbt::Byte(1))]),
-        )]),
-    )]))
+            "components",
+            compound([(
+                "minecraft:custom_components",
+                compound([("isV1Component", Nbt::Byte(1))]),
+            )]),
+        )])
+        .view(),
+    )
     .unwrap();
     assert!(definition.player_interact);
     assert!(definition.visual.placement.server_placing);
@@ -118,7 +128,7 @@ fn omitted_permutations_and_physical_components_are_marked_incomplete() {
         ])],
     ] {
         let definition =
-            parse_definition(&compound([("permutations", Nbt::List(permutations))])).unwrap();
+            parse_definition(compound([("permutations", Nbt::List(permutations))]).view()).unwrap();
         assert!(definition.visual.components_incomplete);
         assert!(definition.skipped > 0);
     }
@@ -129,14 +139,16 @@ fn omitted_permutations_and_physical_components_are_marked_incomplete() {
             compound([("SX", Nbt::Float(f64::INFINITY))])
         };
         let definition =
-            parse_definition(&compound([("components", compound([(component, value)]))])).unwrap();
+            parse_definition(compound([("components", compound([(component, value)]))]).view())
+                .unwrap();
         assert!(definition.visual.components_incomplete);
     }
-    let complete = parse_definition(&compound([])).unwrap();
+    let complete = parse_definition(compound([]).view()).unwrap();
     assert!(!complete.visual.components_incomplete);
     // A permutation without a condition never applies, so it leaves nothing unknown.
     let conditionless =
-        parse_definition(&compound([("permutations", Nbt::List(vec![compound([])]))])).unwrap();
+        parse_definition(compound([("permutations", Nbt::List(vec![compound([])]))]).view())
+            .unwrap();
     assert!(!conditionless.visual.components_incomplete);
     assert!(conditionless.skipped > 0);
 }
@@ -151,19 +163,22 @@ fn placement_traits_retain_offset_and_exclude_authored_properties() {
             ),
             ("y_rotation_offset", Nbt::Float(offset)),
         ]);
-        let definition = parse_definition(&compound([
-            (
-                "traits",
-                Nbt::Compound(vec![("minecraft:placement_direction".into(), trait_)]),
-            ),
-            (
-                "properties",
-                Nbt::List(vec![compound([
-                    ("name", Nbt::String("test:on".into())),
-                    ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
-                ])]),
-            ),
-        ]))
+        let definition = parse_definition(
+            compound([
+                (
+                    "traits",
+                    Nbt::Compound(vec![("minecraft:placement_direction".into(), trait_)]),
+                ),
+                (
+                    "properties",
+                    Nbt::List(vec![compound([
+                        ("name", Nbt::String("test:on".into())),
+                        ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
+                    ])]),
+                ),
+            ])
+            .view(),
+        )
         .unwrap();
         assert_eq!(definition.visual.placement.trait_state_count, 1);
         assert_eq!(definition.visual.placement.y_rotation_offset, expected);
@@ -205,16 +220,19 @@ fn placement_traits_compose_named_states_with_connection_flags() {
             } else {
                 Nbt::List(traits.into_iter().map(|(_, value)| value).collect())
             };
-            let definition = parse_definition(&compound([
-                ("traits", traits),
-                (
-                    "properties",
-                    Nbt::List(vec![compound([
-                        ("name", Nbt::String("test:on".into())),
-                        ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
-                    ])]),
-                ),
-            ]))
+            let definition = parse_definition(
+                compound([
+                    ("traits", traits),
+                    (
+                        "properties",
+                        Nbt::List(vec![compound([
+                            ("name", Nbt::String("test:on".into())),
+                            ("enum", Nbt::List(vec![Nbt::Byte(0), Nbt::Byte(1)])),
+                        ])]),
+                    ),
+                ])
+                .view(),
+            )
             .unwrap();
             assert_eq!(definition.state_count, 4 * 16 * 2);
             assert!(!definition.visual.state_identity_incomplete);

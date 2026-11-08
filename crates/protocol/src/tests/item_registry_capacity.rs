@@ -153,6 +153,37 @@ fn component_data_larger_than_an_item_stack_extra_keeps_the_registry() {
 }
 
 #[test]
+fn component_decoding_allocates_a_small_multiple_of_the_wire_size() {
+    // Decoding must not cost tens of bytes per wire byte, however a server shapes
+    // the data, now that component data has no size cap.
+    let measure = |unused: Option<&Vec<u8>>| {
+        let mut components = vec![compound_tag(
+            "item_properties",
+            &[int_tag("max_stack_size", 16)],
+        )];
+        components.extend(unused.cloned());
+        let entry = registry_entry(
+            root_compound(&[compound_tag("components", &components)]),
+            true,
+            ItemVersion::DataDriven,
+        );
+        let (entry, allocations) = test_alloc::measure(|| normalize(entry));
+        (entry.unwrap(), allocations.bytes)
+    };
+    let (_, baseline) = measure(None);
+    for (shape, field) in crate::nbt_tree::test_tree::amplifying_fields("test:unused", 1 << 20) {
+        let (entry, bytes) = measure(Some(&field));
+        assert!(entry.components.is_some(), "{shape}");
+        let decoded = bytes.saturating_sub(baseline);
+        assert!(
+            decoded <= 3 * field.len(),
+            "{shape}: {decoded} bytes allocated for {} wire bytes",
+            field.len()
+        );
+    }
+}
+
+#[test]
 fn creative_category_survives_registry_admission_with_its_typed_default() {
     for (property, expected) in [
         (int_tag("creative_category", 3), 3),

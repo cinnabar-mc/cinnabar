@@ -35,7 +35,7 @@ fn short_name_key(identifier: &str) -> Option<Arc<str>> {
 
 /// Reads `minecraft:icon` (or the legacy `item_properties` copy) from a components compound: a key, or an object
 /// naming it under `textures.default` or `texture`.
-pub(super) fn icon_key(components: &Nbt) -> Option<Arc<str>> {
+pub(super) fn icon_key(components: Nbt<'_>) -> Option<Arc<str>> {
     let icon = components
         .field("minecraft:icon")
         .or_else(|| components.field("item_properties")?.field("minecraft:icon"))?;
@@ -52,7 +52,7 @@ mod tests {
 
     /// Reads the icon key from a complete root compound, as `parse_components` does.
     fn icon_key(bytes: &[u8]) -> Option<std::sync::Arc<str>> {
-        super::icon_key(read_root(bytes)?.field("components")?)
+        super::icon_key(read_root(bytes)?.root().field("components")?)
     }
 
     fn named(tag: u8, name: &str) -> Vec<u8> {

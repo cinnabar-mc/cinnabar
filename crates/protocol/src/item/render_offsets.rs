@@ -2,13 +2,13 @@
 
 use render_api::{DEFAULT_ITEM_RENDER_OFFSETS, HeldItemHand, HeldItemTransform, ItemRenderOffsets};
 
-use crate::nbt_tree::Nbt;
+use crate::nbt_tree::{Nbt, NbtList};
 
 /// Reads a component onto the default tables, as the client loads it into a default-constructed
 /// component: fields a server leaves out or sends malformed keep their default. A string has
 /// no effect on the tables but still counts as a declared component, since vanilla's named value
 /// conversion writes nothing. Other values are not a component.
-pub(super) fn parse_render_offsets(component: Option<&Nbt>) -> Option<ItemRenderOffsets> {
+pub(super) fn parse_render_offsets(component: Option<Nbt<'_>>) -> Option<ItemRenderOffsets> {
     let component = component?;
     let mut offsets = DEFAULT_ITEM_RENDER_OFFSETS;
     match component {
@@ -22,7 +22,7 @@ pub(super) fn parse_render_offsets(component: Option<&Nbt>) -> Option<ItemRender
     Some(offsets)
 }
 
-fn overlay_hand(hand: &mut HeldItemHand, declared: Option<&Nbt>) {
+fn overlay_hand(hand: &mut HeldItemHand, declared: Option<Nbt<'_>>) {
     let Some(declared) = declared else {
         return;
     };
@@ -30,7 +30,7 @@ fn overlay_hand(hand: &mut HeldItemHand, declared: Option<&Nbt>) {
     overlay_transform(&mut hand.third_person, declared.field("third_person"));
 }
 
-fn overlay_transform(transform: &mut HeldItemTransform, declared: Option<&Nbt>) {
+fn overlay_transform(transform: &mut HeldItemTransform, declared: Option<Nbt<'_>>) {
     let Some(declared) = declared else {
         return;
     };
@@ -46,22 +46,25 @@ fn overlay_transform(transform: &mut HeldItemTransform, declared: Option<&Nbt>) 
 }
 
 /// Exactly three numbers that stay finite as `f32`.
-fn finite_vector(values: &[Nbt]) -> Option<[f32; 3]> {
-    let [x, y, z] = values else {
+fn finite_vector(values: NbtList<'_>) -> Option<[f32; 3]> {
+    if values.len() != 3 {
         return None;
-    };
-    let number = |value: &Nbt| {
+    }
+    let mut values = values.iter();
+    let [x, y, z] = std::array::from_fn(|_| values.next());
+    let number = |value: Nbt<'_>| {
         value
             .number()
             .map(|value| value as f32)
             .filter(|value| value.is_finite())
     };
-    Some([number(x)?, number(y)?, number(z)?])
+    Some([number(x?)?, number(y?)?, number(z?)?])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
     fn floats(values: [f64; 3]) -> Nbt {
         Nbt::List(values.into_iter().map(Nbt::Float).collect())
@@ -79,13 +82,13 @@ mod tests {
     #[test]
     fn an_absent_or_unsupported_value_is_not_a_component() {
         assert_eq!(parse_render_offsets(None), None);
-        assert_eq!(parse_render_offsets(Some(&Nbt::Int(1))), None);
+        assert_eq!(parse_render_offsets(Some(Nbt::Int(1).view())), None);
     }
 
     #[test]
     fn a_named_value_keeps_the_default_tables() {
         assert_eq!(
-            parse_render_offsets(Some(&Nbt::String("tools".into()))),
+            parse_render_offsets(Some(Nbt::String("tools".into()).view())),
             Some(DEFAULT_ITEM_RENDER_OFFSETS)
         );
     }
@@ -101,7 +104,7 @@ mod tests {
         )]);
         let mut expected = DEFAULT_ITEM_RENDER_OFFSETS;
         expected.main_hand.first_person.scale = [0.1, 0.2, 0.3];
-        assert_eq!(parse_render_offsets(Some(&component)), Some(expected));
+        assert_eq!(parse_render_offsets(Some(component.view())), Some(expected));
     }
 
     #[test]
@@ -120,7 +123,7 @@ mod tests {
             ])
         };
         let component = compound([("main_hand", hand(0.0)), ("off_hand", hand(20.0))]);
-        let offsets = parse_render_offsets(Some(&component)).unwrap();
+        let offsets = parse_render_offsets(Some(component.view())).unwrap();
         assert_eq!(offsets.main_hand.first_person.position, [0.0, 1.0, 2.0]);
         assert_eq!(offsets.main_hand.third_person.rotation, [13.0, 14.0, 15.0]);
         assert_eq!(offsets.off_hand.first_person.scale, [26.0, 27.0, 28.0]);
@@ -133,11 +136,7 @@ mod tests {
             Nbt::List(vec![Nbt::Float(1.0), Nbt::Float(2.0)]),
             floats([f64::NAN, 0.0, 0.0]),
             floats([f64::MAX, 0.0, 0.0]),
-            Nbt::List(vec![
-                Nbt::Float(1.0),
-                Nbt::String("x".into()),
-                Nbt::Float(1.0),
-            ]),
+            Nbt::List(vec![Nbt::String("x".into()); 3]),
             Nbt::Float(1.0),
         ] {
             let component = compound([(
@@ -145,7 +144,7 @@ mod tests {
                 compound([("third_person", compound([("scale", malformed)]))]),
             )]);
             assert_eq!(
-                parse_render_offsets(Some(&component)),
+                parse_render_offsets(Some(component.view())),
                 Some(DEFAULT_ITEM_RENDER_OFFSETS)
             );
         }
@@ -153,17 +152,22 @@ mod tests {
 
     #[test]
     fn integer_tags_count_as_numbers() {
-        let component = compound([(
-            "main_hand",
-            compound([(
-                "third_person",
+        let rotations: [fn(i8) -> Nbt; 4] = [
+            |value| Nbt::Byte(value),
+            |value| Nbt::Short(value.into()),
+            |value| Nbt::Int(value.into()),
+            |value| Nbt::Long(value.into()),
+        ];
+        for tag in rotations {
+            let component = compound([(
+                "main_hand",
                 compound([(
-                    "rotation",
-                    Nbt::List(vec![Nbt::Int(90), Nbt::Short(0), Nbt::Byte(-45)]),
+                    "third_person",
+                    compound([("rotation", Nbt::List(vec![tag(90), tag(0), tag(-45)]))]),
                 )]),
-            )]),
-        )]);
-        let offsets = parse_render_offsets(Some(&component)).unwrap();
-        assert_eq!(offsets.main_hand.third_person.rotation, [90.0, 0.0, -45.0]);
+            )]);
+            let offsets = parse_render_offsets(Some(component.view())).unwrap();
+            assert_eq!(offsets.main_hand.third_person.rotation, [90.0, 0.0, -45.0]);
+        }
     }
 }
