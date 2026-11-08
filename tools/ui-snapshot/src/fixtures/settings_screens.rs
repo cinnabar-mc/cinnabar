@@ -55,6 +55,36 @@ pub(super) const SEARCH_STATES: &[State] = &[
         gui_scale: GUI_SCALE,
         fixture: || settings_search("vsync"),
     },
+    State {
+        name: "settings-storage-loading",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || {
+            let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+                unreachable!()
+            };
+            Arc::make_mut(&mut view.storage).loading = true;
+            Fixture::Menu(view)
+        },
+    },
+    State {
+        name: "settings-storage-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("harbor"),
+    },
+    State {
+        name: "settings-storage-empty-search",
+        size: SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: || storage_search("no matching downloaded pack"),
+    },
+    State {
+        name: "settings-storage-small",
+        size: [640, 360],
+        gui_scale: GUI_SCALE,
+        fixture: out_of_game::settings_storage,
+    },
 ];
 
 /// Settings' Game section while the host plays their own local world, with cheats off and on.
@@ -272,4 +302,13 @@ pub(super) fn settings_video_culling(enabled: bool) -> Fixture {
         i32::from(!enabled),
     ));
     Fixture::Menu(Box::new(view))
+}
+
+/// Filters an anonymous cache inventory without changing its original row indices.
+fn storage_search(query: &str) -> Fixture {
+    let Fixture::Menu(mut view) = out_of_game::settings_storage() else {
+        unreachable!()
+    };
+    view.storage_query = query.into();
+    Fixture::Menu(view)
 }

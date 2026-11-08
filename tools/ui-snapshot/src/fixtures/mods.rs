@@ -292,7 +292,7 @@ pub fn undeclared() -> Fixture {
 }
 
 /// Original procedural art: a lens ring on a diagonal gradient.
-fn icon() -> Arc<[u8]> {
+pub(super) fn icon() -> Arc<[u8]> {
     const SIDE: u32 = 64;
     let image = image::RgbaImage::from_fn(SIDE, SIDE, |x, y| {
         let (dx, dy) = (x as f32 - 27.0, y as f32 - 27.0);

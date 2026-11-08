@@ -169,6 +169,7 @@ impl MenuRuntime {
         }
         if screen != MenuScreen::Settings {
             self.settings_query.set_text("");
+            self.storage_query.set_text("");
         }
         self.screen = screen;
         self.navigation_focus.enter();

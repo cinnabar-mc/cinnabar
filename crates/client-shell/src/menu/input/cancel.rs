@@ -46,6 +46,16 @@ impl MenuRuntime {
             self.activate(launcher::menu::MenuAction::ClearSettingsSearch);
             return;
         }
+        if self.screen == launcher::menu::MenuScreen::Settings
+            && self.settings.section == launcher::menu::settings_storage::SECTION_INDEX
+            && self.dialog.is_none()
+            && !self.storage_query.as_str().is_empty()
+        {
+            self.activate(launcher::menu::MenuAction::SettingsStorage(
+                launcher::menu::settings_storage::StorageAction::ClearSearch,
+            ));
+            return;
+        }
         if self.clear_settings_slider_selection() {
             return;
         }
@@ -72,6 +82,23 @@ mod tests {
     use bevy::prelude::*;
     use launcher::menu::{MenuAction, MenuScreen};
 
+    #[test]
+    fn escape_clears_pack_search_and_leaving_settings_resets_it() {
+        use launcher::menu::{MenuAction, MenuField, MenuScreen, settings_storage::StorageAction};
+        let mut menu = MenuRuntime::new(true, 2, "Player".into());
+        menu.activate(MenuAction::Navigate(MenuScreen::Settings));
+        menu.settings.section = launcher::menu::settings_storage::SECTION_INDEX;
+        menu.activate(MenuAction::SettingsStorage(StorageAction::Search));
+        menu.edit_text("islands");
+        assert_eq!(menu.view().storage_query, "islands");
+        assert_eq!(menu.view().field, Some(MenuField::StorageQuery));
+        menu.go_back_from_input();
+        assert_eq!(menu.view().screen, MenuScreen::Settings);
+        assert!(menu.view().storage_query.is_empty());
+        menu.edit_text("harbor");
+        menu.activate(MenuAction::AddBack);
+        assert!(menu.view().storage_query.is_empty());
+    }
     #[test]
     fn escape_clears_search_before_leaving_settings_and_reopening_starts_empty() {
         let mut menu = MenuRuntime::new(true, 2, "Player".into());

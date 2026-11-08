@@ -99,6 +99,7 @@ pub enum MenuField {
     FriendQuery,
     /// Searches options across settings categories.
     SettingsQuery,
+    StorageQuery,
     Name,
     Address,
     Port,
