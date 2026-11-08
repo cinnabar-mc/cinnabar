@@ -65,8 +65,21 @@ pub trait Backend: 'static {
     ) -> Result<bool, String> {
         Err("Marketplace update migration is unavailable for this runtime.".into())
     }
-    /// Atomically moves an unchanged predecessor's registration and capped choices to its successor.
-    /// With no predecessor registration, preserves the successor's existing selection on retries.
+    /// Fences predecessor admission while retaining its enabled selection, and publishes an
+    /// acknowledgement request. The successor must remain unselected until replacement.
+    fn pause_marketplace(
+        _directory: &Path,
+        _previous: &Path,
+        _request: String,
+    ) -> Result<Self::Receipt, String> {
+        Err("Marketplace settings migration is unavailable for this runtime.".into())
+    }
+    /// Releases an unchanged admission fence after a pre-transfer failure.
+    fn resume_marketplace(_directory: &Path, _receipt: &Self::Receipt) -> Result<(), String> {
+        Err("Marketplace settings migration is unavailable for this runtime.".into())
+    }
+    /// Atomically moves an unchanged predecessor's registration and capped choices to its successor,
+    /// clearing its admission fence. With no predecessor, preserves existing selection on retries.
     fn replace_marketplace(
         _directory: &Path,
         _old: Option<&Self::Registered>,

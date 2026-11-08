@@ -106,6 +106,25 @@ impl Backend for Fixture {
     ) -> Result<bool, String> {
         Ok(next.grants == old.grants || next.grants == serde_json::json!({}))
     }
+    /// Retains enabled selection while a deterministic runtime observes the admission fence.
+    fn pause_marketplace(
+        directory: &Path,
+        previous: &Path,
+        request: String,
+    ) -> Result<Vec<u8>, String> {
+        if directory.join("fail-pause").exists() {
+            return Err("injected pause failure".into());
+        }
+        fs::write(directory.join("paused"), previous.to_str().unwrap())
+            .map_err(|e| e.to_string())?;
+        fs::write(directory.join("receipt"), &request).map_err(|e| e.to_string())?;
+        Ok(request.into_bytes())
+    }
+    /// Reopens predecessor admission after a failed settings handoff.
+    fn resume_marketplace(directory: &Path, receipt: &Vec<u8>) -> Result<(), String> {
+        Self::confirm(receipt, directory)?;
+        fs::remove_file(directory.join("paused")).map_err(|e| e.to_string())
+    }
     /// Migrates the fixture's existing enabled path, leaving absent registrations disabled.
     fn replace_marketplace(
         directory: &Path,
@@ -115,7 +134,18 @@ impl Backend for Fixture {
         _: String,
     ) -> Result<(), String> {
         if old.is_some() {
+            if directory.join("fail-transfer").exists() {
+                return Err("injected transfer failure".into());
+            }
             fs::write(directory.join("selection"), next.to_str().unwrap()).unwrap();
+            let _ = fs::remove_file(directory.join("paused"));
+            // Model immediate admission and an init save at the registration publication boundary.
+            let settings =
+                fs::read(Self::settings_companion(next)).unwrap_or_else(|_| b"defaults".to_vec());
+            fs::write(directory.join("started-settings"), &settings).unwrap();
+            if directory.join("save-on-start").exists() {
+                fs::write(Self::settings_companion(next), b"successor save").unwrap();
+            }
         }
         Ok(())
     }
@@ -606,4 +636,69 @@ fn removed_predecessors_do_not_block_enabling_an_expanded_update() {
     )
     .unwrap();
     assert_eq!(Fixture::registered(&config)[0].component(), next);
+}
+
+/// Runs an update with an immediate successor admission and optional init save.
+fn settings_update(save_on_start: bool) {
+    let root = tempfile::tempdir().unwrap();
+    let mods = root.path().join("mods");
+    let config = root.path().join("config");
+    fs::create_dir_all(&mods).unwrap();
+    fs::create_dir_all(&config).unwrap();
+    let (download, old) =
+        crate::marketplace::tests::staged_update(&mods, serde_json::json!({"hud":true}));
+    Fixture::apply(Action::Enable(0), &config, Some(&old), "enable".into()).unwrap();
+    fs::write(Fixture::settings_companion(&old), b"previous disk save").unwrap();
+    if save_on_start {
+        fs::write(config.join("save-on-start"), b"").unwrap();
+    }
+    let mut acknowledgements = 0;
+    let message = super::marketplace::install::<Fixture>(
+        download,
+        &config,
+        "replace".into(),
+        3000,
+        &mut |_| {
+            acknowledgements += 1;
+            if acknowledgements == 1 {
+                fs::write(Fixture::settings_companion(&old), b"exact final settings").unwrap();
+                let next = installed(&mods)
+                    .into_iter()
+                    .find(|(_, path)| path != &old)
+                    .unwrap()
+                    .1;
+                // An unfinished prior admission may already have written destination defaults.
+                if config.join("paused").exists() {
+                    fs::write(Fixture::settings_companion(&next), b"stale successor save").unwrap();
+                }
+            }
+            Ok(Permit(Arc::new(AtomicBool::new(true))))
+        },
+    );
+    assert!(message.starts_with("Updated"), "{message}");
+    let next = Fixture::registered(&config).remove(0).0;
+    assert_eq!(
+        fs::read(Fixture::settings_companion(&next)).unwrap(),
+        if save_on_start {
+            b"successor save".as_slice()
+        } else {
+            b"exact final settings".as_slice()
+        }
+    );
+    assert_eq!(
+        fs::read(config.join("started-settings")).unwrap(),
+        b"exact final settings"
+    );
+    assert!(!Fixture::settings_companion(&old).exists());
+    assert!(!old.exists());
+}
+
+#[test]
+fn marketplace_successor_starts_with_final_predecessor_settings() {
+    settings_update(false);
+}
+
+#[test]
+fn marketplace_successor_init_save_cannot_discard_predecessor_settings() {
+    settings_update(true);
 }

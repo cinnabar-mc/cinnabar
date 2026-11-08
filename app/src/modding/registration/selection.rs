@@ -128,6 +128,33 @@ pub(in crate::modding) fn select(
     .map(|_| ())
 }
 
+/// Stops admission while preserving enabled state, order and grants on disk.
+pub(in crate::modding) fn pause_marketplace(
+    directory: &Path,
+    previous: &Path,
+    request: String,
+) -> Result<Receipt, String> {
+    edit(directory, request, |registration| {
+        registration.suspended = Some(resolved_component(previous));
+        Ok(())
+    })
+}
+
+/// Restores admission only if the migration still owns the exact persisted selection.
+pub(in crate::modding) fn resume_marketplace(
+    directory: &Path,
+    receipt: &Receipt,
+) -> Result<(), String> {
+    receipt.confirm(directory)?;
+    let mut request = format!("resume-{:x}", Sha256::digest(receipt.fingerprint));
+    request.truncate(super::MAX_REQUEST_BYTES);
+    edit(directory, request, |registration| {
+        registration.suspended = None;
+        Ok(())
+    })
+    .map(drop)
+}
+
 /// Atomically replaces an unchanged marketplace entry, preserving position and bounded authority.
 pub(in crate::modding) fn replace_marketplace(
     directory: &Path,
@@ -154,6 +181,7 @@ pub(in crate::modding) fn replace_marketplace(
         entry.component = resolved_component(next);
         entry.grants.cap(ceiling);
         *current = entry;
+        registration.suspended = None;
         Ok(())
     })
     .map(drop)

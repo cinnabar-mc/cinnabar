@@ -141,6 +141,7 @@ pub(super) fn run(
                 .result
                 .unwrap_or_default()
                 .unwrap_or_else(Registration::empty);
+            registration.fence_admission();
             let mut digest = Sha256::new();
             digest.update(observed.fingerprint);
             let mut sources = Vec::new();

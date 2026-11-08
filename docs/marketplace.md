@@ -65,13 +65,16 @@ installation is off, compatible releases appear in the existing Home notice and 
 Update button. Turning checks off also cancels prepared updates. Failed attempts,
 including installer handoffs without a published successor, use delivery backoff.
 
-If signed permissions stay the same or shrink, the client atomically moves enabled
-state and permission choices capped to the new signed set to the successor before
-retiring the old runtime, copying its final saved settings and removing the old
-component and receipt. Interrupted retirement leaves the successor selected; its
-receipt records pending migration for a later automatic check or manual request,
-including after restart. Declined permissions remain declined; command names are
-capped individually. If permissions expand, the
+If signed permissions stay the same or shrink, the successor receipt first records
+pending migration. An admission fence stops the predecessor's runtime without
+changing its retained enabled selection. After its final settings writes drain,
+the client atomically replaces the successor's settings companion, then transfers
+enabled state, order and permission choices capped to the new signed set in one
+registration write. Pre-transfer failures release the fence; the predecessor stays
+selected. After transfer, cleanup removes the old settings, component and receipt,
+then clears the migration marker. Retries after transfer preserve newer successor
+saves. Periodic checks, manual requests and restarts resume interrupted migration.
+Declined permissions remain declined; command names are capped individually. If permissions expand, the
 new version stays disabled in My mods and the old version keeps running. Enabling
 the successor validates it again and retires older versions before using the existing
 permission consent controls. The successor receipt retains consumed website sends

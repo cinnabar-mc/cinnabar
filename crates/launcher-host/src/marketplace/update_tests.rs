@@ -591,36 +591,49 @@ fn interrupted_marketplace_migrations_resume_on_periodic_manual_and_restarted_pa
     use std::sync::atomic::AtomicBool;
 
     for mode in ["periodic", "manual", "restart"] {
-        for failure in ["runtime", "settings", "settings-removal"] {
+        for failure in [
+            "pause",
+            "runtime",
+            "settings",
+            "settings-publish",
+            "transfer",
+            "settings-removal",
+        ] {
             let f = Fixture::new();
             let config = f.root.path().join("config");
             fs::create_dir_all(&config).unwrap();
             BackendFixture::apply(Action::Enable(0), &config, Some(&f.path), "enable".into())
                 .unwrap();
             let old_settings = BackendFixture::settings_companion(&f.path);
-            if failure.starts_with("settings") {
+            if failure == "settings" {
                 fs::create_dir(&old_settings).unwrap();
             } else {
                 fs::write(&old_settings, b"saved choices").unwrap();
             }
             let mut prepared = f.pass(f.release(|_| {}), Some(b"new".to_vec()), false);
-            if failure == "settings-removal" {
-                let target = f
-                    .root
+            let next_settings = BackendFixture::settings_companion(
+                &f.root
                     .path()
-                    .join(storage::filename("11", &prepared[0].receipt.selected).unwrap());
-                fs::write(
-                    BackendFixture::settings_companion(&target),
-                    b"saved choices",
-                )
-                .unwrap();
+                    .join(storage::filename("11", &prepared[0].receipt.selected).unwrap()),
+            );
+            if failure == "settings-publish" {
+                fs::create_dir(&next_settings).unwrap();
             }
+            if matches!(failure, "pause" | "transfer") {
+                fs::write(config.join(format!("fail-{failure}")), b"").unwrap();
+            }
+            let mut acknowledgements = 0;
             let message = marketplace::install::<BackendFixture>(
                 prepared.remove(0),
                 &config,
                 "interrupted".into(),
                 3000,
                 &mut |_| {
+                    acknowledgements += 1;
+                    if failure == "settings-removal" && acknowledgements == 2 {
+                        fs::remove_file(&old_settings).unwrap();
+                        fs::create_dir(&old_settings).unwrap();
+                    }
                     if failure == "runtime" {
                         Err("injected retirement failure".into())
                     } else {
@@ -642,9 +655,36 @@ fn interrupted_marketplace_migrations_resume_on_periodic_manual_and_restarted_pa
             assert!(registered[0].component().exists());
             assert!(f.guard.allows(registered[0].component(), 3000));
             assert_eq!(crate::mod_library::files::installed(f.root.path()).len(), 2);
-            if failure.starts_with("settings") {
+            if failure == "settings-removal" {
+                fs::write(
+                    BackendFixture::settings_companion(registered[0].component()),
+                    b"new successor choices",
+                )
+                .unwrap();
+            }
+            if matches!(failure, "pause" | "transfer") {
+                fs::remove_file(config.join(format!("fail-{failure}"))).unwrap();
+            }
+            if matches!(
+                failure,
+                "pause" | "runtime" | "settings" | "settings-publish" | "transfer"
+            ) {
+                assert_eq!(registered[0].component(), f.path);
+                assert!(
+                    !config.join("paused").exists(),
+                    "failed migration releases admission"
+                );
+            }
+            if failure == "settings-publish" {
+                fs::remove_dir(&next_settings).unwrap();
+            }
+            if matches!(failure, "settings" | "settings-removal") {
                 fs::remove_dir(&old_settings).unwrap();
                 fs::write(&old_settings, b"saved choices").unwrap();
+            }
+            if mode == "restart" && failure != "settings-removal" {
+                BackendFixture::pause_marketplace(&config, &f.path, "interrupted-fence".into())
+                    .unwrap();
             }
             let guard = if mode == "restart" {
                 let guard = Arc::new(Guard::default());
@@ -747,7 +787,11 @@ fn interrupted_marketplace_migrations_resume_on_periodic_manual_and_restarted_pa
                     registered[0].component()
                 ))
                 .unwrap(),
-                b"saved choices"
+                if failure == "settings-removal" {
+                    b"new successor choices".as_slice()
+                } else {
+                    b"saved choices".as_slice()
+                }
             );
             assert_eq!(
                 storage::restore(f.root.path(), &f.keys, 1000, &worker.guard, 3001).len(),

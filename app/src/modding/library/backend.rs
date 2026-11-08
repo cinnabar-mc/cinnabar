@@ -123,6 +123,18 @@ impl Backend for AppBackend {
             serde_json::from_value(next.grants.clone()).map_err(|e| e.to_string())?;
         Ok(next.is_subset_of(&old))
     }
+    /// Publishes a runtime stop request without changing the player's retained consent.
+    fn pause_marketplace(
+        directory: &Path,
+        previous: &Path,
+        request: String,
+    ) -> Result<Self::Receipt, String> {
+        selection::pause_marketplace(directory, previous, request)
+    }
+    /// Releases a failed migration's fence without overwriting a newer selection.
+    fn resume_marketplace(directory: &Path, receipt: &Self::Receipt) -> Result<(), String> {
+        selection::resume_marketplace(directory, receipt)
+    }
     /// Preserves the player's enabled state, order and choices in one registration write.
     fn replace_marketplace(
         directory: &Path,

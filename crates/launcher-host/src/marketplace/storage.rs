@@ -39,7 +39,7 @@ pub(super) struct Receipt {
     /// Original website sends consumed by installations replaced by this receipt.
     #[serde(default)]
     pub consumed: Vec<CinnabarModEntry>,
-    /// Predecessor file whose non-expanding migration still needs retirement.
+    /// Predecessor whose settings transfer, registration transfer or retirement is unfinished.
     #[serde(default)]
     pub migration: Option<String>,
 }
@@ -80,7 +80,7 @@ impl Downloaded {
         Ok(bytes)
     }
 
-    /// Records resumable retirement only after the native host confirms a grant subset.
+    /// Records resumable migration only after the native host confirms a grant subset.
     pub(crate) fn migrate(&mut self) {
         self.receipt.migration = self
             .previous
