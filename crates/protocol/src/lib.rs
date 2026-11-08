@@ -18,6 +18,7 @@ mod interaction;
 mod inventory;
 mod item;
 mod item_capacity;
+mod locator;
 mod login;
 mod movement;
 mod nbt_tree;
@@ -194,6 +195,7 @@ pub use item::{
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
 
+pub use locator::{LocatorEvent, LocatorWaypointUpdate};
 pub use login::{
     BaseGameVersion, ClientCape, ClientRandomId, ClientSkin, ClientSkinGeometry, GAME_VERSION,
     GameData, JoinPreparation, LoginSequence, LoginSettings, PROTOCOL_VERSION,

@@ -171,6 +171,7 @@ pub enum UiEvent {
     Objective(ObjectiveEvent),
     Score(ScoreEvent),
     Boss(BossEvent),
+    Locator(Vec<crate::LocatorEvent>),
     Form(FormRequestEvent),
     ChatAutocomplete(ChatAutocompleteEvent),
     AvailableCommands(CommandTreeEvent),
