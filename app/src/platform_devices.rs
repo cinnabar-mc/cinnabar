@@ -1,28 +1,33 @@
 //! Platform-level physical input device tracking.
 
+#[cfg(not(target_arch = "wasm32"))]
 use bevy::{
     app::App,
-    ecs::entity::Entity,
     input::{
-        ButtonInput, ButtonState, InputSystems,
+        ButtonInput, InputSystems,
         keyboard::KeyCode,
-        mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
         touch::{TouchInput, TouchPhase},
     },
-    math::Vec2,
-    prelude::{
-        DetectChangesMut, IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query,
-        Res, ResMut, Resource, With,
+    prelude::{IntoScheduleConfigs, Local, MessageReader, PreUpdate, Res},
+};
+use bevy::{
+    ecs::entity::Entity,
+    input::{
+        ButtonState,
+        mouse::{MouseButtonInput, MouseMotion, MouseScrollUnit, MouseWheel},
     },
+    math::Vec2,
+    prelude::{DetectChangesMut, Messages, Query, ResMut, Resource, With},
     window::{CursorMoved, PrimaryWindow, Window, WindowEvent},
 };
+#[cfg(not(target_arch = "wasm32"))]
 use client_shell::{
     menu::MenuRuntime,
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
-use client_state::{
-    ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
-};
+use client_state::ConnectedPhysicalDevices;
+#[cfg(not(target_arch = "wasm32"))]
+use client_state::{DetectedGameplayInputMode, EffectiveGameplayInputMode};
 
 pub mod ingress;
 
@@ -31,6 +36,7 @@ pub mod ingress;
 ///
 /// Other platforms leave the input-mode resources absent, so their keyboard, mouse and touch
 /// routing is unchanged.
+#[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn configure_hybrid_input(app: &mut App) {
     app.init_resource::<ConnectedPhysicalDevices>()
         .init_resource::<PlatformMouseActivity>()
@@ -68,6 +74,7 @@ pub struct PreviousDeviceCounts {
 
 /// Automatically arbitrates between `Touch` and `KeyboardMouse` modes based on
 /// physical device connections, physical mouse/keyboard activity, and gameplay touch contacts.
+#[cfg(not(target_arch = "wasm32"))]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn arbitrate_gameplay_input_mode(
     devices: Res<ConnectedPhysicalDevices>,
@@ -282,5 +289,5 @@ pub fn drain_platform_mouse_events(
     activity.0 = active;
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
