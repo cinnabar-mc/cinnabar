@@ -20,6 +20,9 @@ use std::{
     time::Duration,
 };
 
+#[path = "updates.rs"]
+pub(super) mod updates;
+
 pub(super) const MAX_RESPONSE_BYTES: usize = 512 * 1024;
 const MAX_REVOCATIONS_BYTES: usize = 1024 * 1024;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -73,7 +76,11 @@ impl Deliveries {
             .map(|keys| storage::restore(mods, keys, limit, guard, now))
             .unwrap_or_default()
             .iter()
-            .map(|receipt| request(&receipt.owner, &receipt.selected))
+            .flat_map(|receipt| {
+                std::iter::once(&receipt.selected)
+                    .chain(&receipt.consumed)
+                    .map(|selected| request(&receipt.owner, selected))
+            })
             .collect();
         self.epoch = Some(epoch);
     }
@@ -155,7 +162,15 @@ async fn fetch(
     timeout: Duration,
 ) -> Result<(Vec<u8>, Option<String>)> {
     let url = transport.origin.join(path)?;
-    let mut response = transport.client.get(url).timeout(timeout).send().await?;
+    let response = transport.client.get(url).timeout(timeout).send().await?;
+    read_response(response, limit).await
+}
+
+/// Bounds a successful public response before deserializing any metadata.
+async fn read_response(
+    mut response: reqwest::Response,
+    limit: usize,
+) -> Result<(Vec<u8>, Option<String>)> {
     ensure!(
         response.status() == reqwest::StatusCode::OK,
         "Marketplace returned {}.",
@@ -268,11 +283,15 @@ async fn download(
             owner: owner.into(),
             selected: selected.clone(),
             release,
+            consumed: Vec::new(),
+            migration: None,
         },
         generation,
         epoch,
         guard,
         mods: mods.into(),
+        previous: None,
+        authorization: None,
     })
 }
 
@@ -442,6 +461,8 @@ pub(super) fn run(
     incoming: Receiver<()>,
     outgoing: Sender<Downloaded>,
     events: &Sender<String>,
+    host: updates::Host,
+    policy: Arc<updates::Policy>,
 ) -> Result<()> {
     let keys = Keys::parse(include_bytes!("../../data/marketplace-keys.json")).ok();
     fs::create_dir_all(&mods)?;
@@ -483,6 +504,7 @@ pub(super) fn run(
         deliveries: Deliveries::default(),
         refresh_at: 0,
     };
+    let mut updates = updates::Updates::default();
     loop {
         let (socket, epoch) = {
             let endpoint = context.lock().unwrap_or_else(|e| e.into_inner());
@@ -511,6 +533,19 @@ pub(super) fn run(
                     },
                     |selected| {
                         let _ = control(&runtime, bridge::remove_cinnabar_mod(&socket, selected));
+                    },
+                    &now_ms,
+                    &notify,
+                );
+                updates.pass(
+                    &worker,
+                    epoch,
+                    &library,
+                    &host,
+                    &policy,
+                    || {
+                        control(&runtime, bridge::cinnabar_mods(&socket))
+                            .is_some_and(|current| current.xuid == library.xuid)
                     },
                     &now_ms,
                     &notify,

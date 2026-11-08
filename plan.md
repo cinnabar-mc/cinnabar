@@ -1678,8 +1678,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
-  import or rejection. Mod update downloads stage in app-owned storage. Revision-aware mod
-  declarations select compatible releases through the API using the native build's
+  import or rejection. Mod update downloads stage in app-owned storage. Only the official mod's revision-aware
+  declaration selects compatible releases through the API using the native build's
   full stamped commit and supported mod API revisions. New capabilities append a revision
   while retaining older supported revisions; unsupported APIs and catalogue failures
   do not fall back to latest;
@@ -2153,8 +2153,18 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
 Marketplace delivery implements account-scoped library transport, exact signed
 release/hash verification, disabled installation with explicit permission consent
 capped to the signed grants, signed revocation freshness and conditional library
-removal. A send whose compatibility check or installation fails after handoff to
-the library worker is not retried until an account change or restart. Production signing
+removal. Compatible marketplace updates use the native supported API revisions,
+require a signed matching API revision and honor mod check/automatic-install settings.
+Unchanged or reduced grants fence predecessor admission while retaining its enabled
+selection, drain final settings writes and atomically copy settings before transferring
+enabled state, order and capped permission choices. Pre-transfer failures release the
+fence; post-transfer retries preserve successor saves while retiring the old release.
+Successor receipts retain pending migration and consumed website sends, so
+periodic checks, manual requests and restarts resume interrupted migrations. Expanded
+grants stage disabled beside the old version until Enable. Other local mods' declared update sources are ignored; only the official
+package retains the revision-checked first-party update path. An initial website send
+whose compatibility check or installation fails after handoff to the library worker
+is not retried until an account change or restart. Production signing
 public keys are pinned in the client. Home and Mods link to the catalogue and
 explain account sign-in, website sends and explicit permission review while
 preserving local imports. Production deployment and real-domain/cross-platform

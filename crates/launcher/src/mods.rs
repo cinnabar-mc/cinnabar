@@ -134,6 +134,15 @@ impl InstalledMod {
     pub fn marketplace(&self) -> bool {
         is_marketplace_file(&self.file)
     }
+    /// Whether the host has an authorized update channel for this installed card.
+    pub fn can_update(&self) -> bool {
+        self.marketplace()
+            || self
+                .metadata
+                .revision_update
+                .as_ref()
+                .is_some_and(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
+    }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {
         self.metadata.name.as_deref().unwrap_or_else(|| {
@@ -169,7 +178,7 @@ pub struct ActiveMod {
     pub status: Status,
 }
 
-/// A newer GitHub release for one installed file revision; installation stays manual.
+/// A verified newer release for one installed file revision.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AvailableUpdate {
     pub id: u64,
@@ -189,6 +198,14 @@ pub struct Library {
     pub updates: Vec<AvailableUpdate>,
 }
 impl Library {
+    /// Filters update notices to marketplace and official-package cards.
+    pub fn available_updates(&self) -> impl Iterator<Item = &AvailableUpdate> + Clone {
+        self.updates.iter().filter(|update| {
+            self.installed
+                .iter()
+                .any(|item| item.id == update.id && item.can_update())
+        })
+    }
     /// Preserves Active-list precedence and directory order for available components.
     pub fn groups(&self) -> (Vec<InstalledMod>, Vec<InstalledMod>) {
         let active = self

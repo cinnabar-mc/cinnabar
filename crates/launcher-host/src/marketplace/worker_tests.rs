@@ -33,10 +33,22 @@ fn handoff() -> (Handoff, Keys, Vec<u8>) {
 fn serve(
     responses: Vec<(String, Vec<u8>, Option<String>)>,
 ) -> (Transport, std::thread::JoinHandle<()>) {
+    serve_status(
+        responses
+            .into_iter()
+            .map(|(path, body, signature)| (path, 200, body, signature))
+            .collect(),
+    )
+}
+
+/// Serves exact bounded responses, including empty update lookups.
+pub(super) fn serve_status(
+    responses: Vec<(String, u16, Vec<u8>, Option<String>)>,
+) -> (Transport, std::thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let server = std::thread::spawn(move || {
-        for (path, body, signature) in responses {
+        for (path, status, body, signature) in responses {
             let (mut stream, _) = listener.accept().unwrap();
             stream
                 .set_read_timeout(Some(Duration::from_secs(5)))
@@ -58,7 +70,7 @@ fn serve(
                 .unwrap_or_default();
             write!(
                 stream,
-                "HTTP/1.1 200 OK\r\nConnection: close\r\n{signature}Content-Length: {}\r\n\r\n",
+                "HTTP/1.1 {status} Response\r\nConnection: close\r\n{signature}Content-Length: {}\r\n\r\n",
                 body.len()
             )
             .unwrap();
@@ -498,11 +510,15 @@ fn removal_requests_wait_for_the_failure_backoff() {
             owner: fixture.xuid.clone(),
             selected: fixture.selected.clone(),
             release,
+            consumed: Vec::new(),
+            migration: None,
         },
         generation: Arc::new(AtomicU64::new(1)),
         epoch: 1,
         guard: guard.clone(),
         mods: root.path().into(),
+        previous: None,
+        authorization: None,
     }
     .install(fixture.checked_at, |_| Ok(()))
     .unwrap();

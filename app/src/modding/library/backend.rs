@@ -112,6 +112,44 @@ impl Backend for AppBackend {
     ) -> Result<(), String> {
         crate::modding::marketplace::declarations(bytes, manifest).map(drop)
     }
+    /// Compares signed capabilities through the canonical grant cap operation.
+    fn marketplace_subset(
+        old: &launcher_host::marketplace::Manifest,
+        next: &launcher_host::marketplace::Manifest,
+    ) -> Result<bool, String> {
+        let old: mod_host::ModGrants =
+            serde_json::from_value(old.grants.clone()).map_err(|e| e.to_string())?;
+        let next: mod_host::ModGrants =
+            serde_json::from_value(next.grants.clone()).map_err(|e| e.to_string())?;
+        Ok(next.is_subset_of(&old))
+    }
+    /// Publishes a runtime stop request without changing the player's retained consent.
+    fn pause_marketplace(
+        directory: &Path,
+        previous: &Path,
+        request: String,
+    ) -> Result<Self::Receipt, String> {
+        selection::pause_marketplace(directory, previous, request)
+    }
+    /// Releases a failed migration's fence without overwriting a newer selection.
+    fn resume_marketplace(directory: &Path, receipt: &Self::Receipt) -> Result<(), String> {
+        selection::resume_marketplace(directory, receipt)
+    }
+    /// Preserves the player's enabled state, order and choices in one registration write.
+    fn replace_marketplace(
+        directory: &Path,
+        old: Option<&Self::Registered>,
+        next: &Path,
+        manifest: &launcher_host::marketplace::Manifest,
+        request: String,
+    ) -> Result<(), String> {
+        let ceiling: mod_host::ModGrants =
+            serde_json::from_value(manifest.grants.clone()).map_err(|e| e.to_string())?;
+        match old {
+            Some(old) => selection::replace_marketplace(directory, old, next, &ceiling, request),
+            None => Ok(()),
+        }
+    }
     /// Parses exact download bytes and rejects invalid new permission declarations.
     fn update_metadata(
         bytes: &[u8],

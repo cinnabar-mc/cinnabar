@@ -128,6 +128,65 @@ pub(in crate::modding) fn select(
     .map(|_| ())
 }
 
+/// Stops admission while preserving enabled state, order and grants on disk.
+pub(in crate::modding) fn pause_marketplace(
+    directory: &Path,
+    previous: &Path,
+    request: String,
+) -> Result<Receipt, String> {
+    edit(directory, request, |registration| {
+        registration.suspended = Some(resolved_component(previous));
+        Ok(())
+    })
+}
+
+/// Restores admission only if the migration still owns the exact persisted selection.
+pub(in crate::modding) fn resume_marketplace(
+    directory: &Path,
+    receipt: &Receipt,
+) -> Result<(), String> {
+    receipt.confirm(directory)?;
+    let mut request = format!("resume-{:x}", Sha256::digest(receipt.fingerprint));
+    request.truncate(super::MAX_REQUEST_BYTES);
+    edit(directory, request, |registration| {
+        registration.suspended = None;
+        Ok(())
+    })
+    .map(drop)
+}
+
+/// Atomically replaces an unchanged marketplace entry, preserving position and bounded authority.
+pub(in crate::modding) fn replace_marketplace(
+    directory: &Path,
+    old: &Registered,
+    next: &Path,
+    ceiling: &ModGrants,
+    request: String,
+) -> Result<(), String> {
+    edit(directory, request, |registration| {
+        if registration
+            .mods
+            .iter()
+            .any(|entry| same_path(&entry.component, next))
+        {
+            return Err("The marketplace successor is already selected.".into());
+        }
+        let current = registration
+            .mods
+            .iter_mut()
+            .find(|entry| same_path(&entry.component, &old.entry.component))
+            .filter(|entry| **entry == old.entry)
+            .ok_or("The marketplace selection changed before replacement.")?;
+        let mut entry = old.entry.clone();
+        entry.component = resolved_component(next);
+        entry.grants.cap(ceiling);
+        *current = entry;
+        registration.suspended = None;
+        Ok(())
+    })
+    .map(drop)
+}
+
 /// Disables exactly the currently active card, rejecting an obsolete selection.
 pub(in crate::modding) fn disable(
     directory: &Path,

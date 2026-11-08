@@ -31,11 +31,17 @@ pub(super) fn revocations_path(mods: &Path) -> PathBuf {
     mods.join(EVIDENCE_DIR).join("revocations.json")
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub(super) struct Receipt {
     pub owner: String,
     pub selected: CinnabarModEntry,
     pub release: SignedRelease,
+    /// Original website sends consumed by installations replaced by this receipt.
+    #[serde(default)]
+    pub consumed: Vec<CinnabarModEntry>,
+    /// Predecessor whose settings transfer, registration transfer or retirement is unfinished.
+    #[serde(default)]
+    pub migration: Option<String>,
 }
 
 /// Complete signature/hash-verified bytes awaiting the client's own ABI and grant-declaration checks.
@@ -47,12 +53,24 @@ pub struct Downloaded {
     pub(super) epoch: u64,
     pub(super) guard: Arc<Guard>,
     pub(super) mods: PathBuf,
+    pub(super) previous: Option<PathBuf>,
+    pub(super) authorization: Option<(Arc<AtomicU64>, u64)>,
 }
 
 impl Downloaded {
     /// Supplies verified metadata for the owning component host's declaration and ABI checks.
     pub fn manifest(&self) -> &Manifest {
         &self.manifest
+    }
+
+    /// Returns the immutable predecessor of an automatic or manually requested update.
+    pub fn previous(&self) -> Option<&Path> {
+        self.previous.as_deref()
+    }
+
+    /// Shares the live admission fence with the ordered library installer.
+    pub fn guard(&self) -> Arc<Guard> {
+        self.guard.clone()
     }
 
     /// Re-reads the bounded staging file and rejects edits before host compatibility validation.
@@ -62,24 +80,62 @@ impl Downloaded {
         Ok(bytes)
     }
 
+    /// Records resumable migration only after the native host confirms a grant subset.
+    pub(crate) fn migrate(&mut self) {
+        self.receipt.migration = self
+            .previous
+            .as_ref()
+            .and_then(|path| path.file_name()?.to_str().map(str::to_owned));
+    }
+
     /// Publishes a new disabled file and receipt without overwriting another component or registration.
     ///
     /// `release` runs with the destination immediately before a new file is published there, so
     /// the registration owner can drop an entry left at that path (for example after the file was
     /// deleted outside Mods) and the new file needs a fresh Enable. It is not called when the
     /// destination already holds the verified bytes; an error from it cancels publication.
-    pub fn install(self, now: u64, release: impl FnOnce(&Path) -> Result<()>) -> Result<PathBuf> {
+    pub fn install(
+        mut self,
+        now: u64,
+        release: impl FnOnce(&Path) -> Result<()>,
+    ) -> Result<PathBuf> {
         self.bytes()?;
-        ensure!(
+        let authorized = || {
             self.generation.load(Ordering::SeqCst) == self.epoch
                 && self
+                    .authorization
+                    .as_ref()
+                    .is_none_or(|(current, expected)| current.load(Ordering::SeqCst) == *expected)
+                && self
+                    .previous
+                    .as_ref()
+                    .is_none_or(|path| path.exists() && self.guard.allows(path, now))
+                && self
                     .guard
-                    .permits(&self.receipt.owner, &self.manifest.sha256, now),
-            "Marketplace installation cancelled or held."
-        );
+                    .permits(&self.receipt.owner, &self.manifest.sha256, now)
+        };
+        ensure!(authorized(), "Marketplace installation cancelled or held.");
         let name = filename(&self.receipt.owner, &self.receipt.selected)?;
         let target = self.mods.join(&name);
         if target.exists() {
+            // A repeated website send must not discard the prior installation's consumed sends.
+            if let Ok(bytes) = read(
+                &receipt_path(&self.mods, &name),
+                super::worker::MAX_RESPONSE_BYTES,
+            ) && let Ok(prior) = serde_json::from_slice::<Receipt>(&bytes)
+                && prior.owner == self.receipt.owner
+                && prior.release.statement == self.receipt.release.statement
+                && prior.release.signature == self.receipt.release.signature
+            {
+                if self.receipt.migration.is_none() {
+                    self.receipt.migration = prior.migration;
+                }
+                for selected in prior.consumed {
+                    if !self.receipt.consumed.contains(&selected) {
+                        self.receipt.consumed.push(selected);
+                    }
+                }
+            }
             verify_bytes(
                 &read(&target, self.manifest.bytes as usize)?,
                 &self.manifest,
@@ -87,6 +143,7 @@ impl Downloaded {
         } else {
             release(&target)?;
             self.file.as_file().sync_all()?;
+            ensure!(authorized(), "Marketplace installation cancelled or held.");
             self.file.persist_noclobber(&target).map_err(|e| {
                 anyhow::anyhow!("Could not publish marketplace component: {}", e.error)
             })?;
@@ -128,6 +185,16 @@ pub(super) fn removed(
         let name = filename(owner, selected)?;
         if mods.join(&name).try_exists()? {
             return Ok(false);
+        }
+        if !receipt_path(mods, &name).exists() {
+            return Ok(restore(mods, keys, limit, &Guard::default(), now)
+                .iter()
+                .any(|receipt| {
+                    receipt.owner == owner
+                        && receipt.consumed.contains(selected)
+                        && filename(owner, &receipt.selected)
+                            .is_ok_and(|name| !mods.join(name).exists())
+                }));
         }
         let receipt: Receipt = serde_json::from_slice(&read(
             &receipt_path(mods, &name),
@@ -216,4 +283,43 @@ pub(super) fn restore(
         receipts.extend(restored);
     }
     receipts
+}
+
+/// Clears completed migration metadata without changing signed evidence or consumed sends.
+pub(crate) fn finish_migration(target: &Path) -> Result<()> {
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Invalid managed path."))?;
+    let path = receipt_path(
+        target
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Missing mods directory."))?,
+        name,
+    );
+    let mut receipt: Receipt =
+        serde_json::from_slice(&read(&path, super::worker::MAX_RESPONSE_BYTES)?)?;
+    receipt.migration = None;
+    save(&path, &serde_json::to_vec(&receipt)?)
+}
+
+/// Deletes a superseded release's evidence only after its source has been retired and removed.
+pub(crate) fn retire_receipt(path: &Path, guard: &Guard) -> Result<()> {
+    ensure!(!path.exists(), "Superseded component is still installed.");
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Invalid managed path."))?;
+    let evidence = receipt_path(
+        path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Missing mods directory."))?,
+        name,
+    );
+    match fs::remove_file(evidence) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    guard.forget(path);
+    Ok(())
 }

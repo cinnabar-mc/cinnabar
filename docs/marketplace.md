@@ -36,7 +36,7 @@ The existing component host checks ABI compatibility without executing uploaded
 code. The component's declared version and exact requested grants, including
 command values, must match the signed release. Components and signed receipts
 are published under immutable, account/hash-derived names; each file is complete
-before it becomes visible. Imports never overwrite existing files, enable a mod,
+before it becomes visible. Fresh deliveries never overwrite existing files, enable a mod,
 copy prior grants or authorize new ones. A newly published file drops any
 registration entry left at its path, for example after the file was deleted
 outside Mods, so a re-sent release needs a fresh Enable. New releases appear under Settings →
@@ -44,9 +44,42 @@ Mods → My mods; enable them and choose permissions through the existing consen
 controls. A marketplace mod never runs with more than its signed grants: the host
 caps its saved permissions to the signed set, including command names, whenever
 it is admitted, and the consent controls offer only the requested permissions, so
-a player can turn signed capabilities off but cannot add others. New versions
-remain separate files so an update cannot silently inherit another file's
-authority. The GitHub mod updater cannot replace managed files.
+a player can turn signed capabilities off but cannot add others. Updates publish new immutable files and receipts before retiring predecessors.
+The official mod's revision updater cannot replace managed files. Component-declared
+update repositories, URLs and revision identities are ignored for every other local
+mod; only the official package uses the revision-checked `/v1/mod/update` path.
+
+## Automatic updates
+
+While signed into the owning account, the worker checks installed signed receipts
+once a minute. `GET /v1/mods/{slug}/update` sends `api_revisions` (the same comma-separated
+supported revisions as the official updater), `host_revision`, `current_version`
+and `current_sha256`. A 200 response contains `release.statement` and `release.signature`;
+204 and 404 leave the installation unchanged. Updates require a signed supported
+`api_revision`, the same project, a strictly newer version, matching size and SHA-256,
+valid native declarations and grants, current account ownership and fresh revocation
+evidence. No redirects or account credentials are sent to the public API.
+
+Settings → Updates controls mod checks and automatic installation. When automatic
+installation is off, compatible releases appear in the existing Home notice and Mods
+Update button. Turning checks off also cancels prepared updates. Failed attempts,
+including installer handoffs without a published successor, use delivery backoff.
+
+If signed permissions stay the same or shrink, the successor receipt first records
+pending migration. An admission fence stops the predecessor's runtime without
+changing its retained enabled selection. After its final settings writes drain,
+the client atomically replaces the successor's settings companion, then transfers
+enabled state, order and permission choices capped to the new signed set in one
+registration write. Pre-transfer failures release the fence; the predecessor stays
+selected. After transfer, cleanup removes the old settings, component and receipt,
+then clears the migration marker. Retries after transfer preserve newer successor
+saves. Periodic checks, manual requests and restarts resume interrupted migration.
+Declined permissions remain declined; command names are capped individually. If permissions expand, the
+new version stays disabled in My mods and the old version keeps running. Enabling
+the successor validates it again and retires older versions before using the existing
+permission consent controls. The successor receipt retains consumed website sends
+so restarting cannot reinstall a replaced release. Removed successors retain those
+consumed sends for authenticated removal.
 
 ## Withdrawal and offline behavior
 
@@ -89,7 +122,7 @@ the private signing key in the client, trust a key supplied by a marketplace
 response, or reuse test keys. Rotation ships overlapping reviewed public keys
 before the server changes its signer.
 
-Deploy the API with exact-release retrieval, expiring signed revocations and
+Deploy the API with compatible update lookup, signed API revisions, exact-release retrieval, expiring signed revocations and
 authenticated conditional removals before enabling client downloads. Test the
 real website → account connection → disabled install → explicit consent flow,
 offline expiry, restart, account switches, withdrawals and filesystem failures

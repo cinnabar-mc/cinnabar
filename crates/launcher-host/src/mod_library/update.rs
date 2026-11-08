@@ -152,8 +152,8 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
         metadata
             .revision_update
             .as_ref()
+            .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
             .map(|r| &r.source)
-            .or(metadata.update_url.as_ref())
             .is_some_and(|source| {
                 source.repository().slug() == download.repository
                     && source.asset() == download.asset
@@ -162,7 +162,11 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
     if !matches_source(&previous) || !matches_source(&next) {
         return Err("The update source does not match the installed mod.".into());
     }
-    if let Some(expected) = download.revision_update.as_deref() {
+    if let Some(expected) = download
+        .revision_update
+        .as_deref()
+        .filter(|r| r.package == ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE)
+    {
         if next.revision_update.as_ref() != Some(expected)
             || !previous
                 .revision_update
@@ -173,7 +177,7 @@ fn validate<B: Backend>(old: &[u8], bytes: &[u8], download: &Downloaded) -> Resu
                 "The downloaded mod identity does not match the compatible release.".into(),
             );
         }
-    } else if previous.revision_update.is_some() || next.revision_update.is_some() {
+    } else {
         return Err("A revision-aware update requires verified compatibility metadata.".into());
     }
     let current = previous

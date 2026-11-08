@@ -3,6 +3,7 @@
 use super::{
     Backend, Command, Retirement, Selection,
     files::{import, installed, remove},
+    marketplace,
     paths::same_path,
     scan::{include_active, scan_cached},
     update,
@@ -27,19 +28,25 @@ pub fn run<B: Backend>(
     let mut reloads = Vec::<update::PendingReload>::new();
     let mut library = scan_cached::<B>(mods, registration, String::new(), &mut metadata);
     let _ = outgoing.send(library.clone());
+    let mut authority = std::sync::Arc::new(crate::marketplace::Guard::default());
     loop {
         let message = match incoming.recv_timeout(interval) {
+            Ok(Command::MarketplaceGuard(guard)) => {
+                authority = guard;
+                continue;
+            }
             Ok(Command::Marketplace(download)) => {
                 library.busy = true;
                 library.message = "Verifying marketplace component compatibility…".into();
                 let _ = outgoing.send(library.clone());
                 requests += 1;
                 let request = format!("marketplace-install-{}-{requests}", std::process::id());
-                install_marketplace::<B>(
+                marketplace::install::<B>(
                     *download,
                     registration,
                     request,
                     crate::marketplace::now_ms(),
+                    &mut retire,
                 )
             }
             Ok(Command::Message(message)) => message,
@@ -92,15 +99,31 @@ pub fn run<B: Backend>(
                     library.busy = true;
                     let _ = outgoing.send(library.clone());
                 }
-                perform::<B>(
-                    action,
-                    mods,
-                    registration,
-                    &mut requests,
-                    &mut pick,
-                    &mut retire,
-                )
-                .unwrap_or_else(|error| error)
+                if let Action::Enable(id) = action {
+                    requests += 1;
+                    match installed(mods).into_iter().find(|(item, _)| item.id == id) {
+                        Some((_, path)) => marketplace::enable::<B>(
+                            &path,
+                            registration,
+                            format!("marketplace-enable-{requests}"),
+                            &authority,
+                            crate::marketplace::now_ms(),
+                            &mut retire,
+                        ),
+                        None => Err("That mod is no longer installed.".into()),
+                    }
+                    .unwrap_or_else(|error| error)
+                } else {
+                    perform::<B>(
+                        action,
+                        mods,
+                        registration,
+                        &mut requests,
+                        &mut pick,
+                        &mut retire,
+                    )
+                    .unwrap_or_else(|error| error)
+                }
             }
             Err(RecvTimeoutError::Timeout) => library.message.clone(),
             Err(RecvTimeoutError::Disconnected) => return,
@@ -126,39 +149,6 @@ pub fn run<B: Backend>(
             let _ = outgoing.send(library.clone());
         }
     }
-}
-
-/// Checks a verified marketplace download against the runtime and publishes it disabled at
-/// `now`, returning the message the Mods tab shows.
-///
-/// A newly published file never inherits a registration entry left at its path, such as an
-/// enabled entry whose file was deleted outside Mods: that entry and its grants are dropped
-/// under `request` first, so the release needs a fresh Enable and permission choice.
-pub(super) fn install_marketplace<B: Backend>(
-    download: crate::marketplace::Downloaded,
-    registration: &Path,
-    request: String,
-    now: u64,
-) -> String {
-    let result = (|| {
-        let bytes = download.bytes().map_err(|error| error.to_string())?;
-        B::validate_source(&bytes)
-            .map_err(|error| format!("Unsupported marketplace component: {error}"))?;
-        B::validate_marketplace(&bytes, download.manifest())?;
-        download
-            .install(now, |target| {
-                if B::registered(registration)
-                    .iter()
-                    .any(|entry| same_path(entry.component(), target))
-                {
-                    B::forget(registration, target, request).map_err(anyhow::Error::msg)?;
-                }
-                Ok(())
-            })
-            .map_err(|error| error.to_string())?;
-        Ok::<_, String>(launcher::mods::MARKETPLACE_ADDED.to_owned())
-    })();
-    result.unwrap_or_else(|error| format!("Marketplace installation held: {error}"))
 }
 
 /// Runs one Mods-tab command; both outcomes are the message the tab shows.

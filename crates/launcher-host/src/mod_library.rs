@@ -3,13 +3,14 @@
 pub mod files;
 #[cfg(all(test, target_os = "linux"))]
 mod linux_publication_tests;
+pub(crate) mod marketplace;
 pub mod paths;
 pub mod port;
 #[cfg(test)]
 mod publication_tests;
 pub mod scan;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod update;
 pub mod worker;
 
@@ -22,6 +23,7 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 /// Ordered work sent to the library thread.
 pub enum Command {
     Marketplace(Box<crate::marketplace::Downloaded>),
+    MarketplaceGuard(Arc<crate::marketplace::Guard>),
     Action(Action),
     Update(crate::mod_updates::Downloaded, Sender<()>),
     Message(String),
@@ -32,6 +34,7 @@ pub struct Service {
     commands: Sender<Command>,
     published: Receiver<Library>,
     updates: Option<crate::mod_updates::Checker>,
+    marketplace_offers: Vec<launcher::mods::AvailableUpdate>,
     checks: bool,
     automatic: bool,
     busy: bool,
@@ -40,9 +43,19 @@ pub struct Service {
 }
 
 impl Service {
+    /// Shares marketplace authority with consent and retirement commands, including after restart.
+    pub fn marketplace_guard(&self, guard: Arc<crate::marketplace::Guard>) {
+        let _ = self.commands.send(Command::MarketplaceGuard(guard));
+    }
+
     /// Orders a verified marketplace download behind prior library mutations.
     pub fn marketplace(&self, download: crate::marketplace::Downloaded) {
         let _ = self.commands.send(Command::Marketplace(Box::new(download)));
+    }
+
+    /// Replaces marketplace notices before the next combined update publication.
+    pub fn marketplace_offers(&mut self, offers: Vec<launcher::mods::AvailableUpdate>) {
+        self.marketplace_offers = offers;
     }
 
     /// Publishes a background delivery outcome through the library's ordered worker.
@@ -92,6 +105,7 @@ impl Service {
             )
             .map_err(|error| tracing::warn!("Mod update checks unavailable: {error}"))
             .ok(),
+            marketplace_offers: Vec::new(),
             checks: false,
             automatic: false,
             busy: false,
@@ -130,8 +144,20 @@ impl Service {
             if configure {
                 checker.configure(&snapshot.library.installed, checks, automatic);
             }
-            let updates = checker.updates();
-            let updates = (snapshot.library.updates != updates).then(|| updates.to_vec());
+            let mut offered = checker.updates().to_vec();
+            offered.extend(
+                self.marketplace_offers
+                    .iter()
+                    .filter(|offer| {
+                        snapshot
+                            .library
+                            .installed
+                            .iter()
+                            .any(|item| item.id == offer.id)
+                    })
+                    .cloned(),
+            );
+            let updates = (snapshot.library.updates != offered).then_some(offered);
             let started = requested.is_some_and(|id| checker.install(id));
             let pending = checker.pending();
             let message = checker.take_message().or_else(|| started.then(String::new));
@@ -180,6 +206,11 @@ impl Service {
                     let _ = self.commands.send(Command::Message(message));
                 }
             }
+        } else if snapshot.library.updates != self.marketplace_offers {
+            Arc::make_mut(snapshot)
+                .library
+                .updates
+                .clone_from(&self.marketplace_offers);
         }
     }
 }

@@ -98,6 +98,10 @@ macro_rules! grants {
             pub fn cap(&mut self, ceiling: &Self) {
                 $(GrantValue::cap(&mut self.$field, &ceiling.$field);)*
             }
+            /// Whether every requested capability and command value fits within a signed ceiling.
+            pub fn is_subset_of(&self, ceiling: &Self) -> bool {
+                $(GrantValue::covers(&ceiling.$field, &self.$field))&&*
+            }
             /// Every optional capability, generated from the same fields as serialization.
             pub const CAPABILITIES: &'static [Capability] = &[$(Capability {
                 name: stringify!($field), description: $doc, label: $label, sensitive: $sensitive,
@@ -251,6 +255,39 @@ impl ModGrants {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn signed_grant_subsets_compare_every_capability_and_command_value() {
+        let ceiling = ModGrants {
+            hud: true,
+            commands: vec!["help".into(), "list".into()],
+            ..Default::default()
+        };
+        assert!(ModGrants::default().is_subset_of(&ceiling));
+        assert!(ceiling.is_subset_of(&ceiling));
+        assert!(
+            ModGrants {
+                commands: vec!["help".into()],
+                ..Default::default()
+            }
+            .is_subset_of(&ceiling)
+        );
+        assert!(
+            !ModGrants {
+                commands: vec!["op".into()],
+                ..Default::default()
+            }
+            .is_subset_of(&ceiling)
+        );
+        for capability in ModGrants::CAPABILITIES {
+            let mut requested = ModGrants::default();
+            (capability.set)(&mut requested, true, Some(&ceiling));
+            assert_eq!(
+                requested.is_subset_of(&ModGrants::default()),
+                !(capability.enabled)(&requested)
+            );
+        }
+    }
+
     #[test]
     fn only_active_packet_authority_disables_the_upstream_cache() {
         let frame = ModGrants {

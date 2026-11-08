@@ -8,6 +8,7 @@ mod verify;
 mod worker;
 pub use guard::{Guard, managed};
 pub use storage::Downloaded;
+pub(crate) use storage::{finish_migration, retire_receipt};
 pub use verify::{Keys, Manifest, SignedRelease, SignedRevocations};
 
 use crossbeam_channel::{Receiver, Sender, bounded};
@@ -19,7 +20,7 @@ use std::{
     },
 };
 
-/// One download worker's lifetime. Downloads never enable mods or grant permissions.
+/// Account-bound delivery and update selection; the library owns consent and replacement.
 pub struct Service {
     requests: Sender<()>,
     context: Arc<Mutex<Option<PathBuf>>>,
@@ -28,11 +29,18 @@ pub struct Service {
     generation: Arc<AtomicU64>,
     configured: Option<(PathBuf, u64)>,
     guard: Arc<Guard>,
+    policy: Arc<worker::updates::Policy>,
 }
 
 impl Service {
     /// Starts delivery with shipped trust roots and the existing host's source ceiling.
-    pub fn start(mods: PathBuf, limit: usize, guard: Arc<Guard>) -> std::io::Result<Self> {
+    pub fn start<B: crate::mod_library::port::Backend>(
+        mods: PathBuf,
+        guard: Arc<Guard>,
+    ) -> std::io::Result<Self> {
+        let limit = B::MAX_SOURCE_BYTES;
+        let policy = Arc::new(worker::updates::Policy::default());
+        let preferences = policy.clone();
         let (requests, incoming) = bounded(1);
         let (outgoing, downloads) = bounded(1);
         let (events, messages) = bounded(8);
@@ -45,7 +53,19 @@ impl Service {
             .name("marketplace".into())
             .spawn(move || {
                 if let Err(error) = worker::run(
-                    mods, limit, authority, current, endpoint, incoming, outgoing, &events,
+                    mods,
+                    limit,
+                    authority,
+                    current,
+                    endpoint,
+                    incoming,
+                    outgoing,
+                    &events,
+                    worker::updates::Host {
+                        revision: B::HOST_REVISION,
+                        api_revisions_json: B::MOD_API_REVISIONS_JSON,
+                    },
+                    preferences,
                 ) {
                     let _ = events.try_send(format!("Marketplace unavailable: {error:#}"));
                 }
@@ -58,6 +78,7 @@ impl Service {
             generation,
             configured: None,
             guard,
+            policy,
         })
     }
 
@@ -69,9 +90,22 @@ impl Service {
         let mut endpoint = self.context.lock().unwrap_or_else(|e| e.into_inner());
         let epoch = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.guard.configure(epoch);
+        self.policy.clear();
         self.configured = context;
         *endpoint = self.configured.as_ref().map(|(path, _)| path.clone());
         let _ = self.requests.try_send(());
+    }
+
+    /// Applies update preferences and manual requests through the worker's publication fence.
+    pub fn updates(&self, checks: bool, automatic: bool, manual: impl IntoIterator<Item = u64>) {
+        if self.policy.configure(checks, automatic, manual) {
+            let _ = self.requests.try_send(());
+        }
+    }
+
+    /// Returns verified offers for the existing Mods and Home update states.
+    pub fn offers(&self) -> Vec<launcher::mods::AvailableUpdate> {
+        self.policy.offers()
     }
 
     /// Drains complete verified downloads for off-frame component compatibility validation.

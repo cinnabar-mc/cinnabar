@@ -216,7 +216,9 @@ fn mod_card(
     };
     compact_card(content, face, |content| {
         let available = interactive && !library.busy;
-        let update = library.updates.iter().find(|update| update.id == item.id);
+        let update = library
+            .available_updates()
+            .find(|update| update.id == item.id);
         let progress = library
             .update_progress
             .iter()
@@ -241,7 +243,7 @@ fn mod_card(
         };
         let mut buttons = vec![toggle];
         if update.is_some() || progress.is_some() {
-            let installable = item.metadata.update_url.is_some();
+            let installable = item.can_update();
             let updating = progress.is_some();
             let label = if let Some(progress) = progress {
                 progress.phase.label()

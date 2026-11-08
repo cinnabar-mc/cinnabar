@@ -134,11 +134,15 @@ fn prepared(root: &Path, f: &Fixture, guard: Arc<Guard>, generation: Arc<AtomicU
             owner: "11".into(),
             selected: f.selected.clone(),
             release: f.release.clone(),
+            consumed: Vec::new(),
+            migration: None,
         },
         generation,
         epoch: 1,
         guard,
         mods: root.into(),
+        previous: None,
+        authorization: None,
     }
 }
 
@@ -273,4 +277,45 @@ fn only_reserved_names_are_managed_so_marketplace_named_local_mods_run_unheld() 
     let stored = storage::filename("11", &f.selected).unwrap();
     assert!(managed(Path::new(&stored)), "{stored}");
     assert!(!guard.allows(Path::new(&stored), 3000));
+}
+
+/// Stages an update with signed grant changes, sharing its installed predecessor's account fence.
+pub(crate) fn staged_update(
+    mods: &Path,
+    grants: serde_json::Value,
+) -> (Downloaded, std::path::PathBuf) {
+    let mut f = fixture();
+    let guard = Arc::new(Guard::default());
+    let generation = Arc::new(AtomicU64::new(1));
+    let previous = prepared(mods, &f, guard.clone(), generation.clone())
+        .install(3000, |_| Ok(()))
+        .unwrap();
+    let consumed = f.selected.clone();
+    f.selected.version = "1.1.0".into();
+    let mut statement: serde_json::Value = serde_json::from_str(&f.release.statement).unwrap();
+    statement["version"] = serde_json::json!(f.selected.version);
+    statement["grants"] = grants;
+    statement["api_revision"] = serde_json::json!("a".repeat(40));
+    f.release.statement = statement.to_string();
+    f.release.signature = URL_SAFE_NO_PAD.encode(f.signer.sign(f.release.statement.as_bytes()));
+    let mut download = prepared(mods, &f, guard, generation);
+    download.previous = Some(previous.clone());
+    download.receipt.consumed = vec![consumed];
+    (download, previous)
+}
+
+#[test]
+fn account_change_during_registration_release_cancels_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let (download, target) = staged(root.path());
+    let guard = download.guard();
+    assert!(
+        download
+            .install(3000, |_| {
+                guard.configure(2);
+                Ok(())
+            })
+            .is_err()
+    );
+    assert!(!target.exists());
 }
