@@ -183,7 +183,7 @@ fn native_cube_and_leaf_pixels_match_gamma_products_without_changing_carried_col
         words.push(case.ao);
         words.extend(case.light);
         words.push(case.flags as f32);
-        words.extend(case.fog.map(gamma_to_linear));
+        words.extend(case.fog);
         words.push(case.fog_amount);
         words.extend([
             f32::from_bits(u32::from(case.cube)),
