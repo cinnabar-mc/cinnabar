@@ -1,9 +1,45 @@
-//! TEMPORARY DIAGNOSTIC: finds which follow-up pass makes texture atomics visible to later
-//! render passes on Metal, under extra GPU load.
+//! TEMPORARY DIAGNOSTIC: loops image atomics under extra GPU load and counts stale reads.
 
 use super::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+const STORE_SIXTEEN: &str = "#version 430
+layout(local_size_x = 4, local_size_y = 4) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    if (gl_LocalInvocationIndex == 0u) {
+        imageStore(counter, ivec2(0), uvec4(16u));
+    }
+}
+";
+
+const ONE_ATOMIC: &str = "#version 430
+layout(local_size_x = 1, local_size_y = 1) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    imageAtomicAdd(counter, ivec2(0), 16u);
+}
+";
+
+/// Adds 1 from each of the 4x4 pixels at the bottom-left corner.
+const FRAGMENT_ATOMICS: &str = "#version 430
+layout(r32ui) uniform uimage2D counter;
+void main() {
+/* DRAWBUFFERS:1 */
+    if (all(lessThan(ivec2(gl_FragCoord.xy), ivec2(4)))) {
+        imageAtomicAdd(counter, ivec2(0), 1u);
+    }
+    gl_FragData[0] = vec4(0.0);
+}
+";
+
+const CLEARED: &str =
+    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n";
+const KEPT: &str =
+    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT false false 1 1\n";
 
 /// Threads running [`load`]; `DIAG_LOAD` overrides the default of 2.
 fn load_threads() -> usize {
@@ -69,25 +105,19 @@ fn load(stop: &AtomicBool) {
     }
 }
 
-const SIDE: u32 = 64;
-
 const SHADERS: &str = "
 @group(0) @binding(0) var counter: texture_storage_2d<r32uint, atomic>;
-@compute @workgroup_size(8, 8) fn add(@builtin(global_invocation_id) id: vec3<u32>) {
+@compute @workgroup_size(1) fn add(@builtin(global_invocation_id) id: vec3<u32>) {
     textureAtomicAdd(counter, vec2<i32>(id.xy), 1u);
+}
+@compute @workgroup_size(1) fn add_zero() {
+    textureAtomicAdd(counter, vec2<i32>(0), 1u);
 }
 
 @group(0) @binding(0) var rw: texture_storage_2d<r32uint, read_write>;
 @compute @workgroup_size(1) fn touch_one() {
     let v = textureLoad(rw, vec2<i32>(0));
     if (v.r == 0xffffffffu) { textureStore(rw, vec2<i32>(0), v); }
-}
-@compute @workgroup_size(8, 8) fn touch_all(@builtin(global_invocation_id) id: vec3<u32>) {
-    let v = textureLoad(rw, vec2<i32>(id.xy));
-    if (v.r == 0xffffffffu) { textureStore(rw, vec2<i32>(id.xy), v); }
-}
-@compute @workgroup_size(1) fn touch_dims() {
-    if (textureDimensions(rw).x == 0u) { textureStore(rw, vec2<i32>(0), vec4<u32>(0u)); }
 }
 
 @group(0) @binding(0) var sampled: texture_2d<u32>;
@@ -102,39 +132,38 @@ const SHADERS: &str = "
     textureAtomicAdd(counter, vec2<i32>(p.xy), 1u);
     return vec4<u32>(0u);
 }
+@fragment fn frag_add_zero() -> @location(0) vec4<u32> {
+    textureAtomicAdd(counter, vec2<i32>(0), 1u);
+    return vec4<u32>(0u);
+}
 ";
 
-/// Which shader stage performs the atomics.
+/// Which stage performs the atomics, and whether every invocation adds 1 to its own texel or to
+/// texel (0, 0).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Writer {
-    Compute,
-    Fragment,
+    ComputeOwn,
+    ComputeZero,
+    FragmentOwn,
+    FragmentZero,
 }
 
 /// What runs between the atomics and the render pass that reads the texture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Between {
-    /// Nothing.
     Nothing,
     /// A one-invocation compute pass that loads texel (0, 0) through a read-write binding and
     /// stores it back only if it is `u32::MAX`.
     TouchOne,
-    /// The same for every texel.
-    TouchAll,
-    /// A one-invocation compute pass that binds the texture read-write and stores only if its
-    /// width is zero, without loading it.
-    TouchDims,
-    /// [`Self::TouchOne`] as a second dispatch inside the compute pass that does the atomics.
-    TouchOneSamePass,
 }
 
 struct Pipelines {
     add: wgpu::ComputePipeline,
+    add_zero: wgpu::ComputePipeline,
     touch_one: wgpu::ComputePipeline,
-    touch_all: wgpu::ComputePipeline,
-    touch_dims: wgpu::ComputePipeline,
     show: wgpu::RenderPipeline,
     frag_add: wgpu::RenderPipeline,
+    frag_add_zero: wgpu::RenderPipeline,
 }
 
 fn pipelines(device: &wgpu::Device) -> Pipelines {
@@ -177,11 +206,11 @@ fn pipelines(device: &wgpu::Device) -> Pipelines {
     };
     Pipelines {
         add: compute("add"),
+        add_zero: compute("add_zero"),
         touch_one: compute("touch_one"),
-        touch_all: compute("touch_all"),
-        touch_dims: compute("touch_dims"),
         show: render("show"),
         frag_add: render("frag_add"),
+        frag_add_zero: render("frag_add_zero"),
     }
 }
 
@@ -229,14 +258,14 @@ fn draw(
     pass.draw(0..3, 0..1);
 }
 
-/// One trial: zeroes a fresh `SIDE`×`SIDE` `r32uint` texture, adds 1 to every texel with atomics
-/// from `writer`, runs `between`, reads it in a render pass and returns how many texels did not
-/// read 1.
-fn trial(gpu: &GpuContext, pipes: &Pipelines, writer: Writer, between: Between) -> u32 {
+/// One trial: zeroes a fresh `side`×`side` `r32uint` texture, adds 1 per invocation with
+/// atomics as `writer` says, runs `between`, reads it in a render pass and returns how many
+/// texels read a wrong value.
+fn trial(gpu: &GpuContext, pipes: &Pipelines, side: u32, writer: Writer, between: Between) -> u32 {
     let device = &gpu.device;
     let extent = wgpu::Extent3d {
-        width: SIDE,
-        height: SIDE,
+        width: side,
+        height: side,
         depth_or_array_layers: 1,
     };
     let texture = |usage| {
@@ -259,10 +288,10 @@ fn trial(gpu: &GpuContext, pipes: &Pipelines, writer: Writer, between: Between) 
     );
     gpu.queue.write_texture(
         counter.as_image_copy(),
-        &vec![0; (4 * SIDE * SIDE) as usize],
+        &vec![0; (4 * side * side) as usize],
         wgpu::TexelCopyBufferLayout {
             offset: 0,
-            bytes_per_row: Some(4 * SIDE),
+            bytes_per_row: Some(4 * side),
             rows_per_image: None,
         },
         extent,
@@ -272,44 +301,40 @@ fn trial(gpu: &GpuContext, pipes: &Pipelines, writer: Writer, between: Between) 
     let target = texture(wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC);
     let readback = device.create_buffer(&wgpu::BufferDescriptor {
         label: None,
-        size: u64::from(4 * SIDE * SIDE),
+        size: u64::from(256 * side),
         usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
         mapped_at_creation: false,
     });
-    let touch = match between {
-        Between::Nothing => None,
-        Between::TouchOne | Between::TouchOneSamePass => Some((&pipes.touch_one, 1)),
-        Between::TouchAll => Some((&pipes.touch_all, SIDE / 8)),
-        Between::TouchDims => Some((&pipes.touch_dims, 1)),
-    };
-    let touch_group =
-        touch.map(|(pipeline, _)| group(device, &pipeline.get_bind_group_layout(0), &view));
     let mut encoder = device.create_command_encoder(&Default::default());
     match writer {
-        Writer::Compute => {
-            let add_group = group(device, &pipes.add.get_bind_group_layout(0), &view);
+        Writer::ComputeOwn | Writer::ComputeZero => {
+            let pipeline = if writer == Writer::ComputeOwn {
+                &pipes.add
+            } else {
+                &pipes.add_zero
+            };
+            let add_group = group(device, &pipeline.get_bind_group_layout(0), &view);
             let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&pipes.add);
+            pass.set_pipeline(pipeline);
             pass.set_bind_group(0, &add_group, &[]);
-            pass.dispatch_workgroups(SIDE / 8, SIDE / 8, 1);
-            if between == Between::TouchOneSamePass {
-                pass.set_pipeline(&pipes.touch_one);
-                pass.set_bind_group(0, touch_group.as_ref().unwrap(), &[]);
-                pass.dispatch_workgroups(1, 1, 1);
-            }
+            pass.dispatch_workgroups(side, side, 1);
         }
-        Writer::Fragment => {
-            let add_group = group(device, &pipes.frag_add.get_bind_group_layout(0), &view);
-            draw(&mut encoder, &scratch, &pipes.frag_add, &add_group);
+        Writer::FragmentOwn | Writer::FragmentZero => {
+            let pipeline = if writer == Writer::FragmentOwn {
+                &pipes.frag_add
+            } else {
+                &pipes.frag_add_zero
+            };
+            let add_group = group(device, &pipeline.get_bind_group_layout(0), &view);
+            draw(&mut encoder, &scratch, pipeline, &add_group);
         }
     }
-    if let (Some((pipeline, groups)), Some(touch_group)) = (touch, &touch_group)
-        && between != Between::TouchOneSamePass
-    {
+    if between == Between::TouchOne {
+        let touch_group = group(device, &pipes.touch_one.get_bind_group_layout(0), &view);
         let mut pass = encoder.begin_compute_pass(&Default::default());
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, touch_group, &[]);
-        pass.dispatch_workgroups(groups, groups, 1);
+        pass.set_pipeline(&pipes.touch_one);
+        pass.set_bind_group(0, &touch_group, &[]);
+        pass.dispatch_workgroups(1, 1, 1);
     }
     let show_group = group(device, &pipes.show.get_bind_group_layout(0), &view);
     draw(&mut encoder, &target, &pipes.show, &show_group);
@@ -319,7 +344,7 @@ fn trial(gpu: &GpuContext, pipes: &Pipelines, writer: Writer, between: Between) 
             buffer: &readback,
             layout: wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(4 * SIDE),
+                bytes_per_row: Some(256),
                 rows_per_image: None,
             },
         },
@@ -331,15 +356,24 @@ fn trial(gpu: &GpuContext, pipes: &Pipelines, writer: Writer, between: Between) 
         .map_async(wgpu::MapMode::Read, |result| result.unwrap());
     device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
     let bytes = readback.slice(..).get_mapped_range().unwrap().to_vec();
-    bytes
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .filter(|texel| u32::from_le_bytes(**texel) != 1)
-        .count() as u32
+    let mut wrong = 0;
+    for y in 0..side {
+        for x in 0..side {
+            let at = (y * 256 + x * 4) as usize;
+            let value = u32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+            let expected = match writer {
+                Writer::ComputeOwn | Writer::FragmentOwn => 1,
+                Writer::ComputeZero | Writer::FragmentZero if x == 0 && y == 0 => side * side,
+                Writer::ComputeZero | Writer::FragmentZero => 0,
+            };
+            wrong += u32::from(value != expected);
+        }
+    }
+    wrong
 }
 
-/// TEMPORARY DIAGNOSTIC: which follow-up pass makes atomics visible to a later render pass.
+/// TEMPORARY DIAGNOSTIC: how texture size and the atomic pattern affect stale reads, and
+/// whether a touch pass fixes them.
 #[test]
 fn diag_raw_wgpu_image_atomics() {
     let Some(probe) = gpu() else {
@@ -355,20 +389,26 @@ fn diag_raw_wgpu_image_atomics() {
     let adapter = format!("{:?}", probe.adapter.get_info());
     drop(probe);
     const THREADS: usize = 4;
-    const RUNS: usize = 50;
+    const RUNS: usize = 25;
     const ROUNDS: usize = 4;
-    let conditions = [
-        (Writer::Compute, Between::Nothing),
-        (Writer::Compute, Between::TouchOne),
-        (Writer::Compute, Between::TouchAll),
-        (Writer::Compute, Between::TouchDims),
-        (Writer::Compute, Between::TouchOneSamePass),
-        (Writer::Fragment, Between::Nothing),
-        (Writer::Fragment, Between::TouchOne),
-        (Writer::Fragment, Between::TouchAll),
-    ];
+    let mut conditions = Vec::new();
+    for side in [1, 8, 64] {
+        for writer in [
+            Writer::ComputeOwn,
+            Writer::ComputeZero,
+            Writer::FragmentOwn,
+            Writer::FragmentZero,
+        ] {
+            if side == 1 && matches!(writer, Writer::ComputeZero | Writer::FragmentZero) {
+                continue;
+            }
+            for between in [Between::Nothing, Between::TouchOne] {
+                conditions.push((side, writer, between));
+            }
+        }
+    }
     // (trials with any wrong texel, wrong texels)
-    let mut totals: BTreeMap<(Writer, Between), (u32, u64)> = BTreeMap::new();
+    let mut totals: BTreeMap<(u32, Writer, Between), (u32, u64)> = BTreeMap::new();
     let stop = AtomicBool::new(false);
     std::thread::scope(|scope| {
         let loaders: Vec<_> = (0..load_threads())
@@ -382,7 +422,7 @@ fn diag_raw_wgpu_image_atomics() {
             })
             .collect();
         for _ in 0..ROUNDS {
-            for &(writer, between) in &conditions {
+            for &(side, writer, between) in &conditions {
                 let seen: Vec<(u32, u64)> = std::thread::scope(|inner| {
                     let workers: Vec<_> = devices
                         .iter()
@@ -390,7 +430,7 @@ fn diag_raw_wgpu_image_atomics() {
                             inner.spawn(move || {
                                 let mut seen = (0, 0);
                                 for _ in 0..RUNS {
-                                    let wrong = trial(gpu, pipes, writer, between);
+                                    let wrong = trial(gpu, pipes, side, writer, between);
                                     seen.0 += u32::from(wrong != 0);
                                     seen.1 += u64::from(wrong);
                                 }
@@ -400,7 +440,7 @@ fn diag_raw_wgpu_image_atomics() {
                         .collect();
                     workers.into_iter().map(|w| w.join().unwrap()).collect()
                 });
-                let total = totals.entry((writer, between)).or_default();
+                let total = totals.entry((side, writer, between)).or_default();
                 for (trials, texels) in seen {
                     total.0 += trials;
                     total.1 += texels;
@@ -413,9 +453,128 @@ fn diag_raw_wgpu_image_atomics() {
         }
     });
     let mut report = format!("adapter: {adapter}\n");
-    for ((writer, between), (trials, texels)) in &totals {
+    for ((side, writer, between), (trials, texels)) in &totals {
         report += &format!(
-            "touch {writer:?} {between:?}: {trials} / {} trials wrong, {texels} texels wrong\n",
+            "touch {side}x{side} {writer:?} {between:?}: {trials} / {} trials wrong, {texels} texels wrong\n",
+            THREADS * RUNS * ROUNDS
+        );
+    }
+    panic!("DIAG\n{report}");
+}
+
+/// TEMPORARY DIAGNOSTIC: counts how often each shader pack counter variant reads a wrong value.
+#[test]
+fn diag_image_atomics_flake_rate() {
+    let Some(probe) = gpu() else {
+        return;
+    };
+    if !probe
+        .device
+        .features()
+        .contains(wgpu::Features::TEXTURE_ATOMIC)
+    {
+        return;
+    }
+    drop(probe);
+    const THREADS: usize = 4;
+    const RUNS: usize = 25;
+    const ROUNDS: usize = 4;
+    let compute = |properties, program| {
+        vec![
+            ("shaders.properties", properties),
+            ("composite.csh", program),
+            ("composite.vsh", PASS_VERTEX),
+            ("composite.fsh", SHOW_COUNT),
+            ("final.vsh", PASS_VERTEX),
+            ("final.fsh", FINAL),
+        ]
+    };
+    let fragment = vec![
+        ("shaders.properties", CLEARED),
+        ("composite.vsh", PASS_VERTEX),
+        ("composite.fsh", FRAGMENT_ATOMICS),
+        ("composite1.vsh", PASS_VERTEX),
+        ("composite1.fsh", SHOW_COUNT),
+        ("final.vsh", PASS_VERTEX),
+        ("final.fsh", FINAL),
+    ];
+    // (name, files, frames, expected red)
+    type Files<'a> = Vec<(&'a str, &'a str)>;
+    let variants: Vec<(&str, Files, usize, u8)> = vec![
+        (
+            "A atomic, cleared, 2 frames (the CI test)",
+            compute(CLEARED, COUNT_ATOMICALLY),
+            2,
+            16,
+        ),
+        (
+            "B imageStore, cleared, 2 frames",
+            compute(CLEARED, STORE_SIXTEEN),
+            2,
+            16,
+        ),
+        (
+            "C atomic, kept, 1 frame",
+            compute(KEPT, COUNT_ATOMICALLY),
+            1,
+            16,
+        ),
+        (
+            "M one invocation adds 16, kept, 1 frame",
+            compute(KEPT, ONE_ATOMIC),
+            1,
+            16,
+        ),
+        ("F fragment atomics, cleared, 2 frames", fragment, 2, 16),
+    ];
+    let mut totals: BTreeMap<usize, BTreeMap<u8, u32>> = BTreeMap::new();
+    let stop = AtomicBool::new(false);
+    std::thread::scope(|scope| {
+        let loaders: Vec<_> = (0..load_threads())
+            .map(|_| scope.spawn(|| load(&stop)))
+            .collect();
+        let devices: Vec<_> = (0..THREADS).map(|_| gpu().expect("adapter")).collect();
+        for _ in 0..ROUNDS {
+            for (index, (_, files, frames, _)) in variants.iter().enumerate() {
+                let seen: Vec<BTreeMap<u8, u32>> = std::thread::scope(|inner| {
+                    let workers: Vec<_> = devices
+                        .iter()
+                        .map(|gpu| {
+                            inner.spawn(move || {
+                                let mut seen = BTreeMap::<u8, u32>::new();
+                                for _ in 0..RUNS {
+                                    let (_, bytes) = render_frames(gpu, files, *frames);
+                                    *seen.entry(bytes[0]).or_default() += 1;
+                                }
+                                seen
+                            })
+                        })
+                        .collect();
+                    workers.into_iter().map(|w| w.join().unwrap()).collect()
+                });
+                let total = totals.entry(index).or_default();
+                for map in seen {
+                    for (value, count) in map {
+                        *total.entry(value).or_default() += count;
+                    }
+                }
+            }
+        }
+        stop.store(true, Ordering::Relaxed);
+        for loader in loaders {
+            loader.join().unwrap();
+        }
+    });
+    let mut report = String::new();
+    for (index, total) in &totals {
+        let (name, .., expected) = &variants[*index];
+        let wrong: u32 = total
+            .iter()
+            .filter(|(value, _)| value.abs_diff(*expected) > 1)
+            .map(|(_, count)| count)
+            .sum();
+        report += &format!(
+            "pack {name}: {wrong} / {} wrong, expected {expected}, seen {total:?}\n",
             THREADS * RUNS * ROUNDS
         );
     }
