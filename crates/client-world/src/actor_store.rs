@@ -65,8 +65,7 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps Bedrock's movement interpolator takes to reach a lerped target: each absolute
-/// remote-actor movement target, and a Normal-mode `MovePlayer` for the local player.
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
 pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.

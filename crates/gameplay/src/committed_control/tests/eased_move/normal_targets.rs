@@ -91,17 +91,11 @@ fn rotation_eases_the_travel_direction_and_sent_aim() {
     .unwrap();
     let sent = sent_inputs(&mut movement);
     assert_eq!(
-        sent.iter()
-            .skip(1)
-            .map(|sample| sample.yaw)
-            .collect::<Vec<_>>(),
+        sent.iter().map(|sample| sample.yaw).collect::<Vec<_>>(),
         [30.0, 60.0, 90.0]
     );
     assert_eq!(
-        sent.iter()
-            .skip(1)
-            .map(|sample| sample.pitch)
-            .collect::<Vec<_>>(),
+        sent.iter().map(|sample| sample.pitch).collect::<Vec<_>>(),
         [10.0, 20.0, 30.0]
     );
     assert_eq!(physics.take_eased_rotation(), Some([90.0, 30.0]));
@@ -288,7 +282,6 @@ fn eased_packet_height_is_exact_in_live_replayed_and_sent_positions() {
     let sent = sent_inputs(&mut movement);
     assert_eq!(
         sent.iter()
-            .skip(1)
             .map(|sample| sample.position[1].to_bits())
             .collect::<Vec<_>>(),
         expected
