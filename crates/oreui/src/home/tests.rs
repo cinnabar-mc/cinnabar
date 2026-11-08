@@ -18,20 +18,41 @@ fn view() -> MenuView {
 }
 
 #[test]
-fn marketplace_browsing_is_reachable_without_an_account_or_idle_library() {
+fn marketplace_browsing_is_hidden_with_or_without_an_account() {
     for auth in [
         launcher::menu::auth::AuthState::SignedOut,
         launcher::menu::auth::AuthState::Authenticated,
     ] {
         let mut view = view();
         view.auth_state = auth;
-        std::sync::Arc::make_mut(&mut view.mods).library.busy = true;
-        let (_, hits, _) = paint(HashMap::new(), |canvas| {
-            draw(canvas, &view, [1280.0, 720.0], None, &|_| None).unwrap();
-        });
-        assert!(hits.iter().any(|(action, _)| {
-            *action == MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)
-        }));
+        for size in [[1280.0, 720.0], [480.0, 340.0]] {
+            let (_, hits, nodes) = paint(HashMap::new(), |canvas| {
+                draw(canvas, &view, size, None, &|_| None).unwrap();
+            });
+            assert!(
+                !hits
+                    .iter()
+                    .any(|(action, _)| matches!(action, MenuAction::Mods(_)))
+            );
+            let text = nodes
+                .iter()
+                .filter_map(|node| match node.visual() {
+                    UiVisual::Text { layout, .. } => Some(
+                        layout
+                            .glyphs()
+                            .iter()
+                            .map(|glyph| glyph.codepoint)
+                            .collect::<String>(),
+                    ),
+                    _ => None,
+                })
+                .collect::<String>();
+            assert!(!text.to_ascii_lowercase().contains("marketplace"));
+            assert!(
+                hits.iter()
+                    .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::Settings))
+            );
+        }
     }
 }
 
@@ -132,7 +153,6 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             MenuAction::Navigate(MenuScreen::Play),
             MenuAction::Navigate(MenuScreen::Servers),
             MenuAction::Navigate(MenuScreen::Settings),
-            MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
             MenuAction::Navigate(MenuScreen::Social),
             MenuAction::Navigate(MenuScreen::DressingRoom),
             MenuAction::OpenAccounts,

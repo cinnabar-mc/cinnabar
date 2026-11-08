@@ -2181,10 +2181,10 @@ grants stage disabled beside the old version until Enable. Other local mods' dec
 package retains the revision-checked first-party update path. An initial website send
 whose compatibility check or installation fails after handoff to the library worker
 is not retried until an account change or restart. Production signing
-public keys are pinned in the client. Home and Mods link to the catalogue and
-explain account sign-in, website sends and explicit permission review while
-preserving local imports. Production deployment and real-domain/cross-platform
-interactive acceptance remain incomplete; see
+public keys are pinned in the client. The in-game marketplace entry points are
+hidden until the marketplace launches publicly. Mods retains account sign-in,
+website sends, explicit permission review and local imports. Production deployment
+and real-domain/cross-platform interactive acceptance remain incomplete; see
 [marketplace installation](docs/marketplace.md). No vanilla parity gate is closed
 by this optional client feature.
 
