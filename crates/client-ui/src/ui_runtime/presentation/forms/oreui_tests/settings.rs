@@ -382,31 +382,58 @@ fn settings_slider_capture_clamps_outside_the_bar_on_both_axes() {
 }
 
 #[test]
-fn settings_scale_choices_do_not_publish_slider_capture_geometry() {
+fn settings_scale_slider_capture_clamps_to_its_end_modifiers() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = settings_view("accessibility_forced_index");
-    view.gui_scale_choices = ui::DesktopGuiScale::for_window([1280, 720])
+    view.gui_scale_choices = ui::DesktopGuiScale::for_window([2560, 1440])
         .choices()
         .collect();
-    view.focused_action = Some(MenuAction::SettingsScale(-1));
-    present(&mut presentation, &view, [1280.0, 720.0]);
-    assert!(
-        presentation
-            .menu_hit_targets
-            .iter()
-            .any(|(action, _)| *action == MenuAction::SettingsScale(-1))
+    let (first, last) = (
+        view.gui_scale_choices.first().unwrap().offset,
+        view.gui_scale_choices.last().unwrap().offset,
     );
-    for point in [
-        UiPoint::new(-1000.0, -1000.0).unwrap(),
-        UiPoint::new(4000.0, 4000.0).unwrap(),
-    ] {
-        assert_eq!(
-            presentation.gui_scale_drag_action(point),
-            None,
-            "native option buttons never acquire slider capture"
+    view.focused_action = Some(MenuAction::SettingsScale(last));
+    presentation.set_menu_view(Some(view.clone()));
+    present(&mut presentation, &view, [1280.0, 720.0]);
+    for choice in &view.gui_scale_choices {
+        assert!(
+            presentation
+                .menu_hit_targets
+                .iter()
+                .any(|(action, _)| *action == MenuAction::SettingsScale(choice.offset)),
+            "every modifier has a slider stop"
         );
     }
-    assert_eq!(presentation.gui_scale_slider_track(), None);
+    for (point, offset) in [
+        (UiPoint::new(-1000.0, -1000.0).unwrap(), first),
+        (UiPoint::new(4000.0, 4000.0).unwrap(), last),
+    ] {
+        assert_eq!(
+            presentation.gui_scale_drag_action(point, None),
+            Some(MenuAction::SettingsScale(offset)),
+            "a captured drag beyond the track clamps to its end modifier"
+        );
+    }
+    let live = presentation
+        .gui_scale_slider_track()
+        .expect("the OreUI GUI-scale row publishes its track");
+    let y = (live.min().y() + live.max().y()) * 0.5;
+    let point = UiPoint::new(live.min().x() + live.width() * 0.4, y).unwrap();
+    let middle = view.gui_scale_choices[1].offset;
+    assert_eq!(
+        presentation.gui_scale_drag_action(point, None),
+        Some(MenuAction::SettingsScale(middle))
+    );
+    let captured = ui::UiRect::new(
+        live.min(),
+        UiPoint::new(live.min().x() + live.width() * 0.5, live.max().y()).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        presentation.gui_scale_drag_action(point, Some(captured)),
+        Some(MenuAction::SettingsScale(last)),
+        "a held pointer maps through the track it captured, not the relaid-out one"
+    );
 }
 
 /// Query edits reset result scrolling without moving the fixed editor.
