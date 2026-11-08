@@ -82,6 +82,27 @@ fn section_rows_keep_order_and_shared_controls_from_the_registry() {
     );
 }
 
+/// Keeps the outer range, optional drawer and near-detail radius beside each other.
+#[test]
+fn far_terrain_distance_controls_are_adjacent() {
+    let rows: Vec<_> = SettingPanel::VideoGraphics
+        .options()
+        .map(|row| row.id)
+        .collect();
+    let at = rows
+        .iter()
+        .position(|id| *id == SettingId::RenderDistance)
+        .unwrap();
+    assert_eq!(
+        &rows[at..at + 3],
+        &[
+            SettingId::RenderDistance,
+            SettingId::FarTerrain,
+            SettingId::FullDetailDistance
+        ]
+    );
+}
+
 #[test]
 fn every_reset_changes_only_its_registered_members_and_keeps_bindings() {
     for group in [

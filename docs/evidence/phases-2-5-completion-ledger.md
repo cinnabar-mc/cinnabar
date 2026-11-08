@@ -193,8 +193,9 @@ sources. Shutdown advances all retiring inboxes before waiting, and cancelled li
 releases completed results while far terrain is off. Regression fixtures are written but unrun; output, transfer timing and hardware
 performance qualification remain incomplete. Coarsening keeps overlapping fallback tiles
 until their replacement covers all known columns; near masks also track the outer view
-distance. Regressions cover partial solid/empty coarsening and horizon changes. The Far
-Terrain control remains unavailable; owner-approved rendered comparisons, smooth transitions
+distance. Regressions cover partial solid/empty coarsening and horizon changes. Far Terrain
+and Full-Detail Distance are restored with Off as the default and retired saved keys ignored.
+Owner-approved rendered comparisons, smooth transitions
 and matched on/off hardware profiles at 32+ chunks are still required. No phase or
 performance gate closes here.
 

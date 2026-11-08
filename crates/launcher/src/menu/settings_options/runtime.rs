@@ -29,6 +29,15 @@ pub fn frame_rate_label(value: i32, translate: &dyn Fn(&str) -> String) -> Strin
     }
 }
 
+/// Formats the automatic full-detail radius or a localized chunk distance.
+pub fn full_detail_label(value: i32, chunks: &dyn Fn(i32) -> String) -> String {
+    if value == render_api::far_terrain::FULL_DETAIL_AUTO as i32 {
+        "Auto".to_owned()
+    } else {
+        chunks(value)
+    }
+}
+
 impl SettingsOptions {
     /// Builds the existing subsystem settings from the controller's saved values.
     pub fn user_settings(&self) -> ui::UserSettings {
@@ -58,6 +67,10 @@ impl SettingsOptions {
             ui::MotionBlurQuality::from_index(self.value(MOTION_BLUR_OPTION.id));
         settings.video.smaa_mode = ui::SmaaMode::from_value(self.value(SMAA_OPTION.id));
         settings.video.render_distance_chunks = self.value(SettingId::RenderDistance) as u8;
+        settings.video.far_terrain =
+            render_api::far_terrain::FarTerrainMode::from_index(self.value(SettingId::FarTerrain));
+        settings.video.full_detail_distance_chunks =
+            self.value(SettingId::FullDetailDistance) as u32;
         settings.video.chunk_occlusion_culling = self.value(SettingId::ChunkOcclusionCulling) != 0;
         settings.video.view_bobbing =
             ui::ViewBobbing::from_value(self.value(SettingId::ViewBobbing));

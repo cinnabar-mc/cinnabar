@@ -11,18 +11,41 @@ use {
 fn video_section_omits_an_empty_advanced_heading() {
     let view = MenuView::new(true, "Player".into());
     for width in [400.0, 800.0] {
-        let (_, _, nodes) = paint(HashMap::new(), |canvas| {
-            let mut content = Content {
-                canvas,
-                view: &view,
-                span: [100.0, 100.0 + width],
-                column_width: width,
-                y: 100.0,
-                translate: &|_| None,
-                nested: false,
-            };
-            sections::draw(&mut content, SettingSection::Video).unwrap();
-        });
+        let mut tracks = HashMap::new();
+        let (_, hits, nodes) =
+            paint(HashMap::new(), |canvas| {
+                let mut content = Content {
+                    canvas,
+                    view: &view,
+                    span: [100.0, 100.0 + width],
+                    column_width: width,
+                    y: 100.0,
+                    translate: &|_| None,
+                    nested: false,
+                };
+                sections::draw(&mut content, SettingSection::Video).unwrap();
+                tracks.extend(content.canvas.slider_tracks.iter().filter_map(
+                    |(action, track, _)| match action {
+                        MenuAction::SettingsOption(index, _) => Some((*index, *track)),
+                        _ => None,
+                    },
+                ));
+            });
+        let render = tracks[&(SettingId::RenderDistance.index() as u16)];
+        let full = tracks[&(SettingId::FullDetailDistance.index() as u16)];
+        let far = hits
+            .iter()
+            .find_map(|(action, bounds)| match action {
+                MenuAction::SettingsDropdown(index) | MenuAction::SettingsOption(index, _)
+                    if usize::from(*index) == SettingId::FarTerrain.index() =>
+                {
+                    Some(*bounds)
+                }
+                _ => None,
+            })
+            .expect("far terrain selector");
+        assert!(render.max().y() < far.min().y());
+        assert!(far.max().y() < full.min().y());
         let advanced = nodes.iter().any(|node| match node.visual() {
             ui::UiVisual::Text { layout, .. } => layout
                 .glyphs()
