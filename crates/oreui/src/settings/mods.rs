@@ -4,6 +4,7 @@ use super::super::theme;
 use super::super::transitions::resources::{Group, Listing, Mods};
 use super::super::widgets::Variant;
 use super::Content;
+mod marketplace;
 mod permissions;
 mod update;
 use super::resources::{Face, accordion, caption, cards, compact_card, empty, note, reveal};
@@ -65,23 +66,34 @@ fn draw_sections(
     motion: &Mods,
 ) -> Result<(), PaintError> {
     let library = &snapshot.library;
-    content.heading("Mods", "Add features to your game with WebAssembly mods.")?;
+    content.heading("Mods", "Manage your mods.")?;
+    let buttons = [
+        (
+            "Browse marketplace",
+            Variant::Primary,
+            Some(command(Action::BrowseMarketplace)),
+        ),
+        (
+            "Import mod…",
+            Variant::Secondary,
+            (!library.busy).then_some(command(Action::Import)),
+        ),
+        (
+            "Reload all",
+            Variant::Secondary,
+            (!library.busy).then_some(command(Action::ReloadAll)),
+        ),
+    ];
     actions(
         content,
-        &[
-            (
-                "Import mod…",
-                Variant::Secondary,
-                (!library.busy).then_some(command(Action::Import)),
-            ),
-            (
-                "Reload all",
-                Variant::Secondary,
-                (!library.busy && !library.active.is_empty()).then_some(command(Action::ReloadAll)),
-            ),
-        ],
+        if library.active.is_empty() {
+            &buttons[..2]
+        } else {
+            &buttons
+        },
     )?;
     content.y += content.canvas.r(1.2);
+    marketplace::draw(content)?;
     if !library.message.is_empty() {
         note(content, &library.message, theme::NEUTRAL80.fill)?;
     }
@@ -109,7 +121,11 @@ fn draw_sections(
             })?;
             caption(
                 content,
-                "Higher mods take priority. Reorder Active mods to choose which wins.",
+                if library.active.is_empty() {
+                    "Enable mods from My mods."
+                } else {
+                    "Higher mods take priority. Reorder Active mods to choose which wins."
+                },
             )
         },
     )?;
@@ -133,7 +149,7 @@ fn draw_sections(
                     } else {
                         "No other mods"
                     },
-                    "Import a .wasm mod component to add it here.",
+                    "Browse the marketplace or import a .wasm file.",
                 )
             })?;
             cards(content, motion, Group::Available, |content, card| {
@@ -303,16 +319,17 @@ fn actions(
 ) -> Result<(), PaintError> {
     let [left, right] = content.inset();
     let gap = content.canvas.r(0.8);
-    let height = content.canvas.r(3.6);
     let mut x = left;
+    let mut row_height: f32 = 0.0;
     for (label, variant, action) in buttons {
-        let width = (content.canvas.measure(label, theme::BODY)? + content.canvas.r(3.2))
-            .min((right - left).max(1.0));
+        let [width, height] =
+            crate::widgets::wrapped_button_size(content.canvas, right - left, *variant, label)?;
         if x > left && x + width > right {
             x = left;
-            content.y += height + gap;
+            content.y += row_height + gap;
+            row_height = 0.0;
         }
-        crate::widgets::button(
+        crate::widgets::wrapped_button(
             content.canvas,
             content.view,
             [x, content.y, x + width, content.y + height],
@@ -320,10 +337,11 @@ fn actions(
             label,
             *action,
         )?;
+        row_height = row_height.max(height);
         x += width + gap;
     }
     if !buttons.is_empty() {
-        content.y += height;
+        content.y += row_height;
     }
     Ok(())
 }

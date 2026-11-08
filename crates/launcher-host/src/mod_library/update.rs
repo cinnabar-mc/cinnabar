@@ -15,6 +15,9 @@ use std::{
 /// Existing registration, permission grants and settings companions retain their identities.
 pub fn install<B: Backend>(mods: &Path, download: &Downloaded) -> Result<Installed, String> {
     let (item, path) = selected(mods, download)?;
+    if crate::marketplace::managed(&path) {
+        return Err("Marketplace mods require signed marketplace releases.".into());
+    }
     let old =
         B::read_source(&path).map_err(|error| format!("Could not read {}: {error}", item.file))?;
     let bytes = B::read_source(download.path())

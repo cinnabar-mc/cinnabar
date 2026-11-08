@@ -51,6 +51,13 @@ pub trait Backend: 'static {
     fn read_source(path: &Path) -> Result<Vec<u8>, String>;
     /// Validates the exact package bytes without admitting or granting a running instance.
     fn validate_source(bytes: &[u8]) -> Result<(), String>;
+    /// Checks the exact signed release against native declarations; unimplemented ports refuse admission.
+    fn validate_marketplace(
+        _bytes: &[u8],
+        _manifest: &crate::marketplace::Manifest,
+    ) -> Result<(), String> {
+        Err("Marketplace installation is unavailable for this runtime.".into())
+    }
     /// Parses update metadata, optionally requiring a valid requested-permissions declaration.
     fn update_metadata(bytes: &[u8], check_requested: bool) -> Result<ModMetadata, String>;
     /// Persists a selection or permission action through the canonical registration editor.
