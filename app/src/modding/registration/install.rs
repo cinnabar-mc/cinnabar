@@ -74,6 +74,7 @@ fn detach(world: &mut World, index: usize) -> ModHost {
             .remove_resource::<ModRuntime>()
             .expect("last mod runtime");
         world.remove_resource::<VisualTimeOverride>();
+        world.remove_resource::<crate::environment::VisualWeatherOverride>();
         world.remove_resource::<ModInteraction>();
         clear_presentation(world);
         return runtime.hosts.into_single();
@@ -187,6 +188,8 @@ fn publish(world: &mut World, candidate: Candidate) -> Result<(), Box<Candidate>
         runtime.push_host(prepared.host, metadata);
     } else {
         world.insert_resource(VisualTimeOverride(None));
+        // The runtime writes committed weather here; without it the presenter keeps server weather.
+        world.insert_resource(crate::environment::VisualWeatherOverride(None));
         world.insert_resource(ModInteraction::default());
         world.insert_resource(ModRuntime::new(prepared.host, metadata));
     }
