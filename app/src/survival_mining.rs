@@ -23,18 +23,21 @@ pub(crate) enum DestroyObservation {
     Refused(RefusedDestroy),
 }
 
-/// Reads the destroy facts used for this frame's block press. `pick` pairs the camera ray with
-/// the ticked position the pick is trimmed from, falling back to the ray origin without one.
-/// `held` is the block already being destroyed: refreshing an accepted pick keeps it, so a later
-/// position past the centre distance does not drop it.
+/// The camera ray a destroy target is picked with, and what trims it.
+pub(crate) struct DestroyPick<'a> {
+    pub(crate) origin: &'a client_presentation::local_player::InteractionOriginSnapshot,
+    /// Ticked position the pick is trimmed from; the ray origin without one.
+    pub(crate) ticked: Option<[f32; 3]>,
+    /// Block already being destroyed: refreshing an accepted pick keeps it past the centre
+    /// distance, so a later position does not drop it.
+    pub(crate) held: Option<[i32; 3]>,
+}
+
+/// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
-    pick: (
-        &client_presentation::local_player::InteractionOriginSnapshot,
-        Option<[f32; 3]>,
-    ),
-    held: Option<[i32; 3]>,
+    pick: DestroyPick<'_>,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -49,7 +52,7 @@ pub(crate) fn observe_destroy_target(
     let selection = hand_interaction_selection(player_runtime)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
-        pick.0,
+        pick.origin,
         ui,
         &context.client_world,
         &context.collisions,
@@ -66,10 +69,10 @@ pub(crate) fn observe_destroy_target(
             position_authority_generation,
         ),
     )?;
-    if held != Some(observed.target.position)
+    if pick.held != Some(observed.target.position)
         && !block_pick_in_range(
             observed.target.position,
-            pick.1.unwrap_or(observed.ray.origin),
+            pick.ticked.unwrap_or(observed.ray.origin),
             observed.reach,
         )
     {
