@@ -355,3 +355,11 @@ front for a successful focused gameplay frame under the camera grant. Renew the
 request each frame while needed. Omission, menus, focus loss, callback failure and
 unload restore the player's own perspective; cycling the player's perspective
 while overridden still updates the choice restored afterwards.
+
+`camera.set-view-yaw-offset` adds a world-up heading offset in -180..180 degrees
+to the presented camera for a successful focused gameplay frame. The camera grant
+is required. The eye position, player look, movement and interaction direction are
+unchanged. Off-axis views hide the body-aligned first-person hand; body visibility
+follows the chosen perspective. Use `camera.set-perspective(first-person)` when a
+view should stay at the eye with the local body hidden. Omission, neutral zero,
+menus, focus loss, traps and unload restore the aligned view.
