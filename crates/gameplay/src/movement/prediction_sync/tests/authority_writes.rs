@@ -65,7 +65,6 @@ fn sync_reports_unsupported_received_speed() {
                     .unwrap();
                 for control in world.take_committed_controls() {
                     CommittedGameplayState {
-                        actor_exists: &|_| false,
                         movement: &mut movement,
                         physics: &mut physics,
                         effects: &mut effects,

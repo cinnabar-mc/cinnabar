@@ -41,7 +41,6 @@ fn ten_server_actor_moves_lift_local_physics_half_a_block_without_teleport_ackno
         assert_eq!(controls.len(), 1, "step {step} must reach local physics");
         for control in controls {
             let disposition = CommittedGameplayState {
-                actor_exists: &|_| false,
                 movement: &mut movement,
                 physics: &mut physics,
                 effects: &mut effects,
@@ -86,7 +85,6 @@ fn queued_actor_movement_from_an_old_dimension_cannot_reanchor_the_new_one() {
     };
     let mut observed = false;
     let disposition = CommittedGameplayState {
-        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,
@@ -119,7 +117,6 @@ fn dimension_anchor_supersedes_a_pending_actor_move() {
     physics.apply_server_actor_position([4.0, 5.0, 6.0], Some(true));
     let position = [8.0, 80.0, 9.0];
     let disposition = CommittedGameplayState {
-        actor_exists: &|_| false,
         movement: &mut movement,
         physics: &mut physics,
         effects: &mut effects,

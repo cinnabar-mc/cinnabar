@@ -588,9 +588,9 @@ Animation-only flags must remain separate from gameplay and correction authority
 Snapped corrections and teleports keep the local input tick when the server stamp is
 unretained or ahead; acceptance on servers that stamp their own clock is outstanding.
 A Normal-mode local `MovePlayer` with resident target terrain eases position and rotation over three ticks,
-including correction replay, preserving the packet's position precision. Unknown vehicle IDs take this
-path; resolved vehicles keep the correction path. An unloaded target is placed directly without
-replacing an active ease.
+including correction replay, preserving the packet's position precision. Vehicle IDs resolve at each
+packet's ordered commit: unknown IDs take this path; resolved vehicles keep the correction path.
+An unloaded target is placed directly without replacing an active ease.
 Incomplete: travel ordering, using collision-origin availability as terrain residency, the grounded
 interpolation adjustment, correction-path handling for mounted targets, broader exact-version
 confirmation and live acceptance.

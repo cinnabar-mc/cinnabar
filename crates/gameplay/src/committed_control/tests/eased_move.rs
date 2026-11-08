@@ -42,6 +42,7 @@ impl CollisionWorld for Floor {
 fn normal_move(position: [f32; 3]) -> CommittedControlEvent {
     CommittedControlEvent::MovePlayer {
         sequence: 3,
+        riding_actor_resolved: false,
         source_cohort: None,
         movement: protocol::MovePlayerEvent {
             runtime_id: 42,
@@ -66,23 +67,21 @@ fn apply(
     physics: &mut LocalPhysicsController,
     control: CommittedControlEvent,
 ) -> ControlDisposition {
-    apply_in(movement, physics, control, &Floor, &|_| false)
+    apply_in(movement, physics, control, &Floor)
 }
 
-/// Applies a control with the fixture's committed terrain and actor lookup.
+/// Applies a control with the fixture's committed terrain.
 fn apply_in(
     movement: &mut MovementTicker,
     physics: &mut LocalPhysicsController,
     control: CommittedControlEvent,
     world: &impl CollisionWorld,
-    actor_exists: &dyn Fn(u64) -> bool,
 ) -> ControlDisposition {
     let mut effects = LocalMovementEffectTimeline::default();
     effects.begin_session(7);
     let mut speed = LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
     CommittedGameplayState {
-        actor_exists,
         movement,
         physics,
         effects: &mut effects,

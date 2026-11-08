@@ -57,8 +57,6 @@ pub struct CommittedGameplayState<'a> {
     pub session_generation: u64,
     pub dimension: i32,
     pub dimension_transfer_active: bool,
-    /// Resolves packet actor IDs against the current committed actor lifetimes.
-    pub actor_exists: &'a dyn Fn(u64) -> bool,
 }
 
 impl CommittedGameplayState<'_> {
@@ -280,10 +278,17 @@ impl CommittedGameplayState<'_> {
             return ControlDisposition::Handled;
         }
         if let CommittedControlEvent::MovePlayer {
-            movement, resolved, ..
+            movement,
+            riding_actor_resolved,
+            resolved,
+            ..
         } = control
-            && let Some(disposition) =
-                self.apply_normal_move_player(&movement, resolved.position, world)
+            && let Some(disposition) = self.apply_normal_move_player(
+                &movement,
+                riding_actor_resolved,
+                resolved.position,
+                world,
+            )
         {
             if matches!(disposition, ControlDisposition::Spatial(_)) {
                 observe(ControlObservation::BeforeSpatial(control));
@@ -528,12 +533,13 @@ impl CommittedGameplayState<'_> {
     fn apply_normal_move_player(
         &mut self,
         movement: &protocol::MovePlayerEvent,
+        riding_actor_resolved: bool,
         position: [f32; 3],
         world: &impl CollisionWorld,
     ) -> Option<ControlDisposition> {
         if movement.teleported
             || movement.mode != protocol::MovePlayerMode::Normal
-            || (movement.riding_runtime_id != 0 && (self.actor_exists)(movement.riding_runtime_id))
+            || riding_actor_resolved
             || !self.movement.physics_is_authorized()
             || !self.physics.is_active()
             || !position.into_iter().all(f32::is_finite)

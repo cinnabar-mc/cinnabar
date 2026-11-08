@@ -126,26 +126,24 @@ fn rotation_easing_uses_the_current_aim_and_shortest_arc() {
     }
 }
 
-/// Packet vehicle IDs select the riding path only while they resolve to a live actor.
+/// The committed vehicle resolution selects the movement path independently of its ID.
 #[test]
-fn missing_and_removed_vehicle_ids_still_ease() {
-    let mut actors = std::collections::BTreeSet::new();
-    for present in [false, true, false] {
-        if present {
-            actors.insert(77);
-        } else {
-            actors.remove(&77);
-        }
+fn committed_vehicle_resolution_selects_the_movement_path() {
+    for resolved in [false, true] {
         let (mut movement, mut physics, _, _) = owners();
         let start = physics.network_position().unwrap();
         let mut control = normal_move([12.5, start[1], 6.5]);
-        if let CommittedControlEvent::MovePlayer { movement, .. } = &mut control {
+        if let CommittedControlEvent::MovePlayer {
+            movement,
+            riding_actor_resolved,
+            ..
+        } = &mut control
+        {
             movement.riding_runtime_id = 77;
+            *riding_actor_resolved = resolved;
         }
-        let disposition = apply_in(&mut movement, &mut physics, control, &Floor, &|id| {
-            actors.contains(&id)
-        });
-        if present {
+        let disposition = apply(&mut movement, &mut physics, control);
+        if resolved {
             assert_eq!(
                 disposition,
                 ControlDisposition::Spatial(SpatialReset::Correction)
@@ -169,7 +167,6 @@ fn an_unloaded_target_preserves_the_active_ease_and_sent_positions() {
         &mut physics,
         normal_move(target),
         &ColumnEdge,
-        &|_| false,
     );
     movement
         .enqueue_completed_physics(advance(&mut physics, 1).remove(0))
@@ -180,7 +177,6 @@ fn an_unloaded_target_preserves_the_active_ease_and_sent_positions() {
         &mut physics,
         normal_move(unloaded),
         &ColumnEdge,
-        &|_| false,
     );
     assert_eq!(
         disposition,
@@ -219,13 +215,7 @@ fn eased_packet_height_is_exact_in_live_replayed_and_sent_positions() {
         .remove(0);
     movement.enqueue_completed_physics(anchor.clone()).unwrap();
     let target = [12.5, 0.1_f32, 6.5];
-    apply_in(
-        &mut movement,
-        &mut physics,
-        normal_move(target),
-        &Air,
-        &|_| false,
-    );
+    apply_in(&mut movement, &mut physics, normal_move(target), &Air);
     let frame = physics.advance(
         simulation_clock::TICK_DURATION * 3,
         sim::MovementInput::default(),

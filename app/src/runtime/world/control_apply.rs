@@ -212,6 +212,7 @@ mod tests {
             apply_committed_aim(
                 CommittedControlEvent::MovePlayer {
                     sequence: 1,
+                    riding_actor_resolved: false,
                     source_cohort: None,
                     movement: protocol::MovePlayerEvent {
                         position,
@@ -267,6 +268,7 @@ mod tests {
                 apply_committed_control(
                     CommittedControlEvent::MovePlayer {
                         sequence: 1,
+                        riding_actor_resolved: false,
                         source_cohort: None,
                         movement: protocol::MovePlayerEvent {
                             yaw: 90.0,
@@ -306,6 +308,7 @@ mod tests {
         apply_committed_control(
             CommittedControlEvent::MovePlayer {
                 sequence: 1,
+                riding_actor_resolved: false,
                 source_cohort: None,
                 movement: protocol::MovePlayerEvent {
                     yaw: 90.0,

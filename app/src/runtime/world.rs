@@ -562,7 +562,6 @@ pub(crate) fn reconcile_world_stream_before_physics(
             movement_colliders,
         );
         let disposition = gameplay::committed_control::CommittedGameplayState {
-            actor_exists: &|runtime_id| stream.authority().actor(runtime_id).is_some(),
             movement: &mut movement,
             physics: &mut local_physics,
             effects: &mut movement_effects,

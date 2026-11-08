@@ -86,7 +86,6 @@ fn server_flag_replay_policy_committed_control_rebuilds_samples() {
     let mut effects = crate::movement::LocalMovementEffectTimeline::default();
     let mut speed = crate::movement::LocalMovementSpeedAuthority::default();
     crate::committed_control::CommittedGameplayState {
-        actor_exists: &|_| false,
         movement: &mut ticker,
         physics: &mut physics,
         effects: &mut effects,

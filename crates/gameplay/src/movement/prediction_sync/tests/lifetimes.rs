@@ -598,7 +598,6 @@ fn apply_cached_authority(
             facts.apply_air_drag_modifier(1, value);
         }
         crate::committed_control::CommittedGameplayState {
-            actor_exists: &|_| false,
             movement: &mut movement,
             physics,
             effects: &mut effects,
