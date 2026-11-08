@@ -1,7 +1,7 @@
 // Composes one actor artwork layer as its material does for the pack's `gtexture`.
-// Masked two-texture materials preserve cutout alpha. Colour-mask and three-texture materials have neither
-// alpha test nor blending, so their alpha weights colour and is never coverage. Texels are
-// raw gamma bytes, the space both native materials compose in.
+// Masked two-texture materials preserve cutout alpha. Colour-mask and three-texture
+// materials have neither alpha test nor blending, so their alpha weights colour and is
+// never coverage. Texels are raw gamma bytes, the space every native material composes in.
 
 struct ComposeParams {
     // x: base layer; y and z: the multitexture overlay layers.

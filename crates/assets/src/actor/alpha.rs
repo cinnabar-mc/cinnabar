@@ -33,7 +33,7 @@ pub(super) fn masked_multitexture_sources(render: &EntityRenderData) -> BTreeSet
 }
 
 /// Sources whose fractional alpha reaches the shader: dissolve masks, witnessed colour-mask and
-/// three-sampler rasters, art any drawing material blends, lights or colour-masks by alpha, and
+/// three-sampler rasters, masked two-sampler art, art any drawing material blends, lights or colour-masks by alpha, and
 /// art every drawing material alpha-tests. Every other raster's alpha rounds at 0.5.
 pub fn actor_sources_keeping_alpha(
     render: &EntityRenderData,

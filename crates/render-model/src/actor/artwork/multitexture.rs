@@ -1,4 +1,4 @@
-//! Native three-sampler rasters share one array page. Nearest texel replication preserves
+//! Native multi-sampler rasters share one array page. Nearest texel replication preserves
 //! each source's normalized-UV lookup; RGB composition remains in the fragment shader.
 
 use crate::{ActorArtworkLocation, ActorArtworkPages};

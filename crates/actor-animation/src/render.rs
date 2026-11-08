@@ -513,7 +513,9 @@ fn evaluate_layer_into(
         return Ok(LayerStatus::Inactive);
     }
     let (material, material_state) = selected_material(evaluator, variables, layer, budget)?;
-    let masked_multitexture = material_state.is_some_and(|state| state.masked_multitexture);
+    // A masked material with one texture has no second sampler to mask; it draws plainly.
+    let masked_multitexture =
+        layer.slot_count >= 2 && material_state.is_some_and(|state| state.masked_multitexture);
     let multitexture = multitexture || masked_multitexture;
     let choices = render
         .geometries

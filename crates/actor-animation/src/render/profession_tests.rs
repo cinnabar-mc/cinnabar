@@ -2,12 +2,12 @@ use super::super::*;
 use protocol_ids::{ActorDataKey, ActorFlag};
 
 #[test]
-fn masked_multitexture_ignores_unused_extra_samplers() {
+fn masked_multitexture_ignores_unused_samplers_and_draws_a_lone_texture() {
     use assets::{
         EntityAssetSource, EntityRenderCandidate, EntityRenderMaterialState, EntityRenderSlot,
     };
     let identifier = "custom:profession";
-    for count in [2, 3] {
+    for count in [1, 2, 3] {
         let mut compiled = crate::test_support::counting_random_compiled(identifier);
         let base = compiled.render.candidates[0].source;
         let mut sources = compiled.sources.into_vec();
@@ -59,7 +59,11 @@ fn masked_multitexture_ignores_unused_extra_samplers() {
         let snapshot = store.get(actor.runtime_id).unwrap();
         assert_eq!(snapshot.render.len(), 1);
         assert_eq!(snapshot.render[0].source, base);
-        assert_eq!(snapshot.render[0].multitexture, Some([clothes; 2]));
+        let expected = (count > 1).then_some([clothes; 2]);
+        assert_eq!(
+            snapshot.render[0].multitexture, expected,
+            "{count} samplers"
+        );
     }
 }
 

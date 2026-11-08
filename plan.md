@@ -679,10 +679,10 @@ Multi-pass body equipment and matched native visual qualification remain incompl
 
 Villager and zombie-villager profession layers retain their authored second sampler
 and colored transparent keep masks alongside biome clothing. Babies and unemployed
-villagers retain their authored material choices. The pinned villager brim provisionally uses
-the sibling zombie model's bind; its native villager default remains unverified.
-Matched native captures, masked-material
-MSAA edge qualification and independent server-pack sampler overrides remain incomplete.
+villagers retain their authored material choices. The pinned villager brim provisionally
+uses the sibling zombie model's bind; its native villager default remains unverified.
+Matched native captures, masked-material MSAA edge qualification, single-texture masked
+material parity and independent server-pack sampler overrides remain incomplete.
 
 Server-pack attachables can supply worn and held models, with an optional item-icon
 fallback for held models. Packs that only re-texture the stock bow or crossbow keep the
