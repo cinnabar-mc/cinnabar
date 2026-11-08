@@ -705,9 +705,10 @@ Cinnabar's 1 GiB per-pack ceiling is counted, logged and left out, and deferred 
 remains confirmed incomplete. The compile cache bounds its 1 GiB by compressed size on disk,
 so a stack whose entity pack is larger uncompressed still reuses its compile after a restart.
 
-Animation timeline keys read as C `atof`, as native does, so a key without a leading number
-is time 0, and each channel's keyframes play in time order. A malformed animation is skipped
-on its own while the rest of the stack applies.
+Animation timeline keys follow native's schema: only plain decimal keys such as `0.5` are
+times, other keys are ignored, and each channel's keyframes play in time order. A malformed
+animation is skipped on its own while the rest of the stack applies. Native's schema skips
+only an unmatched member; matching that for members other than timeline keys is incomplete.
 
 Client-entity render controllers evaluate each layer's activation, geometry, texture and
 pose in authored order. A completed all-false activation result suppresses the base body

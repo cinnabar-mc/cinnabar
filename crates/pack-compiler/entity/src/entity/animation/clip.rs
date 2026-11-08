@@ -224,9 +224,12 @@ fn parse_channel(
         .as_object()
         .ok_or_else(|| invalid("animation channel must be a vector or timeline"))?;
     let first = output.len();
-    for (time, value) in timeline {
-        let time = keyframe_time(time);
-        if !time.is_finite() || time < 0.0 {
+    for (key, value) in timeline {
+        // Native ignores a key that is not a plain decimal time, such as a `vector` wrapper.
+        let Some(time) = timeline_key_time(key) else {
+            continue;
+        };
+        if !time.is_finite() {
             return Err(invalid("invalid animation keyframe time").into());
         }
         *maximum_time = maximum_time.max(time);
@@ -263,6 +266,10 @@ fn parse_channel(
             });
         }
     }
+    // Every key was ignored, so the channel animates nothing.
+    if output.len() == first && !timeline.is_empty() {
+        return Err(ChannelError::Unsupported);
+    }
     // Keys arrive in text order ("10" before "2"); sampling needs time order. The sort is
     // stable, so a keyframe's pre value stays ahead of its post value.
     output[first..]
@@ -270,46 +277,15 @@ fn parse_channel(
     Ok(())
 }
 
-/// Reads a timeline key as vanilla does, with C `atof`: leading whitespace is skipped, the
-/// longest decimal number prefix (optional sign, digits, fraction and exponent) is the time,
-/// and a key with no such prefix, such as `"vector"`, is time 0. `inf`, `infinity` and `nan`
-/// read as their non-finite values.
-fn keyframe_time(key: &str) -> f32 {
-    let text = key.trim_start_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r']);
-    let bytes = text.as_bytes();
-    let mut end = usize::from(matches!(bytes.first(), Some(b'+' | b'-')));
-    let lowered = text[end..].to_ascii_lowercase();
-    for word in ["infinity", "inf", "nan"] {
-        if lowered.starts_with(word) {
-            return text[..end + word.len()].parse().unwrap_or(0.0);
-        }
-    }
-    let digits = |from: usize| {
-        bytes[from..]
-            .iter()
-            .take_while(|byte| byte.is_ascii_digit())
-            .count()
+/// The time of a timeline key native accepts: one or more ASCII digits, optionally followed by
+/// `.` and one or more digits. `None` for any other key, which native ignores.
+fn timeline_key_time(key: &str) -> Option<f32> {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let plain = match key.split_once('.') {
+        Some((whole, fraction)) => digits(whole) && digits(fraction),
+        None => digits(key),
     };
-    let integer = digits(end);
-    end += integer;
-    let mut fraction = 0;
-    if bytes.get(end) == Some(&b'.') {
-        fraction = digits(end + 1);
-        if integer + fraction > 0 {
-            end += 1 + fraction;
-        }
-    }
-    if integer + fraction == 0 {
-        return 0.0;
-    }
-    if matches!(bytes.get(end), Some(b'e' | b'E')) {
-        let sign = usize::from(matches!(bytes.get(end + 1), Some(b'+' | b'-')));
-        let exponent = digits(end + 1 + sign);
-        if exponent > 0 {
-            end += 1 + sign + exponent;
-        }
-    }
-    text[..end].parse().unwrap_or(0.0)
+    plain.then(|| key.parse().ok()).flatten()
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {
