@@ -8,7 +8,7 @@ pub(super) fn streaming_forward(
     view: &LocalViewPose,
     settings: &CameraSettingsAuthority,
 ) -> [f32; 3] {
-    (settings.offset_view_rotation(view.camera_rotation()) * Vec3::NEG_Z).to_array()
+    (view.camera_rotation(settings) * Vec3::NEG_Z).to_array()
 }
 
 #[cfg(test)]
