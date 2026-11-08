@@ -77,7 +77,7 @@ fn diag_image_atomics_flake_rate() {
     const THREADS: usize = 6;
     const RUNS: usize = 150;
     // (name, properties, compute, fragment, frames, expected red)
-    let variants: [(&str, &str, &str, &str, usize, u8); 6] = [
+    let variants: [(&str, &str, &str, &str, usize, u8); 9] = [
         (
             "A atomic, cleared, 2 frames",
             CLEARED,
@@ -87,8 +87,32 @@ fn diag_image_atomics_flake_rate() {
             16,
         ),
         (
+            "B imageStore, cleared, 2 frames",
+            CLEARED,
+            STORE_SIXTEEN,
+            SHOW_COUNT,
+            2,
+            16,
+        ),
+        (
             "C atomic, kept, 1 frame",
             KEPT,
+            COUNT_ATOMICALLY,
+            SHOW_COUNT,
+            1,
+            16,
+        ),
+        (
+            "D atomic, kept, 2 frames",
+            KEPT,
+            COUNT_ATOMICALLY,
+            SHOW_COUNT,
+            2,
+            32,
+        ),
+        (
+            "E atomic, cleared, 1 frame",
+            CLEARED,
             COUNT_ATOMICALLY,
             SHOW_COUNT,
             1,
