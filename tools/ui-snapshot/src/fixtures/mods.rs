@@ -50,6 +50,12 @@ pub(super) const STATES: &[State] = &[
         fixture: marketplace_withdrawn,
     },
     State {
+        name: "settings-mods-marketplace-customize",
+        size: TALL_SIZE,
+        gui_scale: GUI_SCALE,
+        fixture: marketplace_customize,
+    },
+    State {
         name: "settings-mods",
         size: TALL_SIZE,
         gui_scale: GUI_SCALE,
@@ -196,6 +202,15 @@ fn marketplace_withdrawn() -> Fixture {
         ))),
         String::new(),
     )
+}
+
+/// A downloaded marketplace mod with Customize open, offering only its requested permissions.
+fn marketplace_customize() -> Fixture {
+    let Fixture::Menu(mut view) = marketplace_library(None, String::new()) else {
+        unreachable!("the marketplace fixture is a menu")
+    };
+    Arc::make_mut(&mut view.mods).customizing = Some(1);
+    Fixture::Menu(view)
 }
 
 /// Three components; `metadata` decides whether they describe themselves.
