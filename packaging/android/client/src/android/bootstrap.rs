@@ -18,7 +18,7 @@ use first_run::Outcome;
 use jni::{
     JNIEnv, JavaVM, NativeMethod,
     objects::{JObject, JString, JValue},
-    sys::{JNI_ERR, JNI_VERSION_1_6, jint, jlong, jstring},
+    sys::{JNI_ERR, JNI_VERSION_1_6, jboolean, jfloat, jint, jlong, jstring},
 };
 
 use crate::cancellation::Cancellation;
@@ -58,12 +58,13 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                 },
             ],
         )?;
-        let cinnabar_class = format!(
+        let game_class = format!(
             "{}/CinnabarActivity",
             super::runtime().application_id.replace('.', "/")
         );
-        let _ = env.register_native_methods(
-            cinnabar_class,
+        // Physical keyboard and mouse ingress is optional: without it the game keeps touch input.
+        if let Err(error) = env.register_native_methods(
+            game_class,
             &[
                 NativeMethod {
                     name: "nativeOnDeviceStateChange".into(),
@@ -91,7 +92,10 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     fn_ptr: on_pointer_capture_change as *mut c_void,
                 },
             ],
-        );
+        ) {
+            eprintln!("Cinnabar could not register physical input natives: {error}");
+            let _ = env.exception_clear();
+        }
         Ok(())
     });
     match registered {
@@ -103,119 +107,50 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
     }
 }
 
-unsafe extern "C" fn on_device_state_change(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    mice: jni::sys::jint,
-    keyboards: jni::sys::jint,
+/// Receives the activity's counts of connected physical mice and alphabetic keyboards.
+extern "system" fn on_device_state_change(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    mice: jint,
+    keyboards: jint,
 ) {
-    on_device_state_change_raw(mice, keyboards);
+    cinnabar::platform_devices::ingress::set_platform_physical_devices(
+        mice.max(0) as u32,
+        keyboards.max(0) as u32,
+    );
 }
 
-pub fn on_device_state_change_raw(mice: jni::sys::jint, keyboards: jni::sys::jint) {
-    let mice = mice.max(0) as u32;
-    let keyboards = keyboards.max(0) as u32;
-    cinnabar::platform_devices::set_platform_physical_devices(mice, keyboards);
+/// Receives relative motion from a captured mouse.
+extern "system" fn on_mouse_motion(_: JNIEnv<'_>, _: JObject<'_>, dx: jfloat, dy: jfloat) {
+    cinnabar::platform_devices::ingress::accumulate_platform_mouse_motion(dx, dy);
 }
 
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnDeviceStateChange(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    mice: jni::sys::jint,
-    keyboards: jni::sys::jint,
+/// Receives one Android `MotionEvent` button bit changing state.
+extern "system" fn on_mouse_button(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    button_mask: jint,
+    pressed: jboolean,
 ) {
-    on_device_state_change_raw(mice, keyboards);
+    cinnabar::platform_devices::ingress::push_platform_mouse_button(
+        button_mask.max(0) as u32,
+        pressed != 0,
+    );
 }
 
-unsafe extern "C" fn on_mouse_motion(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    dx: jni::sys::jfloat,
-    dy: jni::sys::jfloat,
+/// Receives vertical and horizontal mouse wheel steps.
+extern "system" fn on_mouse_scroll(
+    _: JNIEnv<'_>,
+    _: JObject<'_>,
+    vscroll: jfloat,
+    hscroll: jfloat,
 ) {
-    on_mouse_motion_raw(dx, dy);
+    cinnabar::platform_devices::ingress::push_platform_mouse_scroll(vscroll, hscroll);
 }
 
-pub fn on_mouse_motion_raw(dx: jni::sys::jfloat, dy: jni::sys::jfloat) {
-    cinnabar::platform_devices::accumulate_platform_mouse_motion(dx, dy);
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseMotion(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    dx: jni::sys::jfloat,
-    dy: jni::sys::jfloat,
-) {
-    on_mouse_motion_raw(dx, dy);
-}
-
-unsafe extern "C" fn on_mouse_button(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    button_mask: jni::sys::jint,
-    pressed: jni::sys::jboolean,
-) {
-    on_mouse_button_raw(button_mask, pressed);
-}
-
-pub fn on_mouse_button_raw(button_mask: jni::sys::jint, pressed: jni::sys::jboolean) {
-    cinnabar::platform_devices::push_platform_mouse_button(button_mask.max(0) as u32, pressed != 0);
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseButton(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    button_mask: jni::sys::jint,
-    pressed: jni::sys::jboolean,
-) {
-    on_mouse_button_raw(button_mask, pressed);
-}
-
-unsafe extern "C" fn on_mouse_scroll(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    vscroll: jni::sys::jfloat,
-    hscroll: jni::sys::jfloat,
-) {
-    on_mouse_scroll_raw(vscroll, hscroll);
-}
-
-pub fn on_mouse_scroll_raw(vscroll: jni::sys::jfloat, hscroll: jni::sys::jfloat) {
-    cinnabar::platform_devices::push_platform_mouse_scroll(vscroll, hscroll);
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnMouseScroll(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    vscroll: jni::sys::jfloat,
-    hscroll: jni::sys::jfloat,
-) {
-    on_mouse_scroll_raw(vscroll, hscroll);
-}
-
-unsafe extern "C" fn on_pointer_capture_change(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    has_capture: jni::sys::jboolean,
-) {
-    on_pointer_capture_change_raw(has_capture);
-}
-
-pub fn on_pointer_capture_change_raw(has_capture: jni::sys::jboolean) {
-    cinnabar::platform_devices::set_platform_pointer_captured(has_capture != 0);
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_app_cinnabar_client_CinnabarActivity_nativeOnPointerCaptureChange(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JObject,
-    has_capture: jni::sys::jboolean,
-) {
-    on_pointer_capture_change_raw(has_capture);
+/// Receives the decor view gaining or losing pointer capture.
+extern "system" fn on_pointer_capture_change(_: JNIEnv<'_>, _: JObject<'_>, has_capture: jboolean) {
+    cinnabar::platform_devices::ingress::set_platform_pointer_captured(has_capture != 0);
 }
 
 extern "system" fn prepare<'local>(

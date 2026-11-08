@@ -1,27 +1,48 @@
 //! Platform-level physical input device tracking.
 
 use bevy::{
+    app::App,
     ecs::entity::Entity,
     input::{
-        ButtonInput, ButtonState,
+        ButtonInput, ButtonState, InputSystems,
         keyboard::KeyCode,
         mouse::{
-            AccumulatedMouseMotion, MouseButton, MouseButtonInput, MouseScrollUnit, MouseWheel,
+            AccumulatedMouseMotion, MouseButton, MouseButtonInput, MouseMotion, MouseScrollUnit,
+            MouseWheel,
         },
         touch::{TouchInput, TouchPhase},
     },
     math::Vec2,
-    prelude::{Local, MessageReader, Messages, Query, Res, ResMut, With},
+    prelude::{
+        IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query, Res, ResMut, With,
+    },
     window::{PrimaryWindow, WindowEvent},
 };
 use client_shell::{
     menu::MenuRuntime,
     ui_resources::{UiPresentationResource, UiRuntimeResource},
 };
-pub use client_state::devices::{DeviceTracker, RawInputDeviceInfo};
-pub use client_state::{
+use client_state::{
     ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
 };
+
+pub mod ingress;
+
+/// Registers physical device tracking, platform mouse ingress and automatic `Touch` /
+/// `KeyboardMouse` arbitration for platforms whose edge reports physical devices (Android).
+///
+/// Other platforms leave the input-mode resources absent, so their keyboard, mouse and touch
+/// routing is unchanged.
+pub(crate) fn configure_hybrid_input(app: &mut App) {
+    app.init_resource::<ConnectedPhysicalDevices>()
+        .insert_resource(DetectedGameplayInputMode(semantic_input::InputMode::Touch))
+        .insert_resource(EffectiveGameplayInputMode(semantic_input::InputMode::Touch))
+        .add_systems(
+            PreUpdate,
+            (sync_connected_physical_devices, drain_platform_mouse_events).before(InputSystems),
+        )
+        .add_systems(PreUpdate, arbitrate_gameplay_input_mode.after(InputSystems));
+}
 
 /// Previous device counts tracked to detect physical device arrivals.
 #[derive(Default)]
@@ -129,16 +150,19 @@ pub(crate) fn arbitrate_gameplay_input_mode(
 
 /// Synchronizes the latest atomic platform-reported device state into the ECS resource.
 pub fn sync_connected_physical_devices(mut devices: ResMut<ConnectedPhysicalDevices>) {
-    let (mice, keyboards) = client_state::platform_physical_devices();
+    let (mice, keyboards) = ingress::platform_physical_devices();
     if devices.mice != mice || devices.keyboards != keyboards {
         devices.mice = mice;
         devices.keyboards = keyboards;
     }
 }
 
-/// Drains platform-queued mouse motion, clicks and scroll wheel events into Bevy inputs.
+/// Drains platform-queued mouse motion, clicks and scroll wheel events into Bevy input messages.
+///
+/// Runs before `InputSystems`, which rebuild `AccumulatedMouseMotion`, `ButtonInput<MouseButton>`
+/// and `AccumulatedMouseScroll` from those messages each frame.
 pub fn drain_platform_mouse_events(
-    mut motion: ResMut<AccumulatedMouseMotion>,
+    mut motion_messages: ResMut<Messages<MouseMotion>>,
     mut button_messages: ResMut<Messages<MouseButtonInput>>,
     mut window_messages: Option<ResMut<Messages<WindowEvent>>>,
     mut wheel_messages: ResMut<Messages<MouseWheel>>,
@@ -147,17 +171,17 @@ pub fn drain_platform_mouse_events(
     let window = windows.iter().next().unwrap_or(Entity::PLACEHOLDER);
 
     // 1. Drain relative mouse motion:
-    let (dx, dy) = client_state::devices::take_platform_mouse_motion();
+    let (dx, dy) = ingress::take_platform_mouse_motion();
     if dx != 0.0 || dy != 0.0 {
-        motion.delta += Vec2::new(dx, dy);
+        motion_messages.write(MouseMotion {
+            delta: Vec2::new(dx, dy),
+        });
     }
 
     // 2. Drain button clicks:
-    let buttons = client_state::devices::take_platform_mouse_buttons();
+    let buttons = ingress::take_platform_mouse_buttons();
     for event in buttons {
-        if let Some(button) =
-            client_state::devices::android_button_to_mouse_button(event.button_mask)
-        {
+        if let Some(button) = ingress::android_button_to_mouse_button(event.button_mask) {
             let state = if event.pressed {
                 ButtonState::Pressed
             } else {
@@ -176,7 +200,7 @@ pub fn drain_platform_mouse_events(
     }
 
     // 3. Drain scroll wheel:
-    let scrolls = client_state::devices::take_platform_mouse_scrolls();
+    let scrolls = ingress::take_platform_mouse_scrolls();
     for event in scrolls {
         wheel_messages.write(MouseWheel {
             unit: MouseScrollUnit::Line,
@@ -186,46 +210,6 @@ pub fn drain_platform_mouse_events(
             phase: bevy::input::touch::TouchPhase::Moved,
         });
     }
-}
-
-/// Helper called by platform ingress (e.g. Android JNI) to update connected devices.
-pub fn set_platform_physical_devices(mice: u32, keyboards: u32) {
-    client_state::set_platform_physical_devices(mice, keyboards);
-}
-
-/// Adds relative mouse movement from the platform (e.g. Android JNI).
-pub fn accumulate_platform_mouse_motion(dx: f32, dy: f32) {
-    client_state::devices::accumulate_platform_mouse_motion(dx, dy);
-}
-
-/// Enqueues a mouse button press or release from the platform.
-pub fn push_platform_mouse_button(button_mask: u32, pressed: bool) {
-    client_state::devices::push_platform_mouse_button(button_mask, pressed);
-}
-
-/// Enqueues a mouse scroll event from the platform.
-pub fn push_platform_mouse_scroll(vscroll: f32, hscroll: f32) {
-    client_state::devices::push_platform_mouse_scroll(vscroll, hscroll);
-}
-
-/// Sets whether the OS pointer capture is currently active.
-pub fn set_platform_pointer_captured(captured: bool) {
-    client_state::devices::set_platform_pointer_captured(captured);
-}
-
-/// Reads whether the OS pointer capture is currently active.
-pub fn is_platform_pointer_captured() -> bool {
-    client_state::devices::is_platform_pointer_captured()
-}
-
-/// Registers the platform function that requests or releases OS pointer capture.
-pub fn set_capture_driver(driver: fn(bool)) {
-    client_state::devices::set_capture_driver(driver);
-}
-
-/// Requests or releases OS pointer capture through the registered platform driver.
-pub fn request_platform_pointer_capture(enable: bool) {
-    client_state::devices::request_platform_pointer_capture(enable);
 }
 
 #[cfg(test)]

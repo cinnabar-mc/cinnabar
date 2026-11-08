@@ -45,11 +45,18 @@ pub fn publish_gameplay_screen_controls(
     mut presentation: Option<ResMut<UiPresentationResource>>,
     mut controls: ResMut<GameplayScreenControls>,
 ) {
-    if let (Some(menu), Some(ref mut presentation)) = (menu.as_deref(), presentation.as_mut()) {
-        if !menu.touch_available {
-            presentation.enable_touch_controls(false);
-        } else if let Some(effective_mode) = effective_mode {
-            presentation.enable_touch_controls(effective_mode.0 == InputMode::Touch);
+    if let (Some(menu), Some(presentation)) = (menu.as_deref(), presentation.as_mut()) {
+        let enabled = if !menu.touch_available {
+            Some(false)
+        } else {
+            effective_mode.map(|mode| mode.0 == InputMode::Touch)
+        };
+        // Writing only on change keeps presentation change detection and open touch utilities
+        // intact while the mode holds.
+        if let Some(enabled) = enabled
+            && presentation.touch_controls_enabled() != enabled
+        {
+            presentation.enable_touch_controls(enabled);
         }
     }
     *controls = GameplayScreenControls {

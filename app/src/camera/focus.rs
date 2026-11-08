@@ -160,7 +160,9 @@ pub(crate) fn update_cursor_capture(
                 && effective_mode
                     .is_none_or(|mode| mode.0 == semantic_input::InputMode::KeyboardMouse)
                 && devices.is_none_or(|dev| dev.mice > 0);
-            client_state::devices::request_platform_pointer_capture(pointer_capture_needed);
+            crate::platform_devices::ingress::request_platform_pointer_capture(
+                pointer_capture_needed,
+            );
             return;
         }
     }

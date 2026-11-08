@@ -107,7 +107,7 @@ fn run_client() -> Result<()> {
         .context("Android reported no private files directory")?;
     configure_android(layout(&files_dir, &native_library_dir(app)?))?;
     cinnabar::startup_feedback::observe(startup_progress, startup_generation);
-    cinnabar::platform_devices::set_capture_driver(set_pointer_capture_enabled);
+    cinnabar::platform_devices::ingress::set_capture_driver(set_pointer_capture_enabled);
     if cinnabar::lifecycle::before_run(false)? {
         cinnabar::run(cinnabar::args::ClientArgs {
             force_vsync: true,

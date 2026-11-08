@@ -272,3 +272,31 @@ fn gameplay_touch_switches_to_touch_when_no_higher_priority_physical_input() {
         "Valid gameplay touch when no higher priority physical input exists must switch to Touch"
     );
 }
+
+/// Platform mouse input reaches the Bevy input state that gameplay reads after `InputSystems`
+/// rebuild it for the frame.
+#[test]
+fn platform_mouse_input_survives_bevy_input_systems() {
+    let mut app = App::new();
+    app.add_plugins((bevy::prelude::MinimalPlugins, bevy::input::InputPlugin))
+        .add_systems(
+            bevy::prelude::PreUpdate,
+            drain_platform_mouse_events.before(bevy::input::InputSystems),
+        );
+    let _ = ingress::take_platform_mouse_motion();
+    let _ = ingress::take_platform_mouse_buttons();
+    ingress::accumulate_platform_mouse_motion(3.0, -2.0);
+    ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
+
+    app.update();
+
+    assert_eq!(
+        app.world().resource::<AccumulatedMouseMotion>().delta,
+        Vec2::new(3.0, -2.0)
+    );
+    assert!(
+        app.world()
+            .resource::<ButtonInput<MouseButton>>()
+            .pressed(MouseButton::Left)
+    );
+}

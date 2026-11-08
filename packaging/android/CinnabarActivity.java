@@ -254,8 +254,10 @@ public final class CinnabarActivity extends NativeActivity {
         }
     }
 
+    // Touchscreen and stylus sources share SOURCE_MOUSE's pointer class bit, so only a full
+    // source match identifies a mouse.
     @Override public boolean dispatchTouchEvent(MotionEvent ev) {
-        if ((ev.getSource() & InputDevice.SOURCE_MOUSE) != 0) {
+        if (ev.isFromSource(InputDevice.SOURCE_MOUSE)) {
             handleMouseMotionEvent(ev);
             return true;
         }
@@ -263,7 +265,7 @@ public final class CinnabarActivity extends NativeActivity {
     }
 
     @Override public boolean onGenericMotionEvent(MotionEvent event) {
-        if ((event.getSource() & InputDevice.SOURCE_MOUSE) != 0) {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             handleMouseMotionEvent(event);
             return true;
         }

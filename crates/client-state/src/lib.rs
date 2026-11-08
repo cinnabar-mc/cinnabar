@@ -43,7 +43,6 @@ pub struct SemanticInputSnapshot(pub semantic_input::finalized::FinalizedInput);
 pub mod devices;
 pub use devices::{
     ConnectedPhysicalDevices, DetectedGameplayInputMode, EffectiveGameplayInputMode,
-    platform_physical_devices, set_platform_physical_devices,
 };
 
 /// Screen ownership published by the shell for the current gameplay frame.
