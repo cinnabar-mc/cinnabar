@@ -1,5 +1,5 @@
-use bedrock_protocol_1_26_51::packets::{PacketId, SetTime};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{PacketId, SetTime};
+use bedrock_protocol_1_26_60::wire;
 
 use super::*;
 
@@ -7,7 +7,7 @@ use super::*;
 pub(crate) mod unix {
     use std::path::PathBuf;
 
-    use bedrock_protocol_1_26_51::packets::{self, ScriptMessage};
+    use bedrock_protocol_1_26_60::packets::{self, ScriptMessage};
     use futures::task::noop_waker;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::{UnixListener, UnixStream};
@@ -667,7 +667,7 @@ fn an_unencodable_packet_does_not_lose_its_batch() {
 
 /// Supplies a packet beyond the generated encoder's sub-chunk limit for batch-failure tests.
 pub(crate) fn unencodable_packet() -> Packet {
-    Packet::new(bedrock_protocol_1_26_51::packets::LevelChunk {
+    Packet::new(bedrock_protocol_1_26_60::packets::LevelChunk {
         sub_chunks_count: wire::VarUInt(65),
         ..Default::default()
     })

@@ -74,7 +74,9 @@ const (
 	// RelayEventError: Report a bounded public refusal code.
 	RelayEventError = "error"
 	// GameVersion: Game version reported by the client.
-	GameVersion = "1.26.50"
+	GameVersion = "1.26.60"
+	// BDSVersion: Dedicated server version used by integration fixtures.
+	BDSVersion = "1.26.60.6"
 	// DefaultBedrockPort: Default port for an addressed Bedrock server.
 	DefaultBedrockPort = 19132
 	// DefaultBedrockPortText: Text form of the default Bedrock server port.
@@ -99,8 +101,10 @@ const (
 	NetherNetTargetPrefix = "nethernet/"
 	// NetherNetSignalingJSONRPC: NetherNet JSON-RPC signaling selector.
 	NetherNetSignalingJSONRPC = "jsonrpc"
-	// NetherNetSignalingWebSocket: NetherNet WebSocket signaling selector.
-	NetherNetSignalingWebSocket = "websocket"
+	// NetherNetSignalingHTTP: NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet.
+	NetherNetSignalingHTTP = "http"
+	// RakNetTargetPrefix: Prefix for a host:port joined over RakNet without probing it for NetherNet.
+	RakNetTargetPrefix = "raknet/"
 	// JSONRPCVersion: Version of the control JSON-RPC envelope.
 	JSONRPCVersion = "2.0"
 	// ControlSchemaVersion: Schema version of control results.

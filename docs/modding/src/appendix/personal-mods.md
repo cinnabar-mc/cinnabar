@@ -131,6 +131,10 @@ patch `{"show_gameplay_hud":true}` changes it, so one panel can show the HUD on
 only some of its routes. The flag lasts until another patch changes it or
 `set-content` replaces the panel.
 
+A route change keeps each scroll view offset shared by layout key, clamped to the
+new content; absent keys are discarded. Closing or removing the panel resets its
+scroll positions.
+
 Each top-level control of the root is laid out, painted and cached on its own, so
 a binding change repaints only the controls that read it. A root that draws
 itself, a `stack_panel` root or sizes measured from children or siblings keep the
@@ -182,8 +186,9 @@ it to spread large work, such as encoding a document, over later callbacks.
 `hud.read-viewport` reports the HUD root in GUI units and the GUI scale.
 `hud.measure-text` returns a line's width at text scale 1 in the `native` or
 `sans` face, as a label lays it out. `hud.set-hidden-elements` hides the crosshair,
-status effects, sidebar or hunger row; `hud.read-elements` reports whether vanilla
-draws each this frame, ignoring hiding, and its bounds in GUI units when laid out.
+status effects, sidebar or hunger row, and `hud.set-position-hidden` hides the position
+line; `hud.read-elements` reports whether vanilla draws each element this frame, ignoring
+hiding, and its bounds in GUI units when laid out.
 
 ## Action filtering
 
@@ -209,7 +214,7 @@ placement is saved under the button id, so prefix ids with the mod's name. Acros
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
 `touch.read-presses` returns it during the owner's next `frame`. A mod can then open
-its panel with `panel.set-open(true)` or take any other action it is granted.
+its panel with `panel.open()` or take any other action it is granted.
 
 ## Packages and screens
 
@@ -272,6 +277,31 @@ The Mods tab's Update action works when automatic installation is disabled.
 Settings → Updates controls mod checks and automatic installation separately.
 Mods without either declaration make no update requests.
 
+For host-compatible automatic updates, declare only
+`cinnabar:extension/revision-update@1`, a top-level JSON object with `source` (the
+same exact GitHub asset URL), `package` (a stable package identifier), `revision`
+(the full lowercase mod source commit), and `api_revision` (the stable API revision
+of the host source used to build and test it). Do not also declare a legacy update URL:
+older hosts ignore the new section and cannot enforce its compatibility contract.
+On supporting hosts, this declaration disables legacy latest-release fallback even
+when malformed or duplicated.
+
+The updater queries the Cinnabar API with the native build's full stamped commit,
+supported API revisions and installed mod identity. Unstamped builds and unsupported
+API revisions receive no update. The API selects the newest mod requiring any
+supported API revision.
+The mod's native build pin is an example tested build, not an eligibility restriction.
+`crates/mod-api/compatibility-revisions.json` lists supported API revisions, oldest
+to newest. Unrelated native commits keep this list. Adding capabilities appends the
+full source commit identifying the new API revision and keeps older supported entries.
+A breaking change removes revisions that can no longer run. Mods built against an
+older supported revision remain eligible on newer native builds without changing
+their build pin. A mod using a newly added capability requires the newer API revision,
+so older hosts cannot receive it. The
+client verifies returned host, package, source, asset, size, digest and replacement
+identity before using the existing bounded installer. API failures never fall back
+to GitHub latest. Existing update preferences and manual installation still apply.
+
 ## Trusted packet mods
 
 `CINNABAR_PACKET_MOD` selects a packet mod on its own; the `packets` grant exposes
@@ -285,3 +315,38 @@ Native-frame guests must be rebuilt with the current SDK, including guests using
 only the legacy `frame` callback. The version-one JSON payload now includes look,
 movement and elapsed-time fields; older strict decoders reject these added fields
 even though the version number is unchanged.
+
+### Movement input
+
+With the `movement` grant, `read_movement_input` returns admitted walking axes and
+jump, sneak and sprint holds before mod output is applied. `set_movement_input`
+accepts a complete replacement walking vector for input remapping and assisted
+controls. Its buttons hold their controls as if bound, so the player's toggle
+sprint, toggle sneak and always-sprint modes still apply. Both axes must be finite and within -1..1.
+The earliest active mod supplying a vector owns it for that frame.
+
+The host preserves camera direction and applies sprint to the supplied movement
+direction. Hunger, item-use, collision, input locks and server authority remain
+in force. The override only operates while focused gameplay owns walking input;
+passing `None`, omitting renewal or unloading restores ordinary controls. Older
+hosts cannot load components importing these operations.
+
+## Explicit panel ownership
+
+Panel visibility belongs to the mod. Read physical keys with controls authority,
+choose your own opening and closing policy, and call `panel.open`, `panel.close`
+or `panel.toggle`. Open and close are idempotent; toggle flips the latest requested
+state, including earlier calls in the same callback. The host handles no opening
+shortcut. The removed `toggle_key` panel field is rejected instead of silently ignored;
+remove it and rebuild mods against the explicit visibility imports.
+The most recent explicit opener owns input and closes every other mod panel.
+Escape dismissal (unless `capture_key`) and native text editing remain standard UI
+navigation. Packet reactors use [panel and input imports](packet-panels.md).
+
+This behavior change retires earlier supported mod API revisions from update
+eligibility. Manual installation still admits compatible binaries; revision-update
+metadata on newly published mods must name the new supported revision. The WIT
+package remains `cinnabar:extension@0.1.0` because these existing component function
+signatures have not changed. Server-experience client parts use the separate
+`cinnabar:extension/server-bundle@0.1.0` world and do not import the personal-mod panel interface, so this change
+does not alter their bundle contract.

@@ -50,6 +50,7 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
     let mut native = native_capabilities::Metadata::default();
     let mut update_repositories = Vec::new();
     let mut update_urls = Vec::new();
+    let mut revision_updates = Vec::new();
     for payload in Parser::new(0).parse_all(bytes) {
         let payload = payload?;
         if packet && depth == 0 {
@@ -100,6 +101,7 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
             (mod_api::ICON_SECTION, _) => icons.push(data),
             (mod_api::UPDATE_REPOSITORY_SECTION, _) => update_repositories.push(data),
             (mod_api::UPDATE_URL_SECTION, _) => update_urls.push(data),
+            (mod_api::REVISION_UPDATE_SECTION, _) => revision_updates.push(data),
             _ => {}
         }
     }
@@ -115,6 +117,14 @@ pub fn declarations_snapshot(bytes: &[u8]) -> Result<Declarations> {
         metadata.update_url = std::str::from_utf8(url)
             .ok()
             .and_then(GitHubModAsset::parse);
+    }
+    if !revision_updates.is_empty() {
+        // The presence of this declaration disables every legacy latest-release fallback.
+        metadata.update_url = None;
+        metadata.update_repository = None;
+        if let [data] = revision_updates.as_slice() {
+            metadata.revision_update = ui::mod_metadata::RevisionModUpdate::parse(data);
+        }
     }
     let requested = match grants.as_slice() {
         [] if packet => Ok(Some(ModGrants {

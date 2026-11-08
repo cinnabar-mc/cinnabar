@@ -7,6 +7,8 @@ fn asset(name: &str, bytes: &[u8]) -> Asset {
         id: 42,
         name: name.into(),
         size: bytes.len() as u64,
+        url: None,
+        revision_update: None,
         digest: Some(format!("sha256:{:x}", Sha256::digest(bytes))),
     }
 }
@@ -93,6 +95,7 @@ fn stage_in(
             .send()
             .await?;
         let candidate = Candidate {
+            revision_update: None,
             id: 1,
             repository: "example/zoom".into(),
             version: "1.0.0".into(),

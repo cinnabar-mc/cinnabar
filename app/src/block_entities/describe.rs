@@ -1,5 +1,8 @@
 //! Turns a block entity's id, backing block state and NBT into what the renderer draws.
 
+mod item;
+use item::held_item;
+
 use assets::{
     banner::{MAX_BANNER_LAYERS, color_linear as banner_color, pattern_texture},
     block_entity_geometry::shulker_color_from_block_name,
@@ -24,6 +27,7 @@ const DEFAULT_SIGN_COLOR: i32 = -0x1000000;
 pub(super) struct HeldItem {
     pub(super) identifier: Arc<str>,
     pub(super) metadata: u32,
+    pub(super) shield_pattern: Option<Arc<render_api::ShieldPattern>>,
 }
 
 /// A retained plant block with all typed state selectors used to resolve its world identity.
@@ -80,7 +84,8 @@ pub(super) enum Template {
     },
     Bell {
         attachment: BellAttachment,
-        direction: u8,
+        /// The side the last ring struck from, as the bell's record stores it.
+        ring_direction: u8,
     },
     Conduit {
         active: bool,
@@ -89,6 +94,13 @@ pub(super) enum Template {
     Beacon,
     Chest(ChestModel),
     Shulker(ShulkerModel),
+    /// A piston head, which moves from its reported extension toward its state's end.
+    PistonArm {
+        facing: u8,
+        sticky: bool,
+        extension: f32,
+        target: f32,
+    },
     Sign {
         mount: SignMount,
         front: Option<SignTextSpec>,
@@ -149,18 +161,6 @@ fn frame_rotation(nbt: &NbtCompound) -> f32 {
         .filter(|degrees| degrees.is_finite())
         .map(|degrees| degrees.rem_euclid(8.0 * ITEM_FRAME_ROTATION_STEP_DEGREES))
         .unwrap_or(0.0)
-}
-
-/// Reads a usable retained item stack.
-fn held_item(stack: &NbtCompound) -> Option<HeldItem> {
-    let name = stack.string("Name").filter(|name| !name.is_empty())?;
-    Some(HeldItem {
-        identifier: Arc::from(name),
-        metadata: stack
-            .integer("Damage")
-            .and_then(|damage| u32::try_from(damage).ok())
-            .unwrap_or(0),
-    })
 }
 
 /// Selects one leading half from a valid pair.
@@ -236,6 +236,38 @@ fn sign_mount(backing: BlockEntityBacking<'_>, state: &BlockState) -> Option<Sig
             rotation_degrees: ground_rotation(state),
         },
         BlockEntityMount::None => return None,
+    })
+}
+
+/// Plans a piston head from its block, and from its actor data when the server sent any; a piston
+/// without actor data shows a retracted head.
+pub(super) fn piston_arm(
+    name: &str,
+    state: &BlockState,
+    nbt: Option<&NbtCompound>,
+) -> Option<Template> {
+    let facing = u8::try_from(state.int(BlockProperty::FacingDirection.name())?).ok()?;
+    if usize::from(facing) >= assets::block_shapes::PISTON_DIRECTIONS.len() {
+        return None;
+    }
+    let extension = nbt
+        .and_then(|nbt| nbt.float("Progress"))
+        .filter(|progress| (0.0..=1.0).contains(progress))
+        .unwrap_or(0.0);
+    let piston_state = nbt.and_then(|nbt| nbt.integer("NewState").or_else(|| nbt.integer("State")));
+    let target = match piston_state {
+        Some(1 | 2) => 1.0,
+        Some(_) => 0.0,
+        None => extension,
+    };
+    let sticky = nbt
+        .and_then(|nbt| nbt.boolean("Sticky"))
+        .unwrap_or(name == assets::facts::block::STICKY_PISTON_IDENTIFIER);
+    Some(Template::PistonArm {
+        facing,
+        sticky,
+        extension,
+        target,
     })
 }
 
@@ -330,17 +362,19 @@ pub(super) fn describe(
         BlockEntityRenderer::Banner => banner(backing, state, nbt),
         BlockEntityRenderer::Sign => sign(backing, state, nbt),
         BlockEntityRenderer::EnchantTable => Some(Template::EnchantTable),
-        BlockEntityRenderer::Lectern => Some(Template::Static(BlockEntityKind::Lectern {
-            facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
-            has_book: nbt.boolean("hasBook").unwrap_or(false),
-        })),
+        BlockEntityRenderer::Lectern => nbt.boolean("hasBook").unwrap_or(false).then(|| {
+            Template::Static(BlockEntityKind::Lectern {
+                facing_yaw_degrees: facing(state).unwrap_or(Facing::North).yaw_degrees(),
+            })
+        }),
+        BlockEntityRenderer::PistonArm => piston_arm(block_name, state, Some(nbt)),
         BlockEntityRenderer::Bell => Some(Template::Bell {
             attachment: state
                 .text("attachment")
                 .and_then(BellAttachment::from_state)
                 .unwrap_or(BellAttachment::Standing),
-            direction: state
-                .int("direction")
+            ring_direction: nbt
+                .integer("Direction")
                 .and_then(|value| u8::try_from(value.rem_euclid(4)).ok())
                 .unwrap_or(0),
         }),

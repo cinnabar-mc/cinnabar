@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use {
-    super::{Artwork, ArtworkSet, DecodeCache, Packed, Source, decode_bytes, sources},
+    super::{Artwork, ArtworkSet, DecodeCache, Packed, Source, decode_bytes, ranked_sources},
     ui::IconRef,
     ui_engine::{
         pages::{ART_PAGE_GUTTER as GUTTER, WHOLE_ART_PAGE},
@@ -29,16 +29,13 @@ fn title() -> Option<&'static Artwork> {
 /// Shelf-packs ordinary art; full-width sources retain a dedicated page without edge gutters.
 pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
     let side = render_model::UI_ART_PAGE_SIDE;
-    let rest: Vec<(String, &Artwork, bool)> = sources(set)
+    let (ranked, mut left_out) = ranked_sources(set);
+    let rest: Vec<(String, &Artwork, bool)> = ranked
         .iter()
         .filter_map(|source| {
             let key = source.key();
-            let art = cache.decoded.get(&key)?;
-            Some((
-                key.0,
-                art.as_ref(),
-                matches!(source, Source::Item(_, false)),
-            ))
+            let art = cache.get(&key)?;
+            Some((key.0, art, matches!(source, Source::Item(_, false))))
         })
         .collect();
     let decoded: Vec<(String, &Artwork, bool)> = title()
@@ -67,6 +64,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
         if art.width + 2 * GUTTER > side || art.height + 2 * GUTTER > side {
             let dedicated = buffers.len();
             if dedicated >= render_model::MAX_UI_ART_PAGES {
+                left_out = true;
                 break;
             }
             buffers.push(vec![0; page_bytes]);
@@ -88,6 +86,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
             None => {
                 let next = buffers.len();
                 if next >= render_model::MAX_UI_ART_PAGES {
+                    left_out = true;
                     break;
                 }
                 buffers.push(vec![0; page_bytes]);
@@ -110,6 +109,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     Packed {
         id,
         complete,
+        left_out,
         pages,
         refs,
     }

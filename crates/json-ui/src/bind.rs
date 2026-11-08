@@ -28,6 +28,7 @@ pub(crate) mod feed;
 mod grid;
 mod native;
 mod output;
+pub(crate) mod radio;
 mod reuse;
 mod source;
 mod spec;
@@ -489,7 +490,7 @@ impl<'a> Binder<'a> {
             );
         }
         if declaration.radio_group {
-            self.radio_state(control, &mut own);
+            radio::apply(self.data, control, &scope, &mut own, &mut native);
         }
         let mut reads = self.own_reads(&declaration, control, src.name(), &scope);
         if let Some(scoped) = selection {
@@ -780,36 +781,6 @@ impl<'a> Binder<'a> {
             .control_ids
             .get(self.data.factory_id.as_deref()?)
             .cloned()
-    }
-
-    /// A radio-group toggle is checked when the screen selected its index; a
-    /// `#name` forced index reads the toggle's own bound value (collection rows).
-    fn radio_state(&self, control: &ResolvedControl, own: &mut Bag) {
-        let forced = control.properties.get("toggle_group_forced_index");
-        let index = forced.and_then(Value::as_f64).or_else(|| {
-            let name = forced.and_then(Value::as_str)?;
-            match own.get(name)? {
-                Scalar::Text(text) => text.parse().ok(),
-                other => other.as_number(),
-            }
-        });
-        let (Some(name), Some(index)) = (
-            control
-                .properties
-                .get("toggle_name")
-                .and_then(Value::as_str),
-            index,
-        ) else {
-            return;
-        };
-        if let Some(selected) = self
-            .data
-            .globals
-            .get(&format!("#radio:{name}"))
-            .and_then(Scalar::as_number)
-        {
-            own.insert("#toggle_state".to_owned(), Scalar::Bool(selected == index));
-        }
     }
 
     /// The data key for `name` in `scope`: a list registered for the innermost enclosing item wins

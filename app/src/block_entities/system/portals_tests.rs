@@ -38,6 +38,7 @@ fn submit_sub_chunk(
         submissions,
         &sub_chunk_cells(grid, sub_chunk, classify),
         eye,
+        |_, _| 1.0.into(),
     );
 }
 

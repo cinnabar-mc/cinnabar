@@ -268,7 +268,7 @@ impl BlobCacheResolver {
                         expected,
                     });
                 }
-                (PendingPacket::LevelChunk(Box::new(packet)), hashes)
+                (PendingPacket::LevelChunk(packet), hashes)
             }
             packets::Packet::SubChunk(packet) => {
                 if !packet.cache_enabled {

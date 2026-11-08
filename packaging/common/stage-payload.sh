@@ -68,7 +68,7 @@ stage_prep_kit() {
 stage_shared_resources() {
     local resources="$1"
     mkdir -p "$resources/assets"
-    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2193.bin" "$resources/assets/block-physics-v2193.bin"
+    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2225.bin" "$resources/assets/block-physics-v2225.bin"
     install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$resources/assets/THIRD_PARTY_NOTICES.md"
     mkdir -p "$resources/licenses"
     install -m 0644 "$repo_root/LICENSE" "$resources/licenses/Cinnabar-LICENSE.md"
@@ -99,7 +99,7 @@ resource_manifest() {
     local platform="$1" exe='' file
     [[ "$platform" != windows ]] || exe=.exe
     file="$(ui_font_path)"
-    printf '%s\n' licenses/Cinnabar-LICENSE.md assets/block-physics-v2193.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
+    printf '%s\n' licenses/Cinnabar-LICENSE.md assets/block-physics-v2225.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
     for file in "$repo_root"/assets/licenses/*; do printf 'licenses/%s\n' "${file##*/}"; done
     prep_kit_files | sed 's|^|prep-kit/|'
 }

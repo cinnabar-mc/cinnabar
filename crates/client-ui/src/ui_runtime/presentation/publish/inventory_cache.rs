@@ -28,13 +28,8 @@ struct Sources {
 }
 
 impl InventoryCache {
-    /// Resolves inventory display changes before screen and selected-item observations.
-    pub(super) fn capture(
-        &mut self,
-        player: &player_state::PlayerState,
-        items: &ItemResolver<'_>,
-        frames: &ItemIconFrames,
-    ) -> ProjectionUpdate {
+    /// Prepares revision-gated stack sources before any atlas placement or icon capture.
+    pub(super) fn prepare(&mut self, player: &player_state::PlayerState, items: &ItemResolver<'_>) {
         let runtime = items.runtime;
         let presentation = items.presentation;
         let next = Sources {
@@ -59,12 +54,40 @@ impl InventoryCache {
                 .inventory_preparation_revision
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         }
+        self.projections.prepare(
+            runtime.inventory_ledger(player),
+            runtime.inventory_open() || presentation.inventory_inputs_needed(player, runtime),
+            refresh,
+            || runtime.crafting_match(player),
+        );
+    }
+
+    /// Borrows artwork sources already produced by the inventory projection.
+    pub(super) fn stacks(&self) -> impl Iterator<Item = &protocol::NetworkItemStack> {
+        self.projections.stacks()
+    }
+
+    /// Drops cached artwork after a repack without repeating recipe matching.
+    pub(in crate::ui_runtime::presentation) fn invalidate_icons(&mut self) {
+        self.projections.invalidate_icons();
+    }
+
+    /// Resolves inventory display changes before screen and selected-item observations.
+    pub(super) fn capture(
+        &mut self,
+        player: &player_state::PlayerState,
+        items: &ItemResolver<'_>,
+        frames: &ItemIconFrames,
+    ) -> ProjectionUpdate {
+        self.prepare(player, items);
+        let runtime = items.runtime;
+        let presentation = items.presentation;
         self.projections.capture(
             ProjectionInput {
                 ledger: runtime.inventory_ledger(player),
                 inventory_open: runtime.inventory_open()
                     || presentation.inventory_inputs_needed(player, runtime),
-                refresh,
+                refresh: ProjectionRefresh::default(),
                 animation: ProjectionAnimation {
                     player: frames.0,
                     dials: presentation.dial_frames(),

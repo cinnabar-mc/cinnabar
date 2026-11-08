@@ -49,8 +49,15 @@ impl UiPresentationRuntime {
     /// Advances only a painted player control, independently of the world particle system.
     pub(super) fn sync_player_particles(&mut self, shown: bool) {
         let previews = &mut self.gui_models.particles;
-        let owner = if self.player_preview_view == player_preview::PreviewView::Hud {
-            Owner::Hud(self.gui_models.live_player.emitter_owner)
+        let live = &self.gui_models.live_player;
+        // A live renderer draws the captured actor, whose emitters it places.
+        let live_actor = self.player_preview_view == player_preview::PreviewView::Hud
+            || (matches!(
+                self.player_preview_view,
+                player_preview::PreviewView::Live { .. }
+            ) && live.fresh);
+        let owner = if live_actor {
+            Owner::Hud(live.emitter_owner)
         } else {
             Owner::Menu
         };
@@ -69,8 +76,19 @@ impl UiPresentationRuntime {
                     .each_ref()
                     .map(Option::is_some),
             );
-            if self.player_preview_view == player_preview::PreviewView::Hud {
-                for &(item, index, transform) in &self.gui_models.live_player.emitters {
+            if live_actor {
+                let turn = (self.player_preview_view != player_preview::PreviewView::Hud)
+                    .then(|| {
+                        let (pitch, yaw) = rig.head_look();
+                        live.head_turn(pitch, yaw)
+                    })
+                    .flatten();
+                for &(item, index, transform) in &live.emitters {
+                    let follows_head = live.hats.get(&item).is_some_and(|hat| hat.follows_head);
+                    let transform = match turn.filter(|_| follows_head) {
+                        Some(turn) => turned_emitter(turn, transform),
+                        None => transform,
+                    };
                     previews.placements.push((
                         (item, index),
                         project_emitter(
@@ -188,6 +206,18 @@ impl PreviewParticles {
         self.page = UiTexturePage::owned([side; 2], Arc::from(system.atlas().pixels())).ok();
         self.patch_seq = Some(seq);
         true
+    }
+}
+
+/// Moves an emitter's origin and axes with the head turn applied to the bones it follows.
+fn turned_emitter(turn: glam::Affine3A, transform: ActorEmitterTransform) -> ActorEmitterTransform {
+    ActorEmitterTransform {
+        position: turn
+            .transform_point3(glam::Vec3::from(transform.position))
+            .to_array(),
+        basis: transform
+            .basis
+            .map(|axis| turn.transform_vector3(glam::Vec3::from(axis)).to_array()),
     }
 }
 

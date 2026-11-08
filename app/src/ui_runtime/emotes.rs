@@ -46,6 +46,7 @@ pub(crate) struct ObservedEmotes {
     modifiers: ButtonInput<KeyCode>,
 }
 
+use super::input_owner::InputOwner;
 use client_state::ScreenInputConsumed;
 
 #[derive(SystemParam)]
@@ -67,6 +68,7 @@ pub(crate) struct EmoteInput<'w, 's> {
     presentation: Option<ResMut<'w, UiPresentationResource>>,
     observed: Local<'s, ObservedEmotes>,
     consumed: ResMut<'w, ScreenInputConsumed>,
+    owner: InputOwner<'w>,
     focus: Option<ResMut<'w, client_state::CursorFocus>>,
     driven: Option<Res<'w, client_state::DrivenInput>>,
 }
@@ -134,6 +136,15 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         if let Some(presentation) = input.presentation.as_deref_mut() {
             presentation.set_emote_pointer(None);
         }
+        return;
+    }
+    let frame = input
+        .owner
+        .frame(&input.runtime, &input.player, input.menu.as_deref());
+    // Another screen closed this frame: the keys that closed it aren't the wheel's.
+    if !frame.reads(|scene| matches!(scene, Scene::Gameplay | Scene::Emote)) {
+        input.keyboard.clear();
+        input.observed.modifiers.reset_all();
         return;
     }
     if input.driven.is_none()
@@ -363,6 +374,7 @@ pub(crate) fn drive_emote_input(mut input: EmoteInput) {
         focus.authorize_screen_return();
     }
     if owned {
+        input.owner.claim(Scene::Emote);
         input.consumed.0 = true;
         input.observed.modifiers.reset_all();
         input.keys.reset_all();

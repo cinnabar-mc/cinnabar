@@ -47,8 +47,11 @@ pub struct PhysicsFrameInput {
     pub active: bool,
     /// Cancels retained presses when the semantic router releases input ownership.
     pub input_authority_released: bool,
-    /// Mod-held controls bypass physical toggle latches.
+    /// Negotiated mod controls resolved the buttons and bypass physical toggle latches.
     pub resolved_movement: bool,
+    /// A personal mod supplied the walking vector for this frame; its buttons count as held
+    /// bindings, so the player's control modes still apply.
+    pub movement_override: bool,
     pub movement: [f32; 2],
     pub raw_movement: [f32; 2],
     pub analogue_movement: [f32; 2],
@@ -192,11 +195,18 @@ impl LocomotionState {
             let retain_sprint = physics
                 .retains_swim_sprint(world)
                 .unwrap_or_else(|_| physics.mode() == sim::MovementMode::Swimming);
+            let movement_override =
+                frame.movement_override && active && !frame.input_authority_released;
+            let sprint_direction = if movement_override {
+                [0.0, movement[0].hypot(movement[1])]
+            } else {
+                movement
+            };
             let controlled = self.controls.update(ControlObservation {
                 now,
                 resolved_movement: frame.resolved_movement,
-                forward: movement[1],
-                sideways: movement[0],
+                forward: sprint_direction[1],
+                sideways: sprint_direction[0],
                 touch_input: input_mode == protocol::PlayerInputMode::Touch,
                 sprint_pressed: sprint.pressed && sprint_allowed,
                 sprint_held: sprint.held && sprint_allowed,
@@ -220,7 +230,7 @@ impl LocomotionState {
                 controlled.sprint_request,
                 frame.item_use_modifier,
             );
-            if retain_sprint {
+            if retain_sprint || movement_override {
                 input.sprinting = controlled.sprint_request;
             }
             if !active {
@@ -245,6 +255,7 @@ impl LocomotionState {
                     raw_move_vector: raw_movement,
                     analogue_move_vector: analogue_movement,
                     mode_intent: ModeIntent {
+                        movement_override,
                         spectator: facts.spectator,
                         no_clip: facts.no_clip,
                         ride: facts.ride,

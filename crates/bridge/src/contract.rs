@@ -108,7 +108,10 @@ pub const RELAY_EVENT_CONNECT: &str = "connect";
 pub const RELAY_EVENT_ERROR: &str = "error";
 
 /// Game version reported by the client.
-pub const GAME_VERSION: &str = "1.26.50";
+pub const GAME_VERSION: &str = "1.26.60";
+
+/// Dedicated server version used by integration fixtures.
+pub const BDS_VERSION: &str = "1.26.60.6";
 
 /// Default port for an addressed Bedrock server.
 pub const DEFAULT_BEDROCK_PORT: u16 = 19132;
@@ -146,8 +149,11 @@ pub const NETHERNET_TARGET_PREFIX: &str = "nethernet/";
 /// NetherNet JSON-RPC signaling selector.
 pub const NETHERNET_SIGNALING_JSONRPC: &str = "jsonrpc";
 
-/// NetherNet WebSocket signaling selector.
-pub const NETHERNET_SIGNALING_WEBSOCKET: &str = "websocket";
+/// NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet.
+pub const NETHERNET_SIGNALING_HTTP: &str = "http";
+
+/// Prefix for a host:port joined over RakNet without probing it for NetherNet.
+pub const RAKNET_TARGET_PREFIX: &str = "raknet/";
 
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";

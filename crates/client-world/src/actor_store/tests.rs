@@ -1015,7 +1015,7 @@ fn remote_move_player_rotation_and_reset_modes_follow_vanilla() {
     assert_eq!(reset.interpolation_ticks_remaining, 0);
 }
 
-/// 1.26.50.26 samples 0.66 of the authoritative body height.
+/// 1.26.60.26 samples 0.66 of the authoritative body height.
 #[test]
 fn brightness_sample_uses_interpolated_feet_and_body_height() {
     for height in [0.25, 1.8, 3.6] {
@@ -1077,6 +1077,30 @@ fn always_show_name_tag_sentinel_preserves_the_previous_effective_value() {
         assert_eq!(
             store.snapshot_by_unique(70).unwrap().metadata.get(&key),
             expected.map(ActorMetadataValue::Byte).as_ref()
+        );
+    }
+}
+
+#[test]
+fn every_actor_data_update_advances_the_metadata_revision() {
+    let mut store = ActorStore::new(1, 0);
+    store.apply(1, 1, spawn(7, 70));
+    assert_eq!(store.snapshot_by_unique(70).unwrap().metadata_revision, 0);
+    for sequence in [2, 5] {
+        store.apply(
+            1,
+            sequence,
+            ActorEvent::Metadata(ActorMetadataUpdateEvent {
+                dimension: 0,
+                runtime_id: 7,
+                metadata: Arc::from([]),
+                properties: Arc::from([]),
+                tick: 0,
+            }),
+        );
+        assert_eq!(
+            store.snapshot_by_unique(70).unwrap().metadata_revision,
+            sequence
         );
     }
 }

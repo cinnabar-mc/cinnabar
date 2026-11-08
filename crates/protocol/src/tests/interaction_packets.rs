@@ -64,13 +64,13 @@ fn item_attack_uses_zero_face_and_preserves_air_use_and_aim_fields() {
 
 #[test]
 fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
-    use bedrock_protocol_1_26_51::enums::InteractAction;
+    use bedrock_protocol_1_26_60::enums::InteractAction;
     let position = [1.0, -2.0, 3.0];
     let packet = protocol::stop_riding_packet(u64::MAX, position).unwrap();
     let packets::Packet::Interact(packet) = *packet.data else {
         panic!("expected Interact");
     };
-    assert_eq!(packet.action, InteractAction::Stopriding);
+    assert_eq!(packet.action, InteractAction::StopRiding);
     assert_eq!(packet.target_runtime_id.0, u64::MAX);
     assert_eq!(packet.position.unwrap().to_array(), position);
     assert_eq!(
@@ -84,18 +84,18 @@ fn dismount_packet_preserves_vehicle_and_position_and_rejects_invalid_inputs() {
         );
     }
 }
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     AnimateAction, ContainerEnumName, InventorySourceType,
     ItemReleaseInventoryTransactionActionType, ItemUseInventoryTransactionActionType,
     ItemUseInventoryTransactionClientCooldownState, ItemUseInventoryTransactionPredictedResult,
     ItemUseInventoryTransactionTriggerType, ItemUseOnActorInventoryTransactionActionType,
     PlayerActionType, PlayerRespawnState,
 };
-use bedrock_protocol_1_26_51::packets::{self, ContainerClose, InventoryTransaction, PacketId};
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::packets::{self, ContainerClose, InventoryTransaction, PacketId};
+use bedrock_protocol_1_26_60::types::{
     InventoryTransactionPacketData, NetworkItemStackDescriptorSerializedData,
 };
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::wire;
 
 const CLICK_BLOCK: &[u8] = include_bytes!("../../fixtures/inventory_transaction_click_block.bin");
 const CLICK_BLOCK_EMPTY_HAND: &[u8] =
@@ -679,13 +679,14 @@ fn swing_arm_packet_round_trips_with_its_swing_source() {
 fn swing_arm_packet_matches_the_vanilla_wire_layout() {
     let bytes = encode(&swing_arm_packet(42, SwingSource::Attack)).unwrap();
     let expected = [
-        &[0xfe, 0x0f][..], // batch marker, frame length
+        &[0xfe, 0x10][..], // batch marker, frame length
         &[0x2c],           // Animate, no subclients
         &[0x01],           // action: swing
         &[0x2a],           // actor runtime ID, varuint64
         &[0, 0, 0, 0],     // data, f32 LE
         &[0x01, 0x06],     // swing source present, string length
         b"attack",
+        &[0x00], // main hand
     ]
     .concat();
     assert_eq!(bytes.as_ref(), expected.as_slice());
@@ -698,7 +699,7 @@ fn stop_sleeping_packet_is_a_player_action_for_the_local_runtime_id() {
     let packets::Packet::PlayerAction(action) = *decoded.data else {
         panic!("player action packet");
     };
-    assert_eq!(action.action, PlayerActionType::Stopsleeping);
+    assert_eq!(action.action, PlayerActionType::StopSleeping);
     assert_eq!(action.player_runtime_id.0, 7);
 }
 
@@ -709,7 +710,7 @@ fn creative_destroy_block_packet_uses_the_target_and_creative_action() {
     let packets::Packet::PlayerAction(action) = *decoded.data else {
         panic!("player action packet");
     };
-    assert_eq!(action.action, PlayerActionType::Creativedestroyblock);
+    assert_eq!(action.action, PlayerActionType::CreativeDestroyBlock);
     assert_eq!(action.player_runtime_id.0, 7);
     assert_eq!(action.block_position.x.0, 13);
     assert_eq!(action.block_position.y.0, 71);
@@ -726,7 +727,7 @@ fn deny_destroy_block_packet_uses_the_target_and_deny_action() {
     let packets::Packet::PlayerAction(action) = *decoded.data else {
         panic!("player action packet");
     };
-    assert_eq!(action.action, PlayerActionType::Denydestroyblock);
+    assert_eq!(action.action, PlayerActionType::DenyDestroyBlock);
     assert_eq!(action.action.to_raw(), 17);
     assert_eq!(action.player_runtime_id.0, 7);
     assert_eq!(
@@ -748,7 +749,7 @@ fn respawn_request_is_client_ready_with_the_local_runtime_id() {
     let packets::Packet::Respawn(respawn) = *decoded.data else {
         panic!("respawn packet");
     };
-    assert_eq!(respawn.state, PlayerRespawnState::Clientreadytospawn);
+    assert_eq!(respawn.state, PlayerRespawnState::ClientReadyToSpawn);
     assert_eq!(respawn.player_runtime_id.0, 7);
     assert_eq!(respawn.position.y, 0.0);
 }
@@ -939,7 +940,7 @@ fn click_air_with_a_throw_carries_the_inventory_action_and_legacy_request() {
     assert_eq!(slots.len(), 1);
     assert_eq!(
         slots[0].container_enum,
-        ContainerEnumName::Inventorycontainer
+        ContainerEnumName::InventoryContainer
     );
     assert_eq!(slots[0].slots.as_ref(), [3]);
     let InventoryTransactionPacketData::ItemUseInventoryTransaction(transaction) =

@@ -51,6 +51,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         clip: rect,
         layer: 0,
         order: 0,
+        follows_cursor: false,
         pressed: pressed.map(str::to_owned),
         control_name: None,
         collection_index: None,
@@ -59,6 +60,7 @@ fn region(kind: HitKind, pressed: Option<&str>) -> HitRegion {
         checked: None,
         max_length: None,
         group_index: None,
+        radio_index: None,
         renderer: None,
         drag_axes: [false; 2],
         sound: None,
@@ -98,7 +100,7 @@ fn dressing_room_buttons_open_the_skin_library_and_preserve_profile_routes() {
 
 #[test]
 fn the_version_reads_as_the_release_client_shows_it() {
-    assert_eq!(version_label("1.26.50"), "v26.50");
+    assert_eq!(version_label("1.26.60"), "v26.60");
     assert_eq!(version_label("26.60"), "v26.60");
 }
 

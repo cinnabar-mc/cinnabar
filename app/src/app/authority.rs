@@ -29,6 +29,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .init_resource::<WorldStreamFramePoll>()
     .init_resource::<crate::ui_runtime::presentation::publish::PreparedUiPublication>()
     .init_resource::<client_state::ScreenInputConsumed>()
+    .init_resource::<client_shell::ui_resources::FrameInputOwner>()
     .add_systems(
         Update,
         (drive_gameplay_touch_targets, collect_raw_input)
@@ -54,8 +55,10 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     .add_systems(
         Update,
         (
+            crate::ui_runtime::input_owner::decide_input_owner,
             crate::ui_runtime::scene_stack::close_scenes_on_player_hurt,
             drive_sign_editor.in_set(OrdinaryInputSet),
+            drive_command_block.in_set(OrdinaryInputSet),
             drive_server_form_input.in_set(OrdinaryInputSet),
             // Runs while consent owns input too, to drain the ordered events it must not replay.
             crate::ui_runtime::data_driven::drive_data_driven_input,
@@ -68,6 +71,7 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
                 .before(client_state::ShellFrameSet::MenuInput),
             drive_inventory_ui_actions.after(client_state::ShellFrameSet::MenuInput),
             drive_menu_services,
+            crate::session::hide_window_before_exit,
             drive_session.in_set(client_state::ShellFrameSet::Session),
             crate::render_distance::apply_render_distance
                 .after(client_state::ShellFrameSet::WindowSettings),

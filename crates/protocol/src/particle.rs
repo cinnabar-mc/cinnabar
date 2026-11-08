@@ -2,7 +2,8 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::packets::{LevelEvent, SpawnParticleEffect};
+use bedrock_protocol_1_26_60::packets::{LevelEvent, SpawnParticleEffect};
+use protocol_ids::LevelEvent as LevelEventId;
 
 /// Longest effect identifier accepted from the wire.
 pub const MAX_PARTICLE_NAME_BYTES: usize = 256;
@@ -46,6 +47,9 @@ pub struct SpawnParticleEffectEvent {
 
 fn is_particle_level_event(event_id: i32) -> bool {
     (2000..=2040).contains(&event_id)
+        || (LevelEventId::ParticlesCrackBlockDown.wire_value()
+            ..=LevelEventId::ParticlesCrackBlockEast.wire_value())
+            .contains(&event_id)
         || (3609..=3614).contains(&event_id)
         || event_id & LEVEL_EVENT_PARTICLE_FLAG != 0
 }
@@ -94,7 +98,7 @@ pub(crate) fn normalize_spawn(packet: SpawnParticleEffect) -> Option<ParticleEve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::wire;
 
     fn level(event_id: i32, x: f32) -> LevelEvent {
         LevelEvent {
@@ -110,6 +114,24 @@ mod tests {
         assert!(normalize_level_event(&level(0x4000 | 8, 0.0)).is_some());
         assert!(normalize_level_event(&level(3001, 0.0)).is_none());
         assert!(normalize_level_event(&level(1000, 0.0)).is_none());
+    }
+
+    #[test]
+    fn face_crack_packets_preserve_the_full_block_id() {
+        for event_id in LevelEventId::ParticlesCrackBlockDown.wire_value()
+            ..=LevelEventId::ParticlesCrackBlockEast.wire_value()
+        {
+            let mut packet = level(event_id, 0.5);
+            packet.data = wire::ZigZag32(0xfabc_def0_u32 as i32);
+            assert_eq!(
+                normalize_level_event(&packet),
+                Some(ParticleEvent::Level(LevelParticleEvent {
+                    event_id,
+                    position: [0.5, 1.0, 2.0],
+                    data: packet.data.0,
+                }))
+            );
+        }
     }
 
     #[test]

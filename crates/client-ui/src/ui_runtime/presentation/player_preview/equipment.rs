@@ -64,6 +64,8 @@ impl Default for PreviewEquipment {
 /// Identity and authoritative item state used to select each hand's native model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewHandItem {
+    /// Banner decoration retained from the selected shield stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Registry facts when a live stack is available; standalone previews use their compiled model.
     pub grip: Option<assets::item::grip::ItemGrip>,
     /// Live stack shine; absent context retains the compiled model choice.
@@ -93,8 +95,8 @@ impl PreviewHeldModel {
         let mut model = self.clone();
         if let Some(grip) = grip {
             for placement in &mut model.placements {
-                if let PreviewHeldPlacement::Sprite { hand_equipped } = placement {
-                    *hand_equipped = grip.upright().unwrap_or(false);
+                if let PreviewHeldPlacement::Sprite { grip: held } = placement {
+                    *held = grip.into();
                 }
             }
         }
@@ -114,7 +116,7 @@ impl PreviewHeldModel {
 #[derive(Clone, Copy, Debug)]
 pub enum PreviewHeldPlacement {
     Sprite {
-        hand_equipped: bool,
+        grip: render_model::equipment::SpriteGrip,
     },
     Block,
     /// Authored bound-root channels, already in the native mirrored rig frame.

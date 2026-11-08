@@ -382,6 +382,12 @@ pub(in crate::chunk) fn prepare_chunk_bind_group(
     atmosphere: Res<AtmosphereGpu>,
     mut arena: ResMut<ChunkGpuArena>,
 ) {
+    if compact.release_if_idle(&arena) {
+        arena.bind_group = None;
+        arena.transparent_bind_group = None;
+        arena.bind_group_buffers = None;
+        return;
+    }
     let Some(texture_assets) = texture_assets.prepared.as_ref() else {
         arena.bind_group = None;
         arena.transparent_bind_group = None;

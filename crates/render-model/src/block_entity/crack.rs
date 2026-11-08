@@ -133,7 +133,10 @@ pub fn crack_shape_from_template(
     let templates = assets.model_templates();
     let quads = assets.model_quads();
     let mut shape = Vec::new();
-    let mut index = usize::try_from(template).ok()?;
+    // A piston's cropped body stops short of the head plate, so overlays use its full cube.
+    let template = assets::item_model_template(templates, template);
+    let mut index =
+        usize::try_from(assets::whole_sheet_model_template(templates, template)).ok()?;
     loop {
         let part = templates.get(index)?;
         let start = usize::try_from(part.quad_start).ok()?;
@@ -165,7 +168,8 @@ pub fn crack_shape_from_template(
                     }
                 }),
                 uvs: quad.uvs.map(|uv| {
-                    let mut uv = uv.map(tile_fraction);
+                    let mut uv =
+                        assets::world_aligned_uv(quad.flags, transform, uv.map(tile_fraction));
                     if part.flags & assets::MODEL_TEMPLATE_FLAG_BAMBOO != 0 {
                         uv[0] += assets::bamboo::stem_uv_offset(transform, quad_index as u32);
                     }

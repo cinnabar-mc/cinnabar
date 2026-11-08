@@ -145,6 +145,10 @@ impl UiRuntime {
             let reference = ui_screens::sign_editor::SIGN_SCREEN;
             visit(Scene::SignEditor, json(Some(reference)));
         }
+        if self.command_block().is_open() {
+            let reference = ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN;
+            visit(Scene::CommandBlock, json(Some(reference)));
+        }
         let form = self.server_forms().active();
         let settings_form = self.server_forms().settings_form_active();
         // An answered form keeps absorbing input until its answer is sent.
@@ -178,6 +182,12 @@ impl UiRuntime {
                 Scene::Credits,
                 json(Some(ui_screens::credits_screen::CREDITS_SCREEN)),
             );
+        }
+        // A global-pack edit gets a stable client-owned cover. It is deliberately separate from
+        // world-entry loading so session handoffs keep their normal readiness contract, and the
+        // old pack remains visible until the replacement is complete.
+        if self.resource_pack_loading() && host.loading.is_none() {
+            visit(Scene::ResourcePackLoading, loading_settings());
         }
     }
 

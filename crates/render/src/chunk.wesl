@@ -300,7 +300,7 @@ const CUBE_SEAM_SEAL_PIXELS: f32 = 1.0 / 64.0;
 const CUBE_SEAM_MIN_EDGE_SINE: f32 = 1.0 / 16.0;
 // Largest in-plane step per unit of clip w, reached only when an edge points
 // along the view ray and moving along it barely changes the screen position.
-const CUBE_SEAM_MAX_STEP: f32 = 1.0 / 64.0;
+const CUBE_SEAM_MAX_STEP: f32 = CUBE_SEAM_MAX_STEP_VALUE;
 
 /// Returns bounded in-plane corner steps that advance both projected edges by seal_pixels.
 /// Reverses steps behind the camera to preserve sealing after near-plane clipping.

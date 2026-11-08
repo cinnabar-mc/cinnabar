@@ -5,6 +5,9 @@ use std::fs;
 #[path = "recovery_tests.rs"]
 mod recovery_tests;
 
+#[path = "event_tests.rs"]
+mod event_tests;
+
 /// Captures a fresh snapshot for fixtures that do not retain an observation worker.
 fn source_snapshot(entry: Entry) -> Result<SourceSnapshot, String> {
     source::Observer::default().source_snapshot(entry, std::time::Instant::now())
@@ -28,7 +31,7 @@ fn fixture_with_capture(enabled: bool, frame: &str, text: &str, capture_key: boo
         label: "Enabled".into(),
         value: enabled,
     }];
-    let panel = serde_json::json!({"toggle_key":"ShiftRight","capture_key":capture_key,
+    let panel = serde_json::json!({"capture_key":capture_key,
         "surface":mod_ui::test_support::sample_surface(&controls),"controls":controls})
     .to_string();
     let template = include_str!("../../../../crates/mod-host/src/tests/guest.wat");
@@ -1002,4 +1005,51 @@ fn active_dimension_rebinds_do_not_queue_redundant_admission() {
     });
     snapshot.drawing = super::super::admission::DrawingContext::capture(host);
     assert!(snapshot.needs_admission(Some(&admitted)));
+}
+
+#[test]
+fn stale_packet_grants_do_not_change_a_frame_components_runtime() {
+    let root = tempfile::tempdir().unwrap();
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    let entry = Entry {
+        component,
+        enabled: true,
+        grants: mod_host::ModGrants {
+            packets: true,
+            wasi: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let candidate = build_candidate(source_snapshot(entry).unwrap()).unwrap();
+    let CandidateRuntime::Frame(prepared) = candidate.runtime else {
+        panic!("frame component entered the packet runtime")
+    };
+    assert!(!prepared.host.grants().packets);
+    assert!(!prepared.host.grants().wasi);
+}
+
+#[test]
+fn frame_permission_edits_reject_packet_only_authority() {
+    let root = tempfile::tempdir().unwrap();
+    let config = root.path().join("config");
+    let component = root.path().join("frame.wasm");
+    fs::write(
+        &component,
+        wat::parse_str(fixture(false, "", "Hello")).unwrap(),
+    )
+    .unwrap();
+    for (index, capability) in mod_host::ModGrants::CAPABILITIES.iter().enumerate() {
+        if matches!(capability.name, "packets" | "wasi") {
+            assert!(
+                selection::permission(&config, &component, index, true, "permission".into())
+                    .is_err()
+            );
+        }
+    }
 }

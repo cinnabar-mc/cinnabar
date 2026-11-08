@@ -82,10 +82,21 @@ pub fn is_equipment_rig_id(id: EntityRigId) -> bool {
 
 const SKIN_RIG_ID_BASE: u32 = 0xE000_0000;
 
+/// Body and animated skin models for every selected player, plus the local first-person hand.
+pub const MAX_SKIN_RIGS: usize =
+    crate::MAX_RENDERED_PLAYERS * (1 + render_api::MAX_SKIN_ANIMATION_LAYERS) + 1;
+
 /// Rig id of a player skin's own model in cache slot `slot`.
 #[must_use]
 pub const fn skin_rig_id(slot: u32) -> EntityRigId {
     EntityRigId(SKIN_RIG_ID_BASE + slot)
+}
+
+/// Whether `id` is a player skin's own model, one of the [`MAX_SKIN_RIGS`] slots
+/// [`skin_rig_id`] allocates.
+#[must_use]
+pub fn is_skin_rig_id(id: EntityRigId) -> bool {
+    (SKIN_RIG_ID_BASE..SKIN_RIG_ID_BASE + MAX_SKIN_RIGS as u32).contains(&id.0)
 }
 
 /// Rig id of a generated item mesh registered with [`ActorRigFrameBuilder::insert_geometry`].

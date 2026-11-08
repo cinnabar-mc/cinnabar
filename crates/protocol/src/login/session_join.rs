@@ -310,7 +310,7 @@ fn resource_pack_handoff(
                 pack.version.clone(),
                 pack.sub_pack.clone(),
                 archive,
-                pack.content_key.expose().as_bytes().to_vec(),
+                pack.content_key.expose().to_vec(),
             ))
         })
         .collect::<Result<Vec<_>, ProtocolError>>()?;

@@ -41,6 +41,7 @@ mod push;
 mod readiness;
 mod routing;
 mod session;
+mod shield;
 mod style;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
@@ -51,7 +52,9 @@ pub use types::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation,
     FirstPersonArms, FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
+use types::{
+    ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey, ReservedItemMesh,
+};
 
 use {
     super::{
@@ -100,6 +103,7 @@ type ArmorBoneMap = Arc<[Option<usize>]>;
 
 #[derive(Resource)]
 pub struct EquipmentRuntime {
+    shield_patterns: shield::Patterns,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -296,6 +300,7 @@ impl EquipmentRuntime {
                 .collect(),
         );
         let runtime = Self {
+            shield_patterns: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
@@ -421,6 +426,9 @@ impl EquipmentRuntime {
             (&input.main, LAYER_MAIN_HAND, bones.right_item),
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
+            if animation.is_some_and(|animation| animation.rig.visibility.hides_held_items()) {
+                continue;
+            }
             let Some(item) = item else { continue };
             let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
             let scale = actor_animation::AttachableAnimationInput {

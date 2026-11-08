@@ -120,7 +120,7 @@ fn world(entity: &CompiledEntityAssets) -> CompiledAssets {
         provenance: BlobProvenance {
             source_manifest_sha256: entity.source_manifest_sha256,
             block_registry_sha256: Sha256::digest(include_bytes!(
-                "../../../assets/data/block-registry-v2193.bin"
+                "../../../assets/data/block-registry-v2225.bin"
             ))
             .into(),
             light_registry_sha256: [3; 32],

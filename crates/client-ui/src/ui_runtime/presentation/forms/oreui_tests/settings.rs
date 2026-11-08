@@ -58,31 +58,30 @@ fn native_video_settings_exposes_animation_choices_and_hud_toggles() {
 }
 
 #[test]
-fn video_chat_position_choices_are_clickable_in_both_saved_states() {
-    use launcher::menu::settings_options::CHAT_POSITION_OPTION;
+fn video_chat_position_and_input_choices_are_clickable_in_both_saved_states() {
+    use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 
-    let index = SETTINGS_OPTIONS
-        .iter()
-        .position(|option| option.name == CHAT_POSITION_OPTION.name)
-        .unwrap();
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let mut view = settings_view("video_forced_index");
-    for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
-        for value in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
-            Arc::make_mut(&mut view.settings_options).set(index, value);
-            present(&mut presentation, &view, size);
-            for choice in CHAT_POSITION_OPTION.min..=CHAT_POSITION_OPTION.max {
-                let action = MenuAction::SettingsOption(index as u16, choice);
-                // Platform-only rows above it, such as the Windows graphics API, can push it
-                // below the viewport; focus reveals it as keyboard navigation would.
-                view.focused_action = Some(action);
+    for option in [CHAT_POSITION_OPTION, CHAT_INPUT_OPTION] {
+        let index = option.id.index();
+        for size in [[1280.0, 720.0], [1920.0, 1080.0]] {
+            for value in option.min..=option.max {
+                Arc::make_mut(&mut view.settings_options).set(index, value);
                 present(&mut presentation, &view, size);
-                let bounds = presentation
-                    .menu_hit_targets
-                    .iter()
-                    .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
-                    .expect("Video exposes both chat placements");
-                assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
+                for choice in option.min..=option.max {
+                    let action = MenuAction::SettingsOption(index as u16, choice);
+                    // Platform-only rows above it, such as the Windows graphics API, can push
+                    // it below the viewport; focus reveals it as keyboard navigation would.
+                    view.focused_action = Some(action);
+                    present(&mut presentation, &view, size);
+                    let bounds = presentation
+                        .menu_hit_targets
+                        .iter()
+                        .find_map(|(target, bounds)| (*target == action).then_some(*bounds))
+                        .unwrap_or_else(|| panic!("Video exposes every {} choice", option.name));
+                    assert_eq!(presentation.hit_test_menu(centre(bounds)), Some(action));
+                }
             }
         }
     }
@@ -275,6 +274,67 @@ fn settings_header_focus_preserves_a_manually_scrolled_narrow_sidebar() {
             .iter()
             .any(|(action, _)| { *action == MenuAction::SettingsSection(view.settings.section) }),
         "returning from the header must reveal the first category"
+    );
+}
+
+/// Draws through the full menu adapter, which owns when a route forgets its scroll positions.
+fn present_menu(presentation: &mut UiPresentationRuntime, view: &MenuView, size: [f32; 2]) {
+    let metrics = TextMetrics::for_viewport(
+        [size[0] as u32, size[1] as u32],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let (mut nodes, mut next) = (Vec::new(), 1);
+    presentation.set_menu_view(Some(view.clone()));
+    presentation.menu_hit_targets = presentation
+        .append_menu(
+            &crate::ui_runtime::UiRuntime::new(1),
+            &mut nodes,
+            &mut next,
+            metrics,
+            size[0],
+            size[1],
+        )
+        .unwrap();
+}
+
+#[test]
+fn selecting_a_category_keeps_the_sidebar_where_it_was_scrolled() {
+    let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+    let mut view = settings_view("accessibility_forced_index");
+    let size = [1280.0, 360.0];
+    present_menu(&mut presentation, &view, size);
+    let row = presentation
+        .menu_hit_targets
+        .iter()
+        .find_map(|(action, bounds)| {
+            matches!(action, MenuAction::SettingsSection(_)).then_some(*bounds)
+        })
+        .expect("the sidebar must accept scrolling");
+    assert!(presentation.scroll_menu(centre(row), -3.0, false));
+    presentation.menu_seconds += 0.2;
+    present_menu(&mut presentation, &view, size);
+    let scrolled = presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY];
+    assert!(scrolled > 0.0, "the regression needs a scrolled sidebar");
+    let clicked = presentation
+        .menu_hit_targets
+        .iter()
+        .filter_map(|(action, bounds)| match action {
+            MenuAction::SettingsSection(section) if *section != view.settings.section => {
+                Some((*section, *bounds))
+            }
+            _ => None,
+        })
+        .find(|(_, bounds)| bounds.max().y() < size[1] && bounds.min().y() > 100.0)
+        .map(|(section, _)| section)
+        .expect("a fully visible category to click");
+    view.settings.section = clicked;
+    view.focused_action = Some(MenuAction::SettingsSection(clicked));
+    present_menu(&mut presentation, &view, size);
+    assert_eq!(
+        presentation.menu_scrolls.offsets()[oreui::SETTINGS_SIDEBAR_SCROLL_KEY],
+        scrolled,
+        "clicking a visible category must not move the list it sits in"
     );
 }
 

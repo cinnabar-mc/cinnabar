@@ -299,7 +299,7 @@ impl WorldStream {
             let biome_records = self.biome_record_cache(key.dimension);
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
-            dispatch.spawn(pending.urgent, move || {
+            dispatch.spawn_with_scratch(pending.urgent, move |scratch| {
                 #[cfg(feature = "tracy")]
                 let _zone =
                     tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)
@@ -314,7 +314,7 @@ impl WorldStream {
                 let mesh = if cancelled.load(Ordering::Acquire) {
                     ChunkMesh::default()
                 } else {
-                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome)
+                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome, &mut scratch.mesh)
                 };
                 let dependency_mask = if cancelled.load(Ordering::Acquire) {
                     MeshDependencyMask::default()

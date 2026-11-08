@@ -62,7 +62,7 @@ impl Registration {
         let version = serde_json::from_slice::<serde_json::Value>(bytes)
             .map_err(|error| error.to_string())?["version"]
             .as_u64();
-        let result = if version == Some(1) {
+        let mut result = if version == Some(1) {
             let old: Single = serde_json::from_slice(bytes).map_err(|error| error.to_string())?;
             debug_assert_eq!(old.version, 1);
             Self {
@@ -80,6 +80,14 @@ impl Registration {
         } else {
             serde_json::from_slice(bytes).map_err(|error| error.to_string())?
         };
+        for entry in &mut result.mods {
+            if entry.grants.has_packet_only()
+                && mod_host::read_source(&entry.component)
+                    .is_ok_and(|bytes| mod_host::is_frame_source(&bytes))
+            {
+                entry.grants.retain_applicable(false);
+            }
+        }
         result.validate()?;
         Ok(result)
     }

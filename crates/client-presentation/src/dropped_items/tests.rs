@@ -666,12 +666,14 @@ fn static_cube_items_prefer_session_artwork_and_retain_carried_fallbacks() {
     )
     .unwrap();
     let mut placement = render_model::StaticItemPlacement {
+        shield_pattern: None,
         allow_block_models: true,
         identifier: "minecraft:barrel".into(),
         metadata: 0,
         potted_block: None,
         carried_block: Some(visual),
         world_from_item: render_model::dropped_item_transform([0.0; 3], 0.0, 0.5),
+        world_from_block: None,
         light: None,
     };
     let icon = icons.startup_item_icon(&placement.identifier, placement.metadata);

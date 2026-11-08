@@ -143,15 +143,72 @@ fn software_fused_dot_matches_binary32_mul_add() {
         .unwrap();
     rx.recv().unwrap().unwrap();
     let bytes = readback.slice(..).get_mapped_range().unwrap();
-    for (index, result) in bytemuck::cast_slice::<u8, [u32; 4]>(&bytes)
+    let results = bytemuck::cast_slice::<u8, [u32; 4]>(&bytes);
+    // WGSL lets an implementation assume no infinities or NaNs, and a D3D12 adapter returned NaN
+    // for an infinite operand even through this integer path.
+    let non_finite_free = gpu.adapter.get_info().backend == wgpu::Backend::Dx12;
+    let mismatches: Vec<String> = results
         .iter()
         .enumerate()
-    {
-        let [a, b, c, got] = result.map(f32::from_bits);
-        let expected = a.mul_add(b, c);
+        .filter_map(|(index, result)| {
+            let [a, b, c, got] = result.map(f32::from_bits);
+            let expected = a.mul_add(b, c);
+            if non_finite_free
+                && !(a.is_finite() && b.is_finite() && c.is_finite() && expected.is_finite())
+            {
+                return None;
+            }
+            (!matches_mul_add(a, b, c, got)).then(|| {
+                format!(
+                    "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
+                )
+            })
+        })
+        .collect();
+    assert!(
+        mismatches.is_empty(),
+        "{} of {} samples differ, first 20:\n{}",
+        mismatches.len(),
+        results.len(),
+        mismatches[..mismatches.len().min(20)].join("\n")
+    );
+}
+
+/// Accepts the exact binary32 result, or one where the adapter flushed subnormal operands, with or
+/// without flushing the result. WGSL allows each flush, and adapters differ in which they do.
+fn matches_mul_add(a: f32, b: f32, c: f32, got: f32) -> bool {
+    let flush = |value: f32| {
+        if value.is_subnormal() {
+            0f32.copysign(value)
+        } else {
+            value
+        }
+    };
+    let expected = a.mul_add(b, c);
+    let operands_flushed = flush(a).mul_add(flush(b), flush(c));
+    (expected.is_nan() && got.is_nan())
+        || expected.to_bits() == got.to_bits()
+        || got == operands_flushed
+        || got == flush(operands_flushed)
+}
+
+#[test]
+fn flushed_operands_may_keep_a_subnormal_result() {
+    // Bits a Windows CI D3D12 adapter returned: the subnormal addend is gone, the product is not.
+    for [a, b, c, got] in [
+        [0x0080_0000, 0x3f00_0000, 0x0000_0001, 0x0040_0000],
+        [0x8080_0000, 0x3f00_0000, 0x8000_0001, 0x8040_0000],
+        [0x0080_0000, 0x3f00_0000, 0x007f_ffff, 0x0040_0000],
+        [0x3f00_0000, 0x0080_0000, 0x007f_ffff, 0x0040_0000],
+        [0xa8b5_a7db, 0x9597_f67c, 0x0050_39d0, 0x000d_7a9d],
+    ] {
+        let [a, b, c, got] = [a, b, c, got].map(f32::from_bits);
         assert!(
-            (expected.is_nan() && got.is_nan()) || expected.to_bits() == got.to_bits(),
-            "sample {index} {result:x?}: {a:?} * {b:?} + {c:?}: {got:?} versus {expected:?}"
+            matches_mul_add(a, b, c, got),
+            "{a:?} * {b:?} + {c:?}: {got:?}"
         );
     }
+    // A wrong normal result stays a mismatch, as does losing an addend that isn't subnormal.
+    assert!(!matches_mul_add(1.0, 1.0, 1.0, 3.0));
+    assert!(!matches_mul_add(1.0, 1.0, 1.0, 1.0));
 }

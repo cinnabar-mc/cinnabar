@@ -22,7 +22,7 @@ pub struct ActorFrameState {
     pub(super) hat_state: super::hats::HatState,
     pub(super) cape_state: crate::presentation::cape::CapeState,
     pub(super) skin_rigs: crate::presentation::skin_rig::SkinRigCache,
-    pub(super) skin_layers: crate::presentation::skin_layers::SkinLayerCache,
+    pub(super) skin_layers: crate::presentation::skin_layers::ActorLayerCache,
     pub(super) poses: crate::presentation::actors::PoseConversions,
     pub(super) coverage_poses: crate::presentation::actors::PoseConversions,
     pub(super) layer_poses: crate::presentation::entity_layers::LayerPoseCache,
@@ -272,12 +272,11 @@ pub fn advance_actor_frame(
     java_poses.begin_frame();
     if let Some(equipment) = equipment.as_deref_mut() {
         equipment.begin_frame();
+        equipment.begin_shield_frame();
+        equipment.set_show_custom_item_models(settings.feel().show_custom_item_models);
     }
     layer_poses.begin_frame();
-    let first_person = settings.perspective() == semantic_input::PerspectiveMode::FirstPerson;
-    let first_person = server_camera.as_deref().map_or(first_person, |camera| {
-        camera.renders_first_person(first_person)
-    });
+    let first_person = crate::camera::hand_first_person(Some(&*settings), server_camera.as_deref());
     let java_mode = settings.feel().java_animations;
     // Java selects poses and items; the shared combat profile always owns bob, hurt and glint.
     let combat_visuals = render_api::DEFAULT_COMBAT_VISUALS;
@@ -372,7 +371,7 @@ pub fn advance_actor_frame(
         });
     publish_local_actor_visibility(
         &avatar,
-        settings.perspective(),
+        settings.rendered_perspective(),
         server_camera.as_deref(),
         authoritative_subject_eye,
         authoritative_subject_feet,
