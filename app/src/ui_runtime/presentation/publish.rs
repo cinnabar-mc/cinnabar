@@ -451,12 +451,35 @@ pub(crate) fn prepare_ui_runtime(
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame_mut().locator_view =
+        cameras
+            .single()
+            .ok()
+            .and_then(|(_, transform, projection)| {
+                let Projection::Perspective(projection) = projection else {
+                    return None;
+                };
+                Some(ui_screens::hud_renderers::LocatorView {
+                    position: transform.translation.to_array(),
+                    forward: transform.forward().to_array(),
+                    right: transform.right().to_array(),
+                    vertical_fov: projection.fov,
+                })
+            });
     presentation.hud_frame_mut().death_screen =
         menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death);
     presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
+    runtime.observe_locator_actors(presentation.hud_frame().dimension, |id| {
+        client_world
+            .stream
+            .as_ref()?
+            .authority()
+            .actor_by_unique_id(id)?
+            .interpolated_position(actor_partial.0.clamp(0.0, 1.0))
+    });
     presentation.hud_frame_mut().world_time = Some(
         client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
     );

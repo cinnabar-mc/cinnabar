@@ -260,10 +260,13 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 		address gatherings.Address
 		want    string
 	}{
-		{gatherings.Address{NetworkProtocol: gatherings.NetworkProtocolDefault, IPv4Address: "203.0.113.7", Port: 19132}, "203.0.113.7:19132"},
+		// DEFAULT, or no protocol, joins host:port over RakNet without a NetherNet probe.
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolDefault, IPv4Address: "203.0.113.7", Port: 19132}, "raknet/203.0.113.7:19132"},
+		{gatherings.Address{IPv4Address: "203.0.113.7", Port: 19132}, "raknet/203.0.113.7:19132"},
 		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNetJSONRPC, NetherNetID: "1234"}, "nethernet/jsonrpc/1234"},
-		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, NetherNetID: "1234"}, "nethernet/websocket/1234"},
-		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, IPv4Address: "play.example.test", Port: 19132}, "play.example.test:19132"},
+		// NETHERNET probes host:port for HTTP signaling, never RakNet; any ID is unused.
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, NetherNetID: "1234", IPv4Address: "play.example.test", Port: 19132}, "nethernet/http/play.example.test:19132"},
+		{gatherings.Address{NetworkProtocol: realms.NetworkProtocolNetherNet, IPv4Address: "play.example.test", Port: 19132}, "nethernet/http/play.example.test:19132"},
 	} {
 		f := newFixture(t, testAccount())
 		var joined []uuid.UUID
@@ -281,7 +284,7 @@ func TestConnectJoinsGatheringsAtConnectTime(t *testing.T) {
 	}
 	f := newFixture(t, testAccount())
 	f.service.cfg.JoinGathering = func(context.Context, *authcache.Account, uuid.UUID) (*gatherings.Address, error) {
-		return &gatherings.Address{NetworkProtocol: gatherings.NetworkProtocolDefault}, nil
+		return &gatherings.Address{NetworkProtocol: realms.NetworkProtocolDefault}, nil
 	}
 	if err := f.service.Connect(context.Background(), control.TargetGathering, id.String()); err == nil {
 		t.Fatal("an assignment without a host was selected")

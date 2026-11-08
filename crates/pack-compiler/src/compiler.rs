@@ -15,13 +15,13 @@ use assets::{
     MATERIAL_FLAG_ALPHA_BLEND, MATERIAL_FLAG_ALPHA_CUTOUT, MATERIAL_FLAG_BIRCH_FOLIAGE,
     MATERIAL_FLAG_DRY_FOLIAGE, MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_TINT,
     MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE, MATERIAL_FLAG_OVERLAY_MASK,
-    MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS,
-    MODEL_QUAD_FLAG_FACE_MASK, MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT,
-    MODEL_TEMPLATE_FLAG_FENCE_NETHER, MODEL_TEMPLATE_FLAG_FENCE_WOOD,
-    MODEL_TEMPLATE_FLAG_GATE_AXIS_X, MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP,
-    MODEL_TEMPLATE_FLAG_PANE, MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE,
-    MODEL_TEMPLATE_FLAG_WALL, Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate,
-    NO_ANIMATION, RegistryRecord, TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
+    MATERIAL_FLAG_WATER_TINT, MAX_CARRIER_TEXTURE_LAYERS, MAX_MATERIALS, MODEL_QUAD_FLAG_FACE_MASK,
+    MODEL_QUAD_FLAG_TWO_SIDED, MODEL_TEMPLATE_FLAG_COMPOUND_NEXT, MODEL_TEMPLATE_FLAG_FENCE_NETHER,
+    MODEL_TEMPLATE_FLAG_FENCE_WOOD, MODEL_TEMPLATE_FLAG_GATE_AXIS_X,
+    MODEL_TEMPLATE_FLAG_GATE_AXIS_Z, MODEL_TEMPLATE_FLAG_KELP, MODEL_TEMPLATE_FLAG_PANE,
+    MODEL_TEMPLATE_FLAG_STAIR, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, MODEL_TEMPLATE_FLAG_WALL,
+    Material, ModelFamily, ModelQuad, ModelStateField, ModelTemplate, NO_ANIMATION, RegistryRecord,
+    TextureArray, TexturePage, TextureRef, VisualKind, VisualSupport,
 };
 
 use {
@@ -711,9 +711,10 @@ fn flowerbed_material_descriptors(
     pack: &PackSources,
     record: &RegistryRecord,
 ) -> Option<[(Descriptor, Box<str>); 2]> {
-    let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, BlockFace::Down);
+    let TextureKey { key, uv_rotation } =
+        resolve_texture_key(&pack.blocks, record, BlockFace::Down);
     let key = key?;
-    let flags = (u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV) | MATERIAL_FLAG_ALPHA_CUTOUT;
+    let flags = (uv_rotation) | MATERIAL_FLAG_ALPHA_CUTOUT;
     let paths = pack.terrain.get_exact_pair(&key)?;
     Some(std::array::from_fn(|index| {
         let path = paths[index];

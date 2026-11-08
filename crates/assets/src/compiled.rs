@@ -85,10 +85,15 @@ pub const MAX_CARRIER_TEXTURE_PAGES: usize = 2;
 /// Layer bits shared by carrier references and GPU shader encoders.
 pub const TEXTURE_LAYER_MASK: u32 = MAX_TEXTURE_LAYERS as u32 - 1;
 pub const MAX_MATERIALS: usize = 65_536;
+/// The value within `MATERIAL_FLAG_UV_ROTATION_MASK` that turns a face's UVs by a quarter turn.
 pub const MATERIAL_FLAG_ROTATE_UV: u32 = 1 << 0;
 pub const MATERIAL_FLAG_UV_MASK: u32 = 0x0000_000f;
 /// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by 180 degrees.
 pub const MATERIAL_FLAG_UV_ROTATE_180: u32 = 2;
+/// The value within `MATERIAL_FLAG_UV_MASK` that turns a face's UVs by three quarter turns.
+pub const MATERIAL_FLAG_UV_ROTATE_270: u32 = 3;
+/// The rotation code within `MATERIAL_FLAG_UV_MASK`; the remaining bits reflect U and V.
+pub const MATERIAL_FLAG_UV_ROTATION_MASK: u32 = 0x0000_0003;
 pub const MATERIAL_FLAG_TINT_MASK: u32 = 0x0000_0030;
 pub const MATERIAL_FLAG_GRASS_TINT: u32 = 1 << 4;
 pub const MATERIAL_FLAG_FOLIAGE_TINT: u32 = 1 << 5;

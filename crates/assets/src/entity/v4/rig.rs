@@ -4,7 +4,7 @@ use super::super::{
     CompiledEntityAssets, EntityAssetKind, effective_geometry_bone_counts, invalid,
 };
 use super::{
-    EntityControllerAnimationTarget, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_RIG_ANIMATIONS,
+    EntityControllerAnimationTarget, MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_NESTING,
     MAX_ENTITY_RIG_BINDINGS, MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MolangOp,
     MolangSymbolKind, index_has_kind, molang_symbol_has_kind, range_in_bounds,
     validate_flattened_ranges,
@@ -13,7 +13,7 @@ use super::{
 pub(super) fn validate_rig_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
     if compiled.rig_bindings.len() > MAX_ENTITY_RIG_BINDINGS
         || compiled.rig_geometries.len() > MAX_ENTITY_RIG_GEOMETRIES
-        || compiled.rig_animations.len() > MAX_ENTITY_RIG_ANIMATIONS
+        || compiled.rig_animations.len() > MAX_ENTITY_ANIMATION_ENTRIES
         || compiled.rig_controllers.len() > MAX_ENTITY_RIG_CONTROLLERS
     {
         return Err(invalid("entity rig binding count exceeds bound"));

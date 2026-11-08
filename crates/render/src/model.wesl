@@ -346,6 +346,18 @@ fn model_corner_uv(quad: ModelQuad, material: MaterialGpu, corner: u32) -> vec2<
         f32(packed_u16(quad.template_quad_base + 6u, uv_component)),
         f32(packed_u16(quad.template_quad_base + 6u, uv_component + 1u)),
     ) / 4096.0;
+    // Mirrors `assets::world_aligned_uv`: undo the model's y turns on world-aligned faces.
+    let turns = quad.rotation & 3u;
+    if ((quad.quad_flags & MODEL_WORLD_ALIGNED_UV_FLAG) != 0u && turns != 0u) {
+        let up = (quad.quad_flags & 7u) == 2u;
+        if (turns == 2u) {
+            uv = vec2(1.0) - uv;
+        } else if ((turns == 1u) == up) {
+            uv = vec2(1.0 - uv.y, uv.x);
+        } else {
+            uv = vec2(uv.y, 1.0 - uv.x);
+        }
+    }
     // World rotation acts on the authored UV rectangle, independently of model geometry.
     if ((material.flags & MATERIAL_ISOTROPIC_FLAG) != 0u) {
         let uv_flags = material_uv_flags(material.flags, quad.chunk_origin.xyz + vec3<i32>(quad.block_position));

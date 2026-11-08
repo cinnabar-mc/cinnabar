@@ -98,6 +98,7 @@ impl ModHost {
         controls: ControlFrame,
     ) -> Result<()> {
         self.begin_frame();
+        self.instance.release_unrenewable_movement(&controls);
         let result = self.recover_frame_fuel().and_then(|recovered| {
             if recovered {
                 // Input was sampled from the old UI; resume after the initialized UI is shown.

@@ -4,6 +4,8 @@ use ui::IconRef;
 
 pub(super) const LIVE_EVENT_HEIGHT: f32 = 5.2;
 pub(super) const PANEL_PADDING: f32 = 2.4;
+pub(super) const MARKETPLACE_HEIGHT: f32 = 4.8;
+pub(super) const MARKETPLACE_GAP: f32 = 0.8;
 const COMPACT_WIDTH: f32 = 44.0;
 const DESKTOP_WIDTH: f32 = 86.0;
 
@@ -23,7 +25,7 @@ pub(super) struct Layout {
 
 /// The action group's height in rem, including wardrobe controls on compact layouts.
 pub(super) fn action_group_height(compact: bool) -> f32 {
-    if compact { 29.2 } else { 23.6 }
+    (if compact { 29.2 } else { 23.6 }) + MARKETPLACE_HEIGHT + MARKETPLACE_GAP
 }
 
 /// The panel inset in logical pixels, limited by its width.

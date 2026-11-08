@@ -40,7 +40,7 @@ pub(crate) use terrain_generation::synchronize_terrain_generation;
 use acceptance::committed_control::{
     model_gallery_camera_committed_marker, refresh_mutation_anchor_from_committed_control,
 };
-pub(crate) use control_apply::{MovePlayerRotation, apply_committed_control};
+pub(crate) use control_apply::{MovePlayerRotation, apply_committed_aim, apply_committed_control};
 
 use std::sync::Arc;
 
@@ -611,8 +611,16 @@ pub(crate) fn reconcile_world_stream_before_physics(
             }
         });
         use gameplay::committed_control::{ControlDisposition, SpatialReset};
+        let mut rotation_filter = control_apply::rotation_filter(
+            #[cfg(not(target_arch = "wasm32"))]
+            mods.as_deref_mut(),
+        );
         let reset = match disposition {
             ControlDisposition::Handled => continue,
+            ControlDisposition::Aim => {
+                apply_committed_aim(control, &view, &mut local_physics, &mut rotation_filter);
+                continue;
+            }
             ControlDisposition::Environment => {
                 apply_environment_control(
                     control,
@@ -641,12 +649,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
             &mut view,
             &mut camera_settings,
             pending_surface_spawn,
-            #[cfg(not(target_arch = "wasm32"))]
-            &mut |rotation| {
-                crate::modding::handle_move_player_rotation(mods.as_deref_mut(), rotation)
-            },
-            #[cfg(target_arch = "wasm32")]
-            &mut |_| None,
+            &mut rotation_filter,
         );
         #[cfg(feature = "acceptance")]
         if let Some(marker) = camera_marker {

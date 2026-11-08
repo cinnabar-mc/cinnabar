@@ -336,18 +336,7 @@ pub(super) fn compile(
             }
             Ok(partial)
         };
-        let over_budget = clips.len() > assets::MAX_ENTITY_ANIMATION_CLIPS
-            || channels.len() > assets::MAX_ENTITY_ANIMATION_CHANNELS
-            || keyframes.len() > assets::MAX_ENTITY_ANIMATION_KEYFRAMES;
         match result {
-            Ok(_) if over_budget => {
-                let (clip_count, channel_count, keyframe_count, mark) = checkpoint;
-                clips.truncate(clip_count);
-                channels.truncate(channel_count);
-                keyframes.truncate(keyframe_count);
-                molang.rollback(mark);
-                outcomes.push(fallback(source, symbol, FallbackReason::OverBudget));
-            }
             Ok(partial) => {
                 for (geometry, clip) in compiled {
                     clip_indices.insert((identifier.into(), geometry), clip);

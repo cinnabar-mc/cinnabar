@@ -18,6 +18,24 @@ fn view() -> MenuView {
 }
 
 #[test]
+fn marketplace_browsing_is_reachable_without_an_account_or_idle_library() {
+    for auth in [
+        launcher::menu::auth::AuthState::SignedOut,
+        launcher::menu::auth::AuthState::Authenticated,
+    ] {
+        let mut view = view();
+        view.auth_state = auth;
+        std::sync::Arc::make_mut(&mut view.mods).library.busy = true;
+        let (_, hits, _) = paint(HashMap::new(), |canvas| {
+            draw(canvas, &view, [1280.0, 720.0], None, &|_| None).unwrap();
+        });
+        assert!(hits.iter().any(|(action, _)| {
+            *action == MenuAction::Mods(launcher::mods::Action::BrowseMarketplace)
+        }));
+    }
+}
+
+#[test]
 fn desktop_preview_stays_between_the_identity_and_dressing_room_action() {
     let view = view();
     let mut preview = None;
@@ -114,6 +132,7 @@ fn compact_and_short_home_keep_all_actions_reachable() {
             MenuAction::Navigate(MenuScreen::Play),
             MenuAction::Navigate(MenuScreen::Servers),
             MenuAction::Navigate(MenuScreen::Settings),
+            MenuAction::Mods(launcher::mods::Action::BrowseMarketplace),
             MenuAction::Navigate(MenuScreen::Social),
             MenuAction::Navigate(MenuScreen::DressingRoom),
             MenuAction::OpenAccounts,

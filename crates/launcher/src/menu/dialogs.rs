@@ -259,15 +259,11 @@ fn storage(view: &MenuView, dialog: crate::menu::MenuDialog, translate: Translat
         )
     } else {
         (
-            words("storageManager.delete.title", "Delete %s permanently?").replace(
-                "%s",
-                &words("storageManager.contentType.cachedData", "Cached Data"),
+            "Delete downloaded server packs?".to_owned(),
+            format!(
+                "{}\n\nOnly these downloaded copies will be removed. Packs download again when a server needs them. Imported resource packs stay installed.",
+                view.storage.delete_summary
             ),
-            words(
-                "storageManager.delete.content",
-                "Are you sure you want to delete the selected items? %s%s%s",
-            )
-            .replace("%s", ""),
             words("storageManager.delete.confirm", "Delete"),
             MenuAction::SettingsStorage(StorageAction::ConfirmDelete),
         )
