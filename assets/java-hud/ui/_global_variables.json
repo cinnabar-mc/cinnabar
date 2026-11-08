@@ -1,6 +1,9 @@
 {
   "$cinnabar_main_arm_left": false,
   "$cinnabar_status_row_y": -39,
+  // Experience, locator and mount-jump bars share one place above the hotbar.
+  "$cinnabar_progress_bar_size": [182, 5],
+  "$cinnabar_progress_bar_offset": [0, -24],
   "$cinnabar_chat_top": false,
   // The Video setting that opens vanilla Bedrock's full chat screen instead of Java's input line.
   "$cinnabar_chat_input_bedrock": false,

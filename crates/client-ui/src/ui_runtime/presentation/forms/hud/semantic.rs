@@ -152,6 +152,14 @@ impl SemanticHud {
                 .air()
                 .is_some_and(|air| air.current() < air.maximum());
         let mut changed = replace(&mut model.survival_ui, survival);
+        let locator = hotbar
+            && frame.mount_jump.is_none()
+            && frame.locator_view.is_some()
+            && runtime
+                .session
+                .locator
+                .visible(frame.dimension, frame.now_millis);
+        changed |= replace(&mut model.locator_bar, locator);
         changed |= replace(
             &mut model.armor_visible,
             runtime
@@ -165,7 +173,7 @@ impl SemanticHud {
         );
         changed |= replace(
             &mut model.xp_bar,
-            survival && experience.is_some() && frame.mount_jump.is_none(),
+            survival && experience.is_some() && frame.mount_jump.is_none() && !locator,
         );
         changed |= replace(
             &mut model.exp_progress,

@@ -110,6 +110,10 @@ pub(super) fn hud_model(
         .collect();
     let now_tick = runtime.estimated_server_tick(now);
     let (player_position, days_played) = world_text_lines(runtime, frame);
+    let locator = mode_allows_hotbar
+        && frame.mount_jump.is_none()
+        && frame.locator_view.is_some()
+        && runtime.session.locator.visible(frame.dimension, now);
     HudModel {
         survival_ui: survival,
         armor_visible: runtime
@@ -118,7 +122,8 @@ pub(super) fn hud_model(
             .is_some_and(|armor| armor.current() > 0),
         hotbar_visible: mode_allows_hotbar && selected.is_some(),
         touch_inventory: false,
-        xp_bar: survival && experience.is_some() && frame.mount_jump.is_none(),
+        xp_bar: survival && experience.is_some() && frame.mount_jump.is_none() && !locator,
+        locator_bar: locator,
         exp_progress: experience.map_or(0.0, |xp| f64::from(xp.progress)),
         level: experience.map_or(0, |xp| xp.level),
         hotbar,

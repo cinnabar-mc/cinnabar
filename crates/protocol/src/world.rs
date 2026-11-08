@@ -360,6 +360,24 @@ world_packets! {
     RemoveObjective(packet) => WorldEvent::Ui(normalize_remove_objective(packet)?),
     SetScore(packet) => WorldEvent::Ui(normalize_score(packet)?),
     BossEvent(packet) => WorldEvent::Ui(normalize_boss(packet)?),
+    PlayerLocation(packet) => {
+        use bedrock_protocol_1_26_60::{enums::PlayerLocationType, types::PlayerLocationData};
+        let position = match packet.location {
+            PlayerLocationData::CoordinatesLocation {
+                packet_type: PlayerLocationType::PlayerLocationCoordinates, position,
+            } => Some(position.to_array()),
+            PlayerLocationData::HiddenLocation {
+                packet_type: PlayerLocationType::PlayerLocationHide,
+            } => None,
+            _ => return Ok(None),
+        };
+        WorldEvent::Ui(UiEvent::Locator(vec![crate::LocatorEvent::Player {
+            actor_unique_id: packet.target_actor_id.0, position, dimension: current_dimension,
+        }]))
+    },
+    LocatorBar(packet) => WorldEvent::Ui(UiEvent::Locator(
+        packet.waypoints.into_iter().filter_map(crate::ui::locator::waypoint).collect(),
+    )),
     ModalFormRequest(packet) => WorldEvent::Ui(normalize_form(packet)?),
     ClientboundDataStore(packet) => WorldEvent::Ui(crate::ui::normalize_data_store(packet)),
     ClientboundDataDrivenUIShowScreen(packet) => {
