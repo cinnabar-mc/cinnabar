@@ -196,3 +196,26 @@ fn capture_revocation_and_subsequent_retry() {
     );
     assert_eq!(*TEST_LAST_CALL.lock().unwrap(), Some(true));
 }
+
+/// An enable request Android never grants is retried after the player clicks, and after a failed
+/// driver call, but not on every frame.
+#[test]
+fn ungranted_capture_retries_after_click_or_driver_failure() {
+    let _globals = lock_test_globals();
+    reset_test_driver();
+    let _ = take_platform_mouse_events();
+
+    request_platform_pointer_capture(true);
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 1);
+
+    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true);
+    request_platform_pointer_capture(true);
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 2);
+
+    forget_platform_pointer_capture_request();
+    request_platform_pointer_capture(true);
+    assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 3);
+    let _ = take_platform_mouse_events();
+}

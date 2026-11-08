@@ -87,7 +87,13 @@ pub fn take_platform_mouse_motion() -> (f32, f32) {
 }
 
 /// Enqueues a mouse button press or release from the platform.
+///
+/// A press while capture is not held forgets an ungranted capture request, so the next frame
+/// that wants capture asks again: one retry per click.
 pub fn push_platform_mouse_button(button_mask: u32, pressed: bool) {
+    if pressed && !is_platform_pointer_captured() {
+        forget_platform_pointer_capture_request();
+    }
     push_platform_mouse_event(PlatformMouseEvent::Button(PlatformMouseButtonEvent {
         button_mask,
         pressed,
@@ -120,6 +126,17 @@ pub fn take_platform_mouse_events() -> Vec<PlatformMouseEvent> {
 /// Enqueues an uncaptured pointer position in physical window pixels.
 pub fn push_platform_mouse_cursor(x: f32, y: f32) {
     push_platform_mouse_event(PlatformMouseEvent::Cursor { x, y });
+}
+
+/// Forgets an ungranted enable request, after a failed driver call or before a retry, so the next
+/// enable request reaches the driver.
+pub fn forget_platform_pointer_capture_request() {
+    if !is_platform_pointer_captured()
+        && let Ok(mut requested) = PLATFORM_POINTER_CAPTURE_REQUESTED.lock()
+        && *requested == Some(true)
+    {
+        *requested = None;
+    }
 }
 
 /// Resets the internal capture request cache (primarily for unit tests).

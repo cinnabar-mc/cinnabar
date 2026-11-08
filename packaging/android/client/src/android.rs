@@ -200,5 +200,6 @@ fn set_pointer_capture_enabled(enabled: bool) {
     })();
     if let Err(error) = call {
         bevy::log::warn!("failed to set pointer capture: {error:#}");
+        cinnabar::platform_devices::ingress::forget_platform_pointer_capture_request();
     }
 }
