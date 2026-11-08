@@ -22,7 +22,10 @@ fn website_component_is_available_without_grants_then_runs_with_explicit_consent
     let mods = root.path().join("mods");
     let registration = root.path().join("config");
     fs::create_dir_all(&mods).unwrap();
-    let path = mods.join("marketplace-synthetic.wasm");
+    let path = mods.join(format!(
+        "{}synthetic.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX
+    ));
     fs::write(&path, &bytes).unwrap();
     let library = scan(&mods, &registration, String::new());
     assert!(library.active.is_empty());

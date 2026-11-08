@@ -3,7 +3,7 @@
 mod guard;
 mod storage;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod verify;
 mod worker;
 pub use guard::{Guard, managed};

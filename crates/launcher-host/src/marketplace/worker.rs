@@ -302,17 +302,51 @@ struct Worker<'a> {
 }
 
 impl Worker<'_> {
+    /// Whether a verified managed file is still installed, so its freshness window must not lapse.
+    fn protects_installed(&self) -> bool {
+        self.guard
+            .installed_paths()
+            .iter()
+            .any(|path| path.exists())
+    }
+
+    /// Whether `library` holds a send that is neither withdrawn nor already consumed.
+    fn pending(&self, library: &CinnabarModLibrary) -> bool {
+        library.mods.iter().any(|selected| {
+            !selected.pulled
+                && !self
+                    .deliveries
+                    .requests
+                    .contains(&request(&library.xuid, selected))
+        })
+    }
+
     /// Verifies fresh revocations once the previous refresh interval has elapsed at `now`.
-    fn refresh_due(&mut self, now: &impl Fn() -> u64, notify: &impl Fn(String)) {
+    ///
+    /// Refreshes only while there is something to protect or deliver: an installed managed file
+    /// or any selection in the current account `library`. Otherwise no request is made and the
+    /// next one is due as soon as either appears. A failure is reported only when it affects an
+    /// installed managed file or a pending selection; without fresh evidence those stay held.
+    fn refresh_due(
+        &mut self,
+        library: Option<&CinnabarModLibrary>,
+        now: &impl Fn() -> u64,
+        notify: &impl Fn(String),
+    ) {
         let Some(keys) = self.keys else {
             return;
         };
         if now() < self.refresh_at {
             return;
         }
+        let installed = self.protects_installed();
+        if !installed && library.is_none_or(|library| library.mods.is_empty()) {
+            return;
+        }
         if let Err(error) =
             self.runtime
                 .block_on(refresh(self.transport, self.mods, keys, &self.guard, now))
+            && (installed || library.is_some_and(|library| self.pending(library)))
         {
             notify(format!("Marketplace checks could not refresh: {error:#}"));
         }
@@ -366,7 +400,7 @@ impl Worker<'_> {
                 continue;
             }
             // A long pass must not outlive the signed freshness window it started with.
-            self.refresh_due(now, notify);
+            self.refresh_due(Some(library), now, notify);
             if !self.guard.permits(owner, &selected.sha256, now()) {
                 continue;
             }
@@ -458,30 +492,29 @@ pub(super) fn run(
             .deliveries
             .refresh(epoch, &mods, keys.as_ref(), limit, &guard, now_ms());
         if let Some(socket) = socket {
-            worker.refresh_due(&now_ms, &notify);
-            if let Some(library) = control(&runtime, bridge::cinnabar_mods(&socket))
-                && bridge::valid_cinnabar_xuid(&library.xuid)
-            {
+            let library = control(&runtime, bridge::cinnabar_mods(&socket))
+                .filter(|library| bridge::valid_cinnabar_xuid(&library.xuid));
+            if let Some(library) = &library {
                 guard.account(epoch, library.xuid.clone());
-                if library.mods.len() <= bridge::contract::CINNABAR_MODS_MAX_ENTRIES {
-                    worker.pass(
-                        epoch,
-                        &library,
-                        |selected| {
-                            control(&runtime, bridge::cinnabar_mods(&socket)).is_some_and(
-                                |current| {
-                                    current.xuid == library.xuid && current.mods.contains(selected)
-                                },
-                            )
-                        },
-                        |selected| {
-                            let _ =
-                                control(&runtime, bridge::remove_cinnabar_mod(&socket, selected));
-                        },
-                        &now_ms,
-                        &notify,
-                    );
-                }
+            }
+            worker.refresh_due(library.as_ref(), &now_ms, &notify);
+            if let Some(library) = library
+                && library.mods.len() <= bridge::contract::CINNABAR_MODS_MAX_ENTRIES
+            {
+                worker.pass(
+                    epoch,
+                    &library,
+                    |selected| {
+                        control(&runtime, bridge::cinnabar_mods(&socket)).is_some_and(|current| {
+                            current.xuid == library.xuid && current.mods.contains(selected)
+                        })
+                    },
+                    |selected| {
+                        let _ = control(&runtime, bridge::remove_cinnabar_mod(&socket, selected));
+                    },
+                    &now_ms,
+                    &notify,
+                );
             }
         }
         if let Err(RecvTimeoutError::Disconnected) = incoming.recv_timeout(Duration::from_secs(5)) {

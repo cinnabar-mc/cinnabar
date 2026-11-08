@@ -198,7 +198,7 @@ fn website_send_downloads_disabled_and_signed_withdrawal_holds_the_installed_com
         .await
         .unwrap();
         assert_eq!(prepared.bytes().unwrap(), bytes);
-        let installed = prepared.install(fixture.checked_at).unwrap();
+        let installed = prepared.install(fixture.checked_at, |_| Ok(())).unwrap();
         assert!(
             !root.path().join("local-mod.json").exists(),
             "download cannot enable the component or approve permissions"
@@ -300,11 +300,11 @@ fn account_switch_retries_cancelled_delivery_but_keeps_durable_consumed_sends() 
             if epoch == 1 {
                 generation.store(2, Ordering::SeqCst);
                 guard.configure(2);
-                assert!(prepared.install(fixture.checked_at).is_err());
+                assert!(prepared.install(fixture.checked_at, |_| Ok(())).is_err());
                 let name = storage::filename(&fixture.xuid, &fixture.selected).unwrap();
                 assert!(!root.path().join(name).exists());
             } else {
-                let installed = prepared.install(fixture.checked_at).unwrap();
+                let installed = prepared.install(fixture.checked_at, |_| Ok(())).unwrap();
                 switch(4);
                 refresh_queue(&mut deliveries, 4);
                 assert!(
@@ -504,7 +504,7 @@ fn removal_requests_wait_for_the_failure_backoff() {
         guard: guard.clone(),
         mods: root.path().into(),
     }
-    .install(fixture.checked_at)
+    .install(fixture.checked_at, |_| Ok(()))
     .unwrap();
     fs::remove_file(installed).unwrap();
     let runtime = runtime();
@@ -602,7 +602,7 @@ fn long_pass_refreshes_revocations_once_their_refresh_time_passes() {
     let notify = |note| notes.borrow_mut().push(note);
     let clock = AtomicU64::new(fixture.checked_at);
     let now = || clock.load(Ordering::SeqCst);
-    worker.refresh_due(&now, &notify);
+    worker.refresh_due(Some(&library), &now, &notify);
     // Each delivery takes a full refresh interval, so the second one needs a new refresh.
     let slow = |_: &CinnabarModEntry| {
         clock.fetch_add(REFRESH_INTERVAL_MS, Ordering::SeqCst);
@@ -614,6 +614,138 @@ fn long_pass_refreshes_revocations_once_their_refresh_time_passes() {
         worker.refresh_at,
         fixture.checked_at + 2 * REFRESH_INTERVAL_MS
     );
+    server.join().unwrap();
+}
+
+/// Serves one signed revocation snapshot per expected refresh.
+fn serve_revocations(fixture: &Handoff, count: usize) -> (Transport, std::thread::JoinHandle<()>) {
+    serve(
+        (0..count)
+            .map(|_| {
+                (
+                    "/v1/mods/revocations".into(),
+                    fixture.revocations.body.as_bytes().to_vec(),
+                    Some(fixture.revocations.signature.clone()),
+                )
+            })
+            .collect(),
+    )
+}
+
+#[test]
+fn revocations_refresh_only_while_an_installed_receipt_or_a_selection_needs_them() {
+    let (fixture, keys, bytes) = handoff();
+    let (transport, server) = serve_revocations(&fixture, 2);
+    let root = tempfile::tempdir().unwrap();
+    let guard = Arc::new(Guard::default());
+    guard.configure(1);
+    guard.account(1, fixture.xuid.clone());
+    let runtime = runtime();
+    let (outgoing, _incoming) = crossbeam_channel::bounded(1);
+    let mut worker = worker(
+        &runtime,
+        &transport,
+        root.path(),
+        &keys,
+        bytes.len(),
+        &guard,
+        &outgoing,
+    );
+    let notes = RefCell::new(Vec::new());
+    let notify = |note| notes.borrow_mut().push(note);
+    let clock = AtomicU64::new(fixture.checked_at);
+    let now = || clock.load(Ordering::SeqCst);
+    let mut library = CinnabarModLibrary {
+        xuid: fixture.xuid.clone(),
+        mods: Vec::new(),
+    };
+    worker.refresh_due(None, &now, &notify);
+    worker.refresh_due(Some(&library), &now, &notify);
+    assert_eq!(worker.refresh_at, 0, "nothing to protect makes no request");
+    assert_eq!(guard.checkpoint(), 0);
+    assert!(notes.borrow().is_empty());
+
+    library.mods.push(fixture.selected.clone());
+    worker.refresh_due(Some(&library), &now, &notify);
+    assert_eq!(
+        guard.checkpoint(),
+        fixture
+            .revocations
+            .verify(&keys, now(), 0)
+            .unwrap()
+            .issued_at
+    );
+    assert_eq!(worker.refresh_at, fixture.checked_at + REFRESH_INTERVAL_MS);
+
+    // Without selections, an installed managed file keeps its evidence fresh.
+    let response: serde_json::Value = serde_json::from_str(&fixture.release_response).unwrap();
+    let release: SignedRelease = serde_json::from_value(response["release"].clone()).unwrap();
+    let path = root
+        .path()
+        .join(storage::filename(&fixture.xuid, &fixture.selected).unwrap());
+    fs::write(&path, &bytes).unwrap();
+    guard.installed(
+        path,
+        fixture.xuid.clone(),
+        release
+            .verify(&keys, &fixture.selected, bytes.len(), now())
+            .unwrap(),
+    );
+    clock.fetch_add(REFRESH_INTERVAL_MS, Ordering::SeqCst);
+    worker.refresh_due(None, &now, &notify);
+    assert_eq!(worker.refresh_at, now() + REFRESH_INTERVAL_MS);
+    assert!(notes.borrow().is_empty(), "{:?}", notes.borrow());
+    server.join().unwrap();
+}
+
+#[test]
+fn refresh_failures_are_reported_only_when_a_managed_mod_or_pending_selection_is_affected() {
+    let (fixture, keys, bytes) = handoff();
+    // An unsigned snapshot fails verification on every refresh.
+    let unsigned = ("/v1/mods/revocations".to_string(), b"{}".to_vec(), None);
+    let (transport, server) = serve(vec![unsigned.clone(), unsigned]);
+    let root = tempfile::tempdir().unwrap();
+    let guard = Arc::new(Guard::default());
+    guard.configure(1);
+    guard.account(1, fixture.xuid.clone());
+    let runtime = runtime();
+    let (outgoing, _incoming) = crossbeam_channel::bounded(1);
+    let mut worker = worker(
+        &runtime,
+        &transport,
+        root.path(),
+        &keys,
+        bytes.len(),
+        &guard,
+        &outgoing,
+    );
+    let notes = RefCell::new(Vec::new());
+    let notify = |note| notes.borrow_mut().push(note);
+    let clock = AtomicU64::new(fixture.checked_at);
+    let now = || clock.load(Ordering::SeqCst);
+    let mut withdrawn = fixture.selected.clone();
+    withdrawn.pulled = true;
+    let library = CinnabarModLibrary {
+        xuid: fixture.xuid.clone(),
+        mods: vec![withdrawn],
+    };
+    worker.refresh_due(Some(&library), &now, &notify);
+    assert_eq!(worker.refresh_at, fixture.checked_at + REFRESH_INTERVAL_MS);
+    assert!(
+        notes.borrow().is_empty(),
+        "an unaffected library must keep its Mods message: {:?}",
+        notes.borrow()
+    );
+
+    clock.fetch_add(REFRESH_INTERVAL_MS, Ordering::SeqCst);
+    let library = CinnabarModLibrary {
+        xuid: fixture.xuid.clone(),
+        mods: vec![fixture.selected.clone()],
+    };
+    worker.refresh_due(Some(&library), &now, &notify);
+    assert_eq!(notes.borrow().len(), 1);
+    assert!(notes.borrow()[0].starts_with("Marketplace checks could not refresh"));
+    assert!(!guard.permits(&fixture.xuid, &fixture.selected.sha256, now()));
     server.join().unwrap();
 }
 

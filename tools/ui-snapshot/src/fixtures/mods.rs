@@ -156,7 +156,10 @@ fn marketplace_library(status: Option<Status>, message: String) -> Fixture {
         library: Library {
             installed: vec![InstalledMod {
                 id: 1,
-                file: "marketplace-fixture-1f2e3d.wasm".into(),
+                file: format!(
+                    "{}fixture-1f2e3d.wasm",
+                    launcher::mods::MARKETPLACE_FILE_PREFIX
+                ),
                 bytes: 96_256,
                 permissions: vec![Permission {
                     applicable: true,

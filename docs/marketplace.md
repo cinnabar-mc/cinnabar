@@ -37,7 +37,9 @@ code. The component's declared version and exact requested grants, including
 command values, must match the signed release. Components and signed receipts
 are published under immutable, account/hash-derived names; each file is complete
 before it becomes visible. Imports never overwrite existing files, enable a mod,
-copy prior grants or authorize new ones. New releases appear under Settings →
+copy prior grants or authorize new ones. A newly published file drops any
+registration entry left at its path, for example after the file was deleted
+outside Mods, so a re-sent release needs a fresh Enable. New releases appear under Settings →
 Mods → My mods; enable them and choose permissions through the existing consent
 controls. A marketplace mod never runs with more than its signed grants: the host
 caps its saved permissions to the signed set, including command names, whenever
@@ -49,8 +51,11 @@ authority. The GitHub mod updater cannot replace managed files.
 ## Withdrawal and offline behavior
 
 Signed revocation snapshots include issue and expiry timestamps. The API issues
-fifteen-minute snapshots; the client refreshes every minute, rejects expired,
+fifteen-minute snapshots; while a managed mod is installed or the signed-in
+account has selections, the client refreshes every minute, rejects expired,
 future-dated or rolled-back evidence, and persists the last signed checkpoint.
+Refresh failures appear in Mods only when they affect an installed managed mod
+or a pending selection. Without fresh evidence, managed mods stay held.
 Withdrawn hashes seen during a session stay held until the client exits. After a
 restart the client starts from the persisted latest snapshot, so a hash that
 snapshot no longer lists is no longer held. Expired cached snapshots retain their issue time across restarts but
@@ -62,7 +67,8 @@ account changes, a withdrawal arrives, or the receipt/source is invalid. A new
 client account session must establish its identity through the authenticated API.
 Source admission, prepared-instance publication and frame authority all check
 the current guard. Local developer imports keep their existing explicit grants.
-Managed filenames remain reserved even if a receipt is deleted.
+Managed filenames use a reserved `cinnabar-marketplace-` prefix and remain
+reserved even if a receipt is deleted; other local file names are unaffected.
 
 Removing a managed mod through Mods leaves its signed receipt as a consumed
 request. The worker queues `mod_library_remove` through the authenticated game

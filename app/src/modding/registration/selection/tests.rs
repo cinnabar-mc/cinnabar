@@ -193,7 +193,10 @@ fn marketplace_permissions_cannot_exceed_the_request_while_local_mods_can() {
             .unwrap()
     };
     let bytes = crate::modding::marketplace::component_fixture(r#"{"hud":true}"#);
-    let managed = resolved_component(&root.join("marketplace-11-fixture.wasm"));
+    let managed = resolved_component(&root.join(format!(
+        "{}11-fixture.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX
+    )));
     let local = resolved_component(&root.join("local.wasm"));
     for component in [&managed, &local] {
         std::fs::write(component, &bytes).unwrap();

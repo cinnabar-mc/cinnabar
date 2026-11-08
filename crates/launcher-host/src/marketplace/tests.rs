@@ -142,13 +142,27 @@ fn prepared(root: &Path, f: &Fixture, guard: Arc<Guard>, generation: Arc<AtomicU
     }
 }
 
+/// Stages a verified synthetic release for `mods` under a live account whose signed evidence is
+/// fresh at 3000 ms, returning it with its managed destination.
+pub(crate) fn staged(mods: &Path) -> (Downloaded, std::path::PathBuf) {
+    let f = fixture();
+    let target = mods.join(storage::filename("11", &f.selected).unwrap());
+    let download = prepared(
+        mods,
+        &f,
+        Arc::new(Guard::default()),
+        Arc::new(AtomicU64::new(1)),
+    );
+    (download, target)
+}
+
 #[test]
 fn atomic_install_stays_disabled_and_retains_receipts_for_removal_and_restart() {
     let f = fixture();
     let root = tempfile::tempdir().unwrap();
     let guard = Arc::new(Guard::default());
     let download = prepared(root.path(), &f, guard.clone(), Arc::new(AtomicU64::new(1)));
-    let path = download.install(3000).unwrap();
+    let path = download.install(3000, |_| Ok(())).unwrap();
     assert_eq!(std::fs::read(&path).unwrap(), f.bytes);
     assert!(
         !root.path().join("local-mod.json").exists(),
@@ -202,13 +216,13 @@ fn cancelled_downloads_and_existing_file_collisions_never_publish() {
     let generation = Arc::new(AtomicU64::new(1));
     let download = prepared(root.path(), &f, guard.clone(), generation.clone());
     generation.store(2, Ordering::SeqCst);
-    assert!(download.install(3000).is_err());
+    assert!(download.install(3000, |_| Ok(())).is_err());
     let download = prepared(root.path(), &f, guard.clone(), Arc::new(AtomicU64::new(1)));
     let target = root
         .path()
         .join(storage::filename("11", &f.selected).unwrap());
     std::fs::write(&target, b"another file").unwrap();
-    assert!(download.install(3000).is_err());
+    assert!(download.install(3000, |_| Ok(())).is_err());
     assert_eq!(std::fs::read(target).unwrap(), b"another file");
 }
 
@@ -216,7 +230,8 @@ fn cancelled_downloads_and_existing_file_collisions_never_publish() {
 fn withdrawals_remain_held_and_unsigned_local_imports_keep_their_existing_path() {
     let f = fixture();
     let guard = Guard::default();
-    let path = Path::new("marketplace-11-fixture.wasm");
+    let name = format!("{}11-fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
+    let path = Path::new(&name);
     guard.configure(1);
     guard.account(1, "11".into());
     guard.installed(
@@ -236,7 +251,26 @@ fn withdrawals_remain_held_and_unsigned_local_imports_keep_their_existing_path()
     });
     assert!(!guard.allows(path, 3000));
     assert!(guard.reason(path, 3000).contains("Synthetic withdrawal"));
-    assert!(!guard.allows(Path::new("marketplace-no-receipt.wasm"), 3000));
+    assert!(!guard.allows(
+        Path::new(&format!(
+            "{}no-receipt.wasm",
+            launcher::mods::MARKETPLACE_FILE_PREFIX
+        )),
+        3000
+    ));
     assert!(guard.check(Path::new("local.wasm"), b"local", 3000).is_ok());
     assert!(storage::filename("../outside", &f.selected).is_err());
+}
+
+#[test]
+fn only_reserved_names_are_managed_so_marketplace_named_local_mods_run_unheld() {
+    let f = fixture();
+    let guard = Guard::default();
+    let local = Path::new("marketplace-prices.wasm");
+    assert!(!managed(local));
+    assert!(guard.allows(local, 3000));
+    assert!(matches!(guard.check(local, b"local", 3000), Ok(None)));
+    let stored = storage::filename("11", &f.selected).unwrap();
+    assert!(managed(Path::new(&stored)), "{stored}");
+    assert!(!guard.allows(Path::new(&stored), 3000));
 }

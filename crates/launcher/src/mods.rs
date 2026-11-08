@@ -9,12 +9,20 @@ pub const COMPONENT_EXTENSION: &str = "wasm";
 /// The official catalogue opened by the Mods page, independent of mod-supplied metadata.
 pub const MARKETPLACE_URL: &str = "https://cinnabar.gg/mods/";
 /// File-name prefix reserved for managed marketplace components.
-pub const MARKETPLACE_FILE_PREFIX: &str = "marketplace-";
+///
+/// It is distinctive so that ordinary local file names, such as `marketplace-prices.wasm`, are
+/// never mistaken for managed files and held or refused.
+pub const MARKETPLACE_FILE_PREFIX: &str = "cinnabar-marketplace-";
 /// Library message after a verified marketplace download lands, disabled, in My mods.
 pub const MARKETPLACE_ADDED: &str =
-    "Marketplace mod added to Available. Enable it and choose its permissions in Mods.";
+    "Marketplace mod added to My mods. Enable it and choose its permissions in Mods.";
 /// Release tags share the installed metadata version's display bound.
 pub const MAX_UPDATE_VERSION_BYTES: usize = ui::mod_metadata::MAX_VERSION_BYTES;
+
+/// Whether `file_name` is reserved for a managed marketplace component, with or without a receipt.
+pub fn is_marketplace_file(file_name: &str) -> bool {
+    file_name.starts_with(MARKETPLACE_FILE_PREFIX)
+}
 
 /// Status text for a marketplace release that staff withdrew, with their optional reason.
 pub fn marketplace_withdrawn(reason: &str) -> String {
@@ -124,7 +132,7 @@ impl InstalledMod {
     /// Whether this card is a managed marketplace file, whose authority is capped to its signed
     /// request.
     pub fn marketplace(&self) -> bool {
-        self.file.starts_with(MARKETPLACE_FILE_PREFIX)
+        is_marketplace_file(&self.file)
     }
     /// The component's declared name, else its file name without the extension.
     pub fn name(&self) -> &str {
@@ -380,6 +388,15 @@ mod tests {
         item.metadata.icon = Some(std::sync::Arc::from([1u8].as_slice()));
         assert_eq!(item.name(), "Zoom");
         assert!(item.icon_key().is_some());
+    }
+
+    #[test]
+    fn only_the_reserved_prefix_marks_a_card_as_marketplace_managed() {
+        let mut item = installed(1);
+        item.file = "marketplace-prices.wasm".into();
+        assert!(!item.marketplace(), "a local file name must stay local");
+        item.file = format!("{MARKETPLACE_FILE_PREFIX}11-fixture.wasm");
+        assert!(item.marketplace());
     }
 
     #[test]

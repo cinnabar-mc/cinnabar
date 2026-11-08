@@ -100,6 +100,11 @@ impl Guard {
         self.state().installed.insert(path, (owner, manifest));
     }
 
+    /// Lists the managed paths registered with verified receipts this session, present or not.
+    pub fn installed_paths(&self) -> Vec<PathBuf> {
+        self.state().installed.keys().cloned().collect()
+    }
+
     /// Tests freshness and ownership at installation and immediately before frame admission.
     pub fn allows(&self, path: &Path, now: u64) -> bool {
         !managed(path) || self.state().admitted(path, now).is_some()
@@ -167,5 +172,5 @@ impl Guard {
 pub fn managed(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with(launcher::mods::MARKETPLACE_FILE_PREFIX))
+        .is_some_and(launcher::mods::is_marketplace_file)
 }

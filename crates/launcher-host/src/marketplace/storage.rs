@@ -63,7 +63,12 @@ impl Downloaded {
     }
 
     /// Publishes a new disabled file and receipt without overwriting another component or registration.
-    pub fn install(self, now: u64) -> Result<PathBuf> {
+    ///
+    /// `release` runs with the destination immediately before a new file is published there, so
+    /// the registration owner can drop an entry left at that path (for example after the file was
+    /// deleted outside Mods) and the new file needs a fresh Enable. It is not called when the
+    /// destination already holds the verified bytes; an error from it cancels publication.
+    pub fn install(self, now: u64, release: impl FnOnce(&Path) -> Result<()>) -> Result<PathBuf> {
         self.bytes()?;
         ensure!(
             self.generation.load(Ordering::SeqCst) == self.epoch
@@ -80,6 +85,7 @@ impl Downloaded {
                 &self.manifest,
             )?;
         } else {
+            release(&target)?;
             self.file.as_file().sync_all()?;
             self.file.persist_noclobber(&target).map_err(|e| {
                 anyhow::anyhow!("Could not publish marketplace component: {}", e.error)

@@ -375,7 +375,10 @@ fn customization_orders_requests_first_and_details_follow_hover_or_focus() {
 #[test]
 fn marketplace_customization_offers_only_requested_permissions() {
     for enabled in [false, true] {
-        let mut item = installed(1, "marketplace-11-fixture");
+        let mut item = installed(
+            1,
+            &format!("{}11-fixture", launcher::mods::MARKETPLACE_FILE_PREFIX),
+        );
         item.permissions[0].enabled = enabled;
         let snapshot = Snapshot {
             library: Library {

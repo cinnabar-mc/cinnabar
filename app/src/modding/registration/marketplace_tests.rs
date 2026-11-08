@@ -61,7 +61,10 @@ fn managed_admission_never_exceeds_the_signed_grants() {
         (r#"{"hud":true,"commands":["help"]}"#, hud_and_help),
     ] {
         let root = tempfile::tempdir().unwrap();
-        let path = root.path().join("marketplace-11-fixture.wasm");
+        let path = root.path().join(format!(
+            "{}11-fixture.wasm",
+            launcher::mods::MARKETPLACE_FILE_PREFIX
+        ));
         let guard = signed(&path, grants);
         let mut entry = Entry {
             component: path.clone(),
@@ -100,7 +103,10 @@ fn pending_reload_cannot_reauthorize_a_held_marketplace_packet_program() {
         let root = tempfile::tempdir().unwrap();
         let (mut world, _messages, _retiring) = world();
         let entry = Entry {
-            component: root.path().join("marketplace-packet.wasm"),
+            component: root.path().join(format!(
+                "{}packet.wasm",
+                launcher::mods::MARKETPLACE_FILE_PREFIX
+            )),
             enabled: true,
             grants: mod_host::ModGrants {
                 packets: true,
