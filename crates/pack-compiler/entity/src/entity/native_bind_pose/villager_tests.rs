@@ -1,7 +1,10 @@
 use super::*;
 
+/// Parsed geometries keyed by source path and identifier.
+type Geometries = BTreeMap<(Box<str>, Box<str>), PendingGeometry>;
+
 /// Parses an original two-part fixture in the canonical villager geometry's frame.
-fn fixture() -> (Vec<u8>, BTreeMap<(Box<str>, Box<str>), PendingGeometry>) {
+fn fixture() -> (Vec<u8>, Geometries) {
     let value = serde_json::json!({
         "format_version": "1.21.0", "minecraft:geometry": [{
             "description": {"identifier": VILLAGER_GEOMETRY},
