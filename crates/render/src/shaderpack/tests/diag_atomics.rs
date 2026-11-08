@@ -4,6 +4,26 @@ use super::*;
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Counts its 16 invocations into an `r32ui` custom image with an image atomic.
+const COUNT_ATOMICALLY: &str = "#version 430
+layout(local_size_x = 4, local_size_y = 4) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    imageAtomicAdd(counter, ivec2(0), 1u);
+}
+";
+
+/// Writes the counter's first texel, over 255, to red.
+const SHOW_COUNT: &str = "#version 430
+uniform usampler2D counterSampler;
+void main() {
+/* DRAWBUFFERS:0 */
+    uint count = texelFetch(counterSampler, ivec2(0), 0).r;
+    gl_FragData[0] = vec4(float(count) / 255.0, 0.0, 0.0, 1.0);
+}
+";
+
 const STORE_SIXTEEN: &str = "#version 430
 layout(local_size_x = 4, local_size_y = 4) in;
 const ivec3 workGroups = ivec3(1, 1, 1);
