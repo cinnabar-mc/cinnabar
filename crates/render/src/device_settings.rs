@@ -144,6 +144,19 @@ pub fn adapter_requiring_fxc(
     adapters.into_iter().find(legacy_intel_dx12_driver)
 }
 
+/// Whether a device on `adapter` must come from an instance rebuilt with FXC. WARP, DX12's
+/// software adapter, faulted in `d3d10warp.dll` on the pipeline compile workers with DXC's
+/// output and works with FXC's. Every DX12 instance also lists WARP beside its hardware
+/// adapters, so this is decided for the adapter a device is created on, not at enumeration.
+pub fn software_adapter_requires_fxc(
+    compiler: &wgpu::Dx12Compiler,
+    adapter: &wgpu::AdapterInfo,
+) -> bool {
+    !matches!(compiler, wgpu::Dx12Compiler::Fxc)
+        && adapter.backend == wgpu::Backend::Dx12
+        && adapter.device_type == wgpu::DeviceType::Cpu
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -199,12 +212,7 @@ mod tests {
         let dxc = wgpu::Dx12Compiler::DynamicDxc {
             dxc_path: r"C:\Program Files\Cinnabar\dxcompiler.dll".into(),
         };
-        let software = wgpu::AdapterInfo {
-            name: "Microsoft Basic Render Driver".into(),
-            vendor: 0x1414,
-            driver: "10.0.19041.5794".into(),
-            ..wgpu::AdapterInfo::new(wgpu::DeviceType::Cpu, wgpu::Backend::Dx12)
-        };
+        let software = warp();
         let legacy = hd_520("23.20.16.4905");
         let found = adapter_requiring_fxc(&dxc, [software.clone(), legacy.clone()]);
         assert_eq!(found.map(|info| info.name), Some(legacy.name.clone()));
@@ -225,6 +233,43 @@ mod tests {
         ] {
             let driver = adapter.driver.clone();
             assert!(adapter_requiring_fxc(&dxc, [adapter]).is_none(), "{driver}");
+        }
+    }
+
+    /// The software adapter that faulted with DXC, as the reporting client logs print it.
+    fn warp() -> wgpu::AdapterInfo {
+        wgpu::AdapterInfo {
+            name: "Microsoft Basic Render Driver".into(),
+            vendor: 0x1414,
+            device: 0x8c,
+            driver: "10.0.19041.5794".into(),
+            ..wgpu::AdapterInfo::new(wgpu::DeviceType::Cpu, wgpu::Backend::Dx12)
+        }
+    }
+
+    #[test]
+    fn devices_on_warp_compile_with_fxc() {
+        let dxc = wgpu::Dx12Compiler::DynamicDxc {
+            dxc_path: r"C:\Program Files\Cinnabar\dxcompiler.dll".into(),
+        };
+        assert!(software_adapter_requires_fxc(&dxc, &warp()));
+        // An instance already on FXC has nothing to rebuild.
+        assert!(!software_adapter_requires_fxc(
+            &wgpu::Dx12Compiler::Fxc,
+            &warp()
+        ));
+        // Hardware DX12 adapters keep DXC, and Vulkan software adapters such as lavapipe never
+        // compile HLSL.
+        let lavapipe = wgpu::AdapterInfo {
+            name: "llvmpipe (LLVM 19.1.1, 256 bits)".into(),
+            ..wgpu::AdapterInfo::new(wgpu::DeviceType::Cpu, wgpu::Backend::Vulkan)
+        };
+        for adapter in [hd_520("31.0.101.2135"), lavapipe] {
+            assert!(
+                !software_adapter_requires_fxc(&dxc, &adapter),
+                "{}",
+                adapter.name
+            );
         }
     }
 
