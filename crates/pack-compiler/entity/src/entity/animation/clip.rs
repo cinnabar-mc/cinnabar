@@ -223,13 +223,13 @@ fn parse_channel(
     let timeline = value
         .as_object()
         .ok_or_else(|| invalid("animation channel must be a vector or timeline"))?;
-    for (time, value) in timeline {
-        // A key that is not a time, such as a `vector` wrapper, is an unsupported authoring
-        // form of this channel, not a malformed pack.
-        let Ok(time) = time.parse::<f32>() else {
-            return Err(ChannelError::Unsupported);
+    let first = output.len();
+    for (key, value) in timeline {
+        // Native ignores a key that is not a plain decimal time, such as a `vector` wrapper.
+        let Some(time) = timeline_key_time(key) else {
+            continue;
         };
-        if !time.is_finite() || time < 0.0 {
+        if !time.is_finite() {
             return Err(invalid("invalid animation keyframe time").into());
         }
         *maximum_time = maximum_time.max(time);
@@ -266,7 +266,26 @@ fn parse_channel(
             });
         }
     }
+    // Every key was ignored, so the channel animates nothing.
+    if output.len() == first && !timeline.is_empty() {
+        return Err(ChannelError::Unsupported);
+    }
+    // Keys arrive in text order ("10" before "2"); sampling needs time order. The sort is
+    // stable, so a keyframe's pre value stays ahead of its post value.
+    output[first..]
+        .sort_by(|left, right| left.time_seconds.get().total_cmp(&right.time_seconds.get()));
     Ok(())
+}
+
+/// The time of a timeline key native accepts: one or more ASCII digits, optionally followed by
+/// `.` and one or more digits. `None` for any other key, which native ignores.
+fn timeline_key_time(key: &str) -> Option<f32> {
+    let digits = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let plain = match key.split_once('.') {
+        Some((whole, fraction)) => digits(whole) && digits(fraction),
+        None => digits(key),
+    };
+    plain.then(|| key.parse().ok()).flatten()
 }
 
 pub(super) fn looks_like_expression(value: &str) -> bool {

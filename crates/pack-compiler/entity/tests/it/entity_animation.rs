@@ -1,13 +1,14 @@
 use std::{fs, path::Path};
 
 use assets::{
-    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty, EntityRigFallback,
-    MolangOp, MolangSymbolKind, encode_entity_blob,
+    EntityAnimationInterpolation, EntityAnimationLoop, EntityAnimationProperty,
+    EntityGeometryScalar, EntityRigFallback, MolangOp, MolangSymbolKind, encode_entity_blob,
 };
 use pack_entity_compiler::{compile_entity_assets, compile_entity_assets_with_report};
 use tempfile::TempDir;
 
 mod animation_conflicts;
+mod animation_loading;
 mod held_scale;
 mod legacy_scales;
 mod player_attack;
@@ -354,26 +355,6 @@ fn animation_time_update_accepts_general_molang_and_numeric_constants() {
 }
 
 #[test]
-fn rejects_malformed_or_unsupported_animation_time_updates() {
-    for authored in [
-        serde_json::json!(null),
-        serde_json::json!(true),
-        serde_json::json!([]),
-        serde_json::json!({}),
-        serde_json::json!("query.modified_distance_moved +"),
-        serde_json::json!("query.unreviewed_time"),
-    ] {
-        let pack = animation_pack(false);
-        set_walk_time_update(pack.path(), authored.clone());
-        let error = compile_entity_assets(pack.path(), MANIFEST).unwrap_err();
-        assert!(
-            error.to_string().contains("anim_time_update"),
-            "{authored}: {error}"
-        );
-    }
-}
-
-#[test]
 fn compiles_clips_controllers_molang_and_collection_selection_deterministically() {
     let first = compile_entity_assets(animation_pack(false).path(), MANIFEST).unwrap();
     let second = compile_entity_assets(animation_pack(true).path(), MANIFEST).unwrap();
@@ -542,53 +523,7 @@ fn undefined_animation_reference_keeps_the_rig_as_a_static_fallback() {
 }
 
 #[test]
-fn a_channel_keyed_by_something_other_than_time_drops_only_that_channel() {
-    let pack = animation_pack(false);
-    write(
-        pack.path(),
-        "animations/test.animation.json",
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"loop":true,"animation_length":2,"bones":{"root":{"position":{"0.0":[0,0,0],"1.0":[1,2,3]},"rotation":{"vector":[0,"-math.cos(query.life_time*180)*22",0]}}}},"animation.test.attack":{"animation_length":0.5,"bones":{"arm":{"rotation":{"0.0":[0,0,0],"0.5":[0,30,0]}}}}}}"#,
-    );
-    let compiled = compile_entity_assets_with_report(pack.path(), MANIFEST).unwrap();
-    let assets = &compiled.assets;
-    let walk = assets
-        .symbols
-        .iter()
-        .position(|symbol| symbol.identifier.as_ref() == "animation.test.walk")
-        .unwrap() as u32;
-    let walk_clips: Vec<_> = assets
-        .animation_clips
-        .iter()
-        .filter(|clip| clip.symbol == walk)
-        .collect();
-    assert!(!walk_clips.is_empty());
-    for clip in walk_clips {
-        let channels = &assets.animation_channels
-            [clip.first_channel as usize..(clip.first_channel + clip.channel_count) as usize];
-        assert_eq!(channels.len(), 1);
-        assert_eq!(channels[0].property, EntityAnimationProperty::Translation);
-    }
-    assert!(compiled.reference_outcomes.iter().any(|outcome| matches!(
-        outcome,
-        pack_entity_compiler::CompileReferenceOutcome::OptionalStaticFallback {
-            symbol,
-            reason: pack_entity_compiler::FallbackReason::UnsupportedOptionalExpression,
-            ..
-        } if *symbol == walk
-    )));
-}
-
-#[test]
-fn malformed_keyframes_non_finite_literals_and_unsupported_grammar_fail_closed() {
-    for animation in [
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"bones":{"root":{"position":{"-1.0":[0,0,0]}}}}}}"#.as_slice(),
-        br#"{"format_version":"1.8.0","animations":{"animation.test.walk":{"animation_length":"NaN"}}}"#.as_slice(),
-    ] {
-        let pack = animation_pack(false);
-        write(pack.path(), "animations/test.animation.json", animation);
-        assert!(compile_entity_assets(pack.path(), MANIFEST).is_err());
-    }
-
+fn unsupported_transition_grammar_drops_only_the_transition() {
     let pack = animation_pack(false);
     write(
         pack.path(),
