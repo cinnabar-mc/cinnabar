@@ -121,6 +121,7 @@ pub(crate) fn press(
                 &player,
                 &context,
                 input.context.attack.block_pick(),
+                None,
                 caps,
                 input.context.mode,
                 input.context.identity,

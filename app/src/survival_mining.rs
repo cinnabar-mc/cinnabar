@@ -25,6 +25,8 @@ pub(crate) enum DestroyObservation {
 
 /// Reads the destroy facts used for this frame's block press. `pick` pairs the camera ray with
 /// the ticked position the pick is trimmed from, falling back to the ray origin without one.
+/// `held` is the block already being destroyed: refreshing an accepted pick keeps it, so a later
+/// position past the centre distance does not drop it.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
@@ -32,6 +34,7 @@ pub(crate) fn observe_destroy_target(
         &client_presentation::local_player::InteractionOriginSnapshot,
         Option<[f32; 3]>,
     ),
+    held: Option<[i32; 3]>,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -63,11 +66,13 @@ pub(crate) fn observe_destroy_target(
             position_authority_generation,
         ),
     )?;
-    if !block_pick_in_range(
-        observed.target.position,
-        pick.1.unwrap_or(observed.ray.origin),
-        observed.reach,
-    ) {
+    if held != Some(observed.target.position)
+        && !block_pick_in_range(
+            observed.target.position,
+            pick.1.unwrap_or(observed.ray.origin),
+            observed.reach,
+        )
+    {
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;

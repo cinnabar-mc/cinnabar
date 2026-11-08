@@ -388,6 +388,7 @@ fn maintain_attacks(
                         .as_deref()
                         .and_then(|physics| physics.network_position()),
                 ),
+                mining.destroying_target().map(|(position, _)| position),
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),

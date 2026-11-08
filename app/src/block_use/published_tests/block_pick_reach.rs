@@ -91,3 +91,39 @@ fn block_pick_reach_trims_from_ticked_position_instead_of_the_interpolated_eye()
         gameplay::melee::Crosshair::Miss
     );
 }
+
+/// A block already being mined stays the target when the ticked position moves past its centre
+/// distance while the ray still hits it, instead of aborting the destroy.
+#[test]
+fn block_pick_reach_keeps_the_block_being_mined_after_the_position_moves_away() {
+    use client_interaction::survival_mining::SurvivalMiningRuntime;
+    let (mut world, _) = super::attack_hit_position_tests::unpublished_attack_fixture(-30.0);
+    item_use_tests::hold_snowball(&mut world);
+    world.insert_resource(crate::interaction_override::ModInteraction {
+        block_mining: true,
+        ..Default::default()
+    });
+    let frame = |world: &mut World, tick: u64| {
+        attack_progress_tests::buttons(world, vec![]);
+        attack_progress_tests::ticks(world, tick, tick + 1);
+        world
+            .run_system_cached(crate::melee::prepare_melee)
+            .unwrap();
+        world
+            .run_system_cached(crate::melee::produce_attacks)
+            .unwrap();
+    };
+    frame(&mut world, 102);
+    let mining = |world: &World| {
+        world
+            .resource::<SurvivalMiningRuntime>()
+            .destroying_target()
+            .map(|(position, _)| position)
+    };
+    assert_eq!(mining(&world), Some([4, 2, 6]));
+    let mut physics = client_interaction::movement::LocalPhysicsController::default();
+    physics.reanchor_network_position([4.5, 2.620_01, 15.0], 103, true);
+    world.insert_resource(physics);
+    frame(&mut world, 103);
+    assert_eq!(mining(&world), Some([4, 2, 6]));
+}
