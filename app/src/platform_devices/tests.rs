@@ -285,7 +285,6 @@ fn platform_mouse_input_survives_bevy_input_systems() {
     let _globals = ingress::lock_test_globals();
     let _ = ingress::take_platform_mouse_motion();
     let _ = ingress::take_platform_mouse_events();
-    let _ = ingress::take_platform_mouse_hover();
     ingress::accumulate_platform_mouse_motion(3.0, -2.0);
     ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
 
@@ -421,21 +420,26 @@ fn switching_to_touch_shows_touch_controls_before_gameplay_sampling() {
     );
 }
 
-/// Platform buttons and wheel steps reach the ordered window events in arrival order, so wheel
-/// actions such as hotbar scrolling see them; uncaptured movement counts as mouse activity.
+/// Platform cursor positions, buttons and wheel steps reach the ordered window events in arrival
+/// order, so UI clicks hit where the cursor is and wheel actions such as hotbar scrolling see
+/// them; uncaptured movement also counts as mouse activity.
 #[test]
-fn platform_wheel_reaches_ordered_window_events_in_order() {
+fn platform_mouse_events_reach_ordered_window_events_in_order() {
     let _globals = ingress::lock_test_globals();
     let _ = ingress::take_platform_mouse_motion();
     let _ = ingress::take_platform_mouse_events();
-    let _ = ingress::take_platform_mouse_hover();
     let mut app = App::new();
     app.add_message::<bevy::input::mouse::MouseMotion>()
         .add_message::<MouseButtonInput>()
         .add_message::<MouseWheel>()
+        .add_message::<CursorMoved>()
         .add_message::<WindowEvent>()
         .init_resource::<PlatformMouseActivity>();
+    let mut window = Window::default();
+    window.resolution.set_scale_factor(2.0);
+    app.world_mut().spawn((window, PrimaryWindow));
 
+    ingress::push_platform_mouse_cursor(80.0, 60.0);
     ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
     ingress::push_platform_mouse_scroll(-1.0, 0.0);
     app.world_mut()
@@ -446,16 +450,19 @@ fn platform_wheel_reaches_ordered_window_events_in_order() {
     let kinds = events
         .iter_current_update_messages()
         .map(|event| match event {
+            WindowEvent::CursorMoved(moved) if moved.position == Vec2::new(40.0, 30.0) => "cursor",
             WindowEvent::MouseButtonInput(_) => "button",
             WindowEvent::MouseWheel(wheel) if wheel.y == -1.0 => "wheel",
             _ => "other",
         })
         .collect::<Vec<_>>();
-    assert_eq!(kinds, ["button", "wheel"]);
-
-    ingress::note_platform_mouse_hover();
-    app.world_mut()
-        .run_system_once(drain_platform_mouse_events)
-        .unwrap();
+    assert_eq!(kinds, ["cursor", "button", "wheel"]);
+    let mut windows = app
+        .world_mut()
+        .query_filtered::<&Window, With<PrimaryWindow>>();
+    assert_eq!(
+        windows.single(app.world()).unwrap().cursor_position(),
+        Some(Vec2::new(40.0, 30.0))
+    );
     assert!(app.world().resource::<PlatformMouseActivity>().0);
 }

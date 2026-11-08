@@ -310,13 +310,14 @@ public final class CinnabarActivity extends NativeActivity {
             }
             return;
         }
+        // Uncaptured positions are absolute: they place the UI cursor, ahead of any button change
+        // at that position, and never turn the camera.
+        try {
+            nativeOnMouseCursor(event.getX(), event.getY());
+        } catch (UnsatisfiedLinkError e) {
+            // Ignored if called before native binding
+        }
         if (action == MotionEvent.ACTION_HOVER_MOVE) {
-            // Uncaptured positions are absolute, so they only show that the mouse is in use.
-            try {
-                nativeOnMouseHover();
-            } catch (UnsatisfiedLinkError e) {
-                // Ignored if called before native binding
-            }
             return;
         }
         int buttonState = event.getButtonState();
@@ -365,6 +366,6 @@ public final class CinnabarActivity extends NativeActivity {
     private static native void nativeOnMouseMotion(float dx, float dy);
     private static native void nativeOnMouseButton(int buttonMask, boolean pressed);
     private static native void nativeOnMouseScroll(float vscroll, float hscroll);
-    private static native void nativeOnMouseHover();
+    private static native void nativeOnMouseCursor(float x, float y);
     private static native void nativeOnPointerCaptureChange(boolean hasCapture);
 }

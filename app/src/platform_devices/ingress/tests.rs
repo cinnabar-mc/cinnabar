@@ -52,6 +52,7 @@ fn mouse_motion_and_scroll_queues() {
     push_platform_mouse_scroll(1.0, 0.0);
     push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true);
     push_platform_mouse_scroll(-2.5, 0.5);
+    push_platform_mouse_cursor(40.0, 30.0);
     assert_eq!(
         take_platform_mouse_events(),
         vec![
@@ -67,15 +68,10 @@ fn mouse_motion_and_scroll_queues() {
                 vscroll: -2.5,
                 hscroll: 0.5
             }),
+            PlatformMouseEvent::Cursor { x: 40.0, y: 30.0 },
         ]
     );
     assert!(take_platform_mouse_events().is_empty());
-
-    // Hover is a one-shot activity flag.
-    let _ = take_platform_mouse_hover();
-    note_platform_mouse_hover();
-    assert!(take_platform_mouse_hover());
-    assert!(!take_platform_mouse_hover());
 }
 
 #[test]

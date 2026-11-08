@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 static PLATFORM_PHYSICAL_DEVICES: AtomicU64 = AtomicU64::new(0);
 static PLATFORM_MOUSE_DELTA: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
 static PLATFORM_MOUSE_EVENTS: Mutex<Vec<PlatformMouseEvent>> = Mutex::new(Vec::new());
-static PLATFORM_MOUSE_HOVERED: AtomicBool = AtomicBool::new(false);
 static PLATFORM_POINTER_CAPTURED: AtomicBool = AtomicBool::new(false);
 static PLATFORM_POINTER_CAPTURE_REQUESTED: Mutex<Option<bool>> = Mutex::new(None);
 static CAPTURE_DRIVER: Mutex<Option<fn(bool)>> = Mutex::new(None);
@@ -26,11 +25,16 @@ pub struct PlatformMouseButtonEvent {
     pub pressed: bool,
 }
 
-/// A mouse button or wheel event from the platform, queued in arrival order.
+/// A mouse event from the platform, queued in arrival order.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum PlatformMouseEvent {
     Button(PlatformMouseButtonEvent),
     Wheel(PlatformMouseWheelEvent),
+    /// Uncaptured pointer position in physical window pixels.
+    Cursor {
+        x: f32,
+        y: f32,
+    },
 }
 
 /// Serializes unit tests that touch these process-wide queues and capture state.
@@ -113,14 +117,9 @@ pub fn take_platform_mouse_events() -> Vec<PlatformMouseEvent> {
     }
 }
 
-/// Records uncaptured mouse movement, which shows mouse use without carrying relative motion.
-pub fn note_platform_mouse_hover() {
-    PLATFORM_MOUSE_HOVERED.store(true, Ordering::Release);
-}
-
-/// Takes whether uncaptured mouse movement arrived since the last call.
-pub fn take_platform_mouse_hover() -> bool {
-    PLATFORM_MOUSE_HOVERED.swap(false, Ordering::AcqRel)
+/// Enqueues an uncaptured pointer position in physical window pixels.
+pub fn push_platform_mouse_cursor(x: f32, y: f32) {
+    push_platform_mouse_event(PlatformMouseEvent::Cursor { x, y });
 }
 
 /// Resets the internal capture request cache (primarily for unit tests).

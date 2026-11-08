@@ -11,10 +11,10 @@ use bevy::{
     },
     math::Vec2,
     prelude::{
-        IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query, Res, ResMut,
-        Resource, With,
+        DetectChangesMut, IntoScheduleConfigs, Local, MessageReader, Messages, PreUpdate, Query,
+        Res, ResMut, Resource, With,
     },
-    window::{PrimaryWindow, WindowEvent},
+    window::{CursorMoved, PrimaryWindow, Window, WindowEvent},
 };
 use client_shell::{
     menu::MenuRuntime,
@@ -168,15 +168,20 @@ pub fn sync_connected_physical_devices(mut devices: ResMut<ConnectedPhysicalDevi
 ///
 /// Runs before `InputSystems`, which rebuild `AccumulatedMouseMotion`, `ButtonInput<MouseButton>`
 /// and `AccumulatedMouseScroll` from those messages each frame.
+#[allow(clippy::too_many_arguments)]
 pub fn drain_platform_mouse_events(
     mut motion_messages: ResMut<Messages<MouseMotion>>,
     mut button_messages: ResMut<Messages<MouseButtonInput>>,
     mut window_messages: Option<ResMut<Messages<WindowEvent>>>,
     mut wheel_messages: ResMut<Messages<MouseWheel>>,
-    windows: Query<Entity, With<PrimaryWindow>>,
+    mut cursor_messages: Option<ResMut<Messages<CursorMoved>>>,
+    mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     mut activity: ResMut<PlatformMouseActivity>,
 ) {
-    let window = windows.iter().next().unwrap_or(Entity::PLACEHOLDER);
+    let mut primary = windows.single_mut().ok();
+    let window = primary
+        .as_ref()
+        .map_or(Entity::PLACEHOLDER, |(entity, _)| *entity);
     let mut active = false;
 
     // 1. Drain relative mouse motion:
@@ -188,10 +193,35 @@ pub fn drain_platform_mouse_events(
         active = true;
     }
 
-    // 2. Drain buttons and wheel steps in arrival order, into both the per-kind messages and the
-    // ordered window events gameplay actions read.
+    // 2. Drain cursor positions, buttons and wheel steps in arrival order, into both the per-kind
+    // messages and the ordered window events that UI and gameplay actions read.
     for event in ingress::take_platform_mouse_events() {
         match event {
+            ingress::PlatformMouseEvent::Cursor { x, y } => {
+                active = true;
+                let Some((_, window_state)) = primary.as_mut() else {
+                    continue;
+                };
+                let position = Vec2::new(x, y) / window_state.scale_factor();
+                let delta = window_state
+                    .cursor_position()
+                    .map(|previous| position - previous);
+                // Bypassed so the window backend is not asked to warp the platform's own cursor.
+                window_state
+                    .bypass_change_detection()
+                    .set_cursor_position(Some(position));
+                let moved = CursorMoved {
+                    window,
+                    position,
+                    delta,
+                };
+                if let Some(cursor_events) = cursor_messages.as_mut() {
+                    cursor_events.write(moved.clone());
+                }
+                if let Some(window_events) = window_messages.as_mut() {
+                    window_events.write(WindowEvent::CursorMoved(moved));
+                }
+            }
             ingress::PlatformMouseEvent::Button(event) => {
                 let Some(button) = ingress::android_button_to_mouse_button(event.button_mask)
                 else {
@@ -230,9 +260,6 @@ pub fn drain_platform_mouse_events(
             }
         }
     }
-
-    // 3. Uncaptured movement only shows that the mouse is in use.
-    active |= ingress::take_platform_mouse_hover();
     activity.0 = active;
 }
 
