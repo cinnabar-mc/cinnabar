@@ -66,7 +66,21 @@ pub(super) fn collect(
         }
     }
     output.set_initial_modifiers(modifiers(&keys));
+    // Platform buttons carry their own event-time modifiers, in the order they were written.
+    let mut platform_buttons = inputs
+        .platform_buttons
+        .as_ref()
+        .map(|buttons| buttons.0.as_slice())
+        .unwrap_or_default()
+        .iter()
+        .peekable();
     for event in batch {
+        let platform_modifiers = match &event {
+            WindowEvent::MouseButtonInput(input) => platform_buttons
+                .next_if(|(written, _)| written == input)
+                .map(|(_, modifiers)| *modifiers),
+            _ => None,
+        };
         let button = match event {
             WindowEvent::KeyboardInput(event) => {
                 let pressed = event.state == ButtonState::Pressed;
@@ -94,7 +108,7 @@ pub(super) fn collect(
             output.push(DesktopEvent::Button {
                 control,
                 pressed,
-                modifiers: modifiers(&keys),
+                modifiers: platform_modifiers.unwrap_or_else(|| modifiers(&keys)),
             });
         }
     }

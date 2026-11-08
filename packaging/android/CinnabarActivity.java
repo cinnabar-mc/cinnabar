@@ -90,8 +90,7 @@ public final class CinnabarActivity extends NativeActivity {
                     }
                     return true;
                 }
-                int buttonState = event.getButtonState();
-                dispatchMouseButtonDiff(buttonState);
+                dispatchMouseButtonDiff(event.getButtonState(), event.getMetaState());
                 return true;
             });
         }
@@ -192,7 +191,7 @@ public final class CinnabarActivity extends NativeActivity {
         if (dev == null || dev.isVirtual() || dev.getId() <= 0) return false;
         final int sources = dev.getSources();
         return (sources & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE
-                || (sources & InputDevice.SOURCE_MOUSE_RELATIVE) != 0;
+                || (sources & InputDevice.SOURCE_MOUSE_RELATIVE) == InputDevice.SOURCE_MOUSE_RELATIVE;
     }
 
     /** Distinguishes real physical alphanumeric keyboards from virtual IMEs and hardware buttons. */
@@ -320,8 +319,7 @@ public final class CinnabarActivity extends NativeActivity {
         if (action == MotionEvent.ACTION_HOVER_MOVE) {
             return;
         }
-        int buttonState = event.getButtonState();
-        dispatchMouseButtonDiff(buttonState);
+        dispatchMouseButtonDiff(event.getButtonState(), event.getMetaState());
     }
 
     public void setPointerCaptureEnabled(boolean enabled) {
@@ -338,7 +336,7 @@ public final class CinnabarActivity extends NativeActivity {
         });
     }
 
-    private void dispatchMouseButtonDiff(int currentButtonState) {
+    private void dispatchMouseButtonDiff(int currentButtonState, int metaState) {
         int changed = currentButtonState ^ mLastButtonState;
         if (changed == 0) return;
 
@@ -347,7 +345,7 @@ public final class CinnabarActivity extends NativeActivity {
             if ((changed & mask) != 0) {
                 boolean pressed = (currentButtonState & mask) != 0;
                 try {
-                    nativeOnMouseButton(mask, pressed);
+                    nativeOnMouseButton(mask, pressed, metaState);
                 } catch (UnsatisfiedLinkError e) {
                     // Ignored if called before native binding
                 }
@@ -358,13 +356,13 @@ public final class CinnabarActivity extends NativeActivity {
 
     public void clearHeldMouseButtons() {
         if (mLastButtonState != 0) {
-            dispatchMouseButtonDiff(0);
+            dispatchMouseButtonDiff(0, 0);
         }
     }
 
     private static native void nativeOnDeviceStateChange(int physicalMice, int physicalKeyboards);
     private static native void nativeOnMouseMotion(float dx, float dy);
-    private static native void nativeOnMouseButton(int buttonMask, boolean pressed);
+    private static native void nativeOnMouseButton(int buttonMask, boolean pressed, int metaState);
     private static native void nativeOnMouseScroll(float vscroll, float hscroll);
     private static native void nativeOnMouseCursor(float x, float y);
     private static native void nativeOnPointerCaptureChange(boolean hasCapture);

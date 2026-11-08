@@ -78,7 +78,7 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                 },
                 NativeMethod {
                     name: "nativeOnMouseButton".into(),
-                    sig: "(IZ)V".into(),
+                    sig: "(IZI)V".into(),
                     fn_ptr: on_mouse_button as *mut c_void,
                 },
                 NativeMethod {
@@ -130,16 +130,18 @@ extern "system" fn on_mouse_motion(_: JNIEnv<'_>, _: JObject<'_>, dx: jfloat, dy
     cinnabar::platform_devices::ingress::accumulate_platform_mouse_motion(dx, dy);
 }
 
-/// Receives one Android `MotionEvent` button bit changing state.
+/// Receives one Android `MotionEvent` button bit changing state, with the event's meta state.
 extern "system" fn on_mouse_button(
     _: JNIEnv<'_>,
     _: JObject<'_>,
     button_mask: jint,
     pressed: jboolean,
+    meta_state: jint,
 ) {
     cinnabar::platform_devices::ingress::push_platform_mouse_button(
         button_mask.max(0) as u32,
         pressed != 0,
+        meta_state as u32,
     );
 }
 

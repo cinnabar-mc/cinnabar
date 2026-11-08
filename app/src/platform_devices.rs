@@ -34,6 +34,7 @@ pub mod ingress;
 pub(crate) fn configure_hybrid_input(app: &mut App) {
     app.init_resource::<ConnectedPhysicalDevices>()
         .init_resource::<PlatformMouseActivity>()
+        .init_resource::<PlatformButtonModifiers>()
         .insert_resource(DetectedGameplayInputMode(semantic_input::InputMode::Touch))
         .insert_resource(EffectiveGameplayInputMode(semantic_input::InputMode::Touch))
         .add_systems(
@@ -49,6 +50,14 @@ pub(crate) fn configure_hybrid_input(app: &mut App) {
 /// reads this platform-origin signal instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Resource)]
 pub struct PlatformMouseActivity(pub bool);
+
+/// Platform mouse buttons written to this frame's ordered window events, with the modifiers the
+/// platform reported held when each changed.
+///
+/// Keyboard events reach the ordered stream before the platform mouse queue is drained, so the
+/// ordered collector takes these modifiers instead of rebuilding them from key order.
+#[derive(Clone, Debug, Default, PartialEq, Resource)]
+pub struct PlatformButtonModifiers(pub Vec<(MouseButtonInput, semantic_input::ModifierChord)>);
 
 /// Previous device counts tracked to detect physical device arrivals.
 #[derive(Default)]
@@ -177,7 +186,11 @@ pub fn drain_platform_mouse_events(
     mut cursor_messages: Option<ResMut<Messages<CursorMoved>>>,
     mut windows: Query<(Entity, &mut Window), With<PrimaryWindow>>,
     mut activity: ResMut<PlatformMouseActivity>,
+    mut button_modifiers: Option<ResMut<PlatformButtonModifiers>>,
 ) {
+    if let Some(button_modifiers) = button_modifiers.as_mut() {
+        button_modifiers.0.clear();
+    }
     let mut primary = windows.single_mut().ok();
     let window = primary
         .as_ref()
@@ -242,6 +255,12 @@ pub fn drain_platform_mouse_events(
                 button_messages.write(input_event);
                 if let Some(window_events) = window_messages.as_mut() {
                     window_events.write(WindowEvent::MouseButtonInput(input_event));
+                    if let Some(button_modifiers) = button_modifiers.as_mut() {
+                        button_modifiers.0.push((
+                            input_event,
+                            ingress::android_meta_modifiers(event.meta_state),
+                        ));
+                    }
                 }
             }
             ingress::PlatformMouseEvent::Wheel(event) => {

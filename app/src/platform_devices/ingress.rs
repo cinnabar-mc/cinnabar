@@ -23,6 +23,27 @@ pub struct PlatformMouseWheelEvent {
 pub struct PlatformMouseButtonEvent {
     pub button_mask: u32,
     pub pressed: bool,
+    /// Android `KeyEvent` meta state when the button changed.
+    pub meta_state: u32,
+}
+
+/// Android `KeyEvent` meta-state bits for the modifiers a mouse binding can require.
+pub mod android_meta {
+    pub const META_SHIFT_ON: u32 = 0x1;
+    pub const META_ALT_ON: u32 = 0x2;
+    pub const META_CTRL_ON: u32 = 0x1000;
+    pub const META_META_ON: u32 = 0x10000;
+}
+
+/// The modifier chord an Android meta state reports as held.
+pub fn android_meta_modifiers(meta_state: u32) -> semantic_input::ModifierChord {
+    let held = |bit| meta_state & bit != 0;
+    semantic_input::ModifierChord {
+        shift: held(android_meta::META_SHIFT_ON),
+        control: held(android_meta::META_CTRL_ON),
+        alt: held(android_meta::META_ALT_ON),
+        super_key: held(android_meta::META_META_ON),
+    }
 }
 
 /// A mouse event from the platform, queued in arrival order.
@@ -90,13 +111,14 @@ pub fn take_platform_mouse_motion() -> (f32, f32) {
 ///
 /// A press while capture is not held forgets an ungranted capture request, so the next frame
 /// that wants capture asks again: one retry per click.
-pub fn push_platform_mouse_button(button_mask: u32, pressed: bool) {
+pub fn push_platform_mouse_button(button_mask: u32, pressed: bool, meta_state: u32) {
     if pressed && !is_platform_pointer_captured() {
         forget_platform_pointer_capture_request();
     }
     push_platform_mouse_event(PlatformMouseEvent::Button(PlatformMouseButtonEvent {
         button_mask,
         pressed,
+        meta_state,
     }));
 }
 

@@ -286,7 +286,7 @@ fn platform_mouse_input_survives_bevy_input_systems() {
     let _ = ingress::take_platform_mouse_motion();
     let _ = ingress::take_platform_mouse_events();
     ingress::accumulate_platform_mouse_motion(3.0, -2.0);
-    ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
+    ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true, 0);
 
     app.update();
 
@@ -300,6 +300,9 @@ fn platform_mouse_input_survives_bevy_input_systems() {
             .pressed(MouseButton::Left)
     );
     assert!(app.world().resource::<PlatformMouseActivity>().0);
+    let recorded = &app.world().resource::<PlatformButtonModifiers>().0;
+    assert_eq!(recorded.len(), 1);
+    assert!(recorded[0].1.shift);
 }
 
 fn gameplay_touch_start(id: u64) -> TouchInput {
@@ -434,13 +437,18 @@ fn platform_mouse_events_reach_ordered_window_events_in_order() {
         .add_message::<MouseWheel>()
         .add_message::<CursorMoved>()
         .add_message::<WindowEvent>()
-        .init_resource::<PlatformMouseActivity>();
+        .init_resource::<PlatformMouseActivity>()
+        .init_resource::<PlatformButtonModifiers>();
     let mut window = Window::default();
     window.resolution.set_scale_factor(2.0);
     app.world_mut().spawn((window, PrimaryWindow));
 
     ingress::push_platform_mouse_cursor(80.0, 60.0);
-    ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
+    ingress::push_platform_mouse_button(
+        ingress::mouse_buttons::BUTTON_PRIMARY,
+        true,
+        ingress::android_meta::META_SHIFT_ON,
+    );
     ingress::push_platform_mouse_scroll(-1.0, 0.0);
     app.world_mut()
         .run_system_once(drain_platform_mouse_events)
@@ -465,4 +473,7 @@ fn platform_mouse_events_reach_ordered_window_events_in_order() {
         Some(Vec2::new(40.0, 30.0))
     );
     assert!(app.world().resource::<PlatformMouseActivity>().0);
+    let recorded = &app.world().resource::<PlatformButtonModifiers>().0;
+    assert_eq!(recorded.len(), 1);
+    assert!(recorded[0].1.shift);
 }

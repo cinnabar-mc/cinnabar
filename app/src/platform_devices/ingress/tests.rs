@@ -50,7 +50,7 @@ fn mouse_motion_and_scroll_queues() {
     // Buttons and wheel steps share one queue in arrival order.
     let _ = take_platform_mouse_events();
     push_platform_mouse_scroll(1.0, 0.0);
-    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true);
+    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true, 0);
     push_platform_mouse_scroll(-2.5, 0.5);
     push_platform_mouse_cursor(40.0, 30.0);
     assert_eq!(
@@ -62,7 +62,8 @@ fn mouse_motion_and_scroll_queues() {
             }),
             PlatformMouseEvent::Button(PlatformMouseButtonEvent {
                 button_mask: mouse_buttons::BUTTON_PRIMARY,
-                pressed: true
+                pressed: true,
+                meta_state: 0
             }),
             PlatformMouseEvent::Wheel(PlatformMouseWheelEvent {
                 vscroll: -2.5,
@@ -209,7 +210,7 @@ fn ungranted_capture_retries_after_click_or_driver_failure() {
     request_platform_pointer_capture(true);
     assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 1);
 
-    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true);
+    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true, 0);
     request_platform_pointer_capture(true);
     request_platform_pointer_capture(true);
     assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 2);
@@ -218,4 +219,14 @@ fn ungranted_capture_retries_after_click_or_driver_failure() {
     request_platform_pointer_capture(true);
     assert_eq!(*TEST_CALL_COUNT.lock().unwrap(), 3);
     let _ = take_platform_mouse_events();
+}
+
+#[test]
+fn android_meta_state_maps_to_modifiers() {
+    let chord = android_meta_modifiers(android_meta::META_SHIFT_ON | android_meta::META_CTRL_ON);
+    assert!(chord.shift && chord.control && !chord.alt && !chord.super_key);
+    assert_eq!(
+        android_meta_modifiers(0),
+        semantic_input::ModifierChord::default()
+    );
 }

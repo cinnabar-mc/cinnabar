@@ -68,6 +68,7 @@ pub(crate) struct SemanticPhysicalInputs<'w, 's> {
     driven: Option<Res<'w, client_state::DrivenInput>>,
     reserved: Option<Res<'w, crate::semantic_controls::ReservedControls>>,
     effective_mode: Option<Res<'w, client_state::EffectiveGameplayInputMode>>,
+    platform_buttons: Option<Res<'w, crate::platform_devices::PlatformButtonModifiers>>,
 }
 
 pub(crate) fn collect_raw_input(
@@ -228,6 +229,7 @@ fn translate_device_frame(inputs: SemanticPhysicalInputs) -> TranslatedDeviceFra
         driven,
         reserved: _,
         effective_mode,
+        platform_buttons: _,
     } = inputs;
     let mode = effective_mode.as_ref().map(|m| m.0);
     let (_, window, cursor) = window.into_inner();
