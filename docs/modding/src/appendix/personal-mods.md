@@ -209,7 +209,7 @@ repeats on a physically held control.
 
 With the `controls` grant, `touch.set-buttons` retains up to four labelled buttons,
 drawn in the built-in touch style while touch controls are shown. Each has a default
-anchor, inward offset and size; players move it in the touch layout editor, and the
+anchor, inward offset and size; players move and resize it in the touch layout editor, and the
 placement is saved under the button id, so prefix ids with the mod's name. Across mods
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
