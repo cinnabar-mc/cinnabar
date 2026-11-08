@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use bedrock_protocol_1_26_60::packets::StartGame;
 
-use crate::nbt_tree::{Nbt, read_root};
+use crate::nbt_tree::{Nbt, NbtCompound, NbtList, read_root};
 #[cfg(test)]
 use physical::box_component;
 use physical::{
@@ -465,7 +465,7 @@ impl CustomBlocks {
                 skipped += 1;
                 continue;
             }
-            let Some(root) = read_root(bytes) else {
+            let Some(document) = read_root(bytes) else {
                 skipped += 1;
                 continue;
             };
@@ -476,7 +476,7 @@ impl CustomBlocks {
                 vanilla_blocks.push(Arc::from(name));
                 continue;
             }
-            match parse_definition(&root) {
+            match parse_definition(document.root()) {
                 Some(definition) => {
                     skipped += definition.skipped;
                     blocks.push(CustomBlock {
@@ -555,11 +555,11 @@ struct Definition {
 }
 
 /// Reads the wire tag list, counting unsupported entries without discarding the block.
-fn block_tags(root: &Nbt) -> (Arc<[Arc<str>]>, usize) {
+fn block_tags(root: Nbt<'_>) -> (Arc<[Arc<str>]>, usize) {
     const MAX_TAGS: usize = 256;
     const MAX_TAG_BYTES: usize = 256;
     let entries = match root.field("blockTags") {
-        Some(Nbt::List(entries)) => entries.as_slice(),
+        Some(Nbt::List(entries)) => entries,
         Some(_) => return (Arc::default(), 1),
         None => return (Arc::default(), 0),
     };
@@ -578,20 +578,50 @@ fn block_tags(root: &Nbt) -> (Arc<[Arc<str>]>, usize) {
     (tags.into(), skipped)
 }
 
-fn parse_definition(root: &Nbt) -> Option<Definition> {
-    let traits = match root.field("traits") {
-        Some(Nbt::List(traits)) => traits.iter().map(|value| (None, value)).collect::<Vec<_>>(),
-        Some(Nbt::Compound(traits)) => traits
-            .iter()
-            .map(|(name, value)| (Some(name.as_str()), value))
-            .collect(),
-        _ => Vec::new(),
-    };
-    let states = states::state_axes(root, &traits);
+/// A definition's `traits`, listed or keyed by trait name, read in place.
+#[derive(Clone, Copy)]
+enum Traits<'a> {
+    /// Missing or scalar.
+    None,
+    List(NbtList<'a>),
+    Keyed(NbtCompound<'a>),
+}
+
+impl<'a> Traits<'a> {
+    fn of(root: Nbt<'a>) -> Self {
+        match root.field("traits") {
+            Some(Nbt::List(traits)) => Self::List(traits),
+            Some(Nbt::Compound(traits)) => Self::Keyed(traits),
+            _ => Self::None,
+        }
+    }
+
+    /// Each trait with the key naming it in a keyed container.
+    fn iter(self) -> impl Iterator<Item = (Option<&'a str>, Nbt<'a>)> {
+        let (list, keyed) = match self {
+            Self::List(list) => (Some(list), None),
+            Self::Keyed(keyed) => (None, Some(keyed)),
+            Self::None => (None, None),
+        };
+        list.into_iter()
+            .flatten()
+            .map(|trait_| (None, trait_))
+            .chain(
+                keyed
+                    .into_iter()
+                    .flat_map(NbtCompound::iter)
+                    .map(|(name, trait_)| (Some(name), trait_)),
+            )
+    }
+}
+
+fn parse_definition(root: Nbt<'_>) -> Option<Definition> {
+    let traits = Traits::of(root);
+    let states = states::state_axes(root, traits.iter());
     let state_axes = states.axes;
     let state_identity_incomplete = states.identity_incomplete;
     let mut placement =
-        placement::traits(traits.iter().map(|(_, trait_)| *trait_), states.trait_count);
+        placement::traits(traits.iter().map(|(_, trait_)| trait_), states.trait_count);
     let components = root.field("components");
     let (mining, mining_skips) =
         mining::component(components.and_then(|set| set.field(mining::COMPONENT)));
@@ -630,7 +660,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
             permutation_skips += skipped + mining_skips;
             physical_permutation_skips += skipped;
             Some(CustomPermutation {
-                condition: condition.as_str().into(),
+                condition: condition.into(),
                 components: visual_components(permutation.field("components")),
                 physical,
             })
@@ -691,7 +721,7 @@ fn parse_definition(root: &Nbt) -> Option<Definition> {
 }
 
 /// Reads a nonempty material from a scalar or compound sound component.
-fn sound_component(components: Option<&Nbt>) -> Option<Arc<str>> {
+fn sound_component(components: Option<Nbt<'_>>) -> Option<Arc<str>> {
     let component = components?.field("minecraft:sound")?;
     let sound = component
         .field("sound")
@@ -705,7 +735,7 @@ fn sound_component(components: Option<&Nbt>) -> Option<Arc<str>> {
 /// `on_interact` component, or custom components declaring a player-interact handler (version 1
 /// components declare every handler).
 /// The client applies the handler flag to the whole type; a permutation's table is treated alike.
-fn player_interact(components: Option<&Nbt>) -> bool {
+fn player_interact(components: Option<Nbt<'_>>) -> bool {
     let Some(components) = components else {
         return false;
     };
@@ -713,7 +743,7 @@ fn player_interact(components: Option<&Nbt>) -> bool {
     let flag = |name: &str| {
         matches!(
             custom.and_then(|component| component.field(name)),
-            Some(Nbt::Byte(value)) if *value != 0
+            Some(Nbt::Byte(value)) if value != 0
         )
     };
     matches!(
@@ -729,7 +759,7 @@ fn player_interact(components: Option<&Nbt>) -> bool {
 
 /// Reads geometry, material instances, and transformation; odd values are
 /// treated as absent so the block keeps its other visuals.
-fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
+fn visual_components(components: Option<Nbt<'_>>) -> CustomVisualComponents {
     let Some(components) = components else {
         return CustomVisualComponents::default();
     };
@@ -742,14 +772,14 @@ fn visual_components(components: Option<&Nbt>) -> CustomVisualComponents {
 
 /// Reads geometry and material descriptions shared by placed and inventory visuals.
 fn visual_descriptions(
-    components: Option<&Nbt>,
-    geometry_component: Option<&Nbt>,
-    material_component: Option<&Nbt>,
+    components: Option<Nbt<'_>>,
+    geometry_component: Option<Nbt<'_>>,
+    material_component: Option<Nbt<'_>>,
 ) -> CustomVisualComponents {
     let geometry = match geometry_component {
-        Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
+        Some(Nbt::String(identifier)) => Some(identifier.into()),
         Some(compound) => match compound.field("identifier") {
-            Some(Nbt::String(identifier)) => Some(identifier.as_str().into()),
+            Some(Nbt::String(identifier)) => Some(identifier.into()),
             _ => None,
         },
         None => None,
@@ -762,7 +792,7 @@ fn visual_descriptions(
                 .take(MAX_BONE_VISIBILITY)
                 .filter_map(|(bone, value)| {
                     let expression: Arc<str> = match value {
-                        Nbt::String(expression) => expression.as_str().into(),
+                        Nbt::String(expression) => expression.into(),
                         Nbt::Compound(_) => value.field("expression")?.as_str()?.into(),
                         value => value
                             .number()
@@ -770,7 +800,7 @@ fn visual_descriptions(
                             .to_string()
                             .into(),
                     };
-                    Some((bone.as_str().into(), expression))
+                    Some((bone.into(), expression))
                 })
                 .collect(),
             _ => Box::default(),
@@ -793,11 +823,11 @@ fn visual_descriptions(
         geometry,
         geometry_use_block_type_light_absorption: matches!(
             geometry_component.and_then(|geometry| geometry.field("useBlockTypeLightAbsorption")),
-            Some(Nbt::Byte(value)) if *value != 0
+            Some(Nbt::Byte(value)) if value != 0
         ),
         geometry_needs_legacy_top_rotation: matches!(
             geometry_component.and_then(|geometry| geometry.field("needsLegacyTopRotation")),
-            Some(Nbt::Byte(value)) if *value != 0
+            Some(Nbt::Byte(value)) if value != 0
         ),
         bone_visibility,
         materials,
