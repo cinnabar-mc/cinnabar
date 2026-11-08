@@ -71,9 +71,6 @@ fn pinned_villager_brim_matches_the_shared_zombie_brim_bind() {
         }
         let bytes = std::fs::read(&file).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let identifier = value["minecraft:geometry"][0]["description"]["identifier"]
-            .as_str()
-            .unwrap();
         let mut geometries = BTreeMap::new();
         super::super::geometry::parse_geometry(
             path,
@@ -84,13 +81,16 @@ fn pinned_villager_brim_matches_the_shared_zombie_brim_bind() {
         )
         .unwrap();
         restore_sample_defaults(path, &bytes, &mut geometries);
+        assert_eq!(geometries.len(), 1, "{path}");
         brims.push(
-            geometries[&(identifier.into(), path.into())]
-                .bones
-                .iter()
-                .find(|bone| bone.name.as_ref() == "brim")
+            geometries
+                .into_values()
+                .next()
                 .unwrap()
-                .clone(),
+                .bones
+                .into_iter()
+                .find(|bone| bone.name.as_ref() == "brim")
+                .unwrap(),
         );
     }
     assert_eq!(brims[0].pivot, brims[1].pivot);
