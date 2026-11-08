@@ -13,10 +13,35 @@ void main() {
 }
 ";
 
-const CLEARED: &str =
-    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n";
-const KEPT: &str =
-    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT false false 1 1\n";
+const ATOMIC_THEN_IMAGE_BARRIER: &str = "#version 430
+layout(local_size_x = 4, local_size_y = 4) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    imageAtomicAdd(counter, ivec2(0), 1u);
+    memoryBarrierImage();
+}
+";
+
+const ATOMIC_THEN_BARRIER: &str = "#version 430
+layout(local_size_x = 4, local_size_y = 4) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    imageAtomicAdd(counter, ivec2(0), 1u);
+    memoryBarrier();
+    barrier();
+}
+";
+
+const ONE_ATOMIC: &str = "#version 430
+layout(local_size_x = 1, local_size_y = 1) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+layout(r32ui) uniform uimage2D counter;
+void main() {
+    imageAtomicAdd(counter, ivec2(0), 16u);
+}
+";
 
 /// Reads the counter as a storage image instead of through its sampler.
 const SHOW_COUNT_IMAGE: &str = "#version 430
@@ -27,6 +52,11 @@ void main() {
     gl_FragData[0] = vec4(float(count) / 255.0, 0.0, 0.0, 1.0);
 }
 ";
+
+const CLEARED: &str =
+    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n";
+const KEPT: &str =
+    "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT false false 1 1\n";
 
 /// TEMPORARY DIAGNOSTIC: counts how often each counter variant reads a wrong value, with
 /// several devices rendering at once as nextest's parallel test processes do.
@@ -47,7 +77,7 @@ fn diag_image_atomics_flake_rate() {
     const THREADS: usize = 6;
     const RUNS: usize = 150;
     // (name, properties, compute, fragment, frames, expected red)
-    let variants: [(&str, &str, &str, &str, usize, u8); 6] = [
+    let variants: [(&str, &str, &str, &str, usize, u8); 9] = [
         (
             "A atomic, cleared, 2 frames",
             CLEARED,
@@ -89,10 +119,34 @@ fn diag_image_atomics_flake_rate() {
             16,
         ),
         (
+            "F atomic + memoryBarrierImage, kept, 1 frame",
+            KEPT,
+            ATOMIC_THEN_IMAGE_BARRIER,
+            SHOW_COUNT,
+            1,
+            16,
+        ),
+        (
+            "G atomic + memoryBarrier + barrier, kept, 1 frame",
+            KEPT,
+            ATOMIC_THEN_BARRIER,
+            SHOW_COUNT,
+            1,
+            16,
+        ),
+        (
             "H atomic, imageLoad in fragment, kept, 1 frame",
             KEPT,
             COUNT_ATOMICALLY,
             SHOW_COUNT_IMAGE,
+            1,
+            16,
+        ),
+        (
+            "M one invocation adds 16, kept, 1 frame",
+            KEPT,
+            ONE_ATOMIC,
+            SHOW_COUNT,
             1,
             16,
         ),
