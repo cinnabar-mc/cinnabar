@@ -87,6 +87,11 @@ pub unsafe extern "system" fn JNI_OnLoad(vm: *mut jni::sys::JavaVM, _: *mut c_vo
                     fn_ptr: on_mouse_scroll as *mut c_void,
                 },
                 NativeMethod {
+                    name: "nativeOnMouseHover".into(),
+                    sig: "()V".into(),
+                    fn_ptr: on_mouse_hover as *mut c_void,
+                },
+                NativeMethod {
                     name: "nativeOnPointerCaptureChange".into(),
                     sig: "(Z)V".into(),
                     fn_ptr: on_pointer_capture_change as *mut c_void,
@@ -146,6 +151,11 @@ extern "system" fn on_mouse_scroll(
     hscroll: jfloat,
 ) {
     cinnabar::platform_devices::ingress::push_platform_mouse_scroll(vscroll, hscroll);
+}
+
+/// Receives uncaptured mouse movement, which shows mouse use without relative motion.
+extern "system" fn on_mouse_hover(_: JNIEnv<'_>, _: JObject<'_>) {
+    cinnabar::platform_devices::ingress::note_platform_mouse_hover();
 }
 
 /// Receives the decor view gaining or losing pointer capture.

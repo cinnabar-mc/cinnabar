@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 static PLATFORM_PHYSICAL_DEVICES: AtomicU64 = AtomicU64::new(0);
 static PLATFORM_MOUSE_DELTA: Mutex<(f32, f32)> = Mutex::new((0.0, 0.0));
-static PLATFORM_MOUSE_BUTTONS: Mutex<Vec<PlatformMouseButtonEvent>> = Mutex::new(Vec::new());
-static PLATFORM_MOUSE_SCROLLS: Mutex<Vec<PlatformMouseWheelEvent>> = Mutex::new(Vec::new());
+static PLATFORM_MOUSE_EVENTS: Mutex<Vec<PlatformMouseEvent>> = Mutex::new(Vec::new());
+static PLATFORM_MOUSE_HOVERED: AtomicBool = AtomicBool::new(false);
 static PLATFORM_POINTER_CAPTURED: AtomicBool = AtomicBool::new(false);
 static PLATFORM_POINTER_CAPTURE_REQUESTED: Mutex<Option<bool>> = Mutex::new(None);
 static CAPTURE_DRIVER: Mutex<Option<fn(bool)>> = Mutex::new(None);
@@ -24,6 +24,22 @@ pub struct PlatformMouseWheelEvent {
 pub struct PlatformMouseButtonEvent {
     pub button_mask: u32,
     pub pressed: bool,
+}
+
+/// A mouse button or wheel event from the platform, queued in arrival order.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum PlatformMouseEvent {
+    Button(PlatformMouseButtonEvent),
+    Wheel(PlatformMouseWheelEvent),
+}
+
+/// Serializes unit tests that touch these process-wide queues and capture state.
+#[cfg(test)]
+pub(crate) fn lock_test_globals() -> std::sync::MutexGuard<'static, ()> {
+    static TEST_GLOBALS: Mutex<()> = Mutex::new(());
+    TEST_GLOBALS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Android mouse button constants.
@@ -68,37 +84,43 @@ pub fn take_platform_mouse_motion() -> (f32, f32) {
 
 /// Enqueues a mouse button press or release from the platform.
 pub fn push_platform_mouse_button(button_mask: u32, pressed: bool) {
-    if let Ok(mut queue) = PLATFORM_MOUSE_BUTTONS.lock() {
-        queue.push(PlatformMouseButtonEvent {
-            button_mask,
-            pressed,
-        });
-    }
-}
-
-/// Takes all queued mouse button events.
-pub fn take_platform_mouse_buttons() -> Vec<PlatformMouseButtonEvent> {
-    if let Ok(mut queue) = PLATFORM_MOUSE_BUTTONS.lock() {
-        std::mem::take(&mut *queue)
-    } else {
-        Vec::new()
-    }
+    push_platform_mouse_event(PlatformMouseEvent::Button(PlatformMouseButtonEvent {
+        button_mask,
+        pressed,
+    }));
 }
 
 /// Enqueues a mouse scroll event from the platform.
 pub fn push_platform_mouse_scroll(vscroll: f32, hscroll: f32) {
-    if let Ok(mut queue) = PLATFORM_MOUSE_SCROLLS.lock() {
-        queue.push(PlatformMouseWheelEvent { vscroll, hscroll });
+    push_platform_mouse_event(PlatformMouseEvent::Wheel(PlatformMouseWheelEvent {
+        vscroll,
+        hscroll,
+    }));
+}
+
+fn push_platform_mouse_event(event: PlatformMouseEvent) {
+    if let Ok(mut queue) = PLATFORM_MOUSE_EVENTS.lock() {
+        queue.push(event);
     }
 }
 
-/// Takes all queued mouse scroll events.
-pub fn take_platform_mouse_scrolls() -> Vec<PlatformMouseWheelEvent> {
-    if let Ok(mut queue) = PLATFORM_MOUSE_SCROLLS.lock() {
+/// Takes all queued mouse button and wheel events in arrival order.
+pub fn take_platform_mouse_events() -> Vec<PlatformMouseEvent> {
+    if let Ok(mut queue) = PLATFORM_MOUSE_EVENTS.lock() {
         std::mem::take(&mut *queue)
     } else {
         Vec::new()
     }
+}
+
+/// Records uncaptured mouse movement, which shows mouse use without carrying relative motion.
+pub fn note_platform_mouse_hover() {
+    PLATFORM_MOUSE_HOVERED.store(true, Ordering::Release);
+}
+
+/// Takes whether uncaptured mouse movement arrived since the last call.
+pub fn take_platform_mouse_hover() -> bool {
+    PLATFORM_MOUSE_HOVERED.swap(false, Ordering::AcqRel)
 }
 
 /// Resets the internal capture request cache (primarily for unit tests).

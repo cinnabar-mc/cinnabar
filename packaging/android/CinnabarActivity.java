@@ -227,7 +227,12 @@ public final class CinnabarActivity extends NativeActivity {
     private void handleDeviceChanged(int deviceId) {
         physicalMice.remove(deviceId);
         physicalKeyboards.remove(deviceId);
-        handleDeviceAdded(deviceId);
+        final InputManager im = (InputManager) getSystemService(INPUT_SERVICE);
+        final InputDevice dev = im == null ? null : im.getInputDevice(deviceId);
+        if (isPhysicalMouse(dev)) physicalMice.add(deviceId);
+        if (isPhysicalKeyboard(dev)) physicalKeyboards.add(deviceId);
+        // Publishes removals too, when the device no longer qualifies; unchanged counts are skipped.
+        notifyDeviceStateChanged();
     }
 
     private void initConnectedDevices(InputManager im) {
@@ -306,6 +311,12 @@ public final class CinnabarActivity extends NativeActivity {
             return;
         }
         if (action == MotionEvent.ACTION_HOVER_MOVE) {
+            // Uncaptured positions are absolute, so they only show that the mouse is in use.
+            try {
+                nativeOnMouseHover();
+            } catch (UnsatisfiedLinkError e) {
+                // Ignored if called before native binding
+            }
             return;
         }
         int buttonState = event.getButtonState();
@@ -354,5 +365,6 @@ public final class CinnabarActivity extends NativeActivity {
     private static native void nativeOnMouseMotion(float dx, float dy);
     private static native void nativeOnMouseButton(int buttonMask, boolean pressed);
     private static native void nativeOnMouseScroll(float vscroll, float hscroll);
+    private static native void nativeOnMouseHover();
     private static native void nativeOnPointerCaptureChange(boolean hasCapture);
 }

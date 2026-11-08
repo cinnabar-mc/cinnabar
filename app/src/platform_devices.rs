@@ -188,41 +188,51 @@ pub fn drain_platform_mouse_events(
         active = true;
     }
 
-    // 2. Drain button clicks:
-    let buttons = ingress::take_platform_mouse_buttons();
-    for event in buttons {
-        if let Some(button) = ingress::android_button_to_mouse_button(event.button_mask) {
-            // Releases also arrive when capture or focus is lost, so only presses show activity.
-            active |= event.pressed;
-            let state = if event.pressed {
-                ButtonState::Pressed
-            } else {
-                ButtonState::Released
-            };
-            let input_event = MouseButtonInput {
-                button,
-                state,
-                window,
-            };
-            button_messages.write(input_event);
-            if let Some(ref mut window_events) = window_messages {
-                window_events.write(WindowEvent::MouseButtonInput(input_event));
+    // 2. Drain buttons and wheel steps in arrival order, into both the per-kind messages and the
+    // ordered window events gameplay actions read.
+    for event in ingress::take_platform_mouse_events() {
+        match event {
+            ingress::PlatformMouseEvent::Button(event) => {
+                let Some(button) = ingress::android_button_to_mouse_button(event.button_mask)
+                else {
+                    continue;
+                };
+                // Releases also arrive when capture or focus is lost, so only presses show
+                // activity.
+                active |= event.pressed;
+                let input_event = MouseButtonInput {
+                    button,
+                    state: if event.pressed {
+                        ButtonState::Pressed
+                    } else {
+                        ButtonState::Released
+                    },
+                    window,
+                };
+                button_messages.write(input_event);
+                if let Some(window_events) = window_messages.as_mut() {
+                    window_events.write(WindowEvent::MouseButtonInput(input_event));
+                }
+            }
+            ingress::PlatformMouseEvent::Wheel(event) => {
+                let wheel = MouseWheel {
+                    unit: MouseScrollUnit::Line,
+                    x: event.hscroll,
+                    y: event.vscroll,
+                    window,
+                    phase: bevy::input::touch::TouchPhase::Moved,
+                };
+                wheel_messages.write(wheel);
+                if let Some(window_events) = window_messages.as_mut() {
+                    window_events.write(WindowEvent::MouseWheel(wheel));
+                }
+                active = true;
             }
         }
     }
 
-    // 3. Drain scroll wheel:
-    let scrolls = ingress::take_platform_mouse_scrolls();
-    for event in scrolls {
-        wheel_messages.write(MouseWheel {
-            unit: MouseScrollUnit::Line,
-            x: event.hscroll,
-            y: event.vscroll,
-            window,
-            phase: bevy::input::touch::TouchPhase::Moved,
-        });
-        active = true;
-    }
+    // 3. Uncaptured movement only shows that the mouse is in use.
+    active |= ingress::take_platform_mouse_hover();
     activity.0 = active;
 }
 

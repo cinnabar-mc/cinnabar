@@ -282,8 +282,10 @@ fn platform_mouse_input_survives_bevy_input_systems() {
             drain_platform_mouse_events.before(bevy::input::InputSystems),
         )
         .init_resource::<PlatformMouseActivity>();
+    let _globals = ingress::lock_test_globals();
     let _ = ingress::take_platform_mouse_motion();
-    let _ = ingress::take_platform_mouse_buttons();
+    let _ = ingress::take_platform_mouse_events();
+    let _ = ingress::take_platform_mouse_hover();
     ingress::accumulate_platform_mouse_motion(3.0, -2.0);
     ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
 
@@ -417,4 +419,43 @@ fn switching_to_touch_shows_touch_controls_before_gameplay_sampling() {
             .resource::<UiPresentationResource>()
             .touch_controls_enabled()
     );
+}
+
+/// Platform buttons and wheel steps reach the ordered window events in arrival order, so wheel
+/// actions such as hotbar scrolling see them; uncaptured movement counts as mouse activity.
+#[test]
+fn platform_wheel_reaches_ordered_window_events_in_order() {
+    let _globals = ingress::lock_test_globals();
+    let _ = ingress::take_platform_mouse_motion();
+    let _ = ingress::take_platform_mouse_events();
+    let _ = ingress::take_platform_mouse_hover();
+    let mut app = App::new();
+    app.add_message::<bevy::input::mouse::MouseMotion>()
+        .add_message::<MouseButtonInput>()
+        .add_message::<MouseWheel>()
+        .add_message::<WindowEvent>()
+        .init_resource::<PlatformMouseActivity>();
+
+    ingress::push_platform_mouse_button(ingress::mouse_buttons::BUTTON_PRIMARY, true);
+    ingress::push_platform_mouse_scroll(-1.0, 0.0);
+    app.world_mut()
+        .run_system_once(drain_platform_mouse_events)
+        .unwrap();
+
+    let events = app.world().resource::<Messages<WindowEvent>>();
+    let kinds = events
+        .iter_current_update_messages()
+        .map(|event| match event {
+            WindowEvent::MouseButtonInput(_) => "button",
+            WindowEvent::MouseWheel(wheel) if wheel.y == -1.0 => "wheel",
+            _ => "other",
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(kinds, ["button", "wheel"]);
+
+    ingress::note_platform_mouse_hover();
+    app.world_mut()
+        .run_system_once(drain_platform_mouse_events)
+        .unwrap();
+    assert!(app.world().resource::<PlatformMouseActivity>().0);
 }

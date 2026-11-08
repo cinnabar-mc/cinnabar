@@ -2,6 +2,7 @@ use super::*;
 
 #[test]
 fn atomic_roundtrip() {
+    let _globals = lock_test_globals();
     set_platform_physical_devices(3, 7);
     assert_eq!(platform_physical_devices(), (3, 7));
     set_platform_physical_devices(0, 0);
@@ -35,6 +36,7 @@ fn button_mask_mapping() {
 
 #[test]
 fn mouse_motion_and_scroll_queues() {
+    let _globals = lock_test_globals();
     // Reset delta
     let _ = take_platform_mouse_motion();
     accumulate_platform_mouse_motion(10.5, -4.2);
@@ -45,31 +47,40 @@ fn mouse_motion_and_scroll_queues() {
     // Queue should now be empty
     assert_eq!(take_platform_mouse_motion(), (0.0, 0.0));
 
-    // Scroll
-    let _ = take_platform_mouse_scrolls();
+    // Buttons and wheel steps share one queue in arrival order.
+    let _ = take_platform_mouse_events();
     push_platform_mouse_scroll(1.0, 0.0);
+    push_platform_mouse_button(mouse_buttons::BUTTON_PRIMARY, true);
     push_platform_mouse_scroll(-2.5, 0.5);
-    let scrolls = take_platform_mouse_scrolls();
-    assert_eq!(scrolls.len(), 2);
     assert_eq!(
-        scrolls[0],
-        PlatformMouseWheelEvent {
-            vscroll: 1.0,
-            hscroll: 0.0
-        }
+        take_platform_mouse_events(),
+        vec![
+            PlatformMouseEvent::Wheel(PlatformMouseWheelEvent {
+                vscroll: 1.0,
+                hscroll: 0.0
+            }),
+            PlatformMouseEvent::Button(PlatformMouseButtonEvent {
+                button_mask: mouse_buttons::BUTTON_PRIMARY,
+                pressed: true
+            }),
+            PlatformMouseEvent::Wheel(PlatformMouseWheelEvent {
+                vscroll: -2.5,
+                hscroll: 0.5
+            }),
+        ]
     );
-    assert_eq!(
-        scrolls[1],
-        PlatformMouseWheelEvent {
-            vscroll: -2.5,
-            hscroll: 0.5
-        }
-    );
-    assert!(take_platform_mouse_scrolls().is_empty());
+    assert!(take_platform_mouse_events().is_empty());
+
+    // Hover is a one-shot activity flag.
+    let _ = take_platform_mouse_hover();
+    note_platform_mouse_hover();
+    assert!(take_platform_mouse_hover());
+    assert!(!take_platform_mouse_hover());
 }
 
 #[test]
 fn pointer_capture_state() {
+    let _globals = lock_test_globals();
     reset_platform_pointer_capture_state();
     assert!(!is_platform_pointer_captured());
     set_platform_pointer_captured(true);
@@ -103,6 +114,7 @@ fn reset_test_driver() {
 
 #[test]
 fn capture_deduplication_repeated_identical_requests() {
+    let _globals = lock_test_globals();
     reset_test_driver();
 
     // First request enable = true
@@ -132,6 +144,7 @@ fn capture_deduplication_repeated_identical_requests() {
 
 #[test]
 fn capture_switching_false_to_true_and_true_to_false() {
+    let _globals = lock_test_globals();
     reset_test_driver();
 
     // Start disabled
@@ -163,6 +176,7 @@ fn capture_switching_false_to_true_and_true_to_false() {
 
 #[test]
 fn capture_revocation_and_subsequent_retry() {
+    let _globals = lock_test_globals();
     reset_test_driver();
 
     // Request capture
