@@ -9,7 +9,7 @@ fn merged_water_range_records_each_drawn_allocation_once() {
         .map(|x| {
             let start = x as u32 * 8;
             TransparentAllocationIdentity::new(
-                SubChunkKey::new(0, x, 0, 0),
+                SubChunkKey::new(0, 65 + x, 0, 65),
                 7,
                 start..start + 8,
                 32 + start..36 + start,
