@@ -8,7 +8,7 @@ mod verify;
 mod worker;
 pub use guard::{Guard, managed};
 pub use storage::Downloaded;
-pub(crate) use storage::retire_receipt;
+pub(crate) use storage::{finish_migration, retire_receipt};
 pub use verify::{Keys, Manifest, SignedRelease, SignedRevocations};
 
 use crossbeam_channel::{Receiver, Sender, bounded};

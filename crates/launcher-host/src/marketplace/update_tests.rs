@@ -50,6 +50,7 @@ impl Fixture {
             selected,
             release,
             consumed: Vec::new(),
+            migration: None,
         };
         let guard = Arc::new(Guard::default());
         guard.configure(1);
@@ -557,4 +558,201 @@ fn successor_receipts_consume_original_sends_after_restart_and_local_removal() {
         1000,
         3000
     ));
+}
+
+#[test]
+fn disabling_automatic_install_during_preference_snapshot_never_installs() {
+    let f = Fixture::new();
+    let mut prepared = f.pass(f.release(|_| {}), Some(b"new".to_vec()), false);
+    let policy = Policy::default();
+    policy.configure(true, true, []);
+    let (flags, authorization) = policy.snapshot(|| {
+        policy.configure(true, false, []);
+    });
+    assert_ne!(
+        flags & 2,
+        0,
+        "the pass began with automatic install enabled"
+    );
+    let mut download = prepared.remove(0);
+    download.authorization = Some((policy.authorization.clone(), authorization));
+    assert!(download.install(3000, |_| Ok(())).is_err());
+    assert_eq!(crate::mod_library::files::installed(f.root.path()).len(), 1);
+}
+
+#[test]
+fn interrupted_marketplace_migrations_resume_on_periodic_manual_and_restarted_passes() {
+    use crate::mod_library::{
+        marketplace,
+        port::{Backend, Selection},
+        tests::{Fixture as BackendFixture, Permit},
+    };
+    use launcher::mods::Action;
+    use std::sync::atomic::AtomicBool;
+
+    for mode in ["periodic", "manual", "restart"] {
+        for failure in ["runtime", "settings", "settings-removal"] {
+            let f = Fixture::new();
+            let config = f.root.path().join("config");
+            fs::create_dir_all(&config).unwrap();
+            BackendFixture::apply(Action::Enable(0), &config, Some(&f.path), "enable".into())
+                .unwrap();
+            let old_settings = BackendFixture::settings_companion(&f.path);
+            if failure.starts_with("settings") {
+                fs::create_dir(&old_settings).unwrap();
+            } else {
+                fs::write(&old_settings, b"saved choices").unwrap();
+            }
+            let mut prepared = f.pass(f.release(|_| {}), Some(b"new".to_vec()), false);
+            if failure == "settings-removal" {
+                let target = f
+                    .root
+                    .path()
+                    .join(storage::filename("11", &prepared[0].receipt.selected).unwrap());
+                fs::write(
+                    BackendFixture::settings_companion(&target),
+                    b"saved choices",
+                )
+                .unwrap();
+            }
+            let message = marketplace::install::<BackendFixture>(
+                prepared.remove(0),
+                &config,
+                "interrupted".into(),
+                3000,
+                &mut |_| {
+                    if failure == "runtime" {
+                        Err("injected retirement failure".into())
+                    } else {
+                        Ok(Permit(Arc::new(AtomicBool::new(true))))
+                    }
+                },
+            );
+            assert!(
+                message.starts_with("Marketplace installation held"),
+                "{message}"
+            );
+            let registered = BackendFixture::registered(&config);
+            assert_eq!(
+                registered.len(),
+                1,
+                "{mode}/{failure}: a version must remain enabled"
+            );
+            assert!(registered[0].enabled());
+            assert!(registered[0].component().exists());
+            assert!(f.guard.allows(registered[0].component(), 3000));
+            assert_eq!(crate::mod_library::files::installed(f.root.path()).len(), 2);
+            if failure.starts_with("settings") {
+                fs::remove_dir(&old_settings).unwrap();
+                fs::write(&old_settings, b"saved choices").unwrap();
+            }
+            let guard = if mode == "restart" {
+                let guard = Arc::new(Guard::default());
+                guard.configure(1);
+                guard.account(1, "11".into());
+                guard.revocations(super::super::super::verify::RevocationState {
+                    issued_at: 1000,
+                    expires_at: 100_000_000,
+                    revoked: HashMap::new(),
+                });
+                guard
+            } else {
+                f.guard.clone()
+            };
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            // No update metadata or asset request is needed to resume a published successor.
+            let transport = Transport {
+                client: reqwest::Client::new(),
+                origin: "http://127.0.0.1:0".parse().unwrap(),
+            };
+            let (outgoing, incoming) = crossbeam_channel::bounded(2);
+            let worker = Worker {
+                runtime: &runtime,
+                transport: &transport,
+                mods: f.root.path(),
+                keys: Some(&f.keys),
+                limit: 1000,
+                guard,
+                generation: Arc::new(AtomicU64::new(1)),
+                outgoing: &outgoing,
+                deliveries: Deliveries::default(),
+                refresh_at: u64::MAX,
+            };
+            let policy = Policy::default();
+            let id = crate::mod_library::files::installed(f.root.path())
+                .into_iter()
+                .find(|(_, path)| path == &f.path)
+                .unwrap()
+                .0
+                .id;
+            policy.configure(true, mode != "manual", (mode == "manual").then_some(id));
+            let mut updates = Updates {
+                epoch: 1,
+                ..Default::default()
+            };
+            if mode != "restart" {
+                updates.attempts.insert(
+                    f.path.clone(),
+                    Failure {
+                        count: 1,
+                        retry_at: 3000 + RETRY_BASE_MS,
+                    },
+                );
+            }
+            let now = if mode == "periodic" {
+                3000 + RETRY_BASE_MS
+            } else {
+                3001
+            };
+            updates.pass(
+                &worker,
+                1,
+                &CinnabarModLibrary {
+                    xuid: "11".into(),
+                    mods: vec![f.receipt.selected.clone()],
+                },
+                &Host {
+                    revision: REVISION,
+                    api_revisions_json: &APIS,
+                },
+                &policy,
+                || true,
+                &|| now,
+                &|message| panic!("resuming a migration needs no HTTP request: {message}"),
+            );
+            let retry = incoming
+                .try_recv()
+                .expect("unfinished retirement must be queued again");
+            let message = marketplace::install::<BackendFixture>(
+                retry,
+                &config,
+                "retry".into(),
+                now,
+                &mut |_| Ok(Permit(Arc::new(AtomicBool::new(true)))),
+            );
+            assert!(
+                message.starts_with("Updated"),
+                "{mode}/{failure}: {message}"
+            );
+            assert!(!f.path.exists());
+            let registered = BackendFixture::registered(&config);
+            assert_eq!(registered.len(), 1);
+            assert!(registered[0].enabled());
+            assert!(registered[0].component().exists());
+            assert_eq!(
+                fs::read(BackendFixture::settings_companion(
+                    registered[0].component()
+                ))
+                .unwrap(),
+                b"saved choices"
+            );
+            assert_eq!(
+                storage::restore(f.root.path(), &f.keys, 1000, &worker.guard, 3001).len(),
+                1
+            );
+        }
+    }
 }

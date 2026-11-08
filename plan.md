@@ -2146,10 +2146,11 @@ release/hash verification, disabled installation with explicit permission consen
 capped to the signed grants, signed revocation freshness and conditional library
 removal. Compatible marketplace updates use the native supported API revisions,
 require a signed matching API revision and honor mod check/automatic-install settings.
-Unchanged or reduced grants migrate enabled state, capped permission choices and final
-saved settings after runtime retirement; expanded grants stage disabled beside the
-old version until Enable. Successor receipts retain consumed website sends across
-restarts. Other local mods' declared update sources are ignored; only the official
+Unchanged or reduced grants atomically migrate enabled state and capped permission
+choices before runtime retirement copies final saved settings and removes the old
+release. Successor receipts retain pending retirement and consumed website sends, so
+periodic checks, manual requests and restarts resume interrupted migrations. Expanded
+grants stage disabled beside the old version until Enable. Other local mods' declared update sources are ignored; only the official
 package retains the revision-checked first-party update path. An initial website send
 whose compatibility check or installation fails after handoff to the library worker
 is not retried until an account change or restart. Production signing

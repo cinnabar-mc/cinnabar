@@ -284,6 +284,7 @@ async fn download(
             selected: selected.clone(),
             release,
             consumed: Vec::new(),
+            migration: None,
         },
         generation,
         epoch,

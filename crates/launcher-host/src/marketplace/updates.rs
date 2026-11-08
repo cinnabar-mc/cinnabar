@@ -2,7 +2,9 @@
 
 use super::*;
 use launcher::mods::AvailableUpdate;
-use std::sync::atomic::AtomicU8;
+
+/// Low bits hold update preferences; higher bits distinguish successive authorizations.
+const POLICY_FLAGS: u64 = 3;
 
 /// Native compatibility identity, supplied by the same backend as the official updater.
 pub(crate) struct Host {
@@ -13,7 +15,6 @@ pub(crate) struct Host {
 /// Frame-thread preferences and offers; a change cancels already prepared updates.
 #[derive(Default)]
 pub(crate) struct Policy {
-    flags: AtomicU8,
     authorization: Arc<AtomicU64>,
     manual: Mutex<HashSet<u64>>,
     offers: Mutex<Vec<AvailableUpdate>>,
@@ -28,9 +29,14 @@ impl Policy {
         manual: impl IntoIterator<Item = u64>,
     ) -> bool {
         let flags = u8::from(checks) | (u8::from(checks && automatic) << 1);
-        let changed = self.flags.swap(flags, Ordering::SeqCst) != flags;
+        let previous =
+            self.authorization
+                .try_update(Ordering::SeqCst, Ordering::SeqCst, |current| {
+                    (current & POLICY_FLAGS != u64::from(flags))
+                        .then(|| (current | POLICY_FLAGS).wrapping_add(1) | u64::from(flags))
+                });
+        let changed = previous.is_ok();
         if changed {
-            self.authorization.fetch_add(1, Ordering::SeqCst);
             self.offers
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
@@ -42,9 +48,18 @@ impl Policy {
         changed || pending.len() != before
     }
 
+    /// Reads preferences and their cancellation identity from one atomic value.
+    fn snapshot(&self, after_read: impl FnOnce()) -> (u8, u64) {
+        let authorization = self.authorization.load(Ordering::SeqCst);
+        let flags = (authorization & POLICY_FLAGS) as u8;
+        after_read();
+        (flags, authorization)
+    }
+
     /// Cancels pending update work and removes old-account presentation.
     pub fn clear(&self) {
-        self.authorization.fetch_add(1, Ordering::SeqCst);
+        self.authorization
+            .fetch_add(POLICY_FLAGS + 1, Ordering::SeqCst);
         self.manual
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -103,7 +118,7 @@ impl Updates {
                 ..Default::default()
             };
         }
-        let flags = policy.flags.load(Ordering::SeqCst);
+        let (flags, authorization) = policy.snapshot(|| {});
         if flags & 1 == 0 {
             return;
         }
@@ -119,7 +134,6 @@ impl Updates {
         {
             return;
         }
-        let authorization = policy.authorization.load(Ordering::SeqCst);
         let manual = std::mem::take(&mut *policy.manual.lock().unwrap_or_else(|e| e.into_inner()));
         let installed = crate::mod_library::files::installed(worker.mods);
         let sources: Vec<_> = installed
@@ -130,6 +144,26 @@ impl Updates {
             self.receipts = storage::restore(worker.mods, keys, worker.limit, &worker.guard, now());
             self.sources = sources;
             self.scan_at = now().saturating_add(REFRESH_INTERVAL_MS);
+        }
+        for successor in &self.receipts {
+            if successor.owner != library.xuid {
+                continue;
+            }
+            if let Some(name) = &successor.migration {
+                let previous = worker.mods.join(name);
+                let known = self.receipts.iter().any(|old| {
+                    old.owner == successor.owner
+                        && old.selected.slug == successor.selected.slug
+                        && storage::filename(&old.owner, &old.selected)
+                            .is_ok_and(|old_name| old_name == *name)
+                });
+                if !previous.exists()
+                    && (!known || storage::retire_receipt(&previous, &worker.guard).is_ok())
+                    && let Ok(name) = storage::filename(&successor.owner, &successor.selected)
+                {
+                    let _ = storage::finish_migration(&worker.mods.join(name));
+                }
+            }
         }
         let receipts = &self.receipts;
         self.offers.retain(|path, offer| {
@@ -143,6 +177,14 @@ impl Updates {
             if receipt.owner != library.xuid {
                 continue;
             }
+            // Finish this release's predecessor before looking for yet another successor.
+            if receipt
+                .migration
+                .as_ref()
+                .is_some_and(|name| worker.mods.join(name).exists())
+            {
+                continue;
+            }
             let Ok(name) = storage::filename(&receipt.owner, &receipt.selected) else {
                 continue;
             };
@@ -150,8 +192,8 @@ impl Updates {
             let Some((item, _)) = installed.iter().find(|(_, current)| current == &path) else {
                 continue;
             };
-            // A staged successor already awaits consent; never install another copy over it.
-            let successor = receipts.iter().any(|other| {
+            // Only permission-staged successors block replacement; unfinished migrations resume.
+            let successor = receipts.iter().find(|other| {
                 other.owner == receipt.owner
                     && worker
                         .guard
@@ -165,7 +207,10 @@ impl Updates {
                     && storage::filename(&other.owner, &other.selected)
                         .is_ok_and(|name| worker.mods.join(name).exists())
             });
-            if successor {
+            let resuming = successor.is_some_and(|other| {
+                other.migration.as_deref() == path.file_name().and_then(|name| name.to_str())
+            });
+            if successor.is_some() && !resuming {
                 self.offers.remove(&path);
                 continue;
             }
@@ -186,15 +231,28 @@ impl Updates {
             if worker.generation.load(Ordering::SeqCst) != epoch {
                 return;
             }
-            let result = worker.runtime.block_on(lookup(
-                worker.transport,
-                keys,
-                receipt,
-                host,
-                &supported,
-                worker.limit,
-                now(),
-            ));
+            let result = if let Some(successor) = successor.filter(|_| resuming) {
+                successor
+                    .release
+                    .verify(keys, &successor.selected, worker.limit, now())
+                    .map(|manifest| {
+                        Some((
+                            successor.release.clone(),
+                            manifest,
+                            successor.selected.clone(),
+                        ))
+                    })
+            } else {
+                worker.runtime.block_on(lookup(
+                    worker.transport,
+                    keys,
+                    receipt,
+                    host,
+                    &supported,
+                    worker.limit,
+                    now(),
+                ))
+            };
             let mut queued = false;
             let result = result.and_then(|release| {
                 self.offers.remove(&path);
@@ -339,13 +397,19 @@ async fn stage(
     selected: CinnabarModEntry,
     now: &impl Fn() -> u64,
 ) -> Result<Downloaded> {
-    let (bytes, _) = fetch(
-        worker.transport,
-        &format!("/v1/mods/assets/{}", manifest.sha256),
-        manifest.bytes as usize,
-        asset_timeout(manifest.bytes),
-    )
-    .await?;
+    let target = worker.mods.join(storage::filename(&old.owner, &selected)?);
+    let bytes = if target.exists() {
+        storage::read(&target, manifest.bytes as usize)?
+    } else {
+        fetch(
+            worker.transport,
+            &format!("/v1/mods/assets/{}", manifest.sha256),
+            manifest.bytes as usize,
+            asset_timeout(manifest.bytes),
+        )
+        .await?
+        .0
+    };
     super::super::verify::verify_bytes(&bytes, &manifest)?;
     ensure!(
         worker.generation.load(Ordering::SeqCst) == epoch
@@ -362,6 +426,7 @@ async fn stage(
             selected,
             release,
             consumed: Vec::new(),
+            migration: None,
         },
         generation: worker.generation.clone(),
         epoch,

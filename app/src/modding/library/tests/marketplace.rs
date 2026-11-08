@@ -137,7 +137,6 @@ fn signed_update_grants_compare_command_values_and_migrate_only_retained_choices
             .into_iter()
             .find(|entry| entry.entry.component == old)
             .unwrap();
-        selection::forget(config, &old, "retire".into()).unwrap();
         AppBackend::replace_marketplace(
             config,
             Some(&previous),

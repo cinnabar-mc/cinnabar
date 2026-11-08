@@ -22,7 +22,7 @@ use ui::mod_metadata::{GitHubModAsset, ModMetadata};
 const SOURCE: &str = "https://github.com/example/zoom/releases/latest/download/zoom.wasm";
 
 /// A lightweight package authority for testing service behavior without a guest engine.
-struct Fixture;
+pub(crate) struct Fixture;
 
 impl Selection for (PathBuf, launcher::mods::Status) {
     /// Exposes the fixture's source identity without a registration schema.
@@ -40,7 +40,7 @@ impl Selection for (PathBuf, launcher::mods::Status) {
 }
 
 /// A retirement acknowledgement that can be revoked before deletion.
-struct Permit(Arc<AtomicBool>);
+pub(crate) struct Permit(pub(crate) Arc<AtomicBool>);
 impl Retirement for Permit {
     /// Rejects revocation at the same deletion boundary as the runtime port.
     fn confirm(&self) -> Result<(), String> {
@@ -89,9 +89,11 @@ impl Backend for Fixture {
     }
     /// Accepts fixture versions and component bytes, and rejects a deliberately malformed package.
     fn validate_source(bytes: &[u8]) -> Result<(), String> {
-        (bytes.first().is_some_and(u8::is_ascii_digit) || bytes.starts_with(b"\0asm"))
-            .then_some(())
-            .ok_or("invalid fixture".into())
+        (bytes.first().is_some_and(u8::is_ascii_digit)
+            || bytes.starts_with(b"\0asm")
+            || matches!(bytes, b"old" | b"new"))
+        .then_some(())
+        .ok_or("invalid fixture".into())
     }
     /// Accepts any verified release; declaration matching is tested with the real app port.
     fn validate_marketplace(_: &[u8], _: &crate::marketplace::Manifest) -> Result<(), String> {

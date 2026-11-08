@@ -5,8 +5,8 @@ use crate::marketplace::{Downloaded, Guard};
 use std::path::Path;
 
 /// Validates native declarations before publication; only non-expanding updates inherit authority.
-pub(super) fn install<B: Backend>(
-    download: Downloaded,
+pub(crate) fn install<B: Backend>(
+    mut download: Downloaded,
     registration: &Path,
     request: String,
     now: u64,
@@ -29,6 +29,9 @@ pub(super) fn install<B: Backend>(
         } else {
             false
         };
+        if subset {
+            download.migrate();
+        }
         let target = download
             .install(now, |target| {
                 if B::registered(registration)
@@ -45,21 +48,22 @@ pub(super) fn install<B: Backend>(
                 let previous_entry = B::registered(registration)
                     .into_iter()
                     .find(|entry| same_path(entry.component(), &previous));
-                retire::<B>(
-                    &previous,
-                    Some(&target),
-                    registration,
-                    request.clone(),
-                    &guard,
-                    retire_runtime,
-                )?;
                 B::replace_marketplace(
                     registration,
                     previous_entry.as_ref(),
                     &target,
                     &manifest,
-                    request,
+                    request.clone(),
                 )?;
+                retire::<B>(
+                    &previous,
+                    Some(&target),
+                    registration,
+                    request,
+                    &guard,
+                    retire_runtime,
+                )?;
+                crate::marketplace::finish_migration(&target).map_err(|e| e.to_string())?;
                 return Ok(format!("Updated marketplace mod to {}.", manifest.version));
             }
             return Ok(format!(
@@ -102,13 +106,11 @@ pub(super) fn retire<B: Backend>(
             !same_path(entry.component(), previous)
                 && same_path(&B::settings_companion(entry.component()), &companion)
         });
-    files::remove::<B>(
-        previous,
-        (!shared).then_some(companion.as_path()),
-        registration,
-        &receipt,
-        &permit,
-    )?;
+    // Keep the source until companion cleanup succeeds, so recovery can retry every file.
+    if !shared && companion.try_exists().map_err(|e| e.to_string())? {
+        files::remove::<B>(&companion, None, registration, &receipt, &permit)?;
+    }
+    files::remove::<B>(previous, None, registration, &receipt, &permit)?;
     crate::marketplace::retire_receipt(previous, guard).map_err(|e| e.to_string())
 }
 

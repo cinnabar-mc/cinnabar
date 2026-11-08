@@ -39,6 +39,9 @@ pub(super) struct Receipt {
     /// Original website sends consumed by installations replaced by this receipt.
     #[serde(default)]
     pub consumed: Vec<CinnabarModEntry>,
+    /// Predecessor file whose non-expanding migration still needs retirement.
+    #[serde(default)]
+    pub migration: Option<String>,
 }
 
 /// Complete signature/hash-verified bytes awaiting the client's own ABI and grant-declaration checks.
@@ -75,6 +78,14 @@ impl Downloaded {
         let bytes = read(self.file.path(), self.manifest.bytes as usize)?;
         verify_bytes(&bytes, &self.manifest)?;
         Ok(bytes)
+    }
+
+    /// Records resumable retirement only after the native host confirms a grant subset.
+    pub(crate) fn migrate(&mut self) {
+        self.receipt.migration = self
+            .previous
+            .as_ref()
+            .and_then(|path| path.file_name()?.to_str().map(str::to_owned));
     }
 
     /// Publishes a new disabled file and receipt without overwriting another component or registration.
@@ -116,6 +127,9 @@ impl Downloaded {
                 && prior.release.statement == self.receipt.release.statement
                 && prior.release.signature == self.receipt.release.signature
             {
+                if self.receipt.migration.is_none() {
+                    self.receipt.migration = prior.migration;
+                }
                 for selected in prior.consumed {
                     if !self.receipt.consumed.contains(&selected) {
                         self.receipt.consumed.push(selected);
@@ -271,6 +285,24 @@ pub(super) fn restore(
     receipts
 }
 
+/// Clears completed migration metadata without changing signed evidence or consumed sends.
+pub(crate) fn finish_migration(target: &Path) -> Result<()> {
+    let name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("Invalid managed path."))?;
+    let path = receipt_path(
+        target
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("Missing mods directory."))?,
+        name,
+    );
+    let mut receipt: Receipt =
+        serde_json::from_slice(&read(&path, super::worker::MAX_RESPONSE_BYTES)?)?;
+    receipt.migration = None;
+    save(&path, &serde_json::to_vec(&receipt)?)
+}
+
 /// Deletes a superseded release's evidence only after its source has been retired and removed.
 pub(crate) fn retire_receipt(path: &Path, guard: &Guard) -> Result<()> {
     ensure!(!path.exists(), "Superseded component is still installed.");
@@ -278,11 +310,16 @@ pub(crate) fn retire_receipt(path: &Path, guard: &Guard) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid managed path."))?;
-    fs::remove_file(receipt_path(
+    let evidence = receipt_path(
         path.parent()
             .ok_or_else(|| anyhow::anyhow!("Missing mods directory."))?,
         name,
-    ))?;
+    );
+    match fs::remove_file(evidence) {
+        Ok(()) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     guard.forget(path);
     Ok(())
 }

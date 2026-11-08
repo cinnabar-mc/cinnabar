@@ -40,7 +40,6 @@ impl Receipt {
 /// A valid entry and the status for its list's current request.
 pub(in crate::modding) struct Registered {
     pub(in crate::modding) entry: Entry,
-    position: usize,
     pub(in crate::modding) status: Status,
 }
 
@@ -64,8 +63,7 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
     registration
         .mods
         .into_iter()
-        .enumerate()
-        .map(|(position, entry)| {
+        .map(|entry| {
             let recorded = statuses.as_ref().and_then(|statuses| {
                 statuses.mods.iter().find(|status| {
                     same_path(&status.component, &entry.component)
@@ -83,11 +81,7 @@ pub(in crate::modding) fn registered(directory: &Path) -> Vec<Registered> {
                 }
                 _ => Status::Starting,
             };
-            Registered {
-                entry,
-                status,
-                position,
-            }
+            Registered { entry, status }
         })
         .collect()
 }
@@ -134,7 +128,7 @@ pub(in crate::modding) fn select(
     .map(|_| ())
 }
 
-/// Restores a retired marketplace entry at its prior position with bounded authority.
+/// Atomically replaces an unchanged marketplace entry, preserving position and bounded authority.
 pub(in crate::modding) fn replace_marketplace(
     directory: &Path,
     old: &Registered,
@@ -143,17 +137,23 @@ pub(in crate::modding) fn replace_marketplace(
     request: String,
 ) -> Result<(), String> {
     edit(directory, request, |registration| {
-        if registration.mods.iter().any(|entry| {
-            same_path(&entry.component, next) || same_path(&entry.component, &old.entry.component)
-        }) {
-            return Err("The marketplace selection changed during retirement.".into());
+        if registration
+            .mods
+            .iter()
+            .any(|entry| same_path(&entry.component, next))
+        {
+            return Err("The marketplace successor is already selected.".into());
         }
+        let current = registration
+            .mods
+            .iter_mut()
+            .find(|entry| same_path(&entry.component, &old.entry.component))
+            .filter(|entry| **entry == old.entry)
+            .ok_or("The marketplace selection changed before replacement.")?;
         let mut entry = old.entry.clone();
         entry.component = resolved_component(next);
         entry.grants.cap(ceiling);
-        registration
-            .mods
-            .insert(old.position.min(registration.mods.len()), entry);
+        *current = entry;
         Ok(())
     })
     .map(drop)

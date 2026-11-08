@@ -3,14 +3,14 @@
 pub mod files;
 #[cfg(all(test, target_os = "linux"))]
 mod linux_publication_tests;
-mod marketplace;
+pub(crate) mod marketplace;
 pub mod paths;
 pub mod port;
 #[cfg(test)]
 mod publication_tests;
 pub mod scan;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 pub mod update;
 pub mod worker;
 

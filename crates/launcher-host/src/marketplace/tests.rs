@@ -135,6 +135,7 @@ fn prepared(root: &Path, f: &Fixture, guard: Arc<Guard>, generation: Arc<AtomicU
             selected: f.selected.clone(),
             release: f.release.clone(),
             consumed: Vec::new(),
+            migration: None,
         },
         generation,
         epoch: 1,

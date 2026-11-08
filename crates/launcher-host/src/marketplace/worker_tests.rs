@@ -511,6 +511,7 @@ fn removal_requests_wait_for_the_failure_backoff() {
             selected: fixture.selected.clone(),
             release,
             consumed: Vec::new(),
+            migration: None,
         },
         generation: Arc::new(AtomicU64::new(1)),
         epoch: 1,

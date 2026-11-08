@@ -65,7 +65,8 @@ pub trait Backend: 'static {
     ) -> Result<bool, String> {
         Err("Marketplace update migration is unavailable for this runtime.".into())
     }
-    /// Moves the predecessor's registration and capped choices to a verified successor.
+    /// Atomically moves an unchanged predecessor's registration and capped choices to its successor.
+    /// With no predecessor registration, preserves the successor's existing selection on retries.
     fn replace_marketplace(
         _directory: &Path,
         _old: Option<&Self::Registered>,
