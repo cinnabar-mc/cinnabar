@@ -238,6 +238,12 @@ impl MotionState {
     }
 
     fn turn_player_body(&mut self, input: &MotionInput) {
+        // A free rider looks independently of the mount's retained actor facing.
+        let yaw = if input.riding {
+            input.head_yaw
+        } else {
+            input.yaw
+        };
         let [dx, _, dz] = input.delta;
         let mut target = if dx.hypot(dz) > PLAYER_FACING_STEP {
             dz.atan2(dx).to_degrees() - 90.0
@@ -245,20 +251,17 @@ impl MotionState {
             self.body_yaw
         };
         if self.attack_time() > 0.0 {
-            target = input.yaw;
+            target = yaw;
         }
         self.body_yaw += wrap_degrees(target - self.body_yaw) * PLAYER_BODY_FOLLOW;
-        if input.riding {
-            return;
-        }
         let mut difference =
-            wrap_degrees(input.yaw - self.body_yaw).clamp(-PLAYER_HEAD_LIMIT, PLAYER_HEAD_LIMIT);
+            wrap_degrees(yaw - self.body_yaw).clamp(-PLAYER_HEAD_LIMIT, PLAYER_HEAD_LIMIT);
         if difference.abs() > PLAYER_HEAD_SOFT_LIMIT {
             difference -= (difference.abs() - PLAYER_HEAD_SOFT_LIMIT)
                 * PLAYER_HEAD_SOFT_PULL
                 * difference.signum();
         }
-        self.body_yaw = wrap_degrees(input.yaw - difference);
+        self.body_yaw = wrap_degrees(yaw - difference);
     }
 
     fn turn_mob_body(&mut self, input: &MotionInput) {
