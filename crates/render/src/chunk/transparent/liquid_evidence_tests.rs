@@ -92,11 +92,6 @@ fn merged_water_range_records_each_drawn_allocation_once() {
         &[(identities[0].key, 7), (identities[1].key, 7)]
     );
     for range in [0..0, 4..5, Range { start: 3, end: 2 }] {
-        assert_eq!(
-            transparent_frame_draws_for_range(snapshot, &arena, range)
-                .into_iter()
-                .count(),
-            0
-        );
+        assert!(transparent_frame_draws_for_range(snapshot, &arena, range).is_empty());
     }
 }
