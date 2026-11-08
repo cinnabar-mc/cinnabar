@@ -77,7 +77,7 @@ pub(super) const SEARCH_STATES: &[State] = &[
         name: "settings-storage-empty-search",
         size: SIZE,
         gui_scale: GUI_SCALE,
-        fixture: || storage_search("unknown"),
+        fixture: || storage_search("no matching downloaded pack"),
     },
     State {
         name: "settings-storage-small",
