@@ -142,6 +142,7 @@ impl State {
     fn camera_output(&self) -> bool {
         self.world.rig.is_some()
             || self.camera_delta.is_some()
+            || self.camera_policy.committed_perspective.is_some()
             || self.camera_policy.committed_view_scale.is_some()
             || self.camera_policy.committed_view_tilt.is_some()
     }
@@ -676,6 +677,13 @@ impl Instance {
     /// Reads the committed use pulse before output collection, without consuming it.
     pub(super) fn use_pulse_requested(&self) -> bool {
         self.is_active() && self.store.data().item_use_policy.pulse
+    }
+
+    /// Only a successful, focused gameplay callback publishes a perspective override.
+    pub(super) fn camera_perspective(&self) -> Option<mod_api::native_camera::Perspective> {
+        (!self.store.data().exclusive.camera)
+            .then_some(self.store.data().camera_policy.committed_perspective)
+            .flatten()
     }
 
     /// Only a successful, focused gameplay callback publishes a view multiplier.

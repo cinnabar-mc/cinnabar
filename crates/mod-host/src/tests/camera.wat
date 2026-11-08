@@ -1,11 +1,15 @@
 (component
   (import "$CAMERA" (instance $camera
+    (type $p (enum "first-person" "third-person-back" "third-person-front"))
+    (export "perspective" (type $perspective (eq $p)))
+    (export "set-perspective" (func (param "view" (option $perspective)) (result (result (error string)))))
     (type $tilt (record (field "roll" f32) (field "pitch" f32) (field "suppress-hurt-shake" bool)))
     (export "view-tilt" (type $view-tilt (eq $tilt)))
     (export "set-view-tilt" (func (param "tilt" (option $view-tilt))
       (result (result (error string)))))
     (export "set-view-scale" (func (param "fov-scale" f32) (param "look-scale" f32)
       (result (result (error string)))))))
+  (alias export $camera "set-perspective" (func $perspective))
   (alias export $camera "set-view-scale" (func $view-scale))
   (alias export $camera "set-view-tilt" (func $view-tilt))
   (core module $memory-module
@@ -16,7 +20,9 @@
   (alias core export $mem "realloc" (core func $realloc))
   (core func $scale-lower (canon lower (func $view-scale) (memory $memory) (realloc $realloc)))
   (core func $tilt-lower (canon lower (func $view-tilt) (memory $memory) (realloc $realloc)))
+  (core func $perspective-lower (canon lower (func $perspective) (memory $memory) (realloc $realloc)))
   (core module $code
+    (import "host" "perspective" (func $perspective (param i32 i32 i32)))
     (import "host" "view-scale" (func $view-scale (param f32 f32 i32)))
     (import "host" "view-tilt" (func $view-tilt (param i32 f32 f32 i32 i32)))
     (import "host" "memory" (memory 1))
@@ -26,6 +32,7 @@
       global.get $count i32.const 1 i32.add global.set $count
       $FRAME))
   (core instance $host
+    (export "perspective" (func $perspective-lower))
     (export "view-scale" (func $scale-lower))
     (export "view-tilt" (func $tilt-lower))
     (export "memory" (memory $memory)))
