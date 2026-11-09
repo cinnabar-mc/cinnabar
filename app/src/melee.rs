@@ -46,6 +46,8 @@ pub(crate) struct MeleeTarget {
         simulation_clock::identity::PositionAuthorityGeneration,
     )>,
     pub(crate) attack: Option<crosshair::ResolvedTarget>,
+    /// What this frame's ray found, whether or not an attack may press on it.
+    pub(crate) crosshair: Option<gameplay::melee::Crosshair>,
     pub(crate) hover: Option<(u64, gameplay::entity_hover::HoverSnapshot)>,
     pub(crate) hover_capture: Option<protocol::capture::PickState>,
 }
@@ -140,6 +142,7 @@ pub(crate) fn prepare_melee(
         movement.position_authority_identity().1,
     );
     target.prepared = picked.and(identity);
+    target.crosshair = picked.map(|picked| picked.crosshair);
     if let Some(picked) = picked {
         // Earlier queued movement must drain before this frame's first local tick.
         let first_tick = movement
@@ -378,7 +381,14 @@ fn maintain_attacks(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &mining_origin,
+                crate::survival_mining::DestroyPick {
+                    origin: &mining_origin,
+                    ticked: context
+                        .physics
+                        .as_deref()
+                        .and_then(|physics| physics.network_position()),
+                    held: mining.destroying_target().map(|(position, _)| position),
+                },
                 caps,
                 input.input_mode,
                 (input.authority_generation, input.frame_sequence),
@@ -462,9 +472,9 @@ fn maintain_attacks(
             },
         },
     );
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
-    }
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
         cues.attack.write(attack_cue(&context, hit.runtime_id));
     }

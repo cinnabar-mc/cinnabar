@@ -23,8 +23,10 @@ mod cosmetic_previews;
 mod fire;
 mod held;
 pub(super) mod hud_model;
+mod live_equipment;
 mod live_player;
 mod pack_equipment;
+mod player_layers;
 mod shield_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
@@ -135,6 +137,8 @@ pub(super) struct GuiModels {
     pub(super) skin: Option<UiTexturePage>,
     pub(super) pack_equipment: pack_equipment::PackEquipment,
     live_player: live_player::LivePlayer,
+    pub(super) live_equipment: live_equipment::LiveEquipment,
+    pub(super) player_layers: player_layers::PlayerLayers,
     pub(super) hud_model: std::sync::Mutex<hud_model::HudModel>,
     /// A screen's live renderer draws beside the HUD doll with its own head turn.
     pub(super) screen_model: std::sync::Mutex<hud_model::HudModel>,
@@ -161,7 +165,16 @@ pub struct PreparedGuiModels {
     pub(super) required_pages: usize,
     pub(super) textures: BTreeMap<atlas::TextureKey, IconRef>,
     held: held::HeldModels,
+    /// Ordinary items that retained their sprite because a held texture could not fit.
+    pub(super) held_texture_fallbacks: usize,
     pub(super) hand_pivots: Option<[[f32; 3]; 2]>,
+}
+
+impl PreparedGuiModels {
+    /// Reports held items that used resident sprites after their model artwork could not fit.
+    pub const fn held_texture_fallbacks(&self) -> usize {
+        self.held_texture_fallbacks
+    }
 }
 
 impl GuiModels {
@@ -296,7 +309,7 @@ impl GuiModelPreparation {
                 }
             }
         }
-        let held = held::prepare(
+        let (held, held_texture_fallbacks) = held::prepare(
             &mut atlas,
             entities,
             icons,
@@ -304,7 +317,7 @@ impl GuiModelPreparation {
                 .as_deref()
                 .ok_or(UiPresentationError::InvalidFontTexture)?,
             equipment,
-            &held_sources,
+            world,
         )?;
         let required_pages = atlas.page_count();
         let mut optional_models = BTreeSet::new();
@@ -423,6 +436,7 @@ impl GuiModelPreparation {
             required_pages,
             textures,
             held,
+            held_texture_fallbacks,
             hand_pivots: held::player_hands(entities),
             cape: render_model::cape::CapeRig::resolve(entities),
         })
@@ -619,9 +633,16 @@ impl UiPresentationRuntime {
                 .store(true, std::sync::atomic::Ordering::Relaxed);
         }
         if (view == player_preview::PreviewView::Hud
+            || (targets.in_hud
+                && matches!(
+                    view,
+                    player_preview::PreviewView::Doll { .. }
+                        | player_preview::PreviewView::DollLook { .. }
+                )
+                && self.gui_models.player_layers.has_layers())
             || (live_renderer && self.gui_models.live_player.fresh))
             && !self.hud_cpu_reference()
-            && self.gui_models.live_player.body.geometry.is_some()
+            && (live_renderer || self.gui_models.live_player.body.geometry.is_some())
         {
             let instances = nodes
                 .iter()
@@ -699,6 +720,13 @@ impl UiPresentationRuntime {
                         *node = node
                             .clone()
                             .with_visual(UiVisual::TintedMesh { mesh, color });
+                    }
+                }
+            } else if live_renderer {
+                // A completed empty actor draw must not reveal the placeholder player raster.
+                for (index, node) in nodes.iter_mut().enumerate() {
+                    if targets.shows(index, node.visual()) {
+                        *node = node.clone().with_visual(UiVisual::None);
                     }
                 }
             }

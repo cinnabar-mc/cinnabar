@@ -189,6 +189,7 @@ impl HudModel {
                 normal: rows.map(|row| [row[0], row[1], row[2], 0.0]),
                 overlay,
                 uv_rect: icon.uv.map(f32::from),
+                uv_transform: [0., 0., 1., 1.],
                 styles: [0; 4],
                 uv_cross: [0.; 4],
                 tint: {
@@ -387,6 +388,7 @@ impl HudModel {
                 let start = vertices.len() as u32;
                 for vertex in source.vertices.iter() {
                     vertices.push(UiMeshVertex {
+                        terrain_mips: false,
                         position: [vertex.position[0], vertex.position[1]],
                         clip_z: vertex.position[2],
                         clip_w: (base + source.palette_indices[vertex.bone_index as usize] + 1)
@@ -440,6 +442,7 @@ impl HudModel {
             let start = vertices.len() as u32;
             vertices.extend(
                 [UiMeshVertex {
+                    terrain_mips: false,
                     position: [0.; 2],
                     clip_z: 0.5,
                     clip_w: 1.,
@@ -509,10 +512,8 @@ impl HudModel {
         bones.clear();
         bones.extend_from_slice(&self.palette);
         for bone in &mut bones {
-            bone.tint = [0, 1, 2, 3].map(|channel| {
-                let source = (bone.tint[channel] * 255.).round() as u16;
-                f32::from((source * u16::from(color[channel]) / 255) as u8) / 255.
-            });
+            bone.tint =
+                [0, 1, 2, 3].map(|channel| bone.tint[channel] * (f32::from(color[channel]) / 255.));
             bone.screen = (placement * Mat4::from_cols_array_2d(&bone.screen)).to_cols_array_2d();
         }
         // Every palette is small; the frame pool retains its allocation across publications.
@@ -551,6 +552,9 @@ impl HudModel {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Places each skinned control with the palette of the doll model that drew it.
 pub(in crate::ui_runtime::presentation) fn model_poses(
@@ -703,188 +707,4 @@ fn armor_source(slot: usize) -> Arc<[ActorRigVertex]> {
     Arc::clone(&SOURCES[slot])
 }
 
-impl UiPresentationRuntime {
-    /// Draws the HUD doll from the live actor.
-    #[cfg(test)]
-    pub(super) fn hud_player_mesh(
-        &self,
-        held: [Option<PreviewHeldModel>; 2],
-        admit: impl FnMut(&HudModel, [bool; 2], usize, usize) -> bool,
-    ) -> Option<Arc<UiMesh>> {
-        self.live_player_mesh(PreviewView::Hud, true, held, admit)
-    }
-
-    /// Draws the live actor from resident source vertices and freshly evaluated bone frames,
-    /// into the HUD's retained model when `in_hud`. A live renderer turns the head subtree toward
-    /// the pointer, as native `LivePlayerRenderer::render` overwrites the actor's rotations
-    /// before drawing it.
-    pub(super) fn live_player_mesh(
-        &self,
-        view: PreviewView,
-        in_hud: bool,
-        held: [Option<PreviewHeldModel>; 2],
-        admit: impl FnMut(&HudModel, [bool; 2], usize, usize) -> bool,
-    ) -> Option<Arc<UiMesh>> {
-        let live = &self.gui_models.live_player;
-        let skin = self.gui_models.skin.as_ref()?;
-        let [width, height] = skin.dimensions();
-        let icon = IconRef {
-            color_mask: None,
-            page: (self.textures.dynamic_start() + super::SKIN_PAGE) as u16,
-            uv: [0, 0, width.try_into().ok()?, height.try_into().ok()?],
-            glint: false,
-        };
-        let mut cache = self
-            .gui_models
-            .doll_model(in_hud)
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        cache.begin();
-        let mut rig = Rig::new(
-            self.player_preview_pose.unwrap_or_default(),
-            view,
-            self.player_preview_bob,
-            held.each_ref().map(Option::is_some),
-        );
-        rig.parts = live.parts;
-        let turn = (view != PreviewView::Hud)
-            .then(|| {
-                let (pitch, yaw) = rig.head_look();
-                live.head_turn(pitch, yaw)
-            })
-            .flatten();
-        if let (Some(turn), Some(head)) = (turn, rig.parts[0].as_mut()) {
-            *head = turn * *head;
-        }
-        let (screen, light) = projection(&rig, 6);
-        let mut model = |model: &super::live_player::ModelGeometry,
-                         icon: IconRef,
-                         turned: &dyn Fn(usize) -> bool|
-         -> Option<()> {
-            let geometry = model.geometry.as_ref()?;
-            let posed = |(bone, frame): (usize, &Affine3A)| match turn.filter(|_| turned(bone)) {
-                Some(turn) => turn * *frame,
-                None => *frame,
-            };
-            cache.layer(
-                &geometry.vertices,
-                model
-                    .transforms
-                    .iter()
-                    .enumerate()
-                    .map(|bone| screen * Mat4::from(posed(bone))),
-                model
-                    .transforms
-                    .iter()
-                    .enumerate()
-                    .map(&posed)
-                    .map(|frame| normal_frame(light * Mat3::from(frame.matrix3), true)),
-                icon,
-                None,
-                live.overlay_color,
-            )
-        };
-        model(&live.body, icon, &|bone| {
-            live.head_bones.get(bone).copied().unwrap_or(false)
-        })?;
-        if self.menu_preview_model.cape_key.is_some()
-            && !self.gui_models.wearing_elytra
-            && let Some(icon) = self
-                .menu_preview_model
-                .cape_key
-                .as_ref()
-                .and_then(|key| self.menu_artwork_icon(key))
-            && live.cape.geometry.is_some()
-        {
-            model(&live.cape, icon, &|_| false)?;
-        }
-        for item in &self.menu_preview_model.cosmetics {
-            if let Some(model_source) = live
-                .hats
-                .get(item)
-                .filter(|source| source.geometry.is_some())
-                && let Some(icon) = model_source
-                    .texture_key
-                    .as_deref()
-                    .and_then(|key| self.menu_artwork_icon(key))
-            {
-                model(model_source, icon, &|_| model_source.follows_head)?;
-            }
-        }
-        for slot in 0..4 {
-            let Some(texture) = &self.player_preview_gear.armor[slot] else {
-                continue;
-            };
-            let icon = self.gui_models.pack_equipment.region(slot).or_else(|| {
-                self.gui_models
-                    .sources
-                    .textures
-                    .get(&super::atlas::key(
-                        [texture.width, texture.height],
-                        &texture.rgba,
-                    ))
-                    .copied()
-            });
-            let Some(icon) = icon else { continue };
-            let frames = [0, 1, 2, 3, 4, 5].map(|part| projection(&rig, part));
-            cache.layer(
-                &armor_source(slot),
-                frames.iter().map(|frame| frame.0),
-                frames.iter().map(|frame| normal_frame(frame.1, false)),
-                icon.with_glint(self.player_preview_gear.armor_glint[slot]),
-                texture.tint,
-                live.overlay_color,
-            )?;
-        }
-        for (hand, model) in held.iter().enumerate() {
-            let Some(model) = model else { continue };
-            let (bone, pivot) = player_preview::geometry::held::placement(model, hand)?;
-            let rotation = glam::Quat::from_array(bone.rotation).normalize();
-            let scale = Vec3::from_slice(&bone.axis_scale[..3]) * bone.translation_scale[3];
-            let frame = Affine3A::from_scale(Vec3::new(-1., 1., -1.))
-                * Affine3A::from_scale_rotation_translation(
-                    scale,
-                    rotation,
-                    Vec3::from_slice(&bone.translation_scale[..3]),
-                )
-                * Affine3A::from_translation(-pivot);
-            let (screen, light) = projection(&rig, if hand == 0 { 2 } else { 3 });
-            cache.layer(
-                &model.vertices,
-                std::iter::once(screen * Mat4::from(frame)),
-                std::iter::once(light * Mat3::from(frame.matrix3)),
-                model.source,
-                None,
-                [0.; 4],
-            )?;
-            let index = cache.cursor - 1;
-            cache.sources[index].hand = Some(hand);
-        }
-        if let Some(fire) = self.gui_fire_frame(view) {
-            let mut vertices = std::mem::take(&mut cache.fire_vertices);
-            let mut batches = std::mem::take(&mut cache.fire_batches);
-            vertices.clear();
-            batches.clear();
-            let prepared =
-                player_preview::geometry::fire::append(&mut vertices, &mut batches, fire).and_then(
-                    |()| {
-                        batches
-                            .iter()
-                            .try_for_each(|batch| cache.effect(&vertices, None, batch))
-                    },
-                );
-            cache.fire_vertices = vertices;
-            cache.fire_batches = batches;
-            prepared?;
-        }
-        // The particle mesh follows the preview view it was generated for.
-        if view == self.player_preview_view
-            && let Some(particles) = self.gui_models.particles.mesh.as_deref()
-        {
-            for batch in particles.batches() {
-                cache.effect(particles.vertices(), Some(particles.indices()), batch)?;
-            }
-        }
-        cache.finish(admit)
-    }
-}
+mod live;

@@ -129,11 +129,8 @@ pub use inventory::{
     TradeOffer, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
-};
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    ArmorDamage, ArmorDamageEvent, CONTAINER_NAME_ARMOR,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
@@ -150,6 +147,10 @@ pub use inventory::{
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
     repeated_container_open_warning_packet, validate_item_nbt_size,
+};
+pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
@@ -174,22 +175,22 @@ pub use inventory::{
 };
 pub use item::{
     ActorActionEvent, ActorActionKind, ActorHandedness, ArmorEquipmentEvent, DiggerBlock,
-    DiggerSpeed, DiggerStates, EquipmentEvent, FoodProperties, HOTBAR_SLOT_COUNT, ItemActorEvent,
-    ItemAnvilData, ItemAttackCooldown, ItemAttackTiming, ItemBlockList, ItemBook, ItemComponents,
-    ItemDigger, ItemDisplay, ItemNbtEdit, ItemPacketError, ItemRegistryEntry, ItemRegistryEvent,
-    ItemRegistryVersion, ItemSeed, ItemShooter, ItemStackFacts, ItemStackFactsCache,
-    ItemUseCooldown, KineticWeaponTiming, MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS,
-    MAX_ANIMATION_IDENTIFIER_BYTES, MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES,
-    MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack, apply_banner_to_shield, book_init_extra,
-    book_needs_init, edit_item_extra, held_items_match, item_anvil_data, item_banner_patterns,
-    item_banner_type, item_block_list, item_book, item_bundle_id, item_charged_projectile,
-    item_custom_color, item_custom_name, item_display, item_enchantment_level,
-    item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
+    DiggerSpeed, DiggerStates, EquipmentEvent, FireworkExplosion, FoodProperties,
+    HOTBAR_SLOT_COUNT, ItemActorEvent, ItemAnvilData, ItemAttackCooldown, ItemAttackTiming,
+    ItemBlockList, ItemBook, ItemComponents, ItemDigger, ItemDisplay, ItemFireworks, ItemNbtEdit,
+    ItemPacketError, ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, ItemSeed,
+    ItemShooter, ItemStackFacts, ItemStackFactsCache, ItemUseCooldown, KineticWeaponTiming,
+    MAX_ACTION_IDENTIFIER_BYTES, MAX_ANIMATE_ENTITY_IDS, MAX_ANIMATION_IDENTIFIER_BYTES,
+    MAX_BOOK_PAGES, MAX_ITEM_EXTRA_BYTES, MAX_ITEM_REGISTRY_ENTRIES, NetworkItemStack,
+    apply_banner_to_shield, book_init_extra, book_needs_init, edit_item_extra, held_items_match,
+    item_anvil_data, item_banner_patterns, item_banner_type, item_block_list, item_book,
+    item_bundle_id, item_charged_projectile, item_custom_color, item_custom_name, item_display,
+    item_enchantment_level, item_enchantment_level_value, item_enchantment_mask, item_extra_damage,
     item_extra_damage_integer, item_extra_damage_value, item_extra_lock, item_extra_slot_locked,
-    item_extra_unbreakable, item_filtered_custom_name, item_has_enchantment_list, item_has_trim,
-    item_id_aux, item_map_id, item_repair_cost, item_shield_pattern, item_stack_damage,
-    item_use_progress_packet, item_user_data_equal, offhand_equipment_packet,
-    select_hotbar_slot_packet, vanilla_item_registry,
+    item_extra_unbreakable, item_filtered_custom_name, item_firework_star, item_fireworks,
+    item_has_enchantment_list, item_has_trim, item_id_aux, item_map_id, item_repair_cost,
+    item_shield_pattern, item_stack_damage, item_use_progress_packet, item_user_data_equal,
+    offhand_equipment_packet, select_hotbar_slot_packet, vanilla_item_registry,
 };
 pub use item_capacity::{ITEM_DEFAULT_MAX_STACK_SIZE, vanilla_item_capacity};
 pub use respawn::{respawn_ready_packet, respawn_request_packet};
@@ -205,8 +206,8 @@ pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, InteractionEncodeError,
     MovementPredictionSync, PlayerAuthInputError, PlayerAuthInputInteractions,
     PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode,
-    PredictedVehicleInput, client_movement_prediction_sync, player_auth_input,
-    player_auth_input_trace_sample, player_auth_input_with_interactions,
+    PlayerInteractionModel, PredictedVehicleInput, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
 };
 pub use packet::{Packet, PacketKind};
@@ -241,14 +242,15 @@ pub use ui::{
     CommandSpec, CommandTreeEvent, CompletionContext, CustomForm, CustomFormElement,
     CustomFormValue, DeathInfoEvent, DeathRules, ElementMenuForm, FormButtonImage, FormControlLock,
     FormKind, FormNumber, FormRequestEvent, FormText, GameModeEvent, GameModeUpdate, HudEvent,
-    HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
-    MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
-    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
-    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
-    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
-    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
-    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
+    HudRules, LocatorEvent, LocatorWaypointUpdate, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
+    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
+    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
+    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
+    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
+    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
+    chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, quote_chat_player_name, server_settings_request_packet,
 };

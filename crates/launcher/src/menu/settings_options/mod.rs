@@ -17,9 +17,10 @@ pub mod render_distance;
 pub mod render_resolution;
 pub mod reset;
 pub mod runtime;
+pub mod touch_control_mode;
 pub mod touch_layout;
 pub mod video_presets;
-pub use chat::CHAT_POSITION_OPTION;
+pub use chat::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
 pub use reset::SettingsGroup;
 #[cfg(test)]
 mod registry_tests;

@@ -582,6 +582,7 @@ fn preview_batch_admission_includes_surrounding_sprite_batches() {
     )
     .unwrap();
     let vertices = [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]].map(|position| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.5,
         clip_w: 1.0,

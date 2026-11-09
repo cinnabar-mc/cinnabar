@@ -19,9 +19,9 @@ const RETRACTED_PLATE_OFFSET: f32 = 0.375;
 /// The plate's box: a full cell wide and a quarter deep, around the model origin.
 const PLATE: BoxSpec = BoxSpec::new([-8.0, -2.0, -8.0], [16.0, 4.0, 16.0], [0.0, 0.0]);
 /// The rod's box, reaching from the plate back into the body.
-const ROD: BoxSpec = BoxSpec::new([-2.0, 2.0, -2.0], [4.0, 8.0, 4.0], [64.0, 0.0]);
+const ROD: BoxSpec = BoxSpec::new([-2.0, -10.0, -2.0], [4.0, 8.0, 4.0], [64.0, 0.0]);
 /// The sleeve's box when retracted; it moves back along the rod as the head extends.
-const SLEEVE: BoxSpec = BoxSpec::new([-3.0, 2.0, -3.0], [6.0, 8.0, 6.0], [64.0, 18.0]);
+const SLEEVE: BoxSpec = BoxSpec::new([-3.0, -10.0, -3.0], [6.0, 8.0, 6.0], [64.0, 18.0]);
 /// How far the sleeve moves toward the body base at full extension, in pixels.
 const SLEEVE_TRAVEL_PIXELS: f32 = 8.0;
 
@@ -47,15 +47,16 @@ impl PistonArmModel {
         Vec3::from_array(PISTON_DIRECTIONS[usize::from(self.facing)].map(|axis| axis as f32))
     }
 
-    /// Carries the model's axes (+Y pointing from the plate back into the body) into the world.
+    /// Carries the model's axes (+Y pointing out of the plate, away from the body) into the
+    /// world, so the box unwrap's "up" art faces outward, as the head's art expects.
     fn orientation(&self) -> Mat4 {
         let (x, y, z) = match self.facing {
-            0 => (Vec3::X, Vec3::Y, Vec3::Z),
-            1 => (Vec3::NEG_X, Vec3::NEG_Y, Vec3::Z),
-            2 => (Vec3::X, Vec3::NEG_Z, Vec3::Y),
-            3 => (Vec3::NEG_X, Vec3::Z, Vec3::Y),
-            4 => (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
-            _ => (Vec3::Z, Vec3::X, Vec3::Y),
+            0 => (Vec3::NEG_X, Vec3::NEG_Y, Vec3::Z),
+            1 => (Vec3::X, Vec3::Y, Vec3::Z),
+            2 => (Vec3::NEG_X, Vec3::Z, Vec3::Y),
+            3 => (Vec3::X, Vec3::NEG_Z, Vec3::Y),
+            4 => (Vec3::Z, Vec3::X, Vec3::Y),
+            _ => (Vec3::NEG_Z, Vec3::NEG_X, Vec3::Y),
         };
         Mat4::from_cols(
             x.extend(0.0),
@@ -85,7 +86,7 @@ pub(super) fn emit(
         * Mat4::from_scale(Vec3::splat(1.0 / 16.0));
     builder.cuboid(Layer::Solid, &texture, head, PLATE, WHITE);
     builder.cuboid(Layer::Solid, &texture, head, ROD, WHITE);
-    let sleeve = head * Mat4::from_translation(Vec3::Y * SLEEVE_TRAVEL_PIXELS * model.progress);
+    let sleeve = head * Mat4::from_translation(Vec3::NEG_Y * SLEEVE_TRAVEL_PIXELS * model.progress);
     builder.cuboid(Layer::Solid, &texture, sleeve, SLEEVE, WHITE);
 }
 
@@ -93,20 +94,55 @@ pub(super) fn emit(
 mod tests {
     use super::*;
 
+    /// How far the box face drawn from the art rectangle `texels` lies along the head's facing.
+    fn face_extent(model: &PistonArmModel, spec: BoxSpec, texels: [f32; 4]) -> f32 {
+        let face = spec
+            .faces()
+            .into_iter()
+            .find(|(_, face_texels)| *face_texels == texels)
+            .expect("the box has a face with this art");
+        let [corner, ..] = face.0;
+        let point = model
+            .orientation()
+            .transform_point3(Vec3::from_array(corner));
+        point.dot(model.direction())
+    }
+
     #[test]
-    fn the_rod_points_from_the_plate_back_into_the_body_for_every_facing() {
+    fn the_rod_reaches_from_the_plate_into_the_body_without_mirroring() {
         for facing in 0..6u8 {
             let model = PistonArmModel {
                 facing,
                 sticky: false,
                 progress: 0.0,
             };
-            let back = model.orientation().transform_vector3(Vec3::Y);
-            assert!(back.abs_diff_eq(-model.direction(), 1.0e-6), "{facing}");
+            for [x, y, z] in ROD.faces().iter().flat_map(|(corners, _)| *corners) {
+                let along = model
+                    .orientation()
+                    .transform_point3(Vec3::new(x, y, z))
+                    .dot(model.direction());
+                assert!((-10.0..=-2.0).contains(&along), "{facing}: {along}");
+            }
             assert!(
                 (model.orientation().determinant() - 1.0).abs() < 1.0e-6,
                 "{facing} must turn the model without mirroring it"
             );
+        }
+    }
+
+    #[test]
+    fn the_plates_face_art_points_away_from_the_body_for_every_facing() {
+        // The sticky or wooden face is the art at (16, 0)..(32, 16), the box unwrap's "up"
+        // face; the side toward the rod is (32, 0)..(48, 16), read bottom to top as "down".
+        for facing in 0..6u8 {
+            let model = PistonArmModel {
+                facing,
+                sticky: true,
+                progress: 0.0,
+            };
+            let outer = face_extent(&model, PLATE, [16.0, 0.0, 16.0, 16.0]);
+            let inner = face_extent(&model, PLATE, [32.0, 16.0, 16.0, -16.0]);
+            assert_eq!((outer, inner), (2.0, -2.0), "{facing}");
         }
     }
 

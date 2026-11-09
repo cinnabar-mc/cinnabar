@@ -150,6 +150,7 @@ impl Default for TouchControlLayout {
             [
                 crate::touch::LOOK_SURFACE,
                 crate::touch::JOYSTICK,
+                crate::touch::DPAD,
                 crate::touch::INVENTORY,
                 crate::touch::CHAT,
                 crate::touch::EMOTE,

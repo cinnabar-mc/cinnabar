@@ -8,6 +8,7 @@ use protocol::{
 
 use super::cells::{Cell, CellSurface, Cells, Held};
 use super::consumption::SubsequentConsumption;
+use super::mining::MiningPrediction;
 use super::overlay::DeltaGroup;
 use super::response::apply_response_item_data;
 use super::{InventoryGestureError, InventoryPendingState, PlayerInventoryLedger};
@@ -98,62 +99,17 @@ pub(super) enum RollbackAuthority {
     Unknown,
 }
 
-/// The durability a mine-block request predicts for one hotbar slot.
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub(super) struct MiningPrediction {
-    pub(super) slot: u8,
-    pub(super) damage: i32,
-    /// Identifies the selected item; accepted metadata stays in backing truth.
-    source: Option<MiningSource>,
-}
-
-/// Stable item lineage for a HUD request, independent of mutable NBT and wire IDs.
-#[derive(Debug, Clone, Eq, PartialEq)]
-struct MiningSource {
-    source_stack_id: i32,
-    source_origin: Option<Cell>,
-    network_id: i32,
-    metadata: u32,
-    block_runtime_id: i32,
-}
-
-impl MiningSource {
-    /// Retains only the identity needed to reject responses for replacement items.
-    fn new(held: &Held) -> Option<Self> {
-        Some(Self {
-            source_stack_id: held.source_stack_id?,
-            source_origin: held.source_origin,
-            network_id: held.stack.network_id,
-            metadata: held.stack.metadata,
-            block_runtime_id: held.stack.block_runtime_id,
-        })
-    }
-}
-
-impl MiningPrediction {
-    /// Resolves this request's still-current item from authoritative backing, never history.
-    fn current_source<'a>(&self, cells: &'a Cells) -> Option<&'a Held> {
-        let held = cells.get(Cell::Inventory(self.slot))?;
-        (MiningSource::new(held).as_ref()? == self.source.as_ref()?).then_some(held)
-    }
-}
-
-impl MiningPrediction {
-    /// Matches retained mining lineage without restoring mutable item data from history.
-    pub(super) fn retains_source_item(&self, held: &Held) -> bool {
-        MiningSource::new(held)
-            .as_ref()
-            .is_some_and(|source| Some(source) == self.source.as_ref())
-    }
-}
-
-/// Bounds outstanding mining predictions; the oldest is forgotten first.
-const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
-
 impl PendingRequest {
-    /// An admitted normal transaction is retained history, not unanswered gesture work.
+    /// An admitted legacy transaction is retained history, not unanswered gesture work.
     pub(super) fn locally_committed(&self) -> bool {
-        self.world_drop.is_some() && self.state == InventoryPendingState::AwaitingResponse
+        self.legacy_request_id().is_some() && self.state == InventoryPendingState::AwaitingResponse
+    }
+
+    /// The response identity of an admitted drop or client-authoritative destroy.
+    pub(super) fn legacy_request_id(&self) -> Option<i32> {
+        self.world_drop
+            .map(|drop| drop.legacy_request_id)
+            .or_else(|| self.mining.as_ref()?.legacy_request_id)
     }
 
     /// The request predicts a created result derived from its inputs and the item facts, so
@@ -171,7 +127,12 @@ impl PendingRequest {
     }
 
     pub(super) fn touched(&self) -> impl Iterator<Item = Cell> + '_ {
-        self.groups.iter().flat_map(DeltaGroup::touched)
+        self.groups.iter().flat_map(DeltaGroup::touched).chain(
+            self.mining
+                .as_ref()
+                .filter(|mining| mining.legacy_request_id.is_some())
+                .map(|mining| Cell::Inventory(mining.slot)),
+        )
     }
 
     pub(super) fn touches(&self, cell: Cell) -> bool {
@@ -355,11 +316,6 @@ impl PlayerInventoryLedger {
         })
     }
 
-    pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
-        self.queue
-            .retain(|request| request.request_id != request_id || request.mining.is_none());
-    }
-
     /// Rolls back only backing owned by this request and rebases its later snapshots.
     pub(super) fn reject_request(&mut self, request: &PendingRequest) {
         for prediction in request
@@ -539,6 +495,7 @@ impl PlayerInventoryLedger {
                 let stale_mining = request
                     .mining
                     .as_ref()
+                    .filter(|mining| mining.legacy_request_id.is_none())
                     .is_some_and(|mining| mining.current_source(&self.confirmed).is_none());
                 if !stale_mining {
                     self.apply_correction(request, requested, cell, correction);
@@ -681,6 +638,22 @@ impl PlayerInventoryLedger {
             self.mark_cell_recovery(cell);
         }
         self.note_authoritative_write(cell);
+        // An accepted pickup or drop can remove the backing item before a later HUD break.
+        // Its empty result also supersedes a breaking tool's empty rollback history.
+        if count == 0
+            && cell == requested
+            && request.mining.is_none()
+            && prediction.is_some_and(|prediction| prediction.held.is_none())
+        {
+            self.discard_requests(|later| {
+                later.request_id < request.request_id
+                    && later.touches(cell)
+                    && later
+                        .mining
+                        .as_ref()
+                        .is_some_and(|mining| mining.legacy_request_id.is_some())
+            });
+        }
         self.publish_request_cell(request, cell, from.as_ref(), held, false);
     }
 
@@ -860,70 +833,10 @@ impl PlayerInventoryLedger {
             .iter()
             .any(|request| request.refresh_gates && request.awaiting_refresh.contains(&surface))
     }
-
-    /// Queues a mine-block prediction at its wire position: after every
-    /// admitted request, ahead of unsent ones. `None` when the queue is full,
-    /// so the break goes out without a request.
-    pub(super) fn enqueue_mining(&mut self, slot: u8, damage: i32) -> Option<i32> {
-        self.ensure_queue_capacity().ok()?;
-        let request_id = self.next_request_id;
-        self.next_request_id = request_id.checked_sub(2)?;
-        let mining: Vec<usize> = self
-            .queue
-            .iter()
-            .enumerate()
-            .filter(|(_, request)| request.mining.is_some())
-            .map(|(index, _)| index)
-            .collect();
-        if mining.len() >= MAX_OUTSTANDING_MINING_REQUESTS {
-            self.queue.remove(mining[0]);
-        }
-        let position = self
-            .queue
-            .iter()
-            .position(|request| request.state == InventoryPendingState::AwaitingTransport)
-            .unwrap_or(self.queue.len());
-        self.queue.insert(
-            position,
-            PendingRequest {
-                request_id,
-                actions: Vec::new(),
-                filter_strings: Vec::new(),
-                groups: Vec::new(),
-                state: InventoryPendingState::AwaitingResponse,
-                transport_deadline_millis: None,
-                deadline_millis: None,
-                timed_out: false,
-                awaiting_refresh: Vec::new(),
-                refresh_gates: false,
-                session_generation: self.session_generation,
-                storage_generation: None,
-                personal_generation: None,
-                storage_identity: None,
-                trade_purchase: None,
-                requires_distinct_stack_ids: false,
-                registry_bound_merge: false,
-                quick_move_route: None,
-                predicted: Vec::new(),
-                placements: Vec::new(),
-                mining: Some(MiningPrediction {
-                    slot,
-                    damage,
-                    source: self
-                        .confirmed
-                        .get(Cell::Inventory(slot))
-                        .and_then(MiningSource::new),
-                }),
-                world_drop: None,
-                consumed_after: Vec::new(),
-            },
-        );
-        Some(request_id)
-    }
 }
 
 /// Compares retained stack names, including empty results that still own a cell.
-fn same_name(left: Option<&Held>, right: Option<&Held>) -> bool {
+pub(super) fn same_name(left: Option<&Held>, right: Option<&Held>) -> bool {
     left.map(|held| held.stack.stack_network_id) == right.map(|held| held.stack.stack_network_id)
 }
 

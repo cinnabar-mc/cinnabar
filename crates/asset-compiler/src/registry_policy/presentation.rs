@@ -68,7 +68,7 @@ pub fn write(out: &Path) -> Result<()> {
     let mut seen = BTreeSet::new();
     for (kind, names) in &rules.ambient_blocks {
         check(
-            matches!(kind.as_str(), "Fire" | "Portal"),
+            matches!(kind.as_str(), "EnderChest" | "Fire" | "Portal"),
             "unknown ambient callback",
         )?;
         check(!names.is_empty(), "empty ambient selector")?;

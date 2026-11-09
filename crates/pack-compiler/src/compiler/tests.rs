@@ -68,6 +68,8 @@ mod hopper;
 mod isotropic;
 #[path = "tests/lantern.rs"]
 mod lantern;
+#[path = "tests/lectern.rs"]
+mod lectern;
 #[path = "tests/lever.rs"]
 mod lever;
 #[path = "tests/lightning_rod.rs"]

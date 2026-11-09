@@ -11,7 +11,16 @@ impl ActorStore {
         self.latest_sequence
     }
 
+    /// The vehicle `rider_unique_id` rides as the client shows it: its link, unless it is the
+    /// local player and got off on the client before the server's links for it changed.
+    /// Seats, views, animation, picking, collision and movement all read this.
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
+        self.linked_unique_id(rider_unique_id)
+            .filter(|_| self.local_vehicle.left_rider != Some(rider_unique_id))
+    }
+
+    /// The server's link for `rider_unique_id`, which mount changes are published from.
+    pub(crate) fn linked_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
         self.rider_to_ridden.get(&rider_unique_id).copied()
     }
 
@@ -288,12 +297,26 @@ impl ActorStore {
             partial_tick,
         )
     }
+    /// Borrows the live UI component for owner-dependent attachment evaluation.
+    pub(crate) fn actor_ui_rig(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRigSnapshot<'_>> {
+        self.animation.ui_rig(runtime_id)
+    }
+
     /// Full-body controller layers paired with the actor's UI pose.
     pub(crate) fn actor_ui_layers(
         &self,
         runtime_id: u64,
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.animation.ui_layers(runtime_id)
+    }
+    pub(crate) fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.animation.paper_doll_layers(runtime_id)
     }
     /// Full-body pose for the local HUD while first-person hands have a separate pose.
     pub(crate) fn actor_ui_pose(

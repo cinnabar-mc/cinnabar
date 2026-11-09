@@ -21,12 +21,13 @@ pub(super) fn badges(visible: bool) -> Fixture {
             skin: None,
         })
         .into(),
+        "",
     )
 }
 
 /// Distinct original head texels alongside missing and invalid skins that must show Steve.
 pub(super) fn heads() -> Fixture {
-    let Fixture::TabList(mut rows) = badges(true) else {
+    let Fixture::TabList(mut rows, _) = badges(true) else {
         unreachable!()
     };
     for (index, row) in rows
@@ -68,12 +69,12 @@ pub(super) fn heads() -> Fixture {
         cape: None,
         geometry: None,
     });
-    Fixture::TabList(rows)
+    Fixture::TabList(rows, "Example World")
 }
 
 /// Exercises every roster column at the maximum list size and a larger GUI scale.
 pub(super) fn head_columns() -> Fixture {
-    let Fixture::TabList(rows) = heads() else {
+    let Fixture::TabList(rows, _) = heads() else {
         unreachable!()
     };
     Fixture::TabList(
@@ -84,5 +85,6 @@ pub(super) fn head_columns() -> Fixture {
                 row
             })
             .collect(),
+        "A long example world name that must stay inside the roster panel",
     )
 }

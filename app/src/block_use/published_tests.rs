@@ -67,6 +67,8 @@ mod attack_progress_tests;
 
 #[path = "published_tests/entity_hover.rs"]
 mod entity_hover_tests;
+#[path = "published_tests/freeform_pick.rs"]
+mod freeform_pick_tests;
 
 #[path = "published_tests/held_equipment.rs"]
 mod held_equipment_tests;
@@ -76,6 +78,9 @@ mod ledge_tests;
 
 #[path = "published_tests/selection.rs"]
 mod selection_tests;
+
+#[path = "published_tests/block_pick_reach.rs"]
+mod block_pick_reach_tests;
 
 #[path = "published_tests/drop_inventory.rs"]
 mod drop_inventory_tests;
@@ -88,6 +93,12 @@ mod touch_tests;
 
 #[path = "published_tests/harvesting.rs"]
 mod harvesting_tests;
+
+#[path = "published_tests/held_book.rs"]
+mod held_book_tests;
+
+#[path = "published_tests/brush.rs"]
+mod brush_tests;
 
 /// Builds a fully known air column for interaction rays and their shape halo.
 fn empty_column(x: i32, z: i32) -> protocol::WorldEvent {
@@ -280,6 +291,7 @@ fn fixture_with_entity_assets(
     world.init_resource::<SwingTracker>();
     world.init_resource::<client_interaction::item_use::ItemUseRuntime>();
     world.insert_resource(movement);
+    world.init_resource::<client_interaction::movement::LocomotionState>();
     world.spawn((
         Window {
             focused: true,
@@ -638,7 +650,6 @@ fn floor_fixture(start: [f32; 3], pick: Quat) -> (World, client_session::Capture
     #[cfg(not(feature = "acceptance"))]
     world.init_resource::<AcceptanceRun>();
     world.init_resource::<client_interaction::movement::LocalMovementSpeedAuthority>();
-    world.init_resource::<client_interaction::movement::LocomotionState>();
     (world, captured)
 }
 
@@ -924,6 +935,7 @@ fn hotbar_changes_preserve_the_held_line_intercept_and_repeat_deadline() {
             Duration::from_millis(950),
             100,
             LocalUse::Place,
+            false,
             RepeatClock {
                 now: Duration::from_millis(950),
                 sneaking: false,
@@ -1025,6 +1037,7 @@ fn a_held_nonblock_item_repeats_the_chest_use() {
         Duration::from_millis(500),
         100,
         LocalUse::Place,
+        false,
         RepeatClock {
             now: Duration::from_millis(500),
             sneaking: false,

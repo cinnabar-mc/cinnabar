@@ -6,9 +6,9 @@ use {
         MATERIAL_FLAG_EVERGREEN_FOLIAGE, MATERIAL_FLAG_FOLIAGE_CLASS_MASK,
         MATERIAL_FLAG_FOLIAGE_TINT, MATERIAL_FLAG_GRASS_TINT, MATERIAL_FLAG_LIQUID_DEPTH_WRITE,
         MATERIAL_FLAG_OVERLAY_MASK, MATERIAL_FLAG_ROTATE_UV, MATERIAL_FLAG_TINT_MASK,
-        MATERIAL_FLAG_UV_MASK, MATERIAL_FLAGS_MASK, MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material,
-        ModelFamily, NetworkIdMode, RuntimeAssets, VisualKind, canonical_source_manifest_sha256,
-        encode_blob, read_registry,
+        MATERIAL_FLAG_UV_MASK, MATERIAL_FLAG_UV_ROTATE_270, MATERIAL_FLAGS_MASK,
+        MODEL_TEMPLATE_FLAG_TRANSPARENT_CUBE, Material, ModelFamily, NetworkIdMode, RuntimeAssets,
+        VisualKind, canonical_source_manifest_sha256, encode_blob, read_registry,
     },
     sha2::{Digest, Sha256},
     std::{fs, path::Path, process::Command},
@@ -409,8 +409,8 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
     );
     assert_eq!(
         compiled.materials.len(),
-        5,
-        "diagnostic + four material destinations and flag combinations"
+        6,
+        "diagnostic + five material destinations and flag combinations"
     );
     for face in BlockFace::ALL {
         assert_ne!(
@@ -431,6 +431,10 @@ fn compiler_deduplicates_pixels_without_conflating_uv_flags() {
     assert_eq!(red_plain.flags, 0);
     assert_eq!(red_rotated.flags, MATERIAL_FLAG_ROTATE_UV);
     assert_ne!(red_plain, red_rotated);
+    // An x-axis bottom turns the opposite quarter turn, a separate material.
+    let red_bottom = material_for_face(&compiled, 2, BlockFace::Down);
+    assert_eq!(red_bottom.texture.layer(), red_plain.texture.layer());
+    assert_eq!(red_bottom.flags, MATERIAL_FLAG_UV_ROTATE_270);
     assert_ne!(red_plain.texture.layer(), blue.texture.layer());
 }
 

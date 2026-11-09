@@ -166,7 +166,7 @@ impl Instance {
             };
             let store = invocation.store.as_mut().expect("invocation store");
             store.data_mut().begin_callback();
-            crate::execution::arm_resumable(store, allowance)?;
+            crate::execution::arm_resumable(store, allowance, budget.time.epoch_yields())?;
             let exports = self.exports.clone();
             let state = store.data();
             let refused_before = state.exclusive.refused;

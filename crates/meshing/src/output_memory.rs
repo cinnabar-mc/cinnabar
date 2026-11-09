@@ -16,6 +16,8 @@ use crate::{
 pub struct MeshOutputBounds {
     model_templates: Box<[u64]>,
     fallback_model: u64,
+    surface_extra: Box<[u64]>,
+    fallback_surface_extra: u64,
 }
 
 impl MeshOutputBounds {
@@ -46,6 +48,8 @@ impl MeshOutputBounds {
         let fallback_model = max_parts * part;
         let mut model_templates = vec![0; assets.model_templates().len()];
         let mut chain_bytes = 0;
+        let mut surface_extra = vec![0; model_templates.len()];
+        let mut chain_extra = 0;
         for (index, template) in assets.model_templates().iter().enumerate().rev() {
             let continuation = if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
                 chain_bytes
@@ -55,8 +59,29 @@ impl MeshOutputBounds {
             chain_bytes =
                 model_part_bound(u64::from(template.quad_count), offset_prefix) + continuation;
             model_templates[index] = chain_bytes;
+            let continuation = if template.flags & assets::MODEL_TEMPLATE_FLAG_COMPOUND_NEXT != 0 {
+                chain_extra
+            } else {
+                0
+            };
+            let faces = assets.model_quads()[template.quad_start as usize..]
+                [..template.quad_count as usize]
+                .iter()
+                .filter(|quad| {
+                    crate::surface::full_face(quad).is_some()
+                        && quad.material != assets::DIAGNOSTIC_MATERIAL
+                        && assets.material(quad.material).flags
+                            & (assets::MATERIAL_FLAG_ALPHA_BLEND
+                                | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+                            != 0
+                })
+                .count() as u64;
+            chain_extra = continuation + faces * 7 * bytes::<PackedModelDrawRef>(1);
+            surface_extra[index] = chain_extra;
         }
         Self {
+            fallback_surface_extra: surface_extra.iter().copied().max().unwrap_or(0),
+            surface_extra: surface_extra.into_boxed_slice(),
             model_templates: model_templates.into_boxed_slice(),
             fallback_model,
         }
@@ -70,6 +95,18 @@ impl MeshOutputBounds {
         assets: &RuntimeAssets,
         mode: NetworkIdMode,
     ) -> u64 {
+        self.for_sub_chunk_with_surface_patches(source, assets, mode, &[])
+    }
+
+    /// Includes at most eight retained patches per model face without inflating cube or liquid storage.
+    #[must_use]
+    pub fn for_sub_chunk_with_surface_patches(
+        &self,
+        source: &SubChunk,
+        assets: &RuntimeAssets,
+        mode: NetworkIdMode,
+        rules: &[crate::surface::SurfaceRule],
+    ) -> u64 {
         let model_bytes = source
             .storages()
             .iter()
@@ -81,10 +118,29 @@ impl MeshOutputBounds {
                     .model_templates()
                     .get(index)
                     .map(|template| model_template_selection(visual.kind(), template.flags));
-                Some(match (self.model_templates.get(index), selection) {
+                let bound = match (self.model_templates.get(index), selection) {
                     (Some(&bound), Some(ModelTemplateSelection::Fixed)) => bound,
                     _ => self.fallback_model,
-                })
+                };
+                let extra = if !visual
+                    .flags()
+                    .contains(assets::BlockFlags::OCCLUDES_FULL_FACE)
+                    && rules
+                        .iter()
+                        .any(|rule| rule.states.binary_search(&id).is_ok())
+                {
+                    match selection {
+                        Some(ModelTemplateSelection::Fixed) => self
+                            .surface_extra
+                            .get(index)
+                            .copied()
+                            .unwrap_or(self.fallback_surface_extra),
+                        _ => self.fallback_surface_extra,
+                    }
+                } else {
+                    0
+                };
+                Some(bound + extra)
             })
             .max()
             .unwrap_or(0);

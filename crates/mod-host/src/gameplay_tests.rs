@@ -773,3 +773,87 @@ fn explicit_block_breaks_are_bounded_granted_and_transactional() {
     state.controls.frame.panel_open = true;
     assert!(state.break_blocks(vec![point]).unwrap().is_err());
 }
+
+/// Movement output stays committed across frames until a callback completing in its frame
+/// replaces it; a late callback cannot renew or release it, and ineligible controls release it.
+#[test]
+fn retained_movement_output_follows_completed_callbacks_and_eligibility() {
+    let modes = crate::GameplayControlModes {
+        toggle_sprint: true,
+        toggle_sneak: false,
+        always_sprint: false,
+    };
+    let intents = GameplayMovementIntents {
+        sprint: true,
+        sneak: false,
+    };
+    let input = crate::GameplayMovementInput {
+        right: 1.0,
+        forward: 1.0,
+        jump: false,
+        sneak: false,
+        sprint: false,
+    };
+    let committed = |state: &State| {
+        (
+            state.world.control_modes,
+            state.world.movement_intents,
+            state.world.movement_input,
+        )
+    };
+    let mut state = state(ModGrants {
+        movement: true,
+        ..Default::default()
+    });
+    state.controls.frame.focused = true;
+    state.controls.frame.gameplay = true;
+    let renew = |state: &mut State| {
+        state.set_control_modes(Some(modes)).unwrap().unwrap();
+        state.set_movement_intents(Some(intents)).unwrap().unwrap();
+        state.set_movement_input(Some(input)).unwrap().unwrap();
+    };
+    renew(&mut state);
+    state.world.commit();
+    let all = (Some(modes), Some(intents), Some(input));
+    assert_eq!(committed(&state), all);
+
+    state.world.begin_frame();
+    assert_eq!(
+        committed(&state),
+        all,
+        "a frame without a callback keeps them"
+    );
+
+    let mut late = state.world.transaction();
+    late.pending_control_modes = None;
+    state.world.begin_frame();
+    state.world.accept(late, false, false);
+    state.world.commit();
+    assert_eq!(
+        committed(&state),
+        all,
+        "a late callback cannot release them"
+    );
+    state.world.begin_frame();
+    state.world.commit();
+    assert_eq!(
+        committed(&state),
+        (None, None, None),
+        "a callback completing in its frame without renewal releases them"
+    );
+
+    renew(&mut state);
+    state.world.commit();
+    let mut panel = state.controls.frame.clone();
+    panel.panel_open = true;
+    state.world.release_unrenewable(&panel);
+    assert_eq!(
+        committed(&state),
+        (Some(modes), Some(intents), None),
+        "an open panel releases only the vector"
+    );
+    let mut unfocused = state.controls.frame.clone();
+    unfocused.focused = false;
+    state.world.release_unrenewable(&unfocused);
+    assert_eq!(committed(&state), (None, None, None));
+}

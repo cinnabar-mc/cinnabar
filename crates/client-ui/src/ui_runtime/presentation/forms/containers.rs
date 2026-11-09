@@ -39,6 +39,7 @@ impl<'a> ContainerAuthority<'a> {
         let screen = ScreenView {
             mount_equipment: state.mount_equipment,
             anvil_name: &state.anvil_name,
+            anvil_caret: None,
             anvil_cost: if runtime
                 .inventory_ledger(player)
                 .created_output_stack()
@@ -73,6 +74,7 @@ impl<'a> ContainerAuthority<'a> {
             }),
             creative_expanded: &state.creative_expanded,
             search: &state.search,
+            search_caret: None,
             container_scroll: &state.container_scroll,
             storage_radios: &state.storage_radios,
             text_focused: state.text_focused(),
@@ -91,6 +93,27 @@ impl<'a> ContainerAuthority<'a> {
             player,
             runtime,
             screen,
+        }
+    }
+}
+
+impl ContainerAuthority<'_> {
+    /// Shows the focused search or anvil name box's caret, `shown` by its blink.
+    fn show_caret(&mut self, shown: impl FnOnce(u64) -> bool) {
+        let state = self.runtime.screen_state();
+        let Some(caret) = state.field_caret() else {
+            return;
+        };
+        let caret = launcher::menu::MenuCaret {
+            byte: caret.byte,
+            selection: caret.selection,
+            revision: caret.revision,
+            shown: shown(caret.revision),
+        };
+        if state.anvil_focused {
+            self.screen.anvil_caret = Some(caret);
+        } else {
+            self.screen.search_caret = Some(caret);
         }
     }
 }
@@ -450,7 +473,12 @@ impl UiPresentationRuntime {
                 .translation(title_key)
                 .map_or_else(|| title_key.to_owned(), |title| title.to_string())
         });
-        let source = ContainerAuthority::new(player_runtime, runtime);
+        let mut source = ContainerAuthority::new(player_runtime, runtime);
+        if !prepare {
+            let now = self.menu_seconds;
+            let blink = &mut self.screens.container_caret;
+            source.show_caret(|revision| blink.shown(revision, now));
+        }
         let items = container_frame(&self.hud_frame);
         let id_aux = id_aux_icons(&source, &items, |id| self.item_icon(id, 0));
         // The hovered item's full tooltip (name, enchantments, lore) replaces its

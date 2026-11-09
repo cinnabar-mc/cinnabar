@@ -1,6 +1,10 @@
 use assets::facts::entity::NativeEntityClass;
-use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
-use protocol_ids::{ActorDataKey, Attribute};
+use std::sync::Arc;
+
+use protocol::{
+    ActorKind, ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent,
+};
+use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
 
@@ -23,7 +27,7 @@ const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
 pub const MAX_STATUS_NOTICES: usize = 256;
 
 /// A decoded actor status event with the actor's pose at the time, for particle and sound consumers.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActorStatusNotice {
     pub runtime_id: u64,
     pub kind: ActorStatusKind,
@@ -34,6 +38,8 @@ pub struct ActorStatusNotice {
     pub height: Option<f32>,
     /// Eating attachment for Feed; actor feet for other kinds.
     pub eating_position: [f32; 3],
+    /// The hook's state for fishing events on a fishing hook; `None` otherwise.
+    pub fishing: Option<FishingHookPose>,
 }
 
 /// A dropped item flying to the actor that collected it.
@@ -287,6 +293,7 @@ impl ActorStore {
                 } else {
                     actor.position
                 },
+                fishing: FishingHookPose::for_event(actor, event.kind),
             });
         }
         match event.kind {
@@ -356,6 +363,67 @@ impl ActorStore {
             .then(|| [-x / length, -z / length])
     }
 }
+
+/// A fishing hook's state at the moment one of its fishing events was applied, kept with the
+/// event so its effects still play when the hook is removed in the same packet batch.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FishingHookPose {
+    /// The hook's entity identifier, which selects its sounds.
+    pub identifier: Arc<str>,
+    /// Bottom of the hook's collision box.
+    pub bottom: f32,
+    /// Width of the hook's collision box.
+    pub width: f32,
+    /// Synced offset of the approaching fish from the hook, on x and z.
+    pub fish_offset: [f32; 2],
+    /// Synced approach angle of the fish, in radians.
+    pub fish_angle: f32,
+    /// The hook's silent flag, which mutes its sounds.
+    pub silent: bool,
+}
+
+impl FishingHookPose {
+    /// Captures a hook's state for a fishing event; `None` for other kinds and actors, which
+    /// ignore these event ids.
+    pub(super) fn for_event(actor: &ActorSnapshot, kind: ActorStatusKind) -> Option<Self> {
+        if !matches!(
+            kind,
+            ActorStatusKind::FishHookPosition
+                | ActorStatusKind::FishHookBite
+                | ActorStatusKind::FishHookTease
+        ) || actor.entity_fact.native_class != NativeEntityClass::FishingHook
+        {
+            return None;
+        }
+        let ActorKind::Entity { identifier } = &actor.kind else {
+            return None;
+        };
+        let (min, max) = actor.bounding_box()?;
+        Some(Self {
+            identifier: identifier.clone(),
+            bottom: min[1],
+            width: max[0] - min[0],
+            fish_offset: [
+                synced_float(actor, ActorDataKey::FishX),
+                synced_float(actor, ActorDataKey::FishZ),
+            ],
+            fish_angle: synced_float(actor, ActorDataKey::FishAngle),
+            silent: actor.flag(ActorFlag::Silent.wire_value()),
+        })
+    }
+}
+
+/// A synced float, reading 0 when the server has not sent it as a float.
+fn synced_float(actor: &ActorSnapshot, key: ActorDataKey) -> f32 {
+    match actor.metadata.get(&key.wire_value()) {
+        Some(ActorMetadataValue::Float(value)) => *value,
+        _ => 0.0,
+    }
+}
+
+#[cfg(test)]
+#[path = "fishing_tests.rs"]
+mod fishing_tests;
 
 #[cfg(test)]
 mod tests {
