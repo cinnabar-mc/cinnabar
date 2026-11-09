@@ -13,8 +13,7 @@ fn chest_return_names_the_remainder_after_each_partial_merge() {
         .unwrap();
     let actions = &ledger.newest_request().unwrap().actions;
     let mut source_count = 10;
-    let mut source_id = 100;
-    for (index, action) in actions.iter().enumerate() {
+    for (source_id, (index, action)) in (100..).zip(actions.iter().enumerate()) {
         let StackRequestAction::Place { amount, source, .. } = action else {
             panic!("expected a transfer");
         };
@@ -27,7 +26,6 @@ fn chest_return_names_the_remainder_after_each_partial_merge() {
         assert_eq!(resolved, source_id, "transfer {index} names a stale source");
         assert!(u16::from(*amount) <= source_count);
         source_count -= u16::from(*amount);
-        source_id += 1;
     }
     assert_eq!(source_count, 0);
     let (_, requests) = ledger.pending_batch().unwrap().unwrap();
