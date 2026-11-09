@@ -2,6 +2,7 @@
 
 use super::{CarriedBlockId, HashMap, OnceLock};
 use assets::facts::entity::{EntityFacts, NativeEntityClass};
+use assets::facts::{BlockRenderKind, block_render_fact};
 use client_world::ActorSnapshot;
 use protocol::ActorMetadataValue;
 use protocol_ids::ActorDataKey;
@@ -45,12 +46,9 @@ fn default_displays() -> &'static HashMap<u16, (u32, i32)> {
             .records
             .iter()
             .filter_map(|record| {
-                if record.fact.native_class != NativeEntityClass::Minecart {
-                    return None;
-                }
-                let name = record.identifier.strip_suffix("_minecart")?;
+                let name = record.minecart_display_block()?;
                 let block = assets::pinned_block_state_by_name(name)?;
-                let offset = if name == assets::facts::pack::PackBlock::Hopper.identifier() {
+                let offset = if block_render_fact(name).kind == BlockRenderKind::Hopper {
                     HOPPER_DISPLAY_OFFSET
                 } else {
                     render_model::dropped_item::MINECART_DEFAULT_DISPLAY_OFFSET
