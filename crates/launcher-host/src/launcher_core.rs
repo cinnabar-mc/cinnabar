@@ -366,12 +366,12 @@ mod tests {
     #[test]
     fn raw_nethernet_targets_reach_the_core_without_a_port() {
         use bridge::contract::{
-            NETHERNET_SIGNALING_JSONRPC, NETHERNET_SIGNALING_WEBSOCKET, NETHERNET_TARGET_PREFIX,
+            NETHERNET_SIGNALING_HTTP, NETHERNET_SIGNALING_JSONRPC, NETHERNET_TARGET_PREFIX,
         };
         for target in [
             format!("{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_JSONRPC}/1234567890"),
             format!(
-                "{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_WEBSOCKET}/5b0f2bd4-8a8e-4a6e-9d3c-0a1b2c3d4e5f"
+                "{NETHERNET_TARGET_PREFIX}{NETHERNET_SIGNALING_HTTP}/play.example.net:{DEFAULT_PORT}"
             ),
             format!(
                 "{}{NETHERNET_SIGNALING_JSONRPC}/1234567890",
