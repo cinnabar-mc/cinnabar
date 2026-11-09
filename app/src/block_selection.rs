@@ -33,6 +33,7 @@ pub(crate) struct SelectionContext<'w> {
     input: Res<'w, SemanticInputSnapshot>,
     settings: Res<'w, RuntimeSettings>,
     controls: Res<'w, client_state::GameplayScreenControls>,
+    physics: Option<Res<'w, client_interaction::movement::LocalPhysicsController>>,
 }
 
 impl SelectionContext<'_> {
@@ -122,7 +123,7 @@ fn target(
         .ok()?;
     let actor = pick_actor(
         stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
+        stream.authority().local_mount_unique_id(),
         ray.origin().to_array(),
         ray.direction().to_array(),
         reach,
@@ -138,6 +139,14 @@ fn target(
             .block_use_miss_support_current(vector(ray.origin()), vector(ray.direction()))
             .ok()??,
     };
+    let position = context
+        .physics
+        .as_deref()
+        .and_then(|physics| physics.network_position())
+        .unwrap_or(ray.origin().to_array());
+    if !gameplay::interaction_authority::block_pick_in_range(hit.block_pos, position, reach) {
+        return None;
+    }
     if !context.collisions.selection_overlay_visible(
         stream.network_id_mode(),
         hit.runtime_id,

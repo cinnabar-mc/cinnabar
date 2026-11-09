@@ -79,6 +79,13 @@ pub(crate) fn press(
     };
     let mut press = PressContext {
         refused_destroy: None,
+        actor_life: match picked.crosshair {
+            Crosshair::Actor(hit) => stream
+                .authority()
+                .actor(hit.runtime_id)
+                .map(|actor| actor.life().life),
+            _ => None,
+        },
         tick: sample.tick,
         player_position: sample.position,
         input_mode: protocol_input_mode(input.context.mode),
@@ -113,7 +120,14 @@ pub(crate) fn press(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                {
+                    let (origin, ticked) = input.context.attack.block_pick();
+                    crate::survival_mining::DestroyPick {
+                        origin,
+                        ticked,
+                        held: None,
+                    }
+                },
                 caps,
                 input.context.mode,
                 input.context.identity,
@@ -155,7 +169,9 @@ pub(crate) fn press(
             local_runtime_id: press.local_runtime_id,
         },
         gameplay::melee::AttackEffects {
-            send: |packets| network.send_inventory_packets(packets),
+            send: |packets| {
+                network.send_inventory_packets(crosshair::capture_packets(packets, picked.capture))
+            },
             swing_duration: |tick| swing_duration(effects.mining_tick(tick, completed).0),
             request_id: |slot, damage| {
                 player

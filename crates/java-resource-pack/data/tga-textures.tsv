@@ -1,0 +1,69 @@
+# Textures vanilla Bedrock ships as TGA, relative to textures/ without extension, for the folders
+# translation writes. The client tries `.tga` before `.png` across every pack layer, so translated
+# art for these paths must be written as TGA. Kinds, read from each sample-pack texture's alpha:
+# cutout     alpha is 0/255 transparency; the Java art is written as is.
+# tint-mask  alpha 255 marks biome-tinted pixels and 0 untinted ones; composed from a Java base and
+#            optional overlay, given as legacy base, legacy overlay, flattened base and flattened
+#            overlay ("-" for none).
+# dye-mask   alpha carries a dye encoding Java art has no equivalent for; not translated.
+# Checked against the pinned sample pack by a fixture-gated test.
+blocks/azalea_leaves	cutout
+blocks/azalea_leaves_flowers	cutout
+blocks/cactus_bottom	cutout
+blocks/cactus_side	cutout
+blocks/cactus_top	cutout
+blocks/cherry_leaves	cutout
+blocks/double_plant_fern_bottom	cutout
+blocks/double_plant_fern_top	cutout
+blocks/double_plant_grass_bottom	cutout
+blocks/double_plant_grass_top	cutout
+blocks/double_plant_syringa_bottom	cutout
+blocks/double_plant_syringa_top	cutout
+blocks/fern	cutout
+blocks/fern_carried	cutout
+blocks/grass_side	tint-mask	blocks/grass_side	blocks/grass_side_overlay	block/grass_block_side	block/grass_block_side_overlay
+blocks/grass_side_snowed	tint-mask	blocks/grass_side_snowed	-	block/grass_block_snow	-
+blocks/grindstone_pivot	cutout
+blocks/grindstone_round	cutout
+blocks/grindstone_side	cutout
+blocks/kelp_a	cutout
+blocks/kelp_b	cutout
+blocks/kelp_c	cutout
+blocks/kelp_d	cutout
+blocks/kelp_top	cutout
+blocks/kelp_top_bulb	cutout
+blocks/leaves_acacia	cutout
+blocks/leaves_acacia_carried	cutout
+blocks/leaves_big_oak	cutout
+blocks/leaves_big_oak_carried	cutout
+blocks/leaves_birch	cutout
+blocks/leaves_birch_carried	cutout
+blocks/leaves_jungle	cutout
+blocks/leaves_jungle_carried	cutout
+blocks/leaves_oak	cutout
+blocks/leaves_oak_carried	cutout
+blocks/leaves_spruce	cutout
+blocks/leaves_spruce_carried	cutout
+blocks/mangrove_leaves	cutout
+blocks/mangrove_leaves_carried	cutout
+blocks/pale_oak_leaves	cutout
+blocks/reeds	cutout
+blocks/scaffolding_bottom	cutout
+blocks/scaffolding_side	cutout
+blocks/scaffolding_top	cutout
+blocks/seagrass_doubletall_bottom_a	cutout
+blocks/seagrass_doubletall_bottom_b	cutout
+blocks/seagrass_doubletall_top_a	cutout
+blocks/seagrass_doubletall_top_b	cutout
+blocks/stonecutter2_saw	cutout
+blocks/tallgrass	cutout
+blocks/tallgrass_carried	cutout
+items/fireworks_charge	dye-mask
+items/leather_boots	dye-mask
+items/leather_helmet	dye-mask
+items/leather_horse_armor	dye-mask
+items/leather_leggings	dye-mask
+items/wolf_armor_dyed	dye-mask
+models/armor/leather_1	dye-mask
+models/armor/leather_2	dye-mask
+models/armor/leather_baby	dye-mask

@@ -183,14 +183,15 @@ function New-VisualFixturePlan {
         [ValidateSet('Front', 'Back', 'LeafGalleryFront', 'LeafGalleryBack', 'CrossCropGalleryFront', 'CrossCropGalleryBack', 'AquaticGalleryFront', 'AquaticGalleryBack', 'WaterGalleryFront', 'WaterGalleryBack', 'FlowerBedGalleryTop', 'FlowerBedGalleryNorth', 'FlowerBedGalleryEast', 'FlowerBedGalleryOblique', 'FlowerBedGalleryObliqueOpposite', 'SlabStairGalleryTop', 'SlabStairGalleryNorth', 'SlabStairGalleryEast', 'SlabStairGalleryOblique', 'SlabStairGalleryObliqueOpposite', 'VineGalleryTop', 'VineGalleryNorth', 'VineGalleryEast', 'VineGalleryOblique', 'VineGalleryObliqueOpposite')]
         [string]$Pose,
         [string]$RegistryPath,
-        [string]$AssetsPath
+        [string]$AssetsPath,
+        [ValidateRange(0, [int]::MaxValue)][int]$GalleryPage = 0
     )
 
     if ($Pose.StartsWith('LeafGallery', [StringComparison]::Ordinal)) {
         return New-LeafGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose
     }
     if ($Pose.StartsWith('CrossCropGallery', [StringComparison]::Ordinal)) {
-        return New-CrossCropGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath
+        return New-CrossCropGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath -Page $GalleryPage
     }
     if ($Pose.StartsWith('AquaticGallery', [StringComparison]::Ordinal)) {
         return New-AquaticGalleryPlan -MutationCoordinate $MutationCoordinate -Pose $Pose -RegistryPath $RegistryPath -AssetsPath $AssetsPath

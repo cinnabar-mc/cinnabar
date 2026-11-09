@@ -50,8 +50,37 @@ impl ColumnScan {
 
     /// Whether `chunk` still holds the maps this scan was built from.
     pub(super) fn is_current(&self, chunk: &Chunk) -> bool {
-        same(&self.sub_chunks, &chunk.shared_sub_chunks())
-            && same(&self.block_entities, &chunk.shared_block_entities())
+        chunk.holds_sub_chunks(&self.sub_chunks) && chunk.holds_block_entities(&self.block_entities)
+    }
+}
+
+/// The terrain and column window one pass scanned: while they are unchanged after a pass
+/// that left every column current, no column needs a rescan.
+#[derive(Clone, PartialEq, Eq)]
+pub(in crate::block_entities) struct ColumnWindow {
+    pub(in crate::block_entities) terrain: u64,
+    pub(in crate::block_entities) columns: [std::ops::RangeInclusive<i32>; 2],
+    pub(in crate::block_entities) eye_column: [i32; 2],
+}
+
+impl ColumnWindow {
+    /// Loaded columns of the window outside the eye's near reach whose scans `is_stale`
+    /// reports out of date, in scan order.
+    pub(in crate::block_entities) fn stale_distant<'a>(
+        &'a self,
+        dimension: i32,
+        store: &'a world::ChunkStore,
+        is_stale: impl Fn(world::ChunkKey, &Chunk) -> bool + 'a,
+    ) -> impl Iterator<Item = world::ChunkKey> + 'a {
+        let [xs, zs] = self.columns.clone();
+        xs.flat_map(move |x| {
+            zs.clone()
+                .map(move |z| world::ChunkKey::new(dimension, x, z))
+        })
+        .filter(move |key| {
+            !is_near_column(self.eye_column, key.x, key.z)
+                && store.chunk(*key).is_some_and(|chunk| is_stale(*key, chunk))
+        })
     }
 }
 
@@ -129,12 +158,6 @@ pub(in crate::block_entities) fn frame_scan<S>(
         }
         stale => stale,
     }
-}
-
-/// An edit replaces the map or detaches its weak references, so either check sees it.
-fn same<T>(weak: &Weak<T>, current: &Arc<T>) -> bool {
-    weak.upgrade()
-        .is_some_and(|previous| Arc::ptr_eq(&previous, current))
 }
 
 /// `chunk`'s block entities that route to a model or text overlay, or are an overlay host's

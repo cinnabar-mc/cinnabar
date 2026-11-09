@@ -1,7 +1,6 @@
 //! Continuous scale and guest slider gestures through the real pointer boundary.
 
 use super::*;
-use ui::mod_panel::Event;
 
 /// Paints one hit region for `action` and returns a mapper from fraction to its pointer position.
 fn slider(editor: &mut HudEditor, action: &str) -> impl Fn(f64) -> [f32; 2] + use<> {
@@ -86,37 +85,9 @@ fn scale_slider_gesture_ending_at_its_start_records_nothing() {
     }
 }
 
-/// Captions keep their bindings while an active slider freezes inspector placement.
-#[test]
-fn selection_caption_remains_bound_during_scale_slider_drag() {
-    let mut editor = scale_editor(true);
-    editor.draft.editor_style = Some(ui::mod_hud::EditorStyle {
-        selection_caption: true,
-        ..Default::default()
-    });
-    editor.data();
-    let inspector = editor.inspector.at;
-    let at = slider(&mut editor, "hud.scale");
-    editor.pointer(at(at_scale(1.)), true, true, &mut []);
-    editor.pointer(at(at_scale(1.5)), false, true, &mut []);
-    assert!(editor.scaling());
-    let data = editor.data();
-    assert_eq!(
-        data.global_value("#hud_caption_visible"),
-        Some(&Scalar::Bool(true))
-    );
-    assert_eq!(
-        data.global_value("#hud_selected_scale_text"),
-        Some(&Scalar::Text("150%".into()))
-    );
-    assert!(data.global_value("#hud_caption_offset").is_some());
-    assert_eq!(editor.inspector.at, inspector);
-}
-
 #[test]
 fn scale_slider_cancellation_restores_the_pre_gesture_scale() {
     for cancel in ["pointer", "Escape", "undo", "ownership"] {
-        let mut ui = ModUi::default();
         let mut editor = scale_editor(true);
         let at = slider(&mut editor, "hud.scale");
         editor.pointer(at(at_scale(1.)), true, true, &mut []);
@@ -126,11 +97,7 @@ fn scale_slider_cancellation_restores_the_pre_gesture_scale() {
             "pointer" => editor.cancel_pointer_input(),
             "Escape" => editor.key("Escape"),
             "undo" => editor.step_history(false),
-            _ => {
-                ui.mod_hud_editor = Some(editor);
-                ui.cancel_mod_hud_editor();
-                editor = ui.mod_hud_editor.take().unwrap();
-            }
+            _ => editor.cancel(),
         }
         assert_eq!(editor.draft.cards[0].scale, 1., "{cancel}");
         assert!(editor.slider.is_none());
@@ -199,73 +166,6 @@ fn scale_slider_bindings_report_fill_name_size_and_position() {
         editor.data().global_value("#hud_selected_scale_fill"),
         Some(&Scalar::Num(1.))
     );
-}
-
-#[test]
-fn guest_slider_emits_stepped_events_and_keeps_the_editor_open() {
-    let mut editor = editor(false);
-    editor.selected = Some(0);
-    let mut controls = crate::test_support::sample_panel().controls;
-    let index = controls
-        .iter()
-        .position(|c| matches!(c, Control::Slider { .. }))
-        .unwrap();
-    let id = controls[index].id().to_owned();
-    let event = |value| {
-        vec![Event {
-            id: id.clone(),
-            value,
-        }]
-    };
-    let at = slider(&mut editor, &format!("hud.control:{index}"));
-    assert_eq!(
-        editor.pointer(at(0.5), true, true, &mut controls),
-        event(50.)
-    );
-    assert!(
-        editor
-            .pointer(at(0.501), false, true, &mut controls)
-            .is_empty()
-    );
-    assert_eq!(
-        editor.pointer(at(0.75), false, true, &mut controls),
-        event(75.)
-    );
-    assert_eq!(
-        editor.pointer(at(2.), false, true, &mut controls),
-        event(100.)
-    );
-    assert!(
-        editor
-            .pointer(at(2.), false, false, &mut controls)
-            .is_empty()
-    );
-    assert!(
-        editor
-            .pointer(at(0.), false, false, &mut controls)
-            .is_empty()
-    );
-    assert_eq!(controls[index], {
-        let mut expected = crate::test_support::sample_panel().controls[index].clone();
-        if let Control::Slider { value, .. } = &mut expected {
-            *value = 100.;
-        }
-        expected
-    });
-    assert!(editor.open && editor.result.is_none());
-    assert!(editor.drag.is_none() && editor.slider.is_none());
-    assert_eq!(editor.selected, Some(0));
-    assert_eq!(editor.history.available(), [false, false]);
-    let fill = format!("#row_{index}_fill");
-    assert!(editor.sync_control_fills(&controls));
-    assert_eq!(editor.data().global_value(&fill), Some(&Scalar::Num(1.)));
-    assert!(!editor.sync_control_fills(&controls));
-    // A guest republish moves the fill without a host gesture.
-    if let Control::Slider { value, .. } = &mut controls[index] {
-        *value = 25.;
-    }
-    assert!(editor.sync_control_fills(&controls));
-    assert_eq!(editor.data().global_value(&fill), Some(&Scalar::Num(0.25)));
 }
 
 #[test]

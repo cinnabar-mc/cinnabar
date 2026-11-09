@@ -10,6 +10,26 @@ use ui_engine::text_metrics::TextMetrics;
 use ui_screens::mob_effect_screen::effect_rows;
 
 impl UiPresentationRuntime {
+    /// Whether effect artwork is under this logical window point without a foreground touch
+    /// control owning it. The otherwise unclaimed look surface may open effects.
+    pub fn mob_effect_hud_hit(&self, point: UiPoint, window: [f32; 2]) -> bool {
+        if window.iter().any(|side| !side.is_finite() || *side <= 0.0) {
+            return false;
+        }
+        self.screens.touch.hud.as_ref().is_some_and(|frame| {
+            let x = point.x() - frame.origin[0];
+            let y = point.y() - frame.origin[1];
+            self.screens
+                .hud
+                .effect_bounds()
+                .is_some_and(|[left, top, right, bottom]| {
+                    x >= left && x < right && y >= top && y < bottom
+                })
+        }) && self
+            .gameplay_touch_region([point.x() / window[0], point.y() / window[1]], window)
+            .is_none_or(|region| region.hit_id == semantic_input::touch::LOOK_SURFACE)
+    }
+
     pub(in super::super) fn append_mob_effect_screen(
         &mut self,
         runtime: &UiRuntime,

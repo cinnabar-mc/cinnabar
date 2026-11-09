@@ -92,6 +92,37 @@ impl PaletteWorld<'_> {
         }
     }
 
+    /// Identifies the piston whose actor versions a piston arm's collision.
+    pub(in crate::world) fn collision_actor_owner(
+        &self,
+        position: [i32; 3],
+        physics: &BlockPhysics,
+    ) -> Result<Option<[i32; 3]>, WorldQueryError> {
+        if physics.selection_context != SelectionContext::PistonArm {
+            return Ok(None);
+        }
+        self.actor_selection_owner(position, physics)
+    }
+
+    /// Resolves a piston arm's collision. Native arm collision places the same three
+    /// per-facing pieces as the arm's selection at the owning piston's progress and adds
+    /// nothing while that actor is absent. An actor in an unloaded column counts as absent,
+    /// because only loaded columns version actor changes.
+    pub(in crate::world) fn piston_arm_collision<'a>(
+        &self,
+        position: [i32; 3],
+        physics: &'a BlockPhysics,
+    ) -> Result<Cow<'a, [Aabb]>, WorldQueryError> {
+        let Some(owner) = self.collision_actor_owner(position, physics)? else {
+            return Ok(Cow::Borrowed(&[]));
+        };
+        let column = world::ChunkKey::new(self.dimension, owner[0] >> 4, owner[2] >> 4);
+        if self.store.collision_revision(column).is_none() {
+            return Ok(Cow::Borrowed(&[]));
+        }
+        self.actor_selection(position, physics)
+    }
+
     /// Counts unsupported actor geometry resolutions, including repeated ray halo visits.
     pub fn unsupported_actor_selection_count(&self) -> u32 {
         self.unsupported_actor_selections
@@ -126,13 +157,10 @@ impl PaletteWorld<'_> {
         Some((shape, *piston, *expanding))
     }
 
-    /// Reads a finite piston progress value already validated during NBT ingestion.
+    /// The client progress of the piston actor at `position` after this world's tick.
     fn piston_progress(&self, position: [i32; 3]) -> Option<f32> {
         let actor = self.selection_actor(position)?;
-        match actor.shape_actor() {
-            ShapeActor::Piston { progress_bits } => Some(f32::from_bits(*progress_bits)),
-            _ => None,
-        }
+        Some(actor.piston_motion()?.step_at(self.tick()).progress)
     }
 }
 

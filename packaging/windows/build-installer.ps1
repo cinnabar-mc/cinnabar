@@ -31,7 +31,7 @@ foreach ($name in $runtimeNames) { Copy-Item (Join-Path $release $name) $payload
 # DX12 compiles shaders with this DXC beside the client; without it the client falls back to FXC.
 & (Join-Path $PSScriptRoot "fetch-dxc.ps1") -Root $root -Out $payload
 & (Join-Path $PSScriptRoot "stage-prep-kit.ps1") -Root $root -Kit $kit -Assetc (Join-Path $release "assetc.exe")
-Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2193.bin") (Join-Path $resources "assets")
+Copy-Item (Join-Path $root "crates/assets/data/block-physics-v2225.bin") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "THIRD_PARTY_NOTICES.md") (Join-Path $resources "assets")
 Copy-Item (Join-Path $root "LICENSE") (Join-Path $resources "licenses/Cinnabar-LICENSE.md")
 Copy-Item (Join-Path $root "assets/licenses/*") (Join-Path $resources "licenses")

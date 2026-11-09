@@ -120,6 +120,364 @@
                 ]
               }
             }
+          ],
+          "bindings": [
+            {
+              "binding_name": "#touch_joystick_shown",
+              "binding_name_override": "#visible"
+            }
+          ]
+        }
+      },
+      {
+        "dpad": {
+          "type": "button",
+          "anchor_from": "center",
+          "anchor_to": "center",
+          "offset": [
+            "-38%",
+            "25%"
+          ],
+          "size": [
+            "100%y",
+            "49.68%"
+          ],
+          "layer": 10,
+          "bindings": [
+            {
+              "binding_name": "#touch_dpad_shown",
+              "binding_name_override": "#visible"
+            }
+          ],
+          "button_mappings": [
+            {
+              "from_button_id": "button.menu_select",
+              "to_button_id": "cinnabar.touch.dpad",
+              "mapping_type": "pressed",
+              "scope": "view"
+            }
+          ],
+          "controls": [
+            {
+              "up": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "0.0%",
+                  "-31.803%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_up_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "down": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "0.0%",
+                  "31.803%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/down",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/down_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_down_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "left": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "-31.803%",
+                  "0.0%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/left",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/left_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_left_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "right": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "31.803%",
+                  "0.0%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/right",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/right_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_right_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "up_left": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "-31.803%",
+                  "-31.803%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up_left",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up_left_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_up_left_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "bindings": [
+                  {
+                    "binding_name": "#touch_dpad_forward",
+                    "binding_name_override": "#visible"
+                  }
+                ]
+              }
+            },
+            {
+              "up_right": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "31.803%",
+                  "-31.803%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up_right",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/up_right_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_dpad_up_right_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ],
+                "bindings": [
+                  {
+                    "binding_name": "#touch_dpad_forward",
+                    "binding_name_override": "#visible"
+                  }
+                ]
+              }
+            },
+            {
+              "jump": {
+                "type": "panel",
+                "size": [
+                  "33.333%",
+                  "33.333%"
+                ],
+                "anchor_from": "center",
+                "anchor_to": "center",
+                "offset": [
+                  "0.0%",
+                  "0.0%"
+                ],
+                "controls": [
+                  {
+                    "normal": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/jump_dpad",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ]
+                    }
+                  },
+                  {
+                    "held": {
+                      "type": "image",
+                      "texture": "textures/gui/controls/jump_dpad_pressed",
+                      "size": [
+                        "100%",
+                        "100%"
+                      ],
+                      "layer": 1,
+                      "bindings": [
+                        {
+                          "binding_name": "#touch_jump_pressed",
+                          "binding_name_override": "#visible"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
           ]
         }
       },
@@ -156,7 +514,13 @@
           "$control": "cinnabar.touch.jump",
           "$texture": "textures/ui/jump",
           "$held_texture": "textures/ui/jump_pressed",
-          "$held_binding": "#touch_jump_pressed"
+          "$held_binding": "#touch_jump_pressed",
+          "bindings": [
+            {
+              "binding_name": "#touch_joystick_shown",
+              "binding_name_override": "#visible"
+            }
+          ]
         }
       },
       {
@@ -192,7 +556,13 @@
           "$control": "cinnabar.touch.attack",
           "$texture": "textures/ui/attack",
           "$held_texture": "textures/ui/attack_pressed",
-          "$held_binding": "#touch_attack_pressed"
+          "$held_binding": "#touch_attack_pressed",
+          "bindings": [
+            {
+              "binding_name": "#touch_action_buttons_shown",
+              "binding_name_override": "#visible"
+            }
+          ]
         }
       },
       {
@@ -210,7 +580,13 @@
           "$control": "cinnabar.touch.use",
           "$texture": "textures/ui/interact",
           "$held_texture": "textures/ui/interact_pressed",
-          "$held_binding": "#touch_use_pressed"
+          "$held_binding": "#touch_use_pressed",
+          "bindings": [
+            {
+              "binding_name": "#touch_action_buttons_shown",
+              "binding_name_override": "#visible"
+            }
+          ]
         }
       },
       {

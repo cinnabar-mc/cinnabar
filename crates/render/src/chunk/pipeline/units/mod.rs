@@ -186,7 +186,7 @@ fn configure_support(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(&info),
+        direct_draws_required(&info),
     );
     pipeline.unit_supported = supported(mode, &device.limits());
 }

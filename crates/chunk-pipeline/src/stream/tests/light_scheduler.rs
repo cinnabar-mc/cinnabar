@@ -259,6 +259,7 @@ fn synthetic_light_completion(
             light_levels_changed,
             direct_sky_changed,
             changed_faces,
+            equal_prior: None,
         }),
         queue_wait: Duration::ZERO,
         duration: Duration::from_millis(3),
@@ -270,6 +271,7 @@ mod boundary_dominance;
 mod column_propagation;
 mod convergence;
 mod dependency_lifecycle;
+mod equal_completions;
 mod filter_dominance;
 mod mesh_fairness;
 mod mesh_light_dependencies;

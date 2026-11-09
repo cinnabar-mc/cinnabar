@@ -1,27 +1,37 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
-use bedrock_protocol_1_26_51::types::AnimatedImageData;
+use super::SkinRaster;
+use bedrock_protocol_1_26_60::enums::{PersonaAnimatedTextureType, PersonaAnimationExpression};
+#[cfg(test)]
+use bedrock_protocol_1_26_60::types::AnimatedImageData;
 
 use crate::MAX_PLAYER_LIST_SKIN_BYTES;
 
 use render_api::{SkinAnimation, SkinAnimationKind};
 
+/// Borrowed animation facts independent of the packet's generated skin type.
+pub(super) struct AnimationView<'a> {
+    pub raster: SkinRaster<'a>,
+    pub kind: u32,
+    pub frames: f32,
+    pub expression: u32,
+}
+
 /// Retains valid transmitted atlases within the same budget as the base skin.
-pub(super) fn normalize(
-    images: &[AnimatedImageData],
+pub(super) fn normalize<'a>(
+    images: impl IntoIterator<Item = AnimationView<'a>>,
     retained: &mut usize,
 ) -> Arc<[SkinAnimation]> {
     let mut output: Vec<SkinAnimation> = Vec::new();
     for image in images {
-        let kind = match image.animated_texture_type {
+        let kind = match PersonaAnimatedTextureType::from(image.kind) {
             PersonaAnimatedTextureType::Face => SkinAnimationKind::Face,
             PersonaAnimatedTextureType::Body32x32 => SkinAnimationKind::Body32,
             PersonaAnimatedTextureType::Body128x128 => SkinAnimationKind::Body128,
             _ => continue,
         };
-        let raster = &image.skin_image;
-        let (width, height, frames) = (raster.width.0, raster.height.0, image.frames.0);
+        let raster = &image.raster;
+        let (width, height, frames) = (raster.width, raster.height, image.frames);
         let Some(bytes) = (width as usize)
             .checked_mul(height as usize)
             .and_then(|pixels| pixels.checked_mul(4))
@@ -35,7 +45,7 @@ pub(super) fn normalize(
             .and_then(|retained| retained.checked_add(bytes));
         if width == 0
             || height == 0
-            || bytes != raster.image_bytes.len()
+            || bytes != raster.bytes.len()
             || !frames.is_finite()
             || frames < 1.0
             || frames > height as f32
@@ -52,9 +62,9 @@ pub(super) fn normalize(
             kind,
             width,
             height,
-            rgba8: raster.image_bytes.as_ref().into(),
+            rgba8: raster.bytes.as_ref().into(),
             frames: frames as u32,
-            blinking: image.animation_expression == PersonaAnimationExpression::Blinking,
+            blinking: image.expression == PersonaAnimationExpression::Blinking.to_raw(),
         });
     }
     output.into()
@@ -63,8 +73,25 @@ pub(super) fn normalize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bedrock_protocol_1_26_51::types::SkinImage;
-    use bedrock_protocol_1_26_51::wire;
+    use bedrock_protocol_1_26_60::types::SkinImage;
+    use bedrock_protocol_1_26_60::wire;
+
+    /// Adapts player-list fixture atlases to the shared borrowed animation input.
+    fn normalize(images: &[AnimatedImageData], retained: &mut usize) -> Arc<[SkinAnimation]> {
+        super::normalize(
+            images.iter().map(|image| AnimationView {
+                raster: SkinRaster {
+                    width: image.skin_image.width.0,
+                    height: image.skin_image.height.0,
+                    bytes: &image.skin_image.image_bytes,
+                },
+                kind: image.animated_texture_type.to_raw(),
+                frames: image.frames.0,
+                expression: image.animation_expression.to_raw(),
+            }),
+            retained,
+        )
+    }
 
     #[test]
     fn review_animation_replacement_refunds_its_previous_atlas_before_budgeting() {

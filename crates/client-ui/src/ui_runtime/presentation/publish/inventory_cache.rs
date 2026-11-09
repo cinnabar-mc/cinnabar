@@ -28,13 +28,8 @@ struct Sources {
 }
 
 impl InventoryCache {
-    /// Resolves inventory display changes before screen and selected-item observations.
-    pub(super) fn capture(
-        &mut self,
-        player: &player_state::PlayerState,
-        items: &ItemResolver<'_>,
-        frames: &ItemIconFrames,
-    ) -> ProjectionUpdate {
+    /// Prepares revision-gated stack sources before any atlas placement or icon capture.
+    pub(super) fn prepare(&mut self, player: &player_state::PlayerState, items: &ItemResolver<'_>) {
         let runtime = items.runtime;
         let presentation = items.presentation;
         let next = Sources {
@@ -47,18 +42,52 @@ impl InventoryCache {
             name_generation: runtime.item_name_generation(),
             base_lang: runtime.lang_catalog.clone(),
             active_lang: runtime.active_lang.clone(),
-            server_lang: runtime.server_lang.clone(),
-            items: runtime.session_items.clone(),
+            server_lang: runtime.session.server_lang.clone(),
+            items: runtime.session.session_items.clone(),
             recipes: player.inventory.crafting_catalog_snapshot(),
             crafting_revision: player.inventory.crafting_revision(),
         };
         let refresh = next.refresh(self.sources.as_ref());
         self.sources = Some(next);
+        if refresh != ProjectionRefresh::default() {
+            presentation
+                .inventory_preparation_revision
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.projections.prepare(
+            runtime.inventory_ledger(player),
+            runtime.inventory_open() || presentation.inventory_inputs_needed(player, runtime),
+            refresh,
+            || runtime.crafting_match(player),
+        );
+    }
+
+    /// Borrows artwork sources already produced by the inventory projection.
+    pub(super) fn stacks(&self) -> impl Iterator<Item = &protocol::NetworkItemStack> {
+        self.projections.stacks()
+    }
+
+    /// Drops cached artwork after a repack without repeating recipe matching.
+    pub(in crate::ui_runtime::presentation) fn invalidate_icons(&mut self) {
+        self.projections.invalidate_icons();
+    }
+
+    /// Resolves inventory display changes before screen and selected-item observations.
+    pub(super) fn capture(
+        &mut self,
+        player: &player_state::PlayerState,
+        items: &ItemResolver<'_>,
+        frames: &ItemIconFrames,
+    ) -> ProjectionUpdate {
+        self.prepare(player, items);
+        let runtime = items.runtime;
+        let presentation = items.presentation;
         self.projections.capture(
             ProjectionInput {
                 ledger: runtime.inventory_ledger(player),
-                inventory_open: runtime.inventory_open(),
-                refresh,
+                inventory_open: runtime.inventory_open()
+                    || presentation.inventory_inputs_needed(player, runtime),
+                refresh: ProjectionRefresh::default(),
                 animation: ProjectionAnimation {
                     player: frames.0,
                     dials: presentation.dial_frames(),

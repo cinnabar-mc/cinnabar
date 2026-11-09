@@ -15,9 +15,6 @@ macro_rules! atlas_textures {
 }
 
 atlas_textures! {
-    BlocksBellBottom => "textures/blocks/bell_bottom",
-    BlocksBellSide => "textures/blocks/bell_side",
-    BlocksBellTop => "textures/blocks/bell_top",
     BlocksConduitCage => "textures/blocks/conduit_cage",
     BlocksConduitClosed => "textures/blocks/conduit_closed",
     BlocksConduitOpen => "textures/blocks/conduit_open",
@@ -32,6 +29,8 @@ atlas_textures! {
     EntityEnchantingTableBook => "textures/entity/enchanting_table_book",
     EntityEndPortal => "textures/entity/end_portal",
     EntityPiglinPiglin => "textures/entity/piglin/piglin",
+    EntityPistonarmPistonArm => "textures/entity/pistonarm/pistonArm",
+    EntityPistonarmPistonArmSticky => "textures/entity/pistonarm/pistonArmSticky",
     EntitySteve => "textures/entity/steve",
     EnvironmentEndPortalColors => "textures/environment/end_portal_colors",
 }

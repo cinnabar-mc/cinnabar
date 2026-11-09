@@ -31,6 +31,14 @@ pub(super) struct SkinLayerSkeleton {
 }
 
 impl SkinLayerSkeleton {
+    /// Bytes of vertices and parsed polygons this layer keeps allocated.
+    pub(super) fn retained_bytes(&self) -> usize {
+        self.mesh
+            .as_ref()
+            .map_or(0, |mesh| size_of_val(mesh.vertices.as_ref()))
+            + self.geometry.poly_mesh_bytes()
+    }
+
     /// Whether `layer` was posed on this skeleton.
     pub(super) fn poses(&self, layer: &SkinRenderLayer) -> bool {
         self.image.kind == layer.image.kind && self.geometry.digest == layer.geometry.digest
@@ -178,9 +186,9 @@ pub(super) fn evaluate(
         .layers
         .iter()
         .filter_map(|layer| {
-            let current = layer.compose(&state.bone_names, local)?;
+            let current = layer.compose(state.animated_skeleton().1, local)?;
             let previous = match previous {
-                Some(local) => layer.compose(&state.bone_names, local)?,
+                Some(local) => layer.compose(state.animated_skeleton().1, local)?,
                 None => Arc::clone(&current),
             };
             let (hidden_bones, uv_anim) = metadata(layer, evaluator, render, blinking);

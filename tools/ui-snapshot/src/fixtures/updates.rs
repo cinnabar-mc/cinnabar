@@ -55,13 +55,8 @@ pub(super) fn mods(ready: bool, settings: bool) -> Fixture {
         view.screen = launcher::menu::MenuScreen::Home;
     }
     if ready {
-        std::sync::Arc::make_mut(&mut view.mods).library.installed[0]
-            .metadata
-            .update_url = Some(
-            "https://github.com/example/zoom-plus/releases/latest/download/zoom-plus.wasm"
-                .parse()
-                .unwrap(),
-        );
+        std::sync::Arc::make_mut(&mut view.mods).library.installed[0].file =
+            format!("{}fixture.wasm", launcher::mods::MARKETPLACE_FILE_PREFIX);
         std::sync::Arc::make_mut(&mut view.mods)
             .library
             .updates

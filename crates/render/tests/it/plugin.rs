@@ -30,7 +30,7 @@ fn compile_pack(root: &Path, records: &[RegistryRecord]) -> Result<CompiledAsset
     compile_pack_with_lights(root, records, &lights)
 }
 use bevy::{
-    camera::primitives::Aabb,
+    camera::visibility::NoCpuCulling,
     prelude::{App, MinimalPlugins, Vec3, Visibility},
 };
 use image::{ExtendedColorType, codecs::png::PngEncoder};

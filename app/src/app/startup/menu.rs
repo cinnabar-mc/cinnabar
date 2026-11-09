@@ -44,6 +44,7 @@ pub(in crate::app) fn begin(
     let assets = Ok(asset_startup::MenuAssets {
         fonts: core.assets.fonts.clone(),
         atmosphere: core.assets.atmosphere.clone(),
+        entities: core.assets.entities.clone(),
     });
     Ok(MenuBoot {
         assets,
@@ -126,7 +127,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn menu_and_android_preload_leave_world_carriers_and_collisions_unstarted() {
+    fn menu_and_android_preload_validate_entities_and_leave_world_and_collisions_unstarted() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(assets::carriers::WORLD.output);
         std::fs::write(
@@ -137,7 +138,7 @@ mod tests {
         std::fs::write(&path, b"unread invalid world").unwrap();
         std::fs::write(
             asset_startup::entity_asset_path(&path),
-            b"unread invalid entities",
+            asset_startup::test_carriers::synthetic_entity_blob(0),
         )
         .unwrap();
         let physics = directory.path().join("unread-physics.bin");

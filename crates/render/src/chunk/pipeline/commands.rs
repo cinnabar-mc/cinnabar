@@ -1,5 +1,5 @@
 use crate::chunk::transparent::liquid::{
-    transparent_frame_draw_for_range, transparent_frame_draws,
+    transparent_frame_draws, transparent_frame_draws_for_range,
 };
 use crate::chunk::*;
 use crate::queue_writes::ProfiledQueue as _;
@@ -386,7 +386,7 @@ impl RenderCommand<Transparent3d> for DrawTransparentLiquid {
         );
         let frame_probe = frame_probe.into_inner();
         frame_probe.record_transparent_draw(snapshot.generation(), || {
-            transparent_frame_draw_for_range(snapshot, arena, ref_range)
+            transparent_frame_draws_for_range(snapshot, arena, ref_range)
         });
         let generation = snapshot.generation().get();
         record_encoded_transparent_generation(metrics.into_inner(), ViewSortGeneration(generation));

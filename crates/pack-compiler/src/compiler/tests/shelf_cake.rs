@@ -193,7 +193,11 @@ fn poplar_shelves_keep_the_recess_and_powered_front_through_the_carrier() {
                 .model_template(),
             visual.model_template()
         );
-        let template = runtime.model_templates()[visual.model_template().unwrap() as usize];
+        let template = assets::whole_sheet_model_template(
+            runtime.model_templates(),
+            visual.model_template().unwrap(),
+        );
+        let template = runtime.model_templates()[template as usize];
         let quads =
             &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize];
         assert_eq!(

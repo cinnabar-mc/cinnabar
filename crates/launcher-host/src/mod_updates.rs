@@ -1,9 +1,10 @@
-//! Optional GitHub release checks and automatic downloads, kept off the frame thread.
+//! Official-package revision checks and downloads, kept off the frame thread.
 
+mod compatible;
 mod download;
 mod progress;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 mod worker;
 pub use download::Downloaded;
 
@@ -17,10 +18,18 @@ use std::sync::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Candidate {
+    revision_update: Option<ui::mod_metadata::RevisionModUpdate>,
     id: u64,
     repository: String,
     version: String,
     asset: Option<String>,
+}
+
+/// Native identity and admission bound supplied by the runtime backend.
+struct Host {
+    api_revisions_json: &'static str,
+    revision: &'static str,
+    max_component_bytes: usize,
 }
 
 struct Request {
@@ -57,7 +66,12 @@ pub struct Checker {
 
 impl Checker {
     /// Starts one worker with a per-repository session cache and no account credentials.
-    pub fn start(staging: std::path::PathBuf, max_component_bytes: usize) -> std::io::Result<Self> {
+    pub fn start(
+        staging: std::path::PathBuf,
+        max_component_bytes: usize,
+        host_revision: &'static str,
+        api_revisions_json: &'static str,
+    ) -> std::io::Result<Self> {
         let (requests, incoming) = unbounded();
         let (outgoing, responses) = unbounded();
         let generation = Arc::new(AtomicU64::new(0));
@@ -74,7 +88,11 @@ impl Checker {
                     outgoing,
                     current,
                     authorization,
-                    max_component_bytes,
+                    Host {
+                        revision: host_revision,
+                        api_revisions_json,
+                        max_component_bytes,
+                    },
                     transfers,
                     &staging,
                 );
@@ -104,7 +122,11 @@ impl Checker {
         self.sources = installed
             .iter()
             .filter_map(|item| {
-                let source = item.metadata.update_url.as_ref()?;
+                let identity = item.metadata.revision_update.as_ref()?;
+                if identity.package != ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE {
+                    return None;
+                }
+                let source = &identity.source;
                 enabled.then(|| (item.id, source.asset().to_owned()))
             })
             .collect();
@@ -118,20 +140,24 @@ impl Checker {
             installed
                 .iter()
                 .filter_map(|item| {
-                    let source = item.metadata.update_url.as_ref();
-                    let repository = source
-                        .map(|source| source.repository())
-                        .or(item.metadata.update_repository.as_ref())?;
+                    if crate::marketplace::managed(std::path::Path::new(&item.file)) {
+                        return None;
+                    }
+                    let identity = item.metadata.revision_update.as_ref()?;
+                    if identity.package != ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE {
+                        return None;
+                    }
+                    let source = &identity.source;
+                    let repository = source.repository();
                     let version = item.metadata.version.as_ref()?;
                     // A non-SemVer installed version cannot establish that a release is newer.
                     update_manifest::select::newer(version, version).ok()?;
                     Some(Candidate {
+                        revision_update: item.metadata.revision_update.clone(),
                         id: item.id,
                         repository: repository.slug().into(),
                         version: version.clone(),
-                        asset: source
-                            .filter(|_| automatic)
-                            .map(|source| source.asset().into()),
+                        asset: automatic.then(|| source.asset().into()),
                     })
                 })
                 .collect()
