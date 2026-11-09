@@ -8,7 +8,7 @@ use player_preview::PreviewHeldPlacement;
 fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog>) {
     let mut compiled = pack_entity_compiler::compile_entity_pack(vec![
         ("entity/player.json".into(), br#"{"format_version":"1.10.0","minecraft:client_entity":{"description":{"identifier":"minecraft:player","geometry":{"default":"geometry.player"},"render_controllers":["controller.render.player"]}}}"#.to_vec()),
-        ("models/player.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.player","texture_width":64,"texture_height":64},"bones":[{"name":"body"},{"name":"rightItem","parent":"body","pivot":[-6,12,0]},{"name":"leftItem","parent":"body","pivot":[6,12,0]}]}]}"#.to_vec()),
+        ("models/player.json".into(), br#"{"format_version":"1.12.0","minecraft:geometry":[{"description":{"identifier":"geometry.player","texture_width":64,"texture_height":64},"bones":[{"name":"body","cubes":[{"origin":[-4,8,-2],"size":[8,8,4],"uv":[0,0]}]},{"name":"rightItem","parent":"body","pivot":[-6,12,0]},{"name":"leftItem","parent":"body","pivot":[6,12,0]}]}]}"#.to_vec()),
         ("render_controllers/player.json".into(), br#"{"format_version":"1.8.0","render_controllers":{"controller.render.player":{"geometry":"Geometry.default"}}}"#.to_vec()),
     ]).unwrap().unwrap().assets;
     compiled.block_visual_count = 2;
@@ -248,8 +248,8 @@ fn preview_held_cutout_texels_render_opaque() {
 
 #[test]
 fn preview_held_blend_keeps_low_alpha_texels() {
-    let (preview, entities) = alpha_preview(assets::MATERIAL_FLAG_ALPHA_BLEND, 64);
-    let model = held_model(&preview, &entities.item_visuals()[0].key)
+    let (mut preview, entities) = alpha_preview(assets::MATERIAL_FLAG_ALPHA_BLEND, 64);
+    let mut model = held_model(&preview, &entities.item_visuals()[0].key)
         .model(preview.icon_catalog.as_deref().unwrap())
         .unwrap();
     let mesh = player_preview::geometry::mesh(
@@ -269,6 +269,47 @@ fn preview_held_blend_keeps_low_alpha_texels() {
         batch.alpha_cutoff, None,
         "blended held texels must not be thresholded"
     );
+
+    preview.set_player_preview_skin(None, Default::default());
+    let entities = Arc::new(entities);
+    let stream = super::super::live_player::tests::player_stream(Arc::clone(&entities), entities);
+    preview.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+    for (view, in_hud) in [
+        (player_preview::PreviewView::default(), false),
+        (player_preview::PreviewView::Hud, true),
+    ] {
+        for (mode, cutoff) in [
+            (render_model::HandItemAlphaMode::Blend, None),
+            (render_model::HandItemAlphaMode::Cutout, Some(0.5)),
+            (render_model::HandItemAlphaMode::Blend, None),
+            (render_model::HandItemAlphaMode::Opaque, None),
+        ] {
+            model.alpha_mode = mode;
+            let mesh = preview
+                .live_player_mesh(
+                    view,
+                    in_hud,
+                    [Some(model.clone()), Some(model.clone())],
+                    |_, _, _, _| true,
+                )
+                .unwrap();
+            let mut held_indices = 0;
+            for batch in mesh
+                .batches()
+                .iter()
+                .filter(|batch| batch.texture_page == model.source.page)
+            {
+                assert_eq!(
+                    batch.alpha_cutoff, cutoff,
+                    "retained {view:?} held material must follow {mode:?}"
+                );
+                assert!(batch.depth_test && batch.depth_write);
+                assert_eq!(batch.blend, ui::UiBlendMode::Alpha);
+                held_indices += (batch.index_range.end - batch.index_range.start) as usize;
+            }
+            assert_eq!(held_indices, model.vertices.len() * 2);
+        }
+    }
 }
 
 #[test]

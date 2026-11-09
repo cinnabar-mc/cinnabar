@@ -92,6 +92,14 @@ pub struct PreviewHeldModel {
 }
 
 impl PreviewHeldModel {
+    /// Shares the held material cutoff between projected and retained previews.
+    pub(in crate::ui_runtime::presentation) fn alpha_cutoff(&self) -> Option<f32> {
+        match self.alpha_mode {
+            render_model::HandItemAlphaMode::Cutout => Some(0.5),
+            _ => None,
+        }
+    }
+
     /// Applies an admitted sprite grip while preserving authored and block placements.
     pub(in crate::ui_runtime::presentation) fn with_grip(
         &self,
