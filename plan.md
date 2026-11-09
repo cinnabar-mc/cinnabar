@@ -1768,7 +1768,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
-  while preserving keyboard control. Device-window regression coverage does not close
+  while preserving keyboard control. Native UI receives display-cutout insets combined with
+  keyboard overlap at the window's DPI, while the world surface stays full size.
+  The crosshair uses that full viewport while edge controls stay inside the safe area.
+  Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
