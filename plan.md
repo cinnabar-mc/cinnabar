@@ -593,12 +593,17 @@ with a floor and room, and reports that position in its stop-riding request. Wit
 block it stays at its seat. It gets off only in a tick where transport takes the request
 once nothing from the seat is still outbound (movement queued or not yet written, a held
 item release, attack, block-use or item-release work), the last tick completed and every
-column around the mount has arrived; then movement, the shown actor and the view leave the
-seat at once, while the committed link waits for the server's unlink. Incomplete: the still-vehicle motion threshold is unverified; each block counts
-as one box around its collision shapes; blocks vanilla exempts by flag or state other than
-scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail ejection
-are not implemented; until the server's unlink arrives, the HUD, inventory and mining speed
-still treat the player as mounted.
+column around the mount has arrived. While seated movement is still going out the frame
+runs no ticks, so the backlog drains and input does not move the mount. Once off, the
+client world's mount view rides the player on nothing until the server's links for it
+change; movement, seat pose, view lock, animation, actor picking and collision read that
+view, so a link the server sends again seats the player for all of them, while the
+committed link waits for the server's unlink. Incomplete: the still-vehicle motion
+threshold is unverified; each block counts as one box around its collision shapes; blocks
+vanilla exempts by flag or state other than scaffolding are not exempted; legacy worlds'
+older exit patterns and activator-rail ejection are not implemented; until the server's
+unlink arrives, the HUD, inventory, item use and mining speed still treat the player as
+mounted.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.

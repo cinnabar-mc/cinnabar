@@ -56,13 +56,15 @@ pub(super) struct LocalVehicle {
     /// Passengers held on the boat's render pose, released with it.
     held_passengers: Vec<u64>,
     /// The local player after it got off its vehicle on the client, until the server's links
-    /// for it change. Its committed link stays, so the server's unlink still commits.
+    /// for it change: the client's one record of that leave, which
+    /// [`ActorStore::ridden_unique_id`] applies for every reader. Its committed link stays,
+    /// so the server's unlink still commits.
     pub(super) left_rider: Option<i64>,
 }
 
 impl ActorStore {
     /// Takes the linked local player `local` off its vehicle as getting off does on the
-    /// client: it stops showing on the seat until the server's links for it change.
+    /// client: it rides nothing until the server's links for it change.
     pub(crate) fn leave_local_vehicle(&mut self, local: i64) {
         if self.rider_to_ridden.contains_key(&local) {
             self.local_vehicle.left_rider = Some(local);
@@ -76,12 +78,10 @@ impl ActorStore {
         }
     }
 
-    /// The vehicle `rider` shows riding: its link, unless it got off on the client.
-    pub(crate) fn shown_ridden(&self, rider: i64) -> Option<i64> {
-        self.rider_to_ridden
-            .get(&rider)
-            .copied()
-            .filter(|_| self.local_vehicle.left_rider != Some(rider))
+    /// Whether the local player `local` got off its vehicle on the client while the server's
+    /// link for it still stands.
+    pub(crate) fn left_local_vehicle(&self, local: i64) -> bool {
+        self.local_vehicle.left_rider == Some(local) && self.rider_to_ridden.contains_key(&local)
     }
 
     /// The boat the local player currently steers, from the current links; the client
@@ -91,7 +91,7 @@ impl ActorStore {
             .actors
             .get(&self.remote_state_excluded_runtime_id?)?
             .unique_id;
-        let vehicle = *self.rider_to_ridden.get(&local)?;
+        let vehicle = self.ridden_unique_id(local)?;
         if !self.rider_controls_vehicle(local) {
             return None;
         }

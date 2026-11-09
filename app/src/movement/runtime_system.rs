@@ -177,7 +177,7 @@ pub(crate) fn advance_local_physics(
 
     if !movement_ticker.can_advance_physics_frame() {
         // Retain presses and publish the pose while transport pauses simulation.
-        locals.observe_paused_dismount(frame, movement_ticker.session_generation());
+        locals.observe_dismount(&frame, movement_ticker.session_generation());
         publish_physics_view(&mut physics, &mut view);
         return;
     }
@@ -204,16 +204,23 @@ pub(crate) fn advance_local_physics(
             .as_deref()
             .is_some_and(|block_use| block_use.press_pending()),
     };
-    let got_off = network.as_deref().is_some_and(|network| {
-        locals.leave_mount(
-            &frame,
-            &mut physics,
-            &movement_ticker,
-            &world,
-            interactions,
-            |packet| network.send_inventory_packets(vec![packet]),
-        )
-    });
+    let step = network
+        .as_deref()
+        .map_or(gameplay::movement::DismountStep::Seated, |network| {
+            locals.leave_mount(
+                &mut frame,
+                &mut physics,
+                &movement_ticker,
+                &world,
+                interactions,
+                |packet| network.send_inventory_packets(vec![packet]),
+            )
+        });
+    if step == gameplay::movement::DismountStep::Waiting {
+        // No new seated movement joins what the dismount waits for.
+        publish_physics_view(&mut physics, &mut view);
+        return;
+    }
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -222,8 +229,11 @@ pub(crate) fn advance_local_physics(
         &mut movement_speed,
         &world,
     );
-    // The local body, its animation and the view stop following the seat at once.
-    if got_off && let Some(stream) = client_world.stream.as_mut() {
+    // The client world's mount state keeps the player off the mount from here, so movement,
+    // its body, animation, view, picking and collision all stop following the seat at once.
+    if step == gameplay::movement::DismountStep::GotOff
+        && let Some(stream) = client_world.stream.as_mut()
+    {
         stream.leave_local_mount();
     }
     if !advanced {

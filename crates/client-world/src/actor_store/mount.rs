@@ -71,7 +71,7 @@ impl super::ActorStore {
     pub(crate) fn rider_controls_vehicle(&self, rider: i64) -> bool {
         use assets::facts::entity::NativeEntityClass;
         use protocol_ids::ActorFlag;
-        let Some(&vehicle) = self.rider_to_ridden.get(&rider) else {
+        let Some(vehicle) = self.ridden_unique_id(rider) else {
             return false;
         };
         let (Some(rider_actor), Some(mount)) = (

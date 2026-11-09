@@ -87,8 +87,20 @@ pub struct LocomotionState {
     previous_blocker: Option<String>,
     /// A deferred press belongs to one session and one vehicle.
     pending_dismount: Option<(u64, u64, ClientInputLock)>,
-    /// The mount the player got off while the server's links still name it.
-    left_mount: Option<LeftMount>,
+}
+
+/// What [`LocomotionState::leave_mount`] did with a frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub enum DismountStep {
+    /// The player stays seated and the frame runs its ticks.
+    Seated,
+    /// A requested dismount waits for seated movement already produced to go out. The frame
+    /// runs no ticks, so no further seated movement queues behind it and the player's input
+    /// does not move the mount meanwhile.
+    Waiting,
+    /// The player got off before the frame's ticks.
+    GotOff,
 }
 
 /// Interaction work outside movement that may still report the seat once a stop-riding
@@ -103,15 +115,6 @@ pub struct SeatedInteractions {
     pub item_release: bool,
     /// A block-use press still waiting to resolve.
     pub block_use: bool,
-}
-
-/// A mount the player got off before the server confirmed it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct LeftMount {
-    session: u64,
-    mount: u64,
-    /// The server's mount changes when the player got off; a later change is a new ride.
-    mount_changes: u64,
 }
 
 impl LocomotionState {
@@ -146,35 +149,6 @@ impl LocomotionState {
     pub fn reset(&mut self) {
         self.controls.reset();
         self.pending_dismount = None;
-        self.left_mount = None;
-    }
-
-    /// Whether the player already got off `mount` in `session`.
-    fn left(&self, session: u64, mount: u64) -> bool {
-        self.left_mount
-            .is_some_and(|left| left.session == session && left.mount == mount)
-    }
-
-    /// Takes the mount the player got off out of `facts` until the server's links drop it or
-    /// change; a change is a new ride.
-    fn unseat(&mut self, mut facts: LocalMovementFacts, session: u64) -> LocalMovementFacts {
-        let Some(left) = self.left_mount else {
-            return facts;
-        };
-        if facts.ride.is_some()
-            && self.left(session, left.mount)
-            && facts.mount_runtime_id == Some(left.mount)
-            && facts.mount_changes == left.mount_changes
-        {
-            facts.ride = None;
-            facts.ride_seat = None;
-            facts.mount = None;
-            facts.vehicle = None;
-            facts.vehicle_controlled_locally = false;
-        } else {
-            self.left_mount = None;
-        }
-        facts
     }
 
     /// Gets the player off the mount a pending press leaves, as vanilla's client does unless
@@ -187,37 +161,43 @@ impl LocomotionState {
     /// seat still on its way and transport takes the request, so the server sees everything
     /// from the seat, the request, then movement and interactions off the mount. Until then
     /// it stays seated and the press waits for a later tick; a request transport refuses for
-    /// good drops the press. Returns whether the player got off.
+    /// good drops the press. While seated movement is still going out the step is
+    /// [`DismountStep::Waiting`], and the caller runs none of the frame's ticks, so a steady
+    /// stream of new seated movement cannot hold the request back.
+    ///
+    /// Once the player gets off, `frame` no longer names the mount, and the caller tells the
+    /// client world, whose mount state then keeps it off until the server's links for the
+    /// player change.
     pub fn leave_mount(
         &mut self,
-        frame: &PhysicsFrameInput,
+        frame: &mut PhysicsFrameInput,
         physics: &mut LocalPhysicsController,
         movement_ticker: &MovementTicker,
         world: &impl sim::CollisionWorld,
         interactions: SeatedInteractions,
         send: impl FnOnce(protocol::Packet) -> Result<(), protocol::BatchSendError>,
-    ) -> bool {
+    ) -> DismountStep {
         let session = movement_ticker.session_generation;
-        // Nothing is left to get off while the server's links still name the mount left.
-        self.unseat(frame.facts, session);
-        if self.left_mount.is_some() {
-            return false;
-        }
         self.observe_dismount(frame, session);
         let Some((_, mount, _)) = self.pending_dismount.filter(|(at, ..)| *at == session) else {
-            return false;
+            return DismountStep::Seated;
         };
         let facts = frame.facts;
         let Some(placement) = facts.mount.filter(|_| facts.client_places_dismount()) else {
-            return false;
+            return DismountStep::Seated;
         };
-        if facts.ride.is_none()
-            || facts.mount_runtime_id != Some(mount)
-            || frame.hold.is_some()
-            || !frame_simulates_tick(physics, movement_ticker, frame.delta)
+        if facts.ride.is_none() || facts.mount_runtime_id != Some(mount) || frame.hold.is_some() {
+            return DismountStep::Seated;
+        }
+        // Seated movement already produced goes out on its own; interaction work and blocked
+        // ticks may need further ticks to finish, so they never hold the frame's ticks.
+        if Self::seated_movement_outstanding(movement_ticker) {
+            return DismountStep::Waiting;
+        }
+        if !frame_simulates_tick(physics, movement_ticker, frame.delta)
             || self.seated_work_outstanding(movement_ticker, interactions)
         {
-            return false;
+            return DismountStep::Seated;
         }
         let vec3 = |[x, y, z]: [f32; 3]| sim::Vec3::new(f64::from(x), f64::from(y), f64::from(z));
         // A boat the player steers moves as the client predicts it, unless the server placed
@@ -241,7 +221,7 @@ impl LocomotionState {
                 .or_else(|| physics.state().map(|state| state.position))
         };
         let Some(seat) = seat else {
-            return false;
+            return DismountStep::Seated;
         };
         let (position, motion) = current.map_or((placement.position, placement.motion), |feed| {
             (feed.position, feed.velocity)
@@ -259,7 +239,7 @@ impl LocomotionState {
             rider_height: f64::from(height),
         })
         .exit_feet(world) else {
-            return false;
+            return DismountStep::Seated;
         };
         let position = [
             exit.x as f32,
@@ -268,14 +248,14 @@ impl LocomotionState {
         ];
         let Ok(packet) = protocol::stop_riding_packet(mount, position) else {
             self.pending_dismount = None;
-            return false;
+            return DismountStep::Seated;
         };
         match send(packet) {
             Ok(()) => self.pending_dismount = None,
-            Err(protocol::BatchSendError::Full) => return false,
+            Err(protocol::BatchSendError::Full) => return DismountStep::Seated,
             Err(protocol::BatchSendError::Closed) => {
                 self.pending_dismount = None;
-                return false;
+                return DismountStep::Seated;
             }
         }
         physics.apply_server_actor_position(position, None);
@@ -283,19 +263,20 @@ impl LocomotionState {
         if feed.is_some() {
             physics.end_vehicle_prediction();
         }
-        self.left_mount = Some(LeftMount {
-            session,
-            mount,
-            mount_changes: facts.mount_changes,
-        });
-        true
+        frame.facts = frame.facts.off_mount();
+        DismountStep::GotOff
+    }
+
+    /// Whether movement from the seat is still on its way: queued movement, movement sent but
+    /// not yet written to the socket (transport may cancel it and it goes out again), or a held
+    /// item release behind a seated tick. All of it goes out without further ticks.
+    fn seated_movement_outstanding(movement_ticker: &MovementTicker) -> bool {
+        movement_ticker.pending_count() > 0 || movement_ticker.has_held_release()
     }
 
     /// Whether anything from the seat could still reach the server after a stop-riding
-    /// request sent now, or the player's place is not settled: queued movement, movement sent
-    /// but not yet written to the socket (transport may cancel it and it goes out again), a
-    /// held item release, interaction work still waiting, or a last tick that waited for
-    /// collision data.
+    /// request sent now, or the player's place is not settled: seated movement still going
+    /// out, interaction work still waiting, or a last tick that waited for collision data.
     fn seated_work_outstanding(
         &self,
         movement_ticker: &MovementTicker,
@@ -307,8 +288,7 @@ impl LocomotionState {
             item_release,
             block_use,
         } = interactions;
-        movement_ticker.pending_count() > 0
-            || movement_ticker.has_held_release()
+        Self::seated_movement_outstanding(movement_ticker)
             || attack_pressed
             || attack_queued
             || item_release
@@ -316,17 +296,10 @@ impl LocomotionState {
             || self.previous_blocker.is_some()
     }
 
-    /// Retains a dismount press while transport pauses physics, after dropping a mount the
-    /// player got off once the server's links moved on from it.
-    pub fn observe_paused_dismount(&mut self, mut frame: PhysicsFrameInput, session: u64) {
-        frame.facts = self.unseat(frame.facts, session);
-        self.observe_dismount(&frame, session);
-    }
-
     /// Runs each fixed tick and admits its sample before any interaction producers run.
     pub fn advance(
         &mut self,
-        mut frame: PhysicsFrameInput,
+        frame: PhysicsFrameInput,
         physics: &mut LocalPhysicsController,
         movement_ticker: &mut MovementTicker,
         movement_effects: &mut LocalMovementEffectTimeline,
@@ -335,9 +308,7 @@ impl LocomotionState {
     ) -> bool {
         movement_ticker.settle_riptide_input(physics);
         movement_effects.begin_frame();
-        let session = movement_ticker.session_generation;
-        frame.facts = self.unseat(frame.facts, session);
-        self.observe_dismount(&frame, session);
+        self.observe_dismount(&frame, movement_ticker.session_generation);
         let PhysicsFrameInput {
             now,
             active,

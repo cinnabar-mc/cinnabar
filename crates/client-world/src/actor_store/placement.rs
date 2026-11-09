@@ -149,7 +149,7 @@ impl ActorStore {
 
     /// Feet position and body yaw of `rider_unique_id` on its mount's seat, when linked and known.
     pub(crate) fn rider_seat_pose(&self, rider_unique_id: i64) -> Option<([f32; 3], f32)> {
-        let ridden = self.shown_ridden(rider_unique_id)?;
+        let ridden = self.ridden_unique_id(rider_unique_id)?;
         let mount = self.actors.get(self.unique_to_runtime.get(&ridden)?)?;
         self.rider_seat_on(rider_unique_id, mount.position, mount.yaw)
     }
@@ -162,7 +162,7 @@ impl ActorStore {
         mount_feet: [f32; 3],
         mount_yaw: f32,
     ) -> Option<([f32; 3], f32)> {
-        let ridden = self.shown_ridden(rider_unique_id)?;
+        let ridden = self.ridden_unique_id(rider_unique_id)?;
         let rider = self
             .actors
             .get(self.unique_to_runtime.get(&rider_unique_id)?)?;
@@ -196,7 +196,7 @@ impl ActorStore {
             return None;
         }
         let offset = degrees(ActorDataKey::SeatRotationOffsetDegrees).unwrap_or(0.0);
-        let mount = self.snapshot_by_unique(self.shown_ridden(rider_unique_id)?)?;
+        let mount = self.snapshot_by_unique(self.ridden_unique_id(rider_unique_id)?)?;
         // A predicted boat turns as its latest feed renders it. Before the live actors
         // advance this frame, any other mount turns as picks predict it.
         let (previous, current) = if let Some(yaw) = self.local_vehicle_render_yaw(mount.runtime_id)

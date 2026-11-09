@@ -359,12 +359,22 @@ impl WorldAuthority {
         self.actors
             .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
     }
-    /// Takes the local player off its vehicle as getting off does on the client, so its body,
-    /// animation and view stop following the seat before the server's unlink arrives. The
-    /// committed link stays until that unlink, which still commits as a mount change; any
-    /// later link from the server seats the player again.
+    /// Takes the local player off its vehicle as getting off does on the client: until the
+    /// server's links for it change, the player rides nothing for movement, its seat pose,
+    /// view lock, animation, actor picking and collision. The committed link stays until the
+    /// server's unlink, which still commits as a mount change; any other link from the server
+    /// for the player, including the same link sent again, seats it again.
     pub fn leave_local_mount(&mut self) {
         self.actors.leave_local_vehicle(self.local_player_unique_id);
+    }
+    /// Whether the local player got off its mount on the client and waits for the server's
+    /// unlink; any server link for it ends this, seating it again unless it unlinks.
+    pub fn local_player_left_mount(&self) -> bool {
+        self.actors.left_local_vehicle(self.local_player_unique_id)
+    }
+    /// The mount the local player rides as the client shows it.
+    pub fn local_mount_unique_id(&self) -> Option<i64> {
+        self.actors.ridden_unique_id(self.local_player_unique_id)
     }
     /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
     /// through the current tick; `None` when the seat does not lock rotation.

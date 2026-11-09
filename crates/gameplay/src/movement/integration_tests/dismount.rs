@@ -493,6 +493,9 @@ struct Rider {
     melee: crate::melee::MeleeRuntime,
     /// Other interaction work the client reports waiting.
     interactions: super::SeatedInteractions,
+    /// The client world's mount state: the rider got off on the client and the server's links
+    /// for it have not changed since, so movement reads no mount.
+    left_on_client: bool,
 }
 
 impl Rider {
@@ -508,22 +511,31 @@ impl Rider {
             sent: Vec::new(),
             melee: crate::melee::MeleeRuntime::default(),
             interactions: super::SeatedInteractions::default(),
+            left_on_client: false,
         }
     }
 
-    /// Runs a frame as the client does: getting off first, then the frame's ticks.
-    fn advance(&mut self, frame: super::PhysicsFrameInput) {
-        self.advance_in(frame, &BlockFloor);
+    /// The server sends a link for the rider, which ends a client-side leave.
+    fn server_links(&mut self) {
+        self.left_on_client = false;
     }
 
-    /// Runs a frame in `world`.
-    fn advance_in(&mut self, frame: super::PhysicsFrameInput, world: &impl CollisionWorld) {
+    /// Runs a frame as the client does: getting off first, then the frame's ticks.
+    fn advance(&mut self, frame: super::PhysicsFrameInput) -> bool {
+        self.advance_in(frame, &BlockFloor)
+    }
+
+    /// Runs a frame in `world`. Returns whether its ticks ran.
+    fn advance_in(&mut self, mut frame: super::PhysicsFrameInput, world: &impl CollisionWorld) -> bool {
+        if self.left_on_client {
+            frame.facts = frame.facts.off_mount();
+        }
         let mut interactions = self.interactions;
         interactions.attack_queued |= self.melee.press_pending();
         let transport = self.transport;
         let sent = &mut self.sent;
-        self.locals.leave_mount(
-            &frame,
+        let step = self.locals.leave_mount(
+            &mut frame,
             &mut self.physics,
             &self.ticker,
             world,
@@ -535,6 +547,11 @@ impl Rider {
                 transport
             },
         );
+        match step {
+            super::DismountStep::Waiting => return false,
+            super::DismountStep::GotOff => self.left_on_client = true,
+            super::DismountStep::Seated => {}
+        }
         assert!(self.locals.advance(
             frame,
             &mut self.physics,
@@ -543,6 +560,7 @@ impl Rider {
             &mut self.speed,
             world
         ));
+        true
     }
 
     /// Rides a frame on the still boat and sends its movement, then presses sneak on the
@@ -568,10 +586,15 @@ impl Rider {
 
     /// Hands the queued movement to transport without its socket writes confirmed yet.
     fn send_movement(&mut self) -> Vec<super::PhysicsSendIdentity> {
+        self.send_movement_within(usize::MAX)
+    }
+
+    /// Hands at most `budget` queued movement packets to transport, unwritten.
+    fn send_movement_within(&mut self, budget: usize) -> Vec<super::PhysicsSendIdentity> {
         let mut identities = Vec::new();
         flush_player_auth_inputs(
             &mut self.ticker,
-            usize::MAX,
+            budget,
             Some(evidence_context()),
             |identity, _packet| {
                 identities.push(identity);
@@ -623,28 +646,57 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
     assert_eq!(rider.sent.len(), 1, "the request is sent once");
+    rider.server_links();
     let mut unlinked = boat_frame(false);
-    unlinked.facts.ride = None;
-    unlinked.facts.mount_runtime_id = None;
-    unlinked.facts.mount = None;
+    unlinked.facts = unlinked.facts.off_mount();
     rider.advance(unlinked);
     // Riding again once the server links the rider anew.
+    rider.server_links();
     rider.advance(boat_frame(false));
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
 }
 
-/// A server that drops and restores the link between two frames seats the rider again.
+/// A server that links the rider to the same boat again after it got off seats it again.
 #[test]
-fn a_restored_link_seats_the_rider_again() {
+fn a_resent_link_seats_the_rider_again() {
     let mut rider = Rider::new();
     rider.get_off(speed_frame(Default::default()).delta);
     assert_eq!(rider.sent.len(), 1);
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
-    let mut relinked = boat_frame(false);
-    relinked.facts.mount_changes += 2;
-    rider.advance(relinked);
+    rider.server_links();
+    rider.advance(boat_frame(false));
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+}
+
+/// Seated movement that transport takes no faster than the rider produces it holds no
+/// dismount back: while the request waits for it, the frames run no ticks, so the backlog
+/// drains and the rider gets off.
+#[test]
+fn a_seated_movement_backlog_drains_before_the_rider_gets_off() {
+    let mut rider = Rider::new();
+    for _ in 0..4 {
+        rider.advance(boat_frame(false));
+    }
+    let backlog = rider.ticker.pending_count();
+    assert!(backlog >= 4, "{backlog}");
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    let mut frames = 0;
+    while rider.sent.is_empty() && frames <= backlog + 2 {
+        assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+        // Transport takes one packet a frame.
+        let ticked = rider.ticker.completed_tick();
+        let sent = rider.send_movement_within(1);
+        for identity in sent {
+            assert!(rider.ticker.acknowledge_physics_send(identity));
+        }
+        if !rider.advance(boat_frame(false)) {
+            assert_eq!(rider.ticker.completed_tick(), ticked, "no seated tick joins it");
+        }
+        frames += 1;
+    }
+    assert_eq!(rider.sent.len(), 1, "the rider got off within {frames} frames");
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
 }
 
 /// A rider stays seated until transport takes its dismount request, then gets off on a later
@@ -896,6 +948,7 @@ fn a_tick_waiting_for_collision_data_keeps_the_rider_seated() {
     let mut walking = speed_frame(Default::default());
     walking.movement = [0.0, 1.0];
     rider.advance_in(walking, &Unloaded);
+    rider.flush_movement();
     rider.advance(sneak_press(speed_frame(Default::default()).delta));
     assert!(rider.sent.is_empty(), "the request waits for a completed tick");
     rider.flush_movement();

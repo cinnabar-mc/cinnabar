@@ -26,9 +26,6 @@ pub struct LocalPlayerFacts {
     server_authoritative_block_breaking: Option<bool>,
     hunger: Option<LocalPlayerStat>,
     mount_unique_id: Option<i64>,
-    /// Counts committed mount changes, so a link dropped and restored between two reads
-    /// still reads as a new ride.
-    mount_changes: u64,
     movement: ActorMovementFacts,
     input_locks: protocol::ClientInputLocks,
 }
@@ -222,13 +219,6 @@ impl LocalPlayerFacts {
     /// Applies a mount change after the caller accepts its committed identity.
     pub fn set_mount(&mut self, ridden_unique_id: Option<i64>) {
         self.mount_unique_id = ridden_unique_id;
-        self.mount_changes = self.mount_changes.wrapping_add(1);
-    }
-
-    /// How many mount changes this session committed.
-    #[must_use]
-    pub const fn mount_changes(&self) -> u64 {
-        self.mount_changes
     }
 
     /// Returns the committed mount, or None when the player is not riding.

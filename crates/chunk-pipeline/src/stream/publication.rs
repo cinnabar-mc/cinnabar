@@ -23,7 +23,8 @@ impl WorldStream {
             .set_local_actor_presentation_position(position, reanchor);
     }
 
-    /// Takes the local player off its vehicle on the client, ahead of the server's unlink.
+    /// Takes the local player off its vehicle on the client, ahead of the server's unlink; see
+    /// [`client_world::WorldAuthority::leave_local_mount`].
     pub fn leave_local_mount(&mut self) {
         self.authority.leave_local_mount();
     }

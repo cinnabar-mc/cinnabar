@@ -334,7 +334,7 @@ fn resolve_frame(
     let actor_reach = reach.actor;
     let attack_reach = reach.attack;
     let origin = ray.origin().to_array();
-    let mount = context.ui.gameplay_hud().mount_unique_id();
+    let mount = world.local_mount_unique_id();
     let eligible = |identity: ActorLifetimeId| {
         world.actor(identity.runtime_id).filter(|actor| {
             world.actor_lifetime(identity.runtime_id) == Some(identity)

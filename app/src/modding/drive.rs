@@ -360,7 +360,6 @@ pub(super) fn drive_mod(
             chat_events: &chat_events,
             gameplay_facts: gameplay.facts(
                 captured && !absorbed,
-                &ui,
                 cameras.single().ok().map(|(camera, _)| camera),
                 world_observation
                     .as_ref()
