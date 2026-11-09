@@ -1,5 +1,9 @@
 use assets::facts::entity::NativeEntityClass;
-use protocol::{ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent};
+use std::sync::Arc;
+
+use protocol::{
+    ActorKind, ActorMetadataValue, ActorStatusEvent, ActorStatusKind, ActorTakeItemEvent,
+};
 use protocol_ids::{ActorDataKey, ActorFlag, Attribute};
 
 use super::{ActorApplyResult, ActorSnapshot, ActorStore};
@@ -23,7 +27,7 @@ const KNOCKBACK_FRESH_SEQUENCES: u64 = 32;
 pub const MAX_STATUS_NOTICES: usize = 256;
 
 /// A decoded actor status event with the actor's pose at the time, for particle and sound consumers.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ActorStatusNotice {
     pub runtime_id: u64,
     pub kind: ActorStatusKind,
@@ -360,9 +364,12 @@ impl ActorStore {
     }
 }
 
-/// A fishing hook's state at the moment one of its fishing events was applied.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// A fishing hook's state at the moment one of its fishing events was applied, kept with the
+/// event so its effects still play when the hook is removed in the same packet batch.
+#[derive(Debug, Clone, PartialEq)]
 pub struct FishingHookPose {
+    /// The hook's entity identifier, which selects its sounds.
+    pub identifier: Arc<str>,
     /// Bottom of the hook's collision box.
     pub bottom: f32,
     /// Width of the hook's collision box.
@@ -388,8 +395,12 @@ impl FishingHookPose {
         {
             return None;
         }
+        let ActorKind::Entity { identifier } = &actor.kind else {
+            return None;
+        };
         let (min, max) = actor.bounding_box()?;
         Some(Self {
+            identifier: identifier.clone(),
             bottom: min[1],
             width: max[0] - min[0],
             fish_offset: [

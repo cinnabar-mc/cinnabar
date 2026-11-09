@@ -49,14 +49,15 @@ fn route(kind: ActorStatusKind, fishing: Option<client_world::FishingHookPose>) 
 #[test]
 fn hook_events_draw_their_native_effects() {
     let hook = client_world::FishingHookPose {
+        identifier: "minecraft:fishing_hook".into(),
         bottom: 0.75,
         width: 0.25,
         fish_offset: [1.0, 1.0],
         fish_angle: 0.5,
         silent: false,
     };
-    assert_eq!(route(ActorStatusKind::FishHookBite, Some(hook)), 3);
-    let trail = route(ActorStatusKind::FishHookPosition, Some(hook));
+    assert_eq!(route(ActorStatusKind::FishHookBite, Some(hook.clone())), 3);
+    let trail = route(ActorStatusKind::FishHookPosition, Some(hook.clone()));
     assert!((2..=3).contains(&trail), "{trail} trail emitters");
     // A tease only splashes where the fish's cell holds water; this world has none.
     assert_eq!(route(ActorStatusKind::FishHookTease, Some(hook)), 0);

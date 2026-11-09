@@ -117,7 +117,7 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
     let room = MAX_QUEUED_INBOX.saturating_sub(inbox.status_audio.len());
     inbox
         .status_audio
-        .extend(notices.iter().take(room).copied());
+        .extend(notices.iter().take(room).cloned());
     inbox.notices.extend(notices);
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);
@@ -460,7 +460,7 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
 
 /// Draws a fishing hook's effects for one of its events; other actors draw nothing for them.
 fn route_fishing(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &ActorStatusNotice) {
-    let Some(hook) = notice.fishing else {
+    let Some(hook) = &notice.fishing else {
         return;
     };
     match notice.kind {

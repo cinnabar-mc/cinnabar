@@ -417,14 +417,13 @@ fn status_request(
 /// Splash a fishing hook plays from itself when a fish bites; a silent hook stays quiet.
 fn fishing_bite_request(
     tables: &assets::SoundEventTables,
-    identifier: &str,
     notice: &ActorStatusNotice,
 ) -> Option<SoundRequest> {
-    let hook = notice.fishing?;
+    let hook = notice.fishing.as_ref()?;
     if notice.kind != ActorStatusKind::FishHookBite || hook.silent {
         return None;
     }
-    let route = tables.entity(identifier, super::route::SPLASH_EVENT, None)?;
+    let route = tables.entity(&hook.identifier, super::route::SPLASH_EVENT, None)?;
     Some(
         SoundRequest::new(route.sound)
             .with_ranges(route.volume, route.pitch)
@@ -452,6 +451,16 @@ pub fn drive_actor_audio(
     }
     let local = stream.local_player_runtime_id();
     for notice in &notices {
+        // Native plays the bite locally with no server copy to pair, so it bypasses the echo
+        // ledger. The notice carries the hook's identifier, so a hook removed in the same batch
+        // still splashes.
+        if let Some(request) = engine
+            .bank()
+            .and_then(|bank| fishing_bite_request(bank.tables(), notice))
+        {
+            engine.enqueue(request);
+            continue;
+        }
         let (identifier, unique_id, class) = if notice.runtime_id == local {
             (
                 PLAYER,
@@ -468,14 +477,6 @@ pub fn drive_actor_audio(
             };
             (identifier, actor.unique_id, actor.entity_fact.native_class)
         };
-        // Native plays the bite locally with no server copy to pair, so it bypasses the echo ledger.
-        if let Some(request) = engine
-            .bank()
-            .and_then(|bank| fishing_bite_request(bank.tables(), identifier, notice))
-        {
-            engine.enqueue(request);
-            continue;
-        }
         let Some((event, request)) = engine
             .bank()
             .and_then(|bank| status_request(bank.tables(), identifier, class, notice))
@@ -682,6 +683,7 @@ mod tests {
             &serde_json::json!({}),
         );
         let hook = client_world::FishingHookPose {
+            identifier: "minecraft:fishing_hook".into(),
             bottom: 62.75,
             width: 0.25,
             fish_offset: [0.0; 2],
@@ -695,9 +697,10 @@ mod tests {
             position: [4.25, 62.75, -3.5],
             height: Some(0.25),
             eating_position: [4.25, 62.75, -3.5],
-            fishing: Some(hook),
+            fishing: Some(hook.clone()),
         };
-        let splash = fishing_bite_request(&tables, "minecraft:fishing_hook", &notice).unwrap();
+        // The notice alone routes the splash, so a hook removed in the same batch still sounds.
+        let splash = fishing_bite_request(&tables, &notice).unwrap();
         assert_eq!(&*splash.name, "random.splash");
         assert_eq!(splash.position, Some([4.25, 62.75, -3.5]));
         assert_eq!((splash.volume.min, splash.volume.max), (0.25, 0.25));
@@ -706,20 +709,20 @@ mod tests {
             ActorStatusNotice {
                 fishing: Some(client_world::FishingHookPose {
                     silent: true,
-                    ..hook
+                    ..hook.clone()
                 }),
-                ..notice
+                ..notice.clone()
             },
             ActorStatusNotice {
                 kind: ActorStatusKind::FishHookPosition,
-                ..notice
+                ..notice.clone()
             },
             ActorStatusNotice {
                 fishing: None,
-                ..notice
+                ..notice.clone()
             },
         ] {
-            assert!(fishing_bite_request(&tables, "minecraft:fishing_hook", &quiet).is_none());
+            assert!(fishing_bite_request(&tables, &quiet).is_none());
         }
     }
 

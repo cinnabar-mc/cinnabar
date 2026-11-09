@@ -59,6 +59,7 @@ fn fishing_events_carry_the_hook_box_and_synced_fish() {
             assert_eq!(
                 notice.fishing,
                 Some(FishingHookPose {
+                    identifier: "minecraft:fishing_hook".into(),
                     bottom: 62.75,
                     width: 0.25,
                     fish_offset: [1.5, -2.0],
