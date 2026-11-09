@@ -505,6 +505,14 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 	}
 	reader := newDelayedPacketReader(ctx, delay, source, destination, !fromDownstream, relayIdleFlush, inspect)
 	defer reader.Close()
+	// Inspected packets that failed to decode are forwarded as received and reported once.
+	var undecodable uint64
+	defer func() {
+		if undecodable != 0 {
+			slog.Warn("proxy: forwarded inspected packets that failed to decode unchanged", "count", undecodable,
+				"from_downstream", fromDownstream)
+		}
+	}()
 	trace := newRelayTrace(source, destination, fromDownstream)
 	// Packets buffered before the relay began leave as their own batch.
 	if err := reader.Flush(); err != nil {
@@ -520,6 +528,9 @@ func pumpPacketsWithDelay(ctx context.Context, delay *PacketDelay, source, desti
 		epoch, tracking := delay.positionToken()
 		var position *ForwardedPosition
 		for _, raw := range batch {
+			if raw.DecodeErr != nil {
+				undecodable++
+			}
 			if err := forwardPacket(destination, raw, upstreamIdentity); err != nil {
 				return attributeRelayError(err, fromDownstream)
 			}
@@ -548,7 +559,8 @@ func inspectsUpstreamIdentity(id uint32, identity login.IdentityData) bool {
 	}
 }
 
-// forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets.
+// forwardPacket writes raw's received bytes unless the proxy rewrote one of its decoded packets, so a
+// packet that failed to decode is passed on unchanged.
 func forwardPacket(destination packetSession, raw minecraft.RawPacket, identity login.IdentityData) error {
 	rewritten := len(raw.Decoded) > 1
 	for _, value := range raw.Decoded {
