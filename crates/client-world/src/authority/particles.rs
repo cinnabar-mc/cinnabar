@@ -1,8 +1,12 @@
 use assets::NetworkIdMode;
 use protocol::ParticleEvent;
-use protocol_ids::LevelEvent;
+use protocol_ids::{LevelEvent, ParticleType};
 
 use super::WorldAuthority;
+
+/// Level-event selector for block-textured terrain particles.
+const TERRAIN_PARTICLE_EVENT: i32 =
+    LevelEvent::ParticleLegacyEvent.wire_value() | ParticleType::Terrain.wire_value();
 
 impl WorldAuthority {
     /// Keeps terrain event ids in the same palette as decoded blocks.
@@ -15,7 +19,7 @@ impl WorldAuthority {
         };
         let data = level.data as u32;
         level.data = match level.event_id {
-            2001 | 2021 | 0x4013 => self.id_remap.to_internal(data) as i32,
+            2001 | 2021 | TERRAIN_PARTICLE_EVENT => self.id_remap.to_internal(data) as i32,
             id if id == LevelEvent::ParticlesCrackBlock.wire_value() => {
                 let id = self.id_remap.to_internal(data & 0x00ff_ffff);
                 ((data & 0xff00_0000) | (id & 0x00ff_ffff)) as i32
@@ -59,6 +63,33 @@ mod tests {
         );
         authority.set_sequential_id_remap(SequentialIdRemap::new([(3, 2, 10)]));
         authority
+    }
+
+    #[test]
+    fn terrain_particles_remap_sequential_ids_without_changing_other_particles() {
+        for hashes in [false, true] {
+            let authority = authority(hashes);
+            for particle_type in [ParticleType::Terrain, ParticleType::MobFlame] {
+                let mut event = ParticleEvent::Level(LevelParticleEvent {
+                    event_id: LevelEvent::ParticleLegacyEvent.wire_value()
+                        | particle_type.wire_value(),
+                    position: [0.0; 3],
+                    data: 7,
+                });
+                authority.remap_particle_block_ids(&mut event);
+                let ParticleEvent::Level(level) = event else {
+                    unreachable!();
+                };
+                assert_eq!(
+                    level.data,
+                    if hashes || particle_type != ParticleType::Terrain {
+                        7
+                    } else {
+                        5
+                    }
+                );
+            }
+        }
     }
 
     #[test]
