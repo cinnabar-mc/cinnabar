@@ -406,3 +406,171 @@ fn a_streamed_seat_renders_where_the_mount_puts_it() {
     assert_eq!(physics.tick_alpha(), 0.0);
     assert_eq!(physics.render_feet_position(), Some([2.5, 3.0, 4.0]));
 }
+
+/// A floor of whole blocks whose top is `y = 1`, each collider attributed to its cell.
+struct BlockFloor;
+
+impl CollisionWorld for BlockFloor {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        fixture_world_identity(1).registry
+    }
+
+    fn collision_boxes(&self, query: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        let colliders = self.collision_boxes_with_provenance(query)?;
+        Ok(CollisionQuery {
+            value: colliders.value.into_iter().map(|collider| collider.aabb).collect(),
+            identity: colliders.identity,
+        })
+    }
+
+    fn collision_boxes_with_provenance(
+        &self,
+        query: Aabb,
+    ) -> Result<CollisionQuery<Vec<sim::ProvenancedCollider>>, WorldQueryError> {
+        let mut value = Vec::new();
+        for x in -8..8 {
+            for z in -8..8 {
+                let min = Vec3::new(f64::from(x), 0.0, f64::from(z));
+                let aabb = Aabb::new(min, min + Vec3::ONE);
+                if aabb.intersects(query) {
+                    value.push(sim::ProvenancedCollider {
+                        aabb,
+                        block: Some([x, 0, z]),
+                        runtime_id: None,
+                        cell_has_scaffolding: Some(false),
+                    });
+                }
+            }
+        }
+        Ok(CollisionQuery {
+            value,
+            identity: fixture_world_identity(1),
+        })
+    }
+
+    fn block_physics(&self, block: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        VersionedFloor(1).block_physics(block)
+    }
+}
+
+/// A frame riding a still boat on the floor, its seat sunk below the floor top like a boat's.
+fn boat_frame(server_owns_dismount: bool) -> super::PhysicsFrameInput {
+    let mut frame = speed_frame(Default::default());
+    frame.movement = [0.0; 2];
+    frame.raw_movement = [0.0; 2];
+    frame.facts.ride = Some(super::RideKind::Boat);
+    frame.facts.ride_seat = Some([0.5, 0.775, 0.5]);
+    frame.facts.mount_runtime_id = Some(7);
+    frame.facts.mount = Some(super::local_facts::MountFacts {
+        position: [0.5, 1.0, 0.5],
+        motion: [0.0; 3],
+        server_owns_dismount,
+    });
+    frame
+}
+
+/// The network position a dismount request reports.
+fn reported_position(packet: &protocol::Packet) -> [f32; 3] {
+    let bytes = protocol::encode(packet).unwrap();
+    let position = &bytes[bytes.len() - 12..];
+    std::array::from_fn(|axis| {
+        f32::from_le_bytes(position[axis * 4..axis * 4 + 4].try_into().unwrap())
+    })
+}
+
+/// Getting off a boat resting on land stands the rider on the ground beside it at once and
+/// reports that position, rather than leaving it on a seat sunk into the ground.
+#[test]
+fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    let mut advance = |locals: &mut super::LocomotionState,
+                       physics: &mut LocalPhysicsController,
+                       frame| {
+        assert!(locals.advance(
+            frame,
+            physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &BlockFloor
+        ));
+    };
+    advance(&mut locals, &mut physics, boat_frame(false));
+    assert_eq!(physics.mode(), sim::MovementMode::Riding);
+    let mut press = boat_frame(false);
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    advance(&mut locals, &mut physics, press);
+    assert_ne!(physics.mode(), sim::MovementMode::Riding);
+    let feet = physics.state().unwrap().position;
+    assert!(
+        (feet.x - 0.5).abs() < 1.0e-4 && (feet.z + 0.5).abs() < 1.0e-4,
+        "a still boat puts its rider on its north side: {feet:?}"
+    );
+    assert!(
+        (1.0..1.01).contains(&feet.y),
+        "the rider stands on the ground, not in it: {feet:?}"
+    );
+
+    let mut sent = Vec::new();
+    locals.flush_dismount(physics.network_position().unwrap(), |packet| {
+        sent.push(reported_position(&packet));
+        Ok(())
+    });
+    let [reported] = sent[..] else {
+        panic!("one dismount request: {sent:?}")
+    };
+    assert_eq!([reported[0], reported[2]], [0.5, -0.5]);
+    assert!(
+        (reported[1] - (1.001 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-4,
+        "the request reports where the rider got off: {reported:?}"
+    );
+
+    // The server's link lags the request; the rider stays off the boat meanwhile.
+    advance(&mut locals, &mut physics, boat_frame(false));
+    assert_ne!(physics.mode(), sim::MovementMode::Riding);
+    locals.flush_dismount(physics.network_position().unwrap(), |_| {
+        panic!("the request is sent once")
+    });
+    let mut unlinked = boat_frame(false);
+    unlinked.facts.ride = None;
+    unlinked.facts.mount_runtime_id = None;
+    unlinked.facts.mount = None;
+    advance(&mut locals, &mut physics, unlinked);
+    // Riding again once the server links the rider anew.
+    advance(&mut locals, &mut physics, boat_frame(false));
+    assert_eq!(physics.mode(), sim::MovementMode::Riding);
+}
+
+/// A mount whose dismounts only the server performs keeps its rider until the server moves it.
+#[test]
+fn a_server_owned_dismount_waits_for_the_server() {
+    let (mut physics, mut ticker) = walked_physics(0);
+    let mut locals = super::LocomotionState::default();
+    let mut effects = super::LocalMovementEffectTimeline::default();
+    let mut speed = super::LocalMovementSpeedAuthority::default();
+    for pressed in [false, true] {
+        let mut frame = boat_frame(true);
+        frame.sneak.pressed = pressed;
+        frame.sneak.held = pressed;
+        assert!(locals.advance(
+            frame,
+            &mut physics,
+            &mut ticker,
+            &mut effects,
+            &mut speed,
+            &BlockFloor
+        ));
+    }
+    assert_eq!(physics.mode(), sim::MovementMode::Riding);
+    let seat = physics.network_position().unwrap();
+    let mut sent = Vec::new();
+    locals.flush_dismount(seat, |packet| {
+        sent.push(reported_position(&packet));
+        Ok(())
+    });
+    assert_eq!(sent, [seat]);
+}

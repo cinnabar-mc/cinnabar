@@ -586,6 +586,14 @@ tick keeps its place; one spawning later boards behind. The controller is the pl
 controlling seat of a boat or a saddled, tamed horse. Deviation: vanilla drops a link whose
 actor is missing at its tick and relies on spawn-embedded links; Cinnabar keeps it until
 either actor is removed, so a server that never re-links still seats the rider.
+Getting off a mount places the player client-side, as vanilla's client does unless the mount
+is flagged for server-only dismounts: the player tries the eight blocks around the vehicle
+across its heading first, at its level, a block up, then a block down, stands on the first
+with a floor and room, and reports that position in its stop-riding request. Without one it
+stays at its seat. Incomplete: the still-vehicle motion threshold is unverified; each block
+counts as one box around its collision shapes; blocks vanilla exempts by flag or state other
+than scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail
+ejection are not implemented.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.

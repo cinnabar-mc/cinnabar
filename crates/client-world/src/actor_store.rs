@@ -490,6 +490,13 @@ impl ActorSnapshot {
         self.flag(ActorFlag::Sheared.wire_value())
     }
 
+    /// Whether only the server moves riders off this vehicle, so a rider leaving it waits for
+    /// the server instead of placing itself.
+    #[must_use]
+    pub fn server_owns_dismount(&self) -> bool {
+        self.flag(ActorFlag::DoesServerAuthOnlyDismount.wire_value())
+    }
+
     /// Reads a rendering flag, including the local rig's visual primary word.
     pub(crate) fn flag(&self, bit: u32) -> bool {
         if bit < u64::BITS

@@ -20,6 +20,8 @@ pub struct LocalMovementFacts {
     /// Runtime identity of the retained mount, when its actor is available.
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
+    /// The retained mount's placement, which places the player when it gets off.
+    pub mount: Option<MountFacts>,
     /// The boat the player steers from its controlling seat.
     pub vehicle: Option<super::vehicle::SteeredVehicle>,
     /// The current vehicle selects the local player as its controller.
@@ -43,6 +45,17 @@ pub struct LocalMovementFacts {
     /// Native swim continuation stops without usable food above the sprint floor,
     /// unless the movement abilities permit flight.
     pub swim_hunger_blocked: bool,
+}
+
+/// Where the player's mount is and how it moves, as getting off it reads them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MountFacts {
+    /// The mount's feet where the client shows it.
+    pub position: [f32; 3],
+    /// How far the mount moved over its last actor tick.
+    pub motion: [f32; 3],
+    /// Only the server moves riders off this mount.
+    pub server_owns_dismount: bool,
 }
 
 pub fn read(
@@ -110,6 +123,17 @@ pub fn read(
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
+        mount: player
+            .facts
+            .mount_unique_id()
+            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .map(|mount| MountFacts {
+                position: mount.position,
+                motion: std::array::from_fn(|axis| {
+                    mount.position[axis] - mount.previous_pose.position[axis]
+                }),
+                server_owns_dismount: mount.server_owns_dismount(),
+            }),
         vehicle: (ride == Some(super::RideKind::Boat))
             .then(|| steered_vehicle(stream))
             .flatten(),
