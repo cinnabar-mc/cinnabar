@@ -6,7 +6,7 @@ use super::{CustomMaterialInstance, Nbt};
 const MAX_MATERIAL_INSTANCES: usize = 64;
 
 /// Reads the `materials` table and applies its `mappings` aliases; `None` without a table.
-pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialInstance]>> {
+pub(super) fn instances(component: Option<Nbt<'_>>) -> Option<Box<[CustomMaterialInstance]>> {
     component
         .and_then(|instances| match instances.field("materials") {
             Some(Nbt::Compound(fields)) => Some(fields),
@@ -21,16 +21,16 @@ pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialIn
                         return None;
                     };
                     let render_method = match material.field("render_method") {
-                        Some(Nbt::String(method)) => Some(method.as_str().into()),
+                        Some(Nbt::String(method)) => Some(method.into()),
                         _ => None,
                     };
                     let tint_method = match material.field("tint_method") {
-                        Some(Nbt::String(method)) => Some(method.as_str().into()),
+                        Some(Nbt::String(method)) => Some(method.into()),
                         _ => None,
                     };
                     Some(CustomMaterialInstance {
-                        name: name.as_str().into(),
-                        texture: texture.as_str().into(),
+                        name: name.into(),
+                        texture: texture.into(),
                         render_method,
                         tint_method,
                         ambient_occlusion: material
@@ -60,7 +60,7 @@ pub(super) fn instances(component: Option<&Nbt>) -> Option<Box<[CustomMaterialIn
 
 /// Copies each `mappings` target instance under its alias name, replacing an instance of that
 /// name, as the client builds its material table; an alias to a missing instance is ignored.
-fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Option<&Nbt>) {
+fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Option<Nbt<'_>>) {
     let Some(Nbt::Compound(mappings)) = component.and_then(|component| component.field("mappings"))
     else {
         return;
@@ -77,12 +77,12 @@ fn alias_materials(instances: &mut Vec<CustomMaterialInstance>, component: Optio
             continue;
         };
         let aliased = CustomMaterialInstance {
-            name: alias.as_str().into(),
+            name: alias.into(),
             ..instance
         };
         match instances
             .iter_mut()
-            .find(|instance| instance.name.as_ref() == alias.as_str())
+            .find(|instance| instance.name.as_ref() == alias)
         {
             Some(existing) => *existing = aliased,
             None => instances.push(aliased),

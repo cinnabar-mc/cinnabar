@@ -173,6 +173,20 @@ impl UiPresentationRuntime {
             worn.as_ref()
                 .is_some_and(|(_, stack, item)| runtime.item_glint(stack, item.glint))
         });
+        // A helmet with no armor model is a block or sprite worn on the head.
+        if self.player_preview_gear.armor[assets::ArmorSlot::Helmet as usize].is_none() {
+            self.player_preview_gear.head = armor[assets::ArmorSlot::Helmet as usize].as_ref().map(
+                |(identifier, stack, item)| PreviewHandItem {
+                    shield_pattern: None,
+                    grip: None,
+                    glint: Some(runtime.item_glint(stack, item.glint)),
+                    identifier: Arc::clone(identifier),
+                    metadata: stack.metadata,
+                    use_animation: item.use_animation,
+                    charged_projectile: item.charged_projectile_role,
+                },
+            );
+        }
         self.finish_trim_art();
     }
 
@@ -300,6 +314,7 @@ impl UiPresentationRuntime {
             armor_glint: [false; 4],
             held,
             hands: hands.map(|hand| hand.map(|(hand, _)| hand)),
+            head: None,
             show_custom_item_models,
         };
     }

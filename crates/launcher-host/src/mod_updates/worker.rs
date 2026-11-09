@@ -1,7 +1,7 @@
-//! Bounded unauthenticated GitHub requests and a launch-scoped repository cache.
+//! Revision-checked official releases and a launch-scoped compatibility cache.
 
 use super::{AvailableUpdate, Candidate, Request, Response, download};
-use anyhow::{Context, Result, ensure};
+use anyhow::Result;
 use crossbeam_channel::{Receiver, Sender};
 use serde::Deserialize;
 use std::{
@@ -13,7 +13,6 @@ use std::{
     time::Duration,
 };
 
-const MAX_RESPONSE_BYTES: usize = 256 * 1024;
 pub(super) const MAX_REPOSITORIES: usize = 32;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -80,17 +79,8 @@ pub(super) fn network(
         &generation,
         |candidate| {
             runtime.block_on(async {
-                if candidate.revision_update.is_some() {
-                    super::compatible::fetch(
-                        &client,
-                        candidate,
-                        host.revision,
-                        host.api_revisions_json,
-                    )
+                super::compatible::fetch(&client, candidate, host.revision, host.api_revisions_json)
                     .await
-                } else {
-                    fetch(&client, &candidate.repository).await
-                }
             })
         },
         |candidate, release, revision, authorization| {
@@ -237,36 +227,4 @@ pub(super) fn run(
             return;
         }
     }
-}
-
-/// Reads only GitHub's latest published release; missing repositories/releases are silent.
-async fn fetch(client: &reqwest::Client, repository: &str) -> Result<Option<Release>> {
-    let mut response = client
-        .get(format!(
-            "https://api.github.com/repos/{repository}/releases/latest"
-        ))
-        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-        .send()
-        .await?;
-    if response.status() == reqwest::StatusCode::NOT_FOUND {
-        return Ok(None);
-    }
-    response.error_for_status_ref()?;
-    ensure!(
-        response
-            .content_length()
-            .is_none_or(|length| length <= MAX_RESPONSE_BYTES as u64),
-        "release response exceeds byte limit"
-    );
-    let mut bytes = Vec::new();
-    while let Some(chunk) = response.chunk().await? {
-        ensure!(
-            bytes.len() + chunk.len() <= MAX_RESPONSE_BYTES,
-            "release response exceeds byte limit"
-        );
-        bytes.extend_from_slice(&chunk);
-    }
-    serde_json::from_slice(&bytes)
-        .context("invalid GitHub release")
-        .map(Some)
 }

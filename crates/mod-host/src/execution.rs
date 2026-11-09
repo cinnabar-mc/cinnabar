@@ -177,11 +177,17 @@ pub(crate) fn complete<T>(future: impl std::future::Future<Output = T>) -> T {
 }
 
 /// Arms one cumulative invocation limit; resumes never replenish either fuel allowance.
-pub(crate) fn arm_resumable<T>(store: &mut Store<T>, fuel: u64) -> Result<()> {
+/// Calls yield every fuel interval and, when `epoch_yields` is set, on each wall-clock epoch
+/// tick. Without it, ticks extend the deadline in place so only fuel decides yield points.
+pub(crate) fn arm_resumable<T>(store: &mut Store<T>, fuel: u64, epoch_yields: bool) -> Result<()> {
     store.set_hostcall_fuel(HOSTCALL_BYTES);
     store.set_fuel(fuel)?;
     store.fuel_async_yield_interval(Some(25_000))?;
-    store.epoch_deadline_async_yield_and_update(1);
+    if epoch_yields {
+        store.epoch_deadline_async_yield_and_update(1);
+    } else {
+        store.epoch_deadline_callback(|_| Ok(UpdateDeadline::Continue(1)));
+    }
     store.set_epoch_deadline(1);
     Ok(())
 }

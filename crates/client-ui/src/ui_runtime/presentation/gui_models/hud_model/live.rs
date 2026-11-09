@@ -203,6 +203,27 @@ impl UiPresentationRuntime {
                 }
             }
         }
+        if body_visible
+            && let Some(model) = self.preview_head_block()
+            && let Some(parent) = live.head_bone
+        {
+            let bone = render_model::equipment::attach_to_bone(
+                parent,
+                render_model::equipment::head_block_display(),
+            )?;
+            let frame = live.frame * super::super::live_player::render_matrix(&bone)?;
+            // The block turns with the head when a screen's renderer looks toward the pointer.
+            let frame = turn.map_or(frame, |turn| turn * frame);
+            let (screen, light) = projection(&rig, 6);
+            cache.layer(
+                &model.vertices,
+                std::iter::once(screen * Mat4::from(frame)),
+                std::iter::once(light * Mat3::from(frame.matrix3)),
+                model.source,
+                None,
+                live.overlay_color,
+            )?;
+        }
         for slot in 0..4 {
             let Some(texture) = &self.player_preview_gear.armor[slot] else {
                 continue;

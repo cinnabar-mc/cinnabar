@@ -1,8 +1,6 @@
 package @APPLICATION_ID@;
 
 import android.app.Activity;
-import android.app.AlertDialog;
-import android.app.ProgressDialog;
 import android.content.Intent;
 import android.content.res.AssetManager;
 import android.os.Bundle;
@@ -18,7 +16,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
-/** Unpacks the prep kit and prepares game assets behind Android dialogs, then starts the game. */
+/** Unpacks the prep kit and prepares game assets on the startup screen, then starts the game. */
 public final class BootstrapActivity extends Activity {
     static { System.loadLibrary("@CLIENT_LIBRARY@"); }
 
@@ -34,17 +32,24 @@ public final class BootstrapActivity extends Activity {
     private native void cancel(long attempt);
 
     private volatile long attempt;
-    private ProgressDialog progress;
+    private SetupScreen screen;
     private volatile CountDownLatch consentAnswer;
 
+    /** Stays out of immersive mode, whose first-use system notice would cover the setup prompts. */
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
-        setContentView(new StartupScreen(this));
+        screen = new SetupScreen(this, this::finish);
+        setContentView(screen);
         if (!StartupDiagnostics.showPreviousFailure(this, this::start)) start();
     }
 
+    /** Back abandons setup; Android 12+ would otherwise only move a root activity to the back. */
+    @Override public void onBackPressed() {
+        finish();
+    }
+
     private void start() {
-        showProgress("Preparing @PRODUCT_NAME@");
+        screen.restart();
         long current = ATTEMPTS.incrementAndGet();
         attempt = current;
         new Thread(() -> setup(current), "setup").start();
@@ -110,15 +115,10 @@ public final class BootstrapActivity extends Activity {
         consentAnswer = answer;
         runOnUiThread(() -> {
             if (isFinishing() || isDestroyed()) { answer.countDown(); return; }
-            if (progress != null) progress.dismiss();
-            new AlertDialog.Builder(this).setTitle(title).setMessage(body)
-                    .setPositiveButton("Accept and download", (dialog, which) -> {
-                        accepted.set(true);
-                        answer.countDown();
-                    })
-                    .setNegativeButton("Cancel", (dialog, which) -> answer.countDown())
-                    .setOnCancelListener(dialog -> answer.countDown())
-                    .show();
+            screen.prompt(title, body, "Accept and download", () -> {
+                accepted.set(true);
+                answer.countDown();
+            }, "Cancel", answer::countDown);
         });
         answer.await();
         return accepted.get();
@@ -132,35 +132,22 @@ public final class BootstrapActivity extends Activity {
         return PlatformTrust.pem();
     }
 
-    /** Called by the native setup on its worker thread. */
-    public void showProgress(String message) {
+    /** Called by the native setup on its worker thread with one JSON progress update. */
+    public void showProgress(String update) {
         runOnUiThread(() -> {
-            if (isFinishing() || isDestroyed()) return;
-            if (progress == null || !progress.isShowing()) {
-                progress = new ProgressDialog(this);
-                progress.setTitle("@PRODUCT_NAME@");
-                progress.setIndeterminate(true);
-                progress.setOnCancelListener(dialog -> finish());
-                progress.show();
-            }
-            progress.setMessage(message);
+            if (!isFinishing() && !isDestroyed()) screen.progress(update);
         });
     }
 
     private void finishSetup(String error) {
         if (isFinishing() || isDestroyed()) return;
-        if (progress != null) progress.dismiss();
         if (error == null) {
             startActivity(new Intent(this, CinnabarActivity.class));
             finish();
         } else if (error.isEmpty()) {
             finish();
         } else {
-            new AlertDialog.Builder(this).setTitle("@PRODUCT_NAME@ setup failed").setMessage(error)
-                    .setPositiveButton("Retry", (dialog, which) -> start())
-                    .setNegativeButton("Close", (dialog, which) -> finish())
-                    .setOnCancelListener(dialog -> finish())
-                    .show();
+            screen.prompt("@PRODUCT_NAME@ setup failed", error, "Retry", this::start, "Close", this::finish);
         }
     }
 
@@ -168,7 +155,6 @@ public final class BootstrapActivity extends Activity {
         cancel(attempt);
         CountDownLatch answer = consentAnswer;
         if (answer != null) answer.countDown();
-        if (progress != null) progress.dismiss();
         super.onDestroy();
     }
 }

@@ -662,6 +662,7 @@ pub(crate) fn finish_far_terrain_on_exit(
     let mut world = world;
     let stream = world.as_mut().and_then(|world| world.stream.as_mut());
     far.finish(stream);
+    client_runtime::shutdown::log_shutdown_phase("far_terrain_finish");
 }
 
 #[cfg(test)]

@@ -129,11 +129,8 @@ pub use inventory::{
     TradeOffer, TrimRegistry, WINDOW_TYPE_TRADE, container_window, is_personal_ui_inventory,
 };
 pub use inventory::{
-    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
-    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
-};
-pub use inventory::{
-    CONTAINER_NAME_ARMOR, CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
+    ArmorDamage, ArmorDamageEvent, CONTAINER_NAME_ARMOR,
+    CONTAINER_NAME_COMBINED_HOTBAR_AND_INVENTORY, CONTAINER_NAME_CRAFT_INPUT,
     CONTAINER_NAME_CURSOR, CONTAINER_NAME_DYNAMIC, CONTAINER_NAME_INVENTORY,
     CONTAINER_NAME_LEVEL_ENTITY, CONTAINER_NAME_OFFHAND, CanonicalCell, ContainerCloseEvent,
     ContainerDataEvent, ContainerIdentity, ContainerOpenEvent, DYNAMIC_STORAGE_WINDOW_ID,
@@ -150,6 +147,10 @@ pub use inventory::{
     normal_inventory_transaction_packet, normalize_authority, open_inventory_packet,
     personal_craft_content_indices, personal_craft_slot_index, project_container_cell,
     repeated_container_open_warning_packet, validate_item_nbt_size,
+};
+pub use inventory::{
+    BookEdit, MAX_BOOK_PAGE_BYTES, actor_pick_request_packet, block_pick_request_packet,
+    book_edit_packet, crafter_slot_toggle_packet, lectern_update_packet,
 };
 pub use inventory::{
     CraftingRules, CreativeCategory, CreativeContentEvent, CreativeGroup, CreativeItem,
@@ -205,8 +206,8 @@ pub use movement::{
     BlockAction, BlockActionKind, BlockActions, BlockItemInteraction, InteractionEncodeError,
     MovementPredictionSync, PlayerAuthInputError, PlayerAuthInputInteractions,
     PlayerAuthInputSnapshot, PlayerAuthInputTraceSample, PlayerInputFlags, PlayerInputMode,
-    PredictedVehicleInput, client_movement_prediction_sync, player_auth_input,
-    player_auth_input_trace_sample, player_auth_input_with_interactions,
+    PlayerInteractionModel, PredictedVehicleInput, client_movement_prediction_sync,
+    player_auth_input, player_auth_input_trace_sample, player_auth_input_with_interactions,
     player_auth_input_with_mining_request,
 };
 pub use packet::{Packet, PacketKind};
@@ -241,14 +242,15 @@ pub use ui::{
     CommandSpec, CommandTreeEvent, CompletionContext, CustomForm, CustomFormElement,
     CustomFormValue, DeathInfoEvent, DeathRules, ElementMenuForm, FormButtonImage, FormControlLock,
     FormKind, FormNumber, FormRequestEvent, FormText, GameModeEvent, GameModeUpdate, HudEvent,
-    HudRules, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE, MAX_CHAT_AUTOCOMPLETE_BYTES,
-    MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES, MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES,
-    MAX_OUTBOUND_CHAT_BYTES, MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement,
-    ModalDialogForm, ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm,
-    NpcRequestKind, ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry,
-    ScoreEvent, ScoreIdentity, ServerFormModel, SleepStatusEvent, TextCategory, TextEvent,
-    TextKind, TextMenuForm, TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm,
-    chat_input_packet, chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
+    HudRules, LocatorEvent, LocatorWaypointUpdate, MAX_BOSS_EVENTS, MAX_CHAT_AUTOCOMPLETE,
+    MAX_CHAT_AUTOCOMPLETE_BYTES, MAX_CHAT_PARAMETERS, MAX_COMMAND_OUTPUT_MESSAGES,
+    MAX_CUSTOM_FORM_ITEMS, MAX_FORM_JSON_BYTES, MAX_OUTBOUND_CHAT_BYTES,
+    MAX_SCORE_ENTRIES_PER_PACKET, MAX_UI_TEXT_BYTES, MenuElement, ModalDialogForm,
+    ModalFormResponseSelection, NPC_DIALOGUE_FORM_ID, NpcButton, NpcDialogueForm, NpcRequestKind,
+    ObjectiveEvent, PlayerStatus, RawTextEvent, ScoreAction, ScoreEntry, ScoreEvent, ScoreIdentity,
+    ServerFormModel, SleepStatusEvent, TextCategory, TextEvent, TextKind, TextMenuForm,
+    TitleAction, TitleEvent, UiEvent, UiPacketError, UnsupportedForm, chat_input_packet,
+    chat_text_packet, command_request_packet, custom_form_submit_response, ddui,
     modal_form_busy_response, modal_form_cancel_response, modal_form_submit_response,
     npc_request_packet, quote_chat_player_name, server_settings_request_packet,
 };

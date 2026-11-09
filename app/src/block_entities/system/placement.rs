@@ -27,6 +27,7 @@ pub(super) fn held_placement(
             }
         }),
         world_from_item,
+        world_from_block: None,
         light,
     }
 }

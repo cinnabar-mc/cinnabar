@@ -10,6 +10,7 @@ mod control_locked;
 mod cosmetic_particles;
 #[cfg(feature = "test-support")]
 mod crafting;
+mod creative_delete;
 mod crosshair_coverage;
 #[cfg(feature = "test-support")]
 mod data_driven;
@@ -201,7 +202,7 @@ fn png_fixture(
         Fixture::Loading(stage) => stage.is_world_entry(),
         Fixture::ResourcePackLoading => false,
         Fixture::Chat { .. }
-        | Fixture::TabList(_)
+        | Fixture::TabList(..)
         | Fixture::EditSelection
         | Fixture::CrosshairCoverage { .. }
         | Fixture::MaskRegression
@@ -209,6 +210,7 @@ fn png_fixture(
         | Fixture::SpriteOutline { .. }
         | Fixture::Toast { .. }
         | Fixture::BackupFont
+        | Fixture::CreativeCatalogDelete
         | Fixture::TiledImage { .. }
         | Fixture::ModPanel(..)
         | Fixture::HudSurface(..) => false,
@@ -260,6 +262,11 @@ fn png_fixture(
         renderers: &mut [],
     };
     match fixture {
+        Fixture::CreativeCatalogDelete => {
+            let mut engine = json_engine(&carriers)?;
+            creative_delete::paint(&engine, &mut frame)?;
+            add_server_pages(&mut engine, &mut carriers.pages);
+        }
         Fixture::BackupFont => {
             let engine = json_engine(&carriers)?;
             backup_font::paint(&engine, &mut frame)?;
@@ -439,7 +446,7 @@ fn png_fixture(
                 rgba: logo.into_raw().into(),
             });
             cosmetic_icons(&mut artwork, &mut carriers.pages, seconds);
-            mod_icons(&view, &mut artwork, &mut carriers.pages)?;
+            menu_icons(&view, &mut artwork, &mut carriers.pages)?;
             let character_page = (view.screen == launcher::menu::MenuScreen::Home)
                 .then(|| character::texture(dir, &mut carriers.pages))
                 .transpose()?;
@@ -510,10 +517,11 @@ fn png_fixture(
                 }
             }
         }
-        Fixture::TabList(rows) => {
+        Fixture::TabList(rows, header) => {
             carriers::install_default_skin(dir)?;
             let mut engine = json_engine(&carriers)?;
             let mut list = PlayerList::default();
+            list.set_header(header);
             for now in [0.0, seconds] {
                 frame.nodes.clear();
                 *frame.next = 1;
@@ -838,17 +846,25 @@ fn add_server_pages(engine: &mut FormEngine, pages: &mut Vec<Page>) {
     }
 }
 
-/// Gives each Mods-tab icon its own page under the key its card draws, as the client's
-/// artwork worker does.
-fn mod_icons(
+/// Gives each inline menu thumbnail its own page, as the client's artwork worker does.
+fn menu_icons(
     view: &launcher::menu::MenuView,
     artwork: &mut HashMap<String, ui::IconRef>,
     pages: &mut Vec<Page>,
 ) -> Result<(), Error> {
-    for item in &view.mods.library.installed {
-        let (Some(key), Some(png)) = (item.icon_key(), &item.metadata.icon) else {
-            continue;
-        };
+    let icons = view
+        .mods
+        .library
+        .installed
+        .iter()
+        .filter_map(|item| Some((item.icon_key()?, item.metadata.icon.as_ref()?)))
+        .chain(
+            view.storage
+                .cached
+                .iter()
+                .filter_map(|item| Some((item.icon_key(), item.icon.as_ref()?))),
+        );
+    for (key, png) in icons {
         let image = image::load_from_memory(png)
             .map_err(|error| error.to_string())?
             .to_rgba8();

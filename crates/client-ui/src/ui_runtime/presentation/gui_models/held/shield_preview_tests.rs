@@ -171,7 +171,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                 assert!(model.placements.iter().all(|placement| matches!(
                     placement,
                     PreviewHeldPlacement::Sprite {
-                        hand_equipped: true
+                        grip: render_model::equipment::SpriteGrip::HandEquipped
                     }
                 )));
                 let pixels = ui
@@ -222,7 +222,7 @@ fn shield_preview_sprite_fallbacks_preserve_each_hands_pattern_and_cached_edges(
                     assert!(model.placements.iter().all(|placement| matches!(
                         placement,
                         PreviewHeldPlacement::Sprite {
-                            hand_equipped: true
+                            grip: render_model::equipment::SpriteGrip::HandEquipped
                         }
                     )));
                 }
@@ -262,7 +262,7 @@ fn plain_shield_previews_choose_authored_models_or_cached_sprite_fallbacks() {
                             assert!(model.placements.iter().all(|placement| matches!(
                                 placement,
                                 PreviewHeldPlacement::Sprite {
-                                    hand_equipped: true
+                                    grip: render_model::equipment::SpriteGrip::HandEquipped
                                 }
                             )));
                             let pixels = ui

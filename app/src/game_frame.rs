@@ -136,6 +136,7 @@ pub(crate) fn configure_world(app: &mut App) {
             publish_local_player_frame,
             publish_interaction_origin,
             crate::camera::aim_assist::publish_assisted_interaction,
+            crate::camera::freeform_pick::publish,
             crate::camera::aim_highlight::publish,
         )
             .chain()

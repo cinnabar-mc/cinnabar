@@ -20,6 +20,8 @@ pub struct LocalMovementFacts {
     /// Runtime identity of the retained mount, when its actor is available.
     pub mount_runtime_id: Option<u64>,
     pub ride_seat: Option<[f32; 3]>,
+    /// The retained mount's placement, which places the player when it gets off.
+    pub mount: Option<MountFacts>,
     /// The boat the player steers from its controlling seat.
     pub vehicle: Option<super::vehicle::SteeredVehicle>,
     /// The current vehicle selects the local player as its controller.
@@ -43,6 +45,41 @@ pub struct LocalMovementFacts {
     /// Native swim continuation stops without usable food above the sprint floor,
     /// unless the movement abilities permit flight.
     pub swim_hunger_blocked: bool,
+}
+
+impl LocalMovementFacts {
+    /// Whether the client places the player when it gets off its mount, rather than leaving
+    /// that to the server.
+    #[must_use]
+    pub fn client_places_dismount(&self) -> bool {
+        self.mount.is_some_and(|mount| !mount.server_owns_dismount)
+    }
+
+    /// These facts with the player riding nothing, as [`read`] gives them once the player got
+    /// off on the client.
+    #[must_use]
+    pub fn off_mount(self) -> Self {
+        Self {
+            ride: None,
+            mount_runtime_id: None,
+            ride_seat: None,
+            mount: None,
+            vehicle: None,
+            vehicle_controlled_locally: false,
+            ..self
+        }
+    }
+}
+
+/// Where the player's mount is and how it moves, as getting off it reads them.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MountFacts {
+    /// The mount's feet where the client shows it.
+    pub position: [f32; 3],
+    /// How far the mount moved over its last actor tick.
+    pub motion: [f32; 3],
+    /// Only the server moves riders off this mount.
+    pub server_owns_dismount: bool,
 }
 
 pub fn read(
@@ -85,7 +122,12 @@ pub fn read(
         u32::from(hunger.current()) <= u32::from(SPRINT_HUNGER_FLOOR) * u32::from(hunger.scale())
     });
     let boots_level = |id| protocol::item_enchantment_level(&boots.extra_data, id).unwrap_or(0);
-    let ride = player.facts.mount_unique_id().map(|unique| {
+    // A mount the player got off on the client is left until the server's links change.
+    let mount_unique_id = player
+        .facts
+        .mount_unique_id()
+        .filter(|_| !stream.local_player_left_mount());
+    let ride = mount_unique_id.map(|unique| {
         stream
             .actor_by_unique_id(unique)
             .map(|actor| super::RideKind::from_native_class(actor.entity_fact.native_class))
@@ -102,14 +144,21 @@ pub fn read(
             air_drag_modifier: player.facts.air_drag_modifier().map(f64::from),
         },
         ride,
-        mount_runtime_id: player
-            .facts
-            .mount_unique_id()
+        mount_runtime_id: mount_unique_id
             .and_then(|unique| stream.actor_by_unique_id(unique))
             .map(|actor| actor.runtime_id),
         ride_seat: ride
             .and(stream.local_rider_seat_pose())
             .map(|(position, _)| position),
+        mount: mount_unique_id
+            .and_then(|unique| stream.actor_by_unique_id(unique))
+            .map(|mount| MountFacts {
+                position: mount.position,
+                motion: std::array::from_fn(|axis| {
+                    mount.position[axis] - mount.previous_pose.position[axis]
+                }),
+                server_owns_dismount: mount.server_owns_dismount(),
+            }),
         vehicle: (ride == Some(super::RideKind::Boat))
             .then(|| steered_vehicle(stream))
             .flatten(),
@@ -233,8 +282,8 @@ mod tests {
         }
     }
 
-    /// A boat spawned at `x`, through the authority that admits it.
-    fn boat_at(x: f32) -> client_world::ActorSnapshot {
+    /// An authority holding a boat, unique id 70 and runtime id 7, spawned at `x`.
+    fn authority_with_boat_at(x: f32) -> client_world::WorldAuthority {
         use std::sync::Arc;
         let mut authority = client_world::WorldAuthority::new(
             protocol::WorldBootstrap {
@@ -276,7 +325,92 @@ mod tests {
                 Some(1),
             )
             .unwrap();
-        authority.actor(7).expect("spawn committed").clone()
+        authority
+    }
+
+    /// A boat spawned at `x`, through the authority that admits it.
+    fn boat_at(x: f32) -> client_world::ActorSnapshot {
+        authority_with_boat_at(x)
+            .actor(7)
+            .expect("spawn committed")
+            .clone()
+    }
+
+    /// Movement's view of a world authority.
+    struct AuthorityWorld<'a>(&'a client_world::WorldAuthority);
+
+    impl crate::GameplayWorld for AuthorityWorld<'_> {
+        fn canonical_item_stack(
+            &self,
+            stack: &protocol::NetworkItemStack,
+        ) -> Option<client_world::CanonicalItemStack> {
+            self.0.canonical_item_stack(stack)
+        }
+        fn actor_by_unique_id(&self, unique_id: i64) -> Option<&client_world::ActorSnapshot> {
+            self.0.actor_by_unique_id(unique_id)
+        }
+        fn actor(&self, runtime_id: u64) -> Option<&client_world::ActorSnapshot> {
+            self.0.actor(runtime_id)
+        }
+        fn local_player_runtime_id(&self) -> u64 {
+            1
+        }
+        fn local_player_unique_id(&self) -> i64 {
+            self.0.local_player_unique_id()
+        }
+        fn local_rider_seat_pose(&self) -> Option<([f32; 3], f32)> {
+            self.0.local_rider_seat_pose()
+        }
+        fn local_player_left_mount(&self) -> bool {
+            self.0.local_player_left_mount()
+        }
+        fn network_id_mode(&self) -> assets::NetworkIdMode {
+            assets::NetworkIdMode::Sequential
+        }
+        fn resolve_block_network_id(&self, network_id: u32) -> u32 {
+            network_id
+        }
+        fn air_block_id(&self) -> u32 {
+            0
+        }
+    }
+
+    /// The server linking the local player to its boat at `sequence`.
+    fn ride_boat(authority: &mut client_world::WorldAuthority, sequence: u64) {
+        authority
+            .apply_ordered_event(
+                protocol::WorldEvent::ActorLink(protocol::ActorLinkEvent {
+                    dimension: 0,
+                    ridden_unique_id: 70,
+                    rider_unique_id: 1,
+                    link_type: protocol::ActorLinkType::Rider,
+                    immediate: false,
+                    rider_initiated: false,
+                }),
+                Some(sequence),
+            )
+            .unwrap();
+    }
+
+    /// Movement rides nothing once the player got off on the client, and rides its boat again
+    /// when the server sends the same link again.
+    #[test]
+    fn movement_follows_the_client_mount_through_a_resent_link() {
+        let mut authority = authority_with_boat_at(0.0);
+        ride_boat(&mut authority, 2);
+        let mut player = PlayerState::new(1);
+        player.facts.set_mount(Some(70));
+        let seated = read(Some(&player), &AuthorityWorld(&authority), false);
+        assert_eq!(seated.ride, Some(super::super::RideKind::Boat));
+        assert_eq!(seated.mount_runtime_id, Some(7));
+        authority.leave_local_mount();
+        let left = read(Some(&player), &AuthorityWorld(&authority), false);
+        assert_eq!(left, seated.off_mount());
+        ride_boat(&mut authority, 3);
+        assert_eq!(
+            read(Some(&player), &AuthorityWorld(&authority), false),
+            seated
+        );
     }
 
     #[test]

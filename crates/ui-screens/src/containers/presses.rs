@@ -1,6 +1,6 @@
 //! What a press on an engine-drawn container does with the held stack or the slot under it.
 
-use json_ui::{HitKind, hit_test};
+use json_ui::{HitKind, HitRegion, hit_test};
 use ui_engine::frame::EngineFrame;
 
 /// The press targets that drop the held stack, as vanilla's `drop_item_panel`
@@ -29,15 +29,16 @@ pub enum HeldStackPress {
 pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<HeldStackPress> {
     let point = [f64::from(gui[0]), f64::from(gui[1])];
     // Unmapped cursor visuals leave the screen underneath responsible for the press.
-    // A scroll view without its own press mapping takes the wheel, not the press: the press
-    // reaches the input panel around it, as the item grid's background does.
+    // Mouse presses pass through unmapped views and their configured touch-drag mapping
+    // to the input panel around them, as the item grid's background requires.
     let region = frame.hits.iter().rev().find(|region| {
         region.contains(point)
             && !(region.kind == HitKind::Button
                 && region.follows_cursor
                 && region.pressed.is_none())
             && match region.kind {
-                HitKind::ScrollView | HitKind::Panel => region.pressed.is_some(),
+                HitKind::ScrollView => region.pressed.is_some() && !mouse_drag_only(frame, region),
+                HitKind::Panel => region.pressed.is_some(),
                 _ => true,
             }
     });
@@ -52,6 +53,17 @@ pub fn engine_held_stack_press(frame: &EngineFrame, gui: [f32; 2]) -> Option<Hel
         Some(DESTROY_SELECTION) => Some(HeldStackPress::Destroy),
         _ => None,
     }
+}
+
+/// Whether an enabled, mouse-mode scroll view maps the press only to its own
+/// `scrollbar_touch_button`, a touch-drag gesture a mouse press does not start.
+fn mouse_drag_only(frame: &EngineFrame, region: &HitRegion) -> bool {
+    region.enabled
+        && frame
+            .report
+            .scrolls
+            .get(&region.key)
+            .is_some_and(|scroll| !scroll.touch_mode && region.pressed == scroll.touch_button)
 }
 
 /// The input a Shift-click raises on a container slot.

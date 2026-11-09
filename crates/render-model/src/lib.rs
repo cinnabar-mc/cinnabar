@@ -215,7 +215,7 @@ pub use block_entity::{
     BLOCK_SELECTION_VERTICES_PER_EDGE, BlockSelectionFrame, BlockSelectionTarget,
 };
 pub use block_entity::{BannerLayer, BannerModel, BannerMount};
-pub use block_entity::{BedModel, bed_color};
+pub use block_entity::{BedModel, DEFAULT_BED_DYE, bed_color, bed_crack_shape};
 pub use block_entity::{BellAttachment, BellModel, BookPose, EnchantingBook};
 pub use block_entity::{BlockEntityArtworkPreparer, PreparedBlockEntityArtwork};
 pub use block_entity::{ChestModel, ChestPair, ChestVariant, CopperAge, lid_angle_radians};
@@ -226,7 +226,7 @@ pub use block_entity::{
 pub use block_entity::{DecoratedPotModel, sherd_pattern};
 pub use block_entity::{
     FramedMap, ITEM_FRAME_PANEL_FRONT_PIXELS, ITEM_FRAME_ROTATION_STEP_DEGREES, ItemFrameModel,
-    item_frame_item_transform,
+    item_frame_block_transform, item_frame_item_transform,
 };
 pub use block_entity::{Oxidation, StatueModel, StatuePose};
 pub use block_entity::{SignFace, SignModel, SignMount};

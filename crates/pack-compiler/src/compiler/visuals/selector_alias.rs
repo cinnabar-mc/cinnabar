@@ -113,7 +113,7 @@ pub(in crate::compiler) fn selector_alias_cube_material_descriptors(
 
     let mut descriptors = Vec::with_capacity(6);
     for face in BlockFace::ALL {
-        let TextureKey { key, rotate_uv } = resolve_texture_key(&pack.blocks, record, face);
+        let TextureKey { key, uv_rotation } = resolve_texture_key(&pack.blocks, record, face);
         let key = key?;
         let path = pack.terrain.get_exact_static_no_tint(&key)?;
         let expected_path = assets::facts::pack::rules().alias_path(&key)?;
@@ -131,7 +131,7 @@ pub(in crate::compiler) fn selector_alias_cube_material_descriptors(
                 flipbook_selector: None,
                 path: path.into(),
                 texture_key: key.clone(),
-                flags: u32::from(rotate_uv) * MATERIAL_FLAG_ROTATE_UV,
+                flags: uv_rotation,
             },
             key,
         ));

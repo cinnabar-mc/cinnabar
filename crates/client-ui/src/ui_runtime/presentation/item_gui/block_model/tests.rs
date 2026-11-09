@@ -1,5 +1,5 @@
 use assets::BlockFace;
-use assets::gui_item::{GuiBlockQuad, cube_face};
+use assets::gui_item::{GuiBlockQuad, GuiShading, cube_face};
 
 use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
@@ -36,7 +36,7 @@ fn quads_draw_through_the_cube_projection_with_their_own_depth() {
         corner[1] = 0.0;
     }
     let quads = [(lower_top, tile(3)), (slab_top, tile(3))];
-    let mesh = mesh(&quads).unwrap();
+    let mesh = mesh(&quads, GuiShading::Inventory).unwrap();
     assert_eq!(mesh.vertices().len(), 8);
     assert_eq!(mesh.batches().len(), 1);
     let batch = &mesh.batches()[0];
@@ -77,7 +77,7 @@ fn quads_on_separate_pages_draw_as_separate_batches() {
         (quad(BlockFace::South), tile(2)),
         (quad(BlockFace::West), tile(4)),
     ];
-    let mesh = mesh(&quads).unwrap();
+    let mesh = mesh(&quads, GuiShading::Inventory).unwrap();
     let pages: Vec<_> = mesh
         .batches()
         .iter()
@@ -90,15 +90,18 @@ fn quads_on_separate_pages_draw_as_separate_batches() {
 fn a_uv_outside_its_tile_keeps_the_thumbnail() {
     let mut wrapped = quad(BlockFace::Up);
     wrapped.uvs[2] = [1.5, 1.0];
-    assert!(mesh(&[(wrapped, tile(1))]).is_none());
+    assert!(mesh(&[(wrapped, tile(1))], GuiShading::Inventory).is_none());
 }
 
 #[test]
 fn rear_faces_do_not_fill_cutout_holes() {
-    let mesh = mesh(&[
-        (quad(BlockFace::Up), tile(1)),
-        (quad(BlockFace::Down), tile(1)),
-    ])
+    let mesh = mesh(
+        &[
+            (quad(BlockFace::Up), tile(1)),
+            (quad(BlockFace::Down), tile(1)),
+        ],
+        GuiShading::Inventory,
+    )
     .unwrap();
     assert_eq!(mesh.vertices().len(), 4, "only the outward top face draws");
 }
@@ -107,5 +110,31 @@ fn rear_faces_do_not_fill_cutout_holes() {
 fn authored_two_sided_planes_remain_visible_from_the_back() {
     let mut plane = quad(BlockFace::Down);
     plane.two_sided = true;
-    assert_eq!(mesh(&[(plane, tile(1))]).unwrap().vertices().len(), 4);
+    assert_eq!(
+        mesh(&[(plane, tile(1))], GuiShading::Inventory)
+            .unwrap()
+            .vertices()
+            .len(),
+        4
+    );
+}
+
+#[test]
+fn world_shaded_quads_take_flat_world_brightness() {
+    let quads = [
+        (quad(BlockFace::Up), tile(1)),
+        (quad(BlockFace::South), tile(1)),
+        (quad(BlockFace::West), tile(1)),
+    ];
+    let shades = |shading| {
+        mesh(&quads, shading)
+            .unwrap()
+            .vertices()
+            .chunks(4)
+            .map(|face| face[0].color[0])
+            .collect::<Vec<_>>()
+    };
+    // Bytes truncate `255 * brightness`, as the GUI tessellator does.
+    assert_eq!(shades(GuiShading::World), [255, 204, 153]);
+    assert_eq!(shades(GuiShading::Inventory), [255, 127, 186]);
 }

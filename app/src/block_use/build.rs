@@ -21,6 +21,8 @@ struct BuildPlan {
     server_selection: FrozenMiningSelection,
     inventory_revision: u64,
     local_use: LocalUse,
+    /// The clicked block's own use owns the press, so the held item's use skips it.
+    takes_press: bool,
     destination: [i32; 3],
     predicted: Option<Vec<([i32; 3], u32, u32)>>,
     local_runtime_id: u64,
@@ -29,8 +31,6 @@ struct BuildPlan {
     change: Option<protocol::PredictedSlotChange>,
     cooldown: Option<client_world::ResolvedUseCooldown>,
     repeats_while_held: bool,
-    /// The crop state a seed item plants; block items place their own block.
-    planted: Option<u32>,
     /// The door or bed a non-block item places, when it is not a block item.
     paired: Option<u32>,
 }
@@ -235,15 +235,16 @@ fn prepare(
         );
         Some((
             local_use,
+            gameplay::block_use::block_takes_use_press(surroundings.clicked, state.sneaking),
             destination,
             predicted,
             repeats_while_held,
-            planted.map(|(_, crop)| crop),
             paired,
         ))
     })
     .ok()?;
-    let (local_use, destination, predicted, repeats_while_held, planted, paired) = prepared.value?;
+    let (local_use, takes_press, destination, predicted, repeats_while_held, paired) =
+        prepared.value?;
     let identity = observed.ray.world_identity.merge(&prepared.identity).ok()?;
     let local_runtime_id = stream.local_player_runtime_id();
     // The tick has not simulated yet, so its swing reads the effects in force before it.
@@ -266,6 +267,7 @@ fn prepare(
             server_selection,
             inventory_revision,
             local_use,
+            takes_press,
             destination,
             predicted,
             local_runtime_id,
@@ -274,7 +276,6 @@ fn prepare(
             change,
             cooldown,
             repeats_while_held,
-            planted,
             paired,
         },
     })
@@ -318,7 +319,7 @@ pub(crate) fn advance(
         return false;
     };
     if trigger == ItemUseTrigger::SimulationTick && !plan.repeats_while_held {
-        runtime.record(trigger, due, tick, LocalUse::Nothing, clock);
+        runtime.record(trigger, due, tick, LocalUse::Nothing, false, clock);
         return false;
     }
     // Ordered presses can precede block maintenance. Refresh the authority and selected-item
@@ -330,7 +331,11 @@ pub(crate) fn advance(
         crate::melee::selected_attack_timing(player_runtime, &context.client_world)
             .and_then(|timing| timing.swing_duration_ticks),
     );
-    if !runtime.may_attempt(tick, plan.local_use, swings) {
+    let target = gameplay::block_use::PlacementTarget {
+        position: observed.target.position,
+        face: observed.target.face,
+    };
+    if !runtime.may_attempt(tick, plan.local_use, target, swings) {
         return false;
     }
     let start_destination = runtime
@@ -371,7 +376,15 @@ pub(crate) fn advance(
             observed.target.hit_world,
         );
     }
-    if !runtime.admit(trigger, due, tick, plan.local_use, clock, sent) {
+    if !runtime.admit(
+        trigger,
+        due,
+        tick,
+        plan.local_use,
+        plan.takes_press,
+        clock,
+        sent,
+    ) {
         runtime.refuse_transport(
             tick,
             plan.local_use,
@@ -380,6 +393,9 @@ pub(crate) fn advance(
         before_swing.defer_unadmitted_attempt(swings);
         *swings = before_swing;
         return false;
+    }
+    if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
+        runtime.record_failed_repeat(tick, target);
     }
     if plan.local_use == LocalUse::Place
         && plan
@@ -401,26 +417,7 @@ pub(crate) fn advance(
             change.clone(),
         );
     }
-    // Door and bed placement keeps only the server's sound: the cell it plays at is unverified,
-    // and a local cue at another cell would not pair with it.
-    if plan.local_use == LocalUse::Place && plan.paired.is_none() {
-        // A seed sounds at the block it was used on, where the server voices its copy too.
-        let position = if plan.planted.is_some() {
-            observed.target.position
-        } else {
-            plan.destination
-        };
-        context
-            .audio_cues
-            .write(client_audio::audio::LocalBlockCue::Place {
-                position,
-                block_runtime_id: plan.planted.unwrap_or_else(|| {
-                    stream.resolve_block_network_id(u32::from_ne_bytes(
-                        observed.selection.item.block_runtime_id().to_ne_bytes(),
-                    ))
-                }) as i32,
-            });
-    }
+    // Vanilla voices placement only from the server's level sound event, never locally.
     // Java re-equips the held item after each placement.
     if plan.local_use == LocalUse::Place
         && let Some(stream) = context.client_world.stream.as_mut()

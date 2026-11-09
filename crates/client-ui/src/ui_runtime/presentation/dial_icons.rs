@@ -14,10 +14,18 @@ impl UiPresentationRuntime {
         self.dial_frames = frames;
     }
 
-    /// The carried strip frame dial item `identifier` shows, as an icon identity. `None` for
-    /// session overrides, other items, dials without a frame, or a catalog without their frames.
+    /// The strip frame dial item `identifier` shows, as an icon identity. A pack's own complete
+    /// strip, carried by the session, animates in place of everything else, a still icon of the
+    /// same pack included. Otherwise `None` for session overrides, other items, dials without a
+    /// frame, or a catalog without their frames.
     #[must_use]
     pub fn dial_icon_key(&self, identifier: &str, metadata: u32) -> Option<(&'static str, u32)> {
+        let strip = assets::icon::dial::dial_strip(identifier)?;
+        if let Some(frame) = self.dial_frames.frame(strip.kind)
+            && frame < self.session_dial_frames(strip)
+        {
+            return Some((strip.frames_identifier, frame));
+        }
         if self.session_item_icon(identifier, metadata).is_some() {
             return None;
         }
@@ -33,8 +41,27 @@ impl UiPresentationRuntime {
         metadata: u32,
     ) -> Option<(&'static str, std::ops::Range<u32>)> {
         let (identifier, _) = self.dial_icon_key(identifier, metadata)?;
-        let count = self.icon_catalog.as_deref()?.frame_count(identifier);
+        let session = assets::icon::dial::DIAL_STRIPS
+            .iter()
+            .find(|strip| strip.frames_identifier == identifier)
+            .map_or(0, |strip| self.session_dial_frames(strip));
+        let count = if session > 0 {
+            session
+        } else {
+            self.icon_catalog.as_deref()?.frame_count(identifier)
+        };
         Some((identifier, 0..count))
+    }
+
+    /// The frames of `strip` the session carries: all of its native frames when a pack supplied
+    /// the strip, else none, because a partial strip is never shown.
+    fn session_dial_frames(&self, strip: &assets::icon::dial::DialStrip) -> u32 {
+        let native = inventory::strip_frames(strip.kind);
+        if self.session_icons.frame_count(strip.frames_identifier) >= native {
+            native
+        } else {
+            0
+        }
     }
 }
 
@@ -92,6 +119,79 @@ mod tests {
             presentation.dial_icon_frames("minecraft:compass", 0),
             Some(("minecraft:compass_atlas", 0..inventory::COMPASS_FRAMES))
         );
+    }
+
+    /// A pack's strip frames, each a distinct flat colour, and optionally a still compass icon.
+    fn pack_strip(frames: u32, still: bool) -> std::sync::Arc<super::super::SessionIcons> {
+        use super::super::SessionIcon;
+        let icon = |identifier: &str, metadata: u32, red: u8| SessionIcon {
+            identifier: identifier.into(),
+            metadata,
+            width: 1,
+            height: 1,
+            rgba8: vec![red, 90, 90, 255].into(),
+        };
+        let mut icons: Vec<_> = (0..frames)
+            .map(|frame| icon("minecraft:compass_atlas", frame, 100 + frame as u8))
+            .collect();
+        if still {
+            icons.push(icon("minecraft:compass", 0, 250));
+        }
+        std::sync::Arc::new(super::super::SessionIcons {
+            icons,
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn a_packs_strip_animates_in_place_of_the_still_and_carried_icons() {
+        use super::super::session_icons::observe;
+        let mut presentation = presentation(inventory::COMPASS_FRAMES);
+        presentation.set_dial_frames(inventory::DialFrames {
+            compass: Some(7),
+            recovery_compass: None,
+            clock: None,
+        });
+        // The pack ships its strip and, as packs do, a still compass of its own.
+        observe(
+            &mut presentation,
+            Some(&pack_strip(inventory::COMPASS_FRAMES, true)),
+        );
+        assert_eq!(
+            presentation.dial_icon_key("minecraft:compass", 0),
+            Some(("minecraft:compass_atlas", 7))
+        );
+        assert_eq!(
+            presentation.dial_icon_frames("minecraft:compass", 0),
+            Some(("minecraft:compass_atlas", 0..inventory::COMPASS_FRAMES))
+        );
+        let shown = icon(&presentation, "minecraft:compass");
+        assert_eq!(shown, presentation.item_icon("minecraft:compass_atlas", 7));
+        assert_ne!(
+            shown,
+            presentation.startup_item_icon("minecraft:compass_atlas", 7),
+            "the pack's frame, not the base game's"
+        );
+        presentation.set_dial_frames(inventory::DialFrames {
+            compass: Some(8),
+            recovery_compass: None,
+            clock: None,
+        });
+        assert_ne!(icon(&presentation, "minecraft:compass"), shown);
+    }
+
+    #[test]
+    fn an_incomplete_pack_strip_leaves_the_still_icon_in_charge() {
+        use super::super::session_icons::observe;
+        let mut presentation = presentation(inventory::COMPASS_FRAMES);
+        presentation.set_dial_frames(inventory::DialFrames {
+            compass: Some(7),
+            recovery_compass: None,
+            clock: None,
+        });
+        observe(&mut presentation, Some(&pack_strip(4, true)));
+        assert_eq!(presentation.dial_icon_key("minecraft:compass", 0), None);
+        assert_eq!(presentation.dial_icon_frames("minecraft:compass", 0), None);
     }
 
     /// A presentation whose catalog has a static compass and clock and `frames` compass strip

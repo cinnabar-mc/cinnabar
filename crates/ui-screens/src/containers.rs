@@ -278,12 +278,19 @@ impl ContainerScreen {
             pointer,
             &mut icons,
         );
+        // A selection in the search or anvil name box draws highlighted.
+        let edit = screen
+            .search_caret
+            .or(screen.anvil_caret)
+            .and_then(|caret| caret.selection)
+            .map(|selection| ui_engine::engine::host_edit::Feedback::new(Some(selection)));
         let art = ScreenArt {
             view: Some(&view),
             tooltip,
             pointer,
             clocks: Some(clocks),
             overlay: &overlay,
+            edit,
             ..ScreenArt::default()
         };
         let mut item_renderer = ItemRenderer {
