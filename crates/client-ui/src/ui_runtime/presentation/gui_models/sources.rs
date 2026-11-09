@@ -33,12 +33,13 @@ pub(in crate::ui_runtime::presentation) fn ordinary_cube_sheet(rgba8: &[u8]) -> 
     sheet_coverage(rgba8) == SheetCoverage::Opaque
 }
 
-/// Normalizes non-blended cube faces like the thumbnail baker. Fractional blended faces or
-/// unresolved alpha modes keep the thumbnail; binary alpha is independent of material mode.
+/// Preserves covered samples for shader testing and normalizes other non-blended cube faces.
+/// Other fractional blended faces or unresolved alpha modes keep the thumbnail.
 pub(super) fn gui_cube_sheet(
     world: &RuntimeAssets,
     visual: BlockVisualId,
     sprite: &IconSprite,
+    render_kind: assets::facts::BlockRenderKind,
 ) -> Option<IconSprite> {
     let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE;
     if [sprite.width, sprite.height] != [width, height]
@@ -46,7 +47,9 @@ pub(super) fn gui_cube_sheet(
     {
         return None;
     }
-    if sheet_coverage(&sprite.rgba8) != SheetCoverage::Translucent {
+    if assets::gui_item::forces_covered_gui_alpha(render_kind)
+        || sheet_coverage(&sprite.rgba8) != SheetCoverage::Translucent
+    {
         return Some(sprite.clone());
     }
     let block = world.resolve(NetworkIdMode::Sequential, visual.0);

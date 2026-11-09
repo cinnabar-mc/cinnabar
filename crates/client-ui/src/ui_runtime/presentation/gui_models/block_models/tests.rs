@@ -94,6 +94,46 @@ fn a_stair_item_draws_its_template_quads_instead_of_the_thumbnail() {
 }
 
 #[test]
+fn copper_grate_models_keep_fractional_texels_for_shader_sampling() {
+    let quads = stair_quads(1);
+    let templates = [ModelTemplate {
+        quad_start: 0,
+        quad_count: quads.len() as u32,
+        flags: 0,
+    }];
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        let materials = [material(0), material(flags)];
+        let pages = [TexturePage::new(TextureArray {
+            layers: 1,
+            mips: vec![TextureMip {
+                size: SIDE,
+                rgba8: [200, 100, 80, 64].repeat((SIDE * SIDE) as usize).into(),
+            }]
+            .into(),
+        })];
+        let mut shape = stair(&quads, &templates, &materials, &pages);
+        shape.render_kind = assets::facts::BlockRenderKind::CopperGrate;
+        let mut atlas = Atlas::new(7, 1);
+        let mesh = shaped(&shape, &mut atlas).expect("covered models accept fractional alpha");
+        assert!(
+            mesh.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD))
+        );
+        let (pages, _) = atlas.finish().unwrap();
+        assert!(
+            pages[0]
+                .pixels()
+                .as_chunks::<4>()
+                .0
+                .contains(&[200, 100, 80, 64])
+        );
+    }
+}
+
+#[test]
 fn unsupported_materials_keep_the_thumbnail() {
     let templates = [ModelTemplate {
         quad_start: 0,

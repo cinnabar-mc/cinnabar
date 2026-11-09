@@ -37,7 +37,8 @@ pub(super) fn run(
     compiled: &CompiledEntityAssets,
     sprites: &mut Vec<IconSprite>,
 ) -> Result<BakedBlocks, AssetError> {
-    let mut block_models = BTreeMap::new();
+    // Reserved thumbnails have a model binding or item-specific coverage.
+    let mut isolated_sprites = BTreeMap::new();
     let mut held_sprites = BTreeMap::new();
     let mut flat_by_path: BTreeMap<Box<str>, Option<u32>> = BTreeMap::new();
     let mut flat_sprites = BTreeMap::new();
@@ -50,7 +51,7 @@ pub(super) fn run(
             blocks,
             path,
             sprites,
-            &block_models,
+            &isolated_sprites,
             &mut flat_by_path,
         )?;
         if let Some(sprite) = sprite {
@@ -141,7 +142,7 @@ pub(super) fn run(
                             blocks,
                             &path,
                             sprites,
-                            &block_models,
+                            &isolated_sprites,
                             &mut flat_by_path,
                         )?,
                         None => None,
@@ -153,11 +154,19 @@ pub(super) fn run(
                     *model_sprites_by_state.entry(state.0).or_insert_with(|| {
                         let sprite = sprites.len() as u32;
                         sprites.push(raster);
-                        block_models.insert(sprite, state);
+                        isolated_sprites.insert(sprite, Some(state));
                         sprite
                     })
+                } else if assets::gui_item::forces_covered_gui_alpha(gui_kind(
+                    blocks,
+                    BlockVisualId(visual),
+                )) {
+                    let sprite = sprites.len() as u32;
+                    sprites.push(raster);
+                    isolated_sprites.insert(sprite, None);
+                    sprite
                 } else {
-                    insert_sprite(sprites, raster, &block_models)
+                    insert_sprite(sprites, raster, &isolated_sprites)
                 };
                 if let Some(held) = held {
                     held_sprites.insert(sprite, held);
@@ -183,7 +192,7 @@ pub(super) fn run(
     let mut baked: BTreeMap<[u8; 32], Vec<(&cube::Cube<'_>, u32)>> = BTreeMap::new();
     let mut output_hashes: BTreeMap<[u8; 32], Vec<u32>> = BTreeMap::new();
     for (index, sprite) in sprites.iter().enumerate() {
-        if !block_models.contains_key(&(index as u32)) {
+        if !isolated_sprites.contains_key(&(index as u32)) {
             output_hashes
                 .entry(Sha256::digest(&sprite.rgba8).into())
                 .or_default()
@@ -232,7 +241,7 @@ pub(super) fn run(
             let sprite = compose_block_item_sheet(tiles)?;
             Some(IconBlockSheet {
                 visual: BlockVisualId(visual),
-                sprite: insert_sprite(sprites, sprite, &block_models),
+                sprite: insert_sprite(sprites, sprite, &isolated_sprites),
             })
         })
         .collect();
@@ -242,7 +251,7 @@ pub(super) fn run(
             let sprite = compose_block_item_sheet(tiles)?;
             Some(IconBlockSheet {
                 visual: BlockVisualId(visual),
-                sprite: insert_sprite(sprites, sprite, &block_models),
+                sprite: insert_sprite(sprites, sprite, &isolated_sprites),
             })
         })
         .collect();
@@ -252,12 +261,14 @@ pub(super) fn run(
         block_sprites,
         block_sheets,
         gui_block_sheets,
-        block_models: block_models
+        block_models: isolated_sprites
             .into_iter()
-            .map(|(sprite, visual)| IconBlockModel {
-                sprite,
-                visual,
-                held_sprite: held_sprites.get(&sprite).copied(),
+            .filter_map(|(sprite, visual)| {
+                Some(IconBlockModel {
+                    sprite,
+                    visual: visual?,
+                    held_sprite: held_sprites.get(&sprite).copied(),
+                })
             })
             .collect(),
     })
@@ -269,7 +280,7 @@ fn cached_flat_sprite(
     blocks: Option<&IconBlocks>,
     path: &str,
     sprites: &mut Vec<IconSprite>,
-    models: &BTreeMap<u32, BlockVisualId>,
+    isolated_sprites: &BTreeMap<u32, Option<BlockVisualId>>,
     cache: &mut BTreeMap<Box<str>, Option<u32>>,
 ) -> Result<Option<u32>, AssetError> {
     if let Some(sprite) = cache.get(path) {
@@ -279,22 +290,22 @@ fn cached_flat_sprite(
         .map(|blocks| blocks.flat_sprite(root, path))
         .transpose()?
         .flatten()
-        .map(|sprite| insert_sprite(sprites, sprite, models));
+        .map(|sprite| insert_sprite(sprites, sprite, isolated_sprites));
     cache.insert(path.into(), sprite);
     Ok(sprite)
 }
 
-/// Reuses thumbnail pixels only when the sprite is not bound to a native block model.
+/// Reuses pixels only from sprites without model bindings or item-specific coverage.
 fn insert_sprite(
     sprites: &mut Vec<IconSprite>,
     sprite: IconSprite,
-    block_models: &BTreeMap<u32, BlockVisualId>,
+    isolated_sprites: &BTreeMap<u32, Option<BlockVisualId>>,
 ) -> u32 {
     sprites
         .iter()
         .enumerate()
         .find_map(|(index, known)| {
-            (*known == sprite && !block_models.contains_key(&(index as u32))).then_some(index)
+            (*known == sprite && !isolated_sprites.contains_key(&(index as u32))).then_some(index)
         })
         .unwrap_or_else(|| {
             sprites.push(sprite);

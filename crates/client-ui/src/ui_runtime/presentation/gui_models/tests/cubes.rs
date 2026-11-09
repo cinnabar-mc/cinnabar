@@ -330,6 +330,7 @@ fn transparent_carried_sheets_preserve_shortened_models() {
                 &alpha::world([assets::MATERIAL_FLAG_ALPHA_CUTOUT; 6]),
                 VISUAL,
                 &sprite,
+                Default::default(),
             )
             .is_some(),
             "these source alpha modes can draw normalized cube faces"

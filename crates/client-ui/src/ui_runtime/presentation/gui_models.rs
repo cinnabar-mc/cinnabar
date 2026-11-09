@@ -365,7 +365,12 @@ impl GuiModelPreparation {
                 }
                 // Normalize alpha-tested faces using their material mode. Fractional blended
                 // faces retain the thumbnail's composited texels.
-                let Some(sprite) = gui_cube_sheet(world, block_visual, sprite) else {
+                let Some(sprite) = gui_cube_sheet(
+                    world,
+                    block_visual,
+                    sprite,
+                    assets::facts::block_render_fact(&entry.identifier).kind,
+                ) else {
                     continue;
                 };
                 // Optional sources follow required textures so discarding their meshes can

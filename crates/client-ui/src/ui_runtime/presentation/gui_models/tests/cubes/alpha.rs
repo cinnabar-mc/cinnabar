@@ -50,6 +50,46 @@ pub(super) fn world(flags: [u32; 6]) -> RuntimeAssets {
 }
 
 #[test]
+fn copper_grate_meshes_preserve_fractional_source_alpha() {
+    for flags in [
+        assets::MATERIAL_FLAG_ALPHA_CUTOUT,
+        assets::MATERIAL_FLAG_ALPHA_BLEND,
+    ] {
+        for alpha in [25, 26, 64, 127, 128] {
+            let name = "minecraft:copper_grate";
+            let (mut presentation, entities) = catalog_for(name, alpha, 255);
+            presentation
+                .set_gui_models(&world([flags; 6]), &entities)
+                .unwrap();
+            let icon = presentation.item_icon(name, 0).unwrap();
+            let mesh = &presentation.gui_models.sources.models[&icon_key(icon)];
+            let page = &presentation.textures.pages()[usize::from(mesh.batches()[0].texture_page)];
+            let pixels = page.pixels().as_chunks::<4>().0;
+            assert!(
+                pixels.contains(&[20, 40, 60, alpha]),
+                "source alpha survives for sampling and shading"
+            );
+            assert!(pixels.contains(&[20, 40, 60, 0]), "source holes survive");
+            assert!(
+                mesh.vertices()
+                    .iter()
+                    .all(|vertex| u32::from(vertex.style_flags)
+                        & render_model::UI_STYLE_COLOR_MASK
+                        != 0)
+            );
+            assert!(mesh.batches().iter().all(|batch| batch.alpha_cutoff
+                == Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD)));
+            let mut nodes = [control(icon, 127, false)];
+            presentation.apply_gui_models(&mut nodes);
+            assert!(
+                matches!(nodes[0].visual(), UiVisual::Mesh(_)),
+                "grate coverage keeps the mesh while fading"
+            );
+        }
+    }
+}
+
+#[test]
 fn copper_grate_coverage_survives_control_fades() {
     let mut names: BTreeSet<_> = assets::registry::read_registry_for_protocol(
         assets::pinned_block_registry_bytes(),
