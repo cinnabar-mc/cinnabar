@@ -220,7 +220,7 @@ impl PotionForm {
 }
 
 /// Native armour texture materials that are absent from tool-tier tags.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ArmourMaterial {
     Leather,
@@ -253,6 +253,19 @@ impl ArmourMaterial {
             Self::Diamond => 4,
             Self::Copper => 5,
             Self::Netherite => 6,
+        }
+    }
+
+    /// Names the trim material whose palette uses its darker variant on this armour.
+    #[must_use]
+    pub const fn trim_material(self) -> &'static str {
+        match self {
+            Self::Leather => "leather",
+            Self::Iron => "iron",
+            Self::Gold => "gold",
+            Self::Diamond => "diamond",
+            Self::Copper => "copper",
+            Self::Netherite => "netherite",
         }
     }
 }
@@ -337,15 +350,20 @@ impl ItemFact {
             }))
     }
 
-    /// Preserves the native armour texture order; unresolved materials use slot zero.
-    pub fn armor_texture_index(&self) -> u8 {
-        let material = if self.is_leather() {
+    /// Resolves armour material from admitted facts independently of selected artwork.
+    pub fn armor_material(&self) -> Option<ArmourMaterial> {
+        if self.is_leather() {
             Some(ArmourMaterial::Leather)
         } else {
             self.armour_material
                 .or_else(|| self.tier.and_then(ArmourMaterial::from_tier))
-        };
-        material.map_or(0, ArmourMaterial::texture_index)
+        }
+    }
+
+    /// Preserves the native armour texture order; unresolved materials use slot zero.
+    pub fn armor_texture_index(&self) -> u8 {
+        self.armor_material()
+            .map_or(0, ArmourMaterial::texture_index)
     }
 
     /// Tests an exact retail material or an admitted repair tag without parsing names.

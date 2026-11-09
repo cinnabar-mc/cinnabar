@@ -1,5 +1,6 @@
 //! Named, anonymous screen fixtures. Add a state here when a PR needs a new capture.
 
+mod armor_trims;
 mod audio_output;
 mod chat;
 mod collection_reveal;
@@ -16,6 +17,7 @@ mod registry;
 mod roster;
 mod server_forms;
 mod settings_screens;
+pub use settings_screens::settings;
 mod shader_options;
 mod shader_pack;
 mod social_settings;
@@ -42,6 +44,11 @@ pub struct State {
 
 /// Inputs borrowed by the same screen painters the client uses.
 pub enum Fixture {
+    /// Worn and inventory armor with and without trims.
+    #[cfg(feature = "test-support")]
+    ArmorTrims {
+        trimmed: bool,
+    },
     /// Unequal mask edges and high-resolution sprite minification.
     MaskRegression,
     /// Opaque black-backed cursor art on contrasting backgrounds.
@@ -156,21 +163,11 @@ const KEYBOARD_SIZE: [u32; 2] = [SIZE[0], 2000];
 /// Reaches the Video pane's Renderer row below the general options.
 const SHADER_PACK_ROW_SIZE: [u32; 2] = [SIZE[0], 1600];
 
-/// Opens a settings category by its registered name rather than a copied index.
-pub fn settings(section: &str) -> MenuView {
-    let mut view = MenuView::new(true, "Player".into());
-    view.screen = MenuScreen::Settings;
-    view.settings.section = launcher::menu::settings_sections::SETTINGS_SECTIONS
-        .iter()
-        .find_map(|(name, index)| (*name == section).then_some(*index))
-        .expect("registered settings category");
-    view
-}
-
 /// Enumerates every fixture, including the independently owned settings states.
 pub fn states() -> impl Iterator<Item = &'static State> {
     registry::STATES
         .iter()
+        .chain(armor_trims::STATES)
         .chain(out_of_game::STATES)
         .chain(out_of_game::WORLD_FORM_STATES)
         .chain(graphics_recovery::STATES)
