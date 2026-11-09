@@ -191,6 +191,7 @@ pub(crate) fn advance_local_physics(
             network.send_inventory_packets(vec![packet])
         });
     }
+    locals.settle_dismount_fence(&mut movement_ticker);
     publish_physics_view(&mut physics, &mut view);
 }
 

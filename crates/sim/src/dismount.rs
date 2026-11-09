@@ -49,6 +49,8 @@ impl Dismount {
                     continue;
                 };
                 if self.fits(world, [probe[0], probe[1] + floor, probe[2]]) {
+                    // Vanilla tests the block-centred probe but places the rider relative to
+                    // its seat, so a seat off its block's centre lands off the tested spot.
                     return Vec3::new(
                         f64::from(self.seat.x as f32 + offset[0]),
                         f64::from(base[1] + floor + level + FLOOR_CLEARANCE),

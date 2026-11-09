@@ -237,6 +237,9 @@ pub fn flush_player_auth_inputs_guarded<E>(
             .held_release
             .as_ref()
             .is_some_and(|held| sample.snapshot.tick > held.tick)
+            || ticker
+                .dismount_fence
+                .is_some_and(|fence| sample.snapshot.tick > fence)
         {
             break;
         }

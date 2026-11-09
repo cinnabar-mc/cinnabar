@@ -1,7 +1,7 @@
 //! Turns the rider's view with its vehicle when its seat locks rotation.
 
 use bevy::prelude::{Res, ResMut};
-use client_interaction::movement::LocalPhysicsController;
+use client_interaction::movement::{LocalPhysicsController, LocomotionState};
 use client_presentation::{
     actor_publication::{ActorFramePartialTick, ActorFrameState},
     camera::{VehicleLookFollow, predicted_heading},
@@ -12,10 +12,12 @@ use super::ClientWorld;
 
 /// Carries the look heading with the vehicle's turn this frame and holds it within the
 /// seat's range. A boat the player steers turns at its predicted heading for this frame;
-/// any other vehicle at the streamed heading this frame's actor step reaches.
+/// any other vehicle at the streamed heading this frame's actor step reaches. A player who
+/// got off its vehicle looks freely while the server's link catches up.
 pub(crate) fn follow_vehicle_look(
     client_world: Res<ClientWorld>,
     physics: Res<LocalPhysicsController>,
+    locomotion: Res<LocomotionState>,
     actor_frame: Res<ActorFrameState>,
     partial_tick: Res<ActorFramePartialTick>,
     mut follow: ResMut<VehicleLookFollow>,
@@ -24,14 +26,18 @@ pub(crate) fn follow_vehicle_look(
     let alpha = actor_frame
         .motion_step()
         .map_or(partial_tick.0, |step| step.partial_tick);
-    let lock = client_world.stream.as_ref().and_then(|stream| {
-        let authority = stream.authority();
-        let lock = authority.local_seat_view_lock(alpha)?;
-        Some(predicted_heading(
-            lock,
-            physics.predicted_vehicle_feed(),
-            authority.local_vehicle_revision(),
-        ))
-    });
+    let lock = client_world
+        .stream
+        .as_ref()
+        .filter(|_| !locomotion.got_off_mount())
+        .and_then(|stream| {
+            let authority = stream.authority();
+            let lock = authority.local_seat_view_lock(alpha)?;
+            Some(predicted_heading(
+                lock,
+                physics.predicted_vehicle_feed(),
+                authority.local_vehicle_revision(),
+            ))
+        });
     follow.follow(&mut view, lock);
 }

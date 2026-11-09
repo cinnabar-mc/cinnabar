@@ -96,6 +96,8 @@ pub struct LocomotionState {
 struct LeftMount {
     session: u64,
     mount: u64,
+    /// The server's mount changes when the player got off; a later change is a new ride.
+    mount_changes: u64,
     /// The network position the player got off at, which its dismount request reports.
     position: [f32; 3],
 }
@@ -159,7 +161,9 @@ impl LocomotionState {
         };
         if facts.ride.is_none() || !self.left(session, left.mount) {
             self.left_mount = None;
-        } else if facts.mount_runtime_id == Some(left.mount) {
+        } else if facts.mount_runtime_id == Some(left.mount)
+            && facts.mount_changes == left.mount_changes
+        {
             facts.ride = None;
             facts.ride_seat = None;
             facts.mount = None;
@@ -174,14 +178,16 @@ impl LocomotionState {
     /// Gets the player off the mount a pending press leaves, as vanilla's client does unless
     /// the server owns the mount's dismounts: the player stands where [`sim::Dismount`] puts
     /// it before this frame's ticks, and the server accepts the position the client reports.
-    /// Returns whether the player got off.
+    /// Movement after this point waits until the request reaches transport. Returns whether
+    /// the player got off.
     fn leave_mount(
         &mut self,
         facts: &LocalMovementFacts,
-        session: u64,
         physics: &mut LocalPhysicsController,
+        movement_ticker: &mut MovementTicker,
         world: &impl sim::CollisionWorld,
     ) -> bool {
+        let session = movement_ticker.session_generation;
         let Some((_, mount, _)) = self.pending_dismount.filter(|(at, ..)| *at == session) else {
             return false;
         };
@@ -222,12 +228,31 @@ impl LocomotionState {
             exit.z as f32,
         ];
         physics.apply_server_actor_position(position, None);
+        movement_ticker.dismount_fence = Some(movement_ticker.completed_tick());
         self.left_mount = Some(LeftMount {
             session,
             mount,
+            mount_changes: facts.mount_changes,
             position,
         });
         true
+    }
+
+    /// Lets movement after a dismount reach transport once no dismount request for the
+    /// mount the player got off still waits for it.
+    pub fn settle_dismount_fence(&self, movement_ticker: &mut MovementTicker) {
+        let waiting = self
+            .pending_dismount
+            .is_some_and(|(session, mount, _)| self.left(session, mount));
+        if !waiting {
+            movement_ticker.dismount_fence = None;
+        }
+    }
+
+    /// Whether the player got off its mount before the server's links dropped it.
+    #[must_use]
+    pub const fn got_off_mount(&self) -> bool {
+        self.left_mount.is_some()
     }
 
     /// Runs each fixed tick and admits its sample before any interaction producers run.
@@ -245,9 +270,10 @@ impl LocomotionState {
         let session = movement_ticker.session_generation;
         frame.facts = self.unseat(frame.facts, session);
         self.observe_dismount(&frame, session);
-        if self.leave_mount(&frame.facts, session, physics, world) {
+        if self.leave_mount(&frame.facts, physics, movement_ticker, world) {
             frame.facts = self.unseat(frame.facts, session);
         }
+        self.settle_dismount_fence(movement_ticker);
         let PhysicsFrameInput {
             now,
             active,

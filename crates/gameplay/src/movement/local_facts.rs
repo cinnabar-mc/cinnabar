@@ -22,6 +22,8 @@ pub struct LocalMovementFacts {
     pub ride_seat: Option<[f32; 3]>,
     /// The retained mount's placement, which places the player when it gets off.
     pub mount: Option<MountFacts>,
+    /// Counts the server's committed mount changes.
+    pub mount_changes: u64,
     /// The boat the player steers from its controlling seat.
     pub vehicle: Option<super::vehicle::SteeredVehicle>,
     /// The current vehicle selects the local player as its controller.
@@ -134,6 +136,7 @@ pub fn read(
                 }),
                 server_owns_dismount: mount.server_owns_dismount(),
             }),
+        mount_changes: player.facts.mount_changes(),
         vehicle: (ride == Some(super::RideKind::Boat))
             .then(|| steered_vehicle(stream))
             .flatten(),

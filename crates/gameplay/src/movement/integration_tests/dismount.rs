@@ -478,34 +478,73 @@ fn reported_position(packet: &protocol::Packet) -> [f32; 3] {
     })
 }
 
+/// Movement state for one rider across frames.
+struct Rider {
+    physics: LocalPhysicsController,
+    ticker: MovementTicker,
+    locals: super::LocomotionState,
+    effects: super::LocalMovementEffectTimeline,
+    speed: super::LocalMovementSpeedAuthority,
+}
+
+impl Rider {
+    fn new() -> Self {
+        let (physics, ticker) = walked_physics(0);
+        Self {
+            physics,
+            ticker,
+            locals: super::LocomotionState::default(),
+            effects: super::LocalMovementEffectTimeline::default(),
+            speed: super::LocalMovementSpeedAuthority::default(),
+        }
+    }
+
+    fn advance(&mut self, frame: super::PhysicsFrameInput) {
+        assert!(self.locals.advance(
+            frame,
+            &mut self.physics,
+            &mut self.ticker,
+            &mut self.effects,
+            &mut self.speed,
+            &BlockFloor
+        ));
+    }
+
+    /// Rides a frame on the still boat, then presses sneak on the next.
+    fn get_off(&mut self) {
+        self.advance(boat_frame(false));
+        assert_eq!(self.physics.mode(), sim::MovementMode::Riding);
+        let mut press = boat_frame(false);
+        press.sneak.pressed = true;
+        press.sneak.held = true;
+        self.advance(press);
+    }
+
+    /// Ticks of the movement packets transport accepts now.
+    fn flush_movement(&mut self) -> Vec<u64> {
+        let mut ticks = Vec::new();
+        flush_player_auth_inputs(
+            &mut self.ticker,
+            usize::MAX,
+            Some(evidence_context()),
+            |identity, _packet| {
+                ticks.push(identity.tick.get());
+                Ok::<_, &str>(())
+            },
+        )
+        .unwrap();
+        ticks
+    }
+}
+
 /// Getting off a boat resting on land stands the rider on the ground beside it at once and
 /// reports that position, rather than leaving it on a seat sunk into the ground.
 #[test]
 fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
-    let (mut physics, mut ticker) = walked_physics(0);
-    let mut locals = super::LocomotionState::default();
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    let mut speed = super::LocalMovementSpeedAuthority::default();
-    let mut advance = |locals: &mut super::LocomotionState,
-                       physics: &mut LocalPhysicsController,
-                       frame| {
-        assert!(locals.advance(
-            frame,
-            physics,
-            &mut ticker,
-            &mut effects,
-            &mut speed,
-            &BlockFloor
-        ));
-    };
-    advance(&mut locals, &mut physics, boat_frame(false));
-    assert_eq!(physics.mode(), sim::MovementMode::Riding);
-    let mut press = boat_frame(false);
-    press.sneak.pressed = true;
-    press.sneak.held = true;
-    advance(&mut locals, &mut physics, press);
-    assert_ne!(physics.mode(), sim::MovementMode::Riding);
-    let feet = physics.state().unwrap().position;
+    let mut rider = Rider::new();
+    rider.get_off();
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    let feet = rider.physics.state().unwrap().position;
     assert!(
         (feet.x - 0.5).abs() < 1.0e-4 && (feet.z + 0.5).abs() < 1.0e-4,
         "a still boat puts its rider on its north side: {feet:?}"
@@ -516,7 +555,8 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
     );
 
     let mut sent = Vec::new();
-    locals.flush_dismount(physics.network_position().unwrap(), |packet| {
+    let position = rider.physics.network_position().unwrap();
+    rider.locals.flush_dismount(position, |packet| {
         sent.push(reported_position(&packet));
         Ok(())
     });
@@ -530,19 +570,68 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
     );
 
     // The server's link lags the request; the rider stays off the boat meanwhile.
-    advance(&mut locals, &mut physics, boat_frame(false));
-    assert_ne!(physics.mode(), sim::MovementMode::Riding);
-    locals.flush_dismount(physics.network_position().unwrap(), |_| {
-        panic!("the request is sent once")
-    });
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    let position = rider.physics.network_position().unwrap();
+    rider
+        .locals
+        .flush_dismount(position, |_| panic!("the request is sent once"));
     let mut unlinked = boat_frame(false);
     unlinked.facts.ride = None;
     unlinked.facts.mount_runtime_id = None;
     unlinked.facts.mount = None;
-    advance(&mut locals, &mut physics, unlinked);
+    rider.advance(unlinked);
     // Riding again once the server links the rider anew.
-    advance(&mut locals, &mut physics, boat_frame(false));
-    assert_eq!(physics.mode(), sim::MovementMode::Riding);
+    rider.advance(boat_frame(false));
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+}
+
+/// A server that drops and restores the link between two frames seats the rider again.
+#[test]
+fn a_restored_link_seats_the_rider_again() {
+    let mut rider = Rider::new();
+    rider.get_off();
+    let position = rider.physics.network_position().unwrap();
+    rider.locals.flush_dismount(position, |_| Ok(()));
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    let mut relinked = boat_frame(false);
+    relinked.facts.mount_changes += 2;
+    rider.advance(relinked);
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+}
+
+/// Movement after getting off waits until the dismount request reaches transport, so the
+/// server never sees the rider walk while its link still seats it.
+#[test]
+fn movement_after_getting_off_waits_for_the_dismount_request() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    let seated = rider.ticker.completed_tick();
+    let mut press = boat_frame(false);
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    rider.advance(press);
+    assert!(rider.ticker.completed_tick() > seated);
+
+    let position = rider.physics.network_position().unwrap();
+    rider
+        .locals
+        .flush_dismount(position, |_| Err(protocol::BatchSendError::Full));
+    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    let before = rider.flush_movement();
+    assert!(
+        before.iter().all(|tick| *tick <= seated),
+        "only seated movement goes ahead of the request: {before:?}"
+    );
+
+    rider.locals.flush_dismount(position, |_| Ok(()));
+    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    let after = rider.flush_movement();
+    assert!(
+        !after.is_empty() && after.iter().all(|tick| *tick > seated),
+        "movement off the boat follows the request: {after:?}"
+    );
 }
 
 /// A mount whose dismounts only the server performs keeps its rider until the server moves it.
