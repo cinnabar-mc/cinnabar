@@ -348,6 +348,7 @@ fn compile_pack_sources(
             || assets::facts::block_render_fact(&record.name).kind
                 == assets::facts::BlockRenderKind::EnchantingTable
             || visuals::literal::is_literal_cube(record)
+            || visuals::literal::terrain_marker(record).is_some()
             || visuals::bubble_column::is_record(record)
             || visuals::beacon::is_record(record)
             || visuals::cube::is_hash_only(record)

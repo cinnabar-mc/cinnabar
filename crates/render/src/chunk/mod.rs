@@ -102,6 +102,7 @@ pub(crate) mod enhanced;
 mod extract;
 mod gpu;
 mod gpu_cull;
+mod markers;
 #[cfg(test)]
 pub(crate) use gpu_cull::app_tests::noop_render_plugin;
 pub(crate) use gpu_cull::{GpuCullLateLabel, admit_depth_sampling};
