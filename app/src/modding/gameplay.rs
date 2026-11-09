@@ -373,7 +373,6 @@ impl GameplayContext<'_> {
     pub(super) fn facts(
         &self,
         input_owned: bool,
-        ui: &client_ui::ui_runtime::UiRuntime,
         camera: Option<&GlobalTransform>,
         relayed: Option<[f32; 3]>,
         damage_shake: Option<client_presentation::camera::actor_effects::DamageShake>,
@@ -413,7 +412,7 @@ impl GameplayContext<'_> {
                             sprint: input.phase(semantic_input::Action::Sprint).held,
                         })
                 }),
-            block_target: input_owned.then(|| self.block_target(ui)).flatten(),
+            block_target: input_owned.then(|| self.block_target()).flatten(),
             attack_held: input_owned
                 && self
                     .input
@@ -439,7 +438,7 @@ impl GameplayContext<'_> {
     }
 
     /// Observes the current crosshair without applying any component mining request.
-    fn block_target(&self, ui: &client_ui::ui_runtime::UiRuntime) -> Option<GameplayVector3> {
+    fn block_target(&self) -> Option<GameplayVector3> {
         let stream = self.world.as_ref()?.stream.as_ref()?;
         let player = self.player.as_ref()?;
         let origin = self.origin.as_ref()?.outbound_ray()?;
@@ -480,7 +479,7 @@ impl GameplayContext<'_> {
         let actor = gameplay::melee::pick_actor_by(
             authority.remote_actors(),
             |actor| authority.pick_hit_boxes(actor),
-            ui.gameplay_hud().mount_unique_id(),
+            authority.local_mount_unique_id(),
             origin.origin().to_array(),
             origin.direction().to_array(),
             reach,

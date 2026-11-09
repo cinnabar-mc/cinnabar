@@ -154,7 +154,7 @@ impl WorldAuthority {
                     matches!(&event, ActorEvent::PlayerList(_) | ActorEvent::Skin { .. });
                 let local_removal = matches!(&event, ActorEvent::Remove(remove)
                     if remove.unique_id == self.local_player_unique_id && remove.dimension == self.current_dimension);
-                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
                 let local_attributes = if let ActorEvent::Attributes(update) = &event
                     && update.runtime_id == self.local_player_runtime_id
                     && update.dimension == self.current_dimension
@@ -427,7 +427,7 @@ impl WorldAuthority {
             }
             WorldEvent::ActorLink(event) => {
                 let sequence = sequence.expect("sequenced link events commit through submit");
-                let previous_mount = self.actors.ridden_unique_id(self.local_player_unique_id);
+                let previous_mount = self.actors.linked_unique_id(self.local_player_unique_id);
                 let _ = self
                     .actors
                     .apply_link(self.actor_session_id, sequence, event);
@@ -621,7 +621,7 @@ impl WorldAuthority {
 
     /// Publishes a local mount change after the actor mutation that caused it.
     pub fn publish_local_mount_change(&mut self, sequence: u64, previous: Option<i64>) {
-        let current = self.actors.ridden_unique_id(self.local_player_unique_id);
+        let current = self.actors.linked_unique_id(self.local_player_unique_id);
         if current != previous {
             self.push_committed_ui(CommittedUiEvent::LocalMount {
                 sequence,

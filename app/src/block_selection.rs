@@ -123,7 +123,7 @@ fn target(
         .ok()?;
     let actor = pick_actor(
         stream.authority().remote_actors(),
-        context.ui.gameplay_hud().mount_unique_id(),
+        stream.authority().local_mount_unique_id(),
         ray.origin().to_array(),
         ray.direction().to_array(),
         reach,
