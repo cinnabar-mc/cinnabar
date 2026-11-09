@@ -169,7 +169,7 @@ impl MenuRuntime {
             auth_attempted: false,
             auth_restart_requested: false,
             saved_sign_in_checked: false,
-            sign_in_resumed: false,
+            sign_in_resumed: None,
             account_core: None,
             layout,
             default_player_skin: player_skin

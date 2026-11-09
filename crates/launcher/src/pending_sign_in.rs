@@ -13,9 +13,11 @@ const SUFFIX: &str = include_str!("../../../core/authcache/pending_prompt_suffix
 /// Matches the helper's own bound on a saved prompt.
 const MAX_BYTES: u64 = 8 * 1024;
 
-/// The part of the saved prompt the client reads; the code itself stays with the helper.
+/// The part of the saved prompt the client reads; the device code itself stays with the helper.
 #[derive(serde::Deserialize)]
 struct SavedPrompt {
+    /// The code the player enters in the browser, as the prompt showed it.
+    user_code: String,
     /// Unix seconds after which the provider no longer accepts the code.
     expires_at: i64,
 }
@@ -27,25 +29,21 @@ pub fn path(cache: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// Whether a prompt saved for `cache` still awaits approval at `now`. Missing, unreadable and
-/// expired prompts count as none; the helper removes them when it next runs.
-pub fn awaiting(cache: &Path, now: SystemTime) -> bool {
-    let Ok(file) = fs::File::open(path(cache)) else {
-        return false;
-    };
+/// The user code of a prompt saved for `cache` that still awaits approval at `now`. Missing,
+/// unreadable and expired prompts count as none; the helper removes them when it next runs.
+pub fn awaiting(cache: &Path, now: SystemTime) -> Option<String> {
+    let file = fs::File::open(path(cache)).ok()?;
     let mut contents = Vec::new();
     if file.take(MAX_BYTES + 1).read_to_end(&mut contents).is_err()
         || contents.len() as u64 > MAX_BYTES
     {
-        return false;
+        return None;
     }
-    let Ok(saved) = serde_json::from_slice::<SavedPrompt>(&contents) else {
-        return false;
-    };
+    let saved = serde_json::from_slice::<SavedPrompt>(&contents).ok()?;
     let now = now.duration_since(UNIX_EPOCH).map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
     });
-    now < saved.expires_at
+    (now < saved.expires_at).then_some(saved.user_code)
 }
 
 /// Removes the prompt saved for `cache`, so a sign-in the player abandoned is not reopened.
@@ -71,19 +69,24 @@ mod tests {
         let cache = directory.join("microsoft-token.json");
         fs::create_dir_all(&directory).unwrap();
         let at = |seconds| UNIX_EPOCH + Duration::from_secs(seconds);
-        assert!(!awaiting(&cache, at(0)), "no prompt was saved");
+        assert_eq!(awaiting(&cache, at(0)), None, "no prompt was saved");
         fs::write(path(&cache), FIXTURE).unwrap();
-        assert!(awaiting(&cache, at(FIXTURE_EXPIRY - 1)));
-        assert!(
-            !awaiting(&cache, at(FIXTURE_EXPIRY)),
+        assert_eq!(
+            awaiting(&cache, at(FIXTURE_EXPIRY - 1)).as_deref(),
+            Some("ABCD-1234")
+        );
+        assert_eq!(
+            awaiting(&cache, at(FIXTURE_EXPIRY)),
+            None,
             "the code has expired"
         );
         forget(&cache).unwrap();
         assert!(!path(&cache).exists());
         forget(&cache).expect("forgetting twice is harmless");
         fs::write(path(&cache), b"{not json").unwrap();
-        assert!(
-            !awaiting(&cache, at(0)),
+        assert_eq!(
+            awaiting(&cache, at(0)),
+            None,
             "an unreadable prompt is not reopened"
         );
     }

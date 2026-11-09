@@ -127,15 +127,21 @@ impl MenuRuntime {
         {
             return;
         }
-        if launcher::pending_sign_in::awaiting(&self.layout.auth_cache(), now) {
+        let code = if let Some(code) =
+            launcher::pending_sign_in::awaiting(&self.layout.auth_cache(), now)
+        {
             self.start_sign_in();
-        } else if launcher::pending_sign_in::awaiting(&self.account_store().pending_cache(), now) {
+            code
+        } else if let Some(code) =
+            launcher::pending_sign_in::awaiting(&self.account_store().pending_cache(), now)
+        {
             self.resume_add_account();
+            code
         } else {
             return;
-        }
+        };
         // An Add account that could not open started nothing to resume.
-        self.sign_in_resumed = self.auth_process.is_some();
+        self.sign_in_resumed = self.auth_process.is_some().then_some(code);
     }
 
     /// The token cache the current sign-in writes: the pending one while adding an account.
@@ -261,7 +267,7 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = true;
         self.sign_in_cancelled = false;
-        self.sign_in_resumed = false;
+        self.sign_in_resumed = None;
         self.focus_sign_in_prompt();
         self.auth_attempted = true;
         self.stop_catalog();
@@ -320,9 +326,12 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
         );
-        // Only the resumed code was taken to the browser before; a later Xbox signup page was not.
-        let already_opened =
-            self.sign_in_resumed && matches!(state, AuthState::AwaitingCode { .. });
+        // Only the resumed code was taken to the browser before; a fresh code the helper got
+        // instead, or a later Xbox signup page, was not.
+        let already_opened = matches!(
+            (state, &self.sign_in_resumed),
+            (AuthState::AwaitingCode { code, .. }, Some(resumed)) if code == resumed
+        );
         if state.awaiting_browser() && (explicit || !already_opened) {
             #[cfg(not(test))]
             self.sign_in_browser
@@ -491,7 +500,7 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
-        self.sign_in_resumed = false;
+        self.sign_in_resumed = None;
         let cache = self.sign_in_cache();
         if let Err(error) = launcher::pending_sign_in::forget(&cache) {
             bevy::log::warn!(%error, "abandoned sign-in prompt could not be removed");
