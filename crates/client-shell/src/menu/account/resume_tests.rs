@@ -6,16 +6,22 @@ use super::*;
 
 const SAVED_CODE: &str = "SAVED-CODE";
 
-/// Installs a sign-in helper that resumes `SAVED_CODE` and waits for approval.
+/// Installs a sign-in helper that resumes `SAVED_CODE`, taking over its saved prompt with the
+/// owner tag it was given as the real helper does, and waits for approval.
 fn install_resuming_helper(menu: &mut MenuRuntime) {
     let helper = menu.layout.user_data_root.join("resuming-helper.sh");
     fs::create_dir_all(&menu.layout.user_data_root).unwrap();
+    let suffix = launcher::pending_sign_in::path(Path::new(""));
     fs::write(
         &helper,
         format!(
-            "#!/bin/sh\nprintf '%s\\n' '{{\"v\":1,\"event\":\"checking_cache\"}}'\n\
+            "#!/bin/sh\n\
+             while [ $# -gt 0 ]; do case \"$1\" in -auth-cache) cache=$2; shift;; -auth-prompt-owner) owner=$2; shift;; esac; shift; done\n\
+             printf '{{\"user_code\":\"{SAVED_CODE}\",\"expires_at\":4102444800,\"owner\":\"%s\"}}' \"$owner\" > \"$cache{}\"\n\
+             printf '%s\\n' '{{\"v\":1,\"event\":\"checking_cache\"}}'\n\
              printf '%s\\n' '{{\"v\":1,\"event\":\"device_code\",\"verification_uri\":\"https://example.invalid\",\"user_code\":\"{SAVED_CODE}\"}}'\n\
-             exec sleep 30\n"
+             exec sleep 30\n",
+            suffix.display()
         ),
     )
     .unwrap();

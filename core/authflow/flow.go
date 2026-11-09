@@ -34,6 +34,8 @@ type Config struct {
 	DeviceToken  func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error)
 	Refresh      func(*oauth2.Token, io.Writer) oauth2.TokenSource
 	CachedSource func(context.Context, authcache.Config) (oauth2.TokenSource, error)
+	// PromptOwner tags the saved prompt for the client that started this run; see DeviceFlow.Owner.
+	PromptOwner string
 	// CompleteSignIn caches what a join needs beyond the OAuth token; nil skips it.
 	CompleteSignIn func(ctx context.Context, path string, source oauth2.TokenSource) error
 }
@@ -72,7 +74,7 @@ func Run(ctx context.Context, config Config) error {
 	acquired := false
 	request := func(ctx context.Context, _ io.Writer) (*oauth2.Token, error) {
 		config.logStep("sign-in requesting device code")
-		flow := DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken, Pending: config.Path, Logger: config.Logger}
+		flow := DeviceFlow{Authorize: config.DeviceAuth, Token: config.DeviceToken, Pending: config.Path, Owner: config.PromptOwner, Logger: config.Logger}
 		token, err := flow.Request(ctx, func(response *oauth2.DeviceAuthResponse) error {
 			if err := emit(writer, event{
 				Version: 1, Kind: "device_code", VerificationURI: response.VerificationURI,

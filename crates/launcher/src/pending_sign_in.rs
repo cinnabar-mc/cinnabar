@@ -20,6 +20,9 @@ struct SavedPrompt {
     user_code: String,
     /// Unix seconds after which the provider no longer accepts the code.
     expires_at: i64,
+    /// The tag of the client whose helper last saved the prompt.
+    #[serde(default)]
+    owner: String,
 }
 
 /// Where the helper saves the prompt awaiting approval for the token cache at `cache`.
@@ -29,9 +32,8 @@ pub fn path(cache: &Path) -> PathBuf {
     PathBuf::from(name)
 }
 
-/// The user code of a prompt saved for `cache` that still awaits approval at `now`. Missing,
-/// unreadable and expired prompts count as none; the helper removes them when it next runs.
-pub fn awaiting(cache: &Path, now: SystemTime) -> Option<String> {
+/// Reads the prompt saved for `cache`; missing and unreadable prompts count as none.
+fn read(cache: &Path) -> Option<SavedPrompt> {
     let file = fs::File::open(path(cache)).ok()?;
     let mut contents = Vec::new();
     if file.take(MAX_BYTES + 1).read_to_end(&mut contents).is_err()
@@ -39,7 +41,13 @@ pub fn awaiting(cache: &Path, now: SystemTime) -> Option<String> {
     {
         return None;
     }
-    let saved = serde_json::from_slice::<SavedPrompt>(&contents).ok()?;
+    serde_json::from_slice(&contents).ok()
+}
+
+/// The user code of a prompt saved for `cache` that still awaits approval at `now`. Missing,
+/// unreadable and expired prompts count as none; the helper removes them when it next runs.
+pub fn awaiting(cache: &Path, now: SystemTime) -> Option<String> {
+    let saved = read(cache)?;
     let now = now.duration_since(UNIX_EPOCH).map_or(0, |since| {
         i64::try_from(since.as_secs()).unwrap_or(i64::MAX)
     });
@@ -54,6 +62,15 @@ pub fn forget(cache: &Path) -> io::Result<()> {
     }
 }
 
+/// Removes the prompt saved for `cache` only if the helper tagged `owner` saved it last. Another
+/// client sharing the install keeps a prompt its own helper saved or took over.
+pub fn forget_owned(cache: &Path, owner: &str) -> io::Result<()> {
+    match read(cache) {
+        Some(saved) if saved.owner == owner => forget(cache),
+        _ => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -62,6 +79,7 @@ mod tests {
     /// The helper's own encoding, shared with `core/authcache`'s conformance test.
     const FIXTURE: &str = include_str!("../../../core/authcache/testdata/pending_prompt.json");
     const FIXTURE_EXPIRY: u64 = 1_893_456_000;
+    const FIXTURE_OWNER: &str = "client-1";
 
     #[test]
     fn a_saved_prompt_awaits_approval_until_it_expires_and_forgetting_removes_it() {
@@ -89,5 +107,20 @@ mod tests {
             None,
             "an unreadable prompt is not reopened"
         );
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn only_the_owning_client_forgets_a_saved_prompt() {
+        let directory = crate::test_support::scratch("pending-sign-in-owner").user_data_root;
+        let cache = directory.join("microsoft-token.json");
+        fs::create_dir_all(&directory).unwrap();
+        fs::write(path(&cache), FIXTURE).unwrap();
+        forget_owned(&cache, "another-client").unwrap();
+        assert!(path(&cache).exists(), "another client's prompt was removed");
+        forget_owned(&cache, FIXTURE_OWNER).unwrap();
+        assert!(!path(&cache).exists());
+        forget_owned(&cache, FIXTURE_OWNER).expect("a missing prompt is already forgotten");
+        fs::remove_dir_all(directory).unwrap();
     }
 }

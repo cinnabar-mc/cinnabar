@@ -501,24 +501,6 @@ impl MenuRuntime {
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
         self.sign_in_resumed = None;
-        // Only this client's own unfinished sign-in is abandoned. Another client sharing the
-        // install may be waiting on a prompt saved for the same cache.
-        let abandoned = (self.auth_restart_requested
-            || matches!(
-                self.auth_process.as_ref().map(AuthSupervisor::state),
-                Some(
-                    AuthState::Checking
-                        | AuthState::AwaitingCode { .. }
-                        | AuthState::AwaitingXboxSignup { .. }
-                        | AuthState::Failed(_)
-                )
-            ))
-        .then(|| self.sign_in_cache());
-        if let Some(cache) = &abandoned
-            && let Err(error) = launcher::pending_sign_in::forget(cache)
-        {
-            bevy::log::warn!(%error, "abandoned sign-in prompt could not be removed");
-        }
         // Cancellation is sticky. Only the explicit StartSignIn action may
         // create another helper after this point.
         if matches!(
@@ -536,10 +518,8 @@ impl MenuRuntime {
         self.auth_restart_requested = false;
         if let Some(mut process) = self.auth_process.take() {
             process.cancel_prompt();
-            // A helper cancelled mid-request may still save its prompt before it exits.
-            if let Some(cache) = abandoned {
-                process.forget_prompt_after_exit(cache);
-            }
+            // Only the prompt this client's helper saved; another client may share the install.
+            process.abandon_prompt();
             self.auth_process = Some(process);
         }
     }

@@ -26,6 +26,8 @@ type pendingPrompt struct {
 	VerificationURIComplete string `json:"verification_uri_complete,omitempty"`
 	ExpiresAt               int64  `json:"expires_at"`
 	Interval                int64  `json:"interval,omitempty"`
+	// Owner is the client that may remove the prompt when its player abandons the sign-in.
+	Owner string `json:"owner,omitempty"`
 }
 
 // PendingPromptPath returns where the device prompt awaiting approval for the token cache at
@@ -34,17 +36,18 @@ func PendingPromptPath(oauthPath string) string {
 	return oauthPath + pendingPromptSuffix
 }
 
-// SavePendingPrompt privately saves response for oauthPath, so a sign-in whose process the
-// system ended, as phones do to apps left for the browser, can resume polling the same code.
-// A prompt without an expiry is not saved, since a later process could not tell it had lapsed.
-func SavePendingPrompt(oauthPath string, response *oauth2.DeviceAuthResponse) error {
+// SavePendingPrompt privately saves response for oauthPath, tagged with owner, so a sign-in whose
+// process the system ended, as phones do to apps left for the browser, can resume polling the
+// same code. A prompt without an expiry is not saved, since a later process could not tell it had
+// lapsed.
+func SavePendingPrompt(oauthPath string, response *oauth2.DeviceAuthResponse, owner string) error {
 	if response == nil || response.Expiry.IsZero() {
 		return nil
 	}
 	serialized, err := json.Marshal(pendingPrompt{
 		DeviceCode: response.DeviceCode, UserCode: response.UserCode,
 		VerificationURI: response.VerificationURI, VerificationURIComplete: response.VerificationURIComplete,
-		ExpiresAt: response.Expiry.Unix(), Interval: response.Interval,
+		ExpiresAt: response.Expiry.Unix(), Interval: response.Interval, Owner: owner,
 	})
 	if err != nil {
 		return err

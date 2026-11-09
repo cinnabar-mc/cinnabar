@@ -27,6 +27,9 @@ type DeviceFlow struct {
 	// Pending is the token cache whose prompt is saved while it awaits approval, so a process
 	// ended meanwhile resumes the same code; empty saves nothing. See authcache.SavePendingPrompt.
 	Pending string
+	// Owner tags the saved prompt, so only the client whose helper last saved it removes it when
+	// the player abandons the sign-in. A resumed prompt is taken over by the new owner.
+	Owner string
 	// Logger records a prompt that could not be saved; nil discards it.
 	Logger *slog.Logger
 }
@@ -89,6 +92,7 @@ func (f DeviceFlow) resume() (*oauth2.DeviceAuthResponse, bool) {
 		f.forget()
 		return nil, false
 	}
+	f.save(response)
 	return response, true
 }
 
@@ -97,7 +101,7 @@ func (f DeviceFlow) save(response *oauth2.DeviceAuthResponse) {
 	if f.Pending == "" {
 		return
 	}
-	if err := authcache.SavePendingPrompt(f.Pending, response); err != nil && f.Logger != nil {
+	if err := authcache.SavePendingPrompt(f.Pending, response, f.Owner); err != nil && f.Logger != nil {
 		f.Logger.Warn("sign-in prompt not saved for resuming", "diagnostic", authcache.FailureDiagnostic(err))
 	}
 }

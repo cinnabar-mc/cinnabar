@@ -133,9 +133,11 @@ pub struct AuthSupervisor {
     terminal: bool,
     checking_seen: bool,
     reaped: Arc<AtomicBool>,
-    /// The token cache whose saved prompt is removed once the helper has exited; the reaper sets
-    /// `reaped` under this lock, so a request never misses the exit.
-    abandoned_prompt: Arc<Mutex<Option<PathBuf>>>,
+    /// The prompt this helper saves or takes over, tagged for this client alone.
+    prompt: Option<OwnedPrompt>,
+    /// The abandoned prompt to remove once the helper has exited; the reaper sets `reaped` under
+    /// this lock, so a request never misses the exit.
+    abandoned_prompt: Arc<Mutex<Option<OwnedPrompt>>>,
     stream_ended: bool,
     child_exited: bool,
     cancel_requested: bool,
@@ -143,17 +145,54 @@ pub struct AuthSupervisor {
     success_cleanup_forced: bool,
 }
 
+/// A saved sign-in prompt and the tag the helper writes into it for this client.
+#[derive(Clone, Debug)]
+struct OwnedPrompt {
+    cache: PathBuf,
+    owner: String,
+}
+
+impl OwnedPrompt {
+    /// Removes the prompt if this client's helper saved it last, logging a failure.
+    fn forget(&self) {
+        if let Err(error) = launcher::pending_sign_in::forget_owned(&self.cache, &self.owner) {
+            tracing::warn!(%error, "abandoned sign-in prompt could not be removed");
+        }
+    }
+}
+
+/// A tag no other helper of this or another client is given.
+fn prompt_owner() -> String {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_nanos());
+    format!(
+        "{}-{nanos}-{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
 impl AuthSupervisor {
     pub fn spawn(executable: &Path, cache: &Path) -> Result<Self> {
+        let owner = prompt_owner();
         let child = crate::lifecycle::core_output::spawn(
             Command::new(executable)
                 .arg("-auth-events")
                 .arg("-auth-cache")
-                .arg(cache),
+                .arg(cache)
+                .arg("-auth-prompt-owner")
+                .arg(&owner),
             crate::lifecycle::core_output::CoreRole::SignIn,
         )
         .with_context(|| format!("start sign-in helper {}", executable.display()))?;
-        Self::from_child(child)
+        let mut supervisor = Self::from_child(child)?;
+        supervisor.prompt = Some(OwnedPrompt {
+            cache: cache.to_owned(),
+            owner,
+        });
+        Ok(supervisor)
     }
 
     pub(super) fn from_child(child: impl Into<Spawned>) -> Result<Self> {
@@ -171,6 +210,7 @@ impl AuthSupervisor {
             terminal: false,
             checking_seen: false,
             reaped: Arc::new(AtomicBool::new(false)),
+            prompt: None,
             abandoned_prompt: Arc::new(Mutex::new(None)),
             stream_ended: false,
             child_exited: false,
@@ -295,16 +335,21 @@ impl AuthSupervisor {
         self.reaped.load(Ordering::Acquire)
     }
 
-    /// Removes the prompt saved for `cache` once this helper has exited, so a helper cancelled
-    /// while it was still saving one cannot leave it for the next launch to reopen.
-    pub fn forget_prompt_after_exit(&mut self, cache: PathBuf) {
+    /// Removes the prompt this helper saved or took over, now and again once the helper has
+    /// exited, since one cancelled mid-request may still save it on the way out. A prompt that
+    /// another client's helper saved is left alone.
+    pub fn abandon_prompt(&mut self) {
+        let Some(prompt) = self.prompt.clone() else {
+            return;
+        };
+        prompt.forget();
         let mut abandoned = lock_ignoring_poison(&self.abandoned_prompt);
-        if self.reaped.load(Ordering::Acquire) {
-            drop(abandoned);
-            forget_prompt(&cache);
-        } else {
-            *abandoned = Some(cache);
+        if !self.reaped.load(Ordering::Acquire) {
+            *abandoned = Some(prompt);
+            return;
         }
+        drop(abandoned);
+        prompt.forget();
     }
 
     fn handoff_reap(&mut self) {
@@ -320,8 +365,8 @@ impl AuthSupervisor {
                 let _ = reader.join();
             }
             let mut abandoned = lock_ignoring_poison(&abandoned);
-            if let Some(cache) = abandoned.take() {
-                forget_prompt(&cache);
+            if let Some(prompt) = abandoned.take() {
+                prompt.forget();
             }
             reaped.store(true, Ordering::Release);
         });
@@ -333,13 +378,6 @@ fn lock_ignoring_poison<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Removes an abandoned sign-in's saved prompt, logging a failure.
-fn forget_prompt(cache: &Path) {
-    if let Err(error) = launcher::pending_sign_in::forget(cache) {
-        tracing::warn!(%error, "abandoned sign-in prompt could not be removed");
-    }
 }
 
 fn apply_event(state: &mut AuthState, terminal: &mut bool, checking_seen: &mut bool, line: &[u8]) {
@@ -629,23 +667,34 @@ mod tests {
         std::fs::create_dir_all(&directory).unwrap();
         let cache = directory.join("microsoft-token.json");
         let prompt = launcher::pending_sign_in::path(&cache);
+        let saved_by = |owner: &str| {
+            format!(r#"{{"user_code":"ABCD-1234","expires_at":4102444800,"owner":"{owner}"}}"#)
+        };
         // The helper is still finishing its device request when the player cancels.
         let child = Command::new("sh")
             .arg("-c")
-            .arg(r#"sleep 0.2; printf '{"expires_at":4102444800}' > "$1""#)
+            .arg(r#"sleep 0.2; printf '%s' "$2" > "$1""#)
             .arg("helper")
             .arg(&prompt)
+            .arg(saved_by("this-client"))
             .stdout(Stdio::piped())
             .spawn()
             .unwrap();
         let mut supervisor = AuthSupervisor::from_child(child).unwrap();
-        supervisor.forget_prompt_after_exit(cache.clone());
+        supervisor.prompt = Some(OwnedPrompt {
+            cache: cache.clone(),
+            owner: "this-client".into(),
+        });
+        supervisor.abandon_prompt();
         test_time::wait_until(Duration::from_secs(5), || {
             supervisor.poll();
             supervisor.cleanup_complete()
         });
         assert!(!prompt.exists(), "the abandoned prompt outlived its helper");
-        supervisor.forget_prompt_after_exit(cache);
+        // Another client sharing the install has since saved its own prompt.
+        std::fs::write(&prompt, saved_by("another-client")).unwrap();
+        supervisor.abandon_prompt();
+        assert!(prompt.exists(), "another client's prompt was removed");
         std::fs::remove_dir_all(directory).unwrap();
     }
 
