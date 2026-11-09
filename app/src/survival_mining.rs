@@ -5,7 +5,7 @@ use crate::interaction_authority::observe_block;
 use client_interaction::mining::hand_interaction_selection;
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use gameplay::{
-    interaction_authority::within_pick_range,
+    interaction_authority::block_pick_in_range,
     melee::{RefusedDestroy, RefusedDestroyReason},
     mining::{creative_reach, protocol_input_mode, survival_reach},
     survival_mining::{
@@ -23,11 +23,21 @@ pub(crate) enum DestroyObservation {
     Refused(RefusedDestroy),
 }
 
+/// The camera ray a destroy target is picked with, and what trims it.
+pub(crate) struct DestroyPick<'a> {
+    pub(crate) origin: &'a client_presentation::local_player::InteractionOriginSnapshot,
+    /// Ticked position the pick is trimmed from; the ray origin without one.
+    pub(crate) ticked: Option<[f32; 3]>,
+    /// Block already being destroyed: refreshing an accepted pick keeps it past the centre
+    /// distance, so a later position does not drop it.
+    pub(crate) held: Option<[i32; 3]>,
+}
+
 /// Reads the destroy facts used for this frame's block press.
 pub(crate) fn observe_destroy_target(
     player_runtime: &client_state::PlayerRuntime,
     context: &crate::melee::MeleeContext,
-    origin: &client_presentation::local_player::InteractionOriginSnapshot,
+    pick: DestroyPick<'_>,
     caps: Option<GameModeCapabilities>,
     input_mode: semantic_input::InputMode,
     input_authority: (InputAuthorityGeneration, InputSequence),
@@ -42,7 +52,7 @@ pub(crate) fn observe_destroy_target(
     let selection = hand_interaction_selection(player_runtime)?;
     let input_mode = protocol_input_mode(input_mode);
     let observed = observe_block(
-        origin,
+        pick.origin,
         ui,
         &context.client_world,
         &context.collisions,
@@ -59,7 +69,13 @@ pub(crate) fn observe_destroy_target(
             position_authority_generation,
         ),
     )?;
-    if !within_pick_range(&observed) {
+    if pick.held != Some(observed.target.position)
+        && !block_pick_in_range(
+            observed.target.position,
+            pick.ticked.unwrap_or(observed.ray.origin),
+            observed.reach,
+        )
+    {
         return None;
     }
     let stream = context.client_world.stream.as_ref()?;

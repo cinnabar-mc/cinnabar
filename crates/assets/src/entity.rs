@@ -55,11 +55,10 @@ pub use v4::{
     EntityRenderLayer, EntityRenderMaterial, EntityRenderMaterialSelection,
     EntityRenderMaterialState, EntityRenderSlot, EntityRenderVisibility, EntityRigAnimationBinding,
     EntityRigBinding, EntityRigControllerBinding, EntityRigFallback, EntityRigGeometryBinding,
-    MAX_ENTITY_ANIMATION_CHANNELS, MAX_ENTITY_ANIMATION_CLIPS, MAX_ENTITY_ANIMATION_KEYFRAMES,
-    MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING, MAX_ENTITY_CONTROLLER_STATES,
-    MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS, MAX_ENTITY_RENDER_CANDIDATES,
-    MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES, MAX_ENTITY_RENDER_SLOTS,
-    MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_ANIMATIONS, MAX_ENTITY_RIG_BINDINGS,
+    MAX_ENTITY_ANIMATION_ENTRIES, MAX_ENTITY_CONTROLLER_ANIMATIONS, MAX_ENTITY_CONTROLLER_NESTING,
+    MAX_ENTITY_CONTROLLER_STATES, MAX_ENTITY_CONTROLLER_TRANSITIONS, MAX_ENTITY_CONTROLLERS,
+    MAX_ENTITY_RENDER_CANDIDATES, MAX_ENTITY_RENDER_LAYERS, MAX_ENTITY_RENDER_PATTERN_BYTES,
+    MAX_ENTITY_RENDER_SLOTS, MAX_ENTITY_RENDER_VISIBILITY, MAX_ENTITY_RIG_BINDINGS,
     MAX_ENTITY_RIG_CONTROLLERS, MAX_ENTITY_RIG_GEOMETRIES, MAX_MOLANG_COLLECTION_ITEMS,
     MAX_MOLANG_COLLECTION_ITEMS_TOTAL, MAX_MOLANG_COLLECTIONS, MAX_MOLANG_EXPRESSIONS,
     MAX_MOLANG_LOOP_DEPTH, MAX_MOLANG_LOOP_ITERATIONS, MAX_MOLANG_OPS,
@@ -70,9 +69,8 @@ pub use v4::{
 };
 
 pub const ENTITY_BLOB_MAGIC: [u8; 8] = *b"MCBEENT3";
-/// Includes item-use, seat, interaction, rig-frame, intrinsic shine and geometry-locator facts;
-/// stale carriers need `make assets`.
-pub const ENTITY_BLOB_VERSION: u32 = 24;
+/// Includes authored held-item visibility; stale carriers need `make assets`.
+pub const ENTITY_BLOB_VERSION: u32 = 25;
 /// Actor rig id ranges (a rig id is a `u32`):
 /// - `0..PACK_RIG_ID_BASE`: vanilla catalog rig-geometry bindings, and from `0x2000_0000`
 ///   the catalog geometries render controllers draw beside the rig (`0x2000_0000 + index`).

@@ -83,6 +83,41 @@ fn entity_hover_held_item_change_reports_the_same_actor_again() {
 }
 
 #[test]
+fn entity_hover_actor_data_update_reports_the_same_actor_again() {
+    let (mut app, mut captured) = hover_app();
+    assert_eq!(hover_tick(&mut app, &mut captured, 102).len(), 1);
+    {
+        let mut client = app
+            .world_mut()
+            .resource_mut::<crate::runtime::world::ClientWorld>();
+        let stream = client.stream.as_mut().unwrap();
+        let sequence = stream.committed_sequence() + 1;
+        stream
+            .submit(
+                sequence,
+                protocol::WorldEvent::Actor(protocol::ActorEvent::Metadata(
+                    protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 99,
+                        metadata: std::sync::Arc::from([]),
+                        properties: std::sync::Arc::from([]),
+                        tick: 0,
+                    },
+                )),
+            )
+            .unwrap();
+        stream.poll([4.5, 2.620_01, 8.5], 0);
+        assert_eq!(stream.committed_sequence(), sequence);
+    }
+    let point = attack_hit_position_tests::picked_point(app.world());
+    assert_eq!(
+        hover_tick(&mut app, &mut captured, 103),
+        [(99, Some(point))]
+    );
+    assert!(hover_tick(&mut app, &mut captured, 104).is_empty());
+}
+
+#[test]
 fn entity_hover_leaving_an_actor_clears_without_a_position() {
     let (mut app, mut captured) = hover_app();
     assert_eq!(hover_tick(&mut app, &mut captured, 102).len(), 1);

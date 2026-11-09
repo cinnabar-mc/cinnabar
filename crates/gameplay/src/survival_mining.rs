@@ -20,8 +20,17 @@ pub enum BlockBreakCue {
     },
 }
 
-/// Ticks between a completed destroy and the next start. Needs independent measurement.
-pub const DESTROY_DELAY_TICKS: u8 = 5;
+/// Time after a completed destroy before another may start.
+const DESTROY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+/// Whole ticks covering [`DESTROY_DELAY`]; the deadline falls on the last of them.
+pub const DESTROY_DELAY_TICKS: u8 =
+    (DESTROY_DELAY.as_nanos() / simulation_clock::TICK_DURATION.as_nanos()) as u8;
+const _: () = assert!(
+    DESTROY_DELAY
+        .as_nanos()
+        .is_multiple_of(simulation_clock::TICK_DURATION.as_nanos()),
+    "the destroy deadline must land on a tick",
+);
 /// Progress at which a non-instant destroy completes.
 const COMPLETION_THRESHOLD: f32 = 0.99999;
 /// Below this speed (blocks/s) a held Creative destroy waits out the delay;
@@ -183,6 +192,7 @@ impl SurvivalTickPayload {
 /// The player's motion over one stepped tick.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TickMotion {
+    /// Ground contact before this tick's movement, which the destroy step precedes.
     pub on_ground: bool,
     /// Distance moved this tick, in blocks.
     pub moved: f32,
@@ -224,6 +234,7 @@ impl Destroying {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct DestroyMachine {
     destroying: Option<Destroying>,
+    /// Ticks left until the destroy deadline; it is reached when this steps down to zero.
     delay: u8,
     pending_abort: Option<([i32; 3], u8)>,
     /// Blocks travelled toward the next moving Creative destroy.
@@ -256,8 +267,8 @@ impl DestroyMachine {
         if let Some((position, percent)) = self.pending_abort.take() {
             payload.push(BlockActionKind::AbortDestroy, position, percent);
         }
-        let delayed = self.delay > 0;
-        self.delay = self.delay.saturating_sub(1);
+        let remaining = self.delay;
+        self.delay = remaining.saturating_sub(1);
         let target = match input {
             DestroyInput::Held(Some(target)) | DestroyInput::Continue(Some(target))
                 if !matches!(input, DestroyInput::Continue(_))
@@ -283,7 +294,7 @@ impl DestroyMachine {
                 return payload;
             }
         };
-        self.advance(&mut payload, target, motion, authority, delayed);
+        self.advance(&mut payload, target, motion, authority, remaining);
         if authority == BlockBreakingAuthority::Client && self.destroying.is_some() {
             // Every held tick that keeps a client-authoritative destroy reports its target once,
             // after any start, stop or retarget, including delay and completion ticks.
@@ -292,16 +303,24 @@ impl DestroyMachine {
         payload
     }
 
-    /// Advances a held destroy on `target`, after any pending abort.
+    /// Advances a held destroy on `target`, after any pending abort. `remaining` is the
+    /// delay counter before this tick stepped it.
     fn advance(
         &mut self,
         payload: &mut SurvivalTickPayload,
         target: &DestroyTarget,
         motion: TickMotion,
         authority: BlockBreakingAuthority,
-        delayed: bool,
+        remaining: u8,
     ) {
         let creative_continue = target.instant && self.destroying.is_some();
+        // A survival start may land on the deadline tick; a held Creative destroy repeats
+        // only once the deadline has passed.
+        let delayed = if creative_continue {
+            remaining > 0
+        } else {
+            remaining > 1
+        };
         if delayed && !creative_continue {
             return;
         }

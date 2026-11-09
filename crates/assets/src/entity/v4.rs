@@ -13,11 +13,10 @@ use super::{
     RuntimeEntityAssets, invalid, validate_compiled, validate_geometry_scalar, validate_scalars,
 };
 
-/// Clips are geometry-specific instances and share the retained rig animation instance budget.
-pub const MAX_ENTITY_ANIMATION_CLIPS: usize = MAX_ENTITY_RIG_ANIMATIONS;
-/// One channel per animated bone property of each clip; merged server packs reach six figures.
-pub const MAX_ENTITY_ANIMATION_CHANNELS: usize = 262_144;
-pub const MAX_ENTITY_ANIMATION_KEYFRAMES: usize = 524_288;
+/// Most animation clips, channels, keyframes and rig animation bindings a catalog holds. They
+/// are addressed by `u32` indices and counts, which is the format's only limit on them: vanilla
+/// keeps every animation a pack defines, and the source and catalog byte limits bound memory.
+pub const MAX_ENTITY_ANIMATION_ENTRIES: usize = u32::MAX as usize;
 pub const MAX_ENTITY_CONTROLLERS: usize = 2_048;
 pub const MAX_ENTITY_CONTROLLER_STATES: usize = 16_384;
 pub const MAX_ENTITY_CONTROLLER_TRANSITIONS: usize = 32_768;
@@ -32,7 +31,6 @@ pub const MAX_MOLANG_COLLECTION_ITEMS_TOTAL: usize =
     MAX_MOLANG_COLLECTIONS * MAX_MOLANG_COLLECTION_ITEMS;
 pub const MAX_ENTITY_RIG_BINDINGS: usize = 8_192;
 pub const MAX_ENTITY_RIG_GEOMETRIES: usize = 262_144;
-pub const MAX_ENTITY_RIG_ANIMATIONS: usize = 262_144;
 pub const MAX_ENTITY_RIG_CONTROLLERS: usize = 262_144;
 
 #[path = "v4/preflight.rs"]
@@ -267,6 +265,40 @@ pub struct EntityRigBinding {
     /// Optional main-hand item scale expression; omitted descriptions retain unit scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub held_item_scale: Option<u32>,
+    /// Optional held-item visibility expression, evaluated in the actor render context.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hide_held_items: Option<u32>,
+}
+
+impl EntityRigBinding {
+    /// Every description expression reference, with exhaustive field classification.
+    fn expressions(self) -> impl Iterator<Item = u32> {
+        let Self {
+            placement_frame: _,
+            entity_symbol: _,
+            render_controller: _,
+            first_geometry: _,
+            geometry_count: _,
+            fallback: _,
+            scale: _,
+            initialize,
+            pre_animation,
+            item_condition,
+            scale_expressions,
+            held_item_scale,
+            hide_held_items,
+        } = self;
+        [
+            initialize,
+            pre_animation,
+            item_condition,
+            held_item_scale,
+            hide_held_items,
+        ]
+        .into_iter()
+        .flatten()
+        .chain(scale_expressions.into_iter().flatten())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -682,9 +714,9 @@ fn valid_item_raster_source(path: &str) -> bool {
 }
 
 fn validate_animation_payload(compiled: &CompiledEntityAssets) -> Result<(), AssetError> {
-    if compiled.animation_clips.len() > MAX_ENTITY_ANIMATION_CLIPS
-        || compiled.animation_channels.len() > MAX_ENTITY_ANIMATION_CHANNELS
-        || compiled.animation_keyframes.len() > MAX_ENTITY_ANIMATION_KEYFRAMES
+    if compiled.animation_clips.len() > MAX_ENTITY_ANIMATION_ENTRIES
+        || compiled.animation_channels.len() > MAX_ENTITY_ANIMATION_ENTRIES
+        || compiled.animation_keyframes.len() > MAX_ENTITY_ANIMATION_ENTRIES
     {
         return Err(invalid("entity animation payload count exceeds bound"));
     }

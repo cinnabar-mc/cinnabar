@@ -101,6 +101,7 @@ pub(super) fn bootstrap(
         packs,
         terrain_before_spawn: true,
         level_identity: None,
+        level_name: Default::default(),
     }
 }
 

@@ -41,6 +41,7 @@ impl MenuRuntime {
             field: self.field,
             friend_query: self.friend_query.as_str().to_owned(),
             settings_query: self.settings_query.as_str().to_owned(),
+            storage_query: self.storage_query.as_str().to_owned(),
             caret: self.caret(),
             name: self.name.as_str().to_owned(),
             address: self.address.as_str().to_owned(),

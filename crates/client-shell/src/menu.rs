@@ -123,6 +123,7 @@ pub struct MenuRuntime {
     skin_name: ui::ChatEditor,
     friend_query: ui::ChatEditor,
     settings_query: ui::ChatEditor,
+    storage_query: ui::ChatEditor,
     /// Command macro command boxes; edits write through to persisted settings.
     macro_commands: [ui::ChatEditor; launcher::menu::settings_options::COMMAND_MACRO_COUNT],
     message: Option<String>,
@@ -221,6 +222,7 @@ pub struct MenuRuntime {
     settings_input: focus::SettingsInput,
     settings_options: std::sync::Arc<launcher::menu::settings_options::SettingsOptions>,
     storage: std::sync::Arc<launcher::menu::settings_storage::StorageView>,
+    storage_reader: Option<launcher_host::settings_storage::StorageReader>,
     settings_dirty: bool,
     settings_writer: Option<launcher::menu::settings_options::persistence::writer::Writer>,
     /// Worker startup failures wait until this deadline before another attempt.
@@ -760,7 +762,6 @@ impl MenuRuntime {
             action @ (MenuAction::SettingsScale(_)
             | MenuAction::SearchSettings
             | MenuAction::ClearSettingsSearch
-            | MenuAction::SettingsScalePicker
             | MenuAction::SettingsFullscreen(_)
             | MenuAction::SettingsOption(..)
             | MenuAction::SettingsVideoPreset(_)

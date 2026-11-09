@@ -713,11 +713,13 @@ fn custom_block_boxes(block: &protocol::CustomBlockPhysics) -> impl Iterator<Ite
 }
 
 /// A server block's facts: a declared player-interact handler makes a use interact with it, as
-/// vanilla's container blocks do, instead of placing the held block against it.
+/// vanilla's container blocks do, instead of placing the held block against it, and makes the
+/// block interactive, so it takes use presses from the held item.
 fn custom_block_facts(block: &protocol::CustomBlock) -> assets::facts::BlockFact {
     let mut facts = assets::facts::BlockFact::custom(&block.name);
     if block.player_interact {
-        facts.traits |= assets::registry::BlockTraits::USES_LOCALLY;
+        facts.traits |= assets::registry::BlockTraits::USES_LOCALLY
+            | assets::registry::BlockTraits::INTERACTIVE;
     }
     facts
 }

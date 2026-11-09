@@ -142,6 +142,18 @@ impl PlayerInputMode {
     }
 }
 
+/// How the client aims interactions, reported to Bedrock with each input.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum PlayerInteractionModel {
+    /// Interactions follow a finger on the world.
+    Touch,
+    /// Interactions follow the crosshair.
+    #[default]
+    Crosshair,
+    /// The classic D-pad layout, whose interactions follow a finger on the world.
+    Classic,
+}
+
 /// One deterministic movement-tick snapshot sent to a server-authoritative server.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PlayerAuthInputSnapshot {
@@ -159,6 +171,7 @@ pub struct PlayerAuthInputSnapshot {
     pub interact_rotation: [f32; 2],
     pub flags: PlayerInputFlags,
     pub input_mode: PlayerInputMode,
+    pub interaction_model: PlayerInteractionModel,
     /// The vehicle the client predicts. The wire then carries its position and delta in
     /// place of the player's, which this snapshot keeps for local consumers.
     pub vehicle: Option<PredictedVehicleInput>,
@@ -290,7 +303,11 @@ pub fn player_auth_input_with_mining_request(
         // protocol-1001 code sent Unknown(-1) because the generated definition
         // was zigzag while the authority was an unsigned varint; that
         // workaround is obsolete and the named variant is now correct.
-        new_interaction_model: NewInteractionModel::Crosshair,
+        new_interaction_model: match snapshot.interaction_model {
+            PlayerInteractionModel::Touch => NewInteractionModel::Touch,
+            PlayerInteractionModel::Crosshair => NewInteractionModel::Crosshair,
+            PlayerInteractionModel::Classic => NewInteractionModel::Classic,
+        },
         interact_rotation: snapshot.interact_rotation.into(),
         client_tick: PlayerInputTick(tick),
         pos_delta: snapshot

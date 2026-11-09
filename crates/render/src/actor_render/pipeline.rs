@@ -578,6 +578,7 @@ impl ActorPipelineKey {
                         | render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG),
             alpha_to_coverage: self.msaa.samples() > 1
                 && state.alpha_test
+                && !state.masked_multitexture
                 && !state.blend
                 && !state.emissive
                 && self.material & render_model::ACTOR_COLOR_MASK_MATERIAL_FLAG == 0

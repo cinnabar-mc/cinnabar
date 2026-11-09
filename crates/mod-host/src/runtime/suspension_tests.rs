@@ -13,6 +13,21 @@ fn scheduled(
     crate::execution::EpochTicker,
     crate::CallbackBudget,
 ) {
+    let now = AtomicU64::new(0);
+    scheduled_with(source, move |_| {
+        Duration::from_nanos(now.fetch_add(step, Ordering::Relaxed))
+    })
+}
+
+/// Admits a real guest whose caller-owned scheduling clock can also advance its engine's epoch.
+fn scheduled_with(
+    source: &str,
+    clock: impl Fn(&wasmtime::Engine) -> Duration + Send + Sync + 'static,
+) -> (
+    Instance,
+    crate::execution::EpochTicker,
+    crate::CallbackBudget,
+) {
     let (engine, ticker) = crate::execution::engine().unwrap();
     let mut instance = Instance::new(
         &engine,
@@ -28,10 +43,8 @@ fn scheduled(
     )
     .unwrap();
     let mut budget = crate::CallbackBudget::new(mod_api::TOTAL_MOD_FRAME_FUEL);
-    let now = AtomicU64::new(0);
-    budget.time = crate::frame_time::FrameTime::fake(move || {
-        Duration::from_nanos(now.fetch_add(step, Ordering::Relaxed))
-    });
+    let ticking = engine.clone();
+    budget.time = crate::frame_time::FrameTime::fake(move || clock(&ticking));
     next_frame(&mut instance, &budget);
     (instance, ticker, budget)
 }
@@ -75,6 +88,32 @@ fn resumable_source() -> String {
         "(global $progress (mut i32) (i32.const 0))\n(func (export \"init\")",
         1,
     )
+}
+
+#[test]
+fn epoch_ticks_never_add_clock_reads_under_a_caller_owned_clock() {
+    let source = resumable_source();
+    let mut reads = Vec::new();
+    for tick in [false, true] {
+        let count = std::sync::Arc::new(AtomicU64::new(0));
+        let counted = count.clone();
+        // Every read leaves time for the slice; with `tick` it also expires the epoch deadline.
+        let (mut instance, _ticker, _) = scheduled_with(&source, move |engine| {
+            counted.fetch_add(1, Ordering::Relaxed);
+            if tick {
+                engine.increment_epoch();
+            }
+            Duration::ZERO
+        });
+        instance.store.data_mut().pressed = true;
+        assert_eq!(
+            instance.run_frame_slice().unwrap(),
+            CallbackOutcome::Executed
+        );
+        assert_eq!(instance.label(), Some("ello"));
+        reads.push(count.load(Ordering::Relaxed));
+    }
+    assert_eq!(reads[0], reads[1]);
 }
 
 #[test]

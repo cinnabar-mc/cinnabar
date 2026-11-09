@@ -29,6 +29,7 @@ client.
 
 On first launch, Cinnabar downloads the vanilla resource pack after you accept the Minecraft EULA.
 No Mojang assets are bundled. The release notes explain how to open unsigned builds.
+No sound? See [docs/audio-troubleshooting.md](docs/audio-troubleshooting.md).
 
 ## Build and run
 

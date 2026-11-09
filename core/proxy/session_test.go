@@ -62,7 +62,7 @@ func TestSessionStreamMatchesBridgeFixture(t *testing.T) {
 		Identity:      sessionIdentity{DisplayName: "Steve", XUID: "2535400000000000", UUID: "00000000-0000-4000-8000-000000000001"},
 		ClientCache:   true,
 		PacksRequired: true,
-		Packs:         []sessionPack{{UUID: "00112233-4455-6677-8899-aabbccddeeff", Version: "1.0.0", SubPack: "high", ContentKey: "key", Size: 3}},
+		Packs:         []sessionPack{{UUID: "00112233-4455-6677-8899-aabbccddeeff", Version: "1.0.0", SubPack: "high", ContentKey: sessionContentKey("\xffkey\x00"), Size: 3}},
 	}, [][]byte{{0xb4, 0x01, 0x09}, {0x0b, 0x01, 0x02}})
 	if err != nil {
 		t.Fatal(err)
@@ -92,6 +92,34 @@ func TestSessionStreamMatchesBridgeFixture(t *testing.T) {
 	_ = local.Close()
 	if got, want := <-written, sessionFixture(t, "core_stream.bin"); !bytes.Equal(got, want) {
 		t.Fatalf("core stream = %x\nwant %x", got, want)
+	}
+}
+
+// Content keys are bytes, not text: a key that is not valid UTF-8 reaches the client unchanged,
+// and a pack without a key hands over an empty key rather than null.
+func TestSessionHandoffKeepsContentKeyBytes(t *testing.T) {
+	key := "\xff\x00binary-key\x80 "
+	frame, err := encodeSessionHandoff(sessionHandoff{Packs: []sessionPack{{ContentKey: sessionContentKey(key)}, {}}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var metadata struct {
+		Packs []struct {
+			ContentKey *string `json:"content_key"`
+		} `json:"packs"`
+	}
+	if err := json.Unmarshal(frame[5:5+binary.BigEndian.Uint32(frame[1:5])], &metadata); err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.Packs) != 2 || metadata.Packs[0].ContentKey == nil || metadata.Packs[1].ContentKey == nil {
+		t.Fatalf("packs = %+v, want two string keys", metadata.Packs)
+	}
+	got, err := base64.StdEncoding.DecodeString(*metadata.Packs[0].ContentKey)
+	if err != nil || string(got) != key {
+		t.Fatalf("content key = %q (%v), want %q", got, err, key)
+	}
+	if *metadata.Packs[1].ContentKey != "" {
+		t.Fatalf("keyless pack content key = %q, want empty", *metadata.Packs[1].ContentKey)
 	}
 }
 
@@ -370,7 +398,7 @@ func TestChooseSessionPacksKeepsTheFirstOfARepeatedOfferIdentity(t *testing.T) {
 	entries := []sessionStackEntry{{uuid: pack.UUID().String(), version: pack.Version()}}
 	for _, required := range []bool{false, true} {
 		selected, _, err := chooseSessionPacks(offers, entries, required, nil)
-		if err != nil || len(selected) != 1 || selected[0].ContentKey != "first-key" || selected[0].SubPack != "" {
+		if err != nil || len(selected) != 1 || string(selected[0].ContentKey) != "first-key" || selected[0].SubPack != "" {
 			t.Fatalf("required=%t: selected %+v, %v", required, selected, err)
 		}
 	}

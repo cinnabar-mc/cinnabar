@@ -44,6 +44,7 @@ pub mod startup_feedback;
 
 mod particles;
 mod pick_block;
+pub mod platform_devices;
 #[cfg(not(target_arch = "wasm32"))]
 mod present_mode;
 mod primitive_shapes;

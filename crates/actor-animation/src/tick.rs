@@ -710,7 +710,7 @@ pub(super) fn evaluate_state(
         .and_then(|_| super::head_rotation::angles(&state.bones, &state.bone_names, &local));
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
-    let render = super::render::evaluate_render(
+    let render = super::render::evaluate_posed_render(
         &evaluator,
         &mut variables,
         super::render::RenderRig {
@@ -723,31 +723,21 @@ pub(super) fn evaluate_state(
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         },
+        &weighted_clips,
+        samples_motion.then_some(&mut motion_layers),
+        !state.initialized,
         budget,
-    )
-    .and_then(|layers| {
-        let Some(mut layers) = layers else {
-            return Ok(None);
-        };
-        let posed = super::render::pose_layers(
-            &evaluator,
-            &mut variables,
-            &state.layer_skeletons,
-            &weighted_clips,
-            &mut layers,
-            samples_motion.then_some(&mut motion_layers),
-            budget,
-        );
-        if !state.initialized {
-            posed?;
-        }
-        Ok(Some(layers))
-    });
+    );
     let render = match render {
         Ok(layers) => layers,
         Err(error) if !state.initialized => return Err(error),
-        Err(_) => None,
+        Err(_) => super::render::RenderEvaluation {
+            layers: None,
+            visibility: state.visibility,
+        },
     };
+    let visibility = render.visibility;
+    let render = render.layers;
     let skin_layers = super::skin_layers::evaluate(
         state,
         &evaluator,
@@ -794,6 +784,7 @@ pub(super) fn evaluate_state(
         head_angles,
         skin_layers,
         render,
+        visibility,
         scale,
         held_item_scale,
         controllers,

@@ -18,6 +18,10 @@ const CUSTOM_SKIN_PACK_ID: &str = "aaaaaaaa-7b21-4637-9b63-8ad63622ef01";
 /// an empty geometry document. Servers parse this field as JSON, so it is never left empty.
 pub(crate) const ABSENT_GEOMETRY_DATA: &str = "null\n";
 
+/// The trusted-skin flag a client-authored skin carries. The server decides trust itself, but the
+/// flag must name a state: Bedrock Dedicated Server drops the connection when it is empty.
+const UNTRUSTED_SKIN_FLAG: &str = "false";
+
 /// Returns a built-in skin's pack identity without minting a per-login UUID.
 pub fn builtin_skin_id(name: &str) -> String {
     format!("{CLASSIC_SKIN_PACK_ID}.{name}")
@@ -124,6 +128,7 @@ pub fn player_skin_packet(
                 SkinArmSize::Wide
             },
             is_primary_user: true,
+            trusted_skin_flag: UNTRUSTED_SKIN_FLAG.into(),
             ..Default::default()
         },
         localized_new_skin_name: name.into(),
@@ -242,6 +247,29 @@ mod tests {
             wire.serialized_skin.full_id,
             classic_skin_id("wide").as_str()
         );
+    }
+
+    /// Bedrock Dedicated Server 1.26.61 drops the connection on an appearance update whose
+    /// trusted-skin flag is empty, and its own updates spell an untrusted skin `false`.
+    #[test]
+    fn appearance_updates_mark_the_skin_untrusted() {
+        let skin = render_api::StandardSkin {
+            width: render_api::CLASSIC_SKIN_SIDE as u32,
+            height: render_api::CLASSIC_SKIN_SIDE as u32,
+            rgba8: vec![255; render_api::CLASSIC_SKIN_SIDE * render_api::CLASSIC_SKIN_SIDE * 4]
+                .into(),
+            cape: None,
+            geometry: None,
+        };
+        let packet = player_skin_packet([1; 16], &skin, "wide", &classic_skin_id("wide"), "");
+        let packet = crate::decode_batch(crate::encode(&packet).unwrap())
+            .unwrap()
+            .pop()
+            .unwrap();
+        let packets::Packet::PlayerSkin(wire) = *packet.data else {
+            panic!("skin packet")
+        };
+        assert_eq!(wire.serialized_skin.trusted_skin_flag, "false");
     }
 
     /// Servers such as Dragonfly disconnect a player whose appearance update has unparsable
