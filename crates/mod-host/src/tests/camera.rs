@@ -290,3 +290,73 @@ fn lifecycle_callbacks_cannot_publish_camera_policy_through_the_next_frame() {
         assert!(!host.has_camera_output());
     }
 }
+
+/// A temporary perspective needs a successful focused gameplay callback each frame.
+#[test]
+fn perspective_expires_and_requires_camera_authority() {
+    use mod_api::native_camera::Perspective;
+    let call = "i32.const 1 i32.const 2 i32.const 256 call $perspective";
+    let frame = format!("global.get $count i32.const 2 i32.ne if {call} end");
+    let (_dir, mut host) = load(&frame, true);
+    for expected in [
+        Some(Perspective::ThirdPersonFront),
+        None,
+        Some(Perspective::ThirdPersonFront),
+    ] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_perspective(), expected);
+    }
+    for (focus, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focus, panel, gameplay).unwrap();
+        assert_eq!(host.camera_perspective(), None);
+    }
+    let (_dir, mut denied) = load(call, false);
+    view_frame(&mut denied, true, false, true).unwrap();
+    assert_eq!(denied.camera_perspective(), None);
+    let (_dir, mut trapped) = load(&format!("{call} unreachable"), true);
+    assert!(view_frame(&mut trapped, true, false, true).is_err());
+    assert_eq!(trapped.camera_perspective(), None);
+}
+
+/// Relative headings need camera authority, finite bounds and a successful gameplay lease.
+#[test]
+fn yaw_offset_is_bounded_and_expires_at_input_boundaries() {
+    let call = "f32.const 180 i32.const 256 call $yaw-offset";
+    let frame = format!("global.get $count i32.const 2 i32.ne if {call} end");
+    let (_dir, mut host) = load(&frame, true);
+    for expected in [Some(180.), None, Some(180.)] {
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    for (focus, panel, gameplay) in [
+        (false, false, true),
+        (true, true, true),
+        (true, false, false),
+    ] {
+        view_frame(&mut host, focus, panel, gameplay).unwrap();
+        assert_eq!(host.camera_yaw_offset(), None);
+    }
+    for (degrees, grant, expected) in [
+        ("-180", true, Some(-180.)),
+        ("0", true, None),
+        ("181", true, None),
+        ("-181", true, None),
+        ("nan", true, None),
+        ("inf", true, None),
+        ("180", false, None),
+    ] {
+        let (_dir, mut host) = load(
+            &format!("f32.const {degrees} i32.const 256 call $yaw-offset"),
+            grant,
+        );
+        view_frame(&mut host, true, false, true).unwrap();
+        assert_eq!(host.camera_yaw_offset(), expected);
+    }
+    let (_dir, mut host) = load(&format!("{call} unreachable"), true);
+    assert!(view_frame(&mut host, true, false, true).is_err());
+    assert_eq!(host.camera_yaw_offset(), None);
+}

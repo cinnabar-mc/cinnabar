@@ -461,6 +461,7 @@ fn configure_systems(app: &mut App, watching: bool) {
             .before(ClientFrameSet::UiPublication),
     );
     fullbright::configure(app);
+    terrain_surfaces::configure(app);
     app.init_resource::<crate::item_use::ModItemUsePolicy>()
         .init_resource::<ModCueFeed>()
         .add_plugins(::render::ModRenderPlugin)
@@ -667,6 +668,7 @@ mod time_changer_tests;
 pub(super) mod fullbright;
 mod gameplay;
 mod input;
+mod terrain_surfaces;
 use crate::interaction_override as interaction;
 mod inventory;
 mod module_observations;

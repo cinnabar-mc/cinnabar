@@ -880,6 +880,17 @@ interface inventory {
 /// Opt-in local camera policy; requires the explicit camera grant.
 /// Grants: `camera`.
 interface camera {
+    /// Presentation-only world-up yaw, in finite degrees -180..180; 0 is neutral.
+    /// Requires camera authority and focused gameplay; renew for every successful frame.
+    /// Eye position, player aim, interaction rays and movement are unchanged. Off-axis
+    /// views hide the first-person viewmodel. Omission, menus, focus loss, traps and
+    /// unload restore the aligned view. Body visibility follows the selected perspective.
+    set-view-yaw-offset: func(degrees: f32) -> result<_, string>;
+    /// The ordinary local view modes, without changing the player's saved choice.
+    enum perspective { first-person, third-person-back, third-person-front }
+    /// Requires camera authority. Current focused gameplay frame only; renew while needed.
+    /// None, omission, UI focus, unload and failed callbacks restore the player's own view.
+    set-perspective: func(view: option<perspective>) -> result<_, string>;
     /// Degrees, each at most `MAX_VIEW_TILT_DEGREES`, added to the first-person view where the
     /// native damage shake applies; suppress-hurt-shake removes that shake. Positive pitch turns
     /// the view up. Positive roll turns it the way a native shake without direction does: the
@@ -920,6 +931,20 @@ interface item-use {
 /// keeps its subscriptions. Unknown terrain is never reported as air.
 /// Grants: `terrain`.
 interface terrain {
+    /// Face-local U/V/normal offset; every component is -1..=1, not all zero.
+    record surface-condition { offset: tuple<s8, s8, s8>, present: bool }
+    /// Adds tiles when all neighbour conditions hold. Missing terrain keeps the face.
+    record surface-clause { conditions: list<surface-condition>, tiles: u16 }
+    /// Identifiers form one connection group. Border is 1..127 in 1/256 block units.
+    /// Tiles are a 3x3 bit mask along positive physical U, then V; centre is bit 4.
+    /// Each group connects independently; groups share the same coverage clauses.
+    /// Only non-occluding faces with alpha cutout/blend materials are eligible.
+    record surface-rule { groups: list<list<string>>, border: u8, clauses: list<surface-clause> }
+    /// Replaces this owner's retained full-cell model-face coverage. Empty restores defaults.
+    /// Requires render-material. Original textures, physics and destruction overlays remain.
+    /// First matching rule in mod load order wins. Successful callback publication only.
+    set-surface-rules: func(rules: list<surface-rule>) -> result<_, string>;
+
     /// An integer block position in the current dimension.
     record position { x: s32, y: s32, z: s32 }
     /// Selects which block shapes to request; an empty set requests neither family.
@@ -994,7 +1019,7 @@ interface terrain {
 }
 
 /// Mod-owned on-screen buttons drawn in the built-in touch control style while touch controls
-/// are shown. Players move them in the touch layout editor. Requires controls authority.
+/// are shown. Players move and resize them in the touch layout editor. Requires controls authority.
 /// Grants: `controls`.
 interface touch {
     /// A GUI-pixel pair.

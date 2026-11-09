@@ -209,7 +209,7 @@ repeats on a physically held control.
 
 With the `controls` grant, `touch.set-buttons` retains up to four labelled buttons,
 drawn in the built-in touch style while touch controls are shown. Each has a default
-anchor, inward offset and size; players move it in the touch layout editor, and the
+anchor, inward offset and size; players move and resize it in the touch layout editor, and the
 placement is saved under the button id, so prefix ids with the mod's name. Across mods
 the earliest use of an id wins and at most sixteen buttons are shown. A tap completes
 when the finger lifts inside the button without interrupting other fingers, and
@@ -336,3 +336,17 @@ package remains `cinnabar:extension@0.1.0` because these existing component func
 signatures have not changed. Server-experience client parts use the separate
 `cinnabar:extension/server-bundle@0.1.0` world and do not import the personal-mod panel interface, so this change
 does not alter their bundle contract.
+
+`camera.set-perspective` selects first person, third-person back or third-person
+front for a successful focused gameplay frame under the camera grant. Renew the
+request each frame while needed. Omission, menus, focus loss, callback failure and
+unload restore the player's own perspective; cycling the player's perspective
+while overridden still updates the choice restored afterwards.
+
+`camera.set-view-yaw-offset` adds a world-up heading offset in -180..180 degrees
+to the presented camera for a successful focused gameplay frame. The camera grant
+is required. The eye position, player look, movement and interaction direction are
+unchanged. Off-axis views hide the body-aligned first-person hand; body visibility
+follows the chosen perspective. Use `camera.set-perspective(first-person)` when a
+view should stay at the eye with the local body hidden. Omission, neutral zero,
+menus, focus loss, traps and unload restore the aligned view.

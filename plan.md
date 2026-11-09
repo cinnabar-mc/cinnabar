@@ -166,6 +166,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   matched chest-particle presentation and custom destruction overrides remain incomplete.
   Mining particles accept packed and face-specific block events, preserving full hashed
   identities and the event's block material; matched in-world capture acceptance remains open.
+- [ ] Qualify legacy particle events (`LevelEvent` `0x4000 | type` and 2009), which use the
+  native `ParticleType` enum. For types without a dedicated handler, native emits one particle
+  manually; Cinnabar runs the pack emitter instead, so burst counts may differ, and dragon
+  breath (49) stays unmapped because its lingering emitter needs cloud variables. Types 1, 25
+  and 52 have no identified native handler; the 1.26.60 client handlers are not yet compared.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry and face corners in all four directions at full sheet resolution,
   with a quarter-block collision and selection box; sleeping and in-game breaking
@@ -1235,6 +1240,10 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   Server items whose `minecraft:shooter` draws start a held use that release ends;
   shooters with ammunition entries or `charge_on_draw` remain incomplete.
   Fishing rods predict a fresh-press swing and choose cast artwork from live hook ownership.
+  A hook's fish-position, bite and tease events draw the native trail, bite and tease
+  particles and play the bite splash. The bite's client-side downward hook impulse is not
+  applied, because hooks follow server movement without client motion; in-world comparison
+  with a native capture remains incomplete.
   Items with a registry `minecraft:seed` rule predict planting on a declared block's
   declared face into air: the swing, consumed item and the crop's default state, repeating
   while held. As in vanilla, placement and planting sounds come only from the server's
@@ -1899,6 +1908,12 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   positions/link acceptance and mixed-client rendering remain incomplete.
   Client epoch receipt, rendered destination readiness, crash recovery and live transfer acceptance
   remain incomplete.
+- Mods can submit retained face-coverage rules under `render_material`: named block
+  groups sharing face-relative neighbour predicates and three-by-three surface partitions.
+  Full-cell, untransformed, non-occluding model faces with alpha materials retain pack geometry and UV mapping
+  in the remaining patches. Selection, collision and destruction overlays are unchanged.
+  World changes and rule removal restore ordinary meshing. Headless module captures verify
+  activation, restoration, breaking and outlines; pack-reload and performance qualification remain open.
 - The mod `presentation` capability sets native nametag parameters, per-actor nametag and
   player-list annotation spans, damage overlay colours, per-actor overlay tints, item tooltip
   lines and clickable chat spans, merged across mods in load order. `facts` reads the pinned

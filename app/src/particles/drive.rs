@@ -10,9 +10,10 @@ use bevy::prelude::{
 use chunk_pipeline::WorldStream;
 use client_world::{ActorStatusNotice, CommittedParticleEvent};
 use particles::{
-    ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, SpawnRequest, block_break_request,
-    block_crack_request, burst_requests, classify_level_event, crack_cadence_due,
-    critical_hit_request, dragon_egg_teleport_requests, eating_item_request, face_toward,
+    Fluid, ITEM_ICON_PARTICLES, LevelParticle, ParticleSystem, ParticleWorld, SpawnRequest,
+    block_break_request, block_crack_request, burst_requests, classify_level_event,
+    crack_cadence_due, critical_hit_request, dragon_egg_teleport_requests, eating_item_request,
+    face_toward, fish_tease_cell, fish_tease_request, fish_trail_requests, fishing_bite_requests,
     item_icon_request, named_request, native_request, parse_molang_variables, terrain_request,
     tiles::item_tile, totem_activation_request,
 };
@@ -57,6 +58,10 @@ mod break_tests;
 #[cfg(test)]
 #[path = "drive/crack_tests.rs"]
 mod crack_tests;
+
+#[cfg(test)]
+#[path = "drive/fishing_tests.rs"]
+mod fishing_tests;
 
 /// Committed particle triggers and actor status notices waiting for the next frame's drive.
 #[derive(Resource, Debug, Default)]
@@ -112,7 +117,7 @@ pub(crate) fn drain_committed_particles(stream: &mut WorldStream, inbox: &mut Pa
     let room = MAX_QUEUED_INBOX.saturating_sub(inbox.status_audio.len());
     inbox
         .status_audio
-        .extend(notices.iter().take(room).copied());
+        .extend(notices.iter().take(room).cloned());
     inbox.notices.extend(notices);
     let events_excess = inbox.events.len().saturating_sub(MAX_QUEUED_INBOX);
     inbox.events.drain(..events_excess);
@@ -444,6 +449,46 @@ fn route_notice(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &Act
                 && let Some(tile) = item_tile(icons, &identifier, (notice.data & 0xffff) as u32)
             {
                 system.spawn(&eating_item_request(notice.eating_position, tile));
+            }
+        }
+        ActorStatusKind::FishHookPosition
+        | ActorStatusKind::FishHookBite
+        | ActorStatusKind::FishHookTease => route_fishing(system, routing, notice),
+        _ => {}
+    }
+}
+
+/// Draws a fishing hook's effects for one of its events; other actors draw nothing for them.
+fn route_fishing(system: &mut ParticleSystem, routing: &Routing<'_>, notice: &ActorStatusNotice) {
+    let Some(hook) = &notice.fishing else {
+        return;
+    };
+    match notice.kind {
+        ActorStatusKind::FishHookBite => {
+            for request in fishing_bite_requests(notice.position, hook.bottom, hook.width) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookPosition => {
+            // The synced angle and offset change every event, so each event rolls afresh.
+            let seed = notice.runtime_id
+                ^ u64::from(hook.fish_angle.to_bits())
+                ^ (u64::from(hook.fish_offset[0].to_bits()) << 32);
+            for request in fish_trail_requests(
+                notice.position,
+                hook.bottom,
+                hook.fish_offset,
+                hook.fish_angle,
+                seed,
+            ) {
+                system.spawn(&request);
+            }
+        }
+        ActorStatusKind::FishHookTease => {
+            if let Some(cell) = fish_tease_cell(notice.position, hook.bottom, hook.fish_offset)
+                && routing.world.fluid(cell) == Fluid::Water
+            {
+                system.spawn(&fish_tease_request(cell));
             }
         }
         _ => {}

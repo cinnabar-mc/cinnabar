@@ -7,6 +7,7 @@ pub const MAX_BLOCK_BREAKS: usize = 1024;
 pub const MAX_BLOCK_BREAK_DISTANCE: f32 = 16.;
 
 mod terrain_limits;
+pub mod terrain_surface;
 pub use terrain_limits::{
     MAX_TERRAIN_BOXES, MAX_TERRAIN_CELLS, MAX_TERRAIN_DISTANCE, MAX_TERRAIN_EXTENT,
     MAX_TERRAIN_FRAME_CELLS, MAX_TERRAIN_METADATA_BYTES, MAX_TERRAIN_QUERIES,

@@ -31,6 +31,7 @@ mod service;
 mod sub_chunk_requests;
 mod terrain_generation;
 pub(crate) mod vehicle_look;
+mod view;
 pub(crate) use service::configure_world_service;
 pub(crate) use sub_chunk_requests::flush_sub_chunk_requests;
 pub(crate) use sub_chunk_requests::sub_chunk_request_center;
@@ -359,7 +360,7 @@ pub(crate) fn reconcile_world_stream_before_physics(
         interaction.invalidate();
         return;
     };
-    stream.set_view_forward((view.camera_rotation() * Vec3::NEG_Z).to_array());
+    stream.set_view_forward(view::streaming_forward(&view, &camera_settings));
     #[cfg(not(target_arch = "wasm32"))]
     let options = menu.as_ref().map(|menu| menu.settings_snapshot().0);
     #[cfg(target_arch = "wasm32")]
