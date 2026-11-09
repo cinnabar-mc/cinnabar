@@ -979,8 +979,8 @@ pub use teleport_ack::TELEPORT_ACK_ADMITTED_TICK_BUDGET;
 
 mod frame;
 pub use frame::{
-    LocomotionState, PhysicsFrameHold, PhysicsFrameInput, frame_simulates_tick, wire_head_yaw,
-    wire_yaw,
+    LocomotionState, PhysicsFrameHold, PhysicsFrameInput, SeatedInteractions, frame_simulates_tick,
+    wire_head_yaw, wire_yaw,
 };
 
 #[cfg(test)]

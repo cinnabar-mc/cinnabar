@@ -174,6 +174,12 @@ impl super::ActorStore {
         }
     }
 
+    /// Unlinks a rider that got off its vehicle on the client, ahead of the server's unlink;
+    /// a later link from the server seats it again.
+    pub(crate) fn release_rider(&mut self, rider: i64) {
+        self.unlink(rider);
+    }
+
     /// Unlinks a rider from its vehicle, keeping both indexes in step.
     pub(super) fn unlink(&mut self, rider: i64) {
         let Some(vehicle) = self.rider_to_ridden.remove(&rider) else {

@@ -91,6 +91,20 @@ pub struct LocomotionState {
     left_mount: Option<LeftMount>,
 }
 
+/// Interaction work outside movement that may still report the seat once a stop-riding
+/// request goes out.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct SeatedInteractions {
+    /// An attack pressed this frame, which reports the position before the frame's first tick.
+    pub attack_pressed: bool,
+    /// An attack press, or the block work it carries, still waiting to go out.
+    pub attack_queued: bool,
+    /// An item use's release still waiting to go out.
+    pub item_release: bool,
+    /// A block-use press still waiting to resolve.
+    pub block_use: bool,
+}
+
 /// A mount the player got off before the server confirmed it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct LeftMount {
@@ -169,45 +183,41 @@ impl LocomotionState {
     /// stop-riding request; the server accepts it. Call before [`Self::advance`] runs the
     /// frame.
     ///
-    /// The player gets off only once transport takes the request, behind all movement from
-    /// the seat, so the server sees the seated movement, the request, then movement off the
-    /// mount. An attack waiting to go out this frame (`attack_waits`) reports the position
-    /// before the frame's first tick, and a held item release reports a seated tick, so the
-    /// player also stays seated for them and the server sees them from the seat before the
-    /// request. Until then it stays seated and the
-    /// press waits for a later tick; a request transport refuses for good drops the press.
+    /// The player gets off only once [`Self::seated_work_outstanding`] finds nothing from the
+    /// seat still on its way and transport takes the request, so the server sees everything
+    /// from the seat, the request, then movement and interactions off the mount. Until then
+    /// it stays seated and the press waits for a later tick; a request transport refuses for
+    /// good drops the press. Returns whether the player got off.
     pub fn leave_mount(
         &mut self,
         frame: &PhysicsFrameInput,
         physics: &mut LocalPhysicsController,
         movement_ticker: &MovementTicker,
         world: &impl sim::CollisionWorld,
-        attack_waits: bool,
+        interactions: SeatedInteractions,
         send: impl FnOnce(protocol::Packet) -> Result<(), protocol::BatchSendError>,
-    ) {
+    ) -> bool {
         let session = movement_ticker.session_generation;
         // Nothing is left to get off while the server's links still name the mount left.
         self.unseat(frame.facts, session);
         if self.left_mount.is_some() {
-            return;
+            return false;
         }
         self.observe_dismount(frame, session);
         let Some((_, mount, _)) = self.pending_dismount.filter(|(at, ..)| *at == session) else {
-            return;
+            return false;
         };
         let facts = frame.facts;
         let Some(placement) = facts.mount.filter(|_| facts.client_places_dismount()) else {
-            return;
+            return false;
         };
         if facts.ride.is_none()
             || facts.mount_runtime_id != Some(mount)
             || frame.hold.is_some()
             || !frame_simulates_tick(physics, movement_ticker, frame.delta)
-            || movement_ticker.movement_trails_transport()
-            || movement_ticker.has_held_release()
-            || attack_waits
+            || self.seated_work_outstanding(movement_ticker, interactions)
         {
-            return;
+            return false;
         }
         let vec3 = |[x, y, z]: [f32; 3]| sim::Vec3::new(f64::from(x), f64::from(y), f64::from(z));
         // A boat the player steers moves as the client predicts it, unless the server placed
@@ -231,7 +241,7 @@ impl LocomotionState {
                 .or_else(|| physics.state().map(|state| state.position))
         };
         let Some(seat) = seat else {
-            return;
+            return false;
         };
         let (position, motion) = current.map_or((placement.position, placement.motion), |feed| {
             (feed.position, feed.velocity)
@@ -249,7 +259,7 @@ impl LocomotionState {
             rider_height: f64::from(height),
         })
         .exit_feet(world) else {
-            return;
+            return false;
         };
         let position = [
             exit.x as f32,
@@ -258,14 +268,14 @@ impl LocomotionState {
         ];
         let Ok(packet) = protocol::stop_riding_packet(mount, position) else {
             self.pending_dismount = None;
-            return;
+            return false;
         };
         match send(packet) {
             Ok(()) => self.pending_dismount = None,
-            Err(protocol::BatchSendError::Full) => return,
+            Err(protocol::BatchSendError::Full) => return false,
             Err(protocol::BatchSendError::Closed) => {
                 self.pending_dismount = None;
-                return;
+                return false;
             }
         }
         physics.apply_server_actor_position(position, None);
@@ -278,6 +288,32 @@ impl LocomotionState {
             mount,
             mount_changes: facts.mount_changes,
         });
+        true
+    }
+
+    /// Whether anything from the seat could still reach the server after a stop-riding
+    /// request sent now, or the player's place is not settled: queued movement, movement sent
+    /// but not yet written to the socket (transport may cancel it and it goes out again), a
+    /// held item release, interaction work still waiting, or a last tick that waited for
+    /// collision data.
+    fn seated_work_outstanding(
+        &self,
+        movement_ticker: &MovementTicker,
+        interactions: SeatedInteractions,
+    ) -> bool {
+        let SeatedInteractions {
+            attack_pressed,
+            attack_queued,
+            item_release,
+            block_use,
+        } = interactions;
+        movement_ticker.pending_count() > 0
+            || movement_ticker.has_held_release()
+            || attack_pressed
+            || attack_queued
+            || item_release
+            || block_use
+            || self.previous_blocker.is_some()
     }
 
     /// Retains a dismount press while transport pauses physics, after dropping a mount the
@@ -285,12 +321,6 @@ impl LocomotionState {
     pub fn observe_paused_dismount(&mut self, mut frame: PhysicsFrameInput, session: u64) {
         frame.facts = self.unseat(frame.facts, session);
         self.observe_dismount(&frame, session);
-    }
-
-    /// Whether the player got off its mount before the server's links dropped it.
-    #[must_use]
-    pub const fn got_off_mount(&self) -> bool {
-        self.left_mount.is_some()
     }
 
     /// Runs each fixed tick and admits its sample before any interaction producers run.

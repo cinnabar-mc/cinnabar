@@ -440,14 +440,6 @@ impl MovementTicker {
         });
     }
 
-    /// Whether completed movement could still reach the server after a packet sent now:
-    /// queued ticks, or sent ones whose socket write is unconfirmed, which transport may still
-    /// cancel and this ticker send again.
-    #[must_use]
-    pub fn movement_trails_transport(&self) -> bool {
-        self.pending_count() > 0
-    }
-
     /// A frame-time interaction once every completed tick has entered the outbound FIFO.
     /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {

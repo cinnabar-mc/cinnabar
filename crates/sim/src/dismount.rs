@@ -33,8 +33,8 @@ impl Dismount {
     /// The rider's feet once it is off the vehicle: beside the vehicle on the first free
     /// position with a floor, or its seat when none is free. Block shapes the world cannot
     /// attribute to a cell, such as actors, never block a position or make a floor. `None`
-    /// while the world cannot answer for every block the search or the rider's first steps
-    /// from it could touch, such as while they stream in.
+    /// until the world holds every block the search or the rider's first steps from it could
+    /// touch, such as while their columns stream in.
     #[must_use]
     pub fn exit_feet(&self, world: &impl CollisionWorld) -> Option<Vec3> {
         let vehicle = self.vehicle.rounded();
@@ -53,7 +53,14 @@ impl Dismount {
                 base[2] + 2.5,
             ]),
         );
-        world.collision_boxes_with_provenance(around).ok()?;
+        if world
+            .collision_boxes_with_provenance(around)
+            .ok()?
+            .identity
+            .reaches_absent_columns()
+        {
+            return None;
+        }
         for level in LEVELS {
             for offset in self.candidates() {
                 let probe = [base[0] + offset[0], base[1] + level, base[2] + offset[2]];

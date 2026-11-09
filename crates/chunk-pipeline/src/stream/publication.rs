@@ -23,6 +23,11 @@ impl WorldStream {
             .set_local_actor_presentation_position(position, reanchor);
     }
 
+    /// Takes the local player off its vehicle on the client, ahead of the server's unlink.
+    pub fn leave_local_mount(&mut self) {
+        self.authority.leave_local_mount();
+    }
+
     /// Retains StartGame's binding of the local player's mode to the world default.
     pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
         self.authority.set_local_game_mode_follows_default(follows);

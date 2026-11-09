@@ -589,16 +589,16 @@ either actor is removed, so a server that never re-links still seats the rider.
 Getting off a mount places the player client-side, as vanilla's client does unless the mount
 is flagged for server-only dismounts: the player tries the eight blocks around the vehicle
 across its heading first, at its level, a block up, then a block down, stands on the first
-with a floor and room, and reports that position in its stop-riding request; it gets off
-only in a tick where transport takes that request behind all seated movement, written to
-the socket, no attack or held item release still reports the seat, and the blocks around the
-mount have arrived. Without a free
-block it stays at its seat. Incomplete: the still-vehicle motion threshold is unverified; each block
-counts as one box around its collision shapes; blocks vanilla exempts by flag or state other
-than scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail
-ejection are not implemented; until the server's unlink arrives, the HUD, inventory, mining
-speed, the third-person body's facing and the riding animation still treat the player as
-mounted, because only movement and the camera drop the local link at once.
+with a floor and room, and reports that position in its stop-riding request. Without a free
+block it stays at its seat. It gets off only in a tick where transport takes the request
+once nothing from the seat is still outbound (movement queued or not yet written, a held
+item release, attack, block-use or item-release work), the last tick completed and every
+column around the mount has arrived; then movement, the actor's link and the view drop the
+seat at once. Incomplete: the still-vehicle motion threshold is unverified; each block counts
+as one box around its collision shapes; blocks vanilla exempts by flag or state other than
+scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail ejection
+are not implemented; until the server's unlink arrives, the HUD, inventory and mining speed
+still treat the player as mounted.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.

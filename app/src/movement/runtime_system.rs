@@ -41,12 +41,21 @@ pub(crate) struct MovementSettings<'w> {
     movement_override: Option<Res<'w, crate::modding::ModMovementInputActive>>,
 }
 
+/// Reads the interaction owners whose item use shapes movement and whose waiting work keeps a
+/// player getting off its mount seated.
+#[derive(SystemParam)]
+pub(crate) struct InteractionOwners<'w> {
+    item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,
+    melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
+    block_use: Option<Res<'w, client_interaction::block_use::BlockUseRuntime>>,
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
@@ -56,10 +65,7 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     settings: MovementSettings<'_>,
     player: Option<Res<PlayerRuntime>>,
-    (item_use, melee): (
-        Option<Res<client_interaction::item_use::ItemUseRuntime>>,
-        Option<Res<client_interaction::melee::MeleeRuntime>>,
-    ),
+    interaction: InteractionOwners<'_>,
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
@@ -91,7 +97,8 @@ pub(crate) fn advance_local_physics(
     let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
         &client_interaction::movement::world_view::GameplayWorldView(stream),
-        item_use
+        interaction
+            .item_use
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
@@ -140,7 +147,8 @@ pub(crate) fn advance_local_physics(
         always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
         toggle_sneak: gameplay.toggle_sneak,
         facts,
-        item_use_modifier: item_use
+        item_use_modifier: interaction
+            .item_use
             .as_deref()
             .and_then(|item_use| item_use.movement_modifier()),
         hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held()).then(
@@ -179,21 +187,33 @@ pub(crate) fn advance_local_physics(
         &client_world.movement_colliders,
     );
     // The client gets the player off a mount it places them beside before the frame's ticks;
-    // the server moves riders off any other mount once it has the request. An attack pressed
-    // this frame, or one still waiting, reports the seat, so the player stays on for it.
+    // the server moves riders off any other mount once it has the request.
     let server_places_dismount = !frame.facts.client_places_dismount();
-    let attack_waits = input.phase(Action::Attack).pressed
-        || melee.as_deref().is_some_and(|melee| melee.press_pending());
-    if let Some(network) = network.as_deref() {
+    let interactions = gameplay::movement::SeatedInteractions {
+        attack_pressed: input.phase(Action::Attack).pressed,
+        attack_queued: interaction
+            .melee
+            .as_deref()
+            .is_some_and(|melee| melee.press_pending() || melee.has_queued_work(&movement_ticker)),
+        item_release: interaction
+            .item_use
+            .as_deref()
+            .is_some_and(|item_use| item_use.has_pending_release()),
+        block_use: interaction
+            .block_use
+            .as_deref()
+            .is_some_and(|block_use| block_use.press_pending()),
+    };
+    let got_off = network.as_deref().is_some_and(|network| {
         locals.leave_mount(
             &frame,
             &mut physics,
             &movement_ticker,
             &world,
-            attack_waits,
+            interactions,
             |packet| network.send_inventory_packets(vec![packet]),
-        );
-    }
+        )
+    });
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -202,6 +222,10 @@ pub(crate) fn advance_local_physics(
         &mut movement_speed,
         &world,
     );
+    // The local body, its animation and the view stop following the seat at once.
+    if got_off && let Some(stream) = client_world.stream.as_mut() {
+        stream.leave_local_mount();
+    }
     if !advanced {
         return;
     }

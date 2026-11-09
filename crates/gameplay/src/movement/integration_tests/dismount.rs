@@ -491,6 +491,8 @@ struct Rider {
     sent: Vec<[f32; 3]>,
     /// Attack presses; one waiting keeps the rider seated.
     melee: crate::melee::MeleeRuntime,
+    /// Other interaction work the client reports waiting.
+    interactions: super::SeatedInteractions,
 }
 
 impl Rider {
@@ -505,19 +507,27 @@ impl Rider {
             transport: Ok(()),
             sent: Vec::new(),
             melee: crate::melee::MeleeRuntime::default(),
+            interactions: super::SeatedInteractions::default(),
         }
     }
 
     /// Runs a frame as the client does: getting off first, then the frame's ticks.
     fn advance(&mut self, frame: super::PhysicsFrameInput) {
+        self.advance_in(frame, &BlockFloor);
+    }
+
+    /// Runs a frame in `world`.
+    fn advance_in(&mut self, frame: super::PhysicsFrameInput, world: &impl CollisionWorld) {
+        let mut interactions = self.interactions;
+        interactions.attack_queued |= self.melee.press_pending();
         let transport = self.transport;
         let sent = &mut self.sent;
         self.locals.leave_mount(
             &frame,
             &mut self.physics,
             &self.ticker,
-            &BlockFloor,
-            self.melee.press_pending(),
+            world,
+            interactions,
             |packet| {
                 if transport.is_ok() {
                     sent.push(reported_position(&packet));
@@ -531,7 +541,7 @@ impl Rider {
             &mut self.ticker,
             &mut self.effects,
             &mut self.speed,
-            &BlockFloor
+            world
         ));
     }
 
@@ -814,6 +824,80 @@ fn unwritten_seated_movement_keeps_the_rider_seated() {
     for identity in unwritten {
         assert!(rider.ticker.acknowledge_physics_send(identity));
     }
+    rider.flush_movement();
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
+}
+
+/// Each kind of interaction work still waiting from the seat keeps the rider seated until it
+/// is done.
+#[test]
+fn waiting_interaction_work_keeps_the_rider_seated() {
+    let waiting = [
+        super::SeatedInteractions {
+            attack_pressed: true,
+            ..Default::default()
+        },
+        super::SeatedInteractions {
+            attack_queued: true,
+            ..Default::default()
+        },
+        super::SeatedInteractions {
+            item_release: true,
+            ..Default::default()
+        },
+        super::SeatedInteractions {
+            block_use: true,
+            ..Default::default()
+        },
+    ];
+    for interactions in waiting {
+        let mut rider = Rider::new();
+        rider.advance(boat_frame(false));
+        rider.flush_movement();
+        rider.interactions = interactions;
+        rider.advance(sneak_press(speed_frame(Default::default()).delta));
+        assert_eq!(
+            rider.physics.mode(),
+            sim::MovementMode::Riding,
+            "{interactions:?}"
+        );
+        assert!(rider.sent.is_empty(), "{interactions:?}");
+        rider.interactions = super::SeatedInteractions::default();
+        rider.flush_movement();
+        rider.advance(boat_frame(false));
+        assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+        assert_eq!(rider.sent.len(), 1, "{interactions:?}");
+    }
+}
+
+/// Collision data that is not there yet answers no query.
+struct Unloaded;
+
+impl CollisionWorld for Unloaded {
+    fn registry_identity(&self) -> CollisionRegistryIdentity {
+        fixture_world_identity(1).registry
+    }
+
+    fn collision_boxes(&self, _: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+        Err(WorldQueryError::QueryExtentExceeded)
+    }
+
+    fn block_physics(&self, _: [i32; 3]) -> Result<sim::BlockPhysicsSample, WorldQueryError> {
+        Err(WorldQueryError::QueryExtentExceeded)
+    }
+}
+
+/// A last tick that waited for collision data keeps the rider seated until a tick completes.
+#[test]
+fn a_tick_waiting_for_collision_data_keeps_the_rider_seated() {
+    let mut rider = Rider::new();
+    let mut walking = speed_frame(Default::default());
+    walking.movement = [0.0, 1.0];
+    rider.advance_in(walking, &Unloaded);
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    assert!(rider.sent.is_empty(), "the request waits for a completed tick");
     rider.flush_movement();
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
