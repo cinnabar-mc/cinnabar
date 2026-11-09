@@ -185,6 +185,15 @@ impl From<UnsentSampleView> for InteractionSample {
     }
 }
 
+/// Where getting off a mount placed the player, and which movement waits for its request.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct DismountBoundary {
+    /// The last tick sent before the dismount request reaches transport.
+    fence: Option<u64>,
+    /// The completed tick the player got off after, and its network position there.
+    placed: Option<(u64, [f32; 3])>,
+}
+
 /// Capacity of every movement retry queue: queued samples, staged sends,
 /// sent-history confirmations, and retained tick evidence.
 pub const OUTBOX_CAPACITY: usize = 32;
@@ -238,7 +247,8 @@ pub fn flush_player_auth_inputs_guarded<E>(
             .as_ref()
             .is_some_and(|held| sample.snapshot.tick > held.tick)
             || ticker
-                .dismount_fence
+                .dismount
+                .fence
                 .is_some_and(|fence| sample.snapshot.tick > fence)
         {
             break;
@@ -464,10 +474,43 @@ impl MovementTicker {
                     .filter(|sent| sent.session_generation == self.session_generation)
                     .map(|sent| (sent.tick, sent.position))
             })?;
+        // A dismount since that tick moved the player where its request told the server.
+        let position = self
+            .dismount
+            .placed
+            .filter(|(placed, _)| *placed == tick)
+            .map_or(position, |(_, placed)| placed);
         (tick == self.completed_tick()).then_some(InteractionSample {
             tick: tick.checked_add(1)?,
             position,
         })
+    }
+
+    /// Places the player after the last completed tick as getting off a mount does:
+    /// interactions before the next tick report `position`, a network position, and later
+    /// movement waits until [`Self::release_dismount_fence`].
+    pub(super) fn place_dismount(&mut self, position: [f32; 3]) {
+        let tick = self.completed_tick();
+        let end = self.tick_ends.get(tick).map_or(
+            UnsentSampleView {
+                tick,
+                position,
+                delta: [0.0; 3],
+                displacement: [0.0; 3],
+                sneaking: false,
+            },
+            |end| UnsentSampleView { position, ..end },
+        );
+        self.tick_ends.record(end);
+        self.dismount = DismountBoundary {
+            fence: Some(tick),
+            placed: Some((tick, position)),
+        };
+    }
+
+    /// Lets movement held back for a dismount request reach transport.
+    pub(super) fn release_dismount_fence(&mut self) {
+        self.dismount.fence = None;
     }
 
     /// Looks up only the exact tick still owned by the unsent movement queue.

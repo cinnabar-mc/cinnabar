@@ -172,8 +172,7 @@ pub struct MovementTicker {
     epoch_publisher: watch::Sender<PositionAuthorityGeneration>,
     mining_epoch_publisher: watch::Sender<u64>,
     held_release: Option<outbox::HeldRelease>,
-    /// The last tick sent before the player's dismount request reaches transport.
-    dismount_fence: Option<u64>,
+    dismount: outbox::DismountBoundary,
     /// A sent release keeps its launch until the following movement reaches the socket.
     admitted_riptide: Option<physics::RiptideRequest>,
     written_riptide_tick: Option<u64>,
@@ -230,7 +229,7 @@ impl MovementTicker {
             epoch_publisher,
             mining_epoch_publisher,
             held_release: None,
-            dismount_fence: None,
+            dismount: outbox::DismountBoundary::default(),
             admitted_riptide: None,
             written_riptide_tick: None,
             next_tick_flags: PlayerInputFlags::NONE,
@@ -250,7 +249,7 @@ impl MovementTicker {
     ) {
         self.position_authority_changed();
         self.held_release = None;
-        self.dismount_fence = None;
+        self.dismount = outbox::DismountBoundary::default();
         self.admitted_riptide = None;
         self.written_riptide_tick = None;
         self.session_active = true;
@@ -279,7 +278,7 @@ impl MovementTicker {
     pub fn deactivate(&mut self) {
         self.position_authority_changed();
         self.held_release = None;
-        self.dismount_fence = None;
+        self.dismount = outbox::DismountBoundary::default();
         self.admitted_riptide = None;
         self.written_riptide_tick = None;
         self.session_active = false;

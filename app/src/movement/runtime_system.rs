@@ -166,7 +166,7 @@ pub(crate) fn advance_local_physics(
     }
 
     if !movement_ticker.can_advance_physics_frame() {
-        locals.observe_dismount(&frame, movement_ticker.session_generation());
+        locals.observe_paused_dismount(frame, movement_ticker.session_generation());
         // Retain presses and publish the pose while transport pauses simulation. A request
         // the player already got off for still goes out, since it holds movement back.
         if locals.got_off_mount() {

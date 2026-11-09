@@ -634,6 +634,33 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
     );
 }
 
+/// Interactions before the next tick report where the player got off, even when the frame
+/// it got off in ran no tick.
+#[test]
+fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    let ticked = rider.ticker.completed_tick();
+    let mut press = boat_frame(false);
+    press.delta = Duration::ZERO;
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    rider.advance(press);
+    assert_eq!(rider.ticker.completed_tick(), ticked);
+    let exit = rider.physics.network_position().unwrap();
+    assert!((exit[2] + 0.5).abs() < 1.0e-4, "got off north: {exit:?}");
+    rider.locals.flush_dismount(exit, |_| Ok(()));
+    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    rider.flush_movement();
+    let close = |position: [f32; 3]| {
+        (0..3).all(|axis| (position[axis] - exit[axis]).abs() < 1.0e-4)
+    };
+    let built = rider.ticker.build_action_state().unwrap().position;
+    assert!(close(built), "build actions read the exit: {built:?} != {exit:?}");
+    let between = rider.ticker.between_ticks_sample().unwrap().position;
+    assert!(close(between), "frame interactions read the exit: {between:?} != {exit:?}");
+}
+
 /// A mount whose dismounts only the server performs keeps its rider until the server moves it.
 #[test]
 fn a_server_owned_dismount_waits_for_the_server() {

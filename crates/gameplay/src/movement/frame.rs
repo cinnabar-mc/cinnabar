@@ -239,7 +239,7 @@ impl LocomotionState {
             exit.z as f32,
         ];
         physics.apply_server_actor_position(position, None);
-        movement_ticker.dismount_fence = Some(movement_ticker.completed_tick());
+        movement_ticker.place_dismount(position);
         self.left_mount = Some(LeftMount {
             session,
             mount,
@@ -256,8 +256,15 @@ impl LocomotionState {
             .pending_dismount
             .is_some_and(|(session, mount, _)| self.left(session, mount));
         if !waiting {
-            movement_ticker.dismount_fence = None;
+            movement_ticker.release_dismount_fence();
         }
+    }
+
+    /// Retains a dismount press while transport pauses physics, after dropping a mount the
+    /// player got off once the server's links moved on from it.
+    pub fn observe_paused_dismount(&mut self, mut frame: PhysicsFrameInput, session: u64) {
+        frame.facts = self.unseat(frame.facts, session);
+        self.observe_dismount(&frame, session);
     }
 
     /// Whether the player got off its mount before the server's links dropped it.
