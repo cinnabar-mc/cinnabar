@@ -306,6 +306,7 @@ fn server_form_mixed_sprite_programs_wait_for_artwork() {
             .set_full_res(std::collections::HashMap::from([(
                 "textures/fixture_strip".into(),
                 IconRef {
+                    color_mask: None,
                     page: 7,
                     uv: [0, 0, 32, 8],
                     glint: false,
