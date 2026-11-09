@@ -1163,7 +1163,8 @@ fn cached_sub_chunks_detach_from_their_batch() {
 
     let raw = crate::raw_packet::decode_batch_body(batch.clone(), usize::MAX)
         .unwrap()
-        .remove(0);
+        .next()
+        .unwrap();
     let entry_len = raw.inner_frame().len();
     let raw = detach_cached_chunk(raw);
     let frame = raw.inner_frame().clone();

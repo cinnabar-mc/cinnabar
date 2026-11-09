@@ -112,10 +112,11 @@ fn batch_bodies_split_in_order_within_their_bounds() {
         joined(&[entry(0x02, 0, 0, &[1]), entry(0x02, 1, 1, &[2])]),
         1024,
     )
-    .unwrap();
+    .unwrap()
+    .collect::<Vec<_>>();
     assert_eq!(packets.len(), 2);
     assert_eq!(packets[1].body().as_ref(), &[2]);
-    assert!(decode_batch_body(Bytes::new(), 0).unwrap().is_empty());
+    assert_eq!(decode_batch_body(Bytes::new(), 0).unwrap().len(), 0);
     assert!(matches!(
         decode_batch_body(Bytes::from_static(&[0; 9]), 8),
         Err(SessionError(SessionFailure::BatchTooLarge {
@@ -123,17 +124,33 @@ fn batch_bodies_split_in_order_within_their_bounds() {
             max: 8
         }))
     ));
+}
 
-    let one = entry(0x02, 0, 0, &[]);
-    let at_limit = joined(&vec![one.clone(); MAX_RAW_BATCH_PACKETS]);
-    assert_eq!(
-        decode_batch_body(at_limit, usize::MAX).unwrap().len(),
-        MAX_RAW_BATCH_PACKETS
-    );
-    let over_limit = joined(&vec![one; MAX_RAW_BATCH_PACKETS + 1]);
+#[test]
+fn large_batches_still_validate_the_final_entry() {
+    let entries: Vec<_> = (0..4_096u32)
+        .map(|value| entry(PacketId::PlayStatus as u32, 0, 0, &value.to_be_bytes()))
+        .collect();
+    let batch = joined(&entries);
+    let decoded: Vec<_> = decode_batch_body(batch.clone(), batch.len())
+        .unwrap()
+        .collect();
+    for (packet, expected) in decoded.iter().zip(&entries) {
+        assert_eq!(packet.inner_frame(), expected);
+    }
+    assert_eq!(decoded.len(), entries.len());
+
+    let mut truncated = batch.to_vec();
+    truncated.extend_from_slice(&[100, 2]);
     assert!(matches!(
-        decode_batch_body(over_limit, usize::MAX),
-        Err(SessionError(SessionFailure::TooManyPackets { .. }))
+        decode_batch_body(truncated.into(), usize::MAX),
+        Err(SessionError(SessionFailure::TruncatedEntry { .. }))
+    ));
+    let mut malformed = batch.to_vec();
+    malformed.push(0x80);
+    assert!(matches!(
+        decode_batch_body(malformed.into(), usize::MAX),
+        Err(SessionError(SessionFailure::MalformedEntry(_)))
     ));
 }
 
@@ -143,10 +160,28 @@ fn retention_bounded_packets_detach_from_large_siblings() {
         entry(0x02, 0, 0, &[0x5a; 32]),
         entry(0x02, 0, 0, &vec![0x7b; 1024 * 1024]),
     ]);
-    let packets = decode_batch_body(batch, usize::MAX).unwrap();
+    let packets: Vec<_> = decode_batch_body(batch, usize::MAX).unwrap().collect();
     let before = packets[0].body().as_ptr();
     let bounded = packets.into_iter().next().unwrap().into_retention_bounded();
     assert_ne!(bounded.body().as_ptr(), before);
     assert_eq!(bounded.body().as_ref(), &[0x5a; 32]);
     assert_eq!(bounded.backing_len, bounded.inner_frame().len());
+}
+
+/// Validation retains only the encoded bytes, even when a small batch has many entries.
+#[test]
+fn batch_validation_does_not_allocate_per_packet_metadata() {
+    const COUNT: usize = 65_536;
+    let frame = entry(PacketId::SetTime as u32, 0, 0, &[0]);
+    let body = Bytes::from(frame.repeat(COUNT));
+    let (packets, allocations) =
+        test_alloc::measure(|| decode_batch_body(body, usize::MAX).unwrap());
+    assert!(allocations.bytes < 1024, "{allocations:?}");
+    assert_eq!(packets.len(), COUNT);
+    let mut consumed = 0;
+    for packet in packets {
+        assert_eq!(packet.body().as_ref(), &[0]);
+        consumed += 1;
+    }
+    assert_eq!(consumed, COUNT);
 }
