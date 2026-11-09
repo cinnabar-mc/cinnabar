@@ -13,22 +13,22 @@ impl super::ActorRigSnapshot<'_> {
     }
 }
 
-/// Vanilla's render bounds for one actor: the model's authored visibility box joined with the
-/// actor's own collision box, both relative to its feet. Vanilla clamps an authored box to 50
-/// blocks, so a tall model whose box sits high above its actor still draws while the actor
-/// itself is in view. An actor without collision dimensions keeps the authored box alone.
+/// Joins the authored and collision boxes in model space, relative to the actor's feet.
+/// `scale` must match the later culling check; collision bounds already include server scale.
 #[must_use]
 pub fn actor_culling_bounds(
     authored: SkinGeometryBounds,
     actor: &dyn crate::AnimatedActor,
+    scale: f32,
 ) -> SkinGeometryBounds {
     let Some((low, high)) = actor.bounding_box() else {
         return authored;
     };
     let feet = actor.position();
+    let scale = SkinGeometryBounds::culling_scale(scale);
     let collision = SkinGeometryBounds::from_corners(
-        std::array::from_fn(|axis| low[axis] - feet[axis]),
-        std::array::from_fn(|axis| high[axis] - feet[axis]),
+        std::array::from_fn(|axis| (low[axis] - feet[axis]) / scale),
+        std::array::from_fn(|axis| (high[axis] - feet[axis]) / scale),
     );
     if (0..3).any(|axis| {
         !(collision.center[axis].is_finite() && collision.half_extents[axis].is_finite())
@@ -167,15 +167,63 @@ mod tests {
         };
         assert!(!low.admits(actor.position, 1.0, false, raised_box()));
         actor.status.bounding_box = Some(([2.9975, 4.0, 4.9975], [3.0025, 4.005, 5.0025]));
-        let joined = actor_culling_bounds(raised_box(), &actor);
+        let joined = actor_culling_bounds(raised_box(), &actor, 1.0);
         assert!(low.admits(actor.position, 1.0, false, joined));
         let (bottom, top) = joined.at(actor.position, 1.0);
         assert!((bottom[1] - 4.0).abs() < 1e-4 && (top[1] - 285.0).abs() < 1e-4);
     }
 
     #[test]
+    fn collision_bounds_are_not_scaled_again_by_metadata_or_model_scale() {
+        let authored = assets::SkinGeometryBounds {
+            center: [0.0, 0.5, 0.0],
+            half_extents: [0.125, 0.5, 0.125],
+        };
+        for (server_scale, model_scale, height) in [
+            (0.25, 1.0, 1.0),
+            (4.0, 0.125, 7.2),
+            (4.0, 0.5, 7.2),
+            (4.0, 1.0, 7.2),
+            (4.0, 3.0, 12.0),
+        ] {
+            let mut actor = TestActor {
+                position: [3.0, 4.0, 5.0],
+                ..TestActor::default()
+            };
+            actor.metadata.insert(
+                protocol_ids::ActorDataKey::Scale.wire_value(),
+                protocol::ActorMetadataValue::Float(server_scale),
+            );
+            actor.status.bounding_box = Some((
+                [3.0 - 0.3 * server_scale, 4.0, 5.0 - 0.3 * server_scale],
+                [
+                    3.0 + 0.3 * server_scale,
+                    4.0 + 1.8 * server_scale,
+                    5.0 + 0.3 * server_scale,
+                ],
+            ));
+            let scale = model_scale * crate::AnimatedActor::render_scale(&actor);
+            let bounds = actor_culling_bounds(authored, &actor, scale);
+            let (low, high) = bounds.at(actor.position, scale);
+            assert!((low[1] - 4.0).abs() < 1e-4);
+            assert!((high[1] - (4.0 + height)).abs() < 1e-4);
+            let above = ActorAnimationView {
+                planes: [[0.0, 1.0, 0.0, -(4.0 + height + 0.1)]; 6],
+                camera: [0.0, -5.0, 0.0],
+                ..wall()
+            };
+            assert!(!above.admits(actor.position, scale, false, bounds));
+        }
+    }
+
+    #[test]
     fn an_actor_without_collision_keeps_its_authored_box() {
         let actor = TestActor::default();
-        assert_eq!(actor_culling_bounds(raised_box(), &actor), raised_box());
+        for scale in [0.25, 1.0, 4.0, f32::NAN, f32::INFINITY] {
+            assert_eq!(
+                actor_culling_bounds(raised_box(), &actor, scale),
+                raised_box()
+            );
+        }
     }
 }

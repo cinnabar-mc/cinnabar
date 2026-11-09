@@ -64,6 +64,7 @@ pub(crate) fn admit_frame_bounds(
     if view.is_some_and(|view| !view.contains_distance(feet)) {
         return false;
     }
+    let scale = presentation.submission.culling_scale();
     let mut visible = actor_rig_submission_is_visible(&presentation.submission, view);
     let mut bounds = presentation.submission.culling_bounds;
     for layer in rig.skin_layers {
@@ -73,7 +74,7 @@ pub(crate) fn admit_frame_bounds(
         };
         let selected = presentation
             .model_frame
-            .culling_bounds(actor_culling_bounds(selected, actor));
+            .culling_bounds(actor_culling_bounds(selected, actor, scale));
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
         bounds = bounds.union(selected);
@@ -103,7 +104,7 @@ pub(crate) fn admit_frame_bounds(
         };
         let selected = presentation
             .model_frame
-            .culling_bounds(actor_culling_bounds(selected, actor));
+            .culling_bounds(actor_culling_bounds(selected, actor, scale));
         presentation.submission.culling_bounds = selected;
         visible |= actor_rig_submission_is_visible(&presentation.submission, view);
         bounds = bounds.union(selected);

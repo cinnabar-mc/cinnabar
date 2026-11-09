@@ -62,13 +62,19 @@ impl SkinGeometryBounds {
             })
     }
 
-    /// Positions the box at the actor's feet using the shared conservative scale policy.
-    pub fn at(self, feet: [f32; 3], scale: f32) -> ([f32; 3], [f32; 3]) {
-        let scale = if scale.is_finite() {
+    /// The conservative scale applied when positioning a culling box.
+    #[must_use]
+    pub fn culling_scale(scale: f32) -> f32 {
+        if scale.is_finite() {
             scale.max(1.0)
         } else {
             1.0
-        };
+        }
+    }
+
+    /// Positions the box at the actor's feet using the shared conservative scale policy.
+    pub fn at(self, feet: [f32; 3], scale: f32) -> ([f32; 3], [f32; 3]) {
+        let scale = Self::culling_scale(scale);
         (
             std::array::from_fn(|axis| {
                 feet[axis] + (self.center[axis] - self.half_extents[axis]) * scale

@@ -122,7 +122,7 @@ pub fn rig_may_be_visible(
         .iter()
         .fold(1.0_f32, |largest, axis| largest.max(axis.abs()));
     let scale = rig.scale * actor.render_scale() * largest_axis;
-    let culling_bounds = actor_animation::actor_culling_bounds(rig.culling_bounds(), actor);
+    let culling_bounds = actor_animation::actor_culling_bounds(rig.culling_bounds(), actor, scale);
     // Culling places the model frame's box at the model origin, as the drawn submission does.
     let (origin, bounds) = sampled_rig_placement(
         rig,
@@ -315,7 +315,7 @@ fn tick_presentation(
         presentation: ActorRigPresentation {
             submission: ActorRigSubmission {
                 material: Default::default(),
-                culling_bounds: actor_animation::actor_culling_bounds(rig.culling_bounds(), actor),
+                culling_bounds: rig.culling_bounds(),
                 input: ActorRigRenderInput {
                     identity: ActorRenderIdentity {
                         session_id: rig.actor.session_id,
@@ -383,7 +383,12 @@ fn place(
         return None;
     }
     submission.world_from_actor = placement.world_from_model;
-    submission.culling_bounds = placement.frame.culling_bounds(submission.culling_bounds);
+    let bounds = actor_animation::actor_culling_bounds(
+        submission.culling_bounds,
+        actor,
+        submission.culling_scale(),
+    );
+    submission.culling_bounds = placement.frame.culling_bounds(bounds);
     submission.overlay_rgba8 =
         crate::presentation::combat::overlay(actor, render_api::DEFAULT_COMBAT_VISUALS);
     present_thrown_trident(submission, actor);

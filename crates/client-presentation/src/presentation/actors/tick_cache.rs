@@ -62,7 +62,7 @@ impl TickKey {
             ],
             rest_tick: (rig.rest_completed_tick, rig.rest_reset_generation),
             fallback: selected.fallback,
-            bounds: actor_animation::actor_culling_bounds(selected.culling_bounds(), actor),
+            bounds: selected.culling_bounds(),
             scale: selected.scale.to_bits(),
             actor: (
                 actor.runtime_id,
