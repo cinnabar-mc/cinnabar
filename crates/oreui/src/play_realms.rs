@@ -78,16 +78,17 @@ pub(super) fn draw(
         )?;
         for (index, realm) in realms {
             first.get_or_insert(index);
-            if y + item_height < body[1] || y > body[3] {
-                y += item_height;
-                continue;
-            }
             let bounds = [
                 menu_left + canvas.r(0.2),
                 y,
                 menu_right - canvas.r(0.2),
                 y + item_height,
             ];
+            if y + item_height < body[1] || y > body[3] {
+                canvas.focus_target(MenuAction::SelectRealm(index), bounds)?;
+                y += item_height;
+                continue;
+            }
             row(
                 canvas,
                 view,

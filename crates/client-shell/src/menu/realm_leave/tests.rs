@@ -246,6 +246,98 @@ fn a_failed_leave_shows_an_oreui_notice_and_allows_a_retry() {
 }
 
 #[test]
+fn a_leave_failure_waits_for_the_invitation_flow_to_close() {
+    use launcher::menu::realm_membership::{Action, Stage};
+
+    for stage in [Stage::Code, Stage::Confirm] {
+        let mut menu = menu();
+        let mut account = LeaveAccount::default();
+        menu.activate(MenuAction::LeaveRealmDialog(7));
+        menu.activate(MenuAction::ConfirmLeaveRealm(7));
+        menu.sync_realm_leave(&mut account);
+        menu.activate(MenuAction::RealmMembership(Action::Open));
+        menu.edit_text("fixture-code");
+        let state = menu.realm_membership.state.as_mut().unwrap();
+        state.stage = stage;
+        state.realm = (stage == Stage::Confirm).then(|| realm("Invitation", 11, true));
+        let invitation = state.clone();
+        let field = menu.field;
+        let focus = menu.focused_action();
+
+        account.outcome = Some((account.sent[0].0, Err(())));
+        menu.sync_realm_leave(&mut account);
+        assert_eq!(menu.dialog, None, "the invitation keeps input ownership");
+        assert_eq!(menu.realm_membership.state.as_ref(), Some(&invitation));
+        assert_eq!(menu.field, field);
+        assert_eq!(menu.focused_action(), focus);
+        let (drawn, texts) = draw(&menu);
+        assert!(
+            drawn
+                .iter()
+                .all(|action| matches!(action, MenuAction::RealmMembership(_)))
+        );
+        assert!(
+            menu.focus_actions()
+                .iter()
+                .all(|action| drawn.contains(action))
+        );
+        assert!(!texts.iter().any(|text| text.contains("Unable to leave")));
+
+        for _ in 0..2 {
+            if menu.realm_membership.state.is_none() {
+                break;
+            }
+            menu.go_back();
+        }
+        assert!(menu.realm_membership.state.is_none());
+        menu.sync_realm_leave(&mut account);
+        assert_eq!(menu.dialog, Some(MenuDialog::Notice));
+        assert_eq!(draw(&menu).0, [MenuAction::DismissDialog]);
+        assert_eq!(menu.focus_actions(), [MenuAction::DismissDialog]);
+        menu.activate_focused();
+        menu.sync_realm_leave(&mut account);
+        assert_eq!(menu.dialog, None);
+        assert!(menu.realm_membership.state.is_none());
+        assert_eq!(names(&menu), ["Mine", "Joined"]);
+    }
+}
+
+#[test]
+fn a_leave_failure_waits_for_an_existing_dialog() {
+    let mut menu = menu();
+    let mut account = LeaveAccount::default();
+    menu.activate(MenuAction::LeaveRealmDialog(7));
+    menu.activate(MenuAction::ConfirmLeaveRealm(7));
+    menu.sync_realm_leave(&mut account);
+    menu.activate(MenuAction::OpenExitDialog);
+    account.outcome = Some((account.sent[0].0, Err(())));
+    menu.sync_realm_leave(&mut account);
+    assert_eq!(menu.dialog, Some(MenuDialog::Exit));
+    menu.activate(MenuAction::DismissDialog);
+    menu.sync_realm_leave(&mut account);
+    assert_eq!(menu.dialog, Some(MenuDialog::Notice));
+    assert_eq!(menu.focus_actions(), [MenuAction::DismissDialog]);
+}
+
+#[test]
+fn an_account_change_discards_a_deferred_leave_failure() {
+    let mut menu = menu();
+    let mut account = LeaveAccount::default();
+    menu.activate(MenuAction::LeaveRealmDialog(7));
+    menu.activate(MenuAction::ConfirmLeaveRealm(7));
+    menu.sync_realm_leave(&mut account);
+    menu.activate(MenuAction::OpenExitDialog);
+    account.outcome = Some((account.sent[0].0, Err(())));
+    menu.sync_realm_leave(&mut account);
+    assert_eq!(menu.dialog, Some(MenuDialog::Exit));
+    account.generation += 1;
+    menu.sync_realm_leave(&mut account);
+    menu.activate(MenuAction::DismissDialog);
+    menu.sync_realm_leave(&mut account);
+    assert_eq!(menu.dialog, None);
+}
+
+#[test]
 fn an_account_change_discards_the_pending_leave_outcome() {
     let mut menu = menu();
     let mut account = LeaveAccount::default();

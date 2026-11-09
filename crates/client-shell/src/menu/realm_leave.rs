@@ -14,6 +14,8 @@ pub(super) struct RealmLeaveUi {
     request: Option<u32>,
     /// The ticket, Realm id and name of the leave awaiting its outcome.
     pending: Option<(u64, u32, String)>,
+    /// A failure waiting for the active menu dialog to close.
+    failure: Option<String>,
     account_generation: Option<u64>,
 }
 
@@ -69,6 +71,7 @@ impl MenuRuntime {
         {
             leave.request = None;
             leave.pending = None;
+            leave.failure = None;
         }
         leave.account_generation = generation;
         if let Some(id) = self.realm_leave.request.take() {
@@ -79,6 +82,14 @@ impl MenuRuntime {
         }
         if let Some((ticket, result)) = control.realm_leave() {
             self.receive_realm_leave(ticket, result);
+        }
+        if !self.navigation_popup_open()
+            && self.realm_membership.state.is_none()
+            && !self.is_connecting()
+            && self.disconnect_message.is_none()
+            && let Some(message) = self.realm_leave.failure.take()
+        {
+            self.show_notice(&message);
         }
     }
 
@@ -98,7 +109,8 @@ impl MenuRuntime {
                 self.message = Some(format!("You left {name}."));
             }
             Err(()) => {
-                self.show_notice(&format!("Unable to leave {name}. Please try again."));
+                self.realm_leave.failure =
+                    Some(format!("Unable to leave {name}. Please try again."));
             }
         }
     }
