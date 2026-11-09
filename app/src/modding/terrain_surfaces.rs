@@ -4,6 +4,8 @@ use bevy::prelude::*;
 use client_state::ClientFrameSet;
 use std::sync::Arc;
 
+const _: () = assert!(mod_api::terrain_surface::ALL_TILES == meshing::surface::ALL_TILES);
+
 #[derive(Default)]
 struct Cache {
     source: Vec<mod_api::terrain_surface::Rule>,

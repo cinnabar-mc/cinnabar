@@ -935,7 +935,7 @@ fn animation_plan_pages(plan: &AnimationPlan) -> Result<Box<[TexturePage]>, Asse
             layers: u32::try_from(chunk.len()).map_err(|_| AssetError::BlobSizeOverflow {
                 section: "texture page layers",
             })?,
-            mips: mips.into_boxed_slice(),
+            mips: mips.into(),
         }));
     }
     Ok(pages.into_boxed_slice())

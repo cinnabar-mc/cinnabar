@@ -824,7 +824,7 @@ fn decode_pages(payload: &[u8], metas: &[PageMeta]) -> Result<Box<[TexturePage]>
             }
             Ok(TexturePage::new(TextureArray {
                 layers: m.layers as u32,
-                mips: mips.into_boxed_slice(),
+                mips: mips.into(),
             }))
         })
         .collect::<Result<Vec<_>, AssetError>>()

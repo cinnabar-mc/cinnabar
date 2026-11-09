@@ -82,6 +82,8 @@ pub struct PreviewHandItem {
 /// Real item-space geometry and the source atlas region, never a projected GUI icon.
 #[derive(Clone, Debug)]
 pub struct PreviewHeldModel {
+    /// Material coverage retained independently of geometry and hand placement.
+    pub alpha_mode: render_model::HandItemAlphaMode,
     pub source: ui::IconRef,
     pub vertices: Arc<[render_model::ActorRigVertex]>,
     pub placements: [PreviewHeldPlacement; 2],
@@ -90,6 +92,14 @@ pub struct PreviewHeldModel {
 }
 
 impl PreviewHeldModel {
+    /// Shares the held material cutoff between projected and retained previews.
+    pub(in crate::ui_runtime::presentation) fn alpha_cutoff(&self) -> Option<f32> {
+        match self.alpha_mode {
+            render_model::HandItemAlphaMode::Cutout => Some(0.5),
+            _ => None,
+        }
+    }
+
     /// Applies an admitted sprite grip while preserving authored and block placements.
     pub(in crate::ui_runtime::presentation) fn with_grip(
         &self,
