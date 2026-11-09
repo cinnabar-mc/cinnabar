@@ -438,34 +438,33 @@ fn mesh_sub_chunk_core<
                             if entry.variant == 0
                                 && !entry.flags.contains(BlockFlags::OCCLUDES_FULL_FACE)
                                 && visuals.model_random_offset(part_template).is_none()
-                            {
-                                if let Some(rule) = options.surface_rules.iter().find(|rule| {
+                                && let Some(rule) = options.surface_rules.iter().find(|rule| {
                                     rule.states.binary_search(&entry.network_value).is_ok()
-                                }) {
-                                    for (index, quad) in template_quads.iter().enumerate() {
-                                        if visible_quad_mask & (1 << index) == 0 {
-                                            continue;
-                                        }
-                                        if quad.material == DIAGNOSTIC_MATERIAL
-                                            || visuals.material(quad.material).flags
-                                                & (assets::MATERIAL_FLAG_ALPHA_BLEND
-                                                    | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
-                                                == 0
-                                        {
-                                            continue;
-                                        }
-                                        if let Some(face) = crate::surface::full_face(quad) {
-                                            let coverage = rule.coverage(
-                                                neighbourhood,
-                                                [x as i32, y as i32, z as i32],
-                                                face,
-                                                classifier.air_network_id(),
-                                            );
-                                            if coverage.tiles == 0 {
-                                                visible_quad_mask &= !(1 << index);
-                                            } else if coverage.tiles != 0x1ff {
-                                                surface_coverage[index] = Some(coverage);
-                                            }
+                                })
+                            {
+                                for (index, quad) in template_quads.iter().enumerate() {
+                                    if visible_quad_mask & (1 << index) == 0 {
+                                        continue;
+                                    }
+                                    if quad.material == DIAGNOSTIC_MATERIAL
+                                        || visuals.material(quad.material).flags
+                                            & (assets::MATERIAL_FLAG_ALPHA_BLEND
+                                                | assets::MATERIAL_FLAG_ALPHA_CUTOUT)
+                                            == 0
+                                    {
+                                        continue;
+                                    }
+                                    if let Some(face) = crate::surface::full_face(quad) {
+                                        let coverage = rule.coverage(
+                                            neighbourhood,
+                                            [x as i32, y as i32, z as i32],
+                                            face,
+                                            classifier.air_network_id(),
+                                        );
+                                        if coverage.tiles == 0 {
+                                            visible_quad_mask &= !(1 << index);
+                                        } else if coverage.tiles != 0x1ff {
+                                            surface_coverage[index] = Some(coverage);
                                         }
                                     }
                                 }
