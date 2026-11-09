@@ -6,9 +6,37 @@ use serde_json::Value;
 
 use std::sync::Arc;
 
-use super::{Axis, LayoutEnv, Rect, ResolvedControl, axis_index, measure};
+use super::{Axis, LayoutEnv, Rect, ResolvedControl, axis_index, grid, measure, stack};
 use crate::anim::{AnimGraph, AnimKind, ControlAnims, GRAPH_KEY, Inherited, NodeAnim};
 use crate::expr::{self, AxisContext, Length};
+
+/// Resolve the rects of `parent`'s direct children within `parent_rect`.
+pub(super) fn layout_children<'a>(
+    parent: &'a ResolvedControl,
+    parent_rect: Rect,
+    env: &LayoutEnv,
+) -> Vec<(&'a ResolvedControl, Rect)> {
+    if grid::is_grid(parent) {
+        return grid::grid_children(parent, parent_rect, env);
+    }
+    if stack::orientation(parent).is_some() {
+        return stack::stack_children(parent, parent_rect, env);
+    }
+    let extent = [Some(parent_rect.w), Some(parent_rect.h)];
+    let sizes = measure::sizes(parent, extent, env);
+    let siblings = measure::sibling_maxima(parent, &sizes);
+    parent
+        .children
+        .iter()
+        .zip(sizes.iter())
+        .map(|(child, own)| {
+            (
+                child,
+                place_by_anchor(child, parent_rect, *own, siblings, env),
+            )
+        })
+        .collect()
+}
 
 /// The child's rect from its resolved size and anchor/offset within `parent_rect`:
 /// its `anchor_to` point lands on the parent's `anchor_from` point.

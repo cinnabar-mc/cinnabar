@@ -951,34 +951,6 @@ fn progress_clip(control: &ResolvedControl, sliders: &[widgets::SliderFrame]) ->
     widgets::bound_number(control, "clip_ratio").map(|ratio| ratio.clamp(0.0, 1.0) as f32)
 }
 
-/// Resolve the rects of `parent`'s direct children within `parent_rect`.
-fn layout_children<'a>(
-    parent: &'a ResolvedControl,
-    parent_rect: Rect,
-    env: &LayoutEnv,
-) -> Vec<(&'a ResolvedControl, Rect)> {
-    if grid::is_grid(parent) {
-        return grid::grid_children(parent, parent_rect, env);
-    }
-    if stack::orientation(parent).is_some() {
-        return stack::stack_children(parent, parent_rect, env);
-    }
-    let extent = [Some(parent_rect.w), Some(parent_rect.h)];
-    let sizes = measure::sizes(parent, extent, env);
-    let siblings = measure::sibling_maxima(parent, &sizes);
-    parent
-        .children
-        .iter()
-        .zip(sizes.iter())
-        .map(|(child, own)| {
-            (
-                child,
-                place_by_anchor(child, parent_rect, *own, siblings, env),
-            )
-        })
-        .collect()
-}
-
 // --- property readers -------------------------------------------------------
 
 /// The axis a stack panel packs along; `none` and other controls have none.
