@@ -486,7 +486,7 @@ fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
     CollectedEntities { files, references }
 }
 
-/// A server definition of a vanilla client entity that animates nothing (no `scripts.animate`)
+/// A server definition of a vanilla client entity that declares no animation activation
 /// cannot be a complete replacement: packs ship such files only to add animations or
 /// textures. Each one is laid over the installed vanilla definition of the same identifier, so
 /// the vanilla scripts and animations stay and every field the pack declares wins. Where no
@@ -497,25 +497,29 @@ fn complete_inert_overrides(
     references: &mut References,
     vanilla_pack_dir: Option<&Path>,
 ) {
+    let mut installed = None;
     entities.retain_mut(|(_, bytes)| {
         let Some(document) = parse_pack_json(bytes) else {
             return true;
         };
         let description = &document["minecraft:client_entity"]["description"];
-        if !description["scripts"]["animate"].is_null() {
+        if !description["scripts"]["animate"].is_null()
+            || pack_entity_compiler::has_entity_animation_roots(&document)
+        {
             return true;
         }
-        let Some(name) = description["identifier"]
+        let Some(identifier) = description["identifier"]
             .as_str()
-            .and_then(|identifier| identifier.strip_prefix("minecraft:"))
+            .filter(|identifier| identifier.starts_with("minecraft:"))
         else {
             return true;
         };
-        let base = vanilla_pack_dir.and_then(|root| vanilla_entity(root, name));
-        let Some(mut base) = base.filter(|base| {
-            base["minecraft:client_entity"]["description"]["identifier"]
-                == description["identifier"]
-        }) else {
+        let installed = installed.get_or_insert_with(|| {
+            vanilla_pack_dir
+                .and_then(|root| pack_entity_compiler::load_vanilla_entity_definitions(root).ok())
+                .unwrap_or_default()
+        });
+        let Some(mut base) = installed.remove(identifier) else {
             return false;
         };
         let overlay = description.clone();
@@ -529,25 +533,6 @@ fn complete_inert_overrides(
             Err(_) => false,
         }
     });
-}
-
-/// The installed vanilla `entity/<name>.entity.json`, when the name is a plain file name.
-fn vanilla_entity(root: &Path, name: &str) -> Option<Value> {
-    if name.is_empty()
-        || !name
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
-    {
-        return None;
-    }
-    let file = std::fs::File::open(root.join("entity").join(format!("{name}.entity.json"))).ok()?;
-    let mut bytes = Vec::new();
-    file.take(resource_pack::MAX_FILE_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    (bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES)
-        .then(|| parse_pack_json(&bytes))
-        .flatten()
 }
 
 /// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
