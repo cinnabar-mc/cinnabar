@@ -425,6 +425,7 @@ impl WorldStream {
         overlays: super::overlays::OverlayHosts,
     ) -> MeshSnapshot {
         let mut adjacent = std::array::from_fn(|_| None);
+        let mut empty_section = None;
         for offset @ [dx, dy, dz] in MeshNeighbourhood::adjacent_offsets() {
             let neighbour = key
                 .x
@@ -432,13 +433,27 @@ impl WorldStream {
                 .zip(key.y.checked_add(i32::from(dy)))
                 .zip(key.z.checked_add(i32::from(dz)))
                 .and_then(|((x, y), z)| {
-                    self.authority
-                        .terrain()
-                        .sub_chunk(SubChunkKey::new(key.dimension, x, y, z))
+                    let neighbour = SubChunkKey::new(key.dimension, x, y, z);
+                    self.authority.terrain().sub_chunk(neighbour).or_else(|| {
+                        (!self.surface_rules.is_empty() && self.known_air.contains(&neighbour))
+                            .then(|| {
+                                empty_section
+                                    .get_or_insert_with(|| {
+                                        Arc::new(SubChunk::decode(
+                                            &[8, 0],
+                                            &world::RawBlockIds {
+                                                air: self.classifier.air_network_id(),
+                                            },
+                                        ))
+                                    })
+                                    .clone()
+                            })
+                    })
                 });
             adjacent[mesh_offset_index(offset)] = neighbour;
         }
         MeshSnapshot {
+            surface_rules: self.surface_rules.clone(),
             rendering: self.mesh_render_settings,
             center,
             biomes: self.biome_neighbourhood(key),

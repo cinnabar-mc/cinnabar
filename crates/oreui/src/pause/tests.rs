@@ -80,3 +80,32 @@ fn pause_keeps_existing_geometry_at_short_desktop_and_normal_sizes() {
         assert!((resume.height() - 48.0).abs() < 0.001);
     }
 }
+
+#[test]
+fn pause_compact_layout_preserves_actions_without_manual_input_toggle() {
+    let mut view = MenuView::new(true, "Fixture".into());
+    view.touch_available = true;
+    let (_, hits, _) = paint(Default::default(), |c| {
+        draw(c, &view, [480.0, 320.0], &|_| None).unwrap();
+    });
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseResume),
+        "Compact pause menu must preserve Resume"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseSettings),
+        "Compact pause menu must preserve Settings"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::Navigate(MenuScreen::DressingRoom)),
+        "Compact pause menu must preserve Dressing Room"
+    );
+    assert!(
+        hits.iter()
+            .any(|(action, _)| *action == MenuAction::PauseDisconnect),
+        "Compact pause menu must preserve Save & Quit"
+    );
+}

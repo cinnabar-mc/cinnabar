@@ -105,7 +105,8 @@ func rustStartupPacks(t *testing.T, scenario string) []*resource.Pack {
 		}
 		packs = append(packs, pack)
 	}
-	packs[0] = packs[0].WithContentKey("fixture-content-key")
+	// The key is not valid UTF-8, as servers may send: it must reach the client byte for byte.
+	packs[0] = packs[0].WithContentKey("\xfffixture-content-key\x80")
 	return packs
 }
 

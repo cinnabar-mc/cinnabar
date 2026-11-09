@@ -120,7 +120,14 @@ pub(crate) fn press(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                {
+                    let (origin, ticked) = input.context.attack.block_pick();
+                    crate::survival_mining::DestroyPick {
+                        origin,
+                        ticked,
+                        held: None,
+                    }
+                },
                 caps,
                 input.context.mode,
                 input.context.identity,
@@ -188,9 +195,9 @@ pub(crate) fn press(
             "attack press admitted"
         );
     }
-    for request in admitted.cancelled_mining_requests {
-        player.inventory.ledger_mut().cancel_mining_request(request);
-    }
+    admitted
+        .mining
+        .settle_inventory(player.inventory.ledger_mut());
     if let Some(hit) = admitted.actor_attack {
         attack_cues.write(super::attack_cue(&context, hit.runtime_id));
     }

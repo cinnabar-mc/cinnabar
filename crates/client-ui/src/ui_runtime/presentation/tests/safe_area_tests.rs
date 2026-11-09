@@ -85,6 +85,124 @@ fn render_input_carries_the_physical_safe_area_insets() {
 }
 
 #[test]
+fn crosshair_stays_in_the_world_center_while_edge_hud_respects_insets() {
+    use json_ui::vanilla::Reference;
+    use serde_json::json;
+    use ui_screens::hud_renderers::{CROSSHAIR_SIDE, CROSSHAIR_TEXTURE, CURSOR_RENDERER};
+
+    let physical = [1280, 720];
+    let scale = ui::gui_scale(physical, None) as f32;
+    let mut player = player_state::PlayerState::new(1);
+    player
+        .facts
+        .publish_player_game_mode(PlayerGameMode::Survival);
+    let mut texture = Vec::new();
+    image::RgbaImage::from_pixel(8, 8, image::Rgba([255; 4]))
+        .write_to(
+            &mut std::io::Cursor::new(&mut texture),
+            image::ImageFormat::Png,
+        )
+        .unwrap();
+    let (namespace, screen) = Reference::HudCrosshairHudCrosshairScreen
+        .as_str()
+        .split_once('.')
+        .unwrap();
+    for cursor in [
+        json!({"type":"custom", "renderer":CURSOR_RENDERER}),
+        json!({"type":"image", "texture":CROSSHAIR_TEXTURE}),
+    ] {
+        let mut presentation = hud_presentation(None, SafeArea::ZERO);
+        presentation
+            .enable_json_ui_inline(crate::test_support::mini_carrier())
+            .unwrap();
+        let mut cursor = cursor;
+        cursor["size"] = json!([CROSSHAIR_SIDE, CROSSHAIR_SIDE]);
+        cursor["anchor_from"] = json!("center");
+        cursor["anchor_to"] = json!("center");
+        let mut runtime = UiRuntime::new(1);
+        runtime.set_server_ui(Some(std::sync::Arc::new(
+            crate::ui_runtime::presentation::forms::ServerUiPack {
+                ui_layers: vec![vec![
+                    ("ui/hud_crosshair_fixture.json".into(), json!({
+                        "namespace":namespace, (screen):{"type":"screen", "controls":[{"cursor":cursor}]}
+                    }).to_string().into_bytes()),
+                    ("ui/hud_screen.json".into(), json!({
+                        "namespace":"hud", "hud_screen":{"type":"screen", "controls":[{
+                            "edge":{"type":"image", "texture":CROSSHAIR_TEXTURE,
+                                "size":[8,8], "anchor_from":"top_left", "anchor_to":"top_left"}
+                        }]}
+                    }).to_string().into_bytes()),
+                ]],
+                textures: vec![(format!("{CROSSHAIR_TEXTURE}.png"), texture.clone())],
+                ..Default::default()
+            },
+        )));
+        for dpi in [1.0, 1.5, 2.0] {
+            for safe_area in [
+                SafeArea::ZERO,
+                insets(96.0, 0.0, 0.0, 0.0),
+                insets(0.0, 0.0, 96.0, 0.0),
+                insets(12.0, 48.0, 36.0, 20.0),
+            ] {
+                presentation.set_safe_area(safe_area);
+                // Check both the first paint and its retained replay.
+                for now in [0, 1] {
+                    let input = presentation
+                        .build(
+                            &player,
+                            &runtime,
+                            now,
+                            physical,
+                            ui::DpiScale::new(dpi).unwrap(),
+                        )
+                        .unwrap();
+                    let bounds = input
+                        .vertices
+                        .as_chunks::<4>()
+                        .0
+                        .iter()
+                        .map(|quad| {
+                            quad.iter().fold(
+                                [
+                                    f32::INFINITY,
+                                    f32::INFINITY,
+                                    f32::NEG_INFINITY,
+                                    f32::NEG_INFINITY,
+                                ],
+                                |b, v| {
+                                    [
+                                        b[0].min(v.position[0]),
+                                        b[1].min(v.position[1]),
+                                        b[2].max(v.position[0]),
+                                        b[3].max(v.position[1]),
+                                    ]
+                                },
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let cursor = bounds
+                        .iter()
+                        .find(|b| (b[2] - b[0] - CROSSHAIR_SIDE * scale).abs() < 0.01)
+                        .expect("painted crosshair");
+                    assert!(
+                        ((cursor[0] + cursor[2]) * 0.5 - physical[0] as f32 * 0.5).abs() < 0.01
+                    );
+                    assert!(
+                        ((cursor[1] + cursor[3]) * 0.5 - physical[1] as f32 * 0.5).abs() < 0.01
+                    );
+                    let edge = bounds
+                        .iter()
+                        .find(|b| (b[2] - b[0] - 8.0 * scale).abs() < 0.01)
+                        .expect("painted edge HUD control");
+                    assert!((edge[0] - safe_area.left() * dpi).abs() < 0.01);
+                    assert!((edge[1] - safe_area.top() * dpi).abs() < 0.01);
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn tiny_launcher_text_keeps_rendering_after_resize() {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
     let player = player_state::PlayerState::new(0);

@@ -11,7 +11,16 @@ impl ActorStore {
         self.latest_sequence
     }
 
+    /// The vehicle `rider_unique_id` rides as the client shows it: its link, unless it is the
+    /// local player and got off on the client before the server's links for it changed.
+    /// Seats, views, animation, picking, collision and movement all read this.
     pub(crate) fn ridden_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
+        self.linked_unique_id(rider_unique_id)
+            .filter(|_| self.local_vehicle.left_rider != Some(rider_unique_id))
+    }
+
+    /// The server's link for `rider_unique_id`, which mount changes are published from.
+    pub(crate) fn linked_unique_id(&self, rider_unique_id: i64) -> Option<i64> {
         self.rider_to_ridden.get(&rider_unique_id).copied()
     }
 

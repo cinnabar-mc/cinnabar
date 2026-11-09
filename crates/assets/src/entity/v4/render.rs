@@ -34,6 +34,9 @@ pub struct EntityRenderMaterialState {
     pub cull: bool,
     pub blend: bool,
     pub depth_write: bool,
+    /// A second sampler replaces texels except for its colored transparent keep mask.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub masked_multitexture: bool,
     /// Texture alpha weights world lighting; colored alpha-zero texels remain emissive.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub emissive: bool,
@@ -75,6 +78,7 @@ impl Default for EntityRenderMaterialState {
             cull: true,
             blend: false,
             depth_write: true,
+            masked_multitexture: false,
             emissive: false,
             only_emissive: false,
             additive: false,
@@ -106,6 +110,7 @@ impl EntityRenderMaterialState {
     pub const DISABLE_ALPHA_WRITE: u32 = 1 << 20;
     pub const DISABLE_COLOR_WRITE: u32 = 1 << 21;
     pub const COLOR_MASK: u32 = 1 << 22;
+    pub const MASKED_MULTITEXTURE: u32 = Self::COLOR_MASK << 1;
 
     pub fn from_word(word: u32) -> Option<Self> {
         (word & Self::AUTHORED != 0).then_some(Self {
@@ -113,6 +118,7 @@ impl EntityRenderMaterialState {
             cull: word & Self::CULL != 0,
             blend: word & Self::BLEND != 0,
             depth_write: word & Self::DISABLE_DEPTH_WRITE == 0,
+            masked_multitexture: word & Self::MASKED_MULTITEXTURE != 0,
             emissive: word & Self::EMISSIVE != 0,
             only_emissive: word & Self::ONLY_EMISSIVE != 0,
             additive: word & Self::ADDITIVE != 0,
@@ -135,6 +141,11 @@ impl EntityRenderMaterial {
             None => kind,
             Some(state) => {
                 kind | EntityRenderMaterialState::AUTHORED
+                    | if state.masked_multitexture {
+                        EntityRenderMaterialState::MASKED_MULTITEXTURE
+                    } else {
+                        0
+                    }
                     | if state.alpha_test {
                         EntityRenderMaterialState::ALPHA_TEST
                     } else {

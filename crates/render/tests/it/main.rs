@@ -93,6 +93,7 @@ mod shaders;
 mod skull_lighting;
 mod solid_terrain_raster;
 mod star_rotation;
+mod surface_patches;
 mod terrain_lightmap;
 mod terrain_seams;
 mod transparent_terrain;

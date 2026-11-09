@@ -117,7 +117,7 @@
   "vex": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "villager": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "villager_v2": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
-  "villager_v2_masked": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
+  "villager_v2_masked": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true,"masked_multitexture":true},
   "vindicator": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "wandering_trader": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "warden": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
@@ -132,5 +132,5 @@
   "zombie": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "zombie_villager": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
   "zombie_villager_v2": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true},
-  "zombie_villager_v2_masked": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true}
+  "zombie_villager_v2_masked": {"alpha_test":true,"cull":false,"blend":false,"depth_write":true,"masked_multitexture":true}
 }

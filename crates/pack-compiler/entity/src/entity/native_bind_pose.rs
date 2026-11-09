@@ -12,6 +12,9 @@ mod feline_tests;
 #[cfg(test)]
 #[path = "native_bind_pose/fox_tests.rs"]
 mod fox_tests;
+#[cfg(test)]
+#[path = "native_bind_pose/villager_tests.rs"]
+mod villager_tests;
 
 const POLAR_BEAR_PATH: &str = "models/entity/polar_bear.geo.json";
 const POLAR_BEAR_GEOMETRY: &str = "geometry.polarbear";
@@ -23,6 +26,8 @@ const CAT_PATH: &str = "models/entity/cat.geo.json";
 const CAT_GEOMETRY: &str = "geometry.cat";
 const OCELOT_PATH: &str = "models/entity/ocelot.geo.json";
 const OCELOT_GEOMETRY: &str = "geometry.ocelot.v1.8";
+const VILLAGER_PATH: &str = "models/entity/villager_v2.geo.json";
+const VILLAGER_GEOMETRY: &str = "geometry.villager_v2";
 // Canonical pinned sample source, not a blanket default for similarly named custom models.
 const SAMPLE_SHA256: [u8; 32] = [
     0x54, 0x11, 0xea, 0x78, 0xae, 0x01, 0xce, 0x1f, 0xa1, 0xbe, 0x30, 0xa5, 0x18, 0x59, 0xe5, 0x1e,
@@ -44,6 +49,10 @@ const OCELOT_SAMPLE_SHA256: [u8; 32] = [
     0x4d, 0xc6, 0x52, 0xc9, 0xed, 0x62, 0x11, 0xb3, 0x8e, 0xd1, 0x61, 0x76, 0x1f, 0xc3, 0x88, 0xc2,
     0xec, 0xee, 0x74, 0x6c, 0xe0, 0x7d, 0xee, 0x33, 0x5a, 0x4e, 0x11, 0x4f, 0xe5, 0x9e, 0x52, 0xda,
 ];
+const VILLAGER_SAMPLE_SHA256: [u8; 32] = [
+    0x33, 0x27, 0x1d, 0xb5, 0xb8, 0x7d, 0x3b, 0xe5, 0x65, 0x6f, 0xad, 0x93, 0xd0, 0x8f, 0x41, 0x75,
+    0xbc, 0xa9, 0xaf, 0xc1, 0x69, 0x2e, 0x91, 0x88, 0x54, 0x45, 0xb0, 0xc8, 0x56, 0xb4, 0x6d, 0xcb,
+];
 /// Cube names and the X/Y/Z bind rotation each keeps.
 type CubeBinds = &'static [(&'static str, [f32; 3])];
 // Repaired body cubes retain a +90-degree X bind independently of bone rotation.
@@ -55,13 +64,16 @@ const FOX_BINDS: CubeBinds = &[
     ("tail", [80.0, 0.0, 0.0]),
 ];
 const BODY_BINDS: CubeBinds = &[("body", NATIVE_BODY_BIND_ROTATION)];
+// The matching zombie-villager brim serializes this bind. Its use for the pinned
+// villager omission is provisional until the native villager default is verified.
+const VILLAGER_BINDS: CubeBinds = &[("brim", [-90.0, 0.0, 0.0])];
 // Adult cat and ocelot body and tail cubes lie along Z; the baby model has its own defaults.
 const FELINE_BINDS: CubeBinds = &[
     ("body", NATIVE_BODY_BIND_ROTATION),
     ("tail1", NATIVE_BODY_BIND_ROTATION),
     ("tail2", NATIVE_BODY_BIND_ROTATION),
 ];
-// Sample path, geometry, source digest and the cube binds its older shipped definition retains.
+// Sample path, geometry, source digest and the retained cube binds.
 const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
     (
         POLAR_BEAR_PATH,
@@ -77,6 +89,12 @@ const REPAIRS: &[(&str, &str, [u8; 32], CubeBinds)] = &[
         OCELOT_GEOMETRY,
         OCELOT_SAMPLE_SHA256,
         FELINE_BINDS,
+    ),
+    (
+        VILLAGER_PATH,
+        VILLAGER_GEOMETRY,
+        VILLAGER_SAMPLE_SHA256,
+        VILLAGER_BINDS,
     ),
 ];
 

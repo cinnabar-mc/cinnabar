@@ -64,11 +64,14 @@ pub(crate) fn with_block_items<'a>(
 
 /// The item network ID of a definition's `vanilla_block_data.block_id`, if it declares a valid one.
 fn block_item_network_id(definition: &[u8]) -> Option<i16> {
-    let root = read_root(definition)?;
-    let Some(Nbt::Int(block_id)) = root.field("vanilla_block_data")?.field("block_id") else {
+    let document = read_root(definition)?;
+    let Some(Nbt::Int(block_id)) = document
+        .root()
+        .field("vanilla_block_data")?
+        .field("block_id")
+    else {
         return None;
     };
-    let block_id = *block_id;
     if block_id < 0 {
         return None;
     }

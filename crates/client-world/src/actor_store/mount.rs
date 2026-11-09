@@ -71,7 +71,7 @@ impl super::ActorStore {
     pub(crate) fn rider_controls_vehicle(&self, rider: i64) -> bool {
         use assets::facts::entity::NativeEntityClass;
         use protocol_ids::ActorFlag;
-        let Some(&vehicle) = self.rider_to_ridden.get(&rider) else {
+        let Some(vehicle) = self.ridden_unique_id(rider) else {
             return false;
         };
         let (Some(rider_actor), Some(mount)) = (
@@ -176,6 +176,7 @@ impl super::ActorStore {
 
     /// Unlinks a rider from its vehicle, keeping both indexes in step.
     pub(super) fn unlink(&mut self, rider: i64) {
+        self.forget_left_rider(rider);
         let Some(vehicle) = self.rider_to_ridden.remove(&rider) else {
             return;
         };
@@ -193,6 +194,8 @@ impl super::ActorStore {
     pub(super) fn apply_link_inner(&mut self, event: ActorLinkEvent) -> ActorApplyResult {
         let rider = event.rider_unique_id;
         let vehicle = event.ridden_unique_id;
+        // A client-side leave ends only with the server's unlink from that vehicle, which
+        // `unlink` handles, or an accepted boarding link; other pairs' cleanup leaves it.
         match event.link_type {
             ActorLinkType::Unknown(_) => ActorApplyResult::Updated,
             ActorLinkType::Remove => {
@@ -206,6 +209,8 @@ impl super::ActorStore {
                 if previous.is_none() && self.rider_to_ridden.len() >= self.max_actor_links {
                     return ActorApplyResult::CapacityRejected;
                 }
+                self.forget_left_rider(rider);
+                self.forget_passed_through(Some(rider), None);
                 if previous != Some(vehicle) {
                     self.unlink(rider);
                     self.rider_to_ridden.insert(rider, vehicle);
@@ -219,14 +224,18 @@ impl super::ActorStore {
 
     /// Drops every link that names this actor as rider or vehicle.
     pub(super) fn remove_links_for(&mut self, unique_id: i64) {
+        self.forget_passed_through(Some(unique_id), Some(unique_id));
         self.unlink(unique_id);
         for rider in self.vehicle_riders.remove(&unique_id).unwrap_or_default() {
+            self.forget_left_rider(rider);
             self.rider_to_ridden.remove(&rider);
             self.tick_links.order.remove(&rider);
         }
     }
 
     pub(super) fn clear_links(&mut self) {
+        self.local_vehicle.left_rider = None;
+        self.local_vehicle.passed_through = None;
         self.rider_to_ridden.clear();
         self.vehicle_riders.clear();
         self.tick_links.clear();

@@ -136,6 +136,13 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
         mesh.batches().into(),
     )
     .ok()
+    .map(|modulated| {
+        if mesh.uses_compact_block_vertices() {
+            modulated.with_compact_block_vertices()
+        } else {
+            modulated
+        }
+    })
     .map(Arc::new)
 }
 
@@ -208,8 +215,8 @@ mod tests {
             uv: [0, 0, 16, 16],
             glint: false,
         };
-        let source = super::super::item_gui::cube([icon; 6]).unwrap();
-        let other = super::super::item_gui::cube([icon; 6]).unwrap();
+        let source = super::super::item_gui::cube([icon; 6], Default::default()).unwrap();
+        let other = super::super::item_gui::cube([icon; 6], Default::default()).unwrap();
         let faded = [255, 255, 255, 128];
         let mut meshes = ModulatedMeshes::default();
         let first = meshes.get(&source, faded, false).unwrap();

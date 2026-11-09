@@ -506,6 +506,51 @@ fn equivalent_source_metadata_is_compared_once_then_retained_without_requests() 
     assert_eq!(runtime.menu_artwork_loader.requested, requested);
 }
 
+#[test]
+fn storage_icons_follow_filtered_rows_and_corrupt_images_leave_the_placeholder() {
+    use launcher::menu::{
+        MenuAction, MenuScreen,
+        settings_storage::{SECTION_INDEX, StorageAction, StorageItem},
+    };
+    let mut view = launcher::menu::MenuView::new(true, "Player".into());
+    view.screen = MenuScreen::Settings;
+    view.settings.section = SECTION_INDEX;
+    Arc::make_mut(&mut view.storage).cached = vec![
+        StorageItem {
+            name: "Cloud Islands".into(),
+            path: "first.mcpack".into(),
+            icon: Some(png(7).into()),
+            ..Default::default()
+        },
+        StorageItem {
+            name: "Harbor".into(),
+            path: "second.mcpack".into(),
+            icon: Some(Arc::from(b"broken PNG".as_slice())),
+            ..Default::default()
+        },
+    ];
+    view.storage_query = "harbor".into();
+    let visible = view_images(&view, &[]);
+    assert_eq!(visible.len(), 1);
+    assert_eq!(visible[0].0, view.storage.cached[1].icon_key());
+    let source = Source::Bytes(visible[0].0.clone(), visible[0].1.clone());
+    let mut cache = DecodeCache::default();
+    cache.decode(std::slice::from_ref(&source));
+    assert!(cache.get(&source.key()).is_none());
+    let hits = [(
+        MenuAction::SettingsStorage(StorageAction::DeletePack(0)),
+        ui::UiRect::new(
+            ui::UiPoint::new(0.0, 0.0).unwrap(),
+            ui::UiPoint::new(10.0, 10.0).unwrap(),
+        )
+        .unwrap(),
+    )];
+    let source = view_images(&view, &hits).into_iter().next().unwrap();
+    let source = Source::Bytes(source.0, source.1);
+    cache.decode(std::slice::from_ref(&source));
+    assert!(cache.get(&source.key()).is_some());
+}
+
 /// Large server textures a frame draws without full-resolution art pack ahead of the
 /// launcher artwork a session keeps from the last menu, so a screenful of server-menu icons
 /// is not crowded off the art pages.

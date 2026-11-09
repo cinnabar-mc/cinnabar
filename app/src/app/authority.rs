@@ -13,6 +13,9 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
     app.init_resource::<client_interaction::movement::LocomotionState>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiPointerSource>();
     app.init_resource::<crate::ui_runtime::touch_pointer::UiTouchStarts>();
+    if cfg!(target_os = "android") {
+        crate::platform_devices::configure_hybrid_input(app);
+    }
     app.add_systems(
         bevy::prelude::Startup,
         (
@@ -113,6 +116,13 @@ pub(crate) fn configure_client_authority_systems(app: &mut App) {
             .before(drain_committed_ui_before_authority)
             .before(ClientFrameSet::UiAuthority)
             .before(ClientFrameSet::Physics),
+    )
+    .add_systems(
+        Update,
+        crate::ui_runtime::outbound::reconcile_mining_inventory
+            .after(reconcile_world_stream_before_physics)
+            .before(drain_committed_ui_before_authority)
+            .before(ClientFrameSet::UiAuthority),
     )
     .add_systems(
         Update,
