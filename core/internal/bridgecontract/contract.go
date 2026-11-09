@@ -141,6 +141,8 @@ const (
 	MethodProfile = "profile.v1"
 	// MethodRealmMembership: Control method for realm membership.
 	MethodRealmMembership = "realm_membership.v1"
+	// MethodRealmLeave: Control method for leaving a joined realm.
+	MethodRealmLeave = "realm_leave.v1"
 	// MethodPacketDelay: Control method for packet delay.
 	MethodPacketDelay = "packet_delay.v1"
 	// MethodPresence: Control method for presence.

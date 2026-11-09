@@ -27,6 +27,13 @@ pub(super) fn draw(
     let screens = PLAY_TABS;
     let edge = canvas.r(EDGE);
     let width = (b[2] - b[0] + edge * (labels.len() - 1) as f32) / labels.len() as f32;
+    for (i, screen) in screens.into_iter().enumerate() {
+        let left = b[0] + (width - edge) * i as f32;
+        canvas.focus_target(
+            MenuAction::Navigate(screen),
+            [left, b[1], left + width, b[3]],
+        )?;
+    }
     let feedback: [Feedback; 3] = std::array::from_fn(|i| {
         let state = canvas.interaction(view, Some(MenuAction::Navigate(screens[i])));
         canvas.feedback(state, true, i == selected, Kind::Tab)
@@ -90,7 +97,7 @@ pub(super) fn draw(
             opacity(OUTLINE, motion.selected),
         )?;
         if i != selected {
-            canvas.hit(action, cell)?;
+            canvas.pointer_hit(action, cell)?;
         }
     }
     Ok(())

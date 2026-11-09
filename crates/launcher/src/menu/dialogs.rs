@@ -121,6 +121,21 @@ pub fn dialog(view: &MenuView, dialog: MenuDialog, translate: Translate<'_>) -> 
             translated(translate, "gui.cancel", "Cancel"),
             MenuAction::ConfirmRemoveShaderPack(index, revision),
         ),
+        MenuDialog::LeaveRealm(id) => (
+            translated(translate, "playscreen.confirmLeaveTitle", "Confirm Leave"),
+            translated(
+                translate,
+                "playscreen.confirmLeaveMessage",
+                "Are you sure you want to leave Realm %1$s?",
+            )
+            .replace(
+                "%1$s",
+                super::joined_realm(&view.realms, id).map_or("", |realm| realm.name.as_str()),
+            ),
+            translated(translate, "accessibility.play.leaveRealm", "Leave Realm"),
+            translated(translate, "gui.cancel", "Cancel"),
+            MenuAction::ConfirmLeaveRealm(id),
+        ),
         // The popup's title is one line, so the server names it and the body asks.
         MenuDialog::RemoveSaved(index) => (
             view.servers
@@ -275,5 +290,55 @@ fn storage(view: &MenuView, dialog: crate::menu::MenuDialog, translate: Translat
         button2: words("storageManager.delete.cancel", "Cancel"),
         confirm,
         dismiss: MenuAction::DismissDialog,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::menu::{MenuRealmCard, REALM_ADDRESS_PREFIX};
+
+    /// The join target of the Realm with this service id.
+    fn target(id: &str) -> String {
+        format!("{REALM_ADDRESS_PREFIX}{id}")
+    }
+
+    /// A Realm card with the given join target and membership.
+    fn realm(name: &str, target: &str, member: bool) -> MenuRealmCard {
+        serde_json::from_value(serde_json::json!({
+            "name": name, "state": "OPEN", "target": target, "member": member
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn only_joined_realms_with_a_service_id_can_be_left() {
+        assert_eq!(realm("R", &target("7"), true).leave_id(), Some(7));
+        assert_eq!(realm("R", &target("7"), false).leave_id(), None);
+        for target in [
+            target("0"),
+            target("-1"),
+            target("x"),
+            "realm/7".into(),
+            String::new(),
+        ] {
+            assert_eq!(realm("R", &target, true).leave_id(), None, "{target}");
+        }
+    }
+
+    #[test]
+    fn leave_dialog_names_the_realm_by_id_and_confirms_that_id() {
+        let mut view = MenuView::new(true, "Steve".to_owned());
+        view.realms = vec![
+            realm("First", &target("3"), true),
+            realm("Second", &target("7"), true),
+        ]
+        .into();
+        let popup = dialog(&view, MenuDialog::LeaveRealm(7), &|_| None);
+        assert_eq!(popup.title, "Confirm Leave");
+        assert_eq!(popup.body, "Are you sure you want to leave Realm Second?");
+        assert_eq!(popup.button1, "Leave Realm");
+        assert_eq!(popup.confirm, MenuAction::ConfirmLeaveRealm(7));
+        assert_eq!(popup.dismiss, MenuAction::DismissDialog);
     }
 }

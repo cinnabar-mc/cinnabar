@@ -1479,6 +1479,14 @@ Core transfer/disconnect terminals can abandon unfinished join preparation; ordi
 preparation and presentation readiness remain required for a successful join. Live
 server latency impact and the complete transfer acceptance matrix remain unqualified.
 
+Realm membership: invitation codes are verified, then accepted only after confirmation.
+Realms owned by another XUID list as joined, offer Leave Realm with vanilla's
+`playscreen.confirmLeave*` confirmation, and are removed once `DELETE /invites/<id>` succeeds.
+The leave endpoint follows community references (MinecraftAuth, wiki.vg), not a native capture.
+Incomplete: live remote acceptance and leave, pending-invitation acceptance, subscription creation,
+multiplayer permission admission, service-specific errors, the native confirm popup's button
+labels, and OreUI placement parity for Leave. This does not close the Realm management parity gate.
+
 Server pack acquisition, handoff and stack composition no longer impose fixed archive-count
 or compressed-byte quotas. Saved server lists retain every imported entry. Declared sizes,
 identity, digests and framing remain validated. Experience selections preserve service errors
@@ -1520,7 +1528,12 @@ potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD
 so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedrock's tint masks.
 Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
 their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
-pixels, an implementation bound rather than a vanilla limit. The
+pixels, an implementation bound rather than a vanilla limit.
+Compasses and clocks animate with a pack's own strips: its `compass_atlas`, `recovery_compass_atlas`
+and `watch_atlas` images, shown at the native 32 and 64 frames. A strip under the Java item name
+(`compass.png`, `clock.png`) in a Bedrock pack at exactly the native frame count is also used.
+That Java-named route is a provisional approximation with no vanilla counterpart, so it closes no
+parity gate; a partial strip is ignored rather than mixed with base frames. The
 Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
 Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
 target and the flipbook list against the pinned sample pack, but no pinned Java source checks the
@@ -1548,8 +1561,10 @@ confirmed values and show a retry message in Game; failed console writes show a 
 Save replies refresh all confirmed settings and retain newer pending selections. World toggles keep
 keyboard and gamepad focus across value changes. A successful save clears superseded errors for its
 settings, while unrelated save failures remain visible. Live edits remain pending until a successful
-server exit. Default game mode and default player permission changes still wait for the next
-start; live application of these settings remains an incomplete parity gap. Pack and experiment
+server exit. Changing the default game mode also sends a targeted console command for the connected
+host; the world default and default player permission still take effect on the next start. Console
+write success does not confirm the server applied the player mode; live acceptance and native
+settings parity remain incomplete. Pack and experiment
 configuration, hardcore, flat presets, Education Edition, operator status for a signed-out or
 offline-fallback host, the in-game Personal Game Mode and Multiplayer section, and live acceptance
 of every option on supported platforms remain incomplete.

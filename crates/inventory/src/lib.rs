@@ -55,5 +55,5 @@ pub use item_icon::{crossbow_animation_frame, held_animation_frame, ranged_anima
 mod dial;
 pub use dial::{
     CLOCK_FRAMES, COMPASS_FRAMES, ClockReading, CompassReading, DialFrames, DialNeedle,
-    natural_dimension,
+    natural_dimension, strip_frame_side, strip_frames,
 };
