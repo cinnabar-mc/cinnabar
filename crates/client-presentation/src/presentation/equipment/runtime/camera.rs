@@ -129,7 +129,7 @@ impl EquipmentRuntime {
         }
         let shape = if block && Self::first_person_button(item) {
             FirstPersonShape::Button
-        } else if block && Self::first_person_wall(item) {
+        } else if block && self.first_person_wall(item) {
             FirstPersonShape::Wall
         } else if block {
             FirstPersonShape::Block {
