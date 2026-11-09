@@ -595,8 +595,9 @@ attack still reports the seat. Without a free
 block it stays at its seat. Incomplete: the still-vehicle motion threshold is unverified; each block
 counts as one box around its collision shapes; blocks vanilla exempts by flag or state other
 than scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail
-ejection are not implemented; until the server's unlink arrives, the HUD, inventory and
-mining speed still treat the player as mounted.
+ejection are not implemented; until the server's unlink arrives, the HUD, inventory, mining
+speed, the third-person body's facing and the riding animation still treat the player as
+mounted, because only movement and the camera drop the local link at once.
 Server-driven gameplay pose and item-use starts, Riptide flag lifetimes,
 block-climber flags, custom collision definitions, transition-tick packet ordering
 and broader live-server qualification remain incomplete.

@@ -767,3 +767,23 @@ fn an_attack_in_the_same_frame_keeps_the_rider_seated_for_a_tick() {
         rider.sent
     );
 }
+
+/// An item release held behind a seated tick goes out from the seat before the rider gets
+/// off.
+#[test]
+fn a_held_item_release_keeps_the_rider_seated_until_it_goes_out() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    rider.flush_movement();
+    let facing = rider.ticker.completed_tick();
+    rider.ticker.hold_release_after_tick(facing, Vec::new());
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "the request waits behind the release");
+    rider.ticker.confirm_held_release_facing(facing);
+    rider.ticker.send_held_release(|_| Ok(()));
+    rider.flush_movement();
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
+}

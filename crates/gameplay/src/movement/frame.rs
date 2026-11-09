@@ -172,8 +172,9 @@ impl LocomotionState {
     /// The player gets off only once transport takes the request, behind all movement from
     /// the seat, so the server sees the seated movement, the request, then movement off the
     /// mount. An attack waiting to go out this frame (`attack_waits`) reports the position
-    /// before the frame's first tick, so the player also stays seated for it and the server
-    /// sees the attack from the seat before the request. Until then it stays seated and the
+    /// before the frame's first tick, and a held item release reports a seated tick, so the
+    /// player also stays seated for them and the server sees them from the seat before the
+    /// request. Until then it stays seated and the
     /// press waits for a later tick; a request transport refuses for good drops the press.
     pub fn leave_mount(
         &mut self,
@@ -203,6 +204,7 @@ impl LocomotionState {
             || frame.hold.is_some()
             || !frame_simulates_tick(physics, movement_ticker, frame.delta)
             || movement_ticker.movement_trails_transport()
+            || movement_ticker.has_held_release()
             || attack_waits
         {
             return;
