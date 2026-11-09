@@ -65,7 +65,7 @@ fn cube_preserves_authored_face_uv_edges_and_glint() {
 }
 
 #[test]
-fn cutout_cubes_show_outward_faces_with_the_thumbnail_alpha_threshold() {
+fn cutout_cubes_show_outward_faces_with_the_sample_alpha_threshold() {
     let faces = std::array::from_fn(|index| face(index as u16));
     let mesh = cutout_cube(faces).unwrap();
     assert_eq!(mesh.vertices().len(), CUBE_FACES.len() * 4);
@@ -80,7 +80,7 @@ fn cutout_cubes_show_outward_faces_with_the_thumbnail_alpha_threshold() {
         assert!(batch.depth_test && batch.depth_write);
         assert_eq!(
             batch.alpha_cutoff,
-            Some(assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32)
+            Some(assets::gui_item::GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD)
         );
         let (corners, uvs) = assets::gui_item::cube_face(face);
         let indices =

@@ -87,6 +87,7 @@ fn feed_draws_crumbs(
                 position: [0.0; 3],
                 height: None,
                 eating_position: [0.0; 3],
+                fishing: None,
             },
         );
         system.tick(0.001, &EmptyWorld);

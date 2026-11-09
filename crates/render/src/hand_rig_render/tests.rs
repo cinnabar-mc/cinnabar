@@ -427,7 +427,7 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
         width: 2,
         height: 2,
         layers: 2,
-        rgba8: Arc::from(vec![0u8; bytes]),
+        rgba8: vec![0u8; bytes].into(),
     };
     let mut scene = HandRigScene::default();
     scene.set_item_atlases([Some(atlas(32)), None]);
@@ -446,7 +446,7 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
             width: u16::MAX,
             height: u16::MAX,
             layers: u32::MAX,
-            rgba8: Arc::from([]),
+            rgba8: Vec::new().into(),
         }),
         None,
     ]);
@@ -511,29 +511,26 @@ fn pose_updates_reuse_their_buffers() {
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
 
     // Main and offhand pages may have unrelated dimensions and layer counts.
-    let main_pixels: Arc<[u8]> = vec![255; 16].into();
-    let off_pixels: Arc<[u8]> = vec![127; 48].into();
+    let main_pixels: render_model::PagePixels = vec![255; 16].into();
+    let off_pixels: render_model::PagePixels = vec![127; 48].into();
     scene.set_item_atlases([
         Some(HandItemAtlas {
             width: 2,
             height: 2,
             layers: 1,
-            rgba8: Arc::clone(&main_pixels),
+            rgba8: main_pixels.clone(),
         }),
         Some(HandItemAtlas {
             width: 4,
             height: 1,
             layers: 3,
-            rgba8: Arc::clone(&off_pixels),
+            rgba8: off_pixels.clone(),
         }),
     ]);
     upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
     assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [2, 2, 1]);
     assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
-    assert!(Arc::ptr_eq(
-        &gpu.atlases[1].as_ref().unwrap().pixels,
-        &off_pixels
-    ));
+    assert!(gpu.atlases[1].as_ref().unwrap().pixels.ptr_eq(&off_pixels));
 
     // The same pixel allocation with new dimensions is not the same texture.
     scene.set_item_atlases([
@@ -547,7 +544,7 @@ fn pose_updates_reuse_their_buffers() {
             width: 4,
             height: 1,
             layers: 3,
-            rgba8: Arc::clone(&off_pixels),
+            rgba8: off_pixels.clone(),
         }),
     ]);
     upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());

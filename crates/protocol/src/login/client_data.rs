@@ -185,7 +185,7 @@ pub(crate) fn login_client_data(
         "SkinAnimationData": "",
         "SkinColor": "#b37b62",
         "SkinData": skin_data,
-        "SkinGeometryData": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.geometry_data)),
+        "SkinGeometryData": STANDARD.encode(geometry.map_or(crate::skin_change::ABSENT_GEOMETRY_DATA, |geometry| geometry.geometry_data.as_str())),
         "SkinGeometryDataEngineVersion": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.engine_version)),
         "SkinId": skin.map_or_else(|| crate::skin_change::classic_skin_id(&arm_size), |skin| skin.id.clone()),
         "SkinImageHeight": skin_height,
@@ -452,6 +452,7 @@ mod tests {
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
+        assert_eq!(decoded(&claims, "SkinGeometryData"), b"null\n");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
     }

@@ -32,13 +32,13 @@ pub struct ItemAttackTiming {
 }
 
 /// Reads finite durations and complete kinetic phases, skipping malformed optional facts.
-pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
-    let ticks = |nbt: Option<&Nbt>| {
+pub(super) fn parse_attack(components: Nbt<'_>) -> Option<ItemAttackTiming> {
+    let ticks = |nbt: Option<Nbt<'_>>| {
         nbt.and_then(Nbt::number)
             .filter(|value| value.is_finite() && *value >= 0.0 && *value <= f64::from(u32::MAX))
             .map(|value| value as u32)
     };
-    let seconds = |nbt: Option<&Nbt>| {
+    let seconds = |nbt: Option<Nbt<'_>>| {
         nbt.and_then(Nbt::number)
             .filter(|value| value.is_finite() && *value > 0.0)
             .and_then(super::components::duration_ticks)
@@ -97,6 +97,7 @@ pub(super) fn parse_attack(components: &Nbt) -> Option<ItemAttackTiming> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::nbt_tree::test_tree::Nbt;
 
     #[test]
     fn facts_migration_spear_component_tag_remains_in_the_pinned_vocabulary() {
@@ -144,7 +145,7 @@ mod tests {
             ),
         ];
         let mut root = Nbt::Compound(components);
-        let facts = parse_attack(&root).unwrap();
+        let facts = parse_attack(root.view()).unwrap();
         assert_eq!(facts.swing_duration_ticks, Some(16));
         assert_eq!(facts.attack_cooldown.unwrap().ticks, 16);
         assert!(facts.piercing_weapon);
@@ -168,27 +169,30 @@ mod tests {
                 Nbt::List(vec![Nbt::String("minecraft:is_spear".into())]),
             )],
         ));
-        assert!(parse_attack(&root).unwrap().is_spear);
+        assert!(parse_attack(root.view()).unwrap().is_spear);
     }
 
     #[test]
     fn malformed_optional_facts_do_not_disable_valid_attack_routing() {
-        let facts = parse_attack(&Nbt::Compound(vec![
-            component(
-                "minecraft:swing_duration",
-                vec![("value", Nbt::Float(f64::NAN))],
-            ),
-            component(
-                "minecraft:cooldown",
-                vec![
-                    ("category", Nbt::String("test:use".into())),
-                    ("duration", Nbt::Float(1.0)),
-                    ("type", Nbt::String("use".into())),
-                ],
-            ),
-            component("minecraft:piercing_weapon", vec![]),
-            component("minecraft:kinetic_weapon", vec![("delay", Nbt::Int(-1))]),
-        ]))
+        let facts = parse_attack(
+            Nbt::Compound(vec![
+                component(
+                    "minecraft:swing_duration",
+                    vec![("value", Nbt::Float(f64::NAN))],
+                ),
+                component(
+                    "minecraft:cooldown",
+                    vec![
+                        ("category", Nbt::String("test:use".into())),
+                        ("duration", Nbt::Float(1.0)),
+                        ("type", Nbt::String("use".into())),
+                    ],
+                ),
+                component("minecraft:piercing_weapon", vec![]),
+                component("minecraft:kinetic_weapon", vec![("delay", Nbt::Int(-1))]),
+            ])
+            .view(),
+        )
         .unwrap();
         assert!(facts.piercing_weapon);
         assert_eq!(facts.swing_duration_ticks, None);
@@ -208,7 +212,7 @@ mod tests {
                 Nbt::List(vec![Nbt::String("minecraft:is_spear".into())]),
             ),
         ]);
-        let facts = parse_attack(&components).unwrap();
+        let facts = parse_attack(components.view()).unwrap();
         assert!(
             facts.is_spear,
             "registry tags must reach the native pose gate"
@@ -218,7 +222,7 @@ mod tests {
             unreachable!()
         };
         fields[1].1 = Nbt::List(vec![Nbt::String("test:kinetic_weapon".into())]);
-        assert!(!parse_attack(&components).unwrap().is_spear);
+        assert!(!parse_attack(components.view()).unwrap().is_spear);
     }
 
     #[test]
@@ -237,7 +241,7 @@ mod tests {
                 vec![("minecraft:kinetic_weapon", weapon)],
             ),
         ]);
-        let facts = parse_attack(&components).unwrap();
+        let facts = parse_attack(components.view()).unwrap();
         assert!(facts.piercing_weapon);
         assert_eq!(
             facts.kinetic_weapon,

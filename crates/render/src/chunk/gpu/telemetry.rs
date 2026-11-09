@@ -2,6 +2,35 @@
 
 use crate::chunk::*;
 
+/// Cumulative allocation outcomes, preserved when idle storage is replaced.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(in crate::chunk) struct ArenaMemoryTelemetry {
+    pub(in crate::chunk) host_visible_attempts: u64,
+    pub(in crate::chunk) host_visible_allocations: u64,
+    pub(in crate::chunk) host_visible_bytes: u64,
+    pub(in crate::chunk) idle_releases: u64,
+}
+
+impl ArenaMemoryTelemetry {
+    /// Counts successful fallback bytes and warns once across all terrain arenas.
+    pub(in crate::chunk::gpu) fn record_host_visible_allocation(
+        &mut self,
+        stream: &'static str,
+        bytes: u64,
+    ) {
+        self.host_visible_allocations = self.host_visible_allocations.saturating_add(1);
+        self.host_visible_bytes = self.host_visible_bytes.saturating_add(bytes);
+        static WARNED: std::sync::Once = std::sync::Once::new();
+        WARNED.call_once(|| {
+            bevy::log::warn!(
+                stream,
+                bytes,
+                "terrain growth is using host-visible GPU storage"
+            );
+        });
+    }
+}
+
 pub(in crate::chunk::gpu) fn log_initial_arena_capacity(
     arena: &ChunkGpuArena,
     render_device: &RenderDevice,
@@ -16,7 +45,7 @@ pub(in crate::chunk::gpu) fn log_initial_arena_capacity(
 }
 
 /// Logs only creation or capacity changes, at debug level: joins grow the arena dozens of times.
-/// Reclaimed ranges do not shrink buffers.
+/// Reclaimed ranges retain capacity until the empty arena's readers complete.
 pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'static str) {
     let quad_bytes = arena.quad_buffer.size();
     let geometry_bytes = arena.geometry_stream_buffer.size();
@@ -25,6 +54,7 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
     let auxiliary_bytes = total_capacity_bytes([
         arena.index_buffer.size(),
         arena.model_index_buffer.size(),
+        arena.vertex_offset_buffer.size(),
         arena.indirect_buffer.size(),
         arena.transparent_indirect_buffer.size(),
         arena.transparent_ref_buffer.size(),
@@ -54,10 +84,15 @@ pub(in crate::chunk) fn log_arena_capacity(arena: &ChunkGpuArena, event: &'stati
         retired_allocations = arena.retired_allocations.len(),
         retired_bytes = arena.retirement_budget.bytes,
         pending_removals = arena.pending_removals.len(),
+        host_visible_attempts = arena.memory.host_visible_attempts,
+        host_visible_allocations = arena.memory.host_visible_allocations,
+        host_visible_bytes = arena.memory.host_visible_bytes,
+        idle_releases = arena.memory.idle_releases,
         "chunk GPU arena capacity changed (excludes driver-retained submitted resources)"
     );
 }
 
+/// Sums tracked buffer capacity without overflowing diagnostic counters.
 fn total_capacity_bytes<const N: usize>(bytes: [u64; N]) -> u64 {
     bytes.into_iter().fold(0, u64::saturating_add)
 }

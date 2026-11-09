@@ -15,6 +15,7 @@ const SIZE: [u32; 2] = [800, 600];
 
 mod ordered;
 mod scrollbar;
+mod sign_over;
 
 #[test]
 fn mouse_back_preserves_an_earlier_inventory_click_in_the_same_frame() {
@@ -99,10 +100,10 @@ fn mouse_back_closes_inventory_with_or_without_ordered_pointer_events() {
     }
 }
 
-/// Vanilla's screen mapping cancels on Menu Cancel (Mouse 4 by default) and binds no hotbar
-/// action, so a hotbar slot sharing that button does not keep the inventory open.
+/// Binding a hotbar slot to Mouse 4 takes the button from Menu Cancel, so it moves the item and
+/// the inventory stays open.
 #[test]
-fn mouse_back_bound_to_hotbar_still_closes_inventory() {
+fn mouse_back_bound_to_hotbar_swaps_without_closing_inventory() {
     use bevy::input::mouse::MouseButtonInput;
     use launcher::menu::settings_options::BindingId;
     use semantic_input::PhysicalControl;
@@ -133,14 +134,18 @@ fn mouse_back_bound_to_hotbar_still_closes_inventory() {
         app.update();
 
         assert!(
-            !app.world().resource::<UiRuntimeResource>().inventory_open(),
+            app.world().resource::<UiRuntimeResource>().inventory_open(),
             "ordered={ordered}"
         );
         let player = app.world().resource::<client_state::PlayerRuntime>();
-        assert!(
-            player.inventory.ledger().displayed_stack(3).is_none(),
+        let ledger = player.inventory.ledger();
+        assert!(ledger.displayed_stack(0).is_none(), "ordered={ordered}");
+        assert_eq!(
+            ledger.displayed_stack(3).map(|stack| stack.count),
+            Some(2),
             "ordered={ordered}"
         );
+        assert_eq!(ledger.pending_request_count(), 1, "ordered={ordered}");
     }
 }
 
@@ -604,6 +609,74 @@ fn ordered_close_press_survives_keyboard_dispatch_until_frame_release() {
     });
     app.update();
     assert!(!app.world().resource::<UiRuntimeResource>().inventory_open());
+}
+
+/// A pressed container control plays the sound its definition declares; one that declares
+/// none stays silent.
+#[test]
+fn pressing_a_container_control_plays_only_its_declared_sound() {
+    const SOUND: &str = "test.container_press";
+    let queued = || {
+        client_ui::sound_requests::take_sounds()
+            .into_iter()
+            .filter(|(name, ..)| name == SOUND)
+            .collect::<Vec<_>>()
+    };
+    let mut player = client_state::PlayerRuntime(player_state::PlayerState::new(1));
+    let mut runtime = client_ui::test_support::inventory_session(&mut player);
+    runtime.toggle_inventory(&mut player, None);
+    let presentation = presentation_with_controls(
+        &player,
+        &runtime,
+        &[serde_json::json!({"declares_sound": {
+            "type": "button", "size": [10, 10], "offset": [50, 30],
+            "sound_name": SOUND, "sound_volume": 0.5, "sound_pitch": 1.25,
+            "button_mappings": [{"from_button_id": "button.menu_select",
+                "to_button_id": "button.test_press", "mapping_type": "pressed"}]
+        }})],
+    );
+    let declared = presentation
+        .engine_container_frame()
+        .expect("fixture container frame")
+        .hits
+        .iter()
+        .find(|hit| hit.sound.is_some())
+        .expect("fixture control declares a sound");
+    let at = window_point(
+        &presentation,
+        [
+            (declared.rect.x + declared.rect.w / 2.0) as f32,
+            (declared.rect.y + declared.rect.h / 2.0) as f32,
+        ],
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        true,
+        false,
+    );
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(at),
+        &presentation,
+        false,
+        true,
+    );
+    assert_eq!(queued(), [(SOUND.to_owned(), 0.5, 1.25)]);
+
+    let close = control_point(&presentation, InventoryCellHit::Widget(Widget::Close));
+    pointer_edge(
+        &mut player,
+        &mut runtime,
+        &window(close),
+        &presentation,
+        true,
+        false,
+    );
+    assert_eq!(queued(), []);
 }
 
 /// Plays one touch through the pointer emulation, delivering each edge at its own position.

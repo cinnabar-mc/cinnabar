@@ -28,7 +28,7 @@ pub(crate) struct PacketMods {
     environment: Option<PacketModSelection>,
     environment_selected: bool,
     retired: Vec<Arc<CompiledPacketMod>>,
-    pub(super) menu: super::packet_menu::State,
+    pub(super) panel: super::packet_panel::State,
 }
 
 /// Starts compilation for an explicitly selected developer packet mod before the first join.
@@ -88,20 +88,15 @@ impl PacketMods {
         self.loader.native_frame(frame)
     }
 
-    /// Whether this packet session owns input or its closing animation.
-    pub(super) fn menu_owns_panel(&self) -> bool {
-        self.menu.owned
+    /// Shares only grant-gated panel state, without entering guest code.
+    pub(super) fn panel_handle(&self) -> Option<mod_host::packet_mod::panel::PanelHandle> {
+        self.loader.panel()
     }
-    /// Shares native menu input and output with the serialized packet worker.
-    pub(super) fn native_menu(
-        &self,
-        input: mod_api::native_menu::Input,
-    ) -> Option<Arc<client_extensions::modding::packet_relay::MenuOutput>> {
-        self.loader.native_menu(input)
-    }
-    /// Menus become available only after an explicitly granted guest starts.
-    pub(super) fn native_menu_identity(&self) -> Option<u64> {
-        self.loader.native_menu_identity()
+
+    /// Last explicit opening request from the live packet surface, while it remains open.
+    pub(super) fn panel_open_order(&self) -> Option<u64> {
+        let output = self.panel_handle()?.output();
+        output.open.then_some(output.open_order)
     }
 
     /// Records a developer-selected source as the fallback when Settings selects no packet mod.

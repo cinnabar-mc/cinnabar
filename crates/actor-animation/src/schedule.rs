@@ -254,25 +254,31 @@ impl ActorAnimationStore {
         };
         let mut next = 0;
         while next < jobs.len() {
-            // Each rig spends at most its actor budget, so this many fit before the world runs out.
-            let capacity = if parallel {
-                world_left / MAX_MOLANG_OPS_PER_ACTOR_TICK
-            } else {
-                0
-            };
-            if capacity < 2 {
-                let job = &mut jobs[next];
-                if job.evaluates() && world_left > 0 {
-                    job.outcome = Some(evaluate_job(job, catalogs.view(), &mut world_left));
-                }
-                ledger.apply(job);
-                next += 1;
-                continue;
-            }
             let (mut end, mut evaluating) = (next, 0);
-            while end < jobs.len() && (evaluating < capacity || !jobs[end].evaluates()) {
-                evaluating += usize::from(jobs[end].evaluates());
-                end += 1;
+            let mut reserved = 0;
+            if parallel {
+                while let Some(job) = jobs.get(end) {
+                    if job.evaluates() {
+                        let allowance = job.molang_budget(catalogs.view());
+                        if allowance > world_left - reserved {
+                            break;
+                        }
+                        reserved += allowance;
+                        evaluating += 1;
+                    }
+                    end += 1;
+                }
+            }
+            if evaluating < 2 {
+                let end = end.max(next + 1);
+                for job in &mut jobs[next..end] {
+                    if job.evaluates() && world_left > 0 {
+                        job.outcome = Some(evaluate_job(job, catalogs.view(), &mut world_left));
+                    }
+                    ledger.apply(job);
+                }
+                next = end;
+                continue;
             }
             evaluate_concurrently(&mut jobs[next..end], evaluating, catalogs.clone());
             for job in &mut jobs[next..end] {
@@ -334,6 +340,18 @@ impl Default for TestSchedule {
 impl TickJob<'_> {
     const fn evaluates(&self) -> bool {
         matches!(self.step, Step::Evaluate { .. })
+    }
+
+    /// Returns the full allowance a worker must reserve for this rig's catalog.
+    fn molang_budget(&self, catalogs: Catalogs<'_>) -> usize {
+        let assets = if self.state.pack {
+            catalogs.pack.map(|(assets, _)| assets)
+        } else {
+            Some(catalogs.vanilla.0)
+        };
+        assets.map_or(MAX_MOLANG_OPS_PER_ACTOR_TICK, |assets| {
+            molang_tick_budget(assets, self.state.rig_binding)
+        })
     }
 }
 
@@ -489,7 +507,7 @@ impl Board {
     /// Evaluates claimed rigs until none are left or the caller has stopped waiting.
     fn help(&self) {
         self.help_with(|job| {
-            let mut own = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+            let mut own = job.molang_budget(self.catalogs.view());
             self.pass.evaluate(job, self.catalogs.view(), &mut own);
         });
     }
@@ -591,7 +609,7 @@ fn evaluate_job(
     };
     let (state, actor, context) = (&mut *job.state, job.actor, &job.context);
     let mut budget = EvalBudget {
-        actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+        actor_left: molang_tick_budget(assets, state.rig_binding),
         world_left,
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
@@ -640,9 +658,27 @@ fn evaluate_job(
             &mut budget,
             !job.refresh_view,
         );
+        // HUD paper dolls share the level view, unlike actors drawn inside a menu.
+        let paper_doll_context = ActorTickContext {
+            is_local_first_person: false,
+            is_in_ui: false,
+            is_paperdoll: true,
+            ..context.clone()
+        };
+        hud::evaluate(
+            assets,
+            layout,
+            state,
+            actor,
+            &paper_doll_context,
+            catalogs.tick,
+            &mut budget,
+            !job.refresh_view,
+        );
     } else {
         state.ui_pose = None;
         state.ui_animation = None;
+        state.paper_doll_animation = None;
     }
     let used = budget.used;
     Evaluation { result, used }
@@ -659,6 +695,9 @@ struct Ledger<'a> {
 
 fn hold_pose_history(state: &mut ActorRigState) {
     state.previous.clone_from(&state.current);
+    if let Some(head) = state.head_rotation.as_mut() {
+        head.previous = head.current;
+    }
     if let Some(frame) = state.render_frame.as_mut() {
         frame.hold_motion();
     }
@@ -751,6 +790,7 @@ impl Ledger<'_> {
         );
         state.scale = evaluated.scale;
         state.held_item_scale = evaluated.held_item_scale;
+        state.visibility = evaluated.visibility;
         let initial = !state.initialized;
         let restart = initial || state.reset_pending || resumed || view_changed;
         if let Some(next) = evaluated.render_frame.as_mut() {
@@ -769,6 +809,12 @@ impl Ledger<'_> {
             self.advance_history,
         );
         state.skin_layers = evaluated.skin_layers;
+        state.head_rotation = HeadRotation::carry(
+            state.head_rotation,
+            evaluated.head_angles,
+            restart,
+            self.advance_history,
+        );
         if let Some(mut render) = evaluated.render {
             render::carry_layer_poses(&state.render, &mut render, restart, self.advance_history);
             state.render = render;
@@ -798,3 +844,6 @@ impl Ledger<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod large_script_tests;

@@ -9,15 +9,19 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+RUNTIME_BINARIES = "packaging/common/runtime-binaries.txt"
+# The isolated shader-pack compiler's runtime-table name.
+WORKER = next(name for name, _, role in (line.split() for line in (ROOT / RUNTIME_BINARIES).read_text().splitlines())
+              if role == "SHADERPACK_WORKER")
 
 
 class DevBundleTests(unittest.TestCase):
     def test_shaderpack_client_finds_the_compiler_beside_the_bundled_executable(self):
-        """The development launch must stage the compiler that its asset step built."""
+        """The development launch must build and stage the shader-pack compiler."""
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             for name in ["Makefile", "Cargo.toml", "assets/vanilla-source.json",
-                         "packaging/common/core-ldflags.sh", "packaging/common/stage-payload.sh",
+                         "packaging/common/core-ldflags.sh", "packaging/common/stage-payload.sh", RUNTIME_BINARIES,
                          "packaging/macos/Info.plist.in", "packaging/macos/build-app.sh"]:
                 target = root / name
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -39,16 +43,14 @@ if sys.argv[1]=='cargo':
         name=args[args.index('--bin')+1]
         (output/name).write_text('#!/bin/sh\\nexit 0\\n')
         (output/name).chmod(0o755)
-        pathlib.Path('compiler-name').write_text(name)
     else:
         client=output/'cinnabar'
         client.write_text("#!/usr/bin/env python3\\nimport pathlib, sys\\n"
-                          "name=pathlib.Path('compiler-name').read_text()\\n"
-                          "found=pathlib.Path(__file__).with_name(name).is_file()\\n"
+                          "found=pathlib.Path(__file__).with_name(WORKER).is_file()\\n"
                           "print('compiler available' if found else 'compiler missing')\\n"
                           "sys.exit(0 if found else 47)\\n")
         client.chmod(0o755)
-''')
+'''.replace("WORKER", repr(WORKER)))
             command = f"{shlex.quote(sys.executable)} {shlex.quote(str(stub))}"
             result = subprocess.run(
                 ["make", "--no-print-directory", "play", "PROFILE=dev",

@@ -39,6 +39,7 @@ impl<'a> ContainerAuthority<'a> {
         let screen = ScreenView {
             mount_equipment: state.mount_equipment,
             anvil_name: &state.anvil_name,
+            anvil_caret: None,
             anvil_cost: if runtime
                 .inventory_ledger(player)
                 .created_output_stack()
@@ -73,7 +74,9 @@ impl<'a> ContainerAuthority<'a> {
             }),
             creative_expanded: &state.creative_expanded,
             search: &state.search,
+            search_caret: None,
             container_scroll: &state.container_scroll,
+            storage_radios: &state.storage_radios,
             text_focused: state.text_focused(),
             book: state.book.as_ref().map(|book| BookView {
                 pages: &book.pages,
@@ -90,6 +93,27 @@ impl<'a> ContainerAuthority<'a> {
             player,
             runtime,
             screen,
+        }
+    }
+}
+
+impl ContainerAuthority<'_> {
+    /// Shows the focused search or anvil name box's caret, `shown` by its blink.
+    fn show_caret(&mut self, shown: impl FnOnce(u64) -> bool) {
+        let state = self.runtime.screen_state();
+        let Some(caret) = state.field_caret() else {
+            return;
+        };
+        let caret = launcher::menu::MenuCaret {
+            byte: caret.byte,
+            selection: caret.selection,
+            revision: caret.revision,
+            shown: shown(caret.revision),
+        };
+        if state.anvil_focused {
+            self.screen.anvil_caret = Some(caret);
+        } else {
+            self.screen.search_caret = Some(caret);
         }
     }
 }
@@ -449,7 +473,12 @@ impl UiPresentationRuntime {
                 .translation(title_key)
                 .map_or_else(|| title_key.to_owned(), |title| title.to_string())
         });
-        let source = ContainerAuthority::new(player_runtime, runtime);
+        let mut source = ContainerAuthority::new(player_runtime, runtime);
+        if !prepare {
+            let now = self.menu_seconds;
+            let blink = &mut self.screens.container_caret;
+            source.show_caret(|revision| blink.shown(revision, now));
+        }
         let items = container_frame(&self.hud_frame);
         let id_aux = id_aux_icons(&source, &items, |id| self.item_icon(id, 0));
         // The hovered item's full tooltip (name, enchantments, lore) replaces its
@@ -570,6 +599,31 @@ impl UiPresentationRuntime {
     pub fn engine_container_hit(&self, gui: [f32; 2]) -> Option<InventoryCellHit> {
         let (frame, layout) = self.projections.container.as_ref()?;
         layout.hit(frame, gui)
+    }
+
+    /// The cells the engine-drawn container screen shows, each with a point a press there
+    /// reaches; empty when the fallback renderer draws the screen.
+    pub fn engine_container_cells(&self) -> Vec<(InventoryCellHit, [f32; 2])> {
+        let Some((frame, layout)) = self.projections.container.as_ref() else {
+            return Vec::new();
+        };
+        let (hits, cells) = self
+            .projections
+            .container_cells
+            .get_or_init(|| (frame.hits.clone(), layout.cells(frame)));
+        if std::sync::Arc::ptr_eq(hits, &frame.hits) {
+            cells.clone()
+        } else {
+            layout.cells(frame)
+        }
+    }
+
+    /// The press sound the pack declares on the enabled container-screen control under a point.
+    pub fn engine_container_press_sound(&self, gui: [f32; 2]) -> Option<&json_ui::ControlSound> {
+        let (frame, _) = self.projections.container.as_ref()?;
+        json_ui::hit_test(&frame.hits, [f64::from(gui[0]), f64::from(gui[1])])?
+            .sound
+            .as_ref()
     }
 }
 

@@ -125,14 +125,12 @@ fn active_registry_rejects_duplicate_sequential_ids() {
 fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
     // Fixture offsets are independent of the generated decoder.
     for (offset, value) in [
-        (44, 0x80),
         (45, 0xff),
         (46, 0xff),
         (49, 0xff),
         (50, 0x80),
         (51, 8),
         (92, 0xff),
-        (100, 0x80),
         (101, 0xff),
     ] {
         let mut bytes = fixture();
@@ -156,6 +154,15 @@ fn rejects_reserved_discriminants_bits_and_inconsistent_lengths() {
         read_registry_for_protocol(&bytes, 2225),
         Err(AssetError::TrailingRegistryBytes { .. })
     ));
+}
+
+#[test]
+fn reads_the_highest_trait_bit() {
+    // Every trait bit is allocated, so the top bit decodes rather than being rejected.
+    let mut bytes = fixture();
+    bytes[100] |= 0x80;
+    let records = read_registry_for_protocol(&bytes, 2225).unwrap();
+    assert!(records[0].traits.contains(BlockTraits::INTERACTIVE));
 }
 
 #[test]

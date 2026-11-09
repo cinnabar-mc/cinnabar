@@ -65,6 +65,8 @@ pub struct InstallLayout {
     pub compiled_assets: PathBuf,
     pub physics_registry: PathBuf,
     pub core_executable: PathBuf,
+    /// The isolated shader-pack compiler; where it runs in-process, the app executable.
+    pub shaderpack_worker: PathBuf,
     pub user_config_root: PathBuf,
     pub user_data_root: PathBuf,
     pub runtime_root: PathBuf,
@@ -92,6 +94,7 @@ impl InstallLayout {
                     .join("assets/compiled")
                     .join(assets::carriers::physics_registry_basename()),
                 core_executable: binary_dir.join(core_filename(platform)),
+                shaderpack_worker: binary_dir.join(shaderpack_worker_filename(platform)),
                 user_config_root: config,
                 user_data_root: data,
                 runtime_root: runtime.clone(),
@@ -148,6 +151,7 @@ impl InstallLayout {
         };
         let (user_config_root, user_data_root, runtime_root) = user_roots(platform, environment)?;
         Ok(Self {
+            shaderpack_worker: executable_dir.join(shaderpack_worker_filename(platform)),
             compiled_assets: resource_root.join("assets"),
             physics_registry: resource_root
                 .join("assets")
@@ -599,6 +603,16 @@ const fn core_filename(platform: Platform) -> &'static str {
         Platform::Windows => "bedrock-core.exe",
         Platform::Linux | Platform::MacOs => "bedrock-core",
     }
+}
+
+/// The shader-pack compiler's packaged filename, from the release runtime table.
+fn shaderpack_worker_filename(platform: Platform) -> String {
+    let os = match platform {
+        Platform::Windows => "windows",
+        Platform::Linux => "linux",
+        Platform::MacOs => "macos",
+    };
+    update_manifest::runtime::executable("SHADERPACK_WORKER", os)
 }
 
 const fn home_variable(platform: Platform) -> &'static str {

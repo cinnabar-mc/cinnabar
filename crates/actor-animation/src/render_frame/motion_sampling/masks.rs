@@ -4,6 +4,8 @@ use super::*;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct ClipMasks {
     geometry: Option<u32>,
+    /// Bones of the skeleton the masks were bound on; a skin's own bones follow them.
+    bone_count: usize,
     clips: Box<[ClipMask]>,
 }
 
@@ -16,7 +18,11 @@ struct ClipMask {
 impl ClipMasks {
     /// Counts each boxed record and its sparse bone payload against the shared plan budget.
     pub(super) fn retained_bytes(&self) -> Option<usize> {
-        let Self { geometry: _, clips } = self;
+        let Self {
+            geometry: _,
+            bone_count: _,
+            clips,
+        } = self;
         clips.iter().try_fold(
             std::mem::size_of::<Self>().checked_add(std::mem::size_of_val(clips.as_ref()))?,
             |bytes, ClipMask { clip: _, bones }| {
@@ -65,6 +71,7 @@ impl MotionSampling {
                     .collect();
                 Some(ClipMasks {
                     geometry: selected,
+                    bone_count: names.len(),
                     clips: mapped
                         .into_iter()
                         .map(|clip| {
@@ -85,10 +92,13 @@ impl MotionSampling {
     }
 
     /// Unions prepared masks for the live clips, retaining the old path for unbound topology.
-    pub(crate) fn mask(
+    /// `channels`, when given, are the prepared bindings for `names`; they resolve the bones a
+    /// worn skin adds after the skeleton the masks were bound on.
+    pub(crate) fn mask<'a>(
         &self,
-        assets: &RuntimeEntityAssets,
-        names: &[Box<str>],
+        assets: &'a RuntimeEntityAssets,
+        names: &'a [Box<str>],
+        channels: Option<&'a pose::ChannelBindings>,
         clips: impl IntoIterator<Item = tick::WeightedClip>,
         geometry: Option<u32>,
     ) -> Vec<[u8; 3]> {
@@ -101,15 +111,28 @@ impl MotionSampling {
             }) else {
                 continue;
             };
-            if let Some(bits) = prepared.and_then(|prepared| {
+            if let Some((bits, bone_count)) = prepared.and_then(|prepared| {
                 prepared
                     .clips
                     .binary_search_by_key(&mapped.clip, |mask| mask.clip)
                     .ok()
-                    .map(|slot| &prepared.clips[slot].bones)
+                    .map(|slot| (&prepared.clips[slot].bones, prepared.bone_count))
             }) {
                 for &(bone, bits) in bits {
                     if let Some(target) = mask.get_mut(bone) {
+                        for axis in 0..3 {
+                            target[axis] |= bits[axis];
+                        }
+                    }
+                }
+                // Bones a worn skin adds were not bound with the clip; resolve them by name.
+                if names.len() > bone_count {
+                    let channel_bones = match channels {
+                        Some(channels) => pose::ChannelBones::bound(names, channels),
+                        None => pose::ChannelBones::new(names),
+                    };
+                    let own = self.mask_with(assets, names.len(), channel_bones, [mapped], None);
+                    for (target, bits) in mask.iter_mut().zip(own).skip(bone_count) {
                         for axis in 0..3 {
                             target[axis] |= bits[axis];
                         }

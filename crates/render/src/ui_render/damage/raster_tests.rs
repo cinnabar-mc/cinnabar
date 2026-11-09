@@ -824,6 +824,7 @@ fn skinned_ui_model_matches_projected_gpu_pixels() {
         normal: [[0.8, 0., 0.6, 0.], [0., 1., 0., 0.], [-0.6, 0., 0.8, 0.]],
         overlay: [0.3, 0.1, 0.2, 0.15],
         uv_rect: [0.; 4],
+        uv_transform: [0., 0., 1., 1.],
         uv_cross: [2., 2., 0., 0.],
         tint: [0.8, 1., 0.7, 1.],
         styles: [render_model::UI_STYLE_ADDITIVE, 0, 0, 0],

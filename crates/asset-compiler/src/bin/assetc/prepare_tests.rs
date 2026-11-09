@@ -316,7 +316,13 @@ fn run(root: &Path, only: &str) -> (Result<(), String>, Stamp) {
     };
     let plan = plan(&context, COMPILER, &scope, &Stamp::default()).unwrap();
     fs::create_dir_all(&context.out).unwrap();
-    let result = execute(&context, &plan, Stamp::default(), &Reporter { json: true });
+    let result = execute(
+        &context,
+        &plan,
+        Stamp::default(),
+        &Reporter { json: true },
+        None,
+    );
     (result, read_stamp(&context.out))
 }
 
@@ -372,6 +378,33 @@ fn an_input_with_unchanged_size_and_mtime_is_not_rehashed() {
     assert!(stale(dir.path(), COMPILER).is_empty());
     set(b"font-22");
     assert_eq!(stale(dir.path(), COMPILER), [FONT.name]);
+}
+
+/// A kit built in one place and installed in another reuses its stamped digests.
+#[test]
+fn stamped_digests_follow_inputs_that_move() {
+    let dir = checkout();
+    let modified = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1 << 30);
+    let set = |root: &Path, bytes: &[u8]| {
+        let font = root.join("assets/fonts/Font.ttf");
+        fs::write(&font, bytes).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&font)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
+    };
+    set(dir.path(), b"font-1");
+    build_all(dir.path());
+    let parent = tempfile::tempdir().unwrap();
+    let moved = parent.path().join("moved");
+    fs::rename(dir.path(), &moved).unwrap();
+    // Same size and mtime at the new path: only a reused digest leaves the changed bytes current.
+    set(&moved, b"font-2");
+    let current = stale(&moved, COMPILER).is_empty();
+    fs::rename(&moved, dir.path()).unwrap();
+    assert!(current);
 }
 
 #[test]
@@ -616,6 +649,7 @@ fn a_kit_staged_from_the_packaged_list_plans_and_builds_without_the_checkout() {
         &planned,
         Stamp::default(),
         &Reporter { json: true },
+        None,
     )
     .unwrap();
     let stamp = read_stamp(&context.out);
@@ -655,6 +689,7 @@ fn a_kit_staged_from_the_packaged_list_prepares_every_required_carrier_from_the_
         &planned,
         Stamp::default(),
         &Reporter { json: true },
+        None,
     )
     .unwrap();
     assert!(carriers::required_present(&context.out));

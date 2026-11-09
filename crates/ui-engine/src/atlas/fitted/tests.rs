@@ -89,7 +89,7 @@ fn page_eviction_and_decode_completion_keep_source_snapshots() {
     for key in ["a", "b"] {
         atlas.sources.insert(key.into(), source.clone());
     }
-    atlas.oversized.insert("a", &source.bytes);
+    atlas.oversized.draw("a", &source.bytes);
     let waiting = atlas.oversized();
     let (sender, receiver) = crossbeam_channel::bounded(1);
     atlas.decodes.jobs.request_to("a", &source, Some(&sender));

@@ -5,6 +5,7 @@
 
 use std::fmt;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use bedrock_protocol_1_26_60::packets::PacketId;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde::{Deserialize, Serialize};
@@ -166,9 +167,11 @@ pub struct HandoffPack {
 }
 
 /// A pack's content key, redacted from `Debug` and zeroized on drop.
-#[derive(Clone, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(transparent)]
-pub struct PackContentKey(String);
+///
+/// Servers may send any bytes, including invalid UTF-8, so the key crosses the session endpoint
+/// as standard base64 and is kept as raw bytes.
+#[derive(Clone, Eq, PartialEq)]
+pub struct PackContentKey(Vec<u8>);
 
 impl Drop for PackContentKey {
     fn drop(&mut self) {
@@ -178,14 +181,34 @@ impl Drop for PackContentKey {
 
 impl PackContentKey {
     /// Retains an archive key, redacting it in diagnostics and erasing it on drop.
-    pub fn new(key: String) -> Self {
+    pub fn new(key: Vec<u8>) -> Self {
         Self(key)
     }
 
-    /// Borrows the key; an empty key means the archive is not encrypted.
+    /// Borrows the key bytes; an empty key means the archive is not encrypted.
     #[must_use]
-    pub fn expose(&self) -> &str {
+    pub fn expose(&self) -> &[u8] {
         &self.0
+    }
+}
+
+impl Serialize for PackContentKey {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut encoded = STANDARD.encode(&self.0);
+        let result = serializer.serialize_str(&encoded);
+        encoded.zeroize();
+        result
+    }
+}
+
+impl<'de> Deserialize<'de> for PackContentKey {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut encoded = String::deserialize(deserializer)?;
+        let decoded = STANDARD.decode(&encoded);
+        encoded.zeroize();
+        decoded
+            .map(Self)
+            .map_err(|_| serde::de::Error::custom("pack content key is not standard base64"))
     }
 }
 

@@ -675,14 +675,11 @@ fn worker_prepares_equipment_pages_and_glint_before_publication() {
         .iter()
         .zip(scene.frame().artwork_pages().pages())
     {
-        assert!(Arc::ptr_eq(
-            &worker.shared_pixels(),
-            &published.shared_pixels()
-        ));
+        assert!(worker.shared_pixels().ptr_eq(&published.shared_pixels()));
     }
     let again = prepared.pages_for(&startup, &pack).unwrap();
     for (first, next) in pages.pages().iter().zip(again.pages()) {
-        assert!(Arc::ptr_eq(&first.shared_pixels(), &next.shared_pixels()));
+        assert!(first.shared_pixels().ptr_eq(&next.shared_pixels()));
     }
 }
 

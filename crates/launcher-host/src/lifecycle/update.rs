@@ -47,6 +47,16 @@ const PREPARE_EXIT_WAIT: Duration = Duration::from_secs(60);
 static MANUAL: OnceLock<manual::Running> = OnceLock::new();
 #[cfg(unix)]
 static STARTUP: OnceLock<update_installer::recovery::Startup> = OnceLock::new();
+static NEXT_RELEASE: OnceLock<NextRelease> = OnceLock::new();
+
+/// Receives each offered release's unpacked prep kit, or `None` once no release is staged;
+/// called on the update worker, so it must hand long work to its own thread.
+pub type NextRelease = fn(&InstallLayout, Option<&std::path::Path>);
+
+/// Lets carrier preparation start on an offered release while this client runs.
+pub fn on_next_release(hook: NextRelease) {
+    let _ = NEXT_RELEASE.set(hook);
+}
 
 #[derive(Clone)]
 struct Ready {
