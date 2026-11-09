@@ -50,6 +50,7 @@ pub mod local_worlds;
 pub mod menu;
 pub mod minecraft_import;
 pub mod mods;
+pub mod pending_sign_in;
 pub mod shader_options;
 pub mod skin_import;
 pub mod startup;
