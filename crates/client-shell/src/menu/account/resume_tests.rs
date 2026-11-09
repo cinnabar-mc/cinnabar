@@ -112,7 +112,7 @@ fn add_account_resumes_the_saved_code() {
 #[test]
 fn a_resumed_sign_in_still_opens_a_fresh_code_or_a_later_xbox_signup_page() {
     let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
-    menu.sign_in_resumed = Some(SAVED_CODE.into());
+    menu.sign_in_browser.skip_automatic_open(SAVED_CODE);
     let resumed = AuthState::AwaitingCode {
         uri: "https://example.invalid".into(),
         code: SAVED_CODE.into(),

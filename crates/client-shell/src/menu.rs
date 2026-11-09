@@ -169,9 +169,6 @@ pub struct MenuRuntime {
     auth_process: Option<AuthSupervisor>,
     auth_attempted: bool,
     auth_restart_requested: bool,
-    /// The code of a prompt resumed from a saved one, which the player already took to the
-    /// browser, so it is not opened there again unless they ask.
-    sign_in_resumed: Option<String>,
     /// The account core a held join may still use; `None` when it cannot start for the join.
     account_core: Option<launcher_core::AccountCore>,
     layout: InstallLayout,

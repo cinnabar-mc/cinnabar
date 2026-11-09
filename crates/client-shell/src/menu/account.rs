@@ -240,7 +240,6 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = true;
         self.sign_in_cancelled = false;
-        self.sign_in_resumed = None;
         self.focus_sign_in_prompt();
         self.auth_attempted = true;
         self.stop_catalog();
@@ -270,8 +269,11 @@ impl MenuRuntime {
         let cache = self.sign_in_cache();
         // The helper resumes an unexpired prompt saved before the system ended the client, as
         // phones do to an app left for the browser. The player already took that code there.
-        self.sign_in_resumed =
-            launcher::pending_sign_in::awaiting(&cache, std::time::SystemTime::now());
+        if let Some(code) =
+            launcher::pending_sign_in::awaiting(&cache, std::time::SystemTime::now())
+        {
+            self.sign_in_browser.skip_automatic_open(&code);
+        }
         match AuthSupervisor::spawn(&executable, &cache) {
             Ok(process) => self.auth_process = Some(process),
             Err(error) => {
@@ -304,13 +306,7 @@ impl MenuRuntime {
             self.auth_process.as_ref().map(AuthSupervisor::state),
             self.control_auth.as_ref(),
         );
-        // Only the resumed code was taken to the browser before; a fresh code the helper got
-        // instead, or a later Xbox signup page, was not.
-        let already_opened = matches!(
-            (state, &self.sign_in_resumed),
-            (AuthState::AwaitingCode { code, .. }, Some(resumed)) if code == resumed
-        );
-        if state.awaiting_browser() && (explicit || !already_opened) {
+        if state.awaiting_browser() {
             #[cfg(not(test))]
             self.sign_in_browser
                 .open(state, explicit, launcher_host::desktop::open_sign_in_link);
@@ -478,7 +474,6 @@ impl MenuRuntime {
         self.sign_in_failure = None;
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
-        self.sign_in_resumed = None;
         // Cancellation is sticky. Only the explicit StartSignIn action may
         // create another helper after this point.
         if matches!(
