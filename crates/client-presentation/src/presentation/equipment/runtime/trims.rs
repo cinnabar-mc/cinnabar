@@ -256,6 +256,10 @@ impl EquipmentRuntime {
             };
             let composed = assets::item::trim::compose(
                 &base,
+                assets::facts::ItemFacts::builtin()
+                    .ok()?
+                    .by_identifier(&item.identifier)?
+                    .armor_material(),
                 &trim.material,
                 &trim.pattern,
                 slot,

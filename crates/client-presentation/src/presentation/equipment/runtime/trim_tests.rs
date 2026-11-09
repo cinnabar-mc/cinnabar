@@ -64,6 +64,16 @@ fn trim_fixture() -> (EquipmentRuntime, ActorArtworkPages, WornItem) {
                     vec![240, 170, 20, 255],
                     1,
                 ),
+                texture(
+                    "textures/trims/color_palettes/diamond",
+                    vec![30, 250, 250, 255],
+                    1,
+                ),
+                texture(
+                    "textures/trims/color_palettes/diamond_darker",
+                    vec![10, 100, 100, 255],
+                    1,
+                ),
             ],
         )
         .unwrap(),
@@ -133,6 +143,52 @@ fn worn_trim_pixels_are_shared_until_the_appearance_retires() {
             .trim_raster(&item, &pages, location, rig, None, Some(identity))
             .is_none()
     );
+}
+
+#[test]
+fn worn_trim_palette_follows_the_item_when_a_pack_renames_its_texture() {
+    let (mut runtime, pages, mut item) = trim_fixture();
+    item.trim.as_mut().unwrap().material = "diamond".into();
+    let pixels: Arc<[u8]> = Arc::from([10, 20, 30, 255, 40, 50, 60, 255]);
+    let selected_artwork = Arc::new(
+        RuntimeEquipmentCatalog::from_parts(
+            [8; 32],
+            Vec::new(),
+            vec![assets::EquipmentTexture {
+                identifier: "textures/custom/coat".into(),
+                width: 2,
+                height: 1,
+                rgba8: Arc::clone(&pixels),
+            }],
+        )
+        .unwrap(),
+    );
+    let (pages, locations) = pages.with_equipment_rasters(&[EquipmentRaster {
+        width: 2,
+        height: 1,
+        rgba8: pixels,
+    }]);
+    let identity = block_fixture().1.input.identity;
+    runtime.trims.remember_worn(
+        identity,
+        trims::WornSource {
+            catalog: Arc::clone(runtime.catalog.as_ref().unwrap()),
+            binding: 0,
+            artwork: selected_artwork,
+            texture: 0,
+        },
+    );
+    let (raster, _) = runtime
+        .trim_raster(
+            &item,
+            &pages,
+            locations[0].unwrap(),
+            EntityRigId(99),
+            None,
+            Some(identity),
+        )
+        .unwrap();
+    assert_eq!(raster.rgba8.as_ref(), &[10, 100, 100, 255, 40, 50, 60, 255]);
 }
 
 #[test]

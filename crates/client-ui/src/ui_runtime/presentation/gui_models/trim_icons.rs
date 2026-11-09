@@ -9,6 +9,7 @@ struct Key {
     trim: protocol::ItemTrim,
     binding: usize,
     slot: u8,
+    armor_material: Option<assets::facts::ArmourMaterial>,
     source: usize,
     size: [u16; 2],
     dye: Option<u32>,
@@ -146,7 +147,7 @@ impl UiPresentationRuntime {
             &base,
             trim_binding,
             trim,
-            assets::item::trim::armor_slot(identifier)?,
+            identifier,
             true,
             base_icon
                 .color_mask
@@ -162,7 +163,7 @@ impl UiPresentationRuntime {
         path: &str,
         binding: Option<&assets::EquipmentBinding>,
         trim: &protocol::ItemTrim,
-        slot: assets::ArmorSlot,
+        identifier: &str,
     ) -> Option<player_preview::PreviewTexture> {
         let base = assets::EquipmentTexture {
             identifier: path.into(),
@@ -173,7 +174,7 @@ impl UiPresentationRuntime {
         let dye = preview
             .tint
             .map(|c| u32::from(c[0]) << 16 | u32::from(c[1]) << 8 | u32::from(c[2]));
-        let (texture, _) = self.trim_image(&base, binding, trim, slot, false, dye)?;
+        let (texture, _) = self.trim_image(&base, binding, trim, identifier, false, dye)?;
         Some(player_preview::PreviewTexture {
             rgba: texture.rgba8,
             width: texture.width,
@@ -188,16 +189,22 @@ impl UiPresentationRuntime {
         base: &assets::EquipmentTexture,
         binding: Option<&assets::EquipmentBinding>,
         trim: &protocol::ItemTrim,
-        slot: assets::ArmorSlot,
+        identifier: &str,
         icon: bool,
         dye: Option<u32>,
     ) -> Option<(assets::EquipmentTexture, Option<IconRef>)> {
         let startup = self.equipment_catalog.as_deref()?;
         let pack = self.gui_models.pack_equipment.source.as_deref();
+        let slot = assets::item::trim::armor_slot(identifier)?;
+        let armor_material = assets::facts::ItemFacts::builtin()
+            .ok()?
+            .by_identifier(identifier)?
+            .armor_material();
         let key = Key {
             trim: trim.clone(),
             binding: binding.map_or(0, |binding| binding as *const _ as usize),
             slot: slot as u8,
+            armor_material,
             source: base.rgba8.as_ptr() as usize,
             size: [base.width, base.height],
             dye,
@@ -212,6 +219,7 @@ impl UiPresentationRuntime {
         if !cache.images.contains_key(&key) {
             let texture = assets::item::trim::compose(
                 base,
+                armor_material,
                 &trim.material,
                 &trim.pattern,
                 slot,

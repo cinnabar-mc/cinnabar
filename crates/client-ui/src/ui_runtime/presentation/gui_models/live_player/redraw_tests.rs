@@ -549,6 +549,83 @@ fn hud_dyed_armor_preserves_the_color_mask_cutoff() {
     );
 }
 
+#[test]
+fn resident_player_renderers_resolve_trimmed_base_and_pack_armor() {
+    use super::super::super::player_preview::{PreviewTexture, PreviewView};
+
+    let texture = |identifier: &str, pixel: [u8; 4]| assets::EquipmentTexture {
+        identifier: identifier.into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from(pixel),
+    };
+    let catalog = Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [7; 32],
+            Vec::new(),
+            vec![
+                texture("textures/custom/coat", [20, 30, 40, 255]),
+                texture("textures/trims/sentry", [100, 100, 100, 255]),
+                texture(
+                    "textures/trims/color_palettes/trim_palette",
+                    [100, 100, 100, 255],
+                ),
+                texture("textures/trims/color_palettes/gold", [240, 170, 20, 255]),
+            ],
+        )
+        .unwrap(),
+    );
+    for pack in [false, true] {
+        let (mut presentation, stream) = fixture();
+        presentation.capture_hud_player(Some(stream.authority().local_player_ui()), false);
+        presentation.set_equipment_catalog(Some(Arc::clone(&catalog)));
+        if pack {
+            presentation.set_preview_pack_equipment(Some(Arc::clone(&catalog)));
+            presentation.wear_pack_equipment(
+                [Some("textures/custom/coat"), None, None, None],
+                [None, None],
+            );
+            assert!(presentation.gui_models.pack_equipment.region(0).is_some());
+        }
+        let base = PreviewTexture {
+            width: 1,
+            height: 1,
+            rgba: Arc::from([20, 30, 40, 255]),
+            tint: None,
+        };
+        let trim = protocol::ItemTrim {
+            material: "gold".into(),
+            pattern: "sentry".into(),
+        };
+        let armor = presentation
+            .trim_preview(
+                &base,
+                "textures/custom/coat",
+                None,
+                &trim,
+                "minecraft:diamond_helmet",
+            )
+            .unwrap();
+        presentation.finish_trim_art();
+        let region = presentation.gui_models.trim_icons.region(&armor).unwrap();
+        presentation.player_preview_gear.armor[0] = Some(armor);
+        for (view, in_hud) in [
+            (PreviewView::Hud, true),
+            (PreviewView::Live { offset: [0.; 2] }, false),
+        ] {
+            let mesh = presentation
+                .live_player_mesh(view, in_hud, [None, None], |_, _, _, _| true)
+                .unwrap();
+            assert!(
+                mesh.batches()
+                    .iter()
+                    .any(|batch| batch.texture_page == region.page),
+                "{view:?} pack={pack}"
+            );
+        }
+    }
+}
+
 /// The presentation owner can be held by the application's shared Bevy resource.
 #[test]
 fn hud_model_cache_keeps_the_presentation_send_and_sync() {

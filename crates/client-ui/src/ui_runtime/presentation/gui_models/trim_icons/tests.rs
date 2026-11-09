@@ -41,7 +41,7 @@ fn unchanged_preview_trims_reuse_compositions_and_pages() {
                 "textures/models/armor/diamond_1",
                 None,
                 &trim,
-                assets::ArmorSlot::Chestplate,
+                "minecraft:diamond_chestplate",
             )
             .unwrap()
     };
@@ -66,4 +66,55 @@ fn unchanged_preview_trims_reuse_compositions_and_pages() {
     presentation.finish_trim_art();
     assert!(presentation.gui_models.trim_icons.region(&first).is_none());
     assert!(presentation.gui_models.trim_icons.pages().is_empty());
+}
+
+#[test]
+fn shared_preview_pixels_keep_the_admitted_armor_material() {
+    let mut presentation =
+        UiPresentationRuntime::new(ui_engine::test_support::fixture_font()).unwrap();
+    let texture = |identifier: &str, pixel: [u8; 4]| assets::EquipmentTexture {
+        identifier: identifier.into(),
+        width: 1,
+        height: 1,
+        rgba8: Arc::from(pixel),
+    };
+    presentation.set_equipment_catalog(Some(Arc::new(
+        assets::RuntimeEquipmentCatalog::from_parts(
+            [7; 32],
+            Vec::new(),
+            vec![
+                texture("textures/trims/sentry", [100, 100, 100, 255]),
+                texture(
+                    "textures/trims/color_palettes/trim_palette",
+                    [100, 100, 100, 255],
+                ),
+                texture("textures/trims/color_palettes/diamond", [30, 250, 250, 255]),
+                texture(
+                    "textures/trims/color_palettes/diamond_darker",
+                    [10, 100, 100, 255],
+                ),
+            ],
+        )
+        .unwrap(),
+    )));
+    let base = player_preview::PreviewTexture {
+        width: 1,
+        height: 1,
+        rgba: Arc::from([20, 30, 40, 255]),
+        tint: None,
+    };
+    let trim = protocol::ItemTrim {
+        material: "diamond".into(),
+        pattern: "sentry".into(),
+    };
+    for (identifier, expected) in [
+        ("minecraft:diamond_chestplate", [10, 100, 100, 255]),
+        ("minecraft:iron_chestplate", [30, 250, 250, 255]),
+        ("minecraft:diamond_chestplate", [10, 100, 100, 255]),
+    ] {
+        let preview = presentation
+            .trim_preview(&base, "textures/custom/coat", None, &trim, identifier)
+            .unwrap();
+        assert_eq!(preview.rgba.as_ref(), expected, "{identifier}");
+    }
 }

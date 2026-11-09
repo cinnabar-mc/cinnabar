@@ -264,13 +264,7 @@ impl UiPresentationRuntime {
             let (identifier, _, _, trim) = armor[slot]?;
             Some(
                 trim.and_then(|trim| {
-                    self.trim_preview(
-                        &preview,
-                        path,
-                        Some(binding),
-                        trim,
-                        assets::item::trim::armor_slot(identifier)?,
-                    )
+                    self.trim_preview(&preview, path, Some(binding), trim, identifier)
                 })
                 .unwrap_or(preview),
             )

@@ -1,5 +1,5 @@
 //! Trim palette substitution over the active pack's item and armor artwork.
-use crate::{ArmorSlot, EquipmentTexture};
+use crate::{ArmorSlot, EquipmentTexture, facts::ArmourMaterial};
 use std::sync::Arc;
 #[cfg(test)]
 mod tests;
@@ -35,6 +35,7 @@ pub const fn slot_name(slot: ArmorSlot) -> &'static str {
 #[allow(clippy::too_many_arguments)]
 pub fn compose<'a>(
     base: &EquipmentTexture,
+    armor_material: Option<ArmourMaterial>,
     material: &str,
     pattern: &str,
     slot: ArmorSlot,
@@ -62,8 +63,17 @@ pub fn compose<'a>(
         texture(authored.map_or(native.as_str(), AsRef::as_ref))?
     };
     let palette = texture(&format!("{TEXTURE_DIRECTORY}color_palettes/trim_palette"))?;
-    let armor_material = base.identifier.rsplit('/').next()?.split('_').next()?;
-    let darker = armor_material == material;
+    let darker = armor_material.is_some_and(|armor| {
+        material
+            == match armor {
+                ArmourMaterial::Leather => "leather",
+                ArmourMaterial::Iron => "iron",
+                ArmourMaterial::Gold => "gold",
+                ArmourMaterial::Diamond => "diamond",
+                ArmourMaterial::Copper => "copper",
+                ArmourMaterial::Netherite => "netherite",
+            }
+    });
     let target_path = format!(
         "{TEXTURE_DIRECTORY}color_palettes/{material}{}",
         if darker { "_darker" } else { "" }
