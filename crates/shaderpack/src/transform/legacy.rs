@@ -37,15 +37,23 @@ pub(super) const RESERVED_SINCE: &[(&str, u32)] = &[
 /// Vulkan GLSL type keywords that are plain identifiers in OpenGL GLSL.
 const RESERVED_VULKAN: &[&str] = &["sampler", "samplerShadow", "subpassInput"];
 
+/// Private keyword escapes use double underscores, which GLSL reserves in source names.
+const RESERVED_PREFIX: &str = "__shaderpack_reserved_";
+
+/// Restores a keyword escaped in the translator's private namespace.
+pub(crate) fn original_identifier(name: &str) -> &str {
+    name.strip_prefix(RESERVED_PREFIX).unwrap_or(name)
+}
+
 /// A GLSL identifier that keeps a sampler named `texture` distinct from lookup calls.
 const RENAMED_TEXTURE: &str = "_r_texture";
 
-/// Returns the pack's sampler name before renaming `texture` for GLSL.
+/// Returns the pack's sampler name before escaping keywords and `texture` for GLSL.
 pub(super) fn sampler_name(name: &str) -> &str {
     if name == RENAMED_TEXTURE {
         "texture"
     } else {
-        name
+        original_identifier(name)
     }
 }
 
@@ -265,9 +273,9 @@ fn fold_sign_shifts(src: &[Tok]) -> Option<Vec<Tok>> {
 /// a qualifier is followed by another word (a qualifier, type or block name), and `layout` and
 /// `subroutine` may be followed by `(`. Variable and function names are followed by punctuation,
 /// so this keeps the keywords an `#extension` enables early, such as the `writeonly` images and
-/// `readonly buffer` blocks in Complementary's `#version 130` programs. A struct type named with
-/// such a word, or a function named `layout` or `subroutine`, is not renamed.
-fn reserved_identifier(src: &[Tok], i: usize, version: u32) -> bool {
+/// `readonly buffer` blocks in Complementary's `#version 130` programs. Declared struct names
+/// stay identifiers at every use, including before another identifier or `(`.
+fn reserved_identifier(src: &[Tok], i: usize, version: u32, struct_names: &HashSet<&str>) -> bool {
     let Some(name) = src[i].ident() else {
         return false;
     };
@@ -275,11 +283,12 @@ fn reserved_identifier(src: &[Tok], i: usize, version: u32) -> bool {
         return false;
     };
     version < since
-        && match src.get(i + 1) {
-            Some(next) if next.ident().is_some() => false,
-            Some(next) if next.is("(") => !matches!(name, "layout" | "subroutine"),
-            _ => true,
-        }
+        && (struct_names.contains(name)
+            || match src.get(i + 1) {
+                Some(next) if next.ident().is_some() => false,
+                Some(next) if next.is("(") => !matches!(name, "layout" | "subroutine"),
+                _ => true,
+            })
 }
 
 /// Renames reserved identifiers, maps legacy built-ins and lookup functions, and gives
@@ -300,6 +309,11 @@ pub(super) fn rewrite(
         sized = folded;
     }
     let src = &sized;
+    let struct_names: HashSet<_> = src
+        .windows(3)
+        .filter(|tokens| tokens[0].is("struct") && tokens[2].is("{"))
+        .filter_map(|tokens| tokens[1].ident())
+        .collect();
     let mut out = Legacy {
         toks: Vec::with_capacity(src.len()),
         builtins: BTreeSet::new(),
@@ -343,13 +357,13 @@ pub(super) fn rewrite(
             i += 1;
             continue;
         }
-        if name == "layout" && called {
+        if name == "layout" && called && !struct_names.contains(name) {
             layout_args = i + 2..matching(src, i + 1, "(", ")");
         }
-        if (!layout_args.contains(&i) && reserved_identifier(src, i, version))
+        if (!layout_args.contains(&i) && reserved_identifier(src, i, version, &struct_names))
             || RESERVED_VULKAN.contains(&name)
         {
-            toks.push(id(&format!("_r_{name}")).at(line));
+            toks.push(id(&format!("{RESERVED_PREFIX}{name}")).at(line));
             i += 1;
             continue;
         }

@@ -292,6 +292,7 @@ fn version_400_compatibility_ftransform_needs_only_the_position_matrices() {
     );
 }
 
+/// Builds a pack from in-memory shader files.
 fn inline_pack(files: &[(&str, &str)]) -> shaderpack::ShaderPack {
     shaderpack::ShaderPack::new(shaderpack::PackSource::from_files(
         files
@@ -299,6 +300,49 @@ fn inline_pack(files: &[(&str, &str)]) -> shaderpack::ShaderPack {
             .map(|(k, v)| (*k, (*v).to_owned()))
             .collect::<Vec<_>>(),
     ))
+}
+
+#[test]
+fn renamed_uniforms_keep_their_property_names_and_struct_member_paths() {
+    let vertex =
+        "#version 330\nuniform float sample;\nvoid main() { gl_Position = vec4(sample); }\n";
+    let fragment = "#version 330
+uniform float resource;
+uniform float buffer[2];
+struct Data { float sample; };
+uniform Data data;
+void main() { gl_FragData[0] = vec4(resource + buffer[1] + data.sample); }
+";
+    let pack = inline_pack(&[
+        ("composite.vsh", vertex),
+        ("composite.fsh", fragment),
+        (
+            "shaders.properties",
+            "uniform.float.sample = 0.25\nuniform.float.resource = 1.0\n",
+        ),
+    ]);
+    let translated = pack.translate(&TranslateConfig::default());
+    let reflected = reflection(program(&translated, "composite"));
+    assert_eq!(
+        uniform_names(reflected),
+        ["sample", "resource", "buffer", "data.sample"]
+    );
+    let (mut custom, errors) =
+        shaderpack::CustomUniforms::new(&translated.properties.custom_uniforms);
+    assert!(errors.is_empty(), "{errors:?}");
+    let values = custom.evaluate(&|_| None, 0.0);
+    for (member, expected) in reflected.uniforms.as_ref().unwrap().members.iter().zip([
+        shaderpack::UniformValue::Float(0.25),
+        shaderpack::UniformValue::Float(1.0),
+    ]) {
+        let value = values.iter().find(|(name, _)| name == &member.name);
+        assert_eq!(
+            value.map(|(_, value)| *value),
+            Some(expected),
+            "{}",
+            member.name
+        );
+    }
 }
 
 #[test]

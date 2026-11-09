@@ -255,6 +255,36 @@ void main() {{ float {word}[2] = float[2](0.25, 0.5); gl_FragData[0] = vec4({wor
 }
 
 #[test]
+fn struct_names_reserved_after_the_source_version_compile_at_every_use() {
+    for &(word, _) in legacy::RESERVED_SINCE {
+        compile_fragment(&format!(
+            "#version 120
+struct {word} {{ float value; }};
+{word} copy({word} source) {{
+    {word} result = {word}(source.value);
+    return result;
+}}
+void main() {{
+    {word} value = copy({word}(1.0));
+    gl_FragData[0] = vec4(value.value);
+}}
+"
+        ));
+    }
+}
+
+#[test]
+fn keyword_escapes_do_not_hide_pack_identifiers() {
+    compile_fragment(
+        "#version 330
+uniform float resource;
+uniform float _r_resource;
+void main() { gl_FragData[0] = vec4(resource + _r_resource); }
+",
+    );
+}
+
+#[test]
 fn a_sample_qualifier_stays_a_qualifier() {
     // From GLSL 4.00, or with GL_ARB_gpu_shader5 before it, `sample` qualifies an input.
     for header in [

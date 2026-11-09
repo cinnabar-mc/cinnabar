@@ -1637,8 +1637,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   arrays from their constructors and folds typed scalar constants in array bounds.
   Function-local variables named after a struct type (`Face Face = ...;`) are renamed for the
   rest of the scope in which they hide that type. Names that GLSL reserved after a program's
-  `#version`, such as `sample` before 4.00, are renamed unless used as qualifiers. Missing vertex
-  varying locations receive zero outputs. Unresolved vertex variables receive numeric
+  `#version`, such as `sample` before 4.00, are renamed unless used as qualifiers. Struct type
+  references are renamed consistently, while uniform reflection and sampler property lookups
+  retain the original names. Missing vertex varying locations receive zero outputs.
+  Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
   `sampler2D` uniforms Iris does not bind read texture unit 0 as in Iris: `colortex0` in
   full-screen and compute passes, the block atlas in geometry passes. Geometry texture
