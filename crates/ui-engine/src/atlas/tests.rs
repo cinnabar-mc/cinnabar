@@ -60,6 +60,39 @@ fn arbitrary_pack_texture_keeps_source_dimensions_sidecar_and_pixels() {
 }
 
 #[test]
+fn server_ui_reservation_keeps_eight_full_page_images_resident_in_one_frame() {
+    let keys: Vec<_> = (0..8)
+        .map(|index| format!("textures/ui/t{index}"))
+        .collect();
+    let files: Vec<_> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let mut bytes = Cursor::new(Vec::new());
+            image::RgbaImage::from_pixel(
+                PAGE_SIDE,
+                PAGE_SIDE,
+                image::Rgba([index as u8, 0, 0, 255]),
+            )
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .unwrap();
+            (format!("{key}.png"), bytes.into_inner())
+        })
+        .collect();
+    let mut atlas = ServerAtlas::new(&files, None, crate::pages::SERVER_UI_PAGES)
+        .with_image_work(ImageWork::inline());
+    atlas.require(keys.iter().map(String::as_str));
+    for (index, key) in keys.iter().enumerate() {
+        let placement = atlas
+            .placement(key)
+            .expect("all eight images must be resident");
+        assert_eq!(placement.rect[2..], [PAGE_SIDE as u16; 2]);
+        let image = &atlas.images()[usize::from(placement.page)];
+        assert_eq!(&image.pixels()[..4], &[index as u8, 0, 0, 255]);
+    }
+}
+
+#[test]
 fn cold_loading_backdrop_precedes_an_expensive_title_decode() {
     let files = vec![
         ("textures/ui/title.png".to_owned(), png(1992, 669)),

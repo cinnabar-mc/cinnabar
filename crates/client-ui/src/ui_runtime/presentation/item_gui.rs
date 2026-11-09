@@ -37,13 +37,15 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
         }
         let start = vertices.len() as u32;
         for (point, uv) in positions.into_iter().zip(uvs) {
-            vertices.push(vertex(
+            let mut vertex = vertex(
                 cube_project(point),
                 atlas_uv(texture, uv)?,
                 [shade, shade, shade, 255],
                 texture.glint,
                 false,
-            ));
+            );
+            vertex.terrain_mips = true;
+            vertices.push(vertex);
         }
         let begin = indices.len() as u32;
         indices.extend([0, 1, 2, 0, 2, 3].map(|i| start + i));
@@ -51,6 +53,7 @@ pub(super) fn cube(faces: [IconRef; 6]) -> Option<Arc<UiMesh>> {
     }
     UiMesh::new(vertices.into(), indices.into(), batches.into())
         .ok()
+        .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
 }
 
@@ -84,6 +87,7 @@ fn vertex(
     alpha_test: bool,
 ) -> UiMeshVertex {
     UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.0,
         clip_w: 1.0,

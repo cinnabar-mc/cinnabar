@@ -74,6 +74,10 @@ closes no gate and provides no new runtime or performance evidence.
 The Go core and local stream boundary are implemented. Keep authentication,
 encryption and upstream transports with the core, and client behavior with Rust.
 Changes still need current protocol conformance, bounded framing and lifecycle coverage.
+Server batch intake validates full replay movement bursts without a packet-count cap and
+expands packet metadata in bounded windows, retaining byte and framing checks.
+Live replay seek/teleport qualification and version-matched native batch-size
+acceptance remain incomplete.
 The pinned target comes from [the target manifest](assets/bedrock-target.json).
 The generated codec and Go integrations target protocol 2225. New matchmaking,
 stonecutter selection, cursor dragging, block passengers and registered audio packets
@@ -801,6 +805,10 @@ and version-matched in-game acceptance remain incomplete.
   and interpolate with its frame fraction, independently of remote actor ticks.
   Linux captures cover third-person running jumps in both modes; other platforms
   and matched native qualification remain open.
+  Missing animation roots and unsupported root weights no longer disable other
+  compiled clips or controllers on the same rig. Compiler regressions cover player
+  definitions and carrier round trips. Native error-handling parity and confirmation
+  against the reported server pack remain incomplete; no live replay was performed.
   Shulkers publish their peek and attach-face variables and keep a zero body yaw;
   attach-position snapping, peek-dependent collision bounds and a rendered comparison
   against the vanilla client remain incomplete.
@@ -957,8 +965,21 @@ and version-matched in-game acceptance remain incomplete.
   Aux-only stacks use base block visuals only when aux cannot select a legacy block state.
   Decoding legacy states without a retained block remains incomplete.
   Firework-star previews preserve their mask artwork and per-stack colors.
+  Elytra cells select intact or exhausted artwork from stack wear at the last durability
+  point, independently of atlas metadata. Broader animated item acceptance remains open.
   Decorated pot inventory sides exclude the texture border; broader pose and tint acceptance remains open.
   Block-model previews cull one-sided rear faces and preserve two-sided planes.
+  Terrain-backed GUI meshes retain independently averaged texture levels and choose a
+  level from their physical footprint. Projected cube and shaped-block coordinates round
+  to half precision after control scaling and placement; their texture vertices use normalized
+  unsigned shorts after atlas placement. Tinted and glinting copies retain both formats.
+  Opaque terrain-face tinting rounds to encoded output bytes.
+  Source tiles stay aligned through the retained
+  levels; the source allocation retains shaped models alongside the flame page for the
+  pinned catalog.
+  The hotbar catalog comparison still has open shape, artwork and item-variant differences;
+  animated dials and glint also require phase-matched acceptance.
+  Glass-pane previews use thin plates with separate edges and retain their held sprites.
   Glass panes use thin plates with separate edges in slots and both hands; player previews share the ordinary held model, sprite resolver and material alpha policy. Preview face sheets reuse resident artwork, with a counted sprite fallback when new held artwork cannot fit. Metal bars keep their flat carried sprites.
   Lightning-rod previews select their unpowered upright pose.
   Chorus plant previews show their carried protrusions without changing placed or held shapes.
@@ -2231,6 +2252,14 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   rest of the scope in which they hide that type. Missing vertex
   varying locations receive zero outputs. Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
+  Compatibility-profile vertex stages other than `gbuffers_line` read declared core inputs
+  (`vaPosition`, `vaNormal`, …) without explicit locations as GL's unbound `(0, 0, 0, 1)`,
+  because Iris's compatibility transformers bind no vertex data to them. Explicitly located
+  inputs remain bound.
+  Incomplete: drivers may alias an implicitly located input onto another enabled array,
+  which is not modelled; a fallback program drawing lines still leaves
+  them unbound; and a core-profile stage that declares one and also reads its compatibility
+  built-in still fails with duplicate locations.
   `sampler2D` uniforms Iris does not bind read texture unit 0 as in Iris: `colortex0` in
   full-screen and compute passes, the block atlas in geometry passes. Geometry texture
   image overrides share one binding across `tex`, `texture`, `gtexture` and `u_MainSampler`,

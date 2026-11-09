@@ -3,7 +3,9 @@
 
 use std::{collections::BTreeMap, sync::Arc};
 
-use assets::gui_item::{GuiBlockQuad, GuiShading, project_cube};
+use assets::gui_item::{
+    GUI_BLOCK_SAMPLE_ALPHA_THRESHOLD as ALPHA_CUTOFF, GuiBlockQuad, GuiShading, project_cube,
+};
 use ui::UiMesh;
 
 use {
@@ -11,9 +13,6 @@ use {
     assets::gui_item::GUI_ITEM_SIDE,
     ui::IconRef,
 };
-
-/// Uses the same accepted alpha byte as the thumbnail baker.
-const ALPHA_CUTOFF: f32 = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD as f32 / u8::MAX as f32;
 
 /// Each quad with its tile's place in the atlas, lit by `shading`. `None` when a UV leaves its
 /// tile, which an atlas cannot wrap.
@@ -47,6 +46,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
                 true,
             );
             vertex.clip_z = depth(z);
+            vertex.terrain_mips = true;
             vertices.push(vertex);
         }
         by_page
@@ -66,6 +66,7 @@ pub(in crate::ui_runtime::presentation) fn mesh(
     }
     UiMesh::new(vertices.into(), indices.into(), batches.into())
         .ok()
+        .map(UiMesh::with_compact_block_vertices)
         .map(Arc::new)
 }
 

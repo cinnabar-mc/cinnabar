@@ -68,6 +68,7 @@ fn text(font: &CompiledFontCatalog, value: &str) -> Arc<TextLayout> {
 /// Creates one triangle whose geometry varies by offset.
 fn mesh(offset: f32) -> Arc<UiMesh> {
     let vertex = |position: [f32; 2]| UiMeshVertex {
+        terrain_mips: false,
         position,
         clip_z: 0.5,
         clip_w: 1.0,

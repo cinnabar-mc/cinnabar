@@ -4,6 +4,10 @@ pub const FISHING_ROD_IDENTIFIER: &str = "minecraft:fishing_rod";
 pub const BRUSH_IDENTIFIER: &str = "minecraft:brush";
 /// Canonical arrow identity used by item presentation.
 pub const ARROW_IDENTIFIER: &str = "minecraft:arrow";
+/// Canonical firework rocket identity; its hover text lists flight and explosions.
+pub const FIREWORK_ROCKET_IDENTIFIER: &str = "minecraft:firework_rocket";
+/// Canonical firework star identity; its hover text describes its explosion.
+pub const FIREWORK_STAR_IDENTIFIER: &str = "minecraft:firework_star";
 /// Item atlas key whose variants are the tipped arrow icons.
 pub const TIPPED_ARROW_ATLAS_KEY: &str = "tipped_arrow";
 /// Identifies harness items independently of their color and runtime network ID.
@@ -27,6 +31,8 @@ pub const LEGACY_ITEM_ALIASES: &[(&str, &str)] = &[(
 
 /// Canonical identity used to request the totem's presentation assets.
 pub const TOTEM_IDENTIFIER: &str = "minecraft:totem_of_undying";
+/// Canonical identity whose carried artwork distinguishes exhausted wings.
+pub const ELYTRA_IDENTIFIER: &str = "minecraft:elytra";
 /// Read-only book identity retained outside the pinned retail census.
 pub(super) const WRITTEN_BOOK_IDENTIFIER: &str = "minecraft:written_book";
 
