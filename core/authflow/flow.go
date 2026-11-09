@@ -121,9 +121,6 @@ func Run(ctx context.Context, config Config) error {
 	method := "cached"
 	if acquired {
 		method = "device_code"
-	} else if err := authcache.ForgetPendingPrompt(config.Path); err != nil && config.Logger != nil {
-		// The saved account works, so no launch should reopen a prompt left for it.
-		config.Logger.Warn("unused sign-in prompt not removed", "diagnostic", authcache.FailureDiagnostic(err))
 	}
 	config.logStep("sign-in token ready")
 	if config.CompleteSignIn != nil {
