@@ -544,20 +544,32 @@ impl Rider {
         self.advance(sneak_press(delta));
     }
 
-    /// Ticks of the movement packets transport accepts now.
+    /// Ticks of the movement packets transport accepts and writes now.
     fn flush_movement(&mut self) -> Vec<u64> {
-        let mut ticks = Vec::new();
+        let identities = self.send_movement();
+        for identity in &identities {
+            assert!(self.ticker.acknowledge_physics_send(*identity));
+        }
+        identities
+            .into_iter()
+            .map(|identity| identity.tick.get())
+            .collect()
+    }
+
+    /// Hands the queued movement to transport without its socket writes confirmed yet.
+    fn send_movement(&mut self) -> Vec<super::PhysicsSendIdentity> {
+        let mut identities = Vec::new();
         flush_player_auth_inputs(
             &mut self.ticker,
             usize::MAX,
             Some(evidence_context()),
             |identity, _packet| {
-                ticks.push(identity.tick.get());
+                identities.push(identity);
                 Ok::<_, &str>(())
             },
         )
         .unwrap();
-        ticks
+        identities
     }
 }
 
@@ -782,6 +794,26 @@ fn a_held_item_release_keeps_the_rider_seated_until_it_goes_out() {
     assert!(rider.sent.is_empty(), "the request waits behind the release");
     rider.ticker.confirm_held_release_facing(facing);
     rider.ticker.send_held_release(|_| Ok(()));
+    rider.flush_movement();
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
+}
+
+/// Seated movement transport took but has not written yet may still be cancelled and sent
+/// again, so the rider stays seated until it is written.
+#[test]
+fn unwritten_seated_movement_keeps_the_rider_seated() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    let unwritten = rider.send_movement();
+    assert!(!unwritten.is_empty());
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "the request waits for the seated writes");
+    for identity in unwritten {
+        assert!(rider.ticker.acknowledge_physics_send(identity));
+    }
     rider.flush_movement();
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);

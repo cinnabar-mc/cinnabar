@@ -441,14 +441,11 @@ impl MovementTicker {
     }
 
     /// Whether completed movement could still reach the server after a packet sent now:
-    /// queued ticks, or sent ones transport may cancel and this ticker would send again.
+    /// queued ticks, or sent ones whose socket write is unconfirmed, which transport may still
+    /// cancel and this ticker send again.
     #[must_use]
     pub fn movement_trails_transport(&self) -> bool {
-        !self.outbox.is_empty()
-            || self
-                .pending_sends
-                .iter()
-                .any(|pending| pending.retry_after_cancellation)
+        self.pending_count() > 0
     }
 
     /// A frame-time interaction once every completed tick has entered the outbound FIFO.

@@ -117,7 +117,7 @@ fn wall(world: &mut World, x: i32, z: i32) {
 
 #[test]
 fn a_rider_leaving_a_boat_on_land_stands_on_the_ground_beside_it() {
-    let exit = still_boat().exit_feet(&World::ground());
+    let exit = still_boat().exit_feet(&World::ground()).unwrap();
     // A still vehicle tries north first, and the rider stands on the ground top.
     assert_feet(exit, [0.5, GROUND as f32 + 0.001, -0.5]);
 }
@@ -127,7 +127,7 @@ fn a_blocked_side_moves_the_rider_to_the_next_free_side() {
     let mut world = World::ground();
     wall(&mut world, 0, -1);
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 0.001, 1.5],
     );
 }
@@ -137,7 +137,7 @@ fn sides_are_tried_across_the_heading_then_diagonally_then_behind_and_ahead() {
     let mut world = World::ground();
     let mut exits = Vec::new();
     for _ in 0..8 {
-        let exit = still_boat().exit_feet(&world);
+        let exit = still_boat().exit_feet(&world).unwrap();
         let offset = [(exit.x - 0.5).round() as i32, (exit.z - 0.5).round() as i32];
         exits.push(offset);
         wall(&mut world, offset[0], offset[1]);
@@ -165,13 +165,13 @@ fn a_moving_vehicle_puts_its_rider_across_its_heading() {
     boat.vehicle_motion = Vec3::new(0.3, 0.0, 0.1);
     // Heading east, the first side is south.
     assert_feet(
-        boat.exit_feet(&World::ground()),
+        boat.exit_feet(&World::ground()).unwrap(),
         [0.5, GROUND as f32 + 0.001, 1.5],
     );
     boat.vehicle_motion = Vec3::new(0.1, 0.0, -0.3);
     // Heading north, the first side is east.
     assert_feet(
-        boat.exit_feet(&World::ground()),
+        boat.exit_feet(&World::ground()).unwrap(),
         [1.5, GROUND as f32 + 0.001, 0.5],
     );
 }
@@ -187,7 +187,7 @@ fn walled_in_at_its_level_the_rider_climbs_onto_the_walls() {
         }
     }
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 1.001, -0.5],
     );
 }
@@ -200,7 +200,7 @@ fn a_low_block_beside_the_vehicle_is_the_floor() {
         Aabb::new(Vec3::ZERO, Vec3::new(1.0, 0.5, 1.0)),
     );
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 0.501, -0.5],
     );
 }
@@ -211,7 +211,7 @@ fn without_a_floor_beside_it_the_rider_stays_on_its_seat() {
     let mut boat = still_boat();
     boat.vehicle.y = f64::from(GROUND + 3);
     boat.seat.y = f64::from(GROUND + 3) - 0.225;
-    let exit = boat.exit_feet(&World::ground());
+    let exit = boat.exit_feet(&World::ground()).unwrap();
     assert_feet(exit, [0.5, (GROUND + 3) as f32 - 0.224, 0.5]);
 }
 
@@ -224,7 +224,7 @@ fn actors_and_scaffolding_neither_block_nor_floor_a_position() {
     ));
     world.scaffolding([0, GROUND, -1]);
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 0.001, -0.5],
     );
     // A floor of scaffolding alone holds no rider.
@@ -232,7 +232,7 @@ fn actors_and_scaffolding_neither_block_nor_floor_a_position() {
     world.blocks.remove(&[0, GROUND - 1, -1]);
     world.scaffolding([0, GROUND - 1, -1]);
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 0.001, 1.5],
     );
 }
@@ -242,10 +242,25 @@ fn a_taller_rider_skips_a_side_too_low_for_it() {
     let mut world = World::ground();
     world.solid([0, GROUND + 2, -1]);
     assert_feet(
-        still_boat().exit_feet(&world),
+        still_boat().exit_feet(&world).unwrap(),
         [0.5, GROUND as f32 + 0.001, -0.5],
     );
     let mut tall = still_boat();
     tall.rider_height = 2.4;
-    assert_feet(tall.exit_feet(&world), [0.5, GROUND as f32 + 0.001, 1.5]);
+    assert_feet(
+        tall.exit_feet(&world).unwrap(),
+        [0.5, GROUND as f32 + 0.001, 1.5],
+    );
+}
+
+/// A world that cannot answer for the blocks around the vehicle yet places no one.
+#[test]
+fn blocks_still_streaming_in_place_no_one() {
+    struct Streaming;
+    impl CollisionWorld for Streaming {
+        fn collision_boxes(&self, _: Aabb) -> Result<CollisionQuery<Vec<Aabb>>, WorldQueryError> {
+            Err(WorldQueryError::QueryExtentExceeded)
+        }
+    }
+    assert_eq!(still_boat().exit_feet(&Streaming), None);
 }

@@ -240,14 +240,17 @@ impl LocomotionState {
         let [width, height] = physics
             .prediction_sync_size()
             .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
-        let exit = sim::Dismount {
+        // Blocks still streaming in around the mount keep the player seated until they arrive.
+        let Some(exit) = (sim::Dismount {
             vehicle: vec3(position),
             vehicle_motion: vec3(motion),
             seat,
             rider_width: f64::from(width),
             rider_height: f64::from(height),
-        }
-        .exit_feet(world);
+        })
+        .exit_feet(world) else {
+            return;
+        };
         let position = [
             exit.x as f32,
             exit.y as f32 + protocol::PLAYER_NETWORK_OFFSET,

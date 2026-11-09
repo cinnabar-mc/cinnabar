@@ -590,8 +590,9 @@ Getting off a mount places the player client-side, as vanilla's client does unle
 is flagged for server-only dismounts: the player tries the eight blocks around the vehicle
 across its heading first, at its level, a block up, then a block down, stands on the first
 with a floor and room, and reports that position in its stop-riding request; it gets off
-only in a tick where transport takes that request behind all seated movement and no
-attack still reports the seat. Without a free
+only in a tick where transport takes that request behind all seated movement, written to
+the socket, no attack or held item release still reports the seat, and the blocks around the
+mount have arrived. Without a free
 block it stays at its seat. Incomplete: the still-vehicle motion threshold is unverified; each block
 counts as one box around its collision shapes; blocks vanilla exempts by flag or state other
 than scaffolding are not exempted; legacy worlds' older exit patterns and activator-rail

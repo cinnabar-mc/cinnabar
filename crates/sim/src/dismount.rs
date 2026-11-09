@@ -32,15 +32,28 @@ pub struct Dismount {
 impl Dismount {
     /// The rider's feet once it is off the vehicle: beside the vehicle on the first free
     /// position with a floor, or its seat when none is free. Block shapes the world cannot
-    /// attribute to a cell, such as actors, never block a position or make a floor.
+    /// attribute to a cell, such as actors, never block a position or make a floor. `None`
+    /// while the world cannot answer for every block the search or the rider's first steps
+    /// from it could touch, such as while they stream in.
     #[must_use]
-    pub fn exit_feet(&self, world: &impl CollisionWorld) -> Vec3 {
+    pub fn exit_feet(&self, world: &impl CollisionWorld) -> Option<Vec3> {
         let vehicle = self.vehicle.rounded();
         let base = [
             (vehicle.x as f32).floor() + 0.5,
             (vehicle.y as f32).floor(),
             (vehicle.z as f32).floor() + 0.5,
         ];
+        // The search, and the rider's first steps from where it stands, stay within two
+        // blocks of the vehicle's block.
+        let around = Aabb::new(
+            vec3([base[0] - 2.5, base[1] - 2.0, base[2] - 2.5]),
+            vec3([
+                base[0] + 2.5,
+                base[1] + 2.0 + self.rider_height as f32,
+                base[2] + 2.5,
+            ]),
+        );
+        world.collision_boxes_with_provenance(around).ok()?;
         for level in LEVELS {
             for offset in self.candidates() {
                 let probe = [base[0] + offset[0], base[1] + level, base[2] + offset[2]];
@@ -51,19 +64,19 @@ impl Dismount {
                 if self.fits(world, [probe[0], probe[1] + floor, probe[2]]) {
                     // Vanilla tests the block-centred probe but places the rider relative to
                     // its seat, so a seat off its block's centre lands off the tested spot.
-                    return Vec3::new(
+                    return Some(Vec3::new(
                         f64::from(self.seat.x as f32 + offset[0]),
                         f64::from(base[1] + floor + level + FLOOR_CLEARANCE),
                         f64::from(self.seat.z as f32 + offset[2]),
-                    );
+                    ));
                 }
             }
         }
-        Vec3::new(
+        Some(Vec3::new(
             self.seat.x,
             f64::from(self.seat.y as f32 + FLOOR_CLEARANCE),
             self.seat.z,
-        )
+        ))
     }
 
     /// Horizontal offsets in trial order: the two sides across the vehicle's heading, the
