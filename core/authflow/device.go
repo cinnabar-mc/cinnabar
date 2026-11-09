@@ -57,9 +57,10 @@ func (f DeviceFlow) Request(ctx context.Context, publish func(*oauth2.DeviceAuth
 	}
 	var lostAnswer atomic.Bool
 	token, err := f.Token(tolerantPollContext(ctx, &lostAnswer), response)
-	if ctx.Err() == nil {
-		// The code is settled. A cancelled flow keeps it: the lifeline cancels when the
-		// client's process ends, which is exactly when a later launch should resume it.
+	if err == nil || ctx.Err() == nil {
+		// The code is settled. A cancelled flow that got no token keeps it: the lifeline
+		// cancels when the client's process ends, which is exactly when a later launch
+		// should resume it.
 		f.forget()
 	}
 	if err != nil {

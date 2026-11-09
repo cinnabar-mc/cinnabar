@@ -129,3 +129,21 @@ func TestPendingPromptIsPrivateAndCarriesAnAbsoluteExpiry(t *testing.T) {
 		t.Fatalf("the expired prompt was kept: %v", err)
 	}
 }
+
+func TestDeviceSignInForgetsACodeRedeemedAsTheProcessEnds(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "token.json")
+	ctx, end := context.WithCancel(context.Background())
+	defer end()
+	_, _ = DeviceFlow{
+		Pending:   path,
+		Authorize: savedPromptFlow("LAST-1234", time.Now().Add(15*time.Minute)),
+		Token: func(context.Context, *oauth2.DeviceAuthResponse) (*oauth2.Token, error) {
+			// The token arrives just as the client's process ends.
+			end()
+			return validToken("access", "refresh"), nil
+		},
+	}.Request(ctx, func(*oauth2.DeviceAuthResponse) error { return nil })
+	if _, err := os.Stat(authcache.PendingPromptPath(path)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a redeemed code was kept for resuming: %v", err)
+	}
+}

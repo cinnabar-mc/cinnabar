@@ -134,7 +134,8 @@ impl MenuRuntime {
         } else {
             return;
         }
-        self.sign_in_resumed = true;
+        // An Add account that could not open started nothing to resume.
+        self.sign_in_resumed = self.auth_process.is_some();
     }
 
     /// The token cache the current sign-in writes: the pending one while adding an account.
