@@ -2242,8 +2242,11 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   of negative float literals, separates shared-memory array declarations, sizes unsized
   arrays from their constructors and folds typed scalar constants in array bounds.
   Function-local variables named after a struct type (`Face Face = ...;`) are renamed for the
-  rest of the scope in which they hide that type. Missing vertex
-  varying locations receive zero outputs. Unresolved vertex variables receive numeric
+  rest of the scope in which they hide that type. Names that GLSL reserved after a program's
+  `#version`, such as `sample` before 4.00, are renamed unless used as qualifiers. Struct type
+  references are renamed consistently, while uniform reflection and sampler property lookups
+  retain the original names. Missing vertex varying locations receive zero outputs.
+  Unresolved vertex variables receive numeric
   declarations from used fragment inputs, with zero initialization at user main entry.
   Compatibility-profile vertex stages other than `gbuffers_line` read declared core inputs
   (`vaPosition`, `vaNormal`, …) without explicit locations as GL's unbound `(0, 0, 0, 1)`,
@@ -2285,7 +2288,8 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   Acceptance of this path remains incomplete. Other geometry topologies, interface blocks,
   layered outputs, non-literal layout values, full-screen geometry stages and geometry
   programs with pack storage buffers are unsupported.
-  Incomplete: comma expressions containing void calls and full
+  Incomplete: comma expressions containing void calls; per-sample (`sample`) varying
+  interpolation, which translation drops; full
   GLSL preprocessing compatibility; in-game acceptance across packs and platforms (Metal is
   unverified); stage pre-flips (`flip.<stage>_pre.<buffer>`) and Iris's explicit-flip
   ordering; drawing the solid hand's glint before deferred passes; geometry-host composition
