@@ -3,6 +3,7 @@ use crate::movement::MovementSource;
 use crate::test_support::movement_speed_attribute as attribute;
 use client_world::ResolvedServerPosition;
 
+mod eased_move;
 mod local_actor_movement;
 
 /// A world that rejects any unintended spatial query during non-replay controls.
@@ -36,6 +37,69 @@ fn owners() -> (
     let mut speed = LocalMovementSpeedAuthority::default();
     speed.begin_session(7, 0);
     (movement, physics, effects, speed)
+}
+
+/// A dimension change discards an old-world server item-use write before the
+/// item-use owner can adopt it in the destination.
+#[test]
+fn dimension_change_discards_a_pending_server_item_use() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    let using = client_world::MovementFlagUpdate {
+        using_item: Some(true),
+        ..Default::default()
+    };
+    physics.apply_server_movement_flags(0, using);
+    let position = [10.0, 80.0, 20.0];
+    let control = CommittedControlEvent::ChangeDimension {
+        sequence: 1,
+        change: protocol::ChangeDimensionEvent {
+            dimension: 1,
+            position,
+            ..Default::default()
+        },
+        resolved: ResolvedServerPosition {
+            position,
+            surface_anchor: None,
+        },
+    };
+    CommittedGameplayState {
+        movement: &mut movement,
+        physics: &mut physics,
+        effects: &mut effects,
+        speed: &mut speed,
+        session_generation: 7,
+        dimension: 1,
+        dimension_transfer_active: true,
+    }
+    .apply(control, &NoQueries, |_| {});
+    assert_eq!(physics.take_server_using_item(), None);
+}
+
+/// A local game-mode control stops item use only when it makes the player a
+/// spectator, in its packet order with flag writes.
+#[test]
+fn a_spectator_game_mode_control_stops_item_use() {
+    let (mut movement, mut physics, mut effects, mut speed) = owners();
+    for (sequence, spectator) in [(1, false), (2, true)] {
+        CommittedGameplayState {
+            movement: &mut movement,
+            physics: &mut physics,
+            effects: &mut effects,
+            speed: &mut speed,
+            session_generation: 7,
+            dimension: 0,
+            dimension_transfer_active: false,
+        }
+        .apply(
+            CommittedControlEvent::LocalGameMode {
+                sequence,
+                spectator,
+            },
+            &NoQueries,
+            |_| {},
+        );
+        assert_eq!(physics.take_server_item_use_stop(), spectator);
+    }
 }
 
 #[test]
@@ -94,6 +158,7 @@ fn dimension_destination_and_ready_respawn_preserve_the_global_input_clock() {
     let controls = [
         CommittedControlEvent::MovePlayer {
             sequence: 1,
+            riding_actor_resolved: false,
             source_cohort: None,
             movement: protocol::MovePlayerEvent {
                 runtime_id: 42,

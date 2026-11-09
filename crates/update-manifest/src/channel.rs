@@ -27,9 +27,28 @@ impl Channel {
     /// The user-facing channel name.
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Beta => "Beta",
             Self::Nightly => "Nightly (Unstable)",
+            _ => self.title(),
+        }
+    }
+
+    /// Short channel name used in release identities and action buttons.
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::Beta => "Beta",
+            Self::Nightly => "Nightly",
             Self::Stable => "Stable",
+        }
+    }
+
+    /// Explains which releases a channel follows beside the channel picker.
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Beta => "Regular tagged releases.",
+            Self::Nightly => {
+                "The newest Nightly or Beta release. Experimental changes may be unstable."
+            }
+            Self::Stable => "Stable releases recommended for everyday use.",
         }
     }
 

@@ -184,9 +184,41 @@ func TestClientPartsAreOfferedAtStartup(t *testing.T) {
 	if _, err := os.Stat(markerPack(dir)); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the marker pack survived a start without the flags: %v", err)
 	}
-	if data, err := os.ReadFile(filepath.Join(dir, extension.RevisionFile)); err != nil || strings.TrimSpace(string(data)) != "2" {
-		t.Fatalf("revision file %q, %v", data, err)
+	if err := run(args, strings.NewReader("stop\n"), io.Discard, io.Discard); err != nil {
+		t.Fatalf("run: %v", err)
 	}
+	if offer, _ := offered(t, dir); offer.Revision != 3 {
+		t.Fatalf("the start after one without the flags offered revision %d", offer.Revision)
+	}
+}
+
+// The revision belongs to the server key rather than the world: a reset world continues it, so
+// returning clients never see a rollback. A revision an older start kept in the world directory
+// carries over and leaves the world.
+func TestOfferRevisionSurvivesWorldReset(t *testing.T) {
+	dir := t.TempDir()
+	args := append([]string{"-dir", dir, "-addr", "127.0.0.1:0"}, clientPartFlags(t, "127.0.0.1:19132")...)
+	legacy := filepath.Join(dir, extension.RevisionFile)
+	if err := os.WriteFile(legacy, []byte("7\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := func(want uint64) {
+		t.Helper()
+		if err := run(args, strings.NewReader("stop\n"), io.Discard, io.Discard); err != nil {
+			t.Fatalf("run: %v", err)
+		}
+		if offer, _ := offered(t, dir); offer.Revision != want {
+			t.Fatalf("offered revision %d, want %d", offer.Revision, want)
+		}
+	}
+	start(8)
+	if _, err := os.Stat(legacy); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the world kept its revision file: %v", err)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	start(9)
 }
 
 // A bad flag fails startup before "ready", naming what is wrong.

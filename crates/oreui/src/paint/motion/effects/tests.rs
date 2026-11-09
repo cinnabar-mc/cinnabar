@@ -63,6 +63,17 @@ fn background_dim_and_undim_are_finite_and_reverse_continuously() {
     assert_eq!(overlay_frame(&mut effects, Some(128), 20.0), settled);
 }
 
+#[test]
+fn first_screen_after_empty_frames_is_dimmed_at_once() {
+    let mut effects = Effects::default();
+    for seconds in [0.0, 0.5] {
+        effects
+            .finish(&mut Vec::new(), &mut 1, seconds, SIZE)
+            .unwrap();
+    }
+    assert_eq!(dim_alpha(&overlay_frame(&mut effects, Some(96), 1.0)), 96);
+}
+
 fn dialog() -> Vec<UiNode> {
     vec![
         UiNode::new(

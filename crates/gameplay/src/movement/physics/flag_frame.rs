@@ -55,6 +55,7 @@ impl FrameFlags {
             self.pose_entry = server_flags::FlagWord::capture(
                 modes.pose_flags(),
                 state.spin_attack_ticks.is_some(),
+                self.pose_entry.using_item(),
             );
             let dormant = server_flags::dormant_spin(spun, state);
             self.counters = server_flags::EntryCounters::capture(modes, state, dormant);

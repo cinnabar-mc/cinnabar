@@ -39,7 +39,7 @@ fn personal_control_timeouts_release_admission_without_guessing_a_window_id() {
             if runtime.inventory_open() != desired_open {
                 runtime.toggle_inventory(&mut player, None);
             }
-            runtime.inventory_pointer_gui = desired_open.then_some([20.0, 30.0]);
+            runtime.session.inventory_pointer_gui = desired_open.then_some([20.0, 30.0]);
             runtime.poll_inventory_timeout(&mut player, INVENTORY_REQUEST_TIMEOUT_MILLIS);
             let expected_open = desired_open;
             assert_eq!(runtime.inventory_open(), expected_open);

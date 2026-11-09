@@ -195,8 +195,8 @@ pub const THIRD_PERSON_CROSSHAIR_OPTION: SettingDefinition =
 /// Keeps the crosshair's background inversion enabled unless the player opts out.
 pub const INVERT_CROSSHAIR_OPTION: SettingDefinition = SettingId::InvertCrosshair.definition();
 
-/// Raises the built-in HUD's hotbar from Java's flush placement to vanilla Bedrock's height.
-/// Its name is also the HUD pack's context flag.
+/// Places the built-in HUD's hotbar at vanilla Bedrock's height, on by default; turning it off
+/// lowers it to Java's flush placement. Its name is also the HUD pack's context flag.
 pub const BEDROCK_HOTBAR_OPTION: SettingDefinition = SettingId::CinnabarBedrockHotbar.definition();
 
 /// Percent slider over vanilla's `0.0..=1.0` mouse sensitivity option.
@@ -363,6 +363,8 @@ settings! {
         [(SettingPanel::Keyboard, 4)], [], None, None;
     CinnabarChatPosition => "cinnabar_chat_position", dropdown("Chat Position", super::chat::CHAT_POSITIONS, 0),
         [(SettingPanel::VideoGeneral, 2), (SettingPanel::Chat, 5)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
+    CinnabarChatInput => "cinnabar_chat_input", dropdown("Chat Input", super::chat::CHAT_INPUTS, 0),
+        [(SettingPanel::VideoGeneral, 3), (SettingPanel::Chat, 6)], [SettingsGroup::Video, SettingsGroup::Chat], None, None;
     ToastNotificationDuration => "toast_notification_duration", dropdown("options.notificationDuration.Toast", TOAST_DURATIONS, 0),
         [(SettingPanel::AccessibilityUi, 1)], [SettingsGroup::Accessibility], None, None;
     ChatMessageDuration => "chat_message_duration", dropdown("options.notificationDuration.Chat", CHAT_DURATIONS, 1),
@@ -405,7 +407,7 @@ settings! {
         [(SettingPanel::VideoGraphics, 0)], [SettingsGroup::Video], None, None;
     InterfaceOpacity => "interface_opacity", slider("options.hudOpacity", 0, 100, 100),
         [(SettingPanel::VideoCustomization, 8)], [SettingsGroup::Video], None, None;
-    CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", false),
+    CinnabarBedrockHotbar => "cinnabar_bedrock_hotbar", toggle("Bedrock Hotbar Position", true),
         [(SettingPanel::VideoCustomization, 9)], [SettingsGroup::Video], None, None;
     DamageBob => "damage_bob", slider("options.damageBobbing", 0, 100, 100),
         [(SettingPanel::VideoAccessibility, 6)], [SettingsGroup::Video], None, None;
@@ -504,13 +506,13 @@ settings! {
     HideChat => "hide_chat", toggle("chat.settings.muteAll", false),
         [(SettingPanel::Chat, 0)], [SettingsGroup::Chat], None, None;
     ToggleEmoteChat => "toggle_emote_chat", toggle("chat.settings.muteEmotes", false),
-        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
-    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
         [(SettingPanel::Chat, 9)], [SettingsGroup::Chat], None, None;
+    ToggleTts => "toggle_tts", toggle("chat.settings.tts", false),
+        [(SettingPanel::Chat, 10)], [SettingsGroup::Chat], None, None;
     ChatColor => "chat_color", dropdown("chat.settings.chatColor", super::chat::CHAT_COLORS, 0),
-        [(SettingPanel::Chat, 6)], [SettingsGroup::Chat], None, None;
-    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
         [(SettingPanel::Chat, 7)], [SettingsGroup::Chat], None, None;
+    MentionsColor => "mentions_color", dropdown("chat.settings.mentionsColor", super::chat::MENTIONS_COLORS, 5),
+        [(SettingPanel::Chat, 8)], [SettingsGroup::Chat], None, None;
     ChatFontSize => "chat_font_size", slider("chat.settings.fontSize", 5, 20, 10),
         [(SettingPanel::Chat, 2)], [SettingsGroup::Chat], None, None;
     ChatLineSpacing => "chat_line_spacing", slider("chat.settings.lineSpacing", 0, 100, 0),
@@ -523,6 +525,8 @@ settings! {
         [(SettingPanel::VideoCustomization, 11)], [SettingsGroup::Video], None, None;
     F5SelfVisuals => "f5_self_visuals", toggle("options.f5SelfVisuals", false),
         [(SettingPanel::VideoCustomization, 13)], [SettingsGroup::Video], None, Some("options.f5SelfVisuals.name");
+    ShowOtherPlayerCosmetics => "show_other_player_cosmetics", toggle("options.showOtherPlayerCosmetics", ui::DEFAULT_SHOW_OTHER_PLAYER_COSMETICS),
+        [(SettingPanel::VideoCustomization, 14)], [SettingsGroup::Video], None, None;
     DiscordPresence => "discord_presence", toggle("Discord Rich Presence", true),
         [(SettingPanel::Discord, 0)], [SettingsGroup::Discord], None, Some("discord.settings.enabled");
     DiscordServerDetails => "discord_server_details", toggle("discord.settings.serverDetails", true),
@@ -551,7 +555,9 @@ settings! {
         [(SettingPanel::GeneralAdvanced, 0)], [], None, None;
     RecordNetworkSession => "record_network_session", toggle("Record network session", false),
         [(SettingPanel::GeneralAdvanced, 1)], [], None, None;
-    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+    TouchControlMode => "touch_control_mode", dropdown("options.controlMode.name", super::touch_control_mode::TOUCH_CONTROL_MODE_CHOICES, super::touch_control_mode::DEFAULT_TOUCH_CONTROL_MODE),
         [(SettingPanel::Touch, 0)], [], None, None;
+    TouchSensitivity => "touch_sensitivity", slider("Touch sensitivity", 0, 100, 50),
+        [(SettingPanel::Touch, 1)], [], None, None;
 
 }

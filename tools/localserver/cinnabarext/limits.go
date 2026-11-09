@@ -11,12 +11,14 @@ const (
 	MaxOrigins              = 8
 	MaxFallbackBytes        = 512
 	MaxMarkerBytes          = 64 * 1024
+	MaxManifestBytes        = 4 * 1024 * 1024
 	MaxPayloadBytes         = 16 * 1024
 	MaxMessageBytes         = 48 * 1024
 	MaxMessagesPerSecond    = 64
 	MaxBytesPerSecond       = 64 * 1024
 	MaxBurstBytes           = 3 * MaxMessageBytes
 	MaxQueueBytes           = 256 * 1024
+	MaxActions              = 1024
 	MaxChannels             = 64
 	MaxChannelFields        = 64
 	MaxFieldDepth           = 4

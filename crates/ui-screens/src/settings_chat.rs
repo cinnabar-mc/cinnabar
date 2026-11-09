@@ -40,10 +40,7 @@ impl ChatSettings {
 
 /// Keeps font sizing visible when the carrier ties it to the removed typeface selector.
 pub(crate) fn keep_font_size_visible(catalog: &mut json_ui::Catalog) {
-    let Some(control) = catalog
-        .controls_mut()
-        .find(|control| control.owner_ns == "chat_settings" && control.name == "font_size_slider")
-    else {
+    let Some(control) = catalog.lookup_mut("chat_settings", "font_size_slider") else {
         return;
     };
     if let Some(bindings) = control

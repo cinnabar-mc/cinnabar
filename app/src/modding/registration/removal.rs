@@ -2,9 +2,10 @@
 
 use super::{
     Message, after_retirement,
-    selection::{Receipt, SELECTION_CHANGED, same_path},
+    selection::{Receipt, SELECTION_CHANGED},
 };
 use crossbeam_channel::{Receiver, Sender, bounded};
+use launcher_host::mod_library::paths::same_path;
 use std::{
     path::{Path, PathBuf},
     sync::{

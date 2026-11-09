@@ -157,8 +157,7 @@ func TestDisconnectReconcilesUnpolledWorldChange(t *testing.T) {
 
 // TestFailedInstanceAdmissionReleasesResources rolls back terrain and pause ownership after open.
 func TestFailedInstanceAdmissionReleasesResources(t *testing.T) {
-	tempRoot := t.TempDir()
-	t.Setenv("TMPDIR", tempRoot)
+	tempRoot := redirectTempDir(t)
 	lifecycle := &lifecycleProbe{opened: make(map[*world.World]bool)}
 	f := newRuntimeFixture(t, lifecycle)
 	f.h.store.nextWorldGeneration = math.MaxUint64

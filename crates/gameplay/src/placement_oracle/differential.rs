@@ -96,7 +96,7 @@ fn custom_support_inputs() -> Vec<SupportInput> {
     let mut registry = crate::movement::PhysicsCollisionRegistries::from_assets(
         assets::pinned_block_registry_bytes(),
         &records,
-        include_bytes!("../../../assets/data/block-physics-v2193.bin"),
+        include_bytes!("../../../assets/data/block-physics-v2225.bin"),
         assets::active_content_registry_protocol(),
     )
     .unwrap();

@@ -1,4 +1,4 @@
-use bedrock_protocol_1_26_51::types;
+use bedrock_protocol_1_26_60::types;
 
 use super::*;
 
@@ -231,8 +231,8 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
             .accept_cached_packet(crate::Packet::new(cached_level_chunk(x, vec![hash])))
             .expect("index pending transaction by its missing hash");
     }
-    assert_eq!(resolver.pending_by_hash[&shared].len(), 2);
-    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+    assert_eq!(resolver.pending_by_hash[&shared].transactions.len(), 2);
+    assert_eq!(resolver.pending_by_hash[&other].transactions.len(), 1);
 
     resolver
         .accept_miss_response(ClientCacheMissResponse {
@@ -244,7 +244,7 @@ fn arriving_blob_visits_only_transactions_in_its_hash_index_bucket() {
         .expect("resolve only the shared index bucket");
 
     assert!(!resolver.pending_by_hash.contains_key(&shared));
-    assert_eq!(resolver.pending_by_hash[&other].len(), 1);
+    assert_eq!(resolver.pending_by_hash[&other].transactions.len(), 1);
     assert_eq!(resolver.pending.len(), 1);
     assert_eq!(resolver.ready.len(), 2);
 }
@@ -408,7 +408,7 @@ fn retained_cached_subchunk_emits_admission_before_reconstruction() {
                 Some(payload.to_vec()),
                 Some(hash),
             ),
-            sub_chunk_entry(1, 2, 0, SubChunkRequestResult::Successallair, None, None),
+            sub_chunk_entry(1, 2, 0, SubChunkRequestResult::SuccessAllAir, None, None),
         ],
     });
     let mut resolver = BlobCacheResolver::new(ClientBlobCache::default());

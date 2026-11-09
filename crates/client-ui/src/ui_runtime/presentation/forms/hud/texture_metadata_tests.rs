@@ -42,7 +42,7 @@ fn texture_only_reload_remeasures_shared_screens_without_resetting_bindings() {
     let mut set = TextureSet::new(
         0,
         crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-        crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+        ui_engine::sources::ImageWork::inline(),
     );
     let mut screen = CachedScreen::default();
     let (context, view) = (Context::desktop(), ViewState::default());

@@ -1,5 +1,17 @@
 use super::*;
 
+/// Admission prepares bounds after wind joints, playback and cloth replace source vertices.
+#[test]
+fn admitted_cosmetic_geometry_keeps_its_prepared_bone_bounds() {
+    for item in [fixture::bunny(), fixture::dragon_wings(), fixture::cloth()] {
+        let geometry = &rig(item).geometry;
+        assert!(geometry.vertex_fingerprint().is_some());
+        for vertex in geometry.vertices.iter() {
+            assert!(geometry.bone_bounds(vertex.bone_index as usize).is_some());
+        }
+    }
+}
+
 #[test]
 fn cosmetic_preview_vertices_follow_each_biped_attachment_bone() {
     let source = fixture::bunny();
@@ -384,4 +396,39 @@ fn shoulder_parrot_sits_on_the_shoulder_and_coexists_with_head_and_back_slots() 
             .iter()
             .any(|pixel| pixel[3] > 0)
     );
+}
+
+/// Catalog pixel UVs address texels directly, unlike vanilla's add-on meshes, which multiply.
+#[test]
+fn catalog_pixel_uvs_keep_addressing_their_texels() {
+    let geometry = &rig(fixture::crown()).geometry;
+    assert!(!geometry.vertices.is_empty());
+    for vertex in geometry.vertices.iter() {
+        assert!(
+            (vertex.uv[1] - 0.5 / 32.0).abs() < 1.0e-6,
+            "{:?}",
+            vertex.uv
+        );
+        assert!(
+            vertex.uv[0] > 0.0 && vertex.uv[0] < 11.0 / 64.0,
+            "{:?}",
+            vertex.uv
+        );
+    }
+}
+
+/// Catalog triangles keep the outward normals they were authored with.
+#[test]
+fn catalog_triangle_normals_stay_as_authored() {
+    let authored = rig(fixture::dragon_wings()).geometry.vertices.iter();
+    let normals = authored.map(|vertex| vertex.normal).collect::<Vec<_>>();
+    // The wing's first triangle in the shipped fixture, in the rig frame.
+    let expected = [
+        -0.33321555714281875_f64,
+        -0.8885550483368754,
+        -0.31533683348612124,
+    ]
+    .map(|v| v as f32);
+    assert!(normals.contains(&expected));
+    assert!(!normals.contains(&[expected[0], -expected[1], expected[2]]));
 }

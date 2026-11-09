@@ -9,16 +9,18 @@ use ui_screens::test_support::{FixedText, NoTextures};
 
 pub use crate::test_support::{mini_carrier, mini_engine_presentation};
 
-/// A catalog parsed on another thread draws a server form exactly as an inline parse does.
+/// Complete presentation prepared on a worker draws forms exactly as inline preparation does.
 #[test]
 fn a_catalog_prepared_on_another_thread_draws_forms_like_an_inline_parse() {
     let mut player_runtime = player_state::PlayerState::new(1);
-    let prepared = std::thread::spawn(|| super::PreparedJsonUi::new(mini_carrier()))
-        .join()
-        .unwrap()
-        .unwrap();
-    let mut threaded = UiPresentationRuntime::new(fixture_font()).unwrap();
-    threaded.enable_prepared_json_ui(prepared).unwrap();
+    let mut threaded = std::thread::spawn(|| {
+        let prepared = super::PreparedJsonUi::new(mini_carrier()).unwrap();
+        let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
+        presentation.enable_prepared_json_ui(prepared).unwrap();
+        presentation
+    })
+    .join()
+    .unwrap();
     let runtime = super::pack_harness::action_form(&mut player_runtime, "Menu", &["A", "B"]);
     let identity = runtime.server_forms().active().unwrap().identity;
     let hits = |presentation: &mut UiPresentationRuntime| {

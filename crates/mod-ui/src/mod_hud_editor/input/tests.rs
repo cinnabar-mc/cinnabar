@@ -3,16 +3,9 @@
 use super::*;
 use ui::mod_hud::{Anchor, Card};
 
-/// Opens one small card in a known GUI viewport through the public editor entry point.
+/// Opens one small card in a known GUI viewport through the shared backend.
 fn editor(autosave: bool) -> HudEditor {
-    let mut ui = ModUi::default();
-    ui.set_mod_panel(
-        crate::PanelUiOwner::Environment(0),
-        Some(&crate::test_support::sample_panel()),
-    )
-    .unwrap();
-    ui.set_mod_panel_open(true);
-    ui.open_mod_hud_editor(&Hud {
+    let mut editor = HudEditor::new(&Hud {
         autosave,
         cards: vec![Card {
             id: "fixture".into(),
@@ -22,7 +15,7 @@ fn editor(autosave: bool) -> HudEditor {
         ..Default::default()
     })
     .unwrap();
-    let mut editor = ui.mod_hud_editor.take().unwrap();
+    editor.snap = false;
     editor.viewport = [900., 600.];
     editor
 }
@@ -426,7 +419,6 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     editor.drag = Some(Drag {
         index: 0,
         before: Placement::capture(&editor.draft.cards[0]),
-        measurement_pending: false,
         grab: [0.; 2],
         start: [0.; 2],
         last: [0.; 2],
@@ -439,7 +431,7 @@ fn snapping_highlight_and_measurements_update_through_bindings() {
     assert_eq!(
         data.global_value("#bounds_1_color"),
         Some(&Scalar::Json(serde_json::json!(
-            editor.draft.editor_style.unwrap_or_default().guide
+            EditorStyle::default().guide
         )))
     );
     assert_eq!(

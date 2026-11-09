@@ -3,8 +3,6 @@ use client_world::ActorSnapshot;
 
 /// Actor-versus-block bias stays fixed when an actor overrides its pick-box inflation.
 const ACTOR_PICK_RADIUS: f32 = assets::facts::entity::DEFAULT_ACTOR_PICK_RADIUS;
-/// Axes with a smaller squared segment displacement do not supply a clipping plane.
-const PICK_AXIS_EPSILON_SQUARED: f32 = 1e-7;
 /// The nearest pickable actor along the crosshair ray.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ActorHit {
@@ -84,11 +82,8 @@ where
     actors
         .filter(|actor| Some(actor.unique_id) != excluded_unique_id && actor_is_pickable(actor))
         .filter_map(|actor| {
-            let point = hit_boxes(actor).into_iter().find_map(|(min, max)| {
-                let min = min.map(|axis| axis - actor.entity_fact.pick_radius);
-                let max = max.map(|axis| axis + actor.entity_fact.pick_radius);
-                pick_box_point(origin, end, min, max)
-            })?;
+            let (point, _) =
+                pick_box_normalized(hit_boxes(actor), actor.entity_fact.pick_radius, origin, end)?;
             let distance_squared = pick_distance_squared(origin, point);
             Some((
                 ActorHit {
@@ -101,51 +96,6 @@ where
         })
         .min_by(|(_, left), (_, right)| left.total_cmp(right))
         .map(|(hit, _)| hit)
-}
-
-/// Clips a float world-space segment to the inflated box, retaining the closest face.
-/// An origin inside the box is itself the hit point; tied faces retain axis order.
-fn pick_box_point(
-    origin: [f32; 3],
-    end: [f32; 3],
-    min: [f32; 3],
-    max: [f32; 3],
-) -> Option<[f32; 3]> {
-    if !origin
-        .into_iter()
-        .chain(end)
-        .chain(min)
-        .chain(max)
-        .all(f32::is_finite)
-        || (0..3).any(|axis| min[axis] >= max[axis])
-    {
-        return None;
-    }
-    if (0..3).all(|axis| (min[axis]..=max[axis]).contains(&origin[axis])) {
-        return Some(origin);
-    }
-    let delta: [f32; 3] = std::array::from_fn(|axis| end[axis] - origin[axis]);
-    let mut closest: Option<([f32; 3], f32)> = None;
-    for axis in 0..3 {
-        if delta[axis] * delta[axis] < PICK_AXIS_EPSILON_SQUARED {
-            continue;
-        }
-        for plane in [min[axis], max[axis]] {
-            let fraction = (plane - origin[axis]) / delta[axis];
-            if !(0.0..=1.0).contains(&fraction) {
-                continue;
-            }
-            let point = std::array::from_fn(|i| origin[i] + delta[i] * fraction);
-            if (0..3).any(|i| i != axis && !(min[i]..=max[i]).contains(&point[i])) {
-                continue;
-            }
-            let distance = pick_distance_squared(origin, point);
-            if closest.is_none_or(|(_, previous)| distance < previous) {
-                closest = Some((point, distance));
-            }
-        }
-    }
-    closest.map(|(point, _)| point)
 }
 
 /// Measures an unclamped world-space block intercept with actor occlusion rounding.
@@ -162,6 +112,18 @@ pub fn pick_distance(origin: [f32; 3], point: [f32; 3]) -> f32 {
 fn pick_distance_squared(origin: [f32; 3], point: [f32; 3]) -> f32 {
     let [x, y, z] = std::array::from_fn(|axis| point[axis] - origin[axis]);
     z * z + y * y + x * x
+}
+
+/// Trims an ordinary actor intercept against the camera actor's position captured with its frame.
+/// The broader pick range is separate from melee admission along the presented ray.
+pub fn trim_actor_pick(crosshair: Crosshair, position: [f32; 3], pick_range: f64) -> Crosshair {
+    if let Crosshair::Actor(hit) = crosshair
+        && (pick_range as f32) * (pick_range as f32) < pick_distance_squared(position, hit.point)
+    {
+        Crosshair::Miss
+    } else {
+        crosshair
+    }
 }
 
 /// Reads the admitted obstruction disposition independently from picking.
@@ -246,3 +208,45 @@ pub fn classify(
 #[cfg(test)]
 #[path = "target_tests.rs"]
 mod tests;
+
+/// A clipped point together with the inflated bounds that supplied it.
+pub type PickBoxHit = ([f32; 3], ([f32; 3], [f32; 3]));
+
+/// Returns the first intersected inflated box and its point using the ordinary pick arithmetic.
+pub fn pick_box(
+    boxes: impl IntoIterator<Item = ([f32; 3], [f32; 3])>,
+    radius: f32,
+    origin: [f32; 3],
+    direction: [f32; 3],
+    reach: f64,
+) -> Option<PickBoxHit> {
+    let direction = sim::normalize_direction(direction)?;
+    let end = std::array::from_fn(|axis| origin[axis] + direction[axis] * reach as f32);
+    pick_box_normalized(boxes, radius, origin, end)
+}
+
+/// Clips a normalized pick segment against ordered boxes after single-precision inflation.
+fn pick_box_normalized(
+    boxes: impl IntoIterator<Item = ([f32; 3], [f32; 3])>,
+    radius: f32,
+    origin: [f32; 3],
+    end: [f32; 3],
+) -> Option<PickBoxHit> {
+    boxes.into_iter().find_map(|(min, max)| {
+        let min = min.map(|axis| axis - radius);
+        let max = max.map(|axis| axis + radius);
+        let vector = |point: [f32; 3]| {
+            sim::Vec3::new(
+                f64::from(point[0]),
+                f64::from(point[1]),
+                f64::from(point[2]),
+            )
+        };
+        let point = sim::Aabb::new(vector(min), vector(max)).clip_segment_point(
+            vector(origin),
+            vector(end),
+            true,
+        )?;
+        Some(([point.x as f32, point.y as f32, point.z as f32], (min, max)))
+    })
+}

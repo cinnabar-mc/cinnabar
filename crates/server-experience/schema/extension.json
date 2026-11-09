@@ -80,6 +80,13 @@
     },
     {
       "module": "policy",
+      "name": "MAX_MANIFEST_BYTES",
+      "type": "usize",
+      "value": "4 * 1024 * 1024",
+      "go": "MaxManifestBytes"
+    },
+    {
+      "module": "policy",
       "name": "MAX_PAYLOAD_BYTES",
       "type": "usize",
       "value": "16 * 1024",
@@ -130,7 +137,8 @@
       "module": "policy",
       "name": "MAX_ACTIONS",
       "type": "usize",
-      "value": "32"
+      "value": "1024",
+      "go": "MaxActions"
     },
     {
       "module": "policy",

@@ -3,6 +3,7 @@ use assets::EntityControllerAnimationTarget;
 use protocol_ids::ActorFlag;
 
 pub(super) mod controller;
+mod equip;
 pub(super) mod scale;
 pub(super) mod selection;
 use controller::ControllerWalk;
@@ -75,6 +76,8 @@ pub struct ActorTickContext {
     pub main_hand_kinetic: Option<protocol::KineticWeaponTiming>,
     /// The selected item declares the native spear animation tag.
     pub main_hand_is_spear: bool,
+    /// The main-hand item's use animation: its declared component, else its native one.
+    pub main_hand_use_animation: Option<assets::facts::ItemUseAnimationFact>,
     /// Selected melee component swing duration, in seconds.
     pub main_hand_swing_seconds: Option<f32>,
     /// Namespaced identifier of the actor being ridden.
@@ -93,8 +96,10 @@ pub struct ActorTickContext {
     pub is_flying: bool,
     /// The committed level default resolves players that use the default mode.
     pub world_game_mode: Option<protocol::PlayerGameMode>,
-    /// Native HUD rendering uses a UI actor context without a first-person hand camera.
+    /// The actor is drawn inside a menu rather than over the level view.
     pub is_in_ui: bool,
+    /// The actor is drawn by a paper-doll renderer, independently of its screen context.
+    pub is_paperdoll: bool,
     /// `[pitch, yaw]` of the view in degrees, for camera-facing billboards.
     pub camera_rotation: [f32; 2],
     /// World position of the view, for camera-relative queries.
@@ -111,6 +116,9 @@ pub struct ActorTickContext {
     pub properties: Option<Arc<[PropertyDefinition]>>,
     /// Item-render query units and contexts differ from ordinary actor queries.
     pub attachable: Option<super::attachable::AttachableQueryContext>,
+    /// The session's wire runtime id for air, which an empty-handed enderman syncs as its
+    /// carried block.
+    pub air_block_network_id: Option<u32>,
 }
 
 /// One worn armor stack as the armor queries read it.
@@ -124,13 +132,8 @@ pub struct WornArmor {
 // Fraction of full swim posture gained or lost per tick; needs independent measurement.
 const SWIM_AMOUNT_STEP: f32 = 0.2;
 
-// Vanilla held-item tick: ±0.4 clamp and cached
-// stack replacement at height <= 0.1.
-const ARM_HEIGHT_STEP: f32 = 0.4;
-const ARM_SWAP_HEIGHT: f32 = 0.1;
-
 // Vanilla applies this modified-speed query multiplier to babies.
-const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
+pub(super) const BABY_MOVE_SPEED_SCALE: f32 = 1.5;
 
 // Gliding divides limb swing by the cubed squared speed over this; needs independent
 // measurement.
@@ -154,6 +157,11 @@ pub(super) fn advance_motion(
         .map_or(actor.position(), |input| input.position);
     let position_delta =
         std::array::from_fn(|axis| actor.position()[axis] - previous_position[axis]);
+    state
+        .java
+        .local_body
+        .observe_walk(context.is_riding, actor.is_on_fire());
+    let actor_walk = !state.java.local_body.active();
     let motion = &mut state.motion;
     if context.bedrock_swing_ticks > 0 {
         motion.set_swing_duration(context.bedrock_swing_ticks);
@@ -165,6 +173,7 @@ pub(super) fn advance_motion(
         yaw: actor.yaw(),
         head_yaw: actor.head_yaw(),
         on_fire: actor.is_on_fire(),
+        actor_walk,
     });
     if is_native_fish(actor) {
         motion.advance_fish(actor.native_velocity());
@@ -217,7 +226,7 @@ pub(super) fn advance_motion(
     // The arm lowers while the held item differs from the equipped one, swaps it low, then rises.
     let [main_variant, off_variant] = context.held_variants;
     let arm_height = match state.history.back() {
-        Some(previous) => advance_equip_height(
+        Some(previous) => equip::advance_height(
             &mut state.equipped_main,
             (&context.main_hand, main_variant),
             previous.arm_height,
@@ -228,7 +237,7 @@ pub(super) fn advance_motion(
         }
     };
     state.off_hand_animation[0] = state.off_hand_animation[1];
-    let off_hand_arm_height = advance_equip_height(
+    let off_hand_arm_height = equip::advance_height(
         &mut state.equipped_off,
         (&context.off_hand, off_variant),
         state.off_hand_animation[0].arm_height,
@@ -366,23 +375,6 @@ pub(super) fn local_use_counter(
             0
         }
     })
-}
-
-/// Identifier changes request the native lowering transition. Item-specific stack
-/// equivalence/instant-update predicates need stack data beyond the current actor feed.
-fn advance_equip_height(
-    equipped: &mut (Option<Arc<str>>, StackVariant),
-    (requested, variant): (&Option<Arc<str>>, StackVariant),
-    previous_height: f32,
-) -> f32 {
-    let swapping = equipped.0 != *requested || (requested.is_some() && equipped.1 != variant);
-    let target = if swapping { 0.0 } else { 1.0 };
-    let height =
-        previous_height + (target - previous_height).clamp(-ARM_HEIGHT_STEP, ARM_HEIGHT_STEP);
-    if swapping && height <= ARM_SWAP_HEIGHT {
-        *equipped = (requested.clone(), variant);
-    }
-    height
 }
 
 impl ActorRigState {
@@ -697,8 +689,11 @@ pub(super) fn evaluate_state(
     let local = pose::sample_clips_reused(
         &evaluator,
         &mut variables,
-        &state.bones,
-        pose::ChannelBones::bound(&state.bone_names, &state.channel_bindings),
+        state.animated_skeleton().0,
+        {
+            let (_, names, channels) = state.animated_skeleton();
+            pose::ChannelBones::bound(names, channels)
+        },
         &weighted_clips,
         budget,
     )?
@@ -710,9 +705,12 @@ pub(super) fn evaluate_state(
     state
         .compose_into(&local, &mut pose)
         .ok_or(EvalError::Invalid)?;
+    let head_angles = state
+        .head_rotation
+        .and_then(|_| super::head_rotation::angles(&state.bones, &state.bone_names, &local));
     // Initial publication needs a complete selection; later ticks can retain completed layers.
     let mut motion_layers = BTreeMap::new();
-    let render = super::render::evaluate_render(
+    let render = super::render::evaluate_posed_render(
         &evaluator,
         &mut variables,
         super::render::RenderRig {
@@ -725,31 +723,21 @@ pub(super) fn evaluate_state(
             bone_names: state.posed_bone_names(),
             skeletons: &state.layer_skeletons,
         },
+        &weighted_clips,
+        samples_motion.then_some(&mut motion_layers),
+        !state.initialized,
         budget,
-    )
-    .and_then(|layers| {
-        let Some(mut layers) = layers else {
-            return Ok(None);
-        };
-        let posed = super::render::pose_layers(
-            &evaluator,
-            &mut variables,
-            &state.layer_skeletons,
-            &weighted_clips,
-            &mut layers,
-            samples_motion.then_some(&mut motion_layers),
-            budget,
-        );
-        if !state.initialized {
-            posed?;
-        }
-        Ok(Some(layers))
-    });
+    );
     let render = match render {
         Ok(layers) => layers,
         Err(error) if !state.initialized => return Err(error),
-        Err(_) => None,
+        Err(_) => super::render::RenderEvaluation {
+            layers: None,
+            visibility: state.visibility,
+        },
     };
+    let visibility = render.visibility;
+    let render = render.layers;
     let skin_layers = super::skin_layers::evaluate(
         state,
         &evaluator,
@@ -764,7 +752,8 @@ pub(super) fn evaluate_state(
             current: local,
             mask: state.motion_sampling.as_ref().unwrap().mask(
                 assets,
-                &state.bone_names,
+                state.animated_skeleton().1,
+                Some(state.animated_skeleton().2),
                 weighted_clips.iter().copied(),
                 None,
             ),
@@ -781,6 +770,7 @@ pub(super) fn evaluate_state(
                         mask: state.motion_sampling.as_ref().unwrap().mask(
                             assets,
                             &state.layer_skeletons[&geometry].as_ref().unwrap().names,
+                            None,
                             weighted_clips.iter().copied(),
                             Some(geometry),
                         ),
@@ -791,8 +781,10 @@ pub(super) fn evaluate_state(
     }
     Ok(EvaluatedState {
         pose,
+        head_angles,
         skin_layers,
         render,
+        visibility,
         scale,
         held_item_scale,
         controllers,
@@ -836,6 +828,11 @@ pub(super) fn apply_engine_variables(
         truth(!query::wearing_elytra(context)),
     );
     variables.set(engine.is_blocking, flag(ActorFlag::Blocking.wire_value()));
+    let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
+    variables.set(engine.is_brandishing_spear, truth(brandishing));
+    variables.set(engine.charge_amount, charge);
+    let brushing = super::brush::using_brush(actor, context, input);
+    variables.set(engine.is_using_brush, truth(brushing));
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),
@@ -854,6 +851,8 @@ pub(super) fn apply_engine_variables(
     variables.set(engine.right_arm_swim_amount, input.swim_amount);
     variables.set(engine.has_target, truth(query::has_target(actor)));
     variables.set(engine.is_first_person, truth(context.is_local_first_person));
+    variables.set(engine.is_paperdoll, truth(context.is_paperdoll));
+    variables.set(engine.context_paperdoll, truth(context.is_paperdoll));
     variables.set(
         engine.player_x_rotation,
         if context.is_in_ui { 0.0 } else { input.pitch },

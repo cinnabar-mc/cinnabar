@@ -1,6 +1,8 @@
 use super::super::*;
+use super::overlays::OverlayHosts;
 
 pub(in crate::stream) struct MeshSnapshot {
+    pub(in crate::stream) surface_rules: Arc<[::meshing::surface::SurfaceRule]>,
     pub(in crate::stream) rendering: ::meshing::MeshRenderSettings,
     pub(in crate::stream) center: Arc<SubChunk>,
     pub(in crate::stream) biomes: BiomeNeighbourhood,
@@ -11,6 +13,8 @@ pub(in crate::stream) struct MeshSnapshot {
     /// Java meshing for shader packs ([`WorldStream::set_java_meshing`]): every leaf cutout,
     /// and no water faces toward these sorted water-filled network values.
     pub(in crate::stream) java_meshing: Option<Arc<[u32]>>,
+    /// The sub-chunk's overlay hosts, whose block-state overlays the mesh draws.
+    pub(in crate::stream) overlays: OverlayHosts,
 }
 
 pub(in crate::stream) type BiomeNeighbourhood =
@@ -98,8 +102,10 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
         biome: &PackedBiomeRecord,
+        scratch: &mut ::meshing::MeshScratch,
     ) -> ChunkMesh {
-        ::meshing::mesh_sub_chunk_in_neighbourhood_with_options(
+        let overlays = self.overlays.resolve(&self.center);
+        ::meshing::mesh_sub_chunk_in_neighbourhood_with_scratch(
             &classifier,
             runtime_assets,
             network_id_mode,
@@ -110,7 +116,10 @@ impl MeshSnapshot {
                 split_tinted_faces: biome.uniform_tint_index().is_none(),
                 cutout_leaves: self.java_meshing.is_some(),
                 water_filled: self.java_meshing.as_deref().unwrap_or_default(),
+                overlays: &overlays,
+                surface_rules: &self.surface_rules,
             },
+            scratch,
         )
     }
 
@@ -120,7 +129,10 @@ impl MeshSnapshot {
         runtime_assets: &RuntimeAssets,
         network_id_mode: NetworkIdMode,
     ) -> MeshDependencyMask {
-        mesh_dependency_mask(&classifier, runtime_assets, network_id_mode, &self.center)
+        let mut mask =
+            mesh_dependency_mask(&classifier, runtime_assets, network_id_mode, &self.center);
+        mask.diagonal_ao |= !self.surface_rules.is_empty();
+        mask
     }
 }
 

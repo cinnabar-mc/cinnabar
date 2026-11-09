@@ -5,12 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 publish = false
 
+[package.metadata.cinnabar]
+reads = ["tools/localserver/experience/testdata/go/cell_overlays.nbt"]
+
 [features]
 # Select Criterion lighting measurements instead of the allocation-counting CSV diagnostic.
 runtime-profile = []
 benchmark-mimalloc = ["runtime-profile"]
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 sha2.workspace = true
 hashbrown = "0.16"
 thiserror.workspace = true

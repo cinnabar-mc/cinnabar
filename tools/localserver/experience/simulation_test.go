@@ -3,7 +3,9 @@ package experience
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/df-mc/dragonfly/server/player"
 	"github.com/df-mc/dragonfly/server/world"
@@ -18,11 +20,18 @@ func simulationFixture(t *testing.T) *runtimeFixture {
 	return f
 }
 
-// simulationEvent finds this instance's next tick while retaining FIFO order within it.
+// simulationEvent finds this instance's next event while retaining FIFO order within it. A tick it
+// takes, or skips for another instance, takes its latest step and finishes as the worker's would.
 func simulationEvent(t *testing.T, f *runtimeFixture, id string) event {
 	t.Helper()
 	for len(f.d.events) != 0 {
 		ev := <-f.d.events
+		if ev.call.Tick != nil {
+			if !f.h.claimTick(f.d.id, &ev) {
+				t.Fatal("a queued tick lost its opening")
+			}
+			f.h.finishTick(f.d.id, ev.instance.handle)
+		}
 		if string(ev.instance.handle.ID) == id {
 			return ev
 		}
@@ -149,6 +158,74 @@ func TestSimulationOverflowIsNonblockingAndCounted(t *testing.T) {
 	}
 	if n := dropCountOf(&f.d.dropped); n == 0 {
 		t.Fatal("overflow was not counted")
+	}
+}
+
+// TestSimulationPendingTickTakesTheLatestStep keeps one tick per opening queued while it waits,
+// counts the steps it skipped and delivers the newest one.
+func TestSimulationPendingTickTakesTheLatestStep(t *testing.T) {
+	f := simulationFixture(t)
+	for range 3 {
+		f.h.AdmitSimulationTick()
+	}
+	f.h.worlds.mu.RLock()
+	openings := len(f.h.worlds.byWorld)
+	f.h.worlds.mu.RUnlock()
+	if n := len(f.d.events); n != openings {
+		t.Fatalf("queued %d ticks for %d openings", n, openings)
+	}
+	if n := dropCountOf(&f.d.dropped); n != uint64(2*openings) {
+		t.Fatalf("counted %d skipped ticks, want %d", n, 2*openings)
+	}
+	if ev := simulationEvent(t, f, "probe:one"); ev.call.Tick.Step.Tick != 3 {
+		t.Fatalf("pending tick delivered step %d, want the latest", ev.call.Tick.Step.Tick)
+	}
+	f.h.AdmitSimulationTick()
+	if ev := simulationEvent(t, f, "probe:one"); ev.call.Tick == nil || ev.call.Tick.Step.Tick != 4 {
+		t.Fatal("a finished tick did not let the next step queue")
+	}
+}
+
+// TestSimulationTicksCoalesceBehindASlowCallback floods ticks while a callback is slow: they must
+// not fill the queue that the player's lifecycle events share, so the leave queues and is delivered.
+func TestSimulationTicksCoalesceBehindASlowCallback(t *testing.T) {
+	f := newRuntimeFixture(t)
+	sup, _ := startFake(t, "leave_write", f.h.log, startOptions{})
+	sup.registered.Worlds = f.d.sup.registered.Worlds
+	sup.registered.Simulation = true
+	f.d.sup = sup
+	<-f.d.events
+	entered, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	free := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(free)
+	var slow sync.Once
+	f.h.afterCall = func() { slow.Do(func() { close(entered); <-release }) }
+	go func() { defer close(done); f.h.Run(context.Background()) }()
+	f.h.AdmitSimulationTick()
+	<-entered
+	for range eventQueueCap {
+		f.h.AdmitSimulationTick()
+	}
+	f.do(f.source, func(tx *world.Tx) {
+		e, _ := f.actor.Entity(tx)
+		f.h.PlayerDisconnected(e.(*player.Player))
+	})
+	if f.d.sup.Quarantined() {
+		t.Fatal("ticks crowded out the player's leave and suspended the Experience")
+	}
+	if dropCountOf(&f.d.dropped) == 0 {
+		t.Fatal("skipped ticks were not counted")
+	}
+	free()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := f.h.Drain(ctx); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	state := f.h.store.readStates("probe", []stateAddress{{Scope: StorePlayer, Owner: f.actor.UUID().String()}})[0]
+	if state.Data == nil || *state.Data != "01" {
+		t.Fatalf("the player's leave was not delivered: %+v", state)
 	}
 }
 

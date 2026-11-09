@@ -1,10 +1,10 @@
-use std::{collections::BTreeMap, sync::OnceLock};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, OnceLock, Weak},
+};
 
-use hashbrown::HashMap;
+use hashbrown::{HashMap, HashSet};
 use world::{ChunkKey, SubChunkKey};
-
-/// Membership changes a set keeps for replay; a reader further behind reconciles in full.
-pub(super) const MEMBERSHIP_JOURNAL_CAPACITY: usize = 8192;
 
 /// Stores each key once, grouped by column with sections in ascending height, so
 /// membership and single-column queries cost one hash lookup plus a short column scan.
@@ -20,51 +20,21 @@ pub(super) struct ColumnSubChunkSet {
     membership_revision: u64,
     len: usize,
     hash: OnceLock<u64>,
-    journal: MembershipJournal,
+    changes: ColumnChanges,
 }
 
-/// The most recent keys whose membership changed, in a ring of bounded size.
-#[derive(Clone, Debug, Default)]
-struct MembershipJournal {
-    keys: Vec<SubChunkKey>,
-    /// Keys ever recorded; the key at position `p` lives in slot `(p - floor) % capacity`.
-    written: u64,
-    /// No replay starts before this position, as when every key was retired at once.
-    floor: u64,
+/// Coalesces unread column changes only while a publication consumer owns the cursor.
+#[derive(Debug, Default)]
+struct ColumnChanges {
+    owner: Weak<()>,
+    columns: HashSet<ChunkKey>,
+    reset: bool,
 }
 
-impl MembershipJournal {
-    fn slot(&self, position: u64) -> usize {
-        ((position - self.floor) % MEMBERSHIP_JOURNAL_CAPACITY as u64) as usize
-    }
-
-    fn record(&mut self, key: SubChunkKey) {
-        let slot = self.slot(self.written);
-        if slot == self.keys.len() {
-            self.keys.push(key);
-        } else {
-            self.keys[slot] = key;
-        }
-        self.written += 1;
-    }
-
-    /// Keys recorded since `position`, or `None` once any of them has been overwritten.
-    fn since(&self, position: u64) -> Option<impl Iterator<Item = &SubChunkKey>> {
-        let pending = self.written.checked_sub(position)?;
-        if position < self.floor || pending > MEMBERSHIP_JOURNAL_CAPACITY as u64 {
-            return None;
-        }
-        Some((position..self.written).map(|position| &self.keys[self.slot(position)]))
-    }
-
-    /// Continues the clock for a set that lost every key without recording them.
-    fn restart_after(&self) -> Self {
-        let written = self.written + 1;
-        Self {
-            keys: Vec::new(),
-            written,
-            floor: written,
-        }
+impl Clone for ColumnChanges {
+    /// A copied index must bootstrap its own consumer rather than copy pending delivery.
+    fn clone(&self) -> Self {
+        Self::default()
     }
 }
 
@@ -98,9 +68,7 @@ impl ColumnSubChunkSet {
         };
         column.insert(at, key);
         self.len += 1;
-        self.membership_revision += 1;
-        self.journal.record(key);
-        self.hash.take();
+        self.membership_changed(key.chunk());
         true
     }
 
@@ -119,9 +87,7 @@ impl ColumnSubChunkSet {
             self.ordered_columns.remove(&chunk);
         }
         self.len -= 1;
-        self.membership_revision += 1;
-        self.journal.record(*key);
-        self.hash.take();
+        self.membership_changed(chunk);
         true
     }
 
@@ -138,29 +104,42 @@ impl ColumnSubChunkSet {
         if self.columns.get(&column).map_or(&[][..], Vec::as_slice) == replacement {
             return;
         }
-        self.membership_revision += 1;
-        for &key in &replacement {
-            self.journal.record(key);
-        }
         let added = replacement.len();
-        let previous = if replacement.is_empty() {
+        let removed = if replacement.is_empty() {
             self.ordered_columns.remove(&column);
-            self.columns.remove(&column)
+            self.columns.remove(&column).map_or(0, |old| old.len())
         } else {
             if !self.ordered_columns.contains_key(&column) {
                 self.column_generation += 1;
                 self.ordered_columns.insert(column, self.column_generation);
             }
-            self.columns.insert(column, replacement)
+            self.columns
+                .insert(column, replacement)
+                .map_or(0, |old| old.len())
         };
-        let removed = previous.map_or(0, |previous| {
-            for &key in &previous {
-                self.journal.record(key);
-            }
-            previous.len()
-        });
         self.len = self.len - removed + added;
+        self.membership_changed(column);
+    }
+
+    /// Advances membership witnesses and coalesces delivery for the current live consumer.
+    fn membership_changed(&mut self, column: ChunkKey) {
+        self.membership_revision += 1;
         self.hash.take();
+        if self.changes.owner.strong_count() == 0 {
+            self.changes = ColumnChanges::default();
+        } else if !self.changes.reset {
+            self.changes.columns.insert(column);
+        }
+    }
+
+    /// Drains this consumer's changed columns; a new owner or bulk reset needs a full snapshot.
+    pub(super) fn take_changed_columns(&mut self, owner: &Arc<()>) -> Option<HashSet<ChunkKey>> {
+        let owner = Arc::downgrade(owner);
+        let reset = self.changes.reset || !Weak::ptr_eq(&self.changes.owner, &owner);
+        self.changes.owner = owner;
+        self.changes.reset = false;
+        let columns = std::mem::take(&mut self.changes.columns);
+        (!reset).then_some(columns)
     }
 
     /// Visits all keys in column order; callers needing public key order must sort.
@@ -205,20 +184,6 @@ impl ColumnSubChunkSet {
         self.membership_revision
     }
 
-    /// The journal position [`Self::changed_since`] replays from.
-    pub(super) fn journal_position(&self) -> u64 {
-        self.journal.written
-    }
-
-    /// Keys whose membership may have changed since `position`, with repeats; `None` once the
-    /// bounded journal no longer reaches back that far.
-    pub(super) fn changed_since(
-        &self,
-        position: u64,
-    ) -> Option<impl Iterator<Item = &SubChunkKey>> {
-        self.journal.since(position)
-    }
-
     /// Reports whether the current column existed at a captured membership generation.
     pub(super) fn existed_at(&self, column: ChunkKey, generation: u64) -> bool {
         self.ordered_columns
@@ -228,10 +193,14 @@ impl ColumnSubChunkSet {
 
     /// Detaches storage while preserving the clock used by active membership checkpoints.
     pub(super) fn retire(&mut self) -> Self {
-        let retired = std::mem::take(self);
+        let mut retired = std::mem::take(self);
         self.column_generation = retired.column_generation;
         self.membership_revision = retired.membership_revision + u64::from(retired.len != 0);
-        self.journal = retired.journal.restart_after();
+        self.changes = std::mem::take(&mut retired.changes);
+        if retired.len != 0 {
+            self.changes.columns.clear();
+            self.changes.reset = true;
+        }
         retired
     }
 
@@ -258,14 +227,7 @@ impl ColumnSubChunkSet {
     /// Resets fixture residency without changing other stream state.
     #[cfg(test)]
     pub(super) fn clear(&mut self) {
-        if self.len != 0 {
-            self.columns.clear();
-            self.ordered_columns.clear();
-            self.len = 0;
-            self.membership_revision += 1;
-            self.journal = self.journal.restart_after();
-            self.hash.take();
-        }
+        self.retire();
     }
 }
 
@@ -295,3 +257,6 @@ fn visited_key(key: &SubChunkKey) -> &SubChunkKey {
 pub(super) fn take_visited_keys() -> usize {
     VISITED_KEYS.replace(0)
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,8 +1,9 @@
-//! The server's request to open a sign editor, held until the presentation takes it.
+//! The server's requests to open a sign or command block editor, held until the presentation
+//! takes them.
 
-use protocol::OpenSignEvent;
+use protocol::{OpenCommandBlockEvent, OpenSignEvent};
 
-use super::WorldAuthority;
+use super::{CommittedUiEvent, WorldAuthority};
 
 /// One sign face the server asked the player to edit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -27,6 +28,17 @@ impl WorldAuthority {
     /// Takes the pending sign-edit request, if any.
     pub fn take_pending_sign_edit(&mut self) -> Option<SignEditRequest> {
         self.pending_sign_edit.take()
+    }
+
+    /// Queues a current-dimension command block request at its ordered place among the UI events,
+    /// so a form the server sends after it finds the editor already asked for.
+    pub fn consume_open_command_block(&mut self, event: OpenCommandBlockEvent) {
+        if event.dimension == self.current_dimension {
+            self.push_committed_ui(CommittedUiEvent::OpenCommandBlock {
+                dimension_epoch: self.form_dimension_epoch,
+                position: event.position,
+            });
+        }
     }
 }
 
@@ -84,5 +96,47 @@ mod tests {
             })
         );
         assert_eq!(authority.take_pending_sign_edit(), None);
+    }
+
+    /// A request carries its dimension's epoch, and one for another dimension is dropped.
+    #[test]
+    fn a_command_block_request_is_queued_for_the_current_dimension_only() {
+        let assets = Arc::new(RuntimeAssets::diagnostic());
+        let mut authority = WorldAuthority::new(
+            WorldBootstrap {
+                local_player_unique_id: 1,
+                dimension: 0,
+                local_player_runtime_id: 1,
+                player_position: [0.0; 3],
+                world_spawn_position: [0; 3],
+                air_network_id: 0,
+                block_network_ids_are_hashes: false,
+            },
+            assets,
+            None,
+            [0.0; 3],
+            None,
+        );
+        authority.take_committed_ui();
+        authority.consume_open_command_block(OpenCommandBlockEvent {
+            dimension: 1,
+            position: [7, 8, 9],
+        });
+        assert!(authority.take_committed_ui().is_empty());
+        authority.consume_open_command_block(OpenCommandBlockEvent {
+            dimension: 0,
+            position: [1, 2, 3],
+        });
+        let queued = authority.take_committed_ui();
+        assert!(
+            matches!(
+                queued.as_slice(),
+                [CommittedUiEvent::OpenCommandBlock {
+                    position: [1, 2, 3],
+                    ..
+                }]
+            ),
+            "{queued:?}"
+        );
     }
 }

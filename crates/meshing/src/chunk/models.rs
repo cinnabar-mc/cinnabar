@@ -11,6 +11,7 @@ use world::MeshNeighbourhood;
 
 use super::opaque::face_offset;
 mod bubble_column;
+mod chorus;
 mod door;
 mod fire;
 use crate::{
@@ -27,8 +28,88 @@ pub(crate) fn is_kelp_entry(visuals: &RuntimeAssets, entry: ResolvedPaletteEntry
             .is_some_and(|template| template.flags & MODEL_TEMPLATE_FLAG_KELP != 0)
 }
 
+/// A vine template's stem planes, which come before its tip planes.
+const VINE_STEM_QUADS: u32 = 0b0011;
+/// A vine template's tip planes.
+pub(crate) const VINE_TIP_QUADS: u32 = 0b1100;
+
+/// Chooses a vine template's stem planes where the same vine continues in its growth
+/// direction and its tip planes where it ends; `None` for every other template.
+pub(crate) fn vine_quad_mask<'a>(
+    context: PaletteResolutionContext<'_, 'a>,
+    facts: &PaletteFacts<'a>,
+    neighbour_facts: &[OnceCell<PaletteFacts<'a>>; Face::ALL.len()],
+    coordinate: [usize; 3],
+    flags: u32,
+) -> Option<u32> {
+    let (vine, growth) = if flags & assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_WEEPING_VINE, Face::NegativeY)
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE != 0 {
+        (assets::MODEL_TEMPLATE_FLAG_TWISTING_VINE, Face::PositiveY)
+    } else {
+        return None;
+    };
+    let next = adjacent_palette_entry(context, facts, neighbour_facts, coordinate, growth);
+    let continues = next.kind == VisualKind::Cross
+        && context
+            .visuals
+            .model_templates()
+            .get(next.model_template as usize)
+            .is_some_and(|template| template.flags & vine != 0);
+    Some(if continues {
+        VINE_STEM_QUADS
+    } else {
+        VINE_TIP_QUADS
+    })
+}
+
 pub(crate) const MAX_SELECTED_MODEL_TEMPLATES: usize = 2;
 
+/// The policy that can choose a block's world-model template from its neighbours.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ModelTemplateSelection {
+    Fixed,
+    Door,
+    BubbleColumn,
+    Fire,
+    Portal,
+    Scaffolding,
+    ChorusPlant,
+    Pane,
+    Fence(u32),
+    Stair,
+}
+
+/// Classifies actual template selection; other flags only affect an existing template's output.
+pub(crate) fn model_template_selection(kind: VisualKind, flags: u32) -> ModelTemplateSelection {
+    if kind != VisualKind::Model {
+        ModelTemplateSelection::Fixed
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_DOOR != 0 {
+        ModelTemplateSelection::Door
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN != 0 {
+        ModelTemplateSelection::BubbleColumn
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
+        ModelTemplateSelection::Fire
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
+        ModelTemplateSelection::Portal
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_SCAFFOLDING != 0 {
+        ModelTemplateSelection::Scaffolding
+    } else if flags & assets::MODEL_TEMPLATE_FLAG_CHORUS_PLANT != 0 {
+        ModelTemplateSelection::ChorusPlant
+    } else if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
+        ModelTemplateSelection::Pane
+    } else if flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER) != 0 {
+        ModelTemplateSelection::Fence(
+            flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER),
+        )
+    } else if flags & MODEL_TEMPLATE_FLAG_STAIR != 0 {
+        ModelTemplateSelection::Stair
+    } else {
+        ModelTemplateSelection::Fixed
+    }
+}
+
+/// Selects templates through the same policy used to reserve their possible packed output.
 pub(crate) fn select_model_templates<'a>(
     context: PaletteResolutionContext<'_, 'a>,
     facts: &PaletteFacts<'a>,
@@ -37,75 +118,76 @@ pub(crate) fn select_model_templates<'a>(
     entry: ResolvedPaletteEntry,
 ) -> ([u32; MAX_SELECTED_MODEL_TEMPLATES], u8) {
     let flags = model_template_flags(context.visuals, entry);
-    if flags & assets::MODEL_TEMPLATE_FLAG_DOOR != 0 {
-        return door::select_template(context, facts, neighbour_facts, coordinate, entry).map_or(
-            ([NO_MODEL_TEMPLATE; MAX_SELECTED_MODEL_TEMPLATES], 0),
-            |template| ([template, NO_MODEL_TEMPLATE], 1),
-        );
-    }
-    if flags & assets::MODEL_TEMPLATE_FLAG_BUBBLE_COLUMN != 0 {
-        return (
-            [
-                bubble_column::select_template(context, coordinate, entry),
-                NO_MODEL_TEMPLATE,
-            ],
-            1,
-        );
-    }
-    if flags & assets::MODEL_TEMPLATE_FLAG_FIRE != 0 {
-        return (
-            [
-                fire::select_template(context, facts, neighbour_facts, coordinate, entry),
-                NO_MODEL_TEMPLATE,
-            ],
-            1,
-        );
-    }
-    if flags & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL != 0 {
-        let legacy_axis_x = entry.variant & assets::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN != 0
-            && [Face::NegativeX, Face::PositiveX].into_iter().any(|face| {
-                let neighbour =
-                    adjacent_palette_entry(context, facts, neighbour_facts, coordinate, face);
-                model_template_flags(context.visuals, neighbour)
-                    & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
-                    != 0
-            });
-        return (
-            [
-                entry.model_template + u32::from(legacy_axis_x),
-                NO_MODEL_TEMPLATE,
-            ],
-            1,
-        );
-    }
-    if flags & MODEL_TEMPLATE_FLAG_PANE != 0 {
-        let mask = connected_model_mask(
-            context,
-            facts,
-            neighbour_facts,
-            coordinate,
-            MODEL_TEMPLATE_FLAG_PANE,
-        );
-        return ([entry.model_template + mask, NO_MODEL_TEMPLATE], 1);
-    }
-    let fence_flag = flags & (MODEL_TEMPLATE_FLAG_FENCE_WOOD | MODEL_TEMPLATE_FLAG_FENCE_NETHER);
-    if fence_flag != 0 {
-        let mask = connected_model_mask(context, facts, neighbour_facts, coordinate, fence_flag);
-        if mask != 0 {
-            return (
-                [entry.model_template, entry.model_template + 1 + mask],
-                MAX_SELECTED_MODEL_TEMPLATES as u8,
+    let selected = match model_template_selection(entry.kind, flags) {
+        ModelTemplateSelection::Fixed => entry.model_template,
+        ModelTemplateSelection::Scaffolding => {
+            let below = adjacent_palette_entry(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                Face::NegativeY,
             );
+            // A supported block starts after the foot ring at the head of the chain.
+            let supported = assets::scaffolding_is_supported(
+                below.flags,
+                model_template_flags(context.visuals, below),
+            );
+            entry.model_template + u32::from(supported)
         }
-        return ([entry.model_template, NO_MODEL_TEMPLATE], 1);
-    }
-    (
-        [
-            select_stair_template(context, facts, neighbour_facts, coordinate, entry),
-            NO_MODEL_TEMPLATE,
-        ],
-        1,
-    )
+        ModelTemplateSelection::Door => {
+            return door::select_template(context, facts, neighbour_facts, coordinate, entry)
+                .map_or(
+                    ([NO_MODEL_TEMPLATE; MAX_SELECTED_MODEL_TEMPLATES], 0),
+                    |template| ([template, NO_MODEL_TEMPLATE], 1),
+                );
+        }
+        ModelTemplateSelection::BubbleColumn => {
+            bubble_column::select_template(context, coordinate, entry)
+        }
+        ModelTemplateSelection::Fire => {
+            fire::select_template(context, facts, neighbour_facts, coordinate, entry)
+        }
+        ModelTemplateSelection::Portal => {
+            let legacy_axis_x = entry.variant & assets::BLOCK_VISUAL_VARIANT_PORTAL_UNKNOWN != 0
+                && [Face::NegativeX, Face::PositiveX].into_iter().any(|face| {
+                    let neighbour =
+                        adjacent_palette_entry(context, facts, neighbour_facts, coordinate, face);
+                    model_template_flags(context.visuals, neighbour)
+                        & assets::MODEL_TEMPLATE_FLAG_NETHER_PORTAL
+                        != 0
+                });
+            entry.model_template + u32::from(legacy_axis_x)
+        }
+        ModelTemplateSelection::ChorusPlant => {
+            chorus::select_template(context, facts, neighbour_facts, coordinate, entry)
+        }
+        ModelTemplateSelection::Pane => {
+            let mask = connected_model_mask(
+                context,
+                facts,
+                neighbour_facts,
+                coordinate,
+                MODEL_TEMPLATE_FLAG_PANE,
+            );
+            entry.model_template + mask
+        }
+        ModelTemplateSelection::Fence(fence_flag) => {
+            let mask =
+                connected_model_mask(context, facts, neighbour_facts, coordinate, fence_flag);
+            if mask != 0 {
+                return (
+                    [entry.model_template, entry.model_template + 1 + mask],
+                    MAX_SELECTED_MODEL_TEMPLATES as u8,
+                );
+            }
+            entry.model_template
+        }
+        ModelTemplateSelection::Stair => {
+            select_stair_template(context, facts, neighbour_facts, coordinate, entry)
+        }
+    };
+    ([selected, NO_MODEL_TEMPLATE], 1)
 }
 
 fn connected_model_mask<'a>(

@@ -10,9 +10,11 @@ platform-specific = ["windows"]
 reads = [
     "crates/experience-sdk/wit/server",
     "tools/localserver/experience/testdata/protocol",
+    "tools/localserver/experience/testdata/entity_collision_cases.json",
 ]
 
 [dependencies]
+block-transform = { path = "../block-transform" }
 experience-sdk = { path = "../experience-sdk", default-features = false }
 anyhow.workspace = true
 serde = { version = "1", features = ["derive"] }

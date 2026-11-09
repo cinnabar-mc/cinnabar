@@ -312,6 +312,16 @@ fn production_client_systems_are_members_of_the_behavioral_sets() {
             "a predicted break or placement must sound in its own frame"
         );
     }
+    let attack_cues = system_node(graph, crate::audio::drive_attack_cues, "drive_attack_cues");
+    for producer in [
+        system_node(graph, produce_attacks, "produce_attacks"),
+        system_node(graph, produce_item_use, "produce_item_use"),
+    ] {
+        assert!(
+            schedule_precedes(graph, producer, attack_cues),
+            "an attack sound must play in the frame its attack is sent"
+        );
+    }
     assert_system_in_stage(
         graph,
         emit_movement_evidence,
@@ -620,7 +630,11 @@ fn production_pipeline_presents_exact_6951_manifest_with_known_air_within_sixtee
     };
 
     const COHORT_ITEMS: usize = 6_951;
-    let config = PublicationServiceConfig::DEFAULT;
+    // This fixture checks work per frame; elapsed-time admission has separate deterministic tests.
+    let config = PublicationServiceConfig {
+        maximum_frame_preparation_time: Duration::MAX,
+        ..PublicationServiceConfig::DEFAULT
+    };
     let runtime_assets = Arc::new(assets::RuntimeAssets::diagnostic());
     let stream = chunk_pipeline::WorldStream::new_with_assets(
         WorldBootstrap {

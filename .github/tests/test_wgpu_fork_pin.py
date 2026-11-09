@@ -42,5 +42,18 @@ class WgpuForkPinTests(unittest.TestCase):
         self.assertTrue(branch.startswith("cinnabar-v"))
 
 
+class WindowsBindingTests(unittest.TestCase):
+    def test_dx12_allocator_and_hal_share_the_windows_binding_types(self):
+        root = Path(__file__).resolve().parents[2]
+        packages = tomllib.loads((root / "Cargo.lock").read_text())["package"]
+        bindings = {
+            package["name"]: {dependency for dependency in package["dependencies"] if dependency.startswith("windows ")}
+            for package in packages if package["name"] in ("wgpu-hal", "gpu-allocator")
+        }
+        self.assertEqual(set(bindings), {"wgpu-hal", "gpu-allocator"})
+        self.assertTrue(bindings["wgpu-hal"])
+        self.assertEqual(bindings["wgpu-hal"], bindings["gpu-allocator"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,7 @@ pub(super) struct ActorRigState {
     pub(super) channel_bindings: Arc<pose::ChannelBindings>,
     /// This tick's render-controller result.
     pub(super) render: Vec<RenderTextureLayer>,
+    pub(super) visibility: RenderVisibility,
     /// Includes dormant controller layers, so admission need not sample ordinary rigs.
     pub(super) may_use_always_depth_material: bool,
     /// This tick's evaluated `[scale, scaleX, scaleY, scaleZ]`, for rigs that script them.
@@ -30,9 +31,12 @@ pub(super) struct ActorRigState {
     pub(super) clip_clocks: clock::ClipClocks,
     pub(super) previous: Vec<BoneTransform>,
     pub(super) current: Vec<BoneTransform>,
+    /// Absent unless the actor's renderer reads its head's own angles.
+    pub(super) head_rotation: Option<HeadRotation>,
     /// Third-person evaluation of the local rig for the HUD, independent of the hand pose.
     pub(super) ui_pose: Option<Vec<BoneTransform>>,
     pub(super) ui_animation: Option<hud::UiAnimationState>,
+    pub(super) paper_doll_animation: Option<hud::UiAnimationState>,
     pub(super) view_context: Option<bool>,
     pub(super) rest: Vec<BoneTransform>,
     pub(super) rest_completed_tick: u64,
@@ -134,9 +138,12 @@ pub(super) struct ActorTickInput {
 
 pub(super) struct EvaluatedState {
     pub(super) pose: Vec<BoneTransform>,
+    /// The tracked head's own `[x, y]` rotation this tick.
+    pub(super) head_angles: Option<[f32; 2]>,
     pub(super) skin_layers: Vec<SkinRenderLayer>,
     /// `None` when artwork is unavailable or render evaluation cannot supply fresh layers.
     pub(super) render: Option<Vec<RenderTextureLayer>>,
+    pub(super) visibility: RenderVisibility,
     pub(super) scale: Option<[f32; 4]>,
     pub(super) held_item_scale: Option<f32>,
     pub(super) controllers: Vec<ControllerState>,

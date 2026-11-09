@@ -42,6 +42,7 @@ pub(super) struct PreparedDrop {
     position: [f32; 3],
     transforms: [[[f32; 4]; 3]; MAX_DROPPED_ITEM_COPIES],
     visible: bool,
+    copies: usize,
 }
 
 impl DropPreparation<'_> {
@@ -61,6 +62,7 @@ impl DropPreparation<'_> {
                 position: self.view.position,
                 transforms: [[[0.0; 4]; 3]; MAX_DROPPED_ITEM_COPIES],
                 visible: false,
+                copies: 0,
             });
         }
         let pose = *cache
@@ -72,7 +74,11 @@ impl DropPreparation<'_> {
             pose.bob(self.view.age_ticks, self.view.bob_phase, shape) * self.view.bob_multiplier;
         let yaw = pose.yaw(self.view.yaw_radians);
         let mut transforms = [[[0.0; 4]; 3]; MAX_DROPPED_ITEM_COPIES];
-        let count = usize::from(self.view.copy_count).min(MAX_DROPPED_ITEM_COPIES);
+        let count = if shape == DroppedItemShape::Shield {
+            1
+        } else {
+            usize::from(self.view.copy_count).min(MAX_DROPPED_ITEM_COPIES)
+        };
         for (rows, offset) in transforms
             .iter_mut()
             .zip(&self.view.copy_offsets)
@@ -81,7 +87,11 @@ impl DropPreparation<'_> {
             *rows = native_dropped_item_transform(
                 position,
                 yaw,
-                *offset,
+                if shape == DroppedItemShape::Shield {
+                    [0.0; 3]
+                } else {
+                    *offset
+                },
                 self.view.render_scale,
                 shape,
             );
@@ -102,6 +112,7 @@ impl DropPreparation<'_> {
             position,
             transforms,
             visible: !hidden,
+            copies: count,
         })
     }
 
@@ -146,12 +157,13 @@ impl PreparedDrop {
             position,
             transforms,
             visible,
+            copies,
         } = self;
         if !visible {
             return;
         }
         let (block_level, sky_level) = light(position);
-        for world_from_item in transforms.into_iter().take(usize::from(view.copy_count)) {
+        for world_from_item in transforms.into_iter().take(copies) {
             instances.push(DroppedItemInstance {
                 model,
                 world_from_item,

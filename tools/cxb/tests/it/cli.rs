@@ -5,19 +5,20 @@ use std::{
 };
 
 use {
+    experience_sdk::artifact::{INDEX_FILE, MANIFEST_FILE, SERVER_WASM},
     ring::signature::KeyPair,
     server_experience::{
         bundle::VerifiedBundle,
         cache::{self, BundleCache},
         crypto,
         manifest::{PackageOffer, Permission, Scope},
-        policy::MAX_EXPANDED_BYTES,
+        policy::{MAX_ACTIONS, MAX_EXPANDED_BYTES, MAX_IDENTIFIER_BYTES},
         wire::Direction,
     },
 };
 
 /// The M0 client part (spec § Sub-project 2) with a screen, in an Experience's `experience.toml`
-/// beside the server keys and index, which are the runtime's.
+/// beside the server keys, which are the runtime's.
 const EXPERIENCE: &str = r#"
 id = "benergistics"
 version = "0.1.0"
@@ -39,9 +40,6 @@ id = "benergistics.ack"
 schema = 1
 direction = "to_server"
 fields = [{ type = "integer", min = 0, max = 4294967295 }]
-
-[files]
-"server.wasm" = "0000000000000000000000000000000000000000000000000000000000000000"
 "#;
 
 /// The screen `EXPERIENCE` lists, read beside it.
@@ -184,6 +182,47 @@ fn build_output_passes_the_client_bundle_verifier() {
     assert!(output.status.success(), "{output:?}");
     let verified = verify(&std::fs::read(&out).unwrap(), &seed).unwrap();
     assert_eq!(verified.component().unwrap(), component);
+}
+
+/// One `experience.toml` serves both halves at the client's action limit: `build` signs
+/// `MAX_ACTIONS` actions at the longest identifier, and the runtime reads the same file as the
+/// server artifact's manifest.
+#[test]
+fn both_halves_read_an_experience_declaring_every_action() {
+    let dir = tempfile::tempdir().unwrap();
+    let seed = dir.path().join("publisher.seed");
+    assert!(cxb(&["keygen", path(&seed)]).status.success());
+    let core = dir.path().join("core.wasm");
+    std::fs::write(&core, CORE_MODULE).unwrap();
+    let prefix = "benergistics.";
+    let actions: Vec<String> = (0..MAX_ACTIONS)
+        .map(|i| {
+            let suffix = format!(".{i}");
+            let fill = "a".repeat(MAX_IDENTIFIER_BYTES - prefix.len() - suffix.len());
+            format!("{:?}", format!("{prefix}{fill}{suffix}"))
+        })
+        .collect();
+    let text = EXPERIENCE.replace(
+        "[client]",
+        &format!("[client]\nactions = [{}]", actions.join(", ")),
+    );
+    let experience = write_experience(dir.path(), &text);
+    let out = dir.path().join("benergistics.cxb");
+    let output = build(&experience, &core, &seed, &out);
+    assert!(output.status.success(), "{output:?}");
+    let verified = verify(&std::fs::read(&out).unwrap(), &seed).unwrap();
+    assert_eq!(verified.manifest.actions.len(), MAX_ACTIONS);
+
+    let server = dir.path().join("server");
+    std::fs::create_dir(&server).unwrap();
+    std::fs::copy(&experience, server.join(MANIFEST_FILE)).unwrap();
+    std::fs::write(server.join(SERVER_WASM), CORE_MODULE).unwrap();
+    std::fs::write(
+        server.join(INDEX_FILE),
+        format!("{SERVER_WASM:?} = {:?}\n", crypto::digest(CORE_MODULE)),
+    )
+    .unwrap();
+    experience_runtime::manifest::read_manifest(&server).unwrap();
 }
 
 #[test]

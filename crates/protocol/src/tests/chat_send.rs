@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::TextPacketType;
-use bedrock_protocol_1_26_51::packets::{self, PacketId};
-use bedrock_protocol_1_26_51::types::TextData;
+use bedrock_protocol_1_26_60::enums::TextPacketType;
+use bedrock_protocol_1_26_60::packets::{self, PacketId};
+use bedrock_protocol_1_26_60::types::TextData;
 use protocol::{
     ChatAutocompleteAction, ChatAutocompleteCatalog, ChatAutocompleteEvent, ChatPacketError,
     chat_input_packet, chat_text_packet, decode_batch, encode,

@@ -194,6 +194,7 @@ mod tests {
             stages: vec![],
             diagnostics: vec![],
             reflection: None,
+            geometry: None,
             draw_buffers: vec![],
             consts: vec![shaderpack::ConstDirective {
                 ty: "float".into(),
