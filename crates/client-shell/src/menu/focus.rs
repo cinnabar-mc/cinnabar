@@ -543,8 +543,34 @@ impl MenuRuntime {
                         launcher::menu::realm_membership::Action::Open,
                     ));
                 }
-                actions.push(MenuAction::RefreshCatalog);
-                actions.extend((0..self.friends.len()).map(MenuAction::PlayFriend));
+                let mut first = None;
+                for member in [false, true] {
+                    for (index, _) in self
+                        .realms
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, realm)| realm.member == member)
+                    {
+                        first.get_or_insert(index);
+                        actions.push(MenuAction::SelectRealm(index));
+                    }
+                }
+                if let Some(index) = self
+                    .feeds
+                    .selected_realm
+                    .filter(|index| *index < self.realms.len())
+                    .or(first)
+                {
+                    let realm = &self.realms[index];
+                    if realm.can_play() {
+                        actions.push(MenuAction::PlayRealm(index));
+                    }
+                    if self.realm_leave.leaving().is_none()
+                        && let Some(id) = realm.leave_id()
+                    {
+                        actions.push(MenuAction::LeaveRealmDialog(id));
+                    }
+                }
                 actions
             }
             MenuScreen::Servers => {

@@ -98,7 +98,7 @@ impl MenuRuntime {
                 self.message = Some(format!("You left {name}."));
             }
             Err(()) => {
-                self.message = Some(format!("Unable to leave {name}. Please try again."));
+                self.show_notice(&format!("Unable to leave {name}. Please try again."));
             }
         }
     }

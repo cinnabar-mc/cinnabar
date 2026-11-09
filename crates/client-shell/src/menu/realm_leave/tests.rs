@@ -73,6 +73,108 @@ fn names(menu: &MenuRuntime) -> Vec<&str> {
         .collect()
 }
 
+/// Draws the normal OreUI route without installed game assets.
+fn draw(menu: &MenuRuntime) -> (Vec<MenuAction>, Vec<String>) {
+    let mut presentation = client_ui::ui_runtime::presentation::UiPresentationRuntime::new(
+        ui_engine::test_support::fixture_font(),
+    )
+    .unwrap();
+    presentation.set_menu_view(Some(menu.view()));
+    let mut nodes = Vec::new();
+    let mut next = 1;
+    let metrics = ui_engine::text_metrics::TextMetrics::for_viewport(
+        [1280, 720],
+        ui::DpiScale::new(1.0).unwrap(),
+        Some(2),
+    );
+    let hits = presentation
+        .append_menu(
+            &client_ui::ui_runtime::UiRuntime::new(1),
+            &mut nodes,
+            &mut next,
+            metrics,
+            1280.0,
+            720.0,
+        )
+        .unwrap();
+    let texts = client_ui::test_support::pack_harness::drawn_texts(&nodes);
+    (hits.into_iter().map(|(action, _)| action).collect(), texts)
+}
+
+/// Selects the Realm list and details controls from either focus or painted hits.
+fn realm_controls(actions: impl IntoIterator<Item = MenuAction>) -> Vec<MenuAction> {
+    actions
+        .into_iter()
+        .filter(|action| {
+            matches!(
+                action,
+                MenuAction::SelectRealm(_)
+                    | MenuAction::PlayRealm(_)
+                    | MenuAction::LeaveRealmDialog(_)
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn realms_focus_matches_enabled_oreui_controls() {
+    for owned_first in [false, true] {
+        for selected in [None, Some(0), Some(1), Some(usize::MAX)] {
+            for pending in [false, true] {
+                let mut menu = menu();
+                if !owned_first {
+                    menu.realms.reverse();
+                }
+                menu.feeds.selected_realm = selected;
+                if pending {
+                    menu.realm_leave.pending = Some((1, 7, "Joined".into()));
+                }
+                let (drawn, _) = draw(&menu);
+                assert_eq!(
+                    realm_controls(menu.focus_actions()),
+                    realm_controls(drawn),
+                    "owned_first={owned_first}, selected={selected:?}, pending={pending}"
+                );
+            }
+        }
+    }
+
+    let mut menu = menu();
+    menu.realms = vec![realm("Joined", 7, true)].into();
+    for state in ["OPEN", "CLOSED"] {
+        for target in [format!("{REALM_ADDRESS_PREFIX}7"), String::new()] {
+            let realm = &mut menu.realms[0];
+            realm.state = state.into();
+            realm.target = target;
+            let (drawn, _) = draw(&menu);
+            assert_eq!(realm_controls(menu.focus_actions()), realm_controls(drawn));
+        }
+    }
+}
+
+#[test]
+fn navigation_selects_a_joined_realm_and_opens_its_leave_confirmation() {
+    let mut menu = menu();
+    for _ in 0..menu.focus_actions().len() {
+        if menu.focused_action() == Some(MenuAction::SelectRealm(1)) {
+            break;
+        }
+        menu.move_focus(1);
+    }
+    assert_eq!(menu.focused_action(), Some(MenuAction::SelectRealm(1)));
+    menu.activate_focused();
+    for _ in 0..menu.focus_actions().len() {
+        if menu.focused_action() == Some(MenuAction::LeaveRealmDialog(7)) {
+            break;
+        }
+        menu.move_focus(1);
+    }
+    assert_eq!(menu.focused_action(), Some(MenuAction::LeaveRealmDialog(7)));
+    assert!(draw(&menu).0.contains(&MenuAction::LeaveRealmDialog(7)));
+    menu.activate_focused();
+    assert_eq!(menu.dialog, Some(MenuDialog::LeaveRealm(7)));
+}
+
 #[test]
 fn leaving_needs_a_confirmed_dialog_and_never_offers_an_owned_realm() {
     let mut menu = menu();
@@ -119,7 +221,7 @@ fn a_successful_leave_removes_only_that_realm() {
 }
 
 #[test]
-fn a_failed_leave_keeps_the_realm_and_allows_a_retry() {
+fn a_failed_leave_shows_an_oreui_notice_and_allows_a_retry() {
     let mut menu = menu();
     let mut account = LeaveAccount::default();
     menu.activate(MenuAction::LeaveRealmDialog(7));
@@ -128,11 +230,17 @@ fn a_failed_leave_keeps_the_realm_and_allows_a_retry() {
     account.outcome = Some((account.sent[0].0, Err(())));
     menu.sync_realm_leave(&mut account);
     assert_eq!(names(&menu), ["Mine", "Joined"]);
+    assert_eq!(menu.dialog, Some(MenuDialog::Notice));
+    let (actions, texts) = draw(&menu);
     assert!(
-        menu.message
-            .as_deref()
-            .is_some_and(|text| text.contains("Joined"))
+        texts
+            .iter()
+            .any(|text| text == "Unable to leave Joined. Please try again.")
     );
+    assert_eq!(actions, [MenuAction::DismissDialog]);
+    assert_eq!(menu.focus_actions(), actions);
+    menu.activate_focused();
+    assert_eq!(menu.dialog, None);
     menu.activate(MenuAction::LeaveRealmDialog(7));
     assert_eq!(menu.dialog, Some(MenuDialog::LeaveRealm(7)));
 }
