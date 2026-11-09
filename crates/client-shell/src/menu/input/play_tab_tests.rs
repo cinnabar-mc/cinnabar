@@ -1,3 +1,4 @@
+use super::mode::MenuInputMode;
 use super::*;
 use bevy::{input::keyboard::Key, prelude::*};
 use launcher::menu::{MenuAction, MenuScreen};

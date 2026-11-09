@@ -234,7 +234,7 @@ pub struct MenuRuntime {
     language_choices: std::sync::Arc<[(String, String)]>,
     language_pending: bool,
     language_asset_path: PathBuf,
-    input_mode: input::MenuInputMode,
+    input_mode: input::mode::MenuInputMode,
     /// The current or pending session is a local world, and whether it was live last frame.
     local_world_joined: bool,
     local_world_active: bool,

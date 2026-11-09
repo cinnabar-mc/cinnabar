@@ -24,7 +24,7 @@ use super::grid::{Grid, space};
 use super::paint::{Bounds, Canvas};
 use super::theme::{BODY, CAPTION, NEUTRAL80, NEUTRAL100, TEXT, TEXT_DIMMER};
 use super::widgets::{Variant, button, divider, side_menu};
-use launcher::menu::play_featured;
+use launcher::menu::play::play_featured;
 use launcher::menu::{MenuAction, MenuServerCard, MenuView, PingInfo, pingable};
 use ui::IconRef;
 use ui_engine::engine::screen::PaintError;

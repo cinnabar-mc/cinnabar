@@ -4,6 +4,7 @@ pub(super) mod clipboard;
 pub(super) mod command_macros;
 pub mod context;
 mod death;
+pub(super) mod mode;
 mod modifiers;
 use modifiers::MenuModifiers;
 pub(super) mod fields;
@@ -19,6 +20,7 @@ mod touch_editor;
 
 use clipboard::MenuClipboard;
 use context::MenuInputContext;
+use mode::MenuInputMode;
 use settings_pointer::{native_release_action, update_slider};
 
 use bevy::{
@@ -45,33 +47,6 @@ pub const HOTKEY_OPTIONS: [(KeyCode, SettingId); 2] = [
     (KeyCode::F1, SettingId::HideHud),
     (KeyCode::F8, SettingId::HidePaperdoll),
 ];
-
-#[derive(Clone, Copy, Debug, Default)]
-pub(super) enum MenuInputMode {
-    #[default]
-    Mouse,
-    Touch,
-    Keyboard,
-    Gamepad,
-}
-
-impl MenuInputMode {
-    pub(super) fn mouse(self) -> bool {
-        matches!(self, Self::Mouse)
-    }
-
-    pub(super) fn navigation(self) -> bool {
-        matches!(self, Self::Keyboard | Self::Gamepad)
-    }
-
-    pub(super) fn gamepad(self) -> bool {
-        matches!(self, Self::Gamepad)
-    }
-
-    pub(super) fn touch(self) -> bool {
-        matches!(self, Self::Touch)
-    }
-}
 
 /// Retains physical button state because menu input clears Bevy's buttons
 /// after consumption, and retains slider capture across UI scale relayout.

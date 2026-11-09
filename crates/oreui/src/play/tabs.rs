@@ -7,7 +7,7 @@ use super::super::{
 use crate::images::{PLAY_TAB_ICONS, PLAY_TAB_IMAGES, SETTINGS_ICON_HIGHLIGHT_IMAGE};
 use {
     super::PaintError,
-    launcher::menu::{MenuAction, MenuView, PLAY_TABS},
+    launcher::menu::{MenuAction, MenuView, play::PLAY_TABS},
 };
 
 #[cfg(test)]

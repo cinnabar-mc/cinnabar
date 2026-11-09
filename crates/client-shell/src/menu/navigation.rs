@@ -171,7 +171,7 @@ impl MenuRuntime {
         {
             return;
         }
-        let tabs = launcher::menu::PLAY_TABS;
+        let tabs = launcher::menu::play::PLAY_TABS;
         let Some(target) = tabs
             .iter()
             .position(|tab| *tab == self.screen)

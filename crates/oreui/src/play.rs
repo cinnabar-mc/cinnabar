@@ -28,7 +28,7 @@ pub(super) fn draw(
     size: [f32; 2],
     images: &HashMap<String, IconRef>,
 ) -> Result<(), PaintError> {
-    let selected = launcher::menu::PLAY_TABS
+    let selected = launcher::menu::play::PLAY_TABS
         .iter()
         .position(|tab| *tab == view.screen)
         .unwrap_or(0);
