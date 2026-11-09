@@ -248,13 +248,34 @@ impl UiRuntime {
             TextKind::Raw | TextKind::System | TextKind::Json => ChatMessageKind::System,
             TextKind::Popup | TextKind::JukeboxPopup | TextKind::Tip => unreachable!(),
         };
+        // Vanilla shows raw text as a client message, which keeps its placeholders.
+        let expand = event.kind != TextKind::Raw;
+        let message = if expand {
+            self.expand_input_placeholders(event.message)
+        } else {
+            event.message
+        };
+        let parameters = if expand
+            && event
+                .parameters
+                .iter()
+                .any(|parameter| parameter.contains(':'))
+        {
+            event
+                .parameters
+                .iter()
+                .map(|parameter| self.expand_input_placeholders(Arc::clone(parameter)))
+                .collect()
+        } else {
+            event.parameters
+        };
         match self.session.chat.push(ChatMessage {
             fifo_sequence,
             received_millis: event_millis,
             kind,
             source: event.source,
-            message: event.message,
-            parameters: event.parameters,
+            message,
+            parameters,
         }) {
             ChatApplyResult::Applied { .. } => Ok(UiApplyOutcome::Applied),
             // An oversized server row is odd data, not a wire fault: skip the
@@ -313,23 +334,32 @@ impl UiRuntime {
         fifo_sequence: u64,
         event_millis: u64,
     ) -> Result<(), UiRuntimeError> {
+        let text = match event.action {
+            TitleAction::SetTitle
+            | TitleAction::SetTitleJson
+            | TitleAction::SetSubtitle
+            | TitleAction::SetSubtitleJson
+            | TitleAction::ActionBar
+            | TitleAction::ActionBarJson => self.expand_input_placeholders(event.text),
+            TitleAction::Clear | TitleAction::Reset | TitleAction::SetDurations => event.text,
+        };
         match event.action {
             TitleAction::Clear => self.session.hud.clear_titles(),
             TitleAction::Reset => self.session.hud.reset_titles(),
             TitleAction::SetTitle | TitleAction::SetTitleJson => {
                 self.session
                     .hud
-                    .set_title(event.text, fifo_sequence, event_millis);
+                    .set_title(text, fifo_sequence, event_millis);
             }
             TitleAction::SetSubtitle | TitleAction::SetSubtitleJson => {
                 self.session
                     .hud
-                    .set_subtitle(event.text, fifo_sequence, event_millis);
+                    .set_subtitle(text, fifo_sequence, event_millis);
             }
             TitleAction::ActionBar | TitleAction::ActionBarJson => {
                 self.session
                     .hud
-                    .set_actionbar(event.text, fifo_sequence, event_millis);
+                    .set_actionbar(text, fifo_sequence, event_millis);
             }
             TitleAction::SetDurations => {
                 // Negative tick counts are semantically odd but well-formed:
@@ -345,6 +375,24 @@ impl UiRuntime {
             }
         }
         Ok(())
+    }
+
+    /// Names the player's bound controls in `:_input_<binding>:` placeholders, as vanilla does
+    /// for titles, subtitles, the action bar and chat other than raw text when they arrive.
+    /// Tips and popups keep their text unchanged.
+    fn expand_input_placeholders(&self, text: Arc<str>) -> Arc<str> {
+        const UNASSIGNED: &str = "controllerLayoutScreen.unassigned";
+        if !text.contains(':') {
+            return text;
+        }
+        let unassigned = self.translation(UNASSIGNED);
+        self.control_settings
+            .expand_input_placeholders(
+                &text,
+                self.input_mode,
+                unassigned.as_deref().unwrap_or(UNASSIGNED),
+            )
+            .map_or(text, Arc::from)
     }
 
     pub(super) fn apply_hud(

@@ -1201,6 +1201,12 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   pending native-reference and rendered-frame acceptance; they do not close this gate.
   Server language values decode newline and backslash escapes before text arguments
   are inserted, preserving multiline HUD text. Broader HUD acceptance remains open.
+  Titles, subtitles, the action bar and non-raw chat replace `:_input_<binding>:` with the
+  bound control's controls-screen label when they arrive. Vanilla draws mouse-button, gamepad
+  and touch controls as icons through its emoticon list (`font/emoticons`) and glyph sheets,
+  which the fetched pack lacks; Cinnabar shows the controls-screen text instead, and touch
+  reads the keyboard bindings. `:_gamepad_<button>:` names, other `:name:` emoticons and the
+  vanilla key-name table are not implemented. These remain incomplete.
   The HUD paper doll retains its source geometry and samples its own GPU bone palette while
   a screen shows another player renderer. Animation keeps the HUD topology and texture pages;
   broader HUD and hardware frame-work acceptance remain open.

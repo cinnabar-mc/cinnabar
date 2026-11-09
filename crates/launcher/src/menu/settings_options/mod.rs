@@ -8,6 +8,7 @@ pub mod control_bindings;
 pub mod definitions;
 pub mod emotes;
 pub mod graphics_api;
+mod input_placeholders;
 pub mod keybindings;
 pub mod language;
 pub mod layout;
