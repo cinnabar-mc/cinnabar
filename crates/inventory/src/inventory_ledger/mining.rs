@@ -1,10 +1,138 @@
-//! Committed tool wear and the legacy response history retained for client block breaks.
+//! Tool-wear predictions and retained response history for block breaks.
 
-use super::cells::Held;
-use super::queue::{CellPrediction, RollbackAuthority, same_name};
-use super::{Cell, PlayerInventoryLedger};
+use super::cells::{Cells, Held};
+use super::queue::{CellPrediction, PendingRequest, RollbackAuthority, same_name};
+use super::{Cell, InventoryPendingState, PlayerInventoryLedger};
+
+/// The durability a mine-block request predicts for one hotbar slot.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub(super) struct MiningPrediction {
+    pub(super) slot: u8,
+    pub(super) damage: i32,
+    /// A client-authoritative destroy is committed backing named by this legacy ID.
+    pub(super) legacy_request_id: Option<i32>,
+    /// Identifies the selected item; accepted metadata stays in backing truth.
+    source: Option<MiningSource>,
+}
+
+/// Stable item lineage for a HUD request, independent of mutable NBT and wire IDs.
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct MiningSource {
+    source_stack_id: i32,
+    source_origin: Option<Cell>,
+    network_id: i32,
+    metadata: u32,
+    block_runtime_id: i32,
+}
+
+impl MiningSource {
+    /// Retains only the identity needed to reject responses for replacement items.
+    fn new(held: &Held) -> Option<Self> {
+        Some(Self {
+            source_stack_id: held.source_stack_id?,
+            source_origin: held.source_origin,
+            network_id: held.stack.network_id,
+            metadata: held.stack.metadata,
+            block_runtime_id: held.stack.block_runtime_id,
+        })
+    }
+}
+
+impl MiningPrediction {
+    /// Resolves this request's still-current item from authoritative backing, never history.
+    pub(super) fn current_source<'a>(&self, cells: &'a Cells) -> Option<&'a Held> {
+        let held = cells.get(Cell::Inventory(self.slot))?;
+        (MiningSource::new(held).as_ref()? == self.source.as_ref()?).then_some(held)
+    }
+}
+
+impl MiningPrediction {
+    /// Matches retained mining lineage without restoring mutable item data from history.
+    pub(super) fn retains_source_item(&self, held: &Held) -> bool {
+        MiningSource::new(held)
+            .as_ref()
+            .is_some_and(|source| Some(source) == self.source.as_ref())
+    }
+}
+
+/// Bounds outstanding mining predictions; the oldest is forgotten first.
+const MAX_OUTSTANDING_MINING_REQUESTS: usize = 16;
 
 impl PlayerInventoryLedger {
+    /// Queues a mine-block prediction at its wire position: after every
+    /// admitted request, ahead of unsent ones. `None` when the queue is full,
+    /// so the break goes out without a request.
+    pub(super) fn enqueue_mining(
+        &mut self,
+        slot: u8,
+        damage: i32,
+        legacy_request_id: Option<i32>,
+    ) -> Option<i32> {
+        if legacy_request_id.is_none() {
+            self.ensure_queue_capacity().ok()?;
+        }
+        let request_id = self.next_request_id;
+        self.next_request_id = request_id.checked_sub(2)?;
+        let mining: Vec<usize> = self
+            .queue
+            .iter()
+            .enumerate()
+            .filter(|(_, request)| request.mining.is_some())
+            .map(|(index, _)| index)
+            .collect();
+        if mining.len() >= MAX_OUTSTANDING_MINING_REQUESTS {
+            self.queue.remove(mining[0]);
+        }
+        let position = self
+            .queue
+            .iter()
+            .position(|request| request.state == InventoryPendingState::AwaitingTransport)
+            .unwrap_or(self.queue.len());
+        self.queue.insert(
+            position,
+            PendingRequest {
+                request_id,
+                actions: Vec::new(),
+                filter_strings: Vec::new(),
+                groups: Vec::new(),
+                state: InventoryPendingState::AwaitingResponse,
+                transport_deadline_millis: None,
+                deadline_millis: None,
+                timed_out: false,
+                awaiting_refresh: Vec::new(),
+                refresh_gates: false,
+                session_generation: self.session_generation,
+                storage_generation: None,
+                personal_generation: None,
+                storage_identity: None,
+                trade_purchase: None,
+                requires_distinct_stack_ids: false,
+                registry_bound_merge: false,
+                quick_move_route: None,
+                predicted: Vec::new(),
+                placements: Vec::new(),
+                mining: Some(MiningPrediction {
+                    slot,
+                    damage,
+                    legacy_request_id,
+                    source: self
+                        .confirmed
+                        .get(Cell::Inventory(slot))
+                        .and_then(MiningSource::new),
+                }),
+                world_drop: None,
+                consumed_after: Vec::new(),
+            },
+        );
+        Some(request_id)
+    }
+
+    /// Removes a cancelled mining request without changing backing cells.
+    pub(super) fn remove_unanswered_mining(&mut self, request_id: i32) {
+        self.queue
+            .retain(|request| request.request_id != request_id || request.mining.is_none());
+    }
+
     /// Reconciles wear whose movement carrier was revoked before a socket receipt.
     pub fn revoke_destroy_slot_change(
         &mut self,
