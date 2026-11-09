@@ -491,7 +491,8 @@ impl MenuRuntime {
         self.sign_in_requested = false;
         self.sign_in_cancelled = true;
         self.sign_in_resumed = false;
-        if let Err(error) = launcher::pending_sign_in::forget(&self.sign_in_cache()) {
+        let cache = self.sign_in_cache();
+        if let Err(error) = launcher::pending_sign_in::forget(&cache) {
             bevy::log::warn!(%error, "abandoned sign-in prompt could not be removed");
         }
         // Cancellation is sticky. Only the explicit StartSignIn action may
@@ -511,6 +512,8 @@ impl MenuRuntime {
         self.auth_restart_requested = false;
         if let Some(mut process) = self.auth_process.take() {
             process.cancel_prompt();
+            // A helper cancelled mid-request may still save its prompt before it exits.
+            process.forget_prompt_after_exit(cache);
             self.auth_process = Some(process);
         }
     }
