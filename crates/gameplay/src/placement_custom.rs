@@ -85,6 +85,7 @@ pub(crate) fn predict(
 ) -> Option<PredictedPlacement> {
     let placement = definition.visual.placement;
     if context.input.face > 5
+        || placement.server_placing
         || placement.has_placement_filter
         || definition.visual.components_incomplete
     {

@@ -7,7 +7,7 @@ use assets::{
 use client_world::game_mode_capabilities::GameModeCapabilities;
 use protocol::{BlockUseRequest, ItemUseTrigger, SwingSource, VerifiedNetworkItemStack};
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 // Held repeats are checked on simulation ticks against a monotonic deadline.
 const SLOW_REPEAT_MILLIS: u64 = 300;
@@ -284,9 +284,8 @@ pub struct BlockUseRuntime {
     pub intention: BuildIntention,
     selected_item: Option<(u8, i32, i32)>,
     rejected_tick: Option<u64>,
-    /// Tick whose held repeat already sent a use that failed locally. A failure never starts
-    /// the repeat delay, so without this every buffered frame pick in the tick would resend it.
-    failed_repeat_tick: Option<u64>,
+    /// Failed held targets already sent in one tick, retained across transport retries.
+    failed_repeats: Option<(u64, HashSet<PlacementTarget>)>,
 }
 
 /// One held-use repeat's timing inputs.
@@ -407,9 +406,6 @@ impl BlockUseRuntime {
         admitted: bool,
     ) -> bool {
         if admitted {
-            if trigger == ItemUseTrigger::SimulationTick && local_use == LocalUse::Nothing {
-                self.failed_repeat_tick = Some(tick);
-            }
             self.record(trigger, due, tick, local_use, takes_press, clock);
         } else if trigger == ItemUseTrigger::PlayerInput {
             self.latched_press = true;

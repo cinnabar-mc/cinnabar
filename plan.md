@@ -882,14 +882,15 @@ and version-matched in-game acceptance remain incomplete.
   geometry keep their icon and turn their held bottom face; the held rotation is inferred from the
   placed geometry rather than a native carried-block comparison.
   Custom blocks with server placing handlers (`hasPlayerPlacing`, version 1 components) are
-  placed locally like other custom blocks, so held bridging stops at them; that native predicts
-  them too is inferred from Hive SkyWars bridging, not from a native packet comparison.
+  left to the server's block updates without local collision prediction. Full-cube bridge
+  targeting uses held placement history independently of that prediction override.
+  Matched native packet and rendered comparisons remain incomplete.
   A held repeat that fails locally, such as a bridge cell overlapping the jumping player, sends
-  at most one use per tick instead of one per buffered frame pick; native's per-tick count of
-  failed held uses is unverified.
+  at most one use per clicked block and face per tick, preserving distinct buffered targets;
+  native's per-target count of failed held uses remains incomplete and unverified.
   Full-cube custom blocks continue held bridges like vanilla's cube family; whether native
-  grants build intention to custom stairs, slabs or other partial shapes is unverified, so they
-  keep following the aim ray.
+  grants build intention to custom stairs, slabs or other partial shapes remains incomplete
+  and unverified, so they keep following the aim ray.
   Held stacks whose wire descriptor names a block state with an aux value that has no compiled
   visual hold that state; a state with no prepared art, such as a turned log or a facing stairs,
   holds its item's base block, which remains an incomplete approximation of native's exact state.

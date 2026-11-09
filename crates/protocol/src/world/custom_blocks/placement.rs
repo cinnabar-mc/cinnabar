@@ -29,13 +29,19 @@ pub(super) fn traits<'a>(
 #[cfg(test)]
 mod tests;
 
-/// A placement filter in any component set applies to the whole block type.
-///
-/// Server placing handlers (`hasPlayerPlacing`, version 1 custom components or
-/// `minecraft:on_player_placing`) do not stop local prediction. The client places the block it
-/// holds, and the server's block update corrects a handler that changes or cancels it; without
-/// the local block, held bridging aims through cells only the server has filled and keeps placing.
+/// Prediction overrides apply to the block type when any component set needs them.
 pub(super) fn components(placement: &mut CustomPlacement, components: Option<Nbt<'_>>) {
     let Some(components) = components else { return };
+    let custom = components.field("minecraft:custom_components");
+    // Version 1 custom components declare every handler.
+    let flag = |name: &str| {
+        matches!(
+            custom.and_then(|component| component.field(name)),
+            Some(Nbt::Byte(value)) if value != 0
+        )
+    };
+    placement.server_placing |= components.field("minecraft:on_player_placing").is_some()
+        || flag("hasPlayerPlacing")
+        || flag("isV1Component");
     placement.has_placement_filter |= components.field("minecraft:placement_filter").is_some();
 }

@@ -11,25 +11,62 @@ fn compound<const N: usize>(fields: [(&str, Nbt); N]) -> Nbt {
     )
 }
 
-// A server placing handler leaves placement admission unchanged; only filters defer it.
+/// Each server placing handler disables local state prediction.
 #[test]
-fn placing_handlers_leave_placement_admission_to_filters() {
+fn placing_handlers_disable_local_state_prediction() {
     for components in [
         compound([(
             "minecraft:custom_components",
-            compound([
-                ("hasPlayerPlacing", Nbt::Byte(1)),
-                ("isV1Component", Nbt::Byte(1)),
-            ]),
+            compound([("hasPlayerPlacing", Nbt::Byte(1))]),
+        )]),
+        compound([(
+            "minecraft:custom_components",
+            compound([("isV1Component", Nbt::Byte(1))]),
         )]),
         compound([("minecraft:on_player_placing", compound([]))]),
     ] {
         let definition = parse_definition(compound([("components", components)]).view()).unwrap();
-        assert_eq!(
-            definition.visual.placement,
-            super::super::CustomPlacement::default()
-        );
+        assert!(definition.visual.placement.server_placing);
+        assert!(!definition.visual.placement.has_placement_filter);
     }
+    let definition = parse_definition(
+        compound([(
+            "components",
+            compound([(
+                "minecraft:custom_components",
+                compound([
+                    ("hasPlayerPlacing", Nbt::Byte(0)),
+                    ("isV1Component", Nbt::Byte(0)),
+                ]),
+            )]),
+        )])
+        .view(),
+    )
+    .unwrap();
+    assert!(!definition.visual.placement.server_placing);
+}
+
+/// A placing handler on any permutation disables prediction for the whole type.
+#[test]
+fn permutation_placing_handlers_disable_local_state_prediction() {
+    let definition = parse_definition(
+        compound([(
+            "permutations",
+            Nbt::List(vec![compound([
+                ("condition", Nbt::String("q.block_state('test:on')".into())),
+                (
+                    "components",
+                    compound([(
+                        "minecraft:custom_components",
+                        compound([("hasPlayerPlacing", Nbt::Byte(1))]),
+                    )]),
+                ),
+            ])]),
+        )])
+        .view(),
+    )
+    .unwrap();
+    assert!(definition.visual.placement.server_placing);
 }
 
 #[test]
