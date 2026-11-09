@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/sandertv/gophertunnel/minecraft"
 )
 
 func TestRoundTripMillisPreservesUnknownAndRoundsFullRTT(t *testing.T) {
@@ -23,6 +25,10 @@ func TestRoundTripMillisPreservesUnknownAndRoundsFullRTT(t *testing.T) {
 		}
 	}
 }
+
+// The dialled upstream must keep forwarding the transport's connected-ping round trip, or
+// latencySampler silently falls back to the acknowledgement estimate.
+var _ interface{ AveragePing() (time.Duration, bool) } = (*minecraft.Conn)(nil)
 
 // measuredUpstream reports fixed transport measurements; the zero value measures nothing.
 type measuredUpstream struct {
