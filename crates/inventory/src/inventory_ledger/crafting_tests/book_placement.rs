@@ -58,7 +58,7 @@ fn requests(ledger: &PlayerInventoryLedger) -> Vec<Vec<StackRequestAction>> {
 /// `(source container, source slot, destination container, destination slot, amount)`.
 fn place(
     action: &StackRequestAction,
-) -> (StackRequestContainer, u8, StackRequestContainer, u8, u8) {
+) -> (StackRequestContainer, u16, StackRequestContainer, u16, u8) {
     let StackRequestAction::Place {
         amount,
         source,

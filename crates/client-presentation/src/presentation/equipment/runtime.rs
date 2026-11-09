@@ -31,6 +31,7 @@ mod elytra;
 mod external_armor;
 mod held_block_entities;
 mod java;
+mod maps;
 mod modern;
 pub(crate) use modern::HeldSelection;
 mod native;
@@ -40,6 +41,7 @@ mod push;
 mod readiness;
 mod routing;
 mod session;
+mod shield;
 mod style;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
@@ -50,7 +52,9 @@ pub use types::{
     ActorEquipmentInput, EquipmentAnimation, EquipmentLayers, EquipmentPresentation,
     FirstPersonArms, FirstPersonItem, HeldKind, JavaGrip, WornItem,
 };
-use types::{ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey};
+use types::{
+    ArmorGeometry, AttachableMeshKey, BodyBones, JavaRasterFrame, MeshKey, ReservedItemMesh,
+};
 
 use {
     super::{
@@ -58,10 +62,10 @@ use {
         atlas::{Placement, SpriteAtlas},
         display::{
             FirstPersonHand, FirstPersonShape, LAYER_BOOTS, LAYER_CHESTPLATE, LAYER_HELMET,
-            LAYER_LEGGINGS, LAYER_OFF_HAND, head_block_display, view_bone,
+            LAYER_LEGGINGS, LAYER_OFF_HAND, view_bone,
         },
     },
-    render_model::equipment::{self as attachable, blocks::BlockSheets},
+    render_model::equipment::{self as attachable, blocks::BlockSheets, head_block_display},
 };
 
 fn body_bones(names: Vec<Box<str>>) -> BodyBones {
@@ -99,6 +103,7 @@ type ArmorBoneMap = Arc<[Option<usize>]>;
 
 #[derive(Resource)]
 pub struct EquipmentRuntime {
+    shield_patterns: shield::Patterns,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -131,6 +136,7 @@ pub struct EquipmentRuntime {
     session: session::SessionLayer,
     /// Next startup item mesh index; session icons use their own range.
     next_mesh: u32,
+    map_meshes: Option<[EntityRigId; 2]>,
     /// Retired pack slots, reused only after replacement geometry is queued.
     free_meshes: Vec<EntityRigId>,
     /// The session's server-pack attachables, consulted before `catalog`.
@@ -294,6 +300,7 @@ impl EquipmentRuntime {
                 .collect(),
         );
         let runtime = Self {
+            shield_patterns: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             native_meshes: BTreeMap::new(),
@@ -322,6 +329,7 @@ impl EquipmentRuntime {
             item_attack,
             session: session::SessionLayer::default(),
             next_mesh: 0,
+            map_meshes: None,
             free_meshes: Vec::new(),
             catalog,
             pending,
@@ -418,6 +426,9 @@ impl EquipmentRuntime {
             (&input.main, LAYER_MAIN_HAND, bones.right_item),
             (&input.off, LAYER_OFF_HAND, bones.left_item),
         ] {
+            if animation.is_some_and(|animation| animation.rig.visibility.hides_held_items()) {
+                continue;
+            }
             let Some(item) = item else { continue };
             let held_item_scale = animation.and_then(|animation| animation.rig.held_item_scale);
             let scale = actor_animation::AttachableAnimationInput {

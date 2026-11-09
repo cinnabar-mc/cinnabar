@@ -13,9 +13,11 @@ use super::{
 use crate::movement::{MovementSource, MovementTicker, flush_player_auth_inputs};
 
 mod attack_admission;
+mod break_timing;
 mod creative_destroy;
 mod custom_mining;
 mod painting_attacks;
+mod refused_starts;
 mod tool_wear;
 
 fn target(position: [i32; 3], block: &str, tool: Option<&str>) -> DestroyTarget {
@@ -82,6 +84,8 @@ impl MiningAdmission {
             )
         })?;
         Some(crate::melee::PressContext {
+            refused_destroy: None,
+            actor_life: None,
             tick: sample.tick,
             player_position: sample.position,
             input_mode: protocol::PlayerInputMode::Mouse,
@@ -162,14 +166,20 @@ impl MiningAdmission {
         admitted.mining.settle_inventory(&mut self.inventory);
     }
 
-    /// Publishes every retained input through the production movement encoder.
+    /// Publishes retained inputs and their preceding actions through the production guards.
     fn flush(&mut self) {
-        flush_player_auth_inputs(
+        crate::movement::flush_player_auth_inputs_guarded(
             &mut self.ticker,
             crate::movement::OUTBOX_CAPACITY,
             Some(evidence()),
-            |_, packet| {
-                self.packets.push(packet);
+            |_, packet, guard, _| {
+                if let Some(guard) = guard {
+                    let (preceding, packet) = guard.sanitize(packet);
+                    self.packets.extend(preceding);
+                    self.packets.push(packet);
+                } else {
+                    self.packets.push(packet);
+                }
                 Ok::<_, ()>(())
             },
         )
@@ -253,7 +263,7 @@ fn server_authority_is_silent_while_cracking_and_completes_with_continue_then_pr
         assert_eq!(payload.destroy, None);
     }
     let next = target([1, 1, 3], "minecraft:dirt", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     // The destroy stays active on the broken block, so the next block continues it.
@@ -380,7 +390,7 @@ fn client_authority_cracks_each_tick_and_completes_with_stop_and_destroy_transac
     ));
     let other = target([4, 5, 7], "minecraft:stone", None);
     // The post-break delay still reports the block now under the crosshair.
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert_eq!(
             kinds(&held(&mut machine, &other, Client)),
             [(CrackBlock, [4, 5, 7], 1)]
@@ -409,7 +419,7 @@ fn only_zero_hardness_breaks_on_the_start_tick() {
         [(StartDestroy, [2, 2, 2], 1), (PredictDestroy, [2, 2, 2], 1)]
     );
     let next = target([2, 1, 2], "minecraft:torch", None);
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &next, Server).is_empty());
     }
     assert!(!held(&mut machine, &next, Server).is_empty());
@@ -534,7 +544,7 @@ fn a_completion_predicts_the_break_and_a_rolled_back_block_is_mined_again() {
         None,
         "hit sounds and particles stop with the break"
     );
-    for _ in 0..DESTROY_DELAY_TICKS {
+    for _ in 1..DESTROY_DELAY_TICKS {
         assert!(held(&mut machine, &dirt, Server).is_empty());
     }
     // The server restated the block: no hold, destroying resumes at once.
@@ -654,19 +664,6 @@ fn a_held_instant_destroy_repeats_after_the_delay_or_per_block_travelled() {
     );
 }
 
-/// Releasing clears the delay, so a fresh press starts at once.
-#[test]
-fn release_clears_the_destroy_delay() {
-    let torch = target([1, 1, 1], "minecraft:torch", None);
-    let mut machine = DestroyMachine::default();
-    held(&mut machine, &torch, Server);
-    machine.step(DestroyInput::Released, STILL, Server);
-    assert_eq!(
-        kinds(&held(&mut machine, &torch, Server)),
-        [(StartDestroy, [1, 1, 1], 1), (PredictDestroy, [1, 1, 1], 1)]
-    );
-}
-
 /// Local flight reaches the destroy conditions instead of always reading grounded-or-falling.
 #[test]
 fn local_flight_exempts_the_airborne_penalty() {
@@ -715,6 +712,15 @@ fn creative_no_break_tags_include_mace() {
         );
     }
     assert!(destroys_in_creative(&assets::facts::ItemFact::default()));
+}
+
+#[test]
+fn creative_sword_trait_also_blocks_destroy_prediction() {
+    let fact = assets::facts::ItemFact {
+        traits: assets::facts::ItemTraits::SWORD,
+        ..Default::default()
+    };
+    assert!(!destroys_in_creative(&fact));
 }
 
 #[test]

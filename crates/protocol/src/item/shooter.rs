@@ -21,7 +21,7 @@ impl ItemShooter {
 }
 
 /// Reads a shooter compound, treating missing fields as their declared defaults.
-pub(super) fn parse_shooter(component: Option<&Nbt>) -> Option<ItemShooter> {
+pub(super) fn parse_shooter(component: Option<Nbt<'_>>) -> Option<ItemShooter> {
     let component = component.filter(|component| matches!(component, Nbt::Compound(_)))?;
     let flag = |name| {
         component

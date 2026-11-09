@@ -20,6 +20,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     if !changed {
         return;
     }
+    runtime.reset_container_screens();
     runtime.clear_player_list();
     runtime.player_preview_source_hash = None;
     runtime.player_preview_pose = None;
@@ -28,6 +29,7 @@ pub(super) fn observe_session(runtime: &mut UiPresentationRuntime, session: u64)
     runtime.player_preview_drawn = None;
     runtime.gui_models.skin = None;
     runtime.gui_models.particles.reset();
+    runtime.gui_models.shield_icons.clear();
     runtime.held_viewmodel_source = None;
     runtime.offhand_viewmodel_source = None;
     runtime.menu_artwork_set = Default::default();
@@ -151,6 +153,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         }
         player_preview_page = Some(page);
         player_preview_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -161,6 +164,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         left_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 0,
@@ -171,6 +175,7 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             glint: false,
         });
         right_hand_icon = Some(IconRef {
+            color_mask: None,
             page,
             uv: [
                 player_preview::HAND_WIDTH as u16,
@@ -207,13 +212,9 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
         } else if offset >= super::gui_models::MODEL_PAGE {
             runtime
                 .gui_models
+                .sources
                 .pages
                 .get(offset - super::gui_models::MODEL_PAGE)
-                .or_else(|| {
-                    let index = (offset - super::gui_models::MODEL_PAGE)
-                        .checked_sub(runtime.gui_models.pages.len())?;
-                    runtime.gui_models.pack_equipment.pages.get(index)
-                })
         } else {
             None
         };
@@ -271,6 +272,20 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .clone()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone()),
     );
+    let shield_pages = runtime.gui_models.shield_icons.pages();
+    dynamic.extend((0..render_model::MAX_UI_SHIELD_PAGES).map(|index| {
+        shield_pages
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
+    let pack_pages = &runtime.gui_models.pack_equipment.pages;
+    dynamic.extend((0..render_model::MAX_UI_PACK_EQUIPMENT_PAGES).map(|index| {
+        pack_pages
+            .get(index)
+            .cloned()
+            .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
+    }));
     // Unused art pages keep their old pixels; nothing references them.
     let art_pages = previous
         .len()
@@ -290,10 +305,13 @@ pub(super) fn rebuild(runtime: &mut UiPresentationRuntime) {
             .cloned()
             .unwrap_or_else(|| runtime.blank_dynamic_page.clone())
     }));
+    dynamic.extend(runtime.gui_models.player_layers.pages.iter().cloned());
+    dynamic.extend(runtime.gui_models.live_equipment.pages.iter().cloned());
     // Equal per-page identities preserve old immutable payload ownership.
     for (offset, page) in dynamic.iter_mut().enumerate() {
-        let old = &previous[first_dynamic + offset];
-        if old.identity() == page.identity() {
+        if let Some(old) = previous.get(first_dynamic + offset)
+            && old.identity() == page.identity()
+        {
             *page = old.clone();
         }
     }
@@ -344,6 +362,7 @@ mod tests {
             std::collections::HashMap::from([(
                 ui_engine::textures::TITLE_KEY.to_owned(),
                 IconRef {
+                    color_mask: None,
                     page: 0,
                     uv: [0, 0, 8, 4],
                     glint: false,
@@ -354,7 +373,8 @@ mod tests {
         let old_refs = runtime.menu_artwork.refs.clone();
         runtime.preview_dirty = true;
         runtime.menu_artwork_dirty = true;
-        runtime.gui_models.pages = vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
+        runtime.gui_models.sources.pages =
+            vec![UiTexturePage::owned([1, 1], vec![0; 4].into()).unwrap()];
         rebuild(&mut runtime);
         assert!(Arc::ptr_eq(&runtime.textures, &previous));
         assert!(runtime.preview_dirty, "rejected pixels must be retried");
@@ -364,7 +384,7 @@ mod tests {
             runtime.menu_artwork_loader.poll(),
             "rejected artwork stays pending"
         );
-        runtime.gui_models.pages.clear();
+        runtime.gui_models.sources.pages.clear();
         rebuild(&mut runtime);
         assert!(!runtime.preview_dirty);
         assert!(!runtime.menu_artwork_dirty);

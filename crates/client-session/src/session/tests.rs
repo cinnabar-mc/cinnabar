@@ -14,6 +14,8 @@ use std::{
 type NetworkControlEvent = super::NetworkControlEvent<()>;
 type NetworkHandle = super::NetworkHandle<()>;
 
+#[path = "blob_cache_tests.rs"]
+mod blob_cache_tests;
 mod forms;
 mod outbound;
 mod queues;
@@ -149,6 +151,7 @@ fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
         abandoned_cached_transactions: 107,
         recovery_requests: 108,
         ordinary_backpressure: 109,
+        ordinary_lane_stalls: 115,
         cached_packet_transaction_pressure: 110,
         cached_packet_pending_pressure: 111,
         cached_packet_staged_pressure: 112,
@@ -178,6 +181,7 @@ fn blob_cache_log_line_exposes_pressure_and_recovery_counters() {
         ("abandoned_cached_transactions", 107),
         ("recovery_requests", 108),
         ("ordinary_backpressure", 109),
+        ("ordinary_lane_stalls", 115),
         ("cached_packet_transaction_pressure", 110),
         ("cached_packet_pending_pressure", 111),
         ("cached_packet_staged_pressure", 112),
@@ -790,6 +794,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
 
     for event in [
         NetworkControlEvent::Bootstrap {
+            player_rotation: [0.0, 180.0],
             session_generation: simulation_clock::identity::SessionGeneration::new(7),
             identity: Default::default(),
             world: bootstrap,
@@ -802,6 +807,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             player_game_mode_uses_world_default: false,
             server_authoritative_block_breaking: false,
             rewind_history_size: 20,
+            base_game_version: protocol::BaseGameVersion::Any,
             hardcore: false,
             hud_rules: protocol::HudRules::default(),
             death_rules: protocol::DeathRules::default(),
@@ -809,6 +815,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             packs: (),
             terrain_before_spawn: true,
             level_identity: None,
+            level_name: Default::default(),
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),
@@ -947,6 +954,7 @@ fn saturated_command_queue_preserves_packet_and_shutdown_does_not_join_on_ui_thr
         readiness_ingress: Arc::new(ReadinessIngressCounter::default()),
         experience_gate: Arc::default(),
         unflushed: Default::default(),
+        pick_trace: Default::default(),
     };
 
     let packet = test_packet();

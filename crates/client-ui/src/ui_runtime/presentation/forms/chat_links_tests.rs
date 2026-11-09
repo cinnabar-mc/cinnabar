@@ -35,7 +35,7 @@ fn link_hits_follow_the_actual_default_and_named_label_paint_origin() {
                 0,
                 super::screen_registry::registry(),
                 crate::ui_runtime::presentation::forms::texture_sources::downloads(),
-                crate::ui_runtime::presentation::forms::texture_sources::image_work(),
+                ui_engine::sources::ImageWork::inline(),
             );
             let mut node = history_node("https://example.com", 600.0);
             if let Draw::Text { options, .. } = &mut node.draw {

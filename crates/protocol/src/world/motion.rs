@@ -1,7 +1,7 @@
 //! Normalizers for server packets that move or correct actors and the local player.
 
-use bedrock_protocol_1_26_51::enums::MovementEffectType;
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::enums::MovementEffectType;
+use bedrock_protocol_1_26_60::packets::{
     CorrectPlayerMovePrediction, MovePlayer, MovementEffect, SetActorMotion,
 };
 
@@ -96,5 +96,9 @@ pub(super) fn normalize_correction(
         subject: MovementCorrectionSubject::from(packet.prediction_type),
         on_ground: packet.on_ground,
         tick: packet.tick.0,
+        vehicle_angular_velocity: packet
+            .vehicle_angular_velocity
+            .map(|velocity| velocity.0)
+            .filter(|velocity| velocity.is_finite()),
     })
 }

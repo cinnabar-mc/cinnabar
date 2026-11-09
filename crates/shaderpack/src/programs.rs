@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 macro_rules! stage_kinds {
     ($($kind:ident => $extension:literal),+ $(,)?) => {
         /// A shader stage file kind, by extension.
-        #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
         pub enum StageKind { $($kind),+ }
 
         impl StageKind {
@@ -39,7 +39,9 @@ impl StageKind {
 }
 
 /// The pass a program belongs to, in Iris's frame order.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub enum ProgramGroup {
     /// `setup*` compute programs, run once after loading.
     Setup,
@@ -80,11 +82,21 @@ impl ProgramGroup {
             ProgramGroup::Composite | ProgramGroup::Final => "composite",
         }
     }
+
+    /// Draws world geometry (`gbuffers_*`, `shadow*`, `dh_*`) rather than full-screen passes.
+    pub fn draws_geometry(self) -> bool {
+        matches!(
+            self,
+            ProgramGroup::Shadow | ProgramGroup::Gbuffers | ProgramGroup::DistantHorizons
+        )
+    }
 }
 
 /// Whether a program is a draw (vertex + fragment, optional geometry/tessellation) or a
 /// compute dispatch. A composite-style pass may have both: its `.csh` files run first.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    serde::Serialize, serde::Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash,
+)]
 pub enum ProgramKind {
     Render,
     Compute,
@@ -92,7 +104,7 @@ pub enum ProgramKind {
 
 /// One program of the selected dimension: its name (the file stem, e.g. `composite3` or
 /// `deferred4_a`), pass, kind, and stage files (`shaders/`-relative paths).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct ProgramSource {
     pub name: String,
     pub group: ProgramGroup,

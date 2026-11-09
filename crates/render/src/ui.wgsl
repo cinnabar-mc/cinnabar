@@ -38,7 +38,7 @@ UI_SHADOW_DECODER
 
 // Sample the shared decoder's source coordinates with the requested filter.
 fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
-    let bounds = vec4<f32>(input.overlay_color.xy + input.atlas_offset, input.overlay_color.zw);
+    let bounds = vec4<f32>(input.repeat_bounds.xy + input.atlas_offset, input.repeat_bounds.zw);
     var page = PageRegion(vec4<f32>(0.0), vec4<f32>(0.0));
     if (input.style_flags & STYLE_REPEAT_PAGE) != 0u {
         page = ui_page_format.regions[input.texture_page];
@@ -62,6 +62,21 @@ fn sample_repeat(input: UiVertexOutput, dimensions: vec2<f32>) -> vec4<f32> {
 @group(0) @binding(5) var item_glint: texture_2d<f32>;
 @group(0) @binding(6) var item_glint_sampler: sampler;
 
+struct UiModelBone {
+    screen: mat4x4<f32>,
+    normal_x: vec4<f32>,
+    normal_y: vec4<f32>,
+    normal_z: vec4<f32>,
+    overlay: vec4<f32>,
+    uv_rect: vec4<f32>,
+    uv_transform: vec4<f32>,
+    uv_cross: vec4<f32>,
+    tint: vec4<f32>,
+    styles: vec4<u32>,
+};
+@group(0) @binding(7) var<storage, read> ui_model_bones: array<UiModelBone>;
+// ACTOR_SHADE_CONSTANTS
+
 struct UiVertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -72,6 +87,8 @@ struct UiVertexOutput {
     @location(5) model_light: f32,
     @location(6) overlay_color: vec4<f32>,
     @location(7) @interpolate(flat) atlas_offset: vec2<f32>,
+    @location(8) repeat_bounds: vec4<f32>,
+    @location(9) @interpolate(flat) cull_back_faces: u32,
 };
 
 @vertex
@@ -86,33 +103,64 @@ fn ui_vertex(
     @location(7) atlas_offset: vec2<f32>,
     @builtin(instance_index) texture_page: u32,
 ) -> UiVertexOutput {
+    var point = position;
+    var light = model_light;
+    var overlay = overlay_color;
+    var repeat_bounds = overlay_color;
+    var model_uv = uv;
+    var model_color = color;
+    var model_styles = style_flags;
+    var cull_back_faces = 0u;
+    if (style_flags & UI_STYLE_MODEL_VERTEX) != 0u {
+        let base = (texture_page >> UI_MODEL_LAYER_BITS) - 1u;
+        let bone = ui_model_bones[base + u32(position.w) - 1u];
+        point = bone.screen * vec4<f32>(position.xyz, 1.0);
+        let normal = vec3<f32>(dot(bone.normal_x.xyz, overlay_color.xyz), dot(bone.normal_y.xyz, overlay_color.xyz), dot(bone.normal_z.xyz, overlay_color.xyz));
+        if dot(normal, normal) > 0.0 {
+            let n = normalize(normal);
+            light = ((1.0 + n.y) * ACTOR_SHADE[0] + n.x * n.x * ACTOR_SHADE[1]) + n.z * n.z * ACTOR_SHADE[2] + ACTOR_SHADE[3];
+        }
+        overlay = bone.overlay;
+        let source_uv = bone.uv_transform.xy + uv * bone.uv_transform.zw;
+        model_uv = bone.uv_rect.xy + source_uv * (bone.uv_rect.zw - bone.uv_rect.xy) + source_uv.yx * bone.uv_cross.xy;
+        model_color = color * bone.tint;
+        model_styles |= bone.styles.x;
+        cull_back_faces = bone.styles.z;
+        if bone.styles.y != 0u {
+            model_uv = source_uv;
+            repeat_bounds = vec4<f32>(bone.uv_rect.xy, bone.uv_rect.zw - bone.uv_rect.xy);
+            model_styles |= STYLE_REPEAT_X | STYLE_REPEAT_Y;
+        }
+    }
     let ndc = vec2<f32>(
-        position.x / viewport.viewport_size.x * 2.0 - position.w,
-        position.w - position.y / viewport.viewport_size.y * 2.0,
+        point.x / viewport.viewport_size.x * 2.0 - point.w,
+        point.w - point.y / viewport.viewport_size.y * 2.0,
     );
     var output: UiVertexOutput;
-    output.clip_position = vec4<f32>(ndc, position.z, position.w);
-    output.uv = uv;
+    output.clip_position = vec4<f32>(ndc, point.z, point.w);
+    output.uv = model_uv;
     output.atlas_offset = atlas_offset;
     // Pages, vertex colours and the UI layer all stay sRGB-encoded: vanilla UI
     // blends in gamma space, and the layer composites over the scene after.
-    output.color = color;
-    output.texture_page = texture_page;
-    output.style_flags = style_flags;
+    output.color = model_color;
+    output.texture_page = texture_page & (MAX_UI_TEXTURE_LAYERS - 1u);
+    output.style_flags = model_styles;
     output.alpha_cutoff = alpha_cutoff;
-    output.model_light = model_light;
-    output.overlay_color = overlay_color;
+    output.model_light = light;
+    output.overlay_color = overlay;
+    output.repeat_bounds = repeat_bounds;
+    output.cull_back_faces = cull_back_faces;
     return output;
 }
 
 @fragment
-fn ui_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
-    return shade_ui(input, false);
+fn ui_fragment(input: UiVertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    return shade_ui(input, false, front_facing);
 }
 
 @fragment
-fn ui_world_fragment(input: UiVertexOutput) -> @location(0) vec4<f32> {
-    return shade_ui(input, true);
+fn ui_world_fragment(input: UiVertexOutput, @builtin(front_facing) front_facing: bool) -> @location(0) vec4<f32> {
+    return shade_ui(input, true, front_facing);
 }
 
 fn srgb_to_linear(srgb: vec3<f32>) -> vec3<f32> {
@@ -136,9 +184,10 @@ fn sample_outline(uv: vec2<f32>, dx: vec2<f32>, dy: vec2<f32>, dimensions: vec2<
     return total / (grid.x * grid.y);
 }
 
-fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
+fn shade_ui(input: UiVertexOutput, direct: bool, front_facing: bool) -> vec4<f32> {
     let uv_dx = dpdx(input.uv);
     let uv_dy = dpdy(input.uv);
+    if input.cull_back_faces != 0u && !front_facing { discard; }
     if (input.style_flags & STYLE_SHADOW) != 0u {
         let pixel = max(length(uv_dx), length(uv_dy));
         let alpha = input.color.a * ui_shadow_coverage(input.uv, input.overlay_color, pixel);
@@ -222,6 +271,10 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         // Provisional luma weights (Rec. 601); the retail material is not inspected.
         sample = vec4<f32>(vec3<f32>(dot(sample.rgb, vec3<f32>(0.299, 0.587, 0.114))), sample.a);
     }
+    if (input.style_flags & UI_STYLE_RGB_COVERAGE) != 0u {
+        let coverage = max(sample.r, max(sample.g, sample.b));
+        sample = vec4<f32>(sample.rgb / max(coverage, 0.000001), sample.a * coverage);
+    }
     // Native alpha-tested name-tag glyphs threshold the texture, not the faded vertex alpha.
     if input.alpha_cutoff >= 0.0 {
         if sample.a < input.alpha_cutoff { discard; }
@@ -232,8 +285,13 @@ fn shade_ui(input: UiVertexOutput, direct: bool) -> vec4<f32> {
         if (input.style_flags & STYLE_ALPHA_TEST) != 0u { sample.a = 1.0; }
         if sample.a * input.color.a < 0.01 { discard; }
     }
+    let sprite_mask = (input.style_flags & UI_STYLE_SPRITE_COLOR_MASK) != 0u;
+    if sprite_mask {
+        sample = vec4<f32>(mix(sample.rgb, sample.rgb * input.overlay_color.rgb, sample.a), 1.0);
+    }
     // Particle vertices carry sprite bounds in the overlay field.
-    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || repeated);
+    let model = (input.style_flags & UI_STYLE_MODEL_VERTEX) != 0u;
+    let entity_overlay = select(input.overlay_color, vec4<f32>(0.0), particle || sprite_mask || (repeated && !model));
     var straight_color = input.color;
     // Mix the render-controller overlay into sampled RGB before lighting.
     // Sampled and node alpha remain unchanged.

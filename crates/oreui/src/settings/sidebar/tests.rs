@@ -8,6 +8,13 @@ use {
     launcher::menu::{MenuAction, MenuView},
 };
 
+/// The position of the category named `section`.
+fn at(section: &str) -> usize {
+    TABS.iter()
+        .position(|tab| tab.section == section)
+        .expect("a listed category")
+}
+
 #[test]
 fn installed_settings_categories_use_their_full_native_icon_cells() {
     let Some(images) = load_optional_oreui_images(&checkout_compiled_dir()) else {
@@ -31,10 +38,7 @@ fn mods_follow_resource_packs_in_the_same_group() {
     let position = |section: &str| TABS.iter().position(|tab| tab.section == section).unwrap();
     let packs = position("global_texture_pack_forced_index");
     let mods = position(launcher::mods::SECTION);
-    assert_eq!(
-        mods,
-        packs + 1 + usize::from(launcher::menu::settings_options::SHADER_PACK_BINDINGS)
-    );
+    assert_eq!(mods, packs + 2);
     assert!(TABS[mods].group.is_none());
     assert_ne!(section_index(launcher::mods::SECTION), 0);
 }
@@ -96,7 +100,12 @@ fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
             0,
             Some(&originals),
         );
-        icon(&mut canvas, &TABS[2], [100.0, 100.0]).unwrap();
+        icon(
+            &mut canvas,
+            &TABS[at("keyboard_and_mouse_forced_index")],
+            [100.0, 100.0],
+        )
+        .unwrap();
         let cell = nodes.last().unwrap().bounds();
         assert_eq!(
             [
@@ -112,7 +121,12 @@ fn category_images_keep_native_pixel_steps_at_odd_gui_scales() {
 fn category_bevels_follow_selection_hover_and_press() {
     use super::super::super::{review_tests::paint, test_support::solids};
 
-    let action = MenuAction::SettingsSection(section_index(TABS[7].section));
+    let tab = &TABS[at("cinnabar_discord_index")];
+    let other_tab = TABS
+        .iter()
+        .find(|other| other.section != tab.section)
+        .expect("another registered category");
+    let action = MenuAction::SettingsSection(section_index(tab.section));
     for (selected, hovered, pressed, fill, edges) in [
         (false, false, false, NEUTRAL80.fill, None),
         (false, false, true, NEUTRAL80.fill, None),
@@ -146,7 +160,11 @@ fn category_bevels_follow_selection_hover_and_press() {
         ),
     ] {
         let mut view = MenuView::new(true, "Player".into());
-        view.settings.section = section_index(TABS[if selected { 7 } else { 5 }].section);
+        view.settings.section = section_index(if selected {
+            tab.section
+        } else {
+            other_tab.section
+        });
         view.hovered = hovered.then_some(action);
         view.pressed = pressed.then_some(action);
         let mut edge = 0.0;
@@ -265,7 +283,7 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
         view.hovered = hovered.then_some(action);
         let mut edge = 0.0;
         let (_, hits, nodes) = paint(
-            HashMap::from([("oreui_settings_sidebar".into(), 120.0)]),
+            HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), 120.0)]),
             |canvas| {
                 edge = canvas.r(EDGE);
                 draw(canvas, &view, [20.0, 20.0, 420.0, 720.0], &|_| None, None).unwrap();
@@ -298,9 +316,11 @@ fn focused_category_outline_remains_visible_over_the_following_row() {
 fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
     use super::super::super::review_tests::paint;
 
-    let action = MenuAction::SettingsSection(section_index(TABS[2].section));
+    let action = MenuAction::SettingsSection(section_index(
+        TABS[at("keyboard_and_mouse_forced_index")].section,
+    ));
     let mut view = MenuView::new(true, "Player".into());
-    view.settings.section = section_index(TABS[2].section);
+    view.settings.section = section_index(TABS[at("keyboard_and_mouse_forced_index")].section);
     view.focused_action = Some(action);
     let bounds = [20.0, 20.0, 420.0, 300.0];
     let (scrolls, hits, _) = paint(HashMap::new(), |canvas| {
@@ -311,7 +331,7 @@ fn focused_category_outline_stays_clipped_to_its_sidebar_viewport() {
     let offset = row.min().y() - viewport.min().y();
     let mut edge = 0.0;
     let (_, hits, nodes) = paint(
-        HashMap::from([("oreui_settings_sidebar".into(), offset)]),
+        HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), offset)]),
         |canvas| {
             edge = canvas.r(EDGE);
             draw(canvas, &view, bounds, &|_| None, None).unwrap();
@@ -355,13 +375,15 @@ fn account_is_followed_by_resources_without_an_empty_category_row() {
             _ => None,
         })
         .collect();
-    assert_eq!(actions.len(), TABS.len());
-    assert_eq!(
-        actions,
-        TABS.iter()
-            .map(|tab| section_index(tab.section))
-            .collect::<Vec<_>>()
-    );
+    let shown: Vec<_> = TABS
+        .iter()
+        .map(|tab| section_index(tab.section))
+        .filter(|&index| {
+            launcher::menu::settings_sections::SettingSection::from_index(index)
+                .is_some_and(|section| view.settings_section_shown(section))
+        })
+        .collect();
+    assert_eq!(actions, shown);
 }
 
 /// Updates is visible immediately below Accessibility without scrolling.
@@ -390,7 +412,7 @@ fn creator_remains_reachable_at_the_bottom() {
     let creator = MenuAction::SettingsSection(SettingSection::Creator.definition().index);
     let mut row_height = 0.0;
     let (scrolls, hits, _) = crate::review_tests::paint(
-        HashMap::from([("oreui_settings_sidebar".into(), 1_000_000.0)]),
+        HashMap::from([(crate::SETTINGS_SIDEBAR_SCROLL_KEY.into(), 1_000_000.0)]),
         |canvas| {
             row_height = canvas.r(4.8);
             draw(canvas, &view, [20.0, 20.0, 420.0, 400.0], &|_| None, None).unwrap();

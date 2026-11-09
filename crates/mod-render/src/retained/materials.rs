@@ -16,6 +16,7 @@ impl Store {
         let shader = crate::material::compose(source)
             .map_err(|_| error(ErrorCode::Invalid, "material shader"))?;
         let material = Arc::new(crate::material::Material {
+            source: source.into(),
             shader: shader.into(),
         });
         let handle = self.token()?;
@@ -25,23 +26,5 @@ impl Store {
             Ok(())
         })?;
         Ok(handle)
-    }
-    /// Charges materials held by old render snapshots until their native pipelines retire.
-    pub(super) fn material_budget(&self, candidate: &Resources) -> Result<(), DrawError> {
-        let retiring = self
-            .retired_materials
-            .iter()
-            .filter(|m| {
-                Arc::strong_count(m) > 1
-                    && !candidate
-                        .materials
-                        .values()
-                        .any(|live| Arc::ptr_eq(m, live))
-            })
-            .count();
-        if candidate.materials.len() + retiring > mod_api::MAX_DRAW_MATERIALS {
-            return Err(error(ErrorCode::BudgetExceeded, "materials"));
-        }
-        Ok(())
     }
 }

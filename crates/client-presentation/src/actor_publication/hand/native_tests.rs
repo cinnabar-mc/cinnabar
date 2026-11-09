@@ -101,6 +101,28 @@ fn fixture_with_binding(
     ),
     Arc<assets::RuntimeEntityAssets>,
 ) {
+    fixture_with_visibility(main, clock, animated, bound, turning, hide_body, None)
+}
+
+/// Adds a frame-dependent visibility expression to the original authored player fixture.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn fixture_with_visibility(
+    main: Option<&str>,
+    clock: bool,
+    animated: bool,
+    bound: bool,
+    turning: bool,
+    hide_body: bool,
+    visibility: Option<&str>,
+) -> (
+    (
+        WorldStream,
+        EquipmentRuntime,
+        ActorArtworkPages,
+        ActorEquipmentInput,
+    ),
+    Arc<assets::RuntimeEntityAssets>,
+) {
     let geometry = serde_json::json!({"format_version":"1.12.0","minecraft:geometry":[{
         "description":{"identifier":"geometry.player_test","texture_width":64,"texture_height":64},
         "bones":[{"name":"head","pivot":[0,24,0]}, {"name":"body","pivot":[0,24,0]},
@@ -131,6 +153,20 @@ fn fixture_with_binding(
         ("textures/test.png".into(), png.into_inner()),
     ];
     let mut files = files;
+    let paper = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "textures/test.png")
+        .unwrap()
+        .1
+        .clone();
+    files.push((
+        format!("{}.png", assets::item::shield::pattern_path("")).into(),
+        paper.clone(),
+    ));
+    files.push((
+        format!("{}.png", assets::entity::MAP_BACKGROUND_TEXTURE_IDENTIFIER).into(),
+        paper,
+    ));
     let bow = files
         .iter()
         .find(|(path, _)| &**path == "attachables/shield.json")
@@ -188,6 +224,15 @@ fn fixture_with_binding(
             }}
         }))
         .unwrap();
+    }
+    if let Some(expression) = visibility {
+        let (_, document) = files
+            .iter_mut()
+            .find(|(name, _)| name.as_ref() == "entity/player.json")
+            .unwrap();
+        let mut value: serde_json::Value = serde_json::from_slice(document).unwrap();
+        value["minecraft:client_entity"]["description"]["hide_held_items"] = expression.into();
+        *document = serde_json::to_vec(&value).unwrap();
     }
     let compiled = pack_entity_compiler::compile_actor_pack(files)
         .unwrap()
@@ -287,6 +332,8 @@ fn fixture_with_binding(
     let input = ActorEquipmentInput {
         main: main.map(|identifier| crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip(identifier),
@@ -459,6 +506,8 @@ fn native_hand_unbound_attachables_keep_actor_frame_during_owner_swing() {
             if off_hand {
                 input.off = Some(crate::presentation::equipment::WornItem {
                     variant: Default::default(),
+                    map_id: None,
+                    shield_pattern: None,
                     charged_projectile: None,
                     use_facts: client_world::EffectiveItemUse::default(),
                     grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -622,6 +671,8 @@ fn assert_java_native_parent(main: Option<&str>, off: bool, degrees: f32) {
     if off {
         input.off = Some(crate::presentation::equipment::WornItem {
             variant: Default::default(),
+            map_id: None,
+            shield_pattern: None,
             charged_projectile: None,
             use_facts: client_world::EffectiveItemUse::default(),
             grip: assets::item::grip::builtin_item_grip("minecraft:shield"),
@@ -873,6 +924,7 @@ pub(super) fn player_feed() -> client_world::LocalPlayerFeed {
         java_swing_ticks: actor_animation::ACTOR_SWING_TICKS,
         flying: false,
         gliding: false,
+        swimming: false,
         spinning: false,
         fall_fly_ticks: 0,
         teleported: false,
@@ -949,3 +1001,9 @@ fn legacy_bare_arm_reuses_its_rest_pose_without_sampling_or_allocating() {
     }
     assert_eq!(cache.native_pose.sample_work, (0, 0));
 }
+
+#[path = "sampling_reuse_tests.rs"]
+mod sampling_reuse;
+
+#[path = "shield_review_tests.rs"]
+mod shield_review;

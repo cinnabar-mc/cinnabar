@@ -14,7 +14,9 @@ struct Varying {
 /// Stage-local varying declarations and program-wide resource bindings.
 #[derive(Default)]
 pub(crate) struct ProgramInterface {
-    varyings: BTreeMap<(StageKind, String), Varying>,
+    varyings: BTreeMap<(bool, StageKind, String), Varying>,
+    geometry_output_interface: bool,
+    next_varying: usize,
     textures: BTreeMap<String, u32>,
     images: BTreeMap<String, u32>,
     uniform_blocks: BTreeMap<String, u32>,
@@ -22,6 +24,23 @@ pub(crate) struct ProgramInterface {
 }
 
 impl ProgramInterface {
+    /// Selects either side of a geometry stage while keeping shared resource bindings.
+    pub(crate) fn set_geometry_output_interface(&mut self, output: bool) {
+        self.geometry_output_interface = output;
+    }
+
+    /// Links a scalar/vector geometry input with the preceding vertex output interface.
+    pub(crate) fn geometry_input(&mut self, name: &str, explicit: Option<u32>) {
+        self.varying(StageKind::Fragment, name, 1, explicit);
+    }
+
+    /// Removes unused geometry inputs before allocating the vertex output locations.
+    pub(crate) fn retain_geometry_inputs(&mut self, mut active: impl FnMut(&str) -> bool) {
+        self.varyings.retain(|(output, stage, name), _| {
+            *output || *stage != StageKind::Fragment || active(name)
+        });
+    }
+
     /// Registers a varying before allocation so later explicit locations reserve their slots.
     pub(super) fn varying(
         &mut self,
@@ -30,37 +49,41 @@ impl ProgramInterface {
         size: u32,
         explicit: Option<u32>,
     ) -> String {
-        let next = self.varyings.len();
         let varying = self
             .varyings
-            .entry((stage, name.to_string()))
-            .or_insert_with(|| Varying {
-                symbol: format!("__shaderpack_location_{next}"),
-                size,
-                explicit,
+            .entry((self.geometry_output_interface, stage, name.to_string()))
+            .or_insert_with(|| {
+                let symbol = format!("__shaderpack_location_{}", self.next_varying);
+                self.next_varying += 1;
+                Varying {
+                    symbol,
+                    size,
+                    explicit,
+                }
             });
         varying.symbol.clone()
     }
 
     /// Allocates non-overlapping implicit locations after reserving every explicit range.
     pub(crate) fn location_defines(&self) -> Result<String, String> {
-        let mut used = Vec::new();
-        for varying in self.varyings.values() {
+        let mut used = BTreeMap::<_, Vec<_>>::new();
+        for ((interface, ..), varying) in &self.varyings {
             if let Some(start) = varying.explicit {
                 let end = start
                     .checked_add(varying.size)
                     .ok_or("varying location overflow")?;
-                used.push(start..end);
+                used.entry(*interface).or_default().push(start..end);
             }
         }
         let mut implicit = BTreeMap::new();
         let mut definitions = String::new();
-        for ((stage, name), varying) in &self.varyings {
+        for ((interface, stage, name), varying) in &self.varyings {
+            let used = used.entry(*interface).or_default();
             let other_stage = match stage {
                 StageKind::Vertex => StageKind::Fragment,
                 _ => StageKind::Vertex,
             };
-            let peer = self.varyings.get(&(other_stage, name.clone()));
+            let peer = self.varyings.get(&(*interface, other_stage, name.clone()));
             // Explicit declarations own their locations independently of names. A name
             // links stages only when at least one declaration needs an implicit location.
             let fixed = varying
@@ -73,7 +96,7 @@ impl ProgramInterface {
             }
             let start = if let Some(explicit) = fixed {
                 explicit
-            } else if let Some(start) = implicit.get(name) {
+            } else if let Some(start) = implicit.get(&(*interface, name)) {
                 *start
             } else {
                 let mut start = 0u32;
@@ -88,7 +111,7 @@ impl ProgramInterface {
                         Some(range) => start = range.end,
                         None => {
                             used.push(start..end);
-                            implicit.insert(name, start);
+                            implicit.insert((*interface, name), start);
                             break start;
                         }
                     }

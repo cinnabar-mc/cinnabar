@@ -21,15 +21,58 @@ pub struct CameraSettingsAuthority {
     smaa_mode: ui::SmaaMode,
     perspective: PerspectiveMode,
     configured_perspective: PerspectiveMode,
+    mod_perspective: Option<PerspectiveMode>,
+    view_yaw_offset: f32,
     pub(super) freelook: bool,
-    detached: Option<super::DetachedView>,
+    presented_view: Option<PresentedView>,
     death_rotation: Option<Quat>,
     feel: CameraFeelSettings,
     game_sensitivity: super::look::GameSensitivity,
     rig: Option<CameraRig>,
-    preserve_teleport_rotation: bool,
+    /// A developer-scripted camera is rendering the scene from outside the body.
+    scripted_view: bool,
     view_scale: [f32; 2],
-    hurt_style: Option<render_api::HurtCameraStyle>,
+    view_tilt: Option<ViewTilt>,
+}
+
+/// A packet mod's detached camera pose, presented instead of the body's camera.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PresentedView {
+    pub position: Vec3,
+    pub rotation: Quat,
+    /// Look input turns this view instead of the body.
+    pub capture_look: bool,
+    /// The walking, jump and sneak bindings stop moving the body.
+    pub capture_movement: bool,
+}
+
+/// A mod's current-frame tilt of the first-person view, in degrees, applied where the native
+/// damage shake is.
+///
+/// Positive pitch turns the view up. Positive roll turns it about the view direction the way
+/// the native shake does for a hit without direction: the view's right edge rises, so the
+/// world appears to turn clockwise. The native shake of angle `a` from hurt direction `d` is
+/// approximately roll `a cos d` and pitch `-a sin d`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewTilt {
+    pub roll_degrees: f32,
+    pub pitch_degrees: f32,
+    /// Removes the native damage shake; death rotation and view bob remain.
+    pub suppress_hurt_shake: bool,
+}
+
+impl ViewTilt {
+    /// The tilt as a rotation of the camera in its own frame: pitch about its right axis,
+    /// then roll about its view axis.
+    #[must_use]
+    pub fn rotation(self) -> Quat {
+        Quat::from_euler(
+            EulerRot::YXZ,
+            0.0,
+            self.pitch_degrees.to_radians(),
+            self.roll_degrees.to_radians(),
+        )
+    }
 }
 
 /// A local mod's third-person boom: camera-local blocks (x right, y up, z back), roll and FOV change.
@@ -53,6 +96,8 @@ pub struct CameraFeelSettings {
     pub java_animations: bool,
     /// Whether server-pack custom held-item models are drawn.
     pub show_custom_item_models: bool,
+    /// Whether other players' catalog cosmetics and their effects are drawn.
+    pub show_other_player_cosmetics: bool,
     pub gamepad_look_sensitivity: f32,
     pub touch_look_sensitivity: f32,
 }
@@ -76,6 +121,7 @@ impl CameraFeelSettings {
             damage_bob: unit(settings.video.damage_bob),
             java_animations: settings.video.java_animations,
             show_custom_item_models: settings.video.show_custom_item_models,
+            show_other_player_cosmetics: settings.video.show_other_player_cosmetics,
             gamepad_look_sensitivity: settings.controls.gamepad_look_sensitivity,
             touch_look_sensitivity: settings.controls.touch_look_sensitivity,
         }
@@ -93,34 +139,37 @@ impl Default for CameraSettingsAuthority {
             smaa_mode: settings.video.smaa_mode,
             perspective: settings.gameplay.default_perspective,
             configured_perspective: settings.gameplay.default_perspective,
+            mod_perspective: None,
+            view_yaw_offset: 0.0,
             freelook: false,
-            detached: None,
+            presented_view: None,
             death_rotation: None,
             feel: CameraFeelSettings::from_settings(&settings),
             game_sensitivity: Default::default(),
             rig: None,
-            preserve_teleport_rotation: false,
+            scripted_view: false,
             view_scale: [1.0, 1.0],
-            hurt_style: None,
+            view_tilt: None,
         }
     }
 }
 
 impl CameraSettingsAuthority {
-    /// Applies detached ownership to the view through the shared camera authority.
-    /// The look pass has already resolved whether a held user action is admitted.
-    pub fn apply_detached_view(
+    /// Presents a mod's detached view and routes look input to it while it captures look;
+    /// release returns look to the body. The look pass has already resolved whether a held
+    /// user freelook is admitted.
+    pub fn apply_presented_view(
         &mut self,
         view: &mut crate::local_player::LocalViewPose,
-        detached: Option<super::DetachedView>,
+        presented: Option<PresentedView>,
         user_freelook: bool,
     ) {
-        let previous = self.detached_view();
-        self.set_detached_view(detached);
-        if detached.is_some() || previous.is_some() {
-            view.set_freelook(detached.is_some() || user_freelook && self.freelook);
+        let previous = self.captures_look();
+        self.set_presented_view(presented);
+        let capture = self.captures_look();
+        if capture || previous {
+            view.set_freelook(capture || user_freelook && self.freelook);
         }
-        view.set_detached_translation(matches!(detached, Some(super::DetachedView::Fly { .. })));
     }
 
     /// Atomically accepts newer settings after validating their FOV.
@@ -190,15 +239,30 @@ impl CameraSettingsAuthority {
     /// shows; a chosen third-person mode is kept.
     #[must_use]
     pub const fn perspective(&self) -> PerspectiveMode {
-        if self.detached.is_some()
+        let perspective = match self.mod_perspective {
+            Some(view) => view,
+            None => self.perspective,
+        };
+        if self.presented_view.is_some()
             || self.rig.is_some()
             || self.freelook
             || (self.death_rotation.is_some()
-                && matches!(self.perspective, PerspectiveMode::FirstPerson))
+                && matches!(perspective, PerspectiveMode::FirstPerson))
         {
             PerspectiveMode::ThirdPersonBack
         } else {
-            self.perspective
+            perspective
+        }
+    }
+
+    /// The perspective the local body is drawn for: `perspective`, except that a scripted camera filming
+    /// from outside the body draws it as third-person-back. Only drawing reads this; anything a server
+    /// can observe, such as aim-assist activation, keeps reading `perspective`.
+    #[must_use]
+    pub fn rendered_perspective(&self) -> PerspectiveMode {
+        match self.perspective() {
+            PerspectiveMode::FirstPerson if self.scripted_view => PerspectiveMode::ThirdPersonBack,
+            perspective => perspective,
         }
     }
 
@@ -227,35 +291,30 @@ impl CameraSettingsAuthority {
 
     #[must_use]
     /// Returns the optional local camera rig override.
-    pub fn rig(&self) -> Option<CameraRig> {
-        match self.detached {
-            Some(super::DetachedView::Orbit { distance }) => Some(CameraRig {
-                offset: Vec3::new(0.0, 0.0, distance),
-                roll_radians: 0.0,
-                fov_delta_degrees: 0.0,
-            }),
-            _ => self.rig,
-        }
+    pub const fn rig(&self) -> Option<CameraRig> {
+        self.rig
     }
 
-    /// Selects an already validated detached view; omission releases local view ownership.
-    pub fn set_detached_view(&mut self, view: Option<super::DetachedView>) {
-        self.detached = view;
+    /// Selects a detached view; a non-finite pose or none releases local view ownership.
+    pub fn set_presented_view(&mut self, view: Option<PresentedView>) {
+        self.presented_view =
+            view.filter(|view| view.position.is_finite() && view.rotation.is_finite());
     }
 
-    /// The current extension-selected view, without changing the player's saved perspective.
-    pub const fn detached_view(&self) -> Option<super::DetachedView> {
-        self.detached
+    /// The current mod-presented view, without changing the player's saved perspective.
+    pub const fn presented_view(&self) -> Option<PresentedView> {
+        self.presented_view
     }
 
-    /// A granted extension's current-frame policy for actual teleport yaw/pitch only.
-    pub const fn preserves_teleport_rotation(&self) -> bool {
-        self.preserve_teleport_rotation
+    /// Whether look input turns the presented view instead of the body.
+    pub fn captures_look(&self) -> bool {
+        self.presented_view.is_some_and(|view| view.capture_look)
     }
 
-    /// Position reconciliation and teleport acknowledgment remain server-owned.
-    pub fn set_preserve_teleport_rotation(&mut self, enabled: bool) {
-        self.preserve_teleport_rotation = enabled;
+    /// Whether the walking, jump and sneak bindings stop moving the body.
+    pub fn captures_movement(&self) -> bool {
+        self.presented_view
+            .is_some_and(|view| view.capture_movement)
     }
 
     /// Applies ephemeral view multipliers without changing saved FOV, sensitivity or perspective.
@@ -284,17 +343,36 @@ impl CameraSettingsAuthority {
         self.view_scale[1]
     }
 
-    /// Applies a validated local damage effect without changing saved preferences or aim.
-    pub fn set_hurt_camera_style(&mut self, style: Option<render_api::HurtCameraStyle>) {
-        self.hurt_style = style;
+    /// Applies a mod's current-frame view tilt; non-finite angles restore the native view.
+    /// Saved preferences, look and movement are unchanged.
+    pub fn set_view_tilt(&mut self, tilt: Option<ViewTilt>) {
+        self.view_tilt =
+            tilt.filter(|tilt| tilt.roll_degrees.is_finite() && tilt.pitch_degrees.is_finite());
     }
 
-    /// Current damage styling, falling back to the latest sanitized player preference.
-    pub fn hurt_camera_style(&self) -> render_api::HurtCameraStyle {
-        self.hurt_style.unwrap_or_else(|| {
-            render_api::HurtCameraStyle::new(self.feel.damage_bob, false)
-                .expect("camera preferences sanitize damage shake")
-        })
+    /// The current mod view tilt, if any.
+    pub const fn view_tilt(&self) -> Option<ViewTilt> {
+        self.view_tilt
+    }
+
+    /// The tilt's camera-frame rotation; identity without one.
+    pub fn view_tilt_rotation(&self) -> Quat {
+        self.view_tilt.map_or(Quat::IDENTITY, ViewTilt::rotation)
+    }
+
+    /// Damage shake strength: the player's damage bob, or none while a tilt suppresses it.
+    pub fn hurt_shake_intensity(&self) -> f32 {
+        if self.view_tilt.is_some_and(|tilt| tilt.suppress_hurt_shake) {
+            0.0
+        } else {
+            self.feel.damage_bob
+        }
+    }
+
+    /// Marks a developer-scripted camera as active, so the local body is drawn in its shots without
+    /// changing the player's perspective; clearing stops drawing it.
+    pub fn set_scripted_view(&mut self, active: bool) {
+        self.scripted_view = active;
     }
 
     /// Non-finite rigs are dropped; `None` restores the player's own perspective.
@@ -318,6 +396,28 @@ impl CameraSettingsAuthority {
         self.game_sensitivity.value()
     }
 
+    /// Sets a frame-local presented heading offset without mutating player look.
+    pub fn set_view_yaw_offset(&mut self, degrees: Option<f32>) {
+        self.view_yaw_offset = degrees
+            .filter(|v| v.is_finite() && (-180.0..=180.0).contains(v))
+            .unwrap_or(0.0);
+    }
+
+    /// Whether a body-aligned first-person viewmodel belongs in the presented view.
+    pub fn view_aligned(&self) -> bool {
+        self.view_yaw_offset == 0.0
+    }
+
+    /// Turns only the presented orientation around world up, leaving the camera position intact.
+    pub fn offset_view_rotation(&self, rotation: Quat) -> Quat {
+        Quat::from_rotation_y(self.view_yaw_offset.to_radians()) * rotation
+    }
+
+    /// Selects a temporary ordinary view without changing the player's perspective cycle.
+    pub fn set_mod_perspective(&mut self, view: Option<PerspectiveMode>) {
+        self.mod_perspective = view;
+    }
+
     /// Advances the configured first-person and third-person camera cycle.
     pub fn cycle_perspective(&mut self) {
         self.perspective = next_perspective(self.perspective);
@@ -327,11 +427,12 @@ impl CameraSettingsAuthority {
     pub fn reset_perspective(&mut self) {
         self.perspective = PerspectiveMode::FirstPerson;
         self.freelook = false;
-        self.detached = None;
+        self.presented_view = None;
         self.death_rotation = None;
-        self.preserve_teleport_rotation = false;
+        self.mod_perspective = None;
+        self.view_yaw_offset = 0.0;
         self.view_scale = [1.0, 1.0];
-        self.hurt_style = None;
+        self.view_tilt = None;
     }
 }
 
@@ -368,5 +469,35 @@ mod tests {
         let mut camera = CameraSettingsAuthority::default();
         camera.replace(1, &settings).unwrap();
         assert!(!camera.feel().show_custom_item_models);
+    }
+
+    #[test]
+    fn camera_authority_publishes_the_other_player_cosmetics_preference() {
+        let mut settings = UserSettings::default();
+        let mut camera = CameraSettingsAuthority::default();
+        assert!(camera.feel().show_other_player_cosmetics);
+        settings.video.show_other_player_cosmetics = false;
+        camera.replace(1, &settings).unwrap();
+        assert!(!camera.feel().show_other_player_cosmetics);
+        settings.video.show_other_player_cosmetics = true;
+        camera.replace(2, &settings).unwrap();
+        assert!(camera.feel().show_other_player_cosmetics);
+    }
+}
+
+#[cfg(test)]
+mod perspective_tests {
+    use super::*;
+
+    /// Clearing the override reveals even a perspective cycled while it was held.
+    #[test]
+    fn temporary_perspective_preserves_player_choice() {
+        let mut camera = CameraSettingsAuthority::default();
+        camera.set_mod_perspective(Some(PerspectiveMode::ThirdPersonFront));
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.cycle_perspective();
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonFront);
+        camera.set_mod_perspective(None);
+        assert_eq!(camera.perspective(), PerspectiveMode::ThirdPersonBack);
     }
 }

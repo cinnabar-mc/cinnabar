@@ -254,12 +254,14 @@ pub fn apply_environment_control(
         CommittedControlEvent::MovePlayer { .. }
         | CommittedControlEvent::LocalActorMove { .. }
         | CommittedControlEvent::PlayerMovementCorrection { .. }
+        | CommittedControlEvent::VehicleMovementCorrection { .. }
         | CommittedControlEvent::ChangeDimension { .. }
         | CommittedControlEvent::DimensionChangeAck { .. }
         | CommittedControlEvent::Respawn { .. }
         | CommittedControlEvent::LocalMovementEffect { .. }
         | CommittedControlEvent::LocalMovementSpeed { .. }
         | CommittedControlEvent::LocalMovementFlags { .. }
+        | CommittedControlEvent::LocalGameMode { .. }
         | CommittedControlEvent::NetworkStackLatency { .. }
         | CommittedControlEvent::LocalActorMotion { .. }
         | CommittedControlEvent::LocalMovementBoost { .. }

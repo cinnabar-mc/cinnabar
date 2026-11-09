@@ -32,7 +32,7 @@ pub fn fixture_hud() -> Arc<RuntimeHudCatalog> {
             }
         })
         .collect::<Vec<_>>();
-    let manifest = assets::HUD_SOURCE_MANIFEST_SHA256;
+    let manifest = assets::hud_source_manifest_sha256();
     let bytes = encode_hud_catalog(manifest, &textures).unwrap();
     Arc::new(RuntimeHudCatalog::decode(&bytes).unwrap())
 }
@@ -84,7 +84,7 @@ pub fn mini_carrier() -> Arc<RuntimeUiAssets> {
 /// Enables the minimal carrier on a deterministic font fixture.
 pub fn mini_engine_presentation() -> UiPresentationRuntime {
     let mut presentation = UiPresentationRuntime::new(fixture_font()).unwrap();
-    presentation.enable_json_ui(mini_carrier()).unwrap();
+    presentation.enable_json_ui_inline(mini_carrier()).unwrap();
     presentation
 }
 
@@ -99,7 +99,7 @@ pub fn engine_presentation_with(font: Arc<RuntimeFontCatalog>) -> Option<UiPrese
     let mut presentation =
         UiPresentationRuntime::with_hud(font, fixture_hud()).expect("build fixture HUD");
     presentation
-        .enable_json_ui(carrier)
+        .enable_json_ui_inline(carrier)
         .expect("enable installed UI fixture");
     Some(presentation)
 }
@@ -201,3 +201,22 @@ pub use play_flow::fixture_view;
 pub use crate::ui_runtime::presentation::forms::test_support::{menu_hit_targets, screen_settings};
 
 pub use crate::ui_runtime::presentation::forms::test_support::{text_metrics, text_scale};
+
+/// Constructs a named UI fixture item with unrelated registry traits explicitly unresolved.
+pub fn fixture_item(identifier: &str) -> client_world::CanonicalItemStack {
+    client_world::CanonicalItemStack {
+        identifier: Some(identifier.into()),
+        use_animation: assets::item_use::ItemUseAnimation::None,
+        grip: assets::item::grip::ItemGrip::Unresolved,
+        glint: assets::item::glint::ItemGlint::Unresolved,
+        identity: assets::ItemStackIdentity::empty(),
+        visual: assets::ItemVisualRoute::Missing,
+        charged_projectile: None,
+        charged_projectile_role: assets::item_use::ItemProjectileRole::None,
+        damage: None,
+        durability: assets::item::durability::ItemDurability::NotDamageable,
+        enchanted: false,
+        map_id: None,
+        shield_pattern: None,
+    }
+}

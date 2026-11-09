@@ -1,6 +1,9 @@
 //! Import buttons open the platform file picker on their worker thread.
+#[cfg(any(not(any(windows, target_os = "android", target_os = "macos")), test))]
 use std::path::PathBuf;
-#[cfg(any(not(any(windows, target_os = "android")), test))]
+mod picked;
+pub use picked::PickedFile;
+#[cfg(any(not(any(windows, target_os = "android", target_os = "macos")), test))]
 use std::process::Command;
 
 /// What one import dialog asks for.
@@ -16,19 +19,22 @@ pub struct Filter {
 }
 
 /// Returns one selected filename, cancellation, or a visible picker error.
-pub fn pick(filter: &Filter) -> Result<Option<PathBuf>, String> {
+pub fn pick(filter: &Filter) -> Result<Option<PickedFile>, String> {
     choose(filter, false).map(|paths| paths.into_iter().next())
 }
 
 /// Returns all selected files, an empty list on cancellation, or a visible picker error.
-pub fn pick_files(filter: &Filter) -> Result<Vec<PathBuf>, String> {
+pub fn pick_files(filter: &Filter) -> Result<Vec<PickedFile>, String> {
     choose(filter, true)
 }
 
 /// Shares filters and fallback tools while preserving each caller's selection mode.
-// Windows and Android compile only their own branch, so its early return is the tail.
-#[cfg_attr(any(windows, target_os = "android"), allow(clippy::needless_return))]
-fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
+// Windows, Android and macOS compile only their own branch, so its early return is the tail.
+#[cfg_attr(
+    any(windows, target_os = "android", target_os = "macos"),
+    allow(clippy::needless_return)
+)]
+fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PickedFile>, String> {
     #[cfg(windows)]
     {
         let result = if multiple {
@@ -37,12 +43,14 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
             super::windows::pick_file(filter.title, &windows_filter(filter))
                 .map(|path| path.into_iter().collect())
         };
-        result.map_err(|code| {
-            format!(
-                "File picker failed (error {code:#x}). {}",
-                filter.unavailable_hint
-            )
-        })
+        result
+            .map(|paths| paths.into_iter().map(PickedFile::from).collect())
+            .map_err(|code| {
+                format!(
+                    "File picker failed (error {code:#x}). {}",
+                    filter.unavailable_hint
+                )
+            })
     }
     #[cfg(target_os = "linux")]
     {
@@ -53,7 +61,7 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
                 .map(|path| path.into_iter().collect())
         };
         match result {
-            Ok(paths) => return Ok(paths),
+            Ok(paths) => return Ok(paths.into_iter().map(PickedFile::from).collect()),
             Err(error) => {
                 tracing::debug!("portal file chooser unavailable ({error}); trying dialog tools")
             }
@@ -64,25 +72,24 @@ fn choose(filter: &Filter, multiple: bool) -> Result<Vec<PathBuf>, String> {
     return super::android::pick_documents(multiple, filter.max_bytes)
         .map_err(|error| format!("{error}."))?
         .ok_or_else(|| unavailable("no document picker is available", filter))
-        .and_then(|paths| selected(filter, paths));
-    #[cfg(not(any(windows, target_os = "android")))]
-    selected(
-        filter,
-        run_tools(
-            tool_commands(std::env::consts::OS, filter, multiple),
-            filter,
-        )?,
-    )
+        .and_then(|paths| selected(filter, paths.into_iter().map(PickedFile::copied).collect()));
+    #[cfg(target_os = "macos")]
+    return selected(filter, super::macos::pick_files(filter.title, multiple))
+        .map(|paths| paths.into_iter().map(PickedFile::from).collect());
+    #[cfg(not(any(windows, target_os = "android", target_os = "macos")))]
+    selected(filter, run_tools(tool_commands(filter, multiple), filter)?)
+        .map(|paths| paths.into_iter().map(PickedFile::from).collect())
 }
 
 /// Keeps picked files with an accepted extension; picking only other files is a visible error.
 #[cfg(any(not(windows), test))]
-fn selected(filter: &Filter, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String> {
+fn selected<T: AsRef<std::path::Path>>(filter: &Filter, paths: Vec<T>) -> Result<Vec<T>, String> {
     let picked = !paths.is_empty();
-    let accepted: Vec<PathBuf> = paths
+    let accepted: Vec<T> = paths
         .into_iter()
         .filter(|path| {
-            path.extension()
+            path.as_ref()
+                .extension()
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| {
                     filter
@@ -104,8 +111,8 @@ fn selected(filter: &Filter, paths: Vec<PathBuf>) -> Result<Vec<PathBuf>, String
     Ok(accepted)
 }
 
-/// Derives every platform's filter from the selected import extensions.
-#[cfg(any(not(target_os = "android"), test))]
+/// Derives the Windows and Linux filters from the selected import extensions.
+#[cfg(any(not(any(target_os = "android", target_os = "macos")), test))]
 fn patterns(filter: &Filter) -> Vec<String> {
     filter
         .extensions
@@ -121,7 +128,7 @@ fn windows_filter(filter: &Filter) -> String {
 }
 
 /// Runs the first picker tool that launches; a launched tool's failure counts as cancellation.
-#[cfg(not(any(windows, target_os = "android")))]
+#[cfg(not(any(windows, target_os = "android", target_os = "macos")))]
 fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, String> {
     let mut launch_error = None;
     for mut command in commands {
@@ -138,16 +145,18 @@ fn run_tools(commands: Vec<Command>, filter: &Filter) -> Result<Vec<PathBuf>, St
 }
 
 /// The visible error when no picker could open, followed by the caller's alternative.
-#[cfg(not(windows))]
+#[cfg(not(any(windows, target_os = "macos")))]
 fn unavailable(reason: &str, filter: &Filter) -> String {
-    format!(
-        "File picker unavailable: {reason}. {}",
+    let hint = if cfg!(target_os = "android") {
+        "Enable a document picker and try importing again."
+    } else {
         filter.unavailable_hint
-    )
+    };
+    format!("File picker unavailable: {reason}. {}", hint)
 }
 
 /// Reads one selected path per line, preserving spaces and ignoring empty output lines.
-#[cfg(any(not(any(windows, target_os = "android")), test))]
+#[cfg(any(not(any(windows, target_os = "android", target_os = "macos")), test))]
 fn output_paths(output: &[u8]) -> Vec<PathBuf> {
     String::from_utf8_lossy(output)
         .lines()
@@ -157,28 +166,9 @@ fn output_paths(output: &[u8]) -> Vec<PathBuf> {
 }
 
 /// Picker tools in fallback order; Linux reaches these only when the portal is unavailable.
-#[cfg(any(not(any(windows, target_os = "android")), test))]
-fn tool_commands(platform: &str, filter: &Filter, multiple: bool) -> Vec<Command> {
+#[cfg(any(not(any(windows, target_os = "android", target_os = "macos")), test))]
+fn tool_commands(filter: &Filter, multiple: bool) -> Vec<Command> {
     let (title, name) = (filter.title, filter.name);
-    if platform == "macos" {
-        // `of type` matches only file types Launch Services knows, so `.wasm` and (without
-        // Minecraft installed) `.mcpack` would be greyed out; `selected` checks extensions instead.
-        let script = if multiple {
-            format!(
-                "set selectedFiles to choose file with prompt \"{title}\" with multiple selections allowed\n\
-             set selectedPaths to \"\"\n\
-             repeat with selectedFile in selectedFiles\n\
-             set selectedPaths to selectedPaths & (POSIX path of selectedFile) & linefeed\n\
-             end repeat\n\
-             return selectedPaths"
-            )
-        } else {
-            format!("POSIX path of (choose file with prompt \"{title}\")")
-        };
-        let mut command = Command::new("osascript");
-        command.args(["-e", &script]);
-        return vec![command];
-    }
     let patterns = patterns(filter).join(" ");
     let mut zenity = Command::new("zenity");
     zenity.args([
@@ -222,15 +212,6 @@ mod tests {
             .collect()
     }
 
-    /// macOS cannot match unregistered types like `.wasm`, so the dialog lists every file.
-    #[test]
-    fn macos_picker_leaves_extension_checks_to_the_selection() {
-        for multiple in [false, true] {
-            let commands = tool_commands("macos", &PACKS, multiple);
-            assert!(!args(&commands[0])[1].contains("of type"));
-        }
-    }
-
     #[test]
     fn selections_keep_only_accepted_extensions() {
         let picked = vec![
@@ -246,7 +227,7 @@ mod tests {
             ]
         );
         assert!(
-            selected(&PACKS, Vec::new()).unwrap().is_empty(),
+            selected(&PACKS, Vec::<PathBuf>::new()).unwrap().is_empty(),
             "cancelling is not an error"
         );
         let error = selected(&PACKS, vec![PathBuf::from("/mods/mod.wasm")]).unwrap_err();
@@ -254,8 +235,36 @@ mod tests {
     }
 
     #[test]
+    fn rejecting_an_android_copy_removes_it_before_returning_the_error() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("selection/0/wrong.wasm");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, b"copied document").unwrap();
+        assert!(selected(&PACKS, vec![PickedFile::copied(path.clone())]).is_err());
+        assert!(!path.exists());
+        assert!(!root.path().join("selection").exists());
+    }
+
+    #[test]
+    fn zip_requests_keep_only_zip_names() {
+        let zip = Filter {
+            extensions: &["ZIP"],
+            ..PACKS
+        };
+        assert_eq!(
+            selected(
+                &zip,
+                vec![PathBuf::from("Dusk.ZIP"), PathBuf::from("notes.txt")]
+            )
+            .unwrap(),
+            [PathBuf::from("Dusk.ZIP")]
+        );
+        assert!(selected(&zip, vec![PathBuf::from("notes.txt")]).is_err());
+    }
+
+    #[test]
     fn linux_fallbacks_try_zenity_then_kdialog_with_the_pack_filter() {
-        let commands = tool_commands("linux", &PACKS, true);
+        let commands = tool_commands(&PACKS, true);
         let programs = commands
             .iter()
             .map(|command| command.get_program().to_str().unwrap())
@@ -276,14 +285,9 @@ mod tests {
     #[test]
     fn fallback_selection_mode_preserves_single_and_multiple_imports() {
         for multiple in [false, true] {
-            for command in tool_commands("linux", &PACKS, multiple) {
+            for command in tool_commands(&PACKS, multiple) {
                 assert_eq!(args(&command).contains(&"--multiple"), multiple);
             }
-            let commands = tool_commands("macos", &PACKS, multiple);
-            assert_eq!(
-                args(&commands[0])[1].contains("multiple selections allowed"),
-                multiple
-            );
         }
     }
 
@@ -315,7 +319,7 @@ mod tests {
         assert!(output_paths(b"").is_empty());
     }
 
-    #[cfg(all(unix, not(target_os = "android")))]
+    #[cfg(all(unix, not(any(target_os = "android", target_os = "macos"))))]
     #[test]
     fn a_missing_tool_falls_through_and_a_cancelled_one_stops() {
         let shell = |script: &str| {

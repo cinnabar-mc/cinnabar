@@ -1,0 +1,37 @@
+{
+  "type": "callback",
+  "seq": 7,
+  "info": {
+    "context": {
+      "opening_closed": true,
+      "current": {
+        "id": "probe:planet",
+        "generation": 9007199254740995
+      },
+      "player": null,
+      "instances": [],
+      "stores": []
+    },
+    "world_id": "world",
+    "dimension_id": "overworld",
+    "tick": 3,
+    "event_sequence": 7
+  },
+  "actor": null,
+  "world_min_y": -64,
+  "world_max_y": 319,
+  "data_budget": 1024,
+  "snapshot": [],
+  "network": null,
+  "inventory": null,
+  "call": {
+    "type": "entity",
+    "handle": {
+      "id": 9007199254740993,
+      "generation": 9007199254740995
+    },
+    "event": {
+      "type": "despawned"
+    }
+  }
+}

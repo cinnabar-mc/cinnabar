@@ -1,4 +1,4 @@
-//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.50.04).
+//! Player-card geometry from OreUI `bZ` and `hZ` (1.26.60.04).
 use super::super::icons::{self, Icon};
 use super::super::theme::{BORDER, CAPTION, HEADER5, NEUTRAL100, TEXT_DIMMER, TEXT_DIMMEST};
 use {
@@ -155,6 +155,7 @@ mod tests {
     fn wide_card_character_stays_beside_the_name_when_the_banner_widens() {
         let view = MenuView::new(true, "BugTest".into());
         let character = IconRef {
+            color_mask: None,
             page: 7,
             uv: [0, 0, 148, 196],
             glint: false,

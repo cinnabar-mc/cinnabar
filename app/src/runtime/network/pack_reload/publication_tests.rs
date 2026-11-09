@@ -56,7 +56,7 @@ fn shared_frame_publishes_server_visuals_before_consumers() {
         width: 1,
         height: 1,
         layers: 1,
-        rgba8: Arc::from([11, 23, 47, 255]),
+        rgba8: [11, 23, 47, 255].into(),
         color_mask: false,
         multitexture: false,
     }]);
@@ -71,6 +71,7 @@ fn shared_frame_publishes_server_visuals_before_consumers() {
     crate::game_frame::configure_client_frame_schedule(&mut app);
     crate::game_frame::configure_pack_publication(&mut app);
     app.insert_resource(ClientWorld::new(assets.clone()))
+        .insert_resource(crate::runtime::network::session_registries::tests::collision_resource())
         .insert_resource(UiRuntimeResource(client_ui::ui_runtime::UiRuntime::new(0)))
         .insert_resource(weather)
         .init_resource::<ActorArtworkResource>()

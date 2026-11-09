@@ -6,6 +6,7 @@ use super::*;
 pub(super) fn mentions() -> Fixture {
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "@",
         suggestions: ["@here", "@Alex", "@Steve"].map(Arc::from).into(),
         messages: Default::default(),
@@ -17,6 +18,7 @@ pub(super) fn mentions() -> Fixture {
 pub(super) fn command_targets() -> Fixture {
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "/give @",
         suggestions: ["@a", "@e", "@p", "@r", "@s"].map(Arc::from).into(),
         messages: Default::default(),
@@ -46,6 +48,7 @@ pub(super) fn background(percent: i32) -> Fixture {
     .collect();
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft: "Typing a message",
         suggestions: Vec::new(),
         messages,
@@ -74,6 +77,32 @@ pub(super) fn history_width() -> Fixture {
     fixture
 }
 
+/// Shows history, a draft and optional completions under one Chat Position and Chat Input pair.
+pub(super) fn input(
+    top: bool,
+    bedrock: bool,
+    draft: &'static str,
+    suggestions: &[&str],
+) -> Fixture {
+    use launcher::menu::settings_options::{CHAT_INPUT_OPTION, CHAT_POSITION_OPTION};
+
+    let mut fixture = history_width();
+    if let Fixture::Chat {
+        options,
+        draft: shown,
+        suggestions: shown_suggestions,
+        ..
+    } = &mut fixture
+    {
+        let options = Arc::make_mut(options);
+        options.set(CHAT_POSITION_OPTION.id.index(), i32::from(top));
+        options.set(CHAT_INPUT_OPTION.id.index(), i32::from(bedrock));
+        *shown = draft;
+        *shown_suggestions = suggestions.iter().map(|text| Arc::from(*text)).collect();
+    }
+    fixture
+}
+
 /// Shows completions after an anonymous draft with transparent message backgrounds.
 pub(super) fn completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     use launcher::menu::settings_options::SettingsOptions;
@@ -82,6 +111,7 @@ pub(super) fn completion(draft: &'static str, suggestions: &[&str]) -> Fixture {
     options.set(SettingId::ChatBackgroundOpacity.index(), 0);
     Fixture::Chat {
         server_hover: None,
+        receive_while_scrolled: false,
         draft,
         suggestions: suggestions.iter().map(|text| Arc::from(*text)).collect(),
         messages: Default::default(),
@@ -106,5 +136,72 @@ pub(super) fn server_content(hover: bool) -> Fixture {
         .into(),
         options: Default::default(),
         server_hover: Some(hover),
+        receive_while_scrolled: false,
     }
+}
+
+/// Receive chat while the reader is partway through older history.
+pub(super) fn incoming_while_scrolled() -> Fixture {
+    let mut fixture = background(50);
+    if let Fixture::Chat {
+        messages,
+        draft,
+        receive_while_scrolled,
+        ..
+    } = &mut fixture
+    {
+        *draft = "Reading older messages";
+        *receive_while_scrolled = true;
+        messages.clear();
+        for index in 1..=80 {
+            messages.push_back(ui::ChatMessage {
+                fifo_sequence: index,
+                received_millis: 0,
+                kind: ui::ChatMessageKind::System,
+                source: None,
+                message: format!("Older message {index}: continuing the conversation").into(),
+                parameters: Arc::from([]),
+            });
+        }
+    }
+    fixture
+}
+
+/// Shows white mentions, surrounding styles and explicit white under green chat.
+pub(super) fn colored_mentions() -> Fixture {
+    let mut fixture = background(50);
+    if let Fixture::Chat {
+        messages, options, ..
+    } = &mut fixture
+    {
+        let settings = Arc::make_mut(options);
+        settings.set(
+            launcher::menu::settings_options::SettingId::ChatColor.index(),
+            1,
+        );
+        settings.set(
+            launcher::menu::settings_options::SettingId::MentionsColor.index(),
+            0,
+        );
+        *messages = [
+            "Local player: Alex",
+            "Hello @Alex back to green",
+            "Unrelated @Steve and @something stay green",
+            "Longer @Alex123 stays green; @here reaches everyone",
+            "§c§l§oAlert @Alex still red and styled",
+            "Green §fexplicit white§r green again",
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, text)| ui::ChatMessage {
+            fifo_sequence: index as u64 + 1,
+            received_millis: 0,
+            kind: ui::ChatMessageKind::System,
+            source: None,
+            message: text.into(),
+            parameters: Arc::from([]),
+        })
+        .collect();
+    }
+    fixture
 }

@@ -161,7 +161,7 @@ impl ManualCraftPlan {
 fn slot(container: StackRequestContainer, slot: u8, stack_network_id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container,
-        slot,
+        slot: u16::from(slot),
         stack_network_id,
     }
 }
@@ -200,11 +200,7 @@ pub fn manual_craft_packet(
             aux: i32::from(output.aux),
             count: u16::from(output.count),
             block_runtime_id: output.block_runtime_id,
-            user_data: if output.empty_envelope {
-                Arc::from([0; 10])
-            } else {
-                Arc::from([])
-            },
+            user_data: output.user_data.bytes(),
         }]),
     });
     for (source, count, id) in plan.consume.iter().flatten().copied() {

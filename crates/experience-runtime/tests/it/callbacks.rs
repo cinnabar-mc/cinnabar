@@ -185,6 +185,8 @@ fn unloaded_cell_is_unavailable() {
         owned: false,
         data: None,
         states: Vec::new(),
+        overlays: Vec::new(),
+        power: 0,
     };
     assert_eq!(
         outcome(&with_cell(interact(5), unloaded)),
@@ -277,14 +279,17 @@ fn place_break_neighbor_reach_guest() {
         },
     );
     assert_eq!(outcome(&place), committed(vec![tell("placed")]));
-    let broken = callback(
-        p(0),
-        Call::Break {
-            change: change(COUNTER, AIR, Some("0a")),
-        },
-    );
-    let broken = with_cell(broken, cell(p(0), AIR, false, None));
-    assert_eq!(outcome(&broken), committed(vec![tell("broke 1")]));
+    for (harvest, told) in [(false, "broke 1"), (true, "broke 1 harvested")] {
+        let broken = callback(
+            p(0),
+            Call::Break {
+                change: change(COUNTER, AIR, Some("0a")),
+                harvest,
+            },
+        );
+        let broken = with_cell(broken, cell(p(0), AIR, false, None));
+        assert_eq!(outcome(&broken), committed(vec![tell(told)]));
+    }
     let neighbor = callback(
         p(0),
         Call::Neighbor {
@@ -293,6 +298,15 @@ fn place_break_neighbor_reach_guest() {
         },
     );
     assert_eq!(outcome(&neighbor), committed(vec![]));
+}
+
+/// x=36 passes its interaction's click on.
+#[test]
+fn an_interaction_passes_its_click_on() {
+    assert_eq!(
+        outcome(&interact(36)),
+        committed(vec![Op::PassInteraction {}, tell("ok")])
+    );
 }
 
 /// x=17 replaces the owned `up`, which holds data, with the same block, then reads its data.
@@ -359,6 +373,7 @@ fn non_canonical_player_ids_are_rejected_unrun() {
             player: shouted.clone(),
             pos: p(0),
             face: Face::Up,
+            hit: None,
         },
     );
     let malformed = [

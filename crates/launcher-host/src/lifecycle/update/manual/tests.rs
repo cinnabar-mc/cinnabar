@@ -74,6 +74,7 @@ impl Fixture {
     /// Supplies the installed executable's early version query without opening a window.
     fn installed_build(&self, version: &str, number: u64) {
         let identity = serde_json::to_string(&update_manifest::build::Build {
+            channel: None,
             version: version.into(),
             number,
         })

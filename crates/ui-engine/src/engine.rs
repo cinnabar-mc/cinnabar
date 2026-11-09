@@ -37,9 +37,12 @@ mod ownership_tests;
 pub mod pack_catalog;
 mod paint_bounds;
 pub use paint_bounds::{PaintBounds, PaintObserver};
+pub mod layout_task;
 mod paint_transform;
 pub mod pixel_snap;
 mod render;
+mod retained_paint;
+pub use retained_paint::RetainedPaint;
 mod rounded;
 pub mod screen;
 pub mod screen_cache;
@@ -83,6 +86,17 @@ pub struct FormEngine {
     dependencies: std::sync::Mutex<dependencies::DependencyCache>,
     /// Animation state of every drawn control, keyed by layout key.
     animator: std::sync::Mutex<json_ui::Animator>,
+}
+
+/// The strongest image change collected since the previous frame's poll.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ImageUpdate {
+    /// No image readiness or dimensions changed.
+    None,
+    /// Artwork or masks settled without changing layout inputs.
+    Readiness,
+    /// Image dimensions or source metadata changed, including during the previous paint.
+    Metadata,
 }
 
 pub struct FormCache {
@@ -229,10 +243,17 @@ impl FormEngine {
         self.screens.invalidate_layouts();
     }
 
-    /// Polls original-image readiness even when the current menu needs no repaint.
-    pub fn poll_native_images(&mut self) -> bool {
+    /// Collects image changes without treating pixel readiness as a layout change.
+    pub fn poll_native_images(&mut self) -> ImageUpdate {
         let atlas = self.textures.atlas_mut();
-        atlas.poll_native_images() | atlas.take_metadata_changed()
+        let ready = atlas.poll_native_images();
+        if atlas.take_metadata_changed() {
+            ImageUpdate::Metadata
+        } else if ready {
+            ImageUpdate::Readiness
+        } else {
+            ImageUpdate::None
+        }
     }
 
     /// The atlas page images when they changed since the last call.
@@ -500,8 +521,8 @@ pub fn rect(left: f32, top: f32, right: f32, bottom: f32) -> Result<UiRect, Pain
     .map_err(PaintError::Geometry)
 }
 
-/// Selects a label's optional default formatting color after binding and localization.
-pub type TextColor<'a> = &'a dyn Fn(&DrawNode) -> Option<char>;
+/// Optionally changes a label's presentation after binding and localization.
+pub type TextFormat<'a> = &'a dyn Fn(&DrawNode, &str) -> Option<String>;
 
 /// What the engine paints a screen against besides its layout: the interaction state, the
 /// hover tooltip and pointer (virtual px), transition clocks, artwork and edit feedback.
@@ -521,8 +542,8 @@ pub struct ScreenArt<'a> {
     /// Text a shown hover tooltip draws instead of its bound `#hover_text`.
     pub tooltip: Option<&'a str>,
     pub pointer: Option<[f32; 2]>,
-    /// Default formatting color chosen per label after binding and localization.
-    pub text_color: Option<TextColor<'a>>,
+    /// Optional label presentation after binding and localization.
+    pub text_format: Option<TextFormat<'a>>,
     /// Creation times that fades naming a clock read instead of their own.
     pub clocks: Option<&'a std::collections::BTreeMap<String, f64>>,
     pub images: Option<&'a std::collections::HashMap<String, ui::IconRef>>,
@@ -842,7 +863,9 @@ impl Canvas<'_> {
             || drawn.hidden
             || clip[2] <= clip[0]
             || clip[3] <= clip[1]
-            || (!floats && (dest[2] <= dest[0] || dest[3] <= dest[1]))
+            // Custom renderers can use a point or line as their painting origin.
+            || (!matches!(&node.draw, Draw::Custom { .. })
+                && (dest[2] <= dest[0] || dest[3] <= dest[1]))
             || opacity <= 0.0
         {
             return Ok(());
@@ -865,19 +888,15 @@ impl Canvas<'_> {
                 .edit
                 .filter(|edit| edit.text == node.key)
                 .map(|edit| edit.feedback);
-            let colored = self
-                .art
-                .text_color
-                .and_then(|color| color(node))
-                .map(|code| {
-                    let text = if *localize {
-                        text_paint::localized(text, self.translate)
-                    } else {
-                        Cow::Borrowed(text.as_str())
-                    };
-                    format!("§{code}{text}")
-                });
-            let (text, localize) = colored
+            let formatted = self.art.text_format.map(|format| {
+                let text = if *localize {
+                    text_paint::localized(text, self.translate)
+                } else {
+                    Cow::Borrowed(text.as_str())
+                };
+                format(node, &text).map(Cow::Owned).unwrap_or(text)
+            });
+            let (text, localize) = formatted
                 .as_deref()
                 .map_or((text.as_str(), *localize), |text| (text, false));
             let style = TextPaint {

@@ -1,6 +1,8 @@
 //! The render-world geometry resource: preparing expansion work and draw lists each frame, and
 //! recording the expansion before any camera draws.
 
+mod draws;
+
 use std::collections::HashMap;
 use std::hash::{BuildHasher, Hash, Hasher};
 
@@ -9,7 +11,6 @@ use bevy::math::{DVec3, IVec3, Vec3};
 use bevy::platform::hash::FixedHasher;
 use bevy::prelude::{Entity, FromWorld, Has, Query, Res, ResMut, Resource, World, default};
 use bevy::render::camera::ExtractedCamera;
-use bevy::render::render_phase::TrackedRenderPass;
 use bevy::render::render_resource::{
     BindGroup, BindGroupEntry, Buffer, BufferDescriptor, BufferId, BufferInitDescriptor,
     BufferUsages, ComputePassDescriptor, PipelineCache,
@@ -22,9 +23,7 @@ use render_scene::{ChunkTextureAssets, RuntimeStage, RuntimeStageProfiler};
 use super::block_ids::{ShaderpackBlockIds, material_attribute_words};
 use super::draw::{DrawInputs, ViewDraws, face_indices};
 use super::expansion_buffers::{ExpansionBuffers, PARAM_WORDS, frame_job_capacity};
-use super::jobs::{
-    GeometryCategory, JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section,
-};
+use super::jobs::{JOB_KINDS, JobKind, MaterialTables, SectionPlan, plan_section};
 use super::pipelines::{
     EXPAND_WORKGROUP_SIZE, ExpansionPipelines, output_layout, source_bindings, source_layout,
     storage_buffers_per_stage,
@@ -266,36 +265,6 @@ impl ShaderpackGeometry {
         self.layout
     }
 
-    /// Records `category` for `view` (a render-world view entity with visible chunks): its
-    /// camera list, or with `shadow` its shadow-pass list from
-    /// [`Self::prepare_shadow_view`]. The pass must already hold a pipeline built with
-    /// [`super::vertex_buffer_layouts`] and the program's bind groups. Returns the draws
-    /// issued.
-    pub fn draw<'w>(
-        &'w self,
-        pass: &mut TrackedRenderPass<'w>,
-        category: GeometryCategory,
-        view: Entity,
-        shadow: bool,
-    ) -> u32 {
-        let Some(index_buffer) = &self.index_buffer else {
-            return 0;
-        };
-        let lists = if shadow { &self.shadows } else { &self.views };
-        let Some(draws) = lists.get(&view) else {
-            return 0;
-        };
-        let origins = self.draw_origins.as_ref().filter(|_| self.layout.packed());
-        draws.record(
-            pass,
-            category,
-            &self.pages,
-            index_buffer,
-            &self.constants,
-            origins,
-        )
-    }
-
     /// Builds (or keeps, when the sections it lists are unchanged) `view`'s shadow-pass list:
     /// the resident sections `frustum` keeps. While neither the residency nor the frustum
     /// moved, the list stands without walking the sections.
@@ -420,7 +389,7 @@ impl ShaderpackGeometry {
             self.draw_origins = Some(device.create_buffer(&BufferDescriptor {
                 label: Some("shader-pack terrain draw origins"),
                 size: u64::from(capacity) * DRAW_ORIGIN_BYTES,
-                usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
+                usage: BufferUsages::VERTEX | BufferUsages::STORAGE | BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }));
             self.draw_origin_capacity = capacity;
@@ -465,7 +434,7 @@ impl ShaderpackGeometry {
         self.index_buffer = Some(device.create_buffer_with_data(&BufferInitDescriptor {
             label: Some("shader-pack terrain face indices"),
             contents: bytemuck::cast_slice(&face_indices(faces)),
-            usage: BufferUsages::INDEX,
+            usage: BufferUsages::INDEX | BufferUsages::STORAGE,
         }));
         self.index_faces = faces;
     }
@@ -520,7 +489,7 @@ pub(crate) struct GeometryInputs<'w> {
     /// The pack's `far`, the client render distance in blocks.
     frame: Option<Res<'w, render_scene::shaderpack::ShaderPackFrameInputs>>,
     pipelines: Option<Res<'w, ExpansionPipelines>>,
-    cache: Res<'w, PipelineCache>,
+    cache: Option<Res<'w, super::super::kernels::Kernels>>,
     device: Res<'w, RenderDevice>,
     queue: Res<'w, RenderQueue>,
     profiler: Option<Res<'w, RuntimeStageProfiler>>,
@@ -545,10 +514,6 @@ pub(crate) fn prepare_shaderpack_geometry(
     mut sections: ResidentSections,
     views: GeometryViews,
 ) {
-    let _timer = inputs
-        .profiler
-        .as_deref()
-        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
     let Some(mut geometry) = geometry else {
         return;
     };
@@ -558,6 +523,10 @@ pub(crate) fn prepare_shaderpack_geometry(
         geometry.release_all();
         return;
     }
+    let _timer = inputs
+        .profiler
+        .as_deref()
+        .map(|profiler| profiler.time(RuntimeStage::ShaderpackGeometry));
     if settings.layout != geometry.layout {
         geometry.set_layout(settings.layout);
     }
@@ -613,7 +582,8 @@ pub(crate) fn prepare_shaderpack_geometry(
     let kernels_ready = inputs
         .pipelines
         .as_deref()
-        .is_some_and(|pipelines| geometry.pipelines_ready(&inputs.cache, pipelines));
+        .zip(inputs.cache.as_deref())
+        .is_some_and(|(pipelines, kernels)| geometry.pipelines_ready(&kernels.cache, pipelines));
     let attribute_key = AttributeKey {
         assets: std::sync::Arc::as_ptr(&textures.assets) as usize,
         revision: textures.revision,
@@ -738,6 +708,9 @@ fn plan_frame(
     budget: u32,
     eye: Option<DVec3>,
 ) -> u32 {
+    let Some(cache) = inputs.cache.as_deref().map(|kernels| &kernels.cache) else {
+        return 0;
+    };
     let tables = MaterialTables {
         materials: textures.assets.materials(),
         model_templates: textures.assets.model_templates(),
@@ -876,7 +849,7 @@ fn plan_frame(
         &planned,
     );
     let job_buffer = geometry.expansion.jobs().expect("written above");
-    let output_layout = inputs.cache.get_bind_group_layout(&output_layout());
+    let output_layout = cache.get_bind_group_layout(&output_layout());
     let mut source_groups: [Option<BindGroup>; 3] = Default::default();
     for (index, (kind_index, page)) in keys.into_iter().enumerate() {
         let kind = JOB_KINDS[kind_index];
@@ -903,7 +876,7 @@ fn plan_frame(
             ],
         );
         let sources = source_groups[kind_index]
-            .get_or_insert_with(|| source_group(device, &inputs.cache, kind, buffers))
+            .get_or_insert_with(|| source_group(device, cache, kind, buffers))
             .clone();
         geometry.prepared.dispatches.push(Dispatch {
             kind,
@@ -936,13 +909,15 @@ fn expand_params(
 pub(crate) fn record_geometry_expansion(
     geometry: Option<ResMut<ShaderpackGeometry>>,
     pipelines: Option<Res<ExpansionPipelines>>,
-    cache: Res<PipelineCache>,
+    kernels: Option<Res<super::super::kernels::Kernels>>,
     timestamps: Option<Res<crate::gpu_timing::GpuTimestamps>>,
     mut context: RenderContext,
 ) {
-    let (Some(mut geometry), Some(pipelines)) = (geometry, pipelines) else {
+    let (Some(mut geometry), Some(pipelines), Some(kernels)) = (geometry, pipelines, kernels)
+    else {
         return;
     };
+    let cache = &kernels.cache;
     let prepared = std::mem::take(&mut geometry.prepared);
     if prepared.dispatches.is_empty() {
         return;

@@ -144,6 +144,8 @@ fn item() -> WornItem {
         metadata: 0,
         damage: None,
         variant: Default::default(),
+        map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: Default::default(),
         grip: Default::default(),

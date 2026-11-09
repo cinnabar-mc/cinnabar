@@ -16,7 +16,7 @@ func TestBusySignOutRetriesFitControlLimiter(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		controller, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}
