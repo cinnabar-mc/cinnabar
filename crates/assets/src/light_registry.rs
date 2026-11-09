@@ -66,7 +66,7 @@ pub fn read_light_registry_for_protocol(
     expected_count: usize,
     expected_protocol: u32,
 ) -> Result<Box<[LightProperties]>, AssetError> {
-    if !matches!(expected_protocol, 1001 | 2193) {
+    if !matches!(expected_protocol, 1001 | 2225) {
         return Err(invalid("unsupported LREG1001 wire protocol"));
     }
     if expected_count > MAX_LIGHT_RECORDS {

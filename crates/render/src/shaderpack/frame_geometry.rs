@@ -32,6 +32,15 @@ pub(crate) trait TerrainDraws {
         shadow: bool,
     ) -> u32;
 
+    /// Visits the same triangle streams for compute expansion before their raster draws.
+    fn emulation_inputs<'a>(
+        &'a self,
+        _category: GeometryCategory,
+        _shadow: bool,
+        _visit: &mut dyn FnMut(super::geometry_shader::Input<'a>),
+    ) {
+    }
+
     /// The expanded vertex the terrain pages hold.
     fn layout(&self) -> TerrainLayout;
 }
@@ -164,6 +173,63 @@ fn record_kind(
         },
         _ => None,
     };
+    if state
+        .pack
+        .draws
+        .iter()
+        .any(|draw| draw.kind == kind && draw.emulation.is_some())
+    {
+        if state
+            .pack
+            .draws
+            .iter()
+            .find(|draw| draw.kind == kind)
+            .and_then(|draw| draw.layout)
+            .is_some_and(|layout| layout != geometry.terrain.layout())
+        {
+            return;
+        }
+        if let Some(range) = effect {
+            let effects = std::mem::take(&mut state.effects);
+            if let Some(input) = effects.emulation_input(range) {
+                super::geometry_shader::record(encoder, state, kind, write_alt, depth, input, None);
+            }
+            state.effects = effects;
+        } else if let Some(category) = kind.category() {
+            geometry
+                .terrain
+                .emulation_inputs(category, kind.shadow(), &mut |input| {
+                    super::geometry_shader::record(
+                        encoder, state, kind, write_alt, depth, input, None,
+                    )
+                });
+        } else if let (Some(sky), Some(vertices)) = (sky, state.targets.sky.clone()) {
+            let range = if kind == DrawKind::Sunset {
+                sky.sunset.clone()
+            } else {
+                sky.discs.clone()
+            };
+            super::geometry_shader::record(
+                encoder,
+                state,
+                kind,
+                write_alt,
+                depth,
+                super::geometry_shader::Input {
+                    vertices: &vertices,
+                    indices: None,
+                    index_values: None,
+                    origins: None,
+                    first: range.start,
+                    count: range.end - range.start,
+                    base_vertex: 0,
+                    instance: 0,
+                },
+                None,
+            );
+        }
+        return;
+    }
     let Some((render, index)) = open_kind(encoder, state, kind, write_alt, depth) else {
         return;
     };
@@ -414,9 +480,10 @@ pub(crate) fn record_shadow(
 
 /// The sky (no depth) with the sun, moon and stars, then opaque terrain, actors and block
 /// entities against a cleared depth attachment and the effects Iris draws before the
-/// deferred passes, the copy into `depthtex2` when sampled, the solid hand, then the copy
-/// into `depthtex1`, which also stands in for `depthtex0` until translucents draw. Solid
-/// and cutout terrain are timed as the terrain stages during aggregate profiling.
+/// deferred passes, the `centerDepthSmooth` sample and the copy into `depthtex2` when
+/// sampled, the solid hand, then the copy into `depthtex1`, which also stands in for
+/// `depthtex0` until translucents draw. Solid and cutout terrain are timed as the terrain
+/// stages during aggregate profiling.
 pub(crate) fn record_opaque(
     device: &Device,
     queue: &Queue,
@@ -492,6 +559,10 @@ pub(crate) fn record_opaque(
         scene_alt,
         Some((&view, size)),
     );
+    // Iris samples `centerDepthSmooth` as the hand begins, after everything opaque.
+    if let Some(center_depth) = &state.center_depth {
+        center_depth.sample_geometry(encoder, &pack.center_depth.after, &state.bindings.uniforms);
+    }
     // Iris's `depthtex2` holds the depth before the hand, `depthtex1` before translucents.
     let before_hand: &[usize] = if pack.depth_sampled[2] { &[2] } else { &[] };
     copy_view_depth(device, encoder, state, before_hand, &[2]);
@@ -546,7 +617,8 @@ pub(crate) fn record_translucent(
         Effect::ParticlesTranslucent,
         Effect::ParticlesAdditive,
         Effect::Clouds,
-        Effect::Weather,
+        Effect::Rain,
+        Effect::Snow,
     ]
     .into_iter()
     .filter(|effect| DrawKind::Effect(*effect).after_deferred(&pack.effects));

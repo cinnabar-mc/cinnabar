@@ -7,6 +7,9 @@
 use std::collections::{BTreeMap, VecDeque};
 
 mod admission;
+mod armor_damage;
+#[cfg(test)]
+mod armor_damage_tests;
 mod auto_craft;
 #[cfg(test)]
 pub(crate) use auto_craft::take_source_validations;
@@ -39,6 +42,7 @@ mod legacy_tests;
 mod lifecycle_tests;
 #[cfg(test)]
 mod merge_tests;
+mod mining;
 mod moves;
 #[cfg(test)]
 mod moves_tests;
@@ -75,7 +79,7 @@ mod validation;
 mod windows;
 
 use cells::{Cell, CellSurface, Cells};
-pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination};
+pub use crafting::{CraftGridCell, CraftSink, CraftingGrid, CreativeDestination, ShieldCraft};
 pub use distribute::{DistributeMode, DragDistribution, MAX_DISTRIBUTION_CELLS};
 pub use gesture::{CellGesture, InventoryTarget};
 pub use moves::DropSource;
@@ -169,7 +173,7 @@ pub enum InventoryGestureError {
     #[error("player inventory slot {0} is outside the authoritative container")]
     InvalidSlot(u8),
     #[error("generic storage slot {0} is outside the authoritative window")]
-    InvalidStorageSlot(u8),
+    InvalidStorageSlot(u16),
     #[error("player inventory slot {0} is not known yet")]
     UnknownSlot(u8),
     #[error("the inventory request queue is full")]
@@ -364,7 +368,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_stack(&self, slot: u8) -> Option<&NetworkItemStack> {
+    pub fn storage_stack(&self, slot: u16) -> Option<&NetworkItemStack> {
         self.view_stack(Cell::Storage(slot))
     }
 
@@ -512,7 +516,7 @@ impl PlayerInventoryLedger {
     /// Queues a mine-block prediction for hotbar `slot` and returns the id its
     /// PlayerAuthInput carries; `None` sends the break without a request.
     pub fn begin_mining_request(&mut self, slot: u8, predicted_damage: i32) -> Option<i32> {
-        self.enqueue_mining(slot, predicted_damage)
+        self.enqueue_mining(slot, predicted_damage, None)
     }
 
     /// Forgets a mining request whose input never left, so it cannot hold back later answers.
@@ -528,6 +532,7 @@ impl PlayerInventoryLedger {
             .iter()
             .rev()
             .filter_map(|pending| pending.mining.as_ref())
+            .filter(|mining| mining.legacy_request_id.is_none())
             .find(|mining| mining.slot == slot)
             .map(|mining| mining.damage)
             .or_else(|| self.slot_overlay(slot)?.durability_correction)
@@ -557,7 +562,7 @@ impl PlayerInventoryLedger {
     }
 
     #[must_use]
-    pub fn storage_slot_pending(&self, slot: u8) -> bool {
+    pub fn storage_slot_pending(&self, slot: u16) -> bool {
         self.cell_pending(Cell::Storage(slot))
     }
 
@@ -633,12 +638,20 @@ impl PlayerInventoryLedger {
             .iter()
             .filter(|pending| pending.state == InventoryPendingState::AwaitingTransport)
             .peekable();
+        if ready
+            .peek()
+            .is_some_and(|pending| self.personal_request_waits_for_open(pending))
+        {
+            return Ok(None);
+        }
         if let Some(drop) = ready.next_if(|pending| pending.world_drop.is_some()) {
             return self.world_drop_packet(drop).map(|packet| Some((packet, 1)));
         }
         // A later drop leaves in its own packet, after the requests queued before it.
         let requests: Vec<_> = ready
-            .take_while(|pending| pending.world_drop.is_none())
+            .take_while(|pending| {
+                pending.world_drop.is_none() && !self.personal_request_waits_for_open(pending)
+            })
             .map(|pending| {
                 (
                     pending.request_id,

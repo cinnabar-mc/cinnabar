@@ -59,6 +59,11 @@ fn pane_fixture() -> (RuntimeAssets, RuntimeEntityAssets, Arc<RuntimeIconCatalog
     (world, entities, Arc::new(icons))
 }
 
+/// Finds the prepared held variant named by an item visual key.
+fn held_model<'a>(preview: &'a UiPresentationRuntime, key: &ItemVisualKey) -> &'a held::HeldModel {
+    &preview.gui_models.sources.held[key.identifier.as_ref()][&key.metadata]
+}
+
 #[test]
 fn player_preview_holds_the_carried_glass_plate_in_both_hands() {
     let (world, entities, icons) = pane_fixture();
@@ -69,7 +74,7 @@ fn player_preview_holds_the_carried_glass_plate_in_both_hands() {
     )
     .unwrap();
     preview.set_gui_models(&world, &entities).unwrap();
-    let held = &preview.gui_models.sources.held[&entities.item_visuals()[0].key];
+    let held = held_model(&preview, &entities.item_visuals()[0].key);
     assert!(
         !held.is_sprite(),
         "the paper doll must not extrude the inventory thumbnail"
@@ -110,14 +115,23 @@ fn assert_ordinary_routes(
         if definition.is_some_and(|definition| {
             matches!(definition.route, ItemVisualDefinitionRoute::EmptyHand)
         }) {
-            assert!(!preview.gui_models.sources.held.contains_key(&key));
+            assert!(
+                preview
+                    .gui_models
+                    .sources
+                    .held
+                    .get(key.identifier.as_ref())
+                    .and_then(|variants| variants.get(&key.metadata))
+                    .is_none()
+            );
             continue;
         }
         let held = preview
             .gui_models
             .sources
             .held
-            .get(&key)
+            .get(key.identifier.as_ref())
+            .and_then(|variants| variants.get(&key.metadata))
             .unwrap_or_else(|| panic!("missing preview for {key:?}"));
         let model = held
             .model(icons)
@@ -217,7 +231,7 @@ fn preview_held_cutout_texels_render_opaque() {
     let threshold = assets::gui_item::GUI_BLOCK_ALPHA_THRESHOLD;
     for alpha in [192, threshold - 1, threshold] {
         let (preview, entities) = alpha_preview(assets::MATERIAL_FLAG_ALPHA_CUTOUT, alpha);
-        let model = preview.gui_models.sources.held[&entities.item_visuals()[0].key]
+        let model = held_model(&preview, &entities.item_visuals()[0].key)
             .model(preview.icon_catalog.as_deref().unwrap())
             .unwrap();
         let page = &preview.textures.pages()[usize::from(model.source.page)];
@@ -235,7 +249,7 @@ fn preview_held_cutout_texels_render_opaque() {
 #[test]
 fn preview_held_blend_keeps_low_alpha_texels() {
     let (preview, entities) = alpha_preview(assets::MATERIAL_FLAG_ALPHA_BLEND, 64);
-    let model = preview.gui_models.sources.held[&entities.item_visuals()[0].key]
+    let model = held_model(&preview, &entities.item_visuals()[0].key)
         .model(preview.icon_catalog.as_deref().unwrap())
         .unwrap();
     let mesh = player_preview::geometry::mesh(
@@ -260,7 +274,7 @@ fn preview_held_blend_keeps_low_alpha_texels() {
 #[test]
 fn preview_held_opaque_material_ignores_texture_alpha() {
     let (preview, entities) = alpha_preview(0, 64);
-    let model = preview.gui_models.sources.held[&entities.item_visuals()[0].key]
+    let model = held_model(&preview, &entities.item_visuals()[0].key)
         .model(preview.icon_catalog.as_deref().unwrap())
         .unwrap();
     let page = &preview.textures.pages()[usize::from(model.source.page)];
@@ -283,7 +297,7 @@ fn full_model_atlas_keeps_the_unadmitted_held_model_on_its_sprite_route() {
     preview
         .set_gui_models(&world, &entities)
         .expect("one optional held texture must not abort the player catalog");
-    assert!(preview.gui_models.sources.held[&entities.item_visuals()[0].key].is_sprite());
+    assert!(held_model(&preview, &entities.item_visuals()[0].key).is_sprite());
     assert_eq!(preview.gui_models.sources.held_texture_fallbacks(), 1);
 }
 
@@ -329,7 +343,7 @@ fn full_model_atlas_reuses_resident_held_face_sheets() {
     let resident = preview.icon_refs.as_deref().unwrap()[sheet as usize];
     preview.set_equipment_catalog(Some(cubes::equipment(&entities, MODEL_PAGES)));
     preview.set_gui_models(&world, &entities).unwrap();
-    let held = &preview.gui_models.sources.held[&entities.item_visuals()[0].key];
+    let held = held_model(&preview, &entities.item_visuals()[0].key);
     assert!(
         !held.is_sprite(),
         "resident artwork must preserve the model even when the atlas is full"

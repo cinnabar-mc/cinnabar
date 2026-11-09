@@ -62,6 +62,16 @@ pub struct RetainedDraw {
     runs: Vec<UiDrawBatch>,
     counts: DrawCounts,
     list: UiDrawList,
+    /// Repeated updates retain storage for dirty nodes and their replacement emissions.
+    scratch: UpdateScratch,
+}
+
+#[derive(Default)]
+struct UpdateScratch {
+    dirty: Vec<bool>,
+    /// Each node retains its own buffers, independently of which other nodes changed.
+    emissions: Vec<Scratch>,
+    emitted: Vec<usize>,
 }
 
 /// One node's emission on its own, indices relative to its first vertex.
@@ -188,6 +198,7 @@ impl RetainedDraw {
                 indices: Vec::new(),
                 batches: Vec::new(),
             },
+            scratch: UpdateScratch::default(),
         };
         let mut scratch = Scratch::default();
         for position in 0..retained.placed.len() {
@@ -208,6 +219,13 @@ impl RetainedDraw {
     /// The current draw list.
     pub fn draw_list(&self) -> &UiDrawList {
         &self.list
+    }
+
+    /// Returns a caller node's retained frame-space bounds after layout.
+    pub fn node_bounds(&self, index: usize) -> Option<UiRect> {
+        self.positions
+            .get(index)
+            .map(|position| self.placed[*position].bounds)
     }
 
     /// Re-emits changed nodes when shape and frame inputs match, updating `last`. Text with `§k`
@@ -241,7 +259,7 @@ impl RetainedDraw {
         let changed = nodes
             .iter()
             .zip(last.iter())
-            .position(|(new, old)| new != old);
+            .position(|(new, old)| !same_emission(new, old));
         let rerolled = nodes.iter().any(obfuscated);
         // An unchanged frame without `§k` text allocates nothing.
         if changed.is_none() && !rerolled {
@@ -249,10 +267,13 @@ impl RetainedDraw {
         }
         let first = changed.unwrap_or(nodes.len());
         // Draw positions to emit again: a moved node carries its subtree along.
-        let mut dirty = vec![false; self.placed.len()];
+        let mut scratch = std::mem::take(&mut self.scratch);
+        let dirty = &mut scratch.dirty;
+        dirty.resize(self.placed.len(), false);
+        dirty.fill(false);
         let mut moved = false;
         for (index, (new, old)) in nodes.iter().zip(last.iter_mut()).enumerate().skip(first) {
-            if new == old {
+            if same_emission(new, old) {
                 continue;
             }
             if matches!(new.visual, UiVisual::Mesh(_) | UiVisual::TintedMesh { .. })
@@ -276,7 +297,7 @@ impl RetainedDraw {
                 }
             }
         }
-        if moved && self.relayout(nodes, &dirty).is_err() {
+        if moved && self.relayout(nodes, dirty).is_err() {
             return None;
         }
         let mut counts = self.counts;
@@ -290,32 +311,40 @@ impl RetainedDraw {
         }
         // Admit the final aggregate before any replacement geometry is materialized.
         counts.budget().ok()?;
-        let mut emitted = Vec::new();
+        scratch
+            .emissions
+            .resize_with(self.placed.len(), Scratch::default);
+        scratch.emitted.clear();
         for (position, _) in dirty.iter().enumerate().filter(|(_, dirty)| **dirty) {
-            let mut scratch = Scratch::default();
-            self.emit(nodes, position, effects, &mut scratch).ok()?;
-            emitted.push((position, scratch));
+            self.emit(nodes, position, effects, &mut scratch.emissions[position])
+                .ok()?;
+            scratch.emitted.push(position);
         }
         self.counts = counts;
         let mut update = DrawUpdate {
-            emitted: emitted.len(),
+            emitted: scratch.emitted.len(),
             ..DrawUpdate::default()
         };
-        if emitted
+        if scratch
+            .emitted
             .iter()
-            .all(|(position, scratch)| self.same_footprint(*position, scratch))
+            .all(|&position| self.same_footprint(position, &scratch.emissions[position]))
         {
-            for (position, scratch) in &emitted {
-                let range = self.placed[*position].vertices.clone();
+            for &position in &scratch.emitted {
+                let range = self.placed[position].vertices.clone();
                 if range.is_empty() {
                     continue;
                 }
-                self.list.vertices[range.clone()].copy_from_slice(&scratch.vertices);
+                self.list.vertices[range.clone()]
+                    .copy_from_slice(&scratch.emissions[position].vertices);
                 update.vertices.push(range);
             }
+            self.scratch = scratch;
             return Some(update);
         }
-        self.splice(emitted).ok()?;
+        let result = self.splice(&scratch.emitted, &scratch.emissions);
+        self.scratch = scratch;
+        result.ok()?;
         update.rebuilt = true;
         Some(update)
     }
@@ -406,8 +435,8 @@ impl RetainedDraw {
     }
 
     /// Rebuilds the list from unchanged nodes' output and the fresh emissions, in draw order.
-    fn splice(&mut self, emitted: Vec<(usize, Scratch)>) -> Result<(), UiError> {
-        let mut fresh = emitted.into_iter().peekable();
+    fn splice(&mut self, emitted: &[usize], emissions: &[Scratch]) -> Result<(), UiError> {
+        let mut fresh = emitted.iter().peekable();
         let revision = self.list.revision;
         let old_list = std::mem::replace(
             &mut self.list,
@@ -428,9 +457,9 @@ impl RetainedDraw {
             let index_start = self.list.indices.len();
             let run_start = self.runs.len();
             let place = &self.placed[position];
-            let next = fresh.next_if(|(next, _)| *next == position);
-            let emitted = match &next {
-                Some((_, scratch)) => scratch.emitted(),
+            let next = fresh.next_if(|next| **next == position);
+            let emitted = match next {
+                Some(&position) => emissions[position].emitted(),
                 None => Emitted {
                     vertices: &old_list.vertices[place.vertices.clone()],
                     indices: &old_list.indices[place.indices.clone()],
@@ -469,6 +498,24 @@ fn same_shape(new: &UiNode, old: &UiNode) -> bool {
         && new.clip_children == old.clip_children
         && new.viewport_clip == old.viewport_clip
         && new.world_projection == old.world_projection
+}
+
+/// A model's uniform tint changes its palette while leaving its emitted vertex stream intact.
+fn same_emission(new: &UiNode, old: &UiNode) -> bool {
+    if new == old {
+        return true;
+    }
+    let (UiVisual::TintedMesh { mesh: new_mesh, .. }, UiVisual::TintedMesh { mesh: old_mesh, .. }) =
+        (&new.visual, &old.visual)
+    else {
+        return false;
+    };
+    if !new_mesh.is_skinned() || !old_mesh.is_skinned() || new_mesh != old_mesh {
+        return false;
+    }
+    let mut geometry = old.clone();
+    geometry.visual = new.visual.clone();
+    *new == geometry
 }
 
 /// Whether the node draws `§k` text, whose glyphs [`TextEffects`] re-rolls on every emission.

@@ -40,10 +40,7 @@ impl ChatSettings {
 
 /// Keeps font sizing visible when the carrier ties it to the removed typeface selector.
 pub(crate) fn keep_font_size_visible(catalog: &mut json_ui::Catalog) {
-    let Some(control) = catalog
-        .controls_mut()
-        .find(|control| control.owner_ns == "chat_settings" && control.name == "font_size_slider")
-    else {
+    let Some(control) = catalog.lookup_mut("chat_settings", "font_size_slider") else {
         return;
     };
     if let Some(bindings) = control
@@ -197,6 +194,7 @@ pub(crate) fn message_text(
     text: &str,
     color: Option<char>,
     mention: Option<char>,
+    local_player: &str,
 ) -> Option<String> {
     if !key
         .split('/')
@@ -205,12 +203,17 @@ pub(crate) fn message_text(
         return None;
     }
     if color.is_none() {
-        return match crate::text::highlight_mentions(text, mention?) {
+        return match crate::text::highlight_mentions(text, local_player, mention?) {
             std::borrow::Cow::Owned(text) => Some(text),
             std::borrow::Cow::Borrowed(_) => None,
         };
     }
-    Some(crate::text::format_chat_label(text, color, mention))
+    Some(crate::text::format_chat_label(
+        text,
+        color,
+        mention,
+        local_player,
+    ))
 }
 
 #[cfg(test)]

@@ -228,6 +228,23 @@ fn write_string(out: &mut Vec<u8>, text: &str) {
 }
 
 impl BlockEntityNbt {
+    /// The record of a block entity the client creates for a block it sets, before the
+    /// server sends the entity's data: only its `id` and `x`, `y`, `z` position.
+    #[must_use]
+    pub fn client_created(id: &str, position: [i32; 3]) -> Self {
+        let mut root = NbtCompound::default();
+        root.insert("id", NbtValue::String(id.into()));
+        for (name, value) in ["x", "y", "z"].into_iter().zip(position) {
+            root.insert(name, NbtValue::Int(value));
+        }
+        let bytes = root
+            .encode_root()
+            .expect("a flat compound of scalars always encodes");
+        Self::decode_prefix(&bytes)
+            .expect("an encoded id and position decode as a block entity")
+            .0
+    }
+
     /// Returns a shared parsed snapshot, refreshed automatically with each new source.
     #[must_use]
     pub fn parsed(&self) -> Option<std::sync::Arc<NbtCompound>> {

@@ -9,11 +9,11 @@ import (
 
 // Active output paths remain available to the source adapter's existing command-line surface.
 const (
-	v2193PhysicsOutputPath    = "crates/assets/data/block-physics-seed-v2193.bin"
-	v2193PhysicsBREGInputPath = v2193BlockOutputPath
-	v2193BiomeOutputPath      = "crates/assets/data/biome-registry-v2193.bin"
-	v2193BiomeAllowlistPath   = "crates/protocol/data/retail_biomes_1_26_50.txt"
-	v2193BiomeProjectionPath  = "assets/biome-projection-v2193.json"
+	v2225PhysicsOutputPath    = "crates/assets/data/block-physics-seed-v2225.bin"
+	v2225PhysicsBREGInputPath = v2225BlockOutputPath
+	v2225BiomeOutputPath      = "crates/assets/data/biome-registry-v2225.bin"
+	v2225BiomeAllowlistPath   = "crates/protocol/data/retail_biomes_1_26_60.txt"
+	v2225BiomeProjectionPath  = "assets/biome-projection-v2225.json"
 )
 
 // compilerRoot finds the checkout containing both the source module and the Rust compiler.
@@ -80,13 +80,13 @@ func runCompiler(args ...string) error {
 	return nil
 }
 
-// writeV2193BlockProjection delegates admission and carrier construction to asset-compiler.
-func writeV2193BlockProjection(legacy, allowed, out, light, manifest string) error {
+// writeV2225BlockProjection delegates admission and carrier construction to asset-compiler.
+func writeV2225BlockProjection(legacy, allowed, out, light, manifest string) error {
 	return runCompiler("--kind", "blocks", "--legacy", compilerPath(legacy), "--allowlist", compilerPath(allowed), "--out", compilerPath(out), "--light-out", compilerPath(light), "--manifest", compilerPath(manifest))
 }
 
-// writeV2193PhysicsProjection delegates movement policy and seed construction to asset-compiler.
-func writeV2193PhysicsProjection(breg, out, sha, manifest string) error {
+// writeV2225PhysicsProjection delegates movement policy and seed construction to asset-compiler.
+func writeV2225PhysicsProjection(breg, out, sha, manifest string) error {
 	args := []string{"--kind", "physics", "--breg", compilerPath(breg), "--out", compilerPath(out)}
 	if sha != "" {
 		args = append(args, "--sha", compilerPath(sha))
@@ -97,7 +97,7 @@ func writeV2193PhysicsProjection(breg, out, sha, manifest string) error {
 	return runCompiler(args...)
 }
 
-// writeV2193BiomeProjection delegates retail admission and biome construction to asset-compiler.
-func writeV2193BiomeProjection(allowed, out, manifest string) error {
+// writeV2225BiomeProjection delegates retail admission and biome construction to asset-compiler.
+func writeV2225BiomeProjection(allowed, out, manifest string) error {
 	return runCompiler("--kind", "biomes", "--allowlist", compilerPath(allowed), "--out", compilerPath(out), "--manifest", compilerPath(manifest))
 }

@@ -4,6 +4,7 @@
 //! variants), `final` into the screen, the copy-back (or exchange of textures) of buffers
 //! that end flipped, and the screen's presentation into the view.
 
+use super::center_depth::CenterDepth;
 use super::draws::DrawKind;
 use super::effects::Effect;
 use super::frame_geometry::{
@@ -67,6 +68,7 @@ pub(crate) struct ViewState {
     pub history: super::uniforms::UniformHistory,
     /// Actor, block-entity and hand geometry skinned for the pack, with its draw bindings.
     pub actors: super::actors::ViewActors,
+    pub geometry_shader: Option<super::geometry_shader::Scratch>,
     custom: CustomUniforms,
     scratch: Vec<u8>,
     unknown: BTreeSet<String>,
@@ -80,6 +82,8 @@ pub(crate) struct ViewState {
     pub atlas_generation: Option<(Option<u64>, Option<u64>)>,
     /// This frame's effect geometry.
     pub effects: super::effects::EffectBuffers,
+    /// The smoothed `centerDepthSmooth`, when some program reads it.
+    pub center_depth: Option<CenterDepth>,
     /// Whether a frame has seen the player's biome: see [`Self::enter_world`].
     in_world: bool,
 }
@@ -98,12 +102,31 @@ impl ViewState {
             crate::gpu_allocation::checked(&render_device, "shader pack view bindings", 0, || {
                 ViewBindings::new(device, &pack, &mut targets)
             });
+        let geometry_shader = crate::gpu_allocation::checked(
+            &render_device,
+            super::geometry_shader::SCRATCH_ALLOCATION,
+            0,
+            || super::geometry_shader::Scratch::new(device, &pack.draws),
+        );
         if let Some(error) = bevy::tasks::block_on(scope.pop()) {
             return Err(error.to_string());
         }
         let bindings =
             bindings.ok_or_else(|| "shader pack view bindings ran out of GPU memory".to_owned())?;
+        let geometry_shader = geometry_shader.ok_or_else(|| {
+            format!(
+                "{} ran out of GPU memory",
+                super::geometry_shader::SCRATCH_ALLOCATION
+            )
+        })?;
         let custom = pack.custom_uniforms.clone();
+        let center_depth = pack.host.center_depth.as_ref().map(|pipeline| {
+            CenterDepth::new(
+                device,
+                pipeline,
+                targets.geometry_depth.as_ref().map(|depth| &depth.view),
+            )
+        });
         Ok(Self {
             depth_parameters: device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack view depth parameters"),
@@ -111,6 +134,7 @@ impl ViewState {
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             }),
+            geometry_shader,
             pack,
             scene_bindings: Default::default(),
             overlay_depth: Default::default(),
@@ -126,6 +150,7 @@ impl ViewState {
             skipped: BTreeSet::new(),
             atlas_generation: None,
             effects: Default::default(),
+            center_depth,
             in_world: false,
         })
     }
@@ -187,11 +212,11 @@ impl ViewState {
     }
 
     /// Restarts every smoothed uniform (`smooth()` custom uniforms, `wetness`,
-    /// `eyeBrightnessSmooth`, `centerDepthSmooth`) on the first frame that knows the player's
-    /// biome. Iris builds a pack's uniforms once the world renders, so they start from world
-    /// values; frames before that (joining, terrain arriving) read placeholder biome values,
-    /// and smoothing from them would hold Photon's 1000 s `biome_temperature` near the
-    /// placeholder for the whole session.
+    /// `eyeBrightnessSmooth` and `centerDepthSmooth`) on the first frame that knows the
+    /// player's biome. Iris builds a pack's uniforms once the world renders, so they start
+    /// from world values; frames before that (joining, terrain arriving) read placeholder
+    /// biome values, and smoothing from them would hold Photon's 1000 s `biome_temperature`
+    /// near the placeholder for the whole session.
     pub(crate) fn enter_world(&mut self, biome_known: bool) {
         if biome_known && !self.in_world {
             self.in_world = true;
@@ -241,6 +266,9 @@ impl ViewState {
             Vec::new()
         };
         let custom = self.custom.evaluate(&builtin, frame_time);
+        if let Some(center_depth) = &self.center_depth {
+            center_depth.write_share(queue, frame.center_depth_share());
+        }
         let lookup = |name: &str| {
             custom
                 .iter()
@@ -289,6 +317,7 @@ impl ViewState {
                 lightmap_matrix: draw.kind.lightmap_matrix(),
                 atlas_size: context.atlas_size(draw.kind),
                 entity_id: effect.map_or(-1, |effect| self.pack.effects.entity_id(effect)),
+                alpha_test_ref: draw.alpha_test.map_or(0.0, |t| t.reference),
             };
             let lookup = |name: &str| values.value(name).or_else(|| lookup(name));
             pack_block(block, &lookup, &mut self.scratch, &mut self.unknown);
@@ -410,6 +439,9 @@ pub(crate) fn record_frame(
     state: &mut ViewState,
     io: &FrameIo<'_>,
 ) {
+    if let Some(scratch) = state.geometry_shader.as_mut() {
+        scratch.begin();
+    }
     let pack = Arc::clone(&state.pack);
     state.scene_bindings.prepare(
         device,
@@ -420,6 +452,10 @@ pub(crate) fn record_frame(
         io.destination_format,
     );
     write_depth_parameters(queue, &state.depth_parameters, io);
+    // Passes before this frame's sample read the previous value.
+    if let Some(center_depth) = &state.center_depth {
+        center_depth.publish(encoder, &pack.center_depth.before, &state.bindings.uniforms);
+    }
     state.targets.clear_images(encoder, &pack.custom_images);
     for plan in &pack.buffers {
         let (Some(clear), Some(buffer)) = (
@@ -474,13 +510,25 @@ pub(crate) fn record_frame(
                 Some(geometry) => {
                     record_opaque(device, queue, encoder, state, geometry, timestamps);
                 }
-                None => copy_scene(
-                    encoder,
-                    &pack,
-                    &state.targets,
-                    state.scene_bindings.current(),
-                    io,
-                ),
+                None => {
+                    copy_scene(
+                        encoder,
+                        &pack,
+                        &state.targets,
+                        state.scene_bindings.current(),
+                        io,
+                    );
+                    if let Some(center_depth) = &mut state.center_depth {
+                        center_depth.sample_scene(
+                            device,
+                            encoder,
+                            &pack.center_depth.after,
+                            &state.bindings.uniforms,
+                            io.scene_depth,
+                            &state.depth_parameters,
+                        );
+                    }
+                }
             }
         },
     );
@@ -514,6 +562,9 @@ pub(crate) fn record_frame(
         encoder,
         |encoder| record_composite(encoder, state, io),
     );
+    if let Some(scratch) = state.geometry_shader.as_mut() {
+        scratch.finish();
+    }
 }
 
 /// `composite*` and `final`, the copy-back of buffers that end flipped (or the exchange of

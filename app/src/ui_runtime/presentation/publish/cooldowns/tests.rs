@@ -176,6 +176,7 @@ fn hotbar_publishes_shared_attack_cooldowns_and_expiry() {
         gameplay::melee::Crosshair::Miss,
         &gameplay::melee::PressContext {
             refused_destroy: None,
+            actor_life: None,
             tick: 100,
             player_position: [0.0; 3],
             input_mode: protocol::PlayerInputMode::Mouse,

@@ -10,7 +10,7 @@ fn compile_plants() -> (RuntimeAssets, Vec<RegistryRecord>) {
 fn compile_plants_with_sparse_flower(sparse: bool) -> (RuntimeAssets, Vec<RegistryRecord>) {
     let protocol = assets::active_content_registry_protocol();
     let registry = assets::read_registry_for_protocol(
-        include_bytes!("../../../../../crates/assets/data/block-registry-v2193.bin"),
+        include_bytes!("../../../../../crates/assets/data/block-registry-v2225.bin"),
         protocol,
     )
     .unwrap();

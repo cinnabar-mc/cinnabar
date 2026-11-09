@@ -8,7 +8,7 @@
 //! the whole set.
 
 use super::draws::{DrawKind, GeometryDraw};
-use super::loader::{PackGpu, ProgramPipeline};
+use super::loader::PackGpu;
 use super::pipelines::SCREEN_FORMAT;
 use super::plan::{BufferReads, MAX_COLOR_BUFFERS, PassStep};
 use super::resources::{AtlasLayer, ImageSource, TextureSource};
@@ -200,7 +200,9 @@ impl ViewTargets {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("shader pack sky vertices"),
                 size: super::sky::SKY_BUFFER_BYTES,
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                usage: wgpu::BufferUsages::VERTEX
+                    | wgpu::BufferUsages::STORAGE
+                    | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             })
         });
@@ -715,11 +717,7 @@ impl ViewBindings {
         let uniforms: Vec<Option<wgpu::Buffer>> = pack
             .programs
             .iter()
-            .map(|p| {
-                let fullscreen = !matches!(p.pipeline, ProgramPipeline::Geometry);
-                let block = p.reflection.uniforms.as_ref().filter(|_| fullscreen)?;
-                Some(uniform_buffer(device, &p.name, block))
-            })
+            .map(|p| Some(uniform_buffer(device, &p.name, p.fullscreen_uniforms()?)))
             .collect();
         let mut groups = |steps: &[PassStep]| {
             steps

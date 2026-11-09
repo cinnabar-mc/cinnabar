@@ -428,3 +428,414 @@ fn a_negative_seat_lock_is_skipped_without_panicking() {
     store.advance_interpolation_ticks(1);
     assert_eq!(store.get(10).unwrap().head_yaw, 100.0);
 }
+
+/// Vehicle control follows passenger arrival order, independent of link labels or unique IDs.
+#[test]
+fn vehicle_control_selects_the_first_player_passenger() {
+    let mut store = player_on_boat(None, false);
+    assert!(store.rider_controls_vehicle(10));
+    let ActorEvent::Spawn(mut second) = spawn(5, 5) else {
+        unreachable!()
+    };
+    second.kind = ActorKind::Player {
+        uuid: [1; 16],
+        username: "Second".into(),
+    };
+    store.apply(1, 20, ActorEvent::Spawn(second));
+    store.apply_link(1, 21, link(5, 20, ActorLinkType::Rider));
+    assert!(store.rider_controls_vehicle(10));
+    assert!(!store.rider_controls_vehicle(5));
+    store.apply_link(1, 22, link(10, 20, ActorLinkType::Remove));
+    assert!(store.rider_controls_vehicle(5));
+    store.apply_link(1, 23, link(10, 20, ActorLinkType::Passenger));
+    assert!(!store.rider_controls_vehicle(10));
+    assert!(store.rider_controls_vehicle(5));
+    store.apply_link(1, 24, link(5, 20, ActorLinkType::Passenger));
+    assert!(
+        store.rider_controls_vehicle(5),
+        "duplicate links do not reorder passengers"
+    );
+    store.begin_session(2, 0);
+    assert!(!store.rider_controls_vehicle(5));
+}
+
+/// The first player takes control ahead of earlier nonplayer passengers.
+#[test]
+fn vehicle_control_prefers_the_first_player_over_nonplayers() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply(1, 21, spawn(1, 1));
+    store.apply_link(1, 22, link(1, 20, ActorLinkType::Rider));
+    store.apply_link(1, 23, link(10, 20, ActorLinkType::Passenger));
+    assert!(store.rider_controls_vehicle(10));
+    assert!(!store.rider_controls_vehicle(1));
+}
+
+/// A horse selects a player controller only while both required flags are set.
+#[test]
+fn horse_control_requires_saddled_and_tamed() {
+    let mut store = player_on_boat(None, false);
+    store.actors.get_mut(&20).unwrap().entity_fact.native_class =
+        assets::facts::entity::NativeEntityClass::Horse;
+    for flags in [
+        0,
+        1 << protocol_ids::ActorFlag::Saddled.wire_value(),
+        1 << protocol_ids::ActorFlag::Tamed.wire_value(),
+    ] {
+        store.actors.get_mut(&20).unwrap().metadata.insert(
+            ActorDataKey::Flags.wire_value(),
+            protocol::ActorMetadataValue::Flags(flags),
+        );
+        assert!(!store.rider_controls_vehicle(10));
+    }
+    store.actors.get_mut(&20).unwrap().metadata.insert(
+        ActorDataKey::Flags.wire_value(),
+        protocol::ActorMetadataValue::Flags(
+            (1 << protocol_ids::ActorFlag::Saddled.wire_value())
+                | (1 << protocol_ids::ActorFlag::Tamed.wire_value()),
+        ),
+    );
+    assert!(store.rider_controls_vehicle(10));
+    store.actors.get_mut(&20).unwrap().entity_fact.native_class =
+        assets::facts::entity::NativeEntityClass::Minecart;
+    assert!(!store.rider_controls_vehicle(10));
+}
+
+/// Removing a controlling player preserves the remaining passenger order.
+#[test]
+fn vehicle_control_does_not_promote_a_later_player_after_removal() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply(1, 21, spawn(1, 1));
+    store.apply_link(1, 22, link(1, 20, ActorLinkType::Passenger));
+    store.apply_link(1, 23, link(10, 20, ActorLinkType::Passenger));
+    let ActorEvent::Spawn(mut second) = spawn(5, 5) else {
+        unreachable!()
+    };
+    second.kind = ActorKind::Player {
+        uuid: [1; 16],
+        username: "Second".into(),
+    };
+    store.apply(1, 24, ActorEvent::Spawn(second));
+    store.apply_link(1, 25, link(5, 20, ActorLinkType::Passenger));
+    assert!(store.rider_controls_vehicle(10));
+    store.apply_link(1, 26, link(10, 20, ActorLinkType::Remove));
+    assert!(!store.rider_controls_vehicle(5));
+    store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
+    assert!(store.rider_controls_vehicle(5));
+}
+
+/// Vanilla's 26.30 `ActorLinkSystem::_tick` applies queued links in arrival order once per
+/// tick, skipping and dropping any whose actor is missing then. A player that spawns in its link's tick keeps
+/// its place ahead of a later player; one that spawns after a tick boards behind.
+#[test]
+fn vehicle_control_resolves_an_earlier_unknown_player() {
+    for (kind, ticked) in [ActorLinkType::Rider, ActorLinkType::Passenger]
+        .into_iter()
+        .flat_map(|kind| [(kind, false), (kind, true)])
+    {
+        let mut store = player_on_boat(None, false);
+        store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+        store.apply_link(1, 21, link(5, 20, kind));
+        store.apply_link(1, 22, link(10, 20, ActorLinkType::Passenger));
+        if ticked {
+            store.advance_interpolation_ticks(1);
+        }
+        let ActorEvent::Spawn(mut earlier) = spawn(5, 5) else {
+            unreachable!()
+        };
+        earlier.kind = ActorKind::Player {
+            uuid: [1; 16],
+            username: "Earlier".into(),
+        };
+        assert_eq!(
+            store.apply(1, 23, ActorEvent::Spawn(earlier)),
+            ActorApplyResult::Inserted
+        );
+        let (controller, behind) = if ticked { (10, 5) } else { (5, 10) };
+        assert!(store.rider_controls_vehicle(controller), "ticked {ticked}");
+        assert!(!store.rider_controls_vehicle(behind), "ticked {ticked}");
+        store.apply_link(1, 24, link(5, 20, kind));
+        assert!(
+            store.rider_controls_vehicle(controller),
+            "duplicate does not reorder"
+        );
+        assert_eq!(
+            store.apply_link(1, 23, link(5, 20, ActorLinkType::Remove)),
+            ActorApplyResult::StaleSequence
+        );
+        assert!(store.rider_controls_vehicle(controller));
+    }
+}
+
+/// An earlier unresolved nonplayer still allows the first player to take the front seat.
+#[test]
+fn vehicle_control_resolves_an_earlier_unknown_nonplayer() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply_link(1, 21, link(5, 20, ActorLinkType::Passenger));
+    store.apply_link(1, 22, link(10, 20, ActorLinkType::Rider));
+    store.apply(1, 23, spawn(5, 5));
+    assert!(store.rider_controls_vehicle(10));
+    assert!(!store.rider_controls_vehicle(5));
+}
+
+/// An unresolved earlier rider never holds back a later one: vanilla's 26.30
+/// `ActorLinkSystem::_tick` skips a link whose actor is missing and applies the rest. Removing or moving that rider leaves
+/// the known player in control.
+#[test]
+fn vehicle_control_releases_a_cancelled_unknown_rider() {
+    for cancellation in 0..3 {
+        let mut store = player_on_boat(None, false);
+        store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+        store.apply_link(1, 21, link(5, 20, ActorLinkType::Passenger));
+        store.apply_link(1, 22, link(10, 20, ActorLinkType::Rider));
+        assert!(
+            store.rider_controls_vehicle(10),
+            "an unknown rider does not block control"
+        );
+        match cancellation {
+            0 => {
+                store.apply_link(1, 23, link(5, 20, ActorLinkType::Remove));
+            }
+            1 => {
+                store.apply(
+                    1,
+                    23,
+                    ActorEvent::Remove(ActorRemoveEvent {
+                        dimension: 0,
+                        unique_id: 5,
+                    }),
+                );
+            }
+            _ => {
+                store.apply_link(1, 23, link(5, 30, ActorLinkType::Passenger));
+            }
+        }
+        assert!(store.rider_controls_vehicle(10));
+        store.apply(1, 24, spawn(5, 5));
+        assert!(store.rider_controls_vehicle(10));
+    }
+}
+
+/// Resolving a player ahead of a nonplayer does not later promote another player on removal.
+#[test]
+fn resolved_passenger_order_survives_controller_removal() {
+    let mut store = player_on_boat(None, false);
+    store.apply_link(1, 20, link(10, 20, ActorLinkType::Remove));
+    store.apply(1, 21, spawn(1, 1));
+    store.apply_link(1, 22, link(1, 20, ActorLinkType::Passenger));
+    store.apply_link(1, 23, link(5, 20, ActorLinkType::Rider));
+    store.apply_link(1, 24, link(10, 20, ActorLinkType::Passenger));
+    let ActorEvent::Spawn(mut earlier) = spawn(5, 5) else {
+        unreachable!()
+    };
+    earlier.kind = ActorKind::Player {
+        uuid: [1; 16],
+        username: "Earlier".into(),
+    };
+    store.apply(1, 25, ActorEvent::Spawn(earlier));
+    assert!(store.rider_controls_vehicle(5));
+    assert!(!store.rider_controls_vehicle(10));
+    store.apply_link(1, 26, link(5, 20, ActorLinkType::Remove));
+    assert!(!store.rider_controls_vehicle(10));
+    store.apply_link(1, 27, link(1, 20, ActorLinkType::Remove));
+    assert!(store.rider_controls_vehicle(10));
+}
+
+/// Pick prediction and committed ticks use the same mount tick before placing its passenger.
+#[test]
+fn streamed_seats_follow_the_predicted_mount_tick_once() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let before = store.get(10).unwrap().native_position();
+    let mut movement = super::tests::network_move(20, 12.0, false);
+    let ActorEvent::Move(ref mut event) = movement else {
+        unreachable!()
+    };
+    event.position[0] = Some(16.0);
+    store.apply(1, 4, movement);
+    store.predict_remote_motion(1);
+    let predicted = store.pick_pose(10).expect("predicted rider");
+    assert_eq!(store.get(10).unwrap().native_position(), before);
+    store.advance_interpolation_frame(1);
+    let rider = store.get(10).unwrap();
+    assert_eq!(rider.position, predicted.position);
+    let mount = store.get(20).unwrap().native_position();
+    let actual = rider.native_position();
+    for (observed, expected) in
+        actual
+            .into_iter()
+            .zip([mount[0] - 0.5, mount[1] + 2.0, mount[2] + 1.0])
+    {
+        assert!((observed - expected).abs() < 0.00001);
+    }
+}
+
+/// A remote player teleport releases its old seat before later movement ticks can restore it.
+#[test]
+fn teleporting_a_remote_player_releases_the_riding_link() {
+    let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+    store.advance_interpolation_ticks(1);
+    let mount = store.get(20).unwrap().native_position();
+    let target = [30.0, 40.0, 50.0];
+    store.apply_player_move(
+        1,
+        4,
+        0,
+        protocol::MovePlayerEvent {
+            runtime_id: 10,
+            position: target,
+            mode: protocol::MovePlayerMode::Teleport,
+            teleported: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(store.ridden_unique_id(10), None);
+    assert_eq!(store.get(10).unwrap().native_position(), target);
+    store.predict_remote_motion(1);
+    let predicted = store.pick_pose(10).unwrap().position;
+    store.advance_interpolation_frame(1);
+    assert_eq!(store.get(10).unwrap().position, predicted);
+    store.advance_interpolation_ticks(5);
+    assert_eq!(store.get(10).unwrap().native_position(), target);
+    assert_eq!(store.get(20).unwrap().native_position(), mount);
+    // The server's later removal remains harmless, and a new link can seat the actor again.
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Remove));
+    store.apply_link(1, 6, link(10, 20, ActorLinkType::Rider));
+    store.advance_interpolation_ticks(1);
+    assert!(store.rider_seat_pose(10).is_some());
+    assert_ne!(store.get(10).unwrap().native_position(), target);
+}
+
+/// Reset and rotation updates leave a mounted player's relationship intact.
+#[test]
+fn other_player_movement_modes_preserve_riding_links() {
+    for mode in [
+        protocol::MovePlayerMode::Normal,
+        protocol::MovePlayerMode::Reset,
+        protocol::MovePlayerMode::Rotation,
+    ] {
+        let mut store = player_on_boat(Some([1.0, 2.0, 0.5]), false);
+        store.apply_player_move(
+            1,
+            4,
+            0,
+            protocol::MovePlayerEvent {
+                runtime_id: 10,
+                position: [30.0, 40.0, 50.0],
+                mode,
+                ..Default::default()
+            },
+        );
+        assert_eq!(store.ridden_unique_id(10), Some(20), "{mode:?}");
+    }
+}
+
+/// Whether each reader of the client's mount view finds rider 10 on boat 20: its mount, its
+/// seat, and the collision that leaves the mount out.
+fn shown_on_boat(store: &ActorStore) -> [bool; 3] {
+    let rider = store.snapshot_by_unique(10).unwrap().runtime_id;
+    let colliders = store.effect_members.collidable.snapshot(rider, None).len();
+    [
+        store.ridden_unique_id(10) == Some(20),
+        store.rider_seat_pose(10).is_some(),
+        store.movement_collider_snapshot(rider, 10).len() < colliders,
+    ]
+}
+
+/// Rider 10 gets off boat 20 on the client and stands clear of it, so movement collides with
+/// the boat again.
+fn leave_beside_boat(store: &mut ActorStore) {
+    store.leave_local_vehicle(10);
+    assert!(store.passed_through_bounds(10).is_some());
+    store.release_passed_through(10);
+}
+
+/// Movement passes through the vehicle a rider got off inside until the caller releases it,
+/// through the server's unlink; boarding again ends it.
+#[test]
+fn a_rider_left_inside_its_vehicle_passes_through_it_until_released() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    store.leave_local_vehicle(10);
+    assert_eq!(shown_on_boat(&store), [false, false, true]);
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove));
+    assert!(
+        shown_on_boat(&store)[2],
+        "the unlink keeps the pass-through"
+    );
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Rider));
+    assert!(
+        store.passed_through_bounds(10).is_none(),
+        "boarding ends it"
+    );
+    store.leave_local_vehicle(10);
+    store.release_passed_through(10);
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+}
+
+/// A local player that gets off its vehicle on the client stops following the seat at once,
+/// while its committed link waits for the server's unlink; a new link seats it again.
+#[test]
+fn a_local_rider_leaving_on_the_client_keeps_its_link_until_the_server_unlinks() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+    leave_beside_boat(&mut store);
+    assert!(store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    assert_eq!(
+        store.linked_unique_id(10),
+        Some(20),
+        "the committed link stays"
+    );
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Remove));
+    assert_eq!(
+        store.linked_unique_id(10),
+        None,
+        "the server's unlink commits"
+    );
+    assert!(!store.left_local_vehicle(10));
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Rider));
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+}
+
+/// The server linking the rider to the same vehicle again after it got off on the client
+/// seats it again for every reader at once.
+#[test]
+fn a_resent_link_after_leaving_on_the_client_seats_the_rider_again() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    leave_beside_boat(&mut store);
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    store.apply_link(1, 4, link(10, 20, ActorLinkType::Rider));
+    assert!(!store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [true; 3]);
+}
+
+/// The server's cleanup of another vehicle's link keeps a rider that got off on the client off
+/// its current vehicle; only that vehicle's unlink or a new boarding link ends the leave.
+#[test]
+fn an_unlink_from_another_vehicle_keeps_a_client_side_leave() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    leave_beside_boat(&mut store);
+    store.apply_link(1, 4, link(10, 99, ActorLinkType::Remove));
+    assert!(store.left_local_vehicle(10));
+    assert_eq!(shown_on_boat(&store), [false; 3]);
+    store.apply_link(1, 5, link(10, 20, ActorLinkType::Remove));
+    assert!(!store.left_local_vehicle(10));
+    assert_eq!(store.linked_unique_id(10), None);
+}
+
+/// A rider that got off on the client collides with its vehicle before the server's unlink,
+/// so walking back into the boat stops at its side.
+#[test]
+fn a_rider_that_left_on_the_client_collides_with_its_vehicle() {
+    let mut store = player_on_boat(Some([0.0; 3]), false);
+    let rider = store.snapshot_by_unique(10).unwrap().runtime_id;
+    let seated = store.movement_collider_snapshot(rider, 10).len();
+    leave_beside_boat(&mut store);
+    assert_eq!(
+        store.movement_collider_snapshot(rider, 10).len(),
+        seated + 1,
+        "the boat collides again"
+    );
+}

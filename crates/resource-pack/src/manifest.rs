@@ -13,7 +13,7 @@ mod format;
 use format::Layout;
 
 /// A `major.minor.patch` pack version, compared by number as the client compares pack identities.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct Version(pub(crate) [u32; 3]);
 
 impl Version {
@@ -226,6 +226,27 @@ mod tests {
                 "format {format}"
             );
         }
+    }
+
+    #[test]
+    fn manifests_with_escaped_keys_are_read_like_their_unescaped_text() {
+        // Every key and value is written with escapes, as some servers' packs do.
+        let escaped: String = manifest("2", "[1, 2, 3]", r#"{"type": "resources"}"#)
+            .split('"')
+            .enumerate()
+            .map(|(index, part)| {
+                if index % 2 == 1 {
+                    part.chars()
+                        .map(|c| format!("\\u{:04x}", c as u32))
+                        .collect()
+                } else {
+                    part.to_owned()
+                }
+            })
+            .collect::<Vec<String>>()
+            .join("\"");
+        assert!(!escaped.contains("format_version"));
+        assert!(read_manifest(escaped.as_bytes(), ID, Version([1, 2, 3])).is_ok());
     }
 
     #[test]

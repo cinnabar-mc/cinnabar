@@ -745,7 +745,8 @@ fn attack_progress_held_sweep_preserves_the_post_break_delay() {
             .begin_frame();
         buttons(app.world_mut(), vec![1]);
         app.world_mut().run_schedule(Update);
-        let last_delayed = 103 + u64::from(gameplay::survival_mining::DESTROY_DELAY_TICKS);
+        // A survival start is allowed on the tick the destroy deadline is reached.
+        let last_delayed = 103 + u64::from(gameplay::survival_mining::DESTROY_DELAY_TICKS) - 1;
         for tick in 104..last_delayed {
             ticks(app.world_mut(), tick, tick + 1);
             buttons(app.world_mut(), vec![1]);

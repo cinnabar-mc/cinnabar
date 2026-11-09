@@ -88,6 +88,7 @@ impl Plugin for ChunkRenderPlugin {
                     update_chunk_animation_clock,
                 ),
             );
+        super::visibility::install(app);
 
         if app.get_sub_app(RenderApp).is_none() {
             return;
@@ -113,6 +114,7 @@ impl Plugin for ChunkRenderPlugin {
             app.world().resource::<TransparentWitnessEvidence>().clone();
 
         crate::pipeline_warmup::register::<ChunkPipeline>(app);
+        crate::pipeline_warmup::register_pending::<ChunkGpuTextureAssets>(app);
         let render_app = app.sub_app_mut(RenderApp);
         crate::device_poll::install(render_app);
         render_app
@@ -153,11 +155,13 @@ impl Plugin for ChunkRenderPlugin {
             crate::runtime_profile_trace::install_surface_trace(render_app);
         }
         install_chunk_commands(render_app);
+        install_visible_transparent_tracking(render_app.world_mut());
         transparent::gamma_pass::install(app);
         let render_app = app.sub_app_mut(RenderApp);
         render_app.edit_schedule(Render, configure_chunk_publication);
         render_app.edit_schedule(Render, configure_graphics_metadata_publication);
         crate::surface_capabilities::install(render_app);
+        crate::world_passes::install(render_app);
         render_app
             .add_systems(
                 RenderStartup,
@@ -170,6 +174,13 @@ impl Plugin for ChunkRenderPlugin {
             .add_systems(
                 Render,
                 (
+                    super::recovery::begin_recovery
+                        .in_set(ChunkPublicationStage::CoverageBegin)
+                        .before(super::coverage::begin_terrain_coverage),
+                    super::recovery::finish_publication
+                        .after(crate::upload_staging::UploadGrowth)
+                        .after(RenderSystems::PrepareBindGroups)
+                        .before(RenderSystems::Render),
                     super::coverage::begin_terrain_coverage
                         .in_set(ChunkPublicationStage::CoverageBegin),
                     super::coverage::publish_terrain_coverage
@@ -182,9 +193,14 @@ impl Plugin for ChunkRenderPlugin {
                         .run_if(opaque_terrain_passes_enabled)
                         .in_set(RenderSystems::Queue),
                     queue_transparent_chunks
-                        .run_if(render_scene::panorama::world_passes_enabled)
+                        .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
-                    prepare_chunk_texture_assets.in_set(ChunkPublicationStage::Attributes),
+                    transparent::batching::batch_adjacent_water
+                        .in_set(RenderSystems::PhaseSort)
+                        .after(crate::transparent_phase::sort),
+                    prepare_chunk_texture_assets
+                        .in_set(ChunkPublicationStage::Attributes)
+                        .run_if(render_scene::startup_work::world_work_allowed),
                     prepare_chunk_animation_clock.in_set(ChunkPublicationStage::Attributes),
                     prepare_chunk_biome_tints
                         .in_set(ChunkPublicationStage::Attributes)
@@ -194,6 +210,9 @@ impl Plugin for ChunkRenderPlugin {
                         .after(crate::dropped_item_render::terrain_items::TerrainItemSessionSet)
                         .after(prepare_chunk_texture_assets),
                     prepare_transparent_sorts.in_set(ChunkPublicationStage::LiquidSort),
+                    track_visible_transparent_chunks
+                        .in_set(ChunkPublicationStage::ModelSort)
+                        .before(prepare_transparent_model_sorts),
                     prepare_transparent_model_sorts.in_set(ChunkPublicationStage::ModelSort),
                     prepare_chunk_indirect_batches
                         .in_set(RenderSystems::PrepareResources)
@@ -208,6 +227,11 @@ impl Plugin for ChunkRenderPlugin {
         install_atmosphere(app);
         if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
             transparent::gamma_pass::install_graph(render_app.world_mut());
+        }
+        if let Some(render_app) = app.get_sub_app_mut(RenderApp) {
+            let device = render_app.world().resource::<RenderDevice>();
+            let recovery = super::recovery::TerrainGpuRecovery::new(device);
+            render_app.insert_resource(recovery);
         }
         gpu_cull::install(app);
     }

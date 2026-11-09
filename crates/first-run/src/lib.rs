@@ -2,13 +2,16 @@
 //!
 //! Runs before the game window: consent, a download of the pinned public pack, then one
 //! `assetc prepare`. Android also tries to prepare local worlds before starting the game. A setup
-//! window in a child process shows desktop setup; without one, native dialogs do. Progress is
-//! mirrored to `logs/first-run-status.json`.
+//! window in a child process shows desktop setup; without one, native dialogs do. Android's setup
+//! activity draws setup on its startup screen. Progress is mirrored to
+//! `logs/first-run-status.json`.
 
 mod download;
 mod fs_retry;
 mod headless;
+mod next;
 mod prepare;
+mod progress;
 mod runner;
 mod screen;
 mod status;
@@ -22,7 +25,9 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
 pub use headless::prepare_headless;
+pub use next::prepare_next_release;
 use prepare::prepare;
+pub use progress::Progress;
 use status::Status;
 pub use window::{SETUP_FLAG, run_setup_process};
 use {
@@ -46,10 +51,16 @@ pub enum Outcome {
 }
 
 /// Prepares a packaged install's resources when they are missing or stale; a no-op for development
-/// checkouts. Android's setup activity also tries to prepare local worlds before starting the game.
+/// checkouts. Carriers the previous version built in the background are promoted without setup.
+/// Android's setup activity also tries to prepare local worlds before starting the game.
 pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
+    let promoted = next::promote(layout);
     if !needs_preparation(layout) {
-        return Ok(Outcome::NotNeeded);
+        return Ok(if promoted {
+            Outcome::Prepared
+        } else {
+            Outcome::NotNeeded
+        });
     }
     if cfg!(target_os = "android") {
         // Android's setup activity runs `prepare_headless` before the game activity starts.
@@ -57,14 +68,33 @@ pub fn ensure_prepared(layout: &InstallLayout) -> Result<Outcome> {
     }
     // An earlier run's report must not describe this one.
     let _ = fs::remove_file(progress_file(layout));
-    match window::run_in_child() {
+    after_window(
+        layout,
+        window::run_in_child(),
+        &NativePrompter,
+        env_consent(),
+    )
+}
+
+/// Finishes setup once the setup window process has ended with `child`. A window that could not
+/// open, or whose process crashed (often inside a graphics driver), leaves setup to `prompter`.
+fn after_window(
+    layout: &InstallLayout,
+    child: window::ChildOutcome,
+    prompter: &dyn Prompter,
+    env_consent: bool,
+) -> Result<Outcome> {
+    match child {
         window::ChildOutcome::Prepared => Ok(Outcome::Prepared),
         window::ChildOutcome::Quit => Ok(Outcome::Quit),
-        window::ChildOutcome::Failed(code) => bail!(
-            "first-time setup failed (exit {code}); details: {}",
-            prepare::log_path(layout).display()
-        ),
-        window::ChildOutcome::Unavailable => ensure_with(layout, &NativePrompter, env_consent()),
+        window::ChildOutcome::Crashed(code) => {
+            tracing::warn!(
+                exit_code = ?code,
+                "first-time setup window crashed; continuing setup with system dialogs"
+            );
+            ensure_with(layout, prompter, env_consent)
+        }
+        window::ChildOutcome::Unavailable => ensure_with(layout, prompter, env_consent),
     }
 }
 

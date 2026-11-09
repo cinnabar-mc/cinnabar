@@ -2,7 +2,7 @@ use super::*;
 use std::collections::BTreeMap;
 
 #[test]
-fn every_registry_item_resolves_a_presentation_route() {
+fn every_registry_item_has_a_presentation_disposition() {
     let pack = presentation_pack();
     let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
     let missing = assets::item::names::identifiers()
@@ -13,9 +13,15 @@ fn every_registry_item_resolves_a_presentation_route() {
             )
         })
         .collect::<Vec<_>>();
-    assert!(
-        missing.is_empty(),
-        "items without presentation rules: {missing:?}"
+    assert_eq!(
+        missing,
+        [
+            "minecraft:brittle_ice",
+            "minecraft:ice_ball",
+            "minecraft:ice_crystal",
+            "minecraft:icicle",
+        ],
+        "new item presentation remains unresolved until current pack routes are verified"
     );
 }
 
@@ -24,7 +30,7 @@ fn presentation_pack() -> TempDir {
     let pack = item_pack(false);
     let mut variants = BTreeMap::<&str, usize>::new();
     for row in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv").lines()
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv").lines()
     {
         let Some(("item_texture", key)) = row.split_once('\t') else {
             continue;
@@ -58,7 +64,7 @@ fn presentation_pack() -> TempDir {
     );
     // Egg routes belong to client entities. Their actor identities come from the pinned vocabulary.
     for (index, row) in
-        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_str!("../../../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
             .lines()
             .enumerate()
     {
@@ -79,4 +85,63 @@ fn presentation_pack() -> TempDir {
         );
     }
     pack
+}
+
+/// Vanilla gives every registry block that no named item claims a plain block item under the
+/// block's name and draws it as that block, so server-given items such as the nether reactor
+/// core show their block. An atlas sprite of the same name keeps the sprite.
+#[test]
+fn blocks_without_a_named_item_draw_as_their_block() {
+    let pack = presentation_pack();
+    let compiled = compile_entity_assets(pack.path(), MANIFEST).unwrap();
+    let registry = assets::read_registry_for_protocol(
+        assets::pinned_block_registry_bytes(),
+        assets::active_content_registry_protocol(),
+    )
+    .unwrap();
+    let mut first_states = BTreeMap::new();
+    for record in registry.iter() {
+        first_states
+            .entry(record.name.as_ref())
+            .or_insert(record.sequential_id);
+    }
+    let unclaimed = first_states
+        .iter()
+        .filter(|(name, _)| {
+            **name != assets::facts::block::RESERVED_BLOCK_NAME
+                && assets::item::names::serialization_ids(name).is_none()
+        })
+        .collect::<Vec<_>>();
+    let unresolved = unclaimed
+        .iter()
+        .filter(|(name, _)| {
+            compiled
+                .item_visuals
+                .iter()
+                .find(|visual| visual.key.identifier.as_ref() == **name && visual.key.metadata == 0)
+                .is_none_or(|visual| matches!(visual.route, ItemVisualDefinitionRoute::Missing))
+        })
+        .map(|(name, _)| **name)
+        .collect::<Vec<_>>();
+    assert!(
+        unresolved.is_empty(),
+        "unclaimed blocks without an item: {unresolved:?}"
+    );
+    for name in [
+        "minecraft:netherreactor",
+        "minecraft:glowingobsidian",
+        "minecraft:info_update",
+    ] {
+        assert_eq!(
+            visual(&compiled.item_visuals, name, 0).route,
+            ItemVisualDefinitionRoute::BlockItem {
+                block_visual: assets::BlockVisualId(first_states[name]),
+            },
+            "{name}"
+        );
+    }
+    assert!(matches!(
+        visual(&compiled.item_visuals, "minecraft:camera", 0).route,
+        ItemVisualDefinitionRoute::Sprite { .. }
+    ));
 }

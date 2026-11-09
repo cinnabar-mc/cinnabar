@@ -213,6 +213,11 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
         "entity_static" => state.disable_overlay = true,
         "entity_nocull" => state.cull = false,
         "entity_alphatest_one_sided" => state.alpha_test = true,
+        "entity_multitexture_masked" => {
+            state.alpha_test = true;
+            state.cull = false;
+            state.masked_multitexture = true;
+        }
         "entity_emissive" => state.emissive = true,
         "entity_emissive_alpha" => {
             state.emissive = true;
@@ -231,6 +236,7 @@ fn builtin(name: &str) -> Option<EntityRenderMaterialState> {
     Some(state)
 }
 
+/// Applies one declaration layer while preserving unspecified inherited states.
 fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> Option<()> {
     let replace_states = fields.get("states").is_some_and(|value| !value.is_null());
     let replace_defines = fields.get("defines").is_some_and(|value| !value.is_null());
@@ -238,11 +244,16 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
         state.cull = true;
         state.blend = false;
         state.depth_write = true;
+        state.disable_alpha_write = false;
+        state.disable_color_write = false;
     }
     if replace_defines {
         state.alpha_test = false;
+        state.masked_multitexture = false;
         state.emissive = false;
+        state.only_emissive = false;
         state.disable_overlay = true;
+        state.color_mask = false;
     }
     for (key, enabled) in [("states", true), ("+states", true), ("-states", false)] {
         if replace_states != (key == "states") {
@@ -256,6 +267,8 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
                 "Blending" => state.blend = enabled,
                 "DisableCulling" => state.cull = !enabled,
                 "DisableDepthWrite" => state.depth_write = !enabled,
+                "DisableAlphaWrite" => state.disable_alpha_write = enabled,
+                "DisableColorWrite" => state.disable_color_write = enabled,
                 _ => {}
             }
         }
@@ -270,17 +283,29 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
         for value in values.as_array()? {
             match value.as_str()? {
                 "ALPHA_TEST" => state.alpha_test = enabled,
+                "MASKED_MULTITEXTURE" => state.masked_multitexture = enabled,
                 "USE_EMISSIVE" => state.emissive = enabled,
+                "USE_ONLY_EMISSIVE" => state.only_emissive = enabled,
                 "USE_OVERLAY" => state.disable_overlay = !enabled,
+                "USE_COLOR_MASK" => state.color_mask = enabled,
                 _ => {}
             }
         }
     }
-    // Only the always-passing comparison is admitted; the default LessEqual restores normal
-    // testing, and other functions keep the inherited state.
+    // An explicit comparison replaces the inherited comparison.
     match fields.get("depthFunc").and_then(Value::as_str) {
-        Some("Always") => state.depth_always = true,
-        Some("LessEqual") => state.depth_always = false,
+        Some("Always") => {
+            state.depth_always = true;
+            state.depth_equal = false;
+        }
+        Some("Equal") => {
+            state.depth_equal = true;
+            state.depth_always = false;
+        }
+        Some("LessEqual") => {
+            state.depth_equal = false;
+            state.depth_always = false;
+        }
         _ => {}
     }
     let source = fields.get("blendSrc").and_then(Value::as_str);
@@ -310,3 +335,7 @@ fn apply(fields: &Map<String, Value>, state: &mut EntityRenderMaterialState) -> 
     }
     Some(())
 }
+
+#[cfg(test)]
+#[path = "materials_tests.rs"]
+mod tests;

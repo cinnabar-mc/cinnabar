@@ -3,6 +3,9 @@
 #[path = "map_mesh_tests.rs"]
 mod map_mesh_tests;
 
+#[path = "retained_block_tests.rs"]
+mod retained_block_tests;
+
 #[path = "external_armor_tests.rs"]
 mod external_armor_tests;
 
@@ -25,13 +28,19 @@ mod held_model_residency_tests;
 mod held_block_entity_reload_tests;
 
 #[path = "block_reload_tests.rs"]
-mod block_reload_tests;
+pub(super) mod block_reload_tests;
 
 #[path = "texture_artwork_tests.rs"]
 mod texture_artwork_tests;
 
 #[path = "held_scale_tests.rs"]
 mod held_scale_tests;
+
+#[path = "third_person_hand_tests.rs"]
+mod third_person_hand_tests;
+
+#[path = "shield_tests.rs"]
+mod shield_tests;
 
 use actor_animation::ItemAnimationState;
 use bevy::math::Quat;
@@ -270,7 +279,7 @@ fn block_fixture_with_visuals(
                 session_id: 1,
                 dimension: 0,
                 runtime_id: 2,
-                spawn_revision: 1,
+                spawn_revision: std::num::NonZeroU64::MIN,
                 ingress_sequence: 1,
                 source_tick: None,
                 movement_revision: 1,
@@ -297,6 +306,7 @@ fn block_fixture_with_visuals(
     };
     let item = WornItem {
         map_id: None,
+        shield_pattern: None,
         charged_projectile: None,
         use_facts: client_world::EffectiveItemUse::default(),
         grip: assets::item::grip::builtin_item_grip("test:opaque_cube"),
@@ -903,7 +913,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
                 },
                 |endpoint, index| {
                     work.set(work.get() + 1);
-                    modern::compose_parent(
+                    actor_animation::attachment::compose_parent(
                         if endpoint == 0 {
                             body.input.previous_bones[index]
                         } else {
@@ -931,7 +941,7 @@ fn attachment_placement_reuses_unchanged_inputs_and_invalidates_owner_and_local_
     let changed = sample(&body, &local);
     assert_eq!(work.replace(0), 2);
     assert_ne!(changed[1], moved[1]);
-    body.input.identity.spawn_revision += 1;
+    body.input.identity.spawn_revision = body.input.identity.spawn_revision.checked_add(1).unwrap();
     sample(&body, &local);
     assert_eq!(work.get(), 2);
 }

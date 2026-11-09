@@ -1,6 +1,6 @@
 //! Owns a compiler-only Windows job with memory, CPU and lifetime limits.
 
-use super::{MEMORY_LIMIT, TIME_LIMIT};
+use super::{MEMORY_LIMIT, cpu_time_limit};
 use std::{
     io,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
@@ -30,7 +30,7 @@ impl Job {
             | JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             | JOB_OBJECT_LIMIT_DIE_ON_UNHANDLED_EXCEPTION;
         limits.BasicLimitInformation.PerProcessUserTimeLimit =
-            TIME_LIMIT.as_secs() as i64 * 10_000_000;
+            i64::try_from(cpu_time_limit().as_secs()).unwrap_or(i64::MAX / 10_000_000) * 10_000_000;
         limits.ProcessMemoryLimit = MEMORY_LIMIT as usize;
         // SAFETY: the descriptor matches its class and size; both handles remain owned here.
         unsafe {

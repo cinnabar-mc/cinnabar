@@ -163,8 +163,11 @@ fn late_screen_capture_resumes_after_loss_but_not_during_driven_control() {
 
 #[test]
 fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
-    use bevy::input::{ButtonState, InputPlugin, mouse::MouseButtonInput};
-    use client_ui::ui_runtime::flush_form_response;
+    use bevy::{
+        input::{ButtonState, InputPlugin, mouse::MouseButtonInput},
+        time::Real,
+    };
+    use client_ui::ui_runtime::{FORM_HANDOFF_GRACE_MILLIS, flush_form_response};
     use {
         crate::ui_runtime::drive_server_form_input,
         client_ui::test_support::{mini_engine_presentation, pack_harness},
@@ -190,6 +193,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
     );
     let mut app = App::new();
     app.add_plugins(InputPlugin)
+        .init_resource::<Time<Real>>()
         .init_resource::<client_state::ScreenFocus>()
         .insert_resource(AutoFly::new(false))
         .insert_resource(player)
@@ -244,8 +248,7 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
         app.world()
             .resource::<UiRuntimeResource>()
             .server_forms()
-            .active()
-            .is_none()
+            .handoff_pending()
     );
     assert!(
         app.world()
@@ -260,6 +263,11 @@ fn json_ui_form_release_restores_capture_after_overlay_and_response_delivery() {
         |_| Ok(()),
     )
     .unwrap();
+    app.world_mut()
+        .resource_mut::<Time<Real>>()
+        .advance_by(std::time::Duration::from_millis(
+            FORM_HANDOFF_GRACE_MILLIS + 1,
+        ));
     app.update();
     let cursor = app.world().get::<CursorOptions>(window).unwrap();
     assert_eq!(cursor.grab_mode, CursorGrabMode::Locked);
@@ -808,45 +816,6 @@ fn explicit_join_keeps_return_authorization_across_loading() {
             CursorGrabMode::Locked,
             "join capture for local={local}"
         );
-    }
-}
-
-/// Without an OS grab, gameplay holds input exactly where desktop would lock the cursor, so a
-/// hardware keyboard drives gameplay and screens still own their input.
-#[test]
-fn grab_free_capture_follows_the_desktop_capture_rules() {
-    let gameplay = client_presentation::observations::CursorPolicy {
-        capture_allowed: true,
-        consent: false,
-        absorbs_input: false,
-        steals_mouse: Some(true),
-        driven: false,
-    };
-    assert!(super::grab_free_capture(&gameplay, true));
-    assert!(!super::grab_free_capture(&gameplay, false), "unfocused");
-    for blocked in [
-        client_presentation::observations::CursorPolicy {
-            capture_allowed: false,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            consent: true,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            absorbs_input: true,
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            steals_mouse: Some(false),
-            ..gameplay
-        },
-        client_presentation::observations::CursorPolicy {
-            driven: true,
-            ..gameplay
-        },
-    ] {
-        assert!(!super::grab_free_capture(&blocked, true));
     }
 }
 

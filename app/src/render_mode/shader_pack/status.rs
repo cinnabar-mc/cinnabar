@@ -27,6 +27,7 @@ fn pack_load<'a>(
     config: &'a RenderModeConfig,
     status: &'a ShaderPackStatus,
     progress: Option<&ShaderPackLoadProgress>,
+    warnings: Option<&'a render_scene::shaderpack::ShaderPackWarnings>,
 ) -> PackLoad<'a> {
     match status {
         ShaderPackStatus::Idle => PackLoad::Idle,
@@ -38,9 +39,13 @@ fn pack_load<'a>(
                 PackLoad::Loading {
                     pack,
                     programs: progress.and_then(ShaderPackLoadProgress::programs),
+                    pipelines: progress.and_then(ShaderPackLoadProgress::pipelines),
                 }
             } else {
-                PackLoad::Ready { pack }
+                PackLoad::Ready {
+                    pack,
+                    warnings: warnings.map(|w| w.0.as_str()).filter(|s| !s.is_empty()),
+                }
             }
         }
         ShaderPackStatus::Failed { pack, reason } => PackLoad::Failed {
@@ -50,12 +55,16 @@ fn pack_load<'a>(
     }
 }
 
-/// Mirrors the load state into the menu each frame; builds without the shader-pack host
-/// have no status and stay on Vanilla silently.
+/// Mirrors the load state into the menu each frame; a missing host status stays on Vanilla.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Bevy supplies the pack state, load feedback and menu resources"
+)]
 pub(in super::super) fn sync_shader_pack_status(
     config: Res<RenderModeConfig>,
     status: Option<Res<ShaderPackStatus>>,
     progress: Option<Res<ShaderPackLoadProgress>>,
+    warnings: Option<Res<render_scene::shaderpack::ShaderPackWarnings>>,
     menu: Option<ResMut<MenuRuntime>>,
     runtime: Option<ResMut<UiRuntimeResource>>,
     time: Res<Time<Real>>,
@@ -64,19 +73,20 @@ pub(in super::super) fn sync_shader_pack_status(
     let (Some(status), Some(mut menu), Some(mut runtime)) = (status, menu, runtime) else {
         return;
     };
-    let load = pack_load(&config, &status, progress.as_deref());
+    let load = pack_load(&config, &status, progress.as_deref(), warnings.as_deref());
     let revision = progress
         .as_deref()
         .map_or(0, ShaderPackLoadProgress::revision);
     if seen
         .replace(revision)
         .is_some_and(|previous| previous != revision)
-        && let PackLoad::Ready { pack } | PackLoad::Failed { pack, .. } = load
+        && let PackLoad::Ready { pack, .. } | PackLoad::Failed { pack, .. } = load
     {
         menu.sync_shader_pack_status(
             PackLoad::Loading {
                 pack,
                 programs: None,
+                pipelines: None,
             },
             &mut runtime,
             time.elapsed(),
@@ -102,27 +112,59 @@ mod tests {
     }
 
     #[test]
+    fn a_ready_pack_keeps_program_diagnostics_visible() {
+        let config = config();
+        let status = ShaderPackStatus::Ready("Dusk.zip".into());
+        let warnings = render_scene::shaderpack::ShaderPackWarnings(
+            "shadow: geometry output unsupported".into(),
+        );
+        assert_eq!(
+            pack_load(&config, &status, None, Some(&warnings)),
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: Some(warnings.0.as_str())
+            }
+        );
+    }
+
+    #[test]
     fn ready_pack_reload_reports_loading_until_the_worker_finishes() {
         let config = config();
         let status = ShaderPackStatus::Ready("Dusk.zip".into());
         let mut progress = ShaderPackLoadProgress::default();
         assert_eq!(
-            pack_load(&config, &status, Some(&progress)),
-            PackLoad::Ready { pack: "Dusk.zip" }
+            pack_load(&config, &status, Some(&progress), None),
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None
+            }
         );
         let worker = progress.start();
         worker.record(3, 7);
         assert_eq!(
-            pack_load(&config, &status, Some(&progress)),
+            pack_load(&config, &status, Some(&progress), None),
             PackLoad::Loading {
                 pack: "Dusk.zip",
-                programs: Some((3, 7))
+                programs: Some((3, 7)),
+                pipelines: None,
+            }
+        );
+        worker.record_built(2, 5);
+        assert_eq!(
+            pack_load(&config, &status, Some(&progress), None),
+            PackLoad::Loading {
+                pack: "Dusk.zip",
+                programs: Some((3, 7)),
+                pipelines: Some((2, 5)),
             }
         );
         progress.finish();
         assert_eq!(
-            pack_load(&config, &status, Some(&progress)),
-            PackLoad::Ready { pack: "Dusk.zip" }
+            pack_load(&config, &status, Some(&progress), None),
+            PackLoad::Ready {
+                pack: "Dusk.zip",
+                warnings: None
+            }
         );
     }
     #[test]

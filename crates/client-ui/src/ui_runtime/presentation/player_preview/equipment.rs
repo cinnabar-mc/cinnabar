@@ -45,6 +45,8 @@ pub struct PreviewEquipment {
     /// Small compatibility raster only; GPU previews use `hands` and real models.
     pub held: Option<PreviewTexture>,
     pub hands: [Option<PreviewHandItem>; 2],
+    /// The helmet-slot item when it has no armor model of its own; a block is drawn on the head.
+    pub head: Option<PreviewHandItem>,
     /// Whether server-pack authored hand models may replace ordinary item sprites.
     pub show_custom_item_models: bool,
 }
@@ -56,6 +58,7 @@ impl Default for PreviewEquipment {
             armor_glint: [false; 4],
             held: None,
             hands: [None, None],
+            head: None,
             show_custom_item_models: ui::DEFAULT_SHOW_CUSTOM_ITEM_MODELS,
         }
     }
@@ -64,6 +67,8 @@ impl Default for PreviewEquipment {
 /// Identity and authoritative item state used to select each hand's native model.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PreviewHandItem {
+    /// Banner decoration retained from the selected shield stack.
+    pub shield_pattern: Option<Arc<render_api::ShieldPattern>>,
     /// Registry facts when a live stack is available; standalone previews use their compiled model.
     pub grip: Option<assets::item::grip::ItemGrip>,
     /// Live stack shine; absent context retains the compiled model choice.
@@ -95,8 +100,8 @@ impl PreviewHeldModel {
         let mut model = self.clone();
         if let Some(grip) = grip {
             for placement in &mut model.placements {
-                if let PreviewHeldPlacement::Sprite { hand_equipped } = placement {
-                    *hand_equipped = grip.upright().unwrap_or(false);
+                if let PreviewHeldPlacement::Sprite { grip: held } = placement {
+                    *held = grip.into();
                 }
             }
         }
@@ -116,7 +121,7 @@ impl PreviewHeldModel {
 #[derive(Clone, Copy, Debug)]
 pub enum PreviewHeldPlacement {
     Sprite {
-        hand_equipped: bool,
+        grip: render_model::equipment::SpriteGrip,
     },
     Block,
     /// Authored bound-root channels, already in the native mirrored rig frame.
@@ -197,7 +202,7 @@ fn slot_boxes(slot: usize) -> &'static [ArmorBox] {
 }
 
 /// The triangles of armor slot `slot`, with normalized model UVs, in blocks.
-pub(super) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
+pub(in crate::ui_runtime::presentation) fn armor_vertices(slot: usize) -> Vec<ActorVertex> {
     let mut vertices = Vec::new();
     for armor in slot_boxes(slot) {
         let px = 1.0 / 16.0;

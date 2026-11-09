@@ -1,5 +1,7 @@
 use std::{collections::VecDeque, sync::Arc};
 
+mod edit_keys;
+
 pub const MAX_CHAT_MESSAGES: usize = 512;
 pub const MAX_CHAT_RETAINED_BYTES: usize = 1_048_576;
 pub const MAX_CHAT_INPUT_BYTES: usize = 512;
@@ -826,6 +828,14 @@ pub struct ChatStore {
 }
 
 impl ChatStore {
+    /// Starts an empty receive store while keeping observed row identities monotonic.
+    pub fn next_session(&self) -> Self {
+        Self {
+            last_row_sequence: self.last_row_sequence,
+            ..Self::default()
+        }
+    }
+
     pub fn messages(&self) -> &VecDeque<ChatMessage> {
         &self.messages
     }

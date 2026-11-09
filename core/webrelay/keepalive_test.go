@@ -44,7 +44,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		controller, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -78,7 +78,7 @@ func TestControlRecoversAfterTwoLocallyBufferedPings(t *testing.T) {
 		}
 		<-done
 		detach(time.Now())
-		resumed, finish, err := relay.openControl(client, received.Resume, time.Now())
+		resumed, finish, err := relay.openControl(client, received.Resume, time.Now(), testBrowserUserAgent, false)
 		if err != nil || resumed.session != controller.session {
 			t.Fatal("successful local writes discarded the acknowledged browser bearer", err)
 		}
@@ -90,7 +90,7 @@ func TestControlRequestsCannotReplacePongLiveness(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		controller, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,7 +127,7 @@ func TestControlMessageFloodClosesTheController(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		relay := testRelay(t)
 		client := netip.MustParseAddr("192.0.2.1")
-		controller, detach, err := relay.openControl(client, "", time.Now())
+		controller, detach, err := relay.openControl(client, "", time.Now(), testBrowserUserAgent, false)
 		if err != nil {
 			t.Fatal(err)
 		}

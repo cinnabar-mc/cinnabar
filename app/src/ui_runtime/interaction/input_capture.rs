@@ -1,38 +1,59 @@
 //! Bevy device state handed between UI screens and gameplay as screens take and release input.
 use bevy::{
-    input::{ButtonState, mouse::AccumulatedMouseMotion},
+    input::{ButtonState, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
     math::Vec2,
-    prelude::{ButtonInput, KeyCode, MouseButton},
-    window::{CursorGrabMode, CursorOptions, WindowEvent},
+    prelude::{ButtonInput, KeyCode, MessageReader, MouseButton},
+    window::{CursorOptions, WindowEvent},
 };
+use client_shell::physical_input::{keyboard_key, set_cursor_capture};
 use client_ui::ui_runtime::UiRuntime;
 
 #[cfg(test)]
 mod cancel_tests;
 
+/// Drops keyboard input another owner handles while keeping inventory modifiers in step
+/// with the physical keys: observed edges still update them, and when input is unavailable
+/// (an unfocused window) every modifier counts as released.
+pub(super) fn discard_keyboard(
+    runtime: &mut UiRuntime,
+    keyboard_messages: &mut MessageReader<KeyboardInput>,
+    input_available: bool,
+) {
+    let inventory_keys = runtime.inventory_keys_mut();
+    if input_available {
+        for input in keyboard_messages.read() {
+            inventory_keys.track_modifier(
+                keyboard_key(input.key_code),
+                input.state == ButtonState::Pressed,
+            );
+        }
+    } else {
+        keyboard_messages.clear();
+        inventory_keys.release_modifiers();
+    }
+}
+
 pub(crate) fn suppress_gameplay_input_for_inventory(
     runtime: &UiRuntime,
-    cursor: &mut CursorOptions,
+    cursor: &mut bevy::prelude::Mut<CursorOptions>,
     keys: &mut ButtonInput<KeyCode>,
     mouse_motion: &mut AccumulatedMouseMotion,
 ) {
     if !runtime.inventory_open() {
         return;
     }
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    set_cursor_capture(cursor, false);
     keys.reset_all();
     mouse_motion.delta = Vec2::ZERO;
 }
 
 pub(crate) fn restore_gameplay_input_after_chat(
-    cursor: &mut CursorOptions,
+    cursor: &mut bevy::prelude::Mut<CursorOptions>,
     keys: &mut ButtonInput<KeyCode>,
     mouse_buttons: &mut ButtonInput<MouseButton>,
     mouse_motion: &mut AccumulatedMouseMotion,
 ) {
-    cursor.grab_mode = CursorGrabMode::Locked;
-    cursor.visible = false;
+    set_cursor_capture(cursor, true);
     keys.reset_all();
     mouse_buttons.reset_all();
     mouse_motion.delta = Vec2::ZERO;
@@ -41,7 +62,7 @@ pub(crate) fn restore_gameplay_input_after_chat(
 pub(crate) fn suppress_gameplay_input_for_chat(
     player_runtime: &player_state::PlayerState,
     runtime: &UiRuntime,
-    cursor: &mut CursorOptions,
+    cursor: &mut bevy::prelude::Mut<CursorOptions>,
     keys: &mut ButtonInput<KeyCode>,
     mouse_buttons: &mut ButtonInput<MouseButton>,
     mouse_motion: &mut AccumulatedMouseMotion,
@@ -49,8 +70,7 @@ pub(crate) fn suppress_gameplay_input_for_chat(
     if !runtime.ui_focused(player_runtime) {
         return;
     }
-    cursor.grab_mode = CursorGrabMode::None;
-    cursor.visible = true;
+    set_cursor_capture(cursor, false);
     keys.reset_all();
     mouse_buttons.reset_all();
     mouse_motion.delta = Vec2::ZERO;
@@ -79,6 +99,7 @@ pub(crate) fn ordered_pointer_presses<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy::{prelude::World, window::CursorGrabMode};
 
     #[test]
     fn focused_chat_suppresses_production_gameplay_inputs() {
@@ -86,11 +107,15 @@ mod tests {
 
         let mut runtime = UiRuntime::new(1);
         runtime.open_chat(&mut player_runtime);
-        let mut cursor = CursorOptions {
-            grab_mode: CursorGrabMode::Locked,
-            visible: false,
-            ..CursorOptions::default()
-        };
+        let mut world = World::new();
+        let entity = world
+            .spawn(CursorOptions {
+                grab_mode: CursorGrabMode::Locked,
+                visible: false,
+                ..CursorOptions::default()
+            })
+            .id();
+        let mut cursor = world.get_mut::<CursorOptions>(entity).unwrap();
         let mut keys = ButtonInput::<KeyCode>::default();
         keys.press(KeyCode::KeyW);
         let mut mouse_buttons = ButtonInput::<MouseButton>::default();
@@ -117,11 +142,15 @@ mod tests {
 
     #[test]
     fn closing_chat_immediately_regrabs_and_hides_the_gameplay_cursor() {
-        let mut cursor = CursorOptions {
-            grab_mode: CursorGrabMode::None,
-            visible: true,
-            ..CursorOptions::default()
-        };
+        let mut world = World::new();
+        let entity = world
+            .spawn(CursorOptions {
+                grab_mode: CursorGrabMode::None,
+                visible: true,
+                ..CursorOptions::default()
+            })
+            .id();
+        let mut cursor = world.get_mut::<CursorOptions>(entity).unwrap();
         let mut keys = ButtonInput::<KeyCode>::default();
         keys.press(KeyCode::Enter);
         let mut mouse_buttons = ButtonInput::<MouseButton>::default();

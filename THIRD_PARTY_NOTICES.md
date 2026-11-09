@@ -44,18 +44,18 @@ the corresponding license texts are in `assets/licenses/GCC-GPL-3.0.txt` and
 ## Native Bedrock catalog facts
 
 Block hardness, ordinary-tool tags, harvest requirements and recipe item tags
-come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/cf01aa84b74df45df5fa24569e1ac358e4afbb87/generated/data).
-Its selected native 1.26.51 measurements are from
+come from the shared [protocolgen catalog](https://github.com/cinnabar-mc/protocolgen/tree/2aaf70061542d2d0c7cce25653ba494a2a320842/generated/data).
+Its selected native 1.26.60 measurements are from
 [didntpot/bedrock-data](https://github.com/didntpot/bedrock-data), commit
-`bb896a46ba856c58383e3cfb962a38c45a0dea78`, under CC0-1.0. The source lock and
+`1e041bf547b7c12e94d2b998f68d5ed146975742`, under CC0-1.0. The source lock and
 upstream licence are retained in protocolgen. Sword/shears speed targets still
 use the provisional Prismarine input described below; complete mining parity
 remains incomplete.
 
 ## Block property and component data
 
-`crates/assets/data/block-properties-v2193.json` and
-`crates/assets/data/block-components-v2193.tsv` contain selected metadata facts
+`crates/assets/data/block-properties-v2225.json` and
+`crates/assets/data/block-components-v2225.tsv` contain selected metadata facts
 from the sample archive pinned in `assets/vanilla-source.json`. The sample files
 carry the notice “(c) Mojang AB. All rights reserved.” and are subject to the
 [Minecraft End User License Agreement](https://www.minecraft.net/en-us/eula).
@@ -128,6 +128,20 @@ The client ships `assets/fonts/CinnanglesSans.ttf`, `CinnanglesTen.ttf`,
 Ten, Seven, Five and Five Bold are derived from Cinnangles Sans; their source
 manifests pin the exact Sans input. Sans provenance and licensing review is pending.
 No license is asserted here for these faces.
+
+## DirectX Shader Compiler
+
+- Source: https://github.com/microsoft/DirectXShaderCompiler
+- File: `dxcompiler.dll` (x64), installed beside `cinnabar.exe` by the Windows packages and
+  `make play`; used unmodified. The release archive, its directory and the SHA-256 of both the
+  archive and the library are pinned in `packaging/windows/dxc.json`.
+- License: University of Illinois/NCSA Open Source License (LLVM Release License). The release
+  notes apply it to every packaged file except `d3d12shader.h`, which Cinnabar does not ship.
+- Copyright: Copyright (c) 2003-2015 University of Illinois at Urbana-Champaign; LLVM Team.
+- Full license, with the notices for third-party code the compiler includes:
+  `assets/licenses/DirectXShaderCompiler-LICENSE.txt`, included in packaged resources. It is the
+  repository's `LICENSE.TXT` at the pinned release's tag, without the notices it marks as build
+  and test dependencies only; refresh it whenever the pin changes.
 
 ## FreeType
 
@@ -344,7 +358,7 @@ SOFTWARE.
 - Copyright: Copyright (c) 2019-2026 GeyserMC
 - Upstream license SHA-256:
   `4f49de5134b13de98672e8f870aae5d36f5b415086fb1c6fdf832b78c47c7094`
-- Use: `crates/assets/data/java-mapping-v2193.bin` is generated from its Java-to-Bedrock
+- Use: `crates/assets/data/java-mapping-v2225.bin` is generated from its Java-to-Bedrock
   block-state, biome and item mappings and from the archive's MCProtocolLib network exports
   (`mcpl/data/networkTags.nbt` block and biome tags, `mcpl/data/networkCodec.nbt` Java biome
   registry). GeyserMC licenses only its contributors' own work; it does not relicense
@@ -384,7 +398,7 @@ THE SOFTWARE.
 - Upstream license SHA-256:
   `7380cf017734f26977e907a07fd806e9dcba38023d522b7c6e56bd3a2482b08a`
 - Use: the Java entity type to Bedrock entity id pairs in
-  `crates/assets/data/java-mapping-v2193.bin` are read from its `VanillaEntities.java` and
+  `crates/assets/data/java-mapping-v2225.bin` are read from its `VanillaEntities.java` and
   `BedrockEntityDefinitions.java`.
 
 <!-- BEGIN GEYSERMC-GEYSER-MIT -->
@@ -632,3 +646,55 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+## Frame interpolation backend
+
+- Source: [Horizon](https://github.com/horizon-rust/horizon), commit
+  `310da34c6d565ea4c506b3c08c23cc12645dd043`.
+- Files: `crates/render/src/frame_generation/`. The Rust orchestration, GPU kernels
+  and synthetic motion fixtures are adapted from Horizon's MIT-licensed optical flow
+  and frame interpolation implementation. The kernels derive from AMD FidelityFX
+  SDK 1.1.4 (FSR 3.1); this is not an unmodified AMD SDK integration.
+- Both copyright notices apply to the adapted implementation.
+
+MIT License
+
+Copyright (c) 2026 Ludovic Marie and the Horizon contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Copyright (C) 2024 Advanced Micro Devices, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

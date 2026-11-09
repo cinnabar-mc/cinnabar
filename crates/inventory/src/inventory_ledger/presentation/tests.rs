@@ -30,6 +30,18 @@ fn snapshots_detect_unknown_to_known_and_identical_server_restatements() {
 }
 
 #[test]
+fn unchanged_snapshot_checks_allocate_nothing() {
+    let ledger = PlayerInventoryLedger::default();
+    let snapshot = ledger.presentation_snapshot();
+    let (matches, allocations) = test_alloc::count(|| snapshot.matches(&ledger));
+    assert!(matches);
+    assert_eq!(
+        allocations, 0,
+        "unchanged display checks retain no temporary copies"
+    );
+}
+
+#[test]
 fn snapshots_detect_in_place_overlay_and_ui_mutations_through_shared_cells() {
     use crate::inventory_ledger::cells::{Cell, Held};
     let mut ledger = PlayerInventoryLedger::default();

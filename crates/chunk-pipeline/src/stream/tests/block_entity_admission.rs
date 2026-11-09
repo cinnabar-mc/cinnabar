@@ -732,3 +732,84 @@ fn inline_and_sub_chunk_ingestion_commit_sparse_block_entity_tails() {
         Some("Sign")
     );
 }
+
+/// A `CinnabarOverlays` block entity of a `probe:bus` at `position` holding one plate.
+fn cell_overlays_nbt(position: [i32; 3]) -> Vec<u8> {
+    use world::{NbtCompound, NbtValue};
+    let named = |name: &str| {
+        let mut state = NbtCompound::default();
+        state.insert("name", NbtValue::String(name.into()));
+        NbtValue::Compound(state)
+    };
+    let mut plate = NbtCompound::default();
+    plate.insert("slot", NbtValue::Byte(2));
+    plate.insert("face", NbtValue::Byte(2));
+    plate.insert("block", named("probe:plate"));
+    let mut root = NbtCompound::default();
+    root.insert("id", NbtValue::String("CinnabarOverlays".into()));
+    root.insert("host", named("probe:bus"));
+    root.insert("overlays", NbtValue::List(vec![NbtValue::Compound(plate)]));
+    for (axis, value) in ["x", "y", "z"].into_iter().zip(position) {
+        root.insert(axis, NbtValue::Int(value));
+    }
+    root.encode_root().unwrap()
+}
+
+/// The mesh draws an overlay host's block-state overlays, so `BlockActorData` that gives a cell
+/// overlays, changes them or takes them away remeshes its sub-chunk, unlike other block entities.
+#[test]
+fn overlay_block_entity_updates_remesh_their_sub_chunk() {
+    let mut stream = block_entity_visual_stream();
+    let position = [1, -63, 2];
+    stream
+        .submit(
+            1,
+            inline_block_entity_event(
+                0,
+                block_entity_runtime_id("minecraft:barrel"),
+                block_entity_nbt("Barrel", position),
+            ),
+        )
+        .unwrap();
+    complete_pending_decode_jobs(&mut stream);
+    let sub_chunk = BlockEntityKey::new(0, position[0], position[1], position[2]).sub_chunk();
+    let mut sequence = 2;
+    let mut update = |stream: &mut WorldStream, nbt: Vec<u8>| {
+        stream
+            .submit(
+                sequence,
+                WorldEvent::BlockEntityUpdate(BlockEntityUpdateEvent {
+                    dimension: 0,
+                    position,
+                    nbt,
+                }),
+            )
+            .unwrap();
+        sequence += 1;
+        complete_pending_decode_jobs(stream);
+        stream
+            .revisions
+            .dirty(sub_chunk)
+            .map(|dirty| dirty.revision)
+    };
+    let before = stream
+        .revisions
+        .dirty(sub_chunk)
+        .map(|dirty| dirty.revision);
+    let barrel = update(
+        &mut stream,
+        block_entity_nbt_with_marker("Barrel", position, 1),
+    );
+    assert_eq!(barrel, before, "a barrel's NBT draws no mesh");
+    let added = update(&mut stream, cell_overlays_nbt(position));
+    assert!(
+        added.is_some() && added != barrel,
+        "overlays remesh their cell"
+    );
+    assert!(stream.mesh_jobs.pending.contains_key(&sub_chunk));
+    let removed = update(&mut stream, block_entity_nbt("Barrel", position));
+    assert!(
+        removed.is_some() && removed != added,
+        "taking overlays away remeshes too"
+    );
+}

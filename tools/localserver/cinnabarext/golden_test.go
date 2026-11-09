@@ -229,7 +229,7 @@ var signedGoldens = []signedGolden{
 	{"offer_payload.json", "offer_signed.json", OfferDomain, MaxMarkerBytes / 2, true, func() Document { return new(Offer) }},
 	{"accept_payload.json", "accept_signed.json", AcceptDomain, MaxPayloadBytes, true, func() Document { return new(Accept) }},
 	{"accept_v2_payload.json", "accept_v2_signed.json", AcceptDomain, MaxPayloadBytes, true, func() Document { return new(Accept) }},
-	{"manifest_payload.json", "manifest_signed.json", ManifestDomain, MaxMarkerBytes / 2, false, func() Document { return new(Manifest) }},
+	{"manifest_payload.json", "manifest_signed.json", ManifestDomain, MaxManifestBytes / 2, false, func() Document { return new(Manifest) }},
 }
 
 // Re-signing each decoded payload with its fixture seed reproduces Rust's signed document byte
@@ -317,6 +317,7 @@ func TestConstantsMatchRust(t *testing.T) {
 		"api_version":               APIVersion,
 		"initial_bundle_generation": InitialBundleGeneration,
 		"max_marker_bytes":          MaxMarkerBytes,
+		"max_manifest_bytes":        MaxManifestBytes,
 		"max_payload_bytes":         MaxPayloadBytes,
 		"max_message_bytes":         MaxMessageBytes,
 		"max_queue_bytes":           MaxQueueBytes,
@@ -328,6 +329,7 @@ func TestConstantsMatchRust(t *testing.T) {
 		"max_bundles":               MaxBundles,
 		"max_bundle_bytes":          MaxBundleBytes,
 		"max_expanded_bytes":        MaxExpandedBytes,
+		"max_actions":               MaxActions,
 		"max_channels":              MaxChannels,
 		"max_channel_fields":        MaxChannelFields,
 		"max_field_depth":           MaxFieldDepth,

@@ -566,6 +566,9 @@ fn local_world_host(profile: &MenuProfile, signed_in: bool) -> Host {
 }
 
 #[cfg(test)]
+mod play_tab_tests;
+
+#[cfg(test)]
 mod tests {
     use {
         super::*,

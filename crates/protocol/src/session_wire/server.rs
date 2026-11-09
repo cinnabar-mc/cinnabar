@@ -91,7 +91,7 @@ pub fn captured_packet_kind(id: u32) -> CapturedPacketKind {
 /// Rejects terrain that offline replay cannot deliver without the original client's blob store.
 /// Malformed terrain is also rejected when its cache mode cannot be validated.
 pub fn validate_replay_cache_mode(id: u32, body: &Bytes) -> Result<(), BridgeError> {
-    use bedrock_protocol_1_26_51::packets::Packet;
+    use bedrock_protocol_1_26_60::packets::Packet;
     let Some(id @ (PacketId::LevelChunk | PacketId::SubChunk)) = PacketId::from_raw(id) else {
         return Ok(());
     };
