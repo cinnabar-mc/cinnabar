@@ -214,14 +214,13 @@ fn flush_dismount(
     movement_ticker: &mut MovementTicker,
     network: Option<&NetworkHandle<PackApplication>>,
 ) {
-    if let (Some(position), Some(network)) = (physics.network_position(), network)
-        && !movement_ticker.holds_movement_before_dismount()
-    {
-        locals.flush_dismount(position, |packet| {
+    let position = physics.network_position();
+    match network {
+        Some(network) => locals.flush_dismount_request(movement_ticker, position, |packet| {
             network.send_inventory_packets(vec![packet])
-        });
+        }),
+        None => locals.settle_dismount_fence(movement_ticker),
     }
-    locals.settle_dismount_fence(movement_ticker);
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.

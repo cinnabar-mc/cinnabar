@@ -510,14 +510,32 @@ impl Rider {
         ));
     }
 
-    /// Rides a frame on the still boat, then presses sneak on the next.
-    fn get_off(&mut self) {
+    /// Rides a frame on the still boat, sends its movement, then presses sneak on the next
+    /// frame, which runs `delta`.
+    fn get_off(&mut self, delta: Duration) {
         self.advance(boat_frame(false));
         assert_eq!(self.physics.mode(), sim::MovementMode::Riding);
+        self.flush_movement();
         let mut press = boat_frame(false);
+        press.delta = delta;
         press.sneak.pressed = true;
         press.sneak.held = true;
         self.advance(press);
+    }
+
+    /// Offers the retained dismount request to a transport answering `result`, as the
+    /// client's frame does; returns the positions the requests it accepted reported.
+    fn request(&mut self, result: Result<(), protocol::BatchSendError>) -> Vec<[f32; 3]> {
+        let mut sent = Vec::new();
+        let position = self.physics.network_position();
+        self.locals
+            .flush_dismount_request(&mut self.ticker, position, |packet| {
+                if result.is_ok() {
+                    sent.push(reported_position(&packet));
+                }
+                result
+            });
+        sent
     }
 
     /// Ticks of the movement packets transport accepts now.
@@ -537,12 +555,16 @@ impl Rider {
     }
 }
 
+fn close(actual: [f32; 3], expected: [f32; 3]) -> bool {
+    (0..3).all(|axis| (actual[axis] - expected[axis]).abs() < 1.0e-4)
+}
+
 /// Getting off a boat resting on land stands the rider on the ground beside it at once and
 /// reports that position, rather than leaving it on a seat sunk into the ground.
 #[test]
 fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
     let mut rider = Rider::new();
-    rider.get_off();
+    rider.get_off(speed_frame(Default::default()).delta);
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
     let feet = rider.physics.state().unwrap().position;
     assert!(
@@ -554,28 +576,17 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
         "the rider stands on the ground, not in it: {feet:?}"
     );
 
-    let mut sent = Vec::new();
-    let position = rider.physics.network_position().unwrap();
-    rider.locals.flush_dismount(position, |packet| {
-        sent.push(reported_position(&packet));
-        Ok(())
-    });
-    let [reported] = sent[..] else {
-        panic!("one dismount request: {sent:?}")
-    };
-    assert_eq!([reported[0], reported[2]], [0.5, -0.5]);
+    let sent = rider.request(Ok(()));
+    let exit = [0.5, 1.001 + protocol::PLAYER_NETWORK_OFFSET, -0.5];
     assert!(
-        (reported[1] - (1.001 + protocol::PLAYER_NETWORK_OFFSET)).abs() < 1.0e-4,
-        "the request reports where the rider got off: {reported:?}"
+        sent.len() == 1 && close(sent[0], exit),
+        "the request reports where the rider got off: {sent:?}"
     );
 
     // The server's link lags the request; the rider stays off the boat meanwhile.
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
-    let position = rider.physics.network_position().unwrap();
-    rider
-        .locals
-        .flush_dismount(position, |_| panic!("the request is sent once"));
+    assert!(rider.request(Ok(())).is_empty(), "the request is sent once");
     let mut unlinked = boat_frame(false);
     unlinked.facts.ride = None;
     unlinked.facts.mount_runtime_id = None;
@@ -590,9 +601,8 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
 #[test]
 fn a_restored_link_seats_the_rider_again() {
     let mut rider = Rider::new();
-    rider.get_off();
-    let position = rider.physics.network_position().unwrap();
-    rider.locals.flush_dismount(position, |_| Ok(()));
+    rider.get_off(speed_frame(Default::default()).delta);
+    assert_eq!(rider.request(Ok(())).len(), 1);
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
     let mut relinked = boat_frame(false);
@@ -601,8 +611,8 @@ fn a_restored_link_seats_the_rider_again() {
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
 }
 
-/// Movement after getting off waits until the dismount request reaches transport, so the
-/// server never sees the rider walk while its link still seats it.
+/// The server sees the seated movement, then the dismount request, then movement off the
+/// mount, even when transport backs up around it.
 #[test]
 fn movement_after_getting_off_waits_for_the_dismount_request() {
     let mut rider = Rider::new();
@@ -615,32 +625,24 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
     assert!(rider.ticker.completed_tick() > seated);
 
     assert!(
-        rider.ticker.holds_movement_before_dismount(),
+        rider.request(Ok(())).is_empty(),
         "seated movement still queued goes ahead of the request"
     );
-    let position = rider.physics.network_position().unwrap();
-    rider
-        .locals
-        .flush_dismount(position, |_| Err(protocol::BatchSendError::Full));
-    rider.locals.settle_dismount_fence(&mut rider.ticker);
     let before = rider.flush_movement();
-    assert!(!rider.ticker.holds_movement_before_dismount());
     assert!(
-        before.iter().all(|tick| *tick <= seated),
+        !before.is_empty() && before.iter().all(|tick| *tick <= seated),
         "only seated movement goes ahead of the request: {before:?}"
     );
+    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
+    assert!(rider.flush_movement().is_empty(), "movement off the boat waits");
     assert_eq!(
         rider.ticker.interaction_before_tick(seated + 1),
         None,
-        "nor does an interaction before the first tick off the boat"
+        "so does an interaction before the first tick off the boat"
     );
-    assert!(
-        rider.ticker.build_action_state().is_none(),
-        "nor does a build"
-    );
+    assert!(rider.ticker.build_action_state().is_none(), "and a build");
 
-    rider.locals.flush_dismount(position, |_| Ok(()));
-    rider.locals.settle_dismount_fence(&mut rider.ticker);
+    assert_eq!(rider.request(Ok(())).len(), 1);
     let after = rider.flush_movement();
     assert!(
         !after.is_empty() && after.iter().all(|tick| *tick > seated),
@@ -653,8 +655,11 @@ fn movement_after_getting_off_waits_for_the_dismount_request() {
 #[test]
 fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
     let mut rider = Rider::new();
-    rider.advance(boat_frame(false));
-    let ticked = rider.ticker.completed_tick();
+    let ticked = {
+        rider.advance(boat_frame(false));
+        rider.flush_movement();
+        rider.ticker.completed_tick()
+    };
     let mut press = boat_frame(false);
     press.delta = Duration::ZERO;
     press.sneak.pressed = true;
@@ -663,52 +668,43 @@ fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
     assert_eq!(rider.ticker.completed_tick(), ticked);
     let exit = rider.physics.network_position().unwrap();
     assert!((exit[2] + 0.5).abs() < 1.0e-4, "got off north: {exit:?}");
-    rider
-        .locals
-        .flush_dismount(exit, |_| Err(protocol::BatchSendError::Full));
-    rider.locals.settle_dismount_fence(&mut rider.ticker);
-    rider.flush_movement();
+    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
     assert_eq!(
         rider.ticker.between_ticks_sample(),
         None,
         "no interaction reports the exit ahead of the request"
     );
-    rider.locals.flush_dismount(exit, |_| Ok(()));
-    rider.locals.settle_dismount_fence(&mut rider.ticker);
-    rider.flush_movement();
-    let close = |position: [f32; 3]| {
-        (0..3).all(|axis| (position[axis] - exit[axis]).abs() < 1.0e-4)
-    };
+    assert_eq!(rider.request(Ok(())).len(), 1);
     let built = rider.ticker.build_action_state().unwrap().position;
-    assert!(close(built), "build actions read the exit: {built:?} != {exit:?}");
+    assert!(close(built, exit), "build actions read the exit: {built:?}");
     let between = rider.ticker.between_ticks_sample().unwrap().position;
-    assert!(close(between), "frame interactions read the exit: {between:?} != {exit:?}");
+    assert!(close(between, exit), "frame interactions read the exit: {between:?}");
 }
 
-/// A server teleport after getting off replaces the exit as the position interactions read.
+/// A server teleport after getting off replaces the exit, both in a dismount request still
+/// waiting for transport and in the position interactions read.
 #[test]
 fn a_teleport_after_getting_off_supersedes_the_exit() {
     let mut rider = Rider::new();
-    rider.advance(boat_frame(false));
-    let mut press = boat_frame(false);
-    press.delta = Duration::ZERO;
-    press.sneak.pressed = true;
-    press.sneak.held = true;
-    rider.advance(press);
-    let exit = rider.physics.network_position().unwrap();
-    rider.locals.flush_dismount(exit, |_| Ok(()));
-    rider.locals.settle_dismount_fence(&mut rider.ticker);
-    let teleported = [4.5, 2.62, 4.5];
+    rider.get_off(Duration::ZERO);
+    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
+    let teleported = [4.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 4.5];
     rider
         .ticker
         .note_server_teleport(super::ServerTeleportKind::MovePlayer);
+    rider
+        .physics
+        .apply_server_actor_position(teleported, Some(true));
+    let sent = rider.request(Ok(()));
+    assert!(
+        sent.len() == 1 && close(sent[0], teleported),
+        "the request reports the teleport: {sent:?}"
+    );
     // A correction replay rebuilds the tick ends from the teleport.
     rider.ticker.anchor_tick_end(teleported);
     rider.ticker.reapply_dismount_placement();
-    assert_eq!(
-        rider.ticker.build_action_state().unwrap().position,
-        teleported
-    );
+    let built = rider.ticker.build_action_state().unwrap().position;
+    assert!(close(built, teleported), "builds read the teleport: {built:?}");
 }
 
 /// A mount whose dismounts only the server performs keeps its rider until the server moves it.

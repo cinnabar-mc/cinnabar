@@ -538,6 +538,13 @@ impl MovementTicker {
         })
     }
 
+    /// The network position getting off a mount placed the player at, until a server
+    /// teleport supersedes it.
+    #[must_use]
+    pub fn dismount_position(&self) -> Option<[f32; 3]> {
+        self.dismount.placed.map(|(_, position)| position)
+    }
+
     /// Forgets where a dismount placed the player once a server teleport supersedes it.
     pub(super) fn retire_dismount_placement(&mut self) {
         self.dismount.placed = None;

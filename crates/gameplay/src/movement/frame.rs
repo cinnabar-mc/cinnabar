@@ -98,8 +98,6 @@ struct LeftMount {
     mount: u64,
     /// The server's mount changes when the player got off; a later change is a new ride.
     mount_changes: u64,
-    /// The network position the player got off at, which its dismount request reports.
-    position: [f32; 3],
 }
 
 impl LocomotionState {
@@ -118,20 +116,15 @@ impl LocomotionState {
         }
     }
 
-    /// Admits a requested dismount ahead of movement, retaining it only on a full queue. It
-    /// reports where the player got off, or `position` while the player waits on its mount.
+    /// Admits a requested dismount ahead of movement, retaining it only on a full queue.
     pub fn flush_dismount(
         &mut self,
         position: [f32; 3],
         mut send: impl FnMut(protocol::Packet) -> Result<(), protocol::BatchSendError>,
     ) {
-        let Some((session, mount, _)) = self.pending_dismount else {
+        let Some((_, mount, _)) = self.pending_dismount else {
             return;
         };
-        let position = self
-            .left_mount
-            .filter(|_| self.left(session, mount))
-            .map_or(position, |left| left.position);
         let Ok(packet) = protocol::stop_riding_packet(mount, position) else {
             self.pending_dismount = None;
             return;
@@ -140,6 +133,31 @@ impl LocomotionState {
             self.pending_dismount = None;
         }
     }
+    /// Admits a requested dismount once the movement queued before it has gone out, then
+    /// lets through the movement it held back. A request for a mount the player already got
+    /// off reports where that placed the player, unless a server teleport superseded it;
+    /// otherwise it reports `position`, the player's current network position.
+    pub fn flush_dismount_request(
+        &mut self,
+        movement_ticker: &mut MovementTicker,
+        position: Option<[f32; 3]>,
+        send: impl FnMut(protocol::Packet) -> Result<(), protocol::BatchSendError>,
+    ) {
+        let left = self
+            .pending_dismount
+            .is_some_and(|(session, mount, _)| self.left(session, mount));
+        let position = movement_ticker
+            .dismount_position()
+            .filter(|_| left)
+            .or(position);
+        if let Some(position) = position
+            && !movement_ticker.holds_movement_before_dismount()
+        {
+            self.flush_dismount(position, send);
+        }
+        self.settle_dismount_fence(movement_ticker);
+    }
+
     /// Clears input latches when local prediction is inactive.
     pub fn reset(&mut self) {
         self.controls.reset();
@@ -252,7 +270,6 @@ impl LocomotionState {
             session,
             mount,
             mount_changes: facts.mount_changes,
-            position,
         });
         true
     }
