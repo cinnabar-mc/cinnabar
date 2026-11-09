@@ -12,8 +12,19 @@ use sha2::{Digest, Sha256};
 /// Server-pack archives and compiled join results persist here; unset, nothing is written.
 static COMPILE_CACHE: std::sync::OnceLock<CompileCache> = std::sync::OnceLock::new();
 
-/// Bounds the persisted results; Zeqa's compiled entity pack is about 150 MB.
+/// Bounds the persisted results' files on disk, where their payloads are compressed.
 const COMPILE_CACHE_BYTES: u64 = 1024 * 1024 * 1024;
+
+/// Room in one payload for tracked reads, artwork tables and equipment bindings.
+const PAYLOAD_METADATA_BYTES: usize = 512 * 1024 * 1024;
+
+/// Bounds one entry's uncompressed payload, so it fits the largest compiled entity pack: both
+/// art ceilings, its catalog and metadata. A load trusts the stored length before the digest
+/// is checked, so this is also the most a damaged entry can make a reader allocate.
+const MAX_PAYLOAD_BYTES: u64 = (assets::MAX_ACTOR_PIXEL_BYTES
+    + assets::MAX_PACK_EQUIPMENT_PIXEL_BYTES
+    + assets::MAX_ENTITY_CATALOG_BYTES
+    + PAYLOAD_METADATA_BYTES) as u64;
 
 /// Selects the persistent cache directory once for the current process.
 pub fn set_compile_cache_dir(dir: std::path::PathBuf) {
@@ -37,7 +48,8 @@ const EXTENSION: &str = "bin";
 /// A writer that died mid-entry leaves its temporary file; later writers sweep it after this.
 const STALE_TEMPORARY: Duration = Duration::from_secs(3600);
 
-/// A size-bounded on-disk store of compiled subscriber payloads, least recently used first out.
+/// An on-disk store of compiled subscriber payloads, least recently used first out, whose files
+/// together stay within `max_bytes`.
 #[derive(Clone, Debug)]
 pub struct CompileCache {
     dir: PathBuf,
@@ -144,7 +156,7 @@ impl CompileCache {
             && header[..KEY_OFFSET] == MAGIC
             && header[KEY_OFFSET..DECODED_LENGTH_OFFSET] == key[..])
             .then(|| u64::from_le_bytes(header[DECODED_LENGTH_OFFSET..].try_into().unwrap()))
-            .filter(|length| *length <= self.max_bytes);
+            .filter(|length| *length <= MAX_PAYLOAD_BYTES);
         let Some(length) = length else {
             let _ = fs::remove_file(&path);
             return None;
@@ -189,16 +201,16 @@ impl CompileCache {
     }
 
     /// Streams exactly `length` payload bytes from `write` through compression into the entry
-    /// for `key`, then evicts the least recently used entries past the size bound. Nothing is
-    /// stored when the payload or its entry exceeds the bound, or when `write` fails or
-    /// writes another length.
+    /// for `key`, then evicts the least recently used entries past the disk bound. Nothing is
+    /// stored when the payload exceeds [`MAX_PAYLOAD_BYTES`], its compressed entry exceeds the
+    /// disk bound, or `write` fails or writes another length.
     pub fn store_with(
         &self,
         key: &[u8; 32],
         length: u64,
         write: impl FnOnce(&mut dyn Write) -> std::io::Result<()>,
     ) {
-        if length > self.max_bytes {
+        if length > MAX_PAYLOAD_BYTES {
             return;
         }
         match self.write(key, length, write) {
@@ -446,6 +458,77 @@ mod tests {
         let cache = CompileCache::new(dir.path().to_owned(), 64);
         cache.store(&key(1), &[0; 64]);
         assert_eq!(cache.load(&key(1)), None);
+    }
+
+    // Compile results are mostly sparse art, so one can pass the disk bound uncompressed and
+    // still take a small part of it on disk.
+    #[test]
+    fn a_large_entry_that_compresses_within_the_disk_bound_hits_on_the_next_launch() {
+        let chunk = vec![0; 1 << 20];
+        let dir = tempfile::tempdir().unwrap();
+        let length = COMPILE_CACHE_BYTES + chunk.len() as u64;
+        let launch = || CompileCache::new(dir.path().to_owned(), COMPILE_CACHE_BYTES);
+        launch().store_with(&key(1), length, |entry| {
+            for _ in 0..length / chunk.len() as u64 {
+                entry.write_all(&chunk)?;
+            }
+            Ok(())
+        });
+        let stored = fs::metadata(launch().entry(&key(1)))
+            .expect("the entry fits the disk bound")
+            .len();
+        assert!(stored < COMPILE_CACHE_BYTES);
+        let read = launch().load_with(&key(1), |payload, declared| {
+            assert_eq!(declared, length);
+            std::io::copy(payload, &mut std::io::sink()).ok()
+        });
+        assert_eq!(read, Some(length), "the next launch reads every byte");
+    }
+
+    #[test]
+    fn a_payload_past_the_uncompressed_bound_is_not_written() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = CompileCache::new(dir.path().to_owned(), 1 << 20);
+        cache.store_with(&key(1), MAX_PAYLOAD_BYTES + 1, |_| {
+            panic!("a refused payload is not encoded")
+        });
+        assert!(!cache.entry(&key(1)).exists());
+    }
+
+    // The stored length is read before the digest can be checked, and readers size buffers by it.
+    #[test]
+    fn a_damaged_length_past_the_uncompressed_bound_is_removed_before_reading() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = CompileCache::new(dir.path().to_owned(), 1 << 20);
+        cache.store(&key(1), b"payload");
+        let path = cache.entry(&key(1));
+        let mut bytes = fs::read(&path).unwrap();
+        bytes[DECODED_LENGTH_OFFSET..HEADER]
+            .copy_from_slice(&(MAX_PAYLOAD_BYTES + 1).to_le_bytes());
+        fs::write(&path, bytes).unwrap();
+        let read = cache.load_with(&key(1), |_, _| -> Option<()> {
+            panic!("a reader never sees the damaged length")
+        });
+        assert_eq!(read, None);
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn an_incompressible_entry_past_the_disk_bound_leaves_only_older_entries() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = CompileCache::new(dir.path().to_owned(), 1 << 16);
+        cache.store(&key(1), b"older");
+        let mut noise = Sha256::digest(b"noise");
+        let payload: Vec<u8> = (0..1 << 13)
+            .flat_map(|_| {
+                noise = Sha256::digest(noise);
+                noise
+            })
+            .collect();
+        cache.store(&key(2), &payload);
+        assert_eq!(cache.load(&key(2)), None);
+        assert_eq!(cache.load(&key(1)).as_deref(), Some(&b"older"[..]));
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

@@ -828,3 +828,198 @@ fn combat_lives_follow_event_grants_bounds_order_and_callback_lifetime() {
     state.player_state.clear_presentation();
     assert_eq!(state.read_combat_lives(vec![2]).unwrap().unwrap(), [None]);
 }
+
+/// Identifier queries omit unknown cells and preserve unknown offhand identity separately.
+#[test]
+fn compact_equipment_queries_are_exact_granted_and_session_bound() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    let mut input = snapshot();
+    let item = crate::PlayerStateItem {
+        identifier: Some("test:match".into()),
+        network_id: 6,
+        metadata: 0,
+        count: 1,
+        block: false,
+        damage: None,
+        max_durability: None,
+    };
+    input.inventory[35] = PlayerStateSlot {
+        known: true,
+        item: Some(item.clone()),
+    };
+    input.offhand = PlayerStateSlot {
+        known: false,
+        item: None,
+    };
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    let answer = state
+        .read_equipment_matches("test:match".into())
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(answer.inventory, [35]);
+    assert_eq!(answer.offhand, None);
+    assert_eq!(answer.revisions.session, input.session);
+    input.offhand = PlayerStateSlot {
+        known: true,
+        item: Some(item),
+    };
+    state.player_state.begin_frame();
+    state
+        .player_state
+        .set_snapshot(Some(input.clone()))
+        .unwrap();
+    assert_eq!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .offhand,
+        Some(true)
+    );
+    assert!(
+        state
+            .read_equipment_matches("test:mat".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .inventory
+            .is_empty()
+    );
+    input.offhand.item.as_mut().unwrap().identifier = None;
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(input)).unwrap();
+    assert_eq!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .offhand,
+        None
+    );
+    state.player_state.begin_frame();
+    assert!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        state
+            .read_equipment_matches(String::new())
+            .unwrap()
+            .is_err()
+    );
+    state.grants.player_state = false;
+    assert!(
+        state
+            .read_equipment_matches("test:match".into())
+            .unwrap()
+            .is_err()
+    );
+}
+
+/// The selection read is session-scoped, granted, and bounded by its own allowance, so it
+/// stays available after every snapshot read and leaves those reads available.
+#[test]
+fn selected_slot_reads_use_their_own_bounded_allowance() {
+    use cinnabar::extension::player_state::SelectedSlot;
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    assert_eq!(state.read_selected_slot().unwrap().unwrap(), None);
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    for _ in 0..MAX_IMPORT_WRITES {
+        state.read_revision().unwrap().unwrap();
+    }
+    let expected = SelectedSlot {
+        session: 7,
+        dimension: 0,
+        slot: 2,
+    };
+    for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+        assert_eq!(state.read_selected_slot().unwrap().unwrap(), Some(expected));
+    }
+    assert!(state.read_selected_slot().is_err());
+    state.player_state.begin_frame();
+    let mut unselected = snapshot();
+    unselected.selected_slot = None;
+    state.player_state.set_snapshot(Some(unselected)).unwrap();
+    assert_eq!(state.read_selected_slot().unwrap().unwrap(), None);
+    state.player_state.begin_frame();
+    state.player_state.set_snapshot(Some(snapshot())).unwrap();
+    for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+        state.read_selected_slot().unwrap().unwrap();
+    }
+    state.read_revision().unwrap().unwrap();
+    state.player_state.begin_frame();
+    state.grants.player_state = false;
+    assert!(state.read_selected_slot().unwrap().is_err());
+}
+
+/// Consecutive callbacks in one frame each receive the full selection allowance, with or
+/// without a snapshot.
+#[test]
+fn selected_slot_allowance_renews_per_callback_within_a_frame() {
+    let mut state = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    for snapshot in [None, Some(snapshot())] {
+        state.player_state.begin_frame();
+        state.player_state.set_snapshot(snapshot).unwrap();
+        for _ in 0..3 {
+            state.player_state.begin_callback();
+            for _ in 0..mod_api::MAX_SELECTED_SLOT_READS {
+                state.read_selected_slot().unwrap().unwrap();
+            }
+        }
+        assert!(state.read_selected_slot().is_err());
+    }
+}
+
+#[test]
+fn invocation_revision_allocation_does_not_fork_native_comparison_tokens() {
+    let mut native = State::new(
+        ModGrants {
+            player_state: true,
+            ..Default::default()
+        },
+        String::new(),
+        Default::default(),
+    );
+    native.player_state.set_snapshot(Some(snapshot())).unwrap();
+    let mut transaction = native.frame_transaction();
+    let frozen = transaction.read_revisions().unwrap().unwrap().unwrap();
+    // A discarded invocation must not leave its returned identities available for reuse.
+    drop(transaction);
+    let mut newer = snapshot();
+    newer.selected_slot = Some(3);
+    native.player_state.set_snapshot(Some(newer)).unwrap();
+    let current = native.read_revisions().unwrap().unwrap().unwrap();
+    assert!(current.equipment > frozen.equipment);
+    assert!(current.effects > frozen.effects);
+}

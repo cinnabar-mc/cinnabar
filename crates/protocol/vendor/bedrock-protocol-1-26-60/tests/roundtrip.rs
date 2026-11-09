@@ -1,7 +1,7 @@
 // Code generated from canonical protocol manifest v2. DO NOT EDIT.
 
-use bedrock_protocol_1_26_60::packets::*;
-use bedrock_protocol_1_26_60::wire::{self, Decode, Encode, Peer};
+use bedrock_protocol_contract_1_26_60::packets::*;
+use bedrock_protocol_contract_1_26_60::wire::{self, Decode, Encode, Peer};
 
 fn roundtrip<T>(name: &str)
 where

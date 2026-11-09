@@ -1,5 +1,5 @@
 use super::*;
-use crate::atlas::{MAX_OVERSIZED, ServerAtlas};
+use crate::atlas::ServerAtlas;
 use crate::sources::ImageWork;
 
 /// Encodes an oversized image that fills its fitted server page.
@@ -128,4 +128,125 @@ fn carrier_and_builtin_replacements_publish_new_source_ownership() {
     assert_ne!(shipped[0].1, old[0].1);
     atlas = atlas.with_builtin_images(builtin);
     assert!(atlas.oversized().shares_storage(&shipped));
+}
+
+/// An atlas reading `count` distinct oversized pack textures, with their keys.
+fn icon_atlas(count: usize) -> (ServerAtlas, Vec<String>) {
+    use crate::atlas::tests::MemoryPack;
+    let pack = Arc::new(MemoryPack::default());
+    let keys: Vec<String> = (0..count)
+        .map(|index| format!("textures/icon{index:03}"))
+        .collect();
+    for key in &keys {
+        pack.write(&format!("{key}.png"), png(1).to_vec());
+    }
+    let atlas = ServerAtlas::new(&[], None, 1)
+        .with_image_work(ImageWork::inline())
+        .with_fallbacks(Some(pack), None);
+    (atlas, keys)
+}
+
+/// Keys the atlas currently offers to the art pages.
+fn offered(atlas: &ServerAtlas) -> Vec<String> {
+    atlas
+        .oversized()
+        .iter()
+        .map(|entry| entry.0.clone())
+        .collect()
+}
+
+/// A menu scrolled past more large icons than the registry holds keeps offering the ones on
+/// screen, replacing icons no frame draws any more.
+#[test]
+fn scrolling_offers_newly_drawn_textures_in_place_of_ones_left_behind() {
+    let (mut atlas, keys) = icon_atlas(MAX_OVERSIZED + 3);
+    let (first, rest) = keys.split_at(MAX_OVERSIZED);
+    atlas.require(first.iter().map(String::as_str));
+    atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
+    let scrolled: Vec<&str> = first[3..].iter().chain(rest).map(String::as_str).collect();
+    atlas.require(scrolled.iter().copied());
+    let now = offered(&atlas);
+    assert_eq!(now.len(), MAX_OVERSIZED);
+    for key in &scrolled {
+        assert!(
+            now.iter().any(|offered| offered == key),
+            "{key} drawn but not offered"
+        );
+    }
+}
+
+/// A frame that draws more large textures than the registry holds never replaces one it
+/// already drew.
+#[test]
+fn one_frame_never_replaces_its_own_textures() {
+    let (mut atlas, keys) = icon_atlas(MAX_OVERSIZED + 1);
+    atlas.require(keys.iter().map(String::as_str));
+    let now = offered(&atlas);
+    assert_eq!(now.len(), MAX_OVERSIZED);
+    assert_eq!(now[..], keys[..MAX_OVERSIZED]);
+}
+
+/// Scrolling back to icons the registry still holds reports them as drawn again, and which
+/// lack art, so the art pages can bring back the ones they dropped.
+#[test]
+fn scrolling_back_reports_the_retained_textures_drawn_without_art() {
+    let (mut atlas, keys) = icon_atlas(MAX_OVERSIZED);
+    let (top, bottom) = keys.split_at(MAX_OVERSIZED / 2);
+    let bottom_set: BTreeSet<String> = bottom.iter().cloned().collect();
+    for frame in [top, bottom] {
+        atlas.require(frame.iter().map(String::as_str));
+        atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
+    }
+    atlas.require(top.iter().map(String::as_str));
+    let ended = atlas.end_oversized_frame(&bottom_set, |key| bottom_set.contains(key));
+    let drawn = ended.changed.expect("the drawn set changed");
+    assert!(drawn.iter().eq(top.iter()));
+    assert!(ended.uncovered, "the top icons have no art");
+    assert_eq!(offered(&atlas), keys, "nothing was replaced");
+    assert_eq!(
+        atlas.end_oversized_frame(&drawn, |_| false),
+        OversizedFrame {
+            changed: Some(BTreeSet::new()),
+            uncovered: false,
+        },
+        "a frame that draws nothing has nothing uncovered"
+    );
+}
+
+/// Repeated frames report no change, while still telling whether a drawn texture lacks art.
+#[test]
+fn repeated_frames_report_coverage_without_a_change() {
+    let (mut atlas, keys) = icon_atlas(3);
+    let all: BTreeSet<String> = keys.iter().cloned().collect();
+    atlas.require(keys.iter().map(String::as_str));
+    assert_eq!(
+        atlas.end_oversized_frame(&BTreeSet::new(), |_| true),
+        OversizedFrame {
+            changed: Some(all.clone()),
+            uncovered: false,
+        }
+    );
+    atlas.require(keys.iter().map(String::as_str));
+    assert_eq!(
+        atlas.end_oversized_frame(&all, |key| key != keys[1]),
+        OversizedFrame {
+            changed: None,
+            uncovered: true,
+        },
+        "art dropped by a later atlas shows up without a change in what was drawn"
+    );
+}
+
+/// A texture drawn straight from its copy counts as drawn for the frame.
+#[test]
+fn art_draws_count_as_drawn() {
+    let (mut atlas, keys) = icon_atlas(1);
+    atlas.require([keys[0].as_str()]);
+    let drawn: BTreeSet<String> = keys.iter().cloned().collect();
+    atlas.end_oversized_frame(&BTreeSet::new(), |_| true);
+    atlas.draw_art(&keys[0]);
+    assert_eq!(
+        atlas.end_oversized_frame(&drawn, |_| true),
+        OversizedFrame::default()
+    );
 }

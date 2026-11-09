@@ -67,6 +67,7 @@ impl UiPresentationRuntime {
             next,
             renderers: &mut [],
         };
+        list.set_header(runtime.session.player_roster.level_name());
         list.paint(
             renderer,
             runtime.session.player_roster.rows(),

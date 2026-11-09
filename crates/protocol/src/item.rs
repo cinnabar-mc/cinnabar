@@ -19,11 +19,15 @@ use thiserror::Error;
 mod animation_tests;
 mod attack;
 mod banner;
+mod block_items;
+pub(crate) use block_items::with_block_items;
 mod components;
 mod digger;
 mod display;
 mod equipment;
 mod facts;
+mod render_offsets;
+mod seed;
 mod shield;
 mod shooter;
 pub use equipment::{held_items_match, offhand_equipment_packet, select_hotbar_slot_packet};
@@ -54,6 +58,7 @@ pub use nbt_edit::{
 pub use registry::{
     ItemRegistryEntry, ItemRegistryEvent, ItemRegistryVersion, vanilla_item_registry,
 };
+pub use seed::ItemSeed;
 pub use shield::item_shield_pattern;
 pub use shooter::ItemShooter;
 pub use user_data::{ItemBlockList, item_block_list, item_user_data_equal};
@@ -498,8 +503,6 @@ pub enum ItemPacketError {
     InvalidItemNbt,
     #[error("item packet has malformed or truncated canonical wire data")]
     MalformedWire,
-    #[error("failed to encode validated item data")]
-    ItemEncodingFailed,
     #[error("actor runtime ID {0} is invalid")]
     InvalidRuntimeId(i64),
     #[error("equipment container ID {0} is unknown")]
@@ -591,24 +594,6 @@ fn make_stack(
     })
 }
 
-/// Encodes `value` through a writer capped at [`MAX_ITEM_EXTRA_BYTES`].
-fn encode_extra<T: wire::Encode>(value: &T) -> Result<Vec<u8>, ItemPacketError> {
-    let mut bytes = Vec::new();
-    match value.encode(&mut wire::Writer::with_limit(
-        &mut bytes,
-        MAX_ITEM_EXTRA_BYTES,
-    )) {
-        Ok(()) => Ok(bytes),
-        Err(wire::EncodeError::OutputLimitExceeded { needed, .. }) => {
-            Err(ItemPacketError::ItemExtraTooLarge {
-                bytes: needed,
-                max: MAX_ITEM_EXTRA_BYTES,
-            })
-        }
-        Err(_) => Err(ItemPacketError::ItemEncodingFailed),
-    }
-}
-
 /// Bounds an item's user-data buffer and checks the compound it may carry.
 ///
 /// The generated decoder hands this over as opaque bytes, so the header
@@ -683,7 +668,9 @@ pub(crate) fn normalize_item_registry(
         }
         let network_id = i32::from(item.item_id.0);
         validate_registry_nbt(&item.item_component_data)?;
-        let component_bytes = encode_extra(&item.item_component_data)?;
+        // Bedrock reads the component compound straight from the packet with no
+        // size cap of its own, so any size the packet carries is admitted.
+        let component_bytes = item.item_component_data.0;
         let version = match item.item_version {
             ItemDataItemVersion::Legacy => ItemRegistryVersion::Legacy,
             ItemDataItemVersion::DataDriven => ItemRegistryVersion::DataDriven,

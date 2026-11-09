@@ -12,7 +12,7 @@ struct Key {
 
 struct Image {
     /// Keeps the pointer used by the key alive until its cached composition is retired.
-    _source: Arc<[u8]>,
+    _source: render_model::PagePixels,
     raster: EquipmentRaster,
     rig: Option<EntityRigId>,
     used: bool,
@@ -79,7 +79,7 @@ impl EquipmentRuntime {
         let (width, height) = page.dimensions();
         let key = Key {
             pattern: pattern.as_ref().clone(),
-            source: pixels.as_ptr() as usize,
+            source: pixels.storage_id(),
             layer: location.layer(),
             size: [width, height],
             icon: icon.map(|icon| [icon.x, icon.y, icon.width, icon.height]),
@@ -120,7 +120,7 @@ impl EquipmentRuntime {
                     identifier: item.identifier.as_ref().into(),
                     width,
                     height,
-                    rgba8: Arc::from(selected),
+                    rgba8: Arc::from(selected.as_ref()),
                 };
                 let composed =
                     self.compose_shield(&base, pattern, usize::from(width) * usize::from(height))?;

@@ -103,7 +103,7 @@ impl PlayerInventoryLedger {
 
     /// The transaction legs of `request`: each predicted cell's old and new stack, its new
     /// stacks renamed `stamp` when given, and a world leg for each drop.
-    fn legacy_changes(
+    pub(super) fn legacy_changes(
         &self,
         request: &PendingRequest,
         stamp: Option<i32>,
@@ -113,7 +113,7 @@ impl PlayerInventoryLedger {
             let (window_id, slot) = self.legacy_cell_address(prediction.cell)?;
             changes.push(NormalInventoryChange {
                 source: NormalInventorySource::Container(window_id as i8),
-                slot: u32::from(slot),
+                slot,
                 from: descriptor(prediction.before.as_ref(), None)?,
                 to: descriptor(prediction.held.as_ref(), stamp)?,
             });
@@ -148,19 +148,19 @@ impl PlayerInventoryLedger {
         Ok(changes)
     }
 
-    fn legacy_cell_address(&self, cell: Cell) -> Result<(i32, u8), InventoryGestureError> {
+    fn legacy_cell_address(&self, cell: Cell) -> Result<(i32, u32), InventoryGestureError> {
         Ok(match cell {
-            Cell::Inventory(slot) => (protocol::PLAYER_INVENTORY_WINDOW_ID, slot),
+            Cell::Inventory(slot) => (protocol::PLAYER_INVENTORY_WINDOW_ID, u32::from(slot)),
             Cell::Cursor => (protocol::UI_INVENTORY_WINDOW_ID, 0),
-            Cell::Armor(slot) => (protocol::ARMOR_WINDOW_ID, slot),
+            Cell::Armor(slot) => (protocol::ARMOR_WINDOW_ID, u32::from(slot)),
             Cell::Offhand => (protocol::OFFHAND_WINDOW_ID, 0),
-            Cell::Craft(slot) => (protocol::UI_INVENTORY_WINDOW_ID, slot),
+            Cell::Craft(slot) => (protocol::UI_INVENTORY_WINDOW_ID, u32::from(slot)),
             Cell::Storage(slot) => (
                 self.storage
                     .as_ref()
                     .ok_or(InventoryGestureError::InvalidRequest)?
                     .window_id,
-                slot,
+                u32::from(slot),
             ),
             Cell::CreatedOutput => return Err(InventoryGestureError::LegacyActionUnavailable),
         })

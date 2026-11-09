@@ -71,7 +71,7 @@ impl WorldStream {
             || !self.far_summaries_idle()
     }
 
-    /// Worker result channels an idle service sleeps on; mesh results only while none queue,
+    /// Worker result mailboxes an idle service sleeps on; mesh results only while none queue,
     /// since queued ones wait on capacity only the frame frees.
     fn idle_wait(&self) -> IdleWait {
         IdleWait {
@@ -82,21 +82,39 @@ impl WorldStream {
     }
 }
 
-/// Clones of the lent stream's worker channels, so the service sleeps without holding it.
+/// Clones of the lent stream's worker mailboxes, so the service sleeps without holding it.
 struct IdleWait {
-    decode: Receiver<DecodeCompletion>,
-    light: Receiver<LightCompletion>,
-    mesh: Option<Receiver<MeshCompletion>>,
+    decode: Mailbox<DecodeCompletion>,
+    light: Mailbox<LightCompletion>,
+    mesh: Option<Mailbox<MeshCompletion>>,
 }
 
 impl IdleWait {
     /// Blocks until a worker result or a wake is ready, or until `timeout`, consuming the wake.
     fn wait(&self, wake: &Receiver<()>, yield_requested: bool, timeout: Duration) {
-        let mut select = Select::new();
-        select.recv(&self.decode);
-        select.recv(&self.light);
+        // Drained first, a doorbell then rings only for results published after this check.
+        let _ = self.decode.doorbell().try_recv();
+        let _ = self.light.doorbell().try_recv();
         if let Some(mesh) = &self.mesh {
-            select.recv(mesh);
+            let _ = mesh.doorbell().try_recv();
+        }
+        let queued = !self.decode.is_empty()
+            || !self.light.is_empty()
+            || self.mesh.as_ref().is_some_and(|mesh| !mesh.is_empty());
+        if !queued {
+            self.sleep(wake, yield_requested, timeout);
+        }
+        // A wake only asks for a state check; left queued, it would cut every later wait short.
+        let _ = wake.try_recv();
+    }
+
+    /// Sleeps until a doorbell or the wake is ready, or until `timeout`.
+    fn sleep(&self, wake: &Receiver<()>, yield_requested: bool, timeout: Duration) {
+        let mut select = Select::new();
+        select.recv(self.decode.doorbell());
+        select.recv(self.light.doorbell());
+        if let Some(mesh) = &self.mesh {
+            select.recv(mesh.doorbell());
         }
         select.recv(wake);
         let ready = {
@@ -119,8 +137,6 @@ impl IdleWait {
         }
         #[cfg(not(feature = "tracy"))]
         let _ = (ready, yield_requested);
-        // A wake only asks for a state check; left queued, it would cut every later wait short.
-        let _ = wake.try_recv();
     }
 }
 

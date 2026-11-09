@@ -1,7 +1,7 @@
 //! Horizontal slider gestures on painted surface regions: selected-card scale and guest sliders.
 
 use super::*;
-use ui::mod_hud::{EDITOR_SCALE_SLIDER_RANGE, MAX_CARD_SCALE, MIN_CARD_SCALE};
+use ui::mod_hud::EDITOR_SCALE_SLIDER_RANGE;
 use ui::mod_panel::{Control, Event};
 
 const SCALE_STEP: f64 = 0.05;
@@ -103,13 +103,14 @@ impl HudEditor {
         };
         match gesture.target {
             Target::Scale { ref id, .. } => {
+                let [min_scale, max_scale] = self.draft.scale_bounds();
                 let Some(card) = self.draft.cards.iter_mut().find(|card| &card.id == id) else {
                     return Vec::new();
                 };
                 let [lo, hi] = EDITOR_SCALE_SLIDER_RANGE.map(f64::from);
                 let scale =
                     (((lo + fraction * (hi - lo)) / SCALE_STEP).round() * SCALE_STEP) as f32;
-                let scale = scale.clamp(MIN_CARD_SCALE, MAX_CARD_SCALE);
+                let scale = scale.clamp(min_scale, max_scale);
                 if (card.scale - scale).abs() > SCALE_EPSILON {
                     card.scale = scale;
                     self.catalog = None;

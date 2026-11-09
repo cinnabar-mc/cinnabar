@@ -1,6 +1,7 @@
-//! Blocks an actor's renderer draws with its body, such as the block an enderman carries.
+//! Blocks an actor's renderer draws with its body: the block an enderman carries and the pumpkin
+//! a snow golem wears.
 
-use glam::{Affine3A, Mat3A, Vec3, Vec3A};
+use glam::{Affine3A, Mat3A, Quat, Vec3, Vec3A};
 
 /// Model-origin height per unit of actor scale in the vanilla entity frame (24 pixels).
 const MODEL_ORIGIN_BLOCKS: f32 = 1.5;
@@ -43,6 +44,42 @@ pub fn enderman_carried_block_transform(
         .then(|| rows_from_affine(world_from_block))
 }
 
+/// Height above the feet of the point a snow golem's pumpkin turns about, at actor scale one.
+const SNOW_GOLEM_PUMPKIN_PIVOT_BLOCKS: f32 = 1.3047;
+/// Height of the pumpkin's centre above that point while the head rests.
+const SNOW_GOLEM_PUMPKIN_ABOVE_PIVOT_BLOCKS: f32 = 0.2930;
+const SNOW_GOLEM_PUMPKIN_SCALE: f32 = 0.625;
+
+/// Places the centred pumpkin a snow golem wears. `world_from_model` is the body's rig placement
+/// (faces -Z with its right side at +X, feet at the origin), and each head sample is the head
+/// part's own `[x, y]` rotation in authored degrees, interpolated by `alpha` like the body.
+///
+/// The block takes only those two angles and turns about its own point: the native layer ignores
+/// the head's Z rotation, position, scale, pivot and parents. The rest pose turns the block half a
+/// turn about the vertical, so its south face looks forward.
+#[must_use]
+pub fn snow_golem_pumpkin_transform(
+    world_from_model: [[f32; 4]; 3],
+    previous_head: [f32; 2],
+    current_head: [f32; 2],
+    alpha: f32,
+) -> Option<[[f32; 4]; 3]> {
+    // Authored X and Y angles turn against the right-hand rule in the mirrored rig frame.
+    let rotation = |[x, y]: [f32; 2]| {
+        Quat::from_rotation_y(-y.to_radians()) * Quat::from_rotation_x(-x.to_radians())
+    };
+    let head = rotation(previous_head).slerp(rotation(current_head), alpha.clamp(0.0, 1.0));
+    let world_from_block = affine_from_rows(world_from_model)
+        * Affine3A::from_translation(Vec3::Y * SNOW_GOLEM_PUMPKIN_PIVOT_BLOCKS)
+        * Affine3A::from_quat(head)
+        * Affine3A::from_translation(Vec3::Y * SNOW_GOLEM_PUMPKIN_ABOVE_PIVOT_BLOCKS)
+        * Affine3A::from_rotation_y(std::f32::consts::PI)
+        * Affine3A::from_scale(Vec3::splat(SNOW_GOLEM_PUMPKIN_SCALE));
+    world_from_block
+        .is_finite()
+        .then(|| rows_from_affine(world_from_block))
+}
+
 /// Reads three affine rows `[x, y, z, translation]` as a transform.
 fn affine_from_rows(rows: [[f32; 4]; 3]) -> Affine3A {
     let column = |index: usize| Vec3A::new(rows[0][index], rows[1][index], rows[2][index]);
@@ -74,6 +111,11 @@ mod tests {
             [0.0, scale, 0.0, position[1]],
             [0.0, 0.0, -scale, position[2]],
         ]
+    }
+
+    /// A rig-frame direction in the world of [`facing_south`], whose X and Z axes are negated.
+    fn facing_south_axis(direction: Vec3) -> Vec3 {
+        Vec3::new(-direction.x, direction.y, -direction.z)
     }
 
     fn apply(rows: [[f32; 4]; 3], point: [f32; 3]) -> Vec3 {
@@ -112,5 +154,95 @@ mod tests {
         let axes = affine_from_rows(rows).matrix3;
         assert!((Vec3::from(axes.x_axis).length() - 0.5).abs() < 1e-5);
         assert!(enderman_carried_block_transform(facing_south([0.0; 3], 1.0), 0.0).is_none());
+    }
+
+    /// The pumpkin on a golem at the origin facing south, with its head held at `head`.
+    fn pumpkin_with_head(head: [f32; 2]) -> Affine3A {
+        let rows = snow_golem_pumpkin_transform(facing_south([0.0; 3], 1.0), head, head, 0.0);
+        affine_from_rows(rows.expect("finite"))
+    }
+
+    /// The rig-frame rotation of a head authored at `pitch` and `yaw` degrees, whose rotations the
+    /// mirrored frame negates.
+    fn authored(pitch: f32, yaw: f32) -> Quat {
+        Quat::from_rotation_y(-yaw.to_radians()) * Quat::from_rotation_x(-pitch.to_radians())
+    }
+
+    #[test]
+    fn a_resting_snow_golem_wears_its_pumpkin_above_the_head_facing_forward() {
+        let rows = snow_golem_pumpkin_transform(
+            facing_south([10.0, 64.0, 10.0], 1.0),
+            [0.0; 2],
+            [0.0; 2],
+            0.0,
+        )
+        .expect("finite");
+        let transform = affine_from_rows(rows);
+        let centre = transform.transform_point3(Vec3::ZERO);
+        assert!((centre.x - 10.0).abs() < 1e-5);
+        assert!((centre.y - 65.5977).abs() < 1e-3);
+        assert!((centre.z - 10.0).abs() < 1e-5);
+        assert!((transform.matrix3.y_axis.length() - 0.625).abs() < 1e-5);
+        // The golem faces world south here, and the block's south face looks the same way.
+        assert!(transform.matrix3.z_axis.z > 0.0);
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_turns_with_the_head_about_its_own_point() {
+        let centre = |head| pumpkin_with_head(head).transform_point3(Vec3::ZERO);
+        // Yaw turns the block in place.
+        let turned = pumpkin_with_head([0.0, 90.0]);
+        assert!(
+            turned
+                .transform_point3(Vec3::ZERO)
+                .distance(centre([0.0; 2]))
+                < 1e-4
+        );
+        assert!(turned.matrix3.z_axis.z.abs() < 1e-4);
+        // Looking down carries the block forward, toward south here.
+        assert!(centre([45.0, 0.0]).z > 0.1);
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_stays_true_to_a_head_turned_past_a_quarter_turn() {
+        let up = pumpkin_with_head([20.0, 120.0]).matrix3.y_axis;
+        let expected = facing_south_axis(authored(20.0, 120.0) * Vec3::Y);
+        assert!(Vec3::from(up).normalize().distance(expected) < 1e-4, "{up}");
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_keeps_a_pitched_head_turned_exactly_sideways() {
+        for (pitch, yaw) in [(20.0, 90.0), (20.0, -90.0), (-35.0, 90.0)] {
+            let up = pumpkin_with_head([pitch, yaw]).matrix3.y_axis;
+            let expected = facing_south_axis(authored(pitch, yaw) * Vec3::Y);
+            assert!(
+                Vec3::from(up).normalize().distance(expected) < 1e-3,
+                "{pitch} {yaw}: {up} != {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_snow_golem_pumpkin_interpolates_the_head_samples() {
+        let place = |previous, current, alpha| {
+            let rows =
+                snow_golem_pumpkin_transform(facing_south([0.0; 3], 1.0), previous, current, alpha);
+            affine_from_rows(rows.expect("finite")).matrix3
+        };
+        let quarter = place([0.0; 2], [0.0, 40.0], 0.5);
+        assert!(quarter.abs_diff_eq(pumpkin_with_head([0.0, 20.0]).matrix3, 1e-4));
+        let clamped = place([0.0; 2], [0.0, 40.0], 2.0);
+        assert!(clamped.abs_diff_eq(pumpkin_with_head([0.0, 40.0]).matrix3, 1e-4));
+        // A wrapping query crosses the back of the turn with the body, not through the front.
+        let wrapped = place([0.0, 170.0], [0.0, -170.0], 0.5);
+        assert!(wrapped.abs_diff_eq(pumpkin_with_head([0.0, 180.0]).matrix3, 1e-4));
+    }
+
+    #[test]
+    fn a_non_finite_head_sample_places_no_pumpkin() {
+        let world = facing_south([0.0; 3], 1.0);
+        let rest = [0.0; 2];
+        assert!(snow_golem_pumpkin_transform(world, rest, rest, f32::NAN).is_none());
+        assert!(snow_golem_pumpkin_transform(world, [f32::NAN, 0.0], rest, 1.0).is_none());
     }
 }

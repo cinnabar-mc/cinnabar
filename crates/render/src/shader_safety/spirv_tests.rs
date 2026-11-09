@@ -88,6 +88,100 @@ fn terrain_spirv_validates_with_mobile_runtime_checks() {
     }
 }
 
+/// Older Mali compilers fault on bool struct members merged across returns, as model quads had.
+#[test]
+fn terrain_programs_keep_bools_out_of_structs_for_mali() {
+    let malioc = std::env::var_os("MALIOC");
+    if malioc.is_none() {
+        eprintln!("missing fixture: MALIOC for Mali offline shader compilation");
+    }
+    let output = tempfile::tempdir().unwrap();
+    for (name, source) in [
+        ("cube", include_str!("../chunk.wesl")),
+        ("model", include_str!("../model.wesl")),
+        ("liquid", include_str!("../liquid.wesl")),
+        ("transparent", include_str!("../transparent_terrain.wesl")),
+    ] {
+        for definitions in [
+            &[][..],
+            &["PACKED_TERRAIN"][..],
+            &["TERRAIN_UNITS"][..],
+            &["ENHANCED"][..],
+        ] {
+            let source = crate::shader_source::composed(source, definitions);
+            let module = naga::front::wgsl::parse_str(&source).unwrap();
+            for (_, ty) in module.types.iter() {
+                let naga::TypeInner::Struct { members, .. } = &ty.inner else {
+                    continue;
+                };
+                for member in members {
+                    assert!(
+                        !holds_bool(&module, member.ty),
+                        "{name} {definitions:?}: {:?}.{:?} holds a bool",
+                        ty.name,
+                        member.name
+                    );
+                }
+            }
+            let Some(malioc) = &malioc else {
+                continue;
+            };
+            let info = naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .unwrap();
+            let options = naga::back::spv::Options {
+                lang_version: (1, 3),
+                flags: naga::back::spv::WriterFlags::LABEL_VARYINGS
+                    | naga::back::spv::WriterFlags::FORCE_POINT_SIZE,
+                ..Default::default()
+            };
+            for entry in &module.entry_points {
+                let stage = match entry.stage {
+                    naga::ShaderStage::Vertex => "vert",
+                    naga::ShaderStage::Fragment => "frag",
+                    _ => continue,
+                };
+                let pipeline = naga::back::spv::PipelineOptions {
+                    shader_stage: entry.stage,
+                    entry_point: entry.name.clone(),
+                };
+                let words =
+                    naga::back::spv::write_vec(&module, &info, &options, Some(&pipeline)).unwrap();
+                let path = output
+                    .path()
+                    .join(format!("{name}-{}.{stage}.spv", entry.name));
+                write_words(&path, &words);
+                let result = Command::new(malioc)
+                    .args(["--vulkan", "-c", "Mali-G57", "-n", &entry.name])
+                    .arg(&path)
+                    .output()
+                    .unwrap();
+                assert!(
+                    result.status.success(),
+                    "{name} {definitions:?} {}: {:?} {}",
+                    entry.name,
+                    result.status,
+                    String::from_utf8_lossy(&result.stdout)
+                );
+            }
+        }
+    }
+}
+
+/// Whether `ty` is or contains a bool scalar, vector or array element.
+fn holds_bool(module: &naga::Module, ty: naga::Handle<naga::Type>) -> bool {
+    match module.types[ty].inner {
+        naga::TypeInner::Scalar(scalar) | naga::TypeInner::Vector { scalar, .. } => {
+            scalar.kind == naga::ScalarKind::Bool
+        }
+        naga::TypeInner::Array { base, .. } => holds_bool(module, base),
+        _ => false,
+    }
+}
+
 /// Enforces Vulkan's allocation-layout rule independently of the installed validator version.
 fn assert_logical_allocations(words: &[u32]) {
     use spirv::{Decoration, Op, StorageClass};

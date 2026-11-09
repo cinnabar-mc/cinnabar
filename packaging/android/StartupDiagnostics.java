@@ -11,6 +11,8 @@ import android.widget.Toast;
 import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.regex.Pattern;
@@ -43,7 +45,7 @@ final class StartupDiagnostics {
                     + "\n" + exit.getDescription() + "\n"
                     + "Process: " + exit.getProcessName() + " (" + exit.getPid() + ")\n"
                     + "Exit timestamp: " + exit.getTimestamp() + "\n\n"
-                    + logTail(new File(activity.getFilesDir(), "data/logs/client.log"));
+                    + logContext(new File(activity.getFilesDir(), "data/logs/client.log"));
             AlertDialog dialog = new AlertDialog.Builder(activity)
                     .setTitle("@PRODUCT_NAME@ stopped unexpectedly")
                     .setMessage("Save report puts this log and any Android crash trace in Downloads.\n\n" + details)
@@ -94,6 +96,22 @@ final class StartupDiagnostics {
                 return GENERIC_EXIT;
             default:
                 return GENERIC_EXIT;
+        }
+    }
+
+    /** Retains startup build/adapter evidence as well as the last records of a long session. */
+    static String logContext(File file) {
+        try (RandomAccessFile source = new RandomAccessFile(file, "r")) {
+            if (source.length() <= LOG_TAIL_BYTES) return logTail(file);
+            byte[] bytes = new byte[LOG_TAIL_BYTES];
+            source.readFully(bytes);
+            String start = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.IGNORE)
+                    .decode(ByteBuffer.wrap(bytes)).toString();
+            return "Client log start (build and startup context):\n" + start
+                    + "\n\nClient log tail (intervening records omitted):\n" + logTail(file);
+        } catch (IOException error) {
+            return logTail(file);
         }
     }
 

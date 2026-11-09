@@ -19,7 +19,7 @@ pub(super) struct HandRigDepth {
 pub(super) struct HandRigAtlas {
     pub(super) _texture: Texture,
     pub(super) view: TextureView,
-    pub(super) pixels: Arc<[u8]>,
+    pub(super) pixels: render_model::PagePixels,
     pub(super) size: [u32; 3],
     pub(super) raw_views: ArtworkRawViews,
 }
@@ -469,7 +469,7 @@ pub(super) fn upload_atlas(
             continue;
         }
         if slot.as_ref().is_some_and(|current| {
-            Arc::ptr_eq(&current.pixels, &atlas.rgba8)
+            current.pixels.ptr_eq(&atlas.rgba8)
                 && current.raw_views == raw_views
                 && current.size
                     == [
@@ -497,7 +497,7 @@ pub(super) fn upload_atlas(
                 view_formats: raw_views.view_formats(),
             },
             TextureDataOrder::LayerMajor,
-            &atlas.rgba8,
+            &atlas.rgba8.joined(),
         );
         let view = texture.create_view(&TextureViewDescriptor {
             label: Some("first-person item atlas layers"),
@@ -507,7 +507,7 @@ pub(super) fn upload_atlas(
         *slot = Some(HandRigAtlas {
             _texture: texture,
             view,
-            pixels: Arc::clone(&atlas.rgba8),
+            pixels: atlas.rgba8.clone(),
             size: [
                 u32::from(atlas.width),
                 u32::from(atlas.height),

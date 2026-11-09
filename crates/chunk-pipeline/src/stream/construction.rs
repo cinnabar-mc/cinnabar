@@ -71,8 +71,8 @@ impl WorldStream {
     ) -> Self {
         let _ = &*workers::WORKERS;
         warm_block_mutation_facts();
-        let (decode_tx, decode_rx) = bounded(WORK_RESULT_CAPACITY);
-        let (mesh_tx, mesh_rx) = bounded(WORK_RESULT_CAPACITY);
+        let (decode_tx, decode_rx) = result_mailbox(WORK_RESULT_CAPACITY);
+        let (mesh_tx, mesh_rx) = result_mailbox(WORK_RESULT_CAPACITY);
         let authority = client_world::WorldAuthority::new_with_actor_catalog(
             bootstrap,
             runtime_assets,
@@ -96,6 +96,7 @@ impl WorldStream {
             block_entity_visuals: BlockEntityVisualDiagnostics::default(),
             classifier: BlockClassifier::new(air_network_id),
             mesh_render_settings: ::meshing::MeshRenderSettings::default(),
+            surface_rules: Arc::from([]),
             mesh_render_revision: 0,
             startup_terrain_announced: true,
             java_meshing: None,

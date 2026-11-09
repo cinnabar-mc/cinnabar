@@ -6,6 +6,33 @@ use super::{BossBar, ChatText, HudModel, HudSlot, HudTitle, Timed, hud_data_sour
 use crate::{BindState, EmptyLibrary, ResolvedControl, bind_stateful};
 
 #[test]
+fn locator_binding_replaces_bar_art_but_keeps_the_survival_level() {
+    let data = hud_data_source(&HudModel {
+        survival_ui: true,
+        locator_bar: true,
+        level: 7,
+        ..Default::default()
+    });
+    for (name, expected) in [
+        ("#hotbar_with_locator_bar", true),
+        ("#hotbar_with_xp_bar", false),
+        ("#hotbar_no_xp_bar", false),
+        ("#level_number_visible", true),
+    ] {
+        assert_eq!(data.globals.get(name), Some(&crate::Scalar::Bool(expected)));
+    }
+    let creative = hud_data_source(&HudModel {
+        locator_bar: true,
+        level: 7,
+        ..Default::default()
+    });
+    assert_eq!(
+        creative.globals.get("#level_number_visible"),
+        Some(&crate::Scalar::Bool(false))
+    );
+}
+
+#[test]
 fn absent_hud_title_answers_empty_text_and_clears_retained_labels() {
     for binding in ["#hud_title_text_string", "#hud_subtitle_text_string"] {
         let root = Arc::new(ResolvedControl {

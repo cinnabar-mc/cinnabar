@@ -41,6 +41,8 @@ pub use enhanced::EnhancedRenderPlugin;
 pub use entity_shadow_render::EntityShadowRenderPlugin;
 mod far_terrain;
 pub use far_terrain::FarTerrainRenderPlugin;
+#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "frame-generation")))]
+pub mod frame_generation;
 mod gpu_allocation;
 mod gpu_error_policy;
 pub use gpu_error_policy::{GpuFailure, install_error_policy};
@@ -193,6 +195,9 @@ mod opaque_phase;
 pub(crate) use opaque_phase::install_opaque_phase_reset;
 mod stars;
 pub mod startup_presentation;
+#[cfg(test)]
+#[path = "startup_presentation/timing_tests.rs"]
+mod startup_timing_tests;
 mod stock_systems;
 pub use stock_systems::StockSystemsPlugin;
 mod world_passes;
