@@ -901,3 +901,83 @@ fn declared_entity_image_paths_stay_inside_the_resource_root() {
         Some("artwork/ui/image".into())
     );
 }
+
+#[test]
+fn inert_vanilla_entity_overrides_keep_the_vanilla_animations() {
+    let vanilla = tempfile::tempdir().unwrap();
+    std::fs::create_dir(vanilla.path().join("entity")).unwrap();
+    std::fs::write(
+        vanilla.path().join("entity/player.entity.json"),
+        json!({
+            "format_version": "1.10.0",
+            "minecraft:client_entity": {"description": {
+                "identifier": "minecraft:player",
+                "geometry": {"default": "geometry.humanoid.custom", "cape": "geometry.cape"},
+                "scripts": {"animate": ["root"]},
+                "animations": {"root": "controller.animation.player.root"}
+            }}
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let emote = json!({
+        "format_version": "1.8.0",
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:player",
+            "geometry": {"default": "geometry.server"},
+            "animations": {"emote": "animation.server.emote"}
+        }}
+    })
+    .to_string();
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        emote.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(vanilla.path()));
+    let (_, bytes) = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+        .unwrap();
+    let description: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    let description = &description["minecraft:client_entity"]["description"];
+    assert_eq!(description["scripts"]["animate"], json!(["root"]));
+    assert_eq!(
+        description["animations"],
+        json!({"root": "controller.animation.player.root", "emote": "animation.server.emote"})
+    );
+    assert_eq!(
+        description["geometry"],
+        json!({"default": "geometry.server", "cape": "geometry.cape"})
+    );
+
+    // Without an installed vanilla source the inert override is dropped, keeping the compiled
+    // vanilla definition.
+    let sourceless = tempfile::tempdir().unwrap();
+    let files = super::collect_files(&view, None, Some(sourceless.path()));
+    assert!(
+        !files
+            .iter()
+            .any(|(path, _)| path.as_ref() == "entity/player.entity.json")
+    );
+
+    // A server definition with its own animate list stays a complete replacement.
+    let complete = json!({
+        "minecraft:client_entity": {"description": {
+            "identifier": "minecraft:player",
+            "scripts": {"animate": ["emote"]},
+            "animations": {"emote": "animation.server.emote"}
+        }}
+    })
+    .to_string();
+    let view = resource_pack::LayeredPackView::tracked(crate::test_support::stack(&[(
+        "entity/player.entity.json",
+        complete.as_bytes(),
+    )]));
+    let files = super::collect_files(&view, None, Some(vanilla.path()));
+    let (_, bytes) = files
+        .iter()
+        .find(|(path, _)| path.as_ref() == "entity/player.entity.json")
+        .unwrap();
+    let description: serde_json::Value = serde_json::from_slice(bytes).unwrap();
+    assert!(description["minecraft:client_entity"]["description"]["animations"]["root"].is_null());
+}

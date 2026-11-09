@@ -135,9 +135,10 @@ pub fn collect_files(
 ) -> Vec<(Box<str>, Vec<u8>)> {
     let mut files = Vec::new();
     let CollectedEntities {
-        files: entities,
+        files: mut entities,
         mut references,
     } = unique_entities(view);
+    complete_inert_overrides(&mut entities, &mut references, vanilla_pack_dir);
     let mut geometry = unshadowed_geometry(view);
     let mut pack_geometry = BTreeSet::new();
     for batch in bounded_batches(&geometry, |(_, bytes)| bytes.len() as u64) {
@@ -483,6 +484,87 @@ fn unique_entities(view: &LayeredPackView) -> CollectedEntities {
         })
         .collect();
     CollectedEntities { files, references }
+}
+
+/// A server definition of a vanilla client entity that animates nothing (no `scripts.animate`)
+/// cannot be a complete replacement: packs ship such files only to add animations or
+/// textures. Each one is laid over the installed vanilla definition of the same identifier, so
+/// the vanilla scripts and animations stay and every field the pack declares wins. Where no
+/// vanilla source is installed (installs keep only the compiled vanilla entities), the file is
+/// dropped so the compiled vanilla definition stays in use.
+fn complete_inert_overrides(
+    entities: &mut Vec<(Box<str>, Vec<u8>)>,
+    references: &mut References,
+    vanilla_pack_dir: Option<&Path>,
+) {
+    entities.retain_mut(|(_, bytes)| {
+        let Some(document) = parse_pack_json(bytes) else {
+            return true;
+        };
+        let description = &document["minecraft:client_entity"]["description"];
+        if !description["scripts"]["animate"].is_null() {
+            return true;
+        }
+        let Some(name) = description["identifier"]
+            .as_str()
+            .and_then(|identifier| identifier.strip_prefix("minecraft:"))
+        else {
+            return true;
+        };
+        let base = vanilla_pack_dir.and_then(|root| vanilla_entity(root, name));
+        let Some(mut base) = base.filter(|base| {
+            base["minecraft:client_entity"]["description"]["identifier"]
+                == description["identifier"]
+        }) else {
+            return false;
+        };
+        let overlay = description.clone();
+        overlay_json(&mut base["minecraft:client_entity"]["description"], overlay);
+        match serde_json::to_vec(&base) {
+            Ok(merged) => {
+                references.read(&base);
+                *bytes = merged;
+                true
+            }
+            Err(_) => false,
+        }
+    });
+}
+
+/// The installed vanilla `entity/<name>.entity.json`, when the name is a plain file name.
+fn vanilla_entity(root: &Path, name: &str) -> Option<Value> {
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+    {
+        return None;
+    }
+    let file = std::fs::File::open(root.join("entity").join(format!("{name}.entity.json"))).ok()?;
+    let mut bytes = Vec::new();
+    file.take(resource_pack::MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() as u64 <= resource_pack::MAX_FILE_BYTES)
+        .then(|| parse_pack_json(&bytes))
+        .flatten()
+}
+
+/// Lays `overlay` over `base`: objects merge key by key, any other value replaces.
+fn overlay_json(base: &mut Value, overlay: Value) {
+    match (base, overlay) {
+        (Value::Object(base), Value::Object(overlay)) => {
+            for (key, value) in overlay {
+                match base.get_mut(&key) {
+                    Some(existing) => overlay_json(existing, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, overlay) => *base = overlay,
+    }
 }
 
 /// Collect geometry documents in layer order for identifier selection by the compiler.
