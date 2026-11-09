@@ -475,6 +475,27 @@ impl LocalPhysicsController {
         self.state.as_ref()
     }
 
+    /// The player's width and height: the size the server last gave it, or a standing
+    /// player's.
+    #[must_use]
+    pub fn body_size(&self) -> [f32; 2] {
+        self.prediction_sync_size()
+            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+    }
+
+    /// The player's standing box at its current feet, which getting off a vehicle tests
+    /// against the vehicle's box.
+    #[must_use]
+    pub fn body_box(&self) -> Option<sim::Aabb> {
+        let feet = self.state()?.position;
+        let [width, height] = self.body_size().map(f64::from);
+        let half = width / 2.0;
+        Some(sim::Aabb::new(
+            sim::Vec3::new(feet.x - half, feet.y, feet.z - half),
+            sim::Vec3::new(feet.x + half, feet.y + height, feet.z + half),
+        ))
+    }
+
     /// Processed `(sneaking, sprinting)` of the latest completed tick.
     #[must_use]
     pub fn latest_sneak_sprint(&self) -> Option<(bool, bool)> {

@@ -29,6 +29,12 @@ impl WorldStream {
         self.authority.leave_local_mount();
     }
 
+    /// Makes movement collide with the vehicle the local player got off again; see
+    /// [`client_world::WorldAuthority::release_local_passed_through_vehicle`].
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.authority.release_local_passed_through_vehicle();
+    }
+
     /// Retains StartGame's binding of the local player's mode to the world default.
     pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
         self.authority.set_local_game_mode_follows_default(follows);

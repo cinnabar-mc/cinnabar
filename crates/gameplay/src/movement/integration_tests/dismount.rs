@@ -862,6 +862,31 @@ fn a_held_item_release_keeps_the_rider_seated_until_it_goes_out() {
     assert_eq!(rider.sent.len(), 1);
 }
 
+/// A release held behind a tick still to come, as a Riptide release can be, keeps the rider
+/// seated without stopping the ticks, so its facing tick is produced and goes out first.
+#[test]
+fn a_release_facing_a_later_tick_lets_the_ticks_run() {
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(false));
+    rider.flush_movement();
+    let facing = rider.ticker.completed_tick() + 1;
+    rider.ticker.hold_release_after_tick(facing, Vec::new());
+    assert!(
+        rider.advance(sneak_press(speed_frame(Default::default()).delta)),
+        "the facing tick still runs"
+    );
+    assert!(rider.ticker.completed_tick() >= facing);
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "the request waits behind the release");
+    rider.flush_movement();
+    rider.ticker.send_held_release(|_| Ok(()));
+    assert!(!rider.ticker.has_held_release());
+    rider.flush_movement();
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
+}
+
 /// Seated movement transport took but has not written yet may still be cancelled and sent
 /// again, so the rider stays seated until it is written.
 #[test]

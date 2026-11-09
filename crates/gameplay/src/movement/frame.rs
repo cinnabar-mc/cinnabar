@@ -189,9 +189,10 @@ impl LocomotionState {
         if facts.ride.is_none() || facts.mount_runtime_id != Some(mount) || frame.hold.is_some() {
             return DismountStep::Seated;
         }
-        // Seated movement already produced goes out on its own; interaction work and blocked
-        // ticks may need further ticks to finish, so they never hold the frame's ticks.
-        if Self::seated_movement_outstanding(movement_ticker) {
+        // Seated movement already produced goes out on its own; interaction work, blocked
+        // ticks and a release facing a tick still to come may need further ticks to finish, so
+        // they never hold the frame's ticks.
+        if Self::seated_movement_draining(movement_ticker) {
             return DismountStep::Waiting;
         }
         if !frame_simulates_tick(physics, movement_ticker, frame.delta)
@@ -226,10 +227,7 @@ impl LocomotionState {
         let (position, motion) = current.map_or((placement.position, placement.motion), |feed| {
             (feed.position, feed.velocity)
         });
-        // The rider's box is the size the server last gave the player.
-        let [width, height] = physics
-            .prediction_sync_size()
-            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32]);
+        let [width, height] = physics.body_size();
         // Blocks still streaming in around the mount keep the player seated until they arrive.
         let Some(exit) = (sim::Dismount {
             vehicle: vec3(position),
@@ -267,16 +265,17 @@ impl LocomotionState {
         DismountStep::GotOff
     }
 
-    /// Whether movement from the seat is still on its way: queued movement, movement sent but
-    /// not yet written to the socket (transport may cancel it and it goes out again), or a held
-    /// item release behind a seated tick. All of it goes out without further ticks.
-    fn seated_movement_outstanding(movement_ticker: &MovementTicker) -> bool {
-        movement_ticker.pending_count() > 0 || movement_ticker.has_held_release()
+    /// Whether movement from the seat is still on its way without needing another tick:
+    /// queued movement, movement sent but not yet written to the socket (transport may cancel
+    /// it and it goes out again), or a held item release behind a seated tick already produced.
+    fn seated_movement_draining(movement_ticker: &MovementTicker) -> bool {
+        movement_ticker.pending_count() > 0 || movement_ticker.held_release_awaits_written_tick()
     }
 
     /// Whether anything from the seat could still reach the server after a stop-riding
     /// request sent now, or the player's place is not settled: seated movement still going
-    /// out, interaction work still waiting, or a last tick that waited for collision data.
+    /// out, a held item release, interaction work still waiting, or a last tick that waited
+    /// for collision data.
     fn seated_work_outstanding(
         &self,
         movement_ticker: &MovementTicker,
@@ -288,7 +287,8 @@ impl LocomotionState {
             item_release,
             block_use,
         } = interactions;
-        Self::seated_movement_outstanding(movement_ticker)
+        Self::seated_movement_draining(movement_ticker)
+            || movement_ticker.has_held_release()
             || attack_pressed
             || attack_queued
             || item_release

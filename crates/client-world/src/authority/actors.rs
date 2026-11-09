@@ -372,6 +372,18 @@ impl WorldAuthority {
     pub fn local_player_left_mount(&self) -> bool {
         self.actors.left_local_vehicle(self.local_player_unique_id)
     }
+    /// Collision bounds of the vehicle the local player got off on the client while movement
+    /// still passes through it.
+    pub fn local_passed_through_vehicle_bounds(&self) -> Option<crate::ActorCollisionBounds> {
+        self.actors
+            .passed_through_bounds(self.local_player_unique_id)
+    }
+    /// Makes movement collide with the vehicle the local player got off again, once the
+    /// player no longer overlaps it.
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.actors
+            .release_passed_through(self.local_player_unique_id);
+    }
     /// The mount the local player rides as the client shows it.
     pub fn local_mount_unique_id(&self) -> Option<i64> {
         self.actors.ridden_unique_id(self.local_player_unique_id)

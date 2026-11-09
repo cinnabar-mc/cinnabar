@@ -60,14 +60,21 @@ pub(super) struct LocalVehicle {
     /// [`ActorStore::ridden_unique_id`] applies for every reader. Its committed link stays,
     /// so the server's unlink still commits.
     pub(super) left_rider: Option<i64>,
+    /// The `(rider, vehicle)` the local player got off on the client, while movement
+    /// collision still passes through that vehicle. Unverified against vanilla: a rider left at
+    /// its seat inside the vehicle's box would otherwise be lifted out on top of it. The
+    /// caller releases it once the player's box no longer overlaps the vehicle.
+    pub(super) passed_through: Option<(i64, i64)>,
 }
 
 impl ActorStore {
     /// Takes the linked local player `local` off its vehicle as getting off does on the
     /// client: it rides nothing until the server's links for it change.
+    /// Movement collision passes through that vehicle until the caller releases it.
     pub(crate) fn leave_local_vehicle(&mut self, local: i64) {
-        if self.rider_to_ridden.contains_key(&local) {
+        if let Some(&vehicle) = self.rider_to_ridden.get(&local) {
             self.local_vehicle.left_rider = Some(local);
+            self.local_vehicle.passed_through = Some((local, vehicle));
         }
     }
 
@@ -76,6 +83,39 @@ impl ActorStore {
         if self.local_vehicle.left_rider == Some(rider) {
             self.local_vehicle.left_rider = None;
         }
+    }
+
+    /// Ends movement's pass through a vehicle once `rider` boards one or `vehicle` goes.
+    pub(super) fn forget_passed_through(&mut self, rider: Option<i64>, vehicle: Option<i64>) {
+        if self
+            .local_vehicle
+            .passed_through
+            .is_some_and(|(left, left_vehicle)| {
+                Some(left) == rider || Some(left_vehicle) == vehicle
+            })
+        {
+            self.local_vehicle.passed_through = None;
+        }
+    }
+
+    /// The vehicle movement collision passes through for `rider`, which got off it on the
+    /// client.
+    pub(super) fn passed_through_vehicle(&self, rider: i64) -> Option<i64> {
+        self.local_vehicle
+            .passed_through
+            .filter(|(left, _)| *left == rider)
+            .map(|(_, vehicle)| vehicle)
+    }
+
+    /// Collision bounds of the vehicle movement passes through for `rider`.
+    pub(crate) fn passed_through_bounds(&self, rider: i64) -> Option<super::ActorCollisionBounds> {
+        self.snapshot_by_unique(self.passed_through_vehicle(rider)?)?
+            .movement_collision_bounds()
+    }
+
+    /// Makes movement collide with the vehicle `rider` got off again.
+    pub(crate) fn release_passed_through(&mut self, rider: i64) {
+        self.forget_passed_through(Some(rider), None);
     }
 
     /// Whether the local player `local` got off its vehicle on the client while the server's

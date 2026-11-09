@@ -77,6 +77,7 @@ pub(crate) fn advance_local_physics(
         locals.reset();
         return;
     }
+    settle_passed_through_vehicle(&mut client_world, &physics);
     let Some(stream) = client_world.stream.as_ref() else {
         return;
     };
@@ -225,7 +226,7 @@ pub(crate) fn advance_local_physics(
         }
         gameplay::movement::DismountStep::GotOff => {
             drop(world);
-            let Some(world) = leave_local_mount(&mut client_world, &collisions) else {
+            let Some(world) = leave_local_mount(&mut client_world, &collisions, &physics) else {
                 return;
             };
             world
@@ -255,12 +256,15 @@ pub(crate) fn advance_local_physics(
 /// Takes the local player off its mount in the client world, whose mount state then keeps it
 /// off until the server's links for it change: its body, animation, view and picking stop
 /// following the seat at once. Returns the collision view for the rest of the frame's ticks,
-/// which collides with the mount just left.
+/// which collides with the mount just left unless the player, placed by `physics`, still
+/// overlaps it.
 pub(super) fn leave_local_mount<'a>(
     client_world: &'a mut ClientWorld,
     collisions: &'a PhysicsCollisionRegistries,
+    physics: &LocalPhysicsController,
 ) -> Option<sim::PaletteWorld<'a>> {
     client_world.stream.as_mut()?.leave_local_mount();
+    settle_passed_through_vehicle(client_world, physics);
     let client_world: &'a ClientWorld = client_world;
     let stream = client_world.stream.as_ref()?;
     Some(super::collision_world(
@@ -268,6 +272,29 @@ pub(super) fn leave_local_mount<'a>(
         collisions.registry(stream.network_id_mode()),
         &client_world.movement_colliders,
     ))
+}
+
+/// Makes movement collide again with the vehicle the player got off once the player's box no
+/// longer overlaps it, past face contact; until then a player left at its seat is not lifted
+/// out on top of it.
+pub(super) fn settle_passed_through_vehicle(
+    client_world: &mut ClientWorld,
+    physics: &LocalPhysicsController,
+) {
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    let Some((min, max)) = stream.authority().local_passed_through_vehicle_bounds() else {
+        return;
+    };
+    let vector = |[x, y, z]: [f32; 3]| sim::Vec3::new(x.into(), y.into(), z.into());
+    let vehicle = sim::Aabb::new(vector(min), vector(max));
+    if !physics
+        .body_box()
+        .is_some_and(|body| body.overlap_minimal_translation(vehicle).is_some())
+    {
+        stream.release_local_passed_through_vehicle();
+    }
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.
