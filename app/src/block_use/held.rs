@@ -8,7 +8,7 @@ pub(super) fn maintain_block_use(
     mut runtime: ResMut<BlockUseRuntime>,
     mut swings: ResMut<SwingTracker>,
     mut item_use: ResMut<client_interaction::item_use::ItemUseRuntime>,
-    movement: Res<MovementTicker>,
+    mut movement: ResMut<MovementTicker>,
     physics: Option<Res<client_interaction::movement::LocalPhysicsController>>,
 ) {
     let pick = runtime.pick(&movement);
@@ -172,7 +172,7 @@ pub(super) fn maintain_block_use(
             &mut runtime,
             &mut item_use,
             &mut swings,
-            &movement,
+            &mut movement,
             &mut attempt,
         );
     }

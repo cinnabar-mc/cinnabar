@@ -35,10 +35,6 @@ pub(crate) fn observe_mount_jump_input(
     runtime.set_player_list_held(input.phase(semantic_input::Action::PlayerList).held);
 }
 
-pub(crate) fn platform_safe_area_insets() -> SafeArea {
-    SafeArea::ZERO
-}
-
 /// Resources beyond Bevy's sixteen-parameter limit.
 #[derive(bevy::ecs::system::SystemParam)]
 pub(crate) struct PublishExtras<'w, 's> {
@@ -192,18 +188,7 @@ pub(crate) fn prepare_ui_runtime(
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let bottom =
-            client_shell::platform_text::bottom_obstruction_pixels() / window.scale_factor();
-        let safe = platform_safe_area_insets();
-        presentation.set_safe_area(
-            SafeArea::new(
-                safe.left(),
-                safe.top(),
-                safe.right(),
-                safe.bottom().max(bottom),
-            )
-            .unwrap_or(safe),
-        );
+        presentation.set_safe_area(client_shell::platform_text::safe_area_insets(dpi_scale));
     }
     runtime.expire_hud(now_millis);
     let restart = client_world.dimension_transfer.take_presentation_reset();

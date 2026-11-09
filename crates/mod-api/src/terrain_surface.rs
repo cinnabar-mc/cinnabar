@@ -4,6 +4,8 @@ use serde::{Deserialize, Serialize};
 pub const MAX_RULES: usize = 64;
 pub const MAX_CLAUSES: usize = 32;
 pub const MAX_CONDITIONS: usize = 4;
+/// Bits of the three-by-three face partition a clause may show.
+pub const ALL_TILES: u16 = 0x1ff;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Condition {
@@ -47,7 +49,7 @@ pub fn validate(rules: &[Rule]) -> bool {
                 && (1..=127).contains(&rule.border)
                 && rule.clauses.len() <= MAX_CLAUSES
                 && rule.clauses.iter().all(|clause| {
-                    clause.tiles & !0x1ff == 0
+                    clause.tiles & !ALL_TILES == 0
                         && clause.conditions.len() <= MAX_CONDITIONS
                         && clause.conditions.iter().all(|condition| {
                             condition.offset != [0; 3]

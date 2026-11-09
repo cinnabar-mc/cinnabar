@@ -296,6 +296,10 @@ impl UiPresentationRuntime {
                 [0.; 4],
             )?;
             let index = cache.cursor - 1;
+            let cutoff = model.alpha_cutoff();
+            let changed = cache.sources[index].material.3 != cutoff;
+            cache.sources[index].material.3 = cutoff;
+            cache.dirty |= changed;
             cache.sources[index].hand = Some(hand);
         }
         if let Some(fire) = self.gui_fire_frame(view) {
