@@ -16,7 +16,7 @@ pub struct JavaMotion {
     pub limb_amount: [f32; 2],
     /// Body yaw in degrees.
     pub body_yaw: [f32; 2],
-    /// Local torso interpolation uses the simulation fraction; other motion keeps the actor clock.
+    /// Local torso and leg interpolation use the simulation fraction.
     pub body_frame_alpha: Option<f32>,
     /// First-person equip progress.
     pub equip: [f32; 2],
@@ -55,6 +55,30 @@ impl JavaMotion {
             0.0
         };
         self.body_yaw[0] + wrap_degrees(self.body_yaw[1] - self.body_yaw[0]) * alpha
+    }
+
+    /// Samples leg phase and amplitude on the movement clock that advanced them.
+    #[must_use]
+    pub fn limb_motion(self, alpha: f32) -> (f32, f32) {
+        let alpha =
+            render_model::legacy_combat::partial_tick(self.body_frame_alpha.unwrap_or(alpha));
+        let phase = self.limb_swing[1] - self.limb_amount[1] * (1.0 - alpha);
+        let amount = self.limb_amount[0] + (self.limb_amount[1] - self.limb_amount[0]) * alpha;
+        (phase, amount.min(1.0))
+    }
+
+    /// Advances legs from horizontal displacement, including while airborne.
+    pub(super) fn advance_limbs(&mut self, [dx, _, dz]: [f32; 3]) {
+        self.limb_amount[0] = self.limb_amount[1];
+        let target = ((f64::from(dx).powi(2) + f64::from(dz).powi(2)).sqrt() * LIMB_GAIN) as f32;
+        self.limb_amount[1] += (target.min(1.0) - self.limb_amount[1]) * LIMB_FOLLOW;
+        self.limb_swing[0] = self.limb_swing[1];
+        self.limb_swing[1] += self.limb_amount[1];
+    }
+
+    /// Applies a hurt impulse without advancing the movement cycle.
+    pub(super) fn hurt_limbs(&mut self) {
+        self.limb_amount[1] = HURT_LIMB_AMOUNT;
     }
 
     /// The final attack frame wraps forward before the next tick returns to rest.
@@ -175,7 +199,8 @@ impl JavaMotionState {
 
     /// A hurt event immediately resets limb motion, including consecutive hits.
     pub(super) fn hurt(&mut self) {
-        self.motion.limb_amount[1] = HURT_LIMB_AMOUNT;
+        self.motion.hurt_limbs();
+        self.local_body.note_hurt();
     }
 
     pub(super) fn advance(&mut self, tick: &JavaTick<'_>) {
@@ -196,14 +221,8 @@ impl JavaMotionState {
         }
         motion.riding = tick.riding;
         motion.vanilla_posture = tick.vanilla_posture;
-        let [dx, _, dz] = tick.delta;
-        motion.limb_amount[0] = motion.limb_amount[1];
-        let target = ((f64::from(dx).powi(2) + f64::from(dz).powi(2)).sqrt() * LIMB_GAIN) as f32;
-        motion.limb_amount[1] += (target.min(1.0) - motion.limb_amount[1]) * LIMB_FOLLOW;
-        motion.limb_swing[0] = motion.limb_swing[1];
-        motion.limb_swing[1] += motion.limb_amount[1];
-
         if !self.local_body.active() {
+            motion.advance_limbs(tick.delta);
             body::advance(&mut motion.body_yaw, tick.delta, tick.yaw, motion.swing[1]);
         }
 

@@ -15,7 +15,10 @@ pub(super) fn model(
     {
         return None;
     }
-    template_quads(&assets::gui_item::carried_wall_quads(
-        BlockFace::ALL.map(|face| block.face(face).material_id()),
-    ))
+    template_quads(
+        &assets::gui_item::carried_wall_quads(
+            BlockFace::ALL.map(|face| block.face(face).material_id()),
+        ),
+        false,
+    )
 }

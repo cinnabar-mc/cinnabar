@@ -77,6 +77,7 @@ fn draw(progress: f32, index: usize, opacity: f32) -> (Vec<UiNode>, f32) {
                     hud: &hud,
                     hunger_update: None,
                     bounds: None,
+                    effect_bounds: None,
                 }],
             },
         )

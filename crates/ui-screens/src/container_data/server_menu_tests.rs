@@ -30,7 +30,7 @@ fn container_collection_shows_exactly_the_admitted_menu_cells() {
         assert_eq!(shown, count);
         assert_eq!(
             kind.cell("container_items", shown - 1),
-            Some(crate::container_kinds::Cell::Storage((count - 1) as u8)),
+            Some(crate::container_kinds::Cell::Storage((count - 1) as u16)),
         );
     }
 }

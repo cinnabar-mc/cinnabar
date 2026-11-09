@@ -21,7 +21,7 @@ pub(in crate::inventory) struct Output {
     pub(in crate::inventory) aux: u16,
     pub(in crate::inventory) count: u8,
     pub(in crate::inventory) block: u32,
-    pub(in crate::inventory) empty_envelope: bool,
+    pub(in crate::inventory) user_data: super::crafting::RecipeOutputData,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -88,7 +88,7 @@ impl Recipe {
             aux: self.output.aux,
             count: self.output.count,
             block_runtime_id: self.output.block,
-            empty_envelope: self.output.empty_envelope,
+            user_data: self.output.user_data,
         }
     }
 
@@ -103,7 +103,7 @@ impl Recipe {
                 aux: output.aux,
                 count: output.count,
                 block_runtime_id: output.block,
-                empty_envelope: output.empty_envelope,
+                user_data: output.user_data,
             })
     }
 

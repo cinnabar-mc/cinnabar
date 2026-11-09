@@ -49,7 +49,7 @@ fn stocked(stacks: &[(u8, i32, i32, u16)]) -> PlayerInventoryLedger {
 }
 
 /// Reads actual request consumption in recipe/slot order, including its settled identities.
-fn consumes(ledger: &PlayerInventoryLedger) -> Vec<(u8, u8, i32)> {
+fn consumes(ledger: &PlayerInventoryLedger) -> Vec<(u16, u8, i32)> {
     ledger
         .newest_request()
         .unwrap()

@@ -41,7 +41,7 @@ fn complete_sources_round_trip_with_variant_and_carried_binding_identity() {
             [("fixture".into(), serde_json::json!({"textures":["textures/a",{"variations":["textures/b","textures/c"]}]}))],
             [(1, MaterialTextureSource { key:"fixture".into(), variant:1, path:"textures/b".into(), raster: "textures/b.png".into(), baked_tint:Some([120,80,40]) })],
             [BlockTextureSource { visual:2, name:"minecraft:fixture".into(), binding_name:"fixture".into(),
-                source_faces:[2,3,1,0,4,5], source_rotations:[false,false,true,true,true,true], cube_binding_eligible:true, carried_keys:std::array::from_fn(|_| Some("carried".into())),
+                source_faces:[2,3,1,0,4,5], source_rotations:[0,0,3,1,1,1], cube_binding_eligible:true, carried_keys:std::array::from_fn(|_| Some("carried".into())),
                 carried_fallback_keys:std::array::from_fn(|_| Some("fixture".into())) }],
         )
         .with_raster_sizes([("textures/b.png".into(), [16, 32])]);
@@ -59,7 +59,7 @@ fn complete_sources_round_trip_with_variant_and_carried_binding_identity() {
     );
     assert_eq!(
         restored.block_sources()[0].source_rotations,
-        [false, false, true, true, true, true]
+        [0, 0, 3, 1, 1, 1]
     );
     assert_eq!(restored.block_sources()[0].source_faces, [2, 3, 1, 0, 4, 5]);
     let mut bad: serde_json::Value = serde_json::from_slice(&keys.to_json(3)).unwrap();
@@ -79,7 +79,7 @@ fn older_unordered_source_arrays_are_normalized_when_decoded() {
             name: "minecraft:fixture".into(),
             binding_name: "fixture".into(),
             source_faces: [0, 1, 2, 3, 4, 5],
-            source_rotations: [false; 6],
+            source_rotations: [0; 6],
             cube_binding_eligible: true,
             carried_keys: std::array::from_fn(|_| None),
             carried_fallback_keys: std::array::from_fn(|_| None),

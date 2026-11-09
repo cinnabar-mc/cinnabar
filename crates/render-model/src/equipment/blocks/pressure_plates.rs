@@ -18,9 +18,10 @@ pub(super) fn model(
     {
         return None;
     }
-    template_quads(&quads(
-        BlockFace::ALL.map(|face| block.face(face).material_id()),
-    ))
+    template_quads(
+        &quads(BlockFace::ALL.map(|face| block.face(face).material_id())),
+        false,
+    )
 }
 
 /// Preserves inset cap artwork and the bottom source-texture row on narrow edges.

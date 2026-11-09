@@ -83,7 +83,7 @@ fn anvil_take_matches_the_native_request_and_rolls_back_on_rejection() {
                 amount: 1,
                 source: slot(
                     StackRequestContainer::CreatedOutput,
-                    protocol::CREATED_OUTPUT_SLOT,
+                    u16::from(protocol::CREATED_OUTPUT_SLOT),
                     request_id
                 ),
                 destination: slot(StackRequestContainer::Cursor, 0, 0),
@@ -138,7 +138,13 @@ fn anvil_shift_take_places_into_the_inventory_and_rolls_back() {
             .all(|action| !matches!(action, StackRequestAction::CraftResultsDeprecated { .. }))
     );
     assert!(ledger.cursor_stack().is_none());
-    assert_eq!(ledger.displayed_stack(destination.slot).unwrap().count, 1);
+    assert_eq!(
+        ledger
+            .displayed_stack(u8::try_from(destination.slot).unwrap())
+            .unwrap()
+            .count,
+        1
+    );
     assert!(ledger.target_stack(InventoryTarget::Craft(2)).is_none());
     reject_and_assert_restored(&mut ledger, request_id);
 }
@@ -177,7 +183,7 @@ fn server_derived_screens_send_no_result_list() {
                 aux: 0,
                 count: 1,
                 block_runtime_id: 0,
-                empty_envelope: false,
+                user_data: protocol::RecipeOutputData::Absent,
             };
             if window_type == protocol::WINDOW_TYPE_CARTOGRAPHY {
                 ScreenCraft::Cartography {
@@ -239,7 +245,7 @@ fn smithing_takes_consume_the_template_first() {
                 aux: 0,
                 count: 1,
                 block_runtime_id: 0,
-                empty_envelope: false,
+                user_data: protocol::RecipeOutputData::Absent,
             },
         })
         .unwrap();
@@ -441,7 +447,7 @@ fn unmaterialized_recipe_results_only_fill_empty_cells() {
             aux: 0,
             count: 1,
             block_runtime_id: 0,
-            empty_envelope: false,
+            user_data: protocol::RecipeOutputData::Absent,
         };
         let craft = if materialized {
             ScreenCraft::Predicted {

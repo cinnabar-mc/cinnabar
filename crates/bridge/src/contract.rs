@@ -108,7 +108,10 @@ pub const RELAY_EVENT_CONNECT: &str = "connect";
 pub const RELAY_EVENT_ERROR: &str = "error";
 
 /// Game version reported by the client.
-pub const GAME_VERSION: &str = "1.26.50";
+pub const GAME_VERSION: &str = "1.26.60";
+
+/// Dedicated server version used by integration fixtures.
+pub const BDS_VERSION: &str = "1.26.60.6";
 
 /// Default port for an addressed Bedrock server.
 pub const DEFAULT_BEDROCK_PORT: u16 = 19132;
@@ -146,8 +149,11 @@ pub const NETHERNET_TARGET_PREFIX: &str = "nethernet/";
 /// NetherNet JSON-RPC signaling selector.
 pub const NETHERNET_SIGNALING_JSONRPC: &str = "jsonrpc";
 
-/// NetherNet WebSocket signaling selector.
-pub const NETHERNET_SIGNALING_WEBSOCKET: &str = "websocket";
+/// NetherNet HTTP signaling selector for a host:port, probed for its endpoint without falling back to RakNet.
+pub const NETHERNET_SIGNALING_HTTP: &str = "http";
+
+/// Prefix for a host:port joined over RakNet without probing it for NetherNet.
+pub const RAKNET_TARGET_PREFIX: &str = "raknet/";
 
 /// Version of the control JSON-RPC envelope.
 pub const JSON_RPC_VERSION: &str = "2.0";
@@ -203,6 +209,9 @@ pub const METHOD_PROFILE: &str = "profile.v1";
 /// Control method for realm membership.
 pub const METHOD_REALM_MEMBERSHIP: &str = "realm_membership.v1";
 
+/// Control method for leaving a joined realm.
+pub const METHOD_REALM_LEAVE: &str = "realm_leave.v1";
+
 /// Control method for packet delay.
 pub const METHOD_PACKET_DELAY: &str = "packet_delay.v1";
 
@@ -253,6 +262,12 @@ pub const METHOD_CINNABAR_API: &str = "cinnabar_api.v1";
 
 /// Control method for nearby Cinnabar emotes and cosmetics.
 pub const METHOD_CINNABAR_PLAYERS: &str = "cinnabar_players.v1";
+
+/// Control method for the authenticated marketplace library.
+pub const METHOD_CINNABAR_MODS: &str = "cinnabar_mods.v1";
+
+/// Maximum marketplace library selections; checked against the pinned API schema.
+pub const CINNABAR_MODS_MAX_ENTRIES: usize = 100;
 
 /// Control method for a Cinnabar player lookup.
 pub const METHOD_CINNABAR_LOOKUP: &str = "cinnabar_lookup.v1";
@@ -661,4 +676,30 @@ pub struct CinnabarPlayerUpdates {
     /// Paid grants supplied by the account API database.
     #[serde(default)]
     pub owned_cosmetics: Vec<String>,
+}
+
+/// A marketplace selection hint; clients independently verify its signed release.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarModEntry {
+    /// Project selector.
+    pub slug: String,
+    /// Selected release version.
+    pub version: String,
+    /// Selected immutable artifact digest.
+    pub sha256: String,
+    /// Claimed size, rechecked against signed metadata.
+    pub bytes: u64,
+    /// Explicit website send request identity.
+    pub sent_at: String,
+    /// Immediate withdrawal hint, independently checked against signed revocations.
+    pub pulled: bool,
+}
+
+/// Current authenticated account's marketplace selections; empty while disconnected.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct CinnabarModLibrary {
+    /// Verified local account identity.
+    pub xuid: String,
+    /// Whole library snapshot with no granting authority.
+    pub mods: Vec<CinnabarModEntry>,
 }

@@ -410,6 +410,7 @@ pub(in crate::stream) struct SolvedLightJob {
     pub(in crate::stream) light_levels_changed: bool,
     pub(in crate::stream) direct_sky_changed: bool,
     pub(in crate::stream) changed_faces: [bool; 6],
+    pub(in crate::stream) equal_prior: Option<super::equality::EqualLightPrior>,
 }
 
 pub(in crate::stream) struct PreparedLightJob {
@@ -431,7 +432,7 @@ pub(in crate::stream) struct SolvedLightBatchEntry {
     pub(in crate::stream) result: Result<SolvedLightJob, LightJobError>,
 }
 
-struct LightBatchTarget {
+pub(in crate::stream) struct LightBatchTarget {
     key: SubChunkKey,
     identity: LightJobIdentity,
     queued_at: Instant,
@@ -699,7 +700,8 @@ pub(in crate::stream) fn solve_prepared_light_batch_with_scratch(
     solved_prefix
 }
 
-fn light_batch_target(job: &PreparedLightJob) -> LightBatchTarget {
+/// Retains the captured light and only its matching direct-sky provenance for finalization.
+pub(in crate::stream) fn light_batch_target(job: &PreparedLightJob) -> LightBatchTarget {
     let old_light = job.prior.light.light(job.key).cloned();
     let old_direct = job
         .prior
@@ -735,7 +737,8 @@ fn failed_light_batch(
         .collect()
 }
 
-fn finish_solved_light_job(
+/// Classifies solved output and retains equality evidence only for valid unchanged snapshots.
+pub(in crate::stream) fn finish_solved_light_job(
     target: LightBatchTarget,
     replacement: SubChunkLight,
     direct_sky: Arc<DirectSkyMask>,
@@ -749,18 +752,31 @@ fn finish_solved_light_job(
         .old_direct
         .as_ref()
         .is_none_or(|previous| previous.mask.as_ref() != direct_sky.as_ref());
-    let changed_faces = std::array::from_fn(|index| {
-        light_face_changed(
-            target.old_light.as_deref(),
-            &replacement,
+    let equal_prior = (!light_levels_changed && !direct_sky_changed).then(|| {
+        super::equality::EqualLightPrior::new(
+            target.old_light.as_ref().expect("equal light has a prior"),
             target
                 .old_direct
                 .as_ref()
-                .map(|direct| direct.mask.as_ref()),
-            direct_sky.as_ref(),
-            LIGHT_NEIGHBOUR_OFFSETS[index],
+                .expect("equal provenance has a valid prior"),
         )
     });
+    let changed_faces = if equal_prior.is_some() {
+        [false; 6]
+    } else {
+        std::array::from_fn(|index| {
+            light_face_changed(
+                target.old_light.as_deref(),
+                &replacement,
+                target
+                    .old_direct
+                    .as_ref()
+                    .map(|direct| direct.mask.as_ref()),
+                direct_sky.as_ref(),
+                LIGHT_NEIGHBOUR_OFFSETS[index],
+            )
+        })
+    };
     SolvedLightJob {
         replacement,
         direct_sky,
@@ -768,6 +784,7 @@ fn finish_solved_light_job(
         light_levels_changed,
         direct_sky_changed,
         changed_faces,
+        equal_prior,
     }
 }
 

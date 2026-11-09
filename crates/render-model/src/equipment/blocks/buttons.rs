@@ -15,9 +15,10 @@ pub(super) fn model(
     {
         return None;
     }
-    template_quads(&quads(
-        BlockFace::ALL.map(|face| block.face(face).material_id()),
-    ))
+    template_quads(
+        &quads(BlockFace::ALL.map(|face| block.face(face).material_id())),
+        false,
+    )
 }
 
 /// Samples the six block-coordinate face projections without stretching the narrow edges.

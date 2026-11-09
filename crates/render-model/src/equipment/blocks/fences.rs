@@ -22,5 +22,5 @@ pub(super) fn model(
     } else {
         assets::gui_item::carried_fence_quads(material)
     };
-    template_quads(&quads)
+    template_quads(&quads, false)
 }

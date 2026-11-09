@@ -1,6 +1,7 @@
 use super::{
-    CollisionIdSpace, PISTON_DIRECTIONS, PaletteWorld, PickRule, SelectionContext, ShapeBox,
-    ShapeFlags, UNIT, Vec3, box_to_aabb, fixture, set_block, set_moving, set_piston, shapes,
+    CollisionIdSpace, EXPANDING, PISTON_DIRECTIONS, PaletteWorld, PickRule, RETRACTING,
+    SelectionContext, ShapeBox, ShapeFlags, UNIT, Vec3, box_to_aabb, fixture, set_block,
+    set_moving, set_piston, shapes,
 };
 use crate::WorldQueryError;
 use assets::block_shapes::CompiledFlow;
@@ -85,7 +86,7 @@ fn moving_pick_identity_includes_a_remote_piston_owner() {
         registry.set_compiled_selection(20, &piston);
         let owner = [20, 0, 0];
         set_block(&mut store, owner, 20);
-        set_piston(&mut store, owner, 0.5);
+        set_piston(&mut store, owner, EXPANDING);
         set_moving(&mut store, "minecraft:carried", owner, false);
         let origin = Vec3::new(0.75, 0.5, 2.0);
         let direction = Vec3::new(0.0, 0.0, -1.0);
@@ -101,7 +102,7 @@ fn moving_pick_identity_includes_a_remote_piston_owner() {
                 .any(|revision| revision.chunk == owner_chunk)
         );
         let historical = store.collision_snapshot();
-        set_piston(&mut store, owner, 0.25);
+        set_piston(&mut store, owner, RETRACTING);
         let current = PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray(origin, direction, 4.0, &hit.identity);
         assert!(
@@ -150,15 +151,15 @@ fn moving_blocks_resolve_carried_static_visuals_in_both_id_spaces() {
                 .as_ref(),
             [box_to_aabb(carried)]
         );
+        let owner = [-2, 0, 0];
+        set_piston(&mut store, owner, EXPANDING);
         for (facing, direction) in PISTON_DIRECTIONS.into_iter().enumerate() {
             let mut owner_state = shapes(SelectionContext::Static, vec![UNIT], vec![]);
             owner_state.state_identity = [20 + facing as u8; 32];
             owner_state.actor_facing = Some(facing as u8);
             registry.register(20, [box_to_aabb(UNIT)]).unwrap();
             registry.set_compiled_selection(20, &owner_state);
-            let owner = [-2, 0, 0];
             set_block(&mut store, owner, 20);
-            set_piston(&mut store, owner, 0.5);
             for expanding in [false, true] {
                 set_moving(&mut store, "minecraft:carried", owner, expanding);
                 let offset =
@@ -330,7 +331,7 @@ fn moving_ray_hits_geometry_outside_its_owner_cell() {
                 registry.set_compiled_selection(20, &piston);
                 let owner = [-2, 0, 0];
                 set_block(&mut store, owner, 20);
-                set_piston(&mut store, owner, 0.5);
+                set_piston(&mut store, owner, EXPANDING);
                 set_moving(&mut store, "minecraft:carried", owner, expanding);
                 let axis = direction.iter().position(|value| *value != 0).unwrap();
                 let ray_axis = (axis + 1) % 3;
@@ -439,7 +440,7 @@ fn moving_ray_includes_carried_visual_extent_registered_before_actor() {
         registry.register(20, []).unwrap();
         registry.set_compiled_selection(20, &piston);
         set_block(&mut store, [-2, 0, 0], 20);
-        set_piston(&mut store, [-2, 0, 0], 0.5);
+        set_piston(&mut store, [-2, 0, 0], EXPANDING);
         set_moving(&mut store, "minecraft:carried", [-2, 0, 0], false);
         let hit = PaletteWorld::new(&store, &registry, 0, Default::default())
             .block_interaction_ray_current(

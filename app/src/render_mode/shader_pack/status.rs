@@ -39,6 +39,7 @@ fn pack_load<'a>(
                 PackLoad::Loading {
                     pack,
                     programs: progress.and_then(ShaderPackLoadProgress::programs),
+                    pipelines: progress.and_then(ShaderPackLoadProgress::pipelines),
                 }
             } else {
                 PackLoad::Ready {
@@ -54,8 +55,7 @@ fn pack_load<'a>(
     }
 }
 
-/// Mirrors the load state into the menu each frame; builds without the shader-pack host
-/// have no status and stay on Vanilla silently.
+/// Mirrors the load state into the menu each frame; a missing host status stays on Vanilla.
 #[expect(
     clippy::too_many_arguments,
     reason = "Bevy supplies the pack state, load feedback and menu resources"
@@ -86,6 +86,7 @@ pub(in super::super) fn sync_shader_pack_status(
             PackLoad::Loading {
                 pack,
                 programs: None,
+                pipelines: None,
             },
             &mut runtime,
             time.elapsed(),
@@ -144,7 +145,17 @@ mod tests {
             pack_load(&config, &status, Some(&progress), None),
             PackLoad::Loading {
                 pack: "Dusk.zip",
-                programs: Some((3, 7))
+                programs: Some((3, 7)),
+                pipelines: None,
+            }
+        );
+        worker.record_built(2, 5);
+        assert_eq!(
+            pack_load(&config, &status, Some(&progress), None),
+            PackLoad::Loading {
+                pack: "Dusk.zip",
+                programs: Some((3, 7)),
+                pipelines: Some((2, 5)),
             }
         );
         progress.finish();

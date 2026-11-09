@@ -37,7 +37,7 @@ macro_rules! wire_ids {
 mod generated;
 pub use generated::{
     ActorDataKey, ActorFlag, Attribute, CommandArgFlag, CommandArgType, ContainerName, Effect,
-    Enchantment, HASHED_AIR_NETWORK_ID, HorseFlag, LevelEvent, PlayerFlag,
+    Enchantment, HASHED_AIR_NETWORK_ID, HorseFlag, LevelEvent, ParticleType, PlayerFlag,
     SEQUENTIAL_AIR_NETWORK_ID, SPEED_EFFECT_MODIFIER_ID, SPRINT_SPEED_MODIFIER_ID, WindowID,
     WindowType,
 };

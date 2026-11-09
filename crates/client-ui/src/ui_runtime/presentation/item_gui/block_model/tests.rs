@@ -1,5 +1,5 @@
 use assets::BlockFace;
-use assets::gui_item::{GuiBlockQuad, cube_face};
+use assets::gui_item::{GuiBlockQuad, GuiShading, cube_face};
 
 use {super::*, assets::gui_item::GUI_ITEM_SIDE, ui::IconRef};
 
@@ -144,4 +144,25 @@ fn depth_order_keeps_overlapping_surfaces_and_groups_texture_pages() {
             .fold(f32::MIN, f32::max)
     };
     assert!(nearest(4..8) > nearest(0..4));
+}
+
+#[test]
+fn world_shaded_quads_take_flat_world_brightness() {
+    let quads = [
+        (quad(BlockFace::Up), tile(1)),
+        (quad(BlockFace::South), tile(1)),
+        (quad(BlockFace::West), tile(1)),
+    ];
+    let shades = |shading| {
+        mesh(&quads, shading, BlockModelOrder::Depth)
+            .unwrap()
+            .vertices()
+            .chunks(4)
+            .map(|face| face[0].color[0])
+            .collect::<Vec<_>>()
+    };
+    // Bytes truncate `255 * brightness`, as the GUI tessellator does.
+    assert_eq!(shades(GuiShading::World), [255, 204, 153]);
+    assert_eq!(shades(GuiShading::Inventory), [255, 127, 186]);
+    assert_eq!(shades(GuiShading::Unshaded), [255; 3]);
 }

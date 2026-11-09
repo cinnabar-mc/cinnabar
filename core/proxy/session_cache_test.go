@@ -120,7 +120,7 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 			}
 			packs := []*resource.Pack{first, second}
 			metadata := []sessionPack{
-				{UUID: first.UUID().String(), Version: first.Version(), Size: uint64(first.Size()), SubPack: "high", ContentKey: "secret"},
+				{UUID: first.UUID().String(), Version: first.Version(), Size: uint64(first.Size()), SubPack: "high", ContentKey: sessionContentKey("secret")},
 				{UUID: second.UUID().String(), Version: second.Version(), Size: uint64(second.Size())},
 			}
 			release := referenceSessionPacks(cache, metadata, packs)
@@ -146,7 +146,7 @@ func TestSessionCacheMissesKeepTheByteStream(t *testing.T) {
 					t.Fatal("cache miss did not preserve archive bytes")
 				}
 			}
-			if metadata[0].SubPack != "high" || metadata[0].ContentKey != "secret" {
+			if metadata[0].SubPack != "high" || string(metadata[0].ContentKey) != "secret" {
 				t.Fatal("cache selection changed pack metadata")
 			}
 		})

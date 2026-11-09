@@ -31,18 +31,30 @@ pub fn pinned_block_model_family(sequential_id: u32) -> Option<ModelFamily> {
     Some(pinned_identity(sequential_id)?.model_family)
 }
 
+/// Returns the first pinned state of an exact block name without decoding semantic facts.
+pub fn pinned_block_state_by_name(name: &str) -> Option<u32> {
+    pinned_identities()
+        .iter()
+        .find(|identity| identity.name == name)
+        .map(|identity| identity.sequential_id)
+}
+
 /// Shares the borrowed identity index across name, state and family lookups.
 fn pinned_identity(sequential_id: u32) -> Option<&'static RegistryIdentity<'static>> {
+    let identity = pinned_identities().get(sequential_id as usize)?;
+    (identity.sequential_id == sequential_id).then_some(identity)
+}
+
+/// Shares the borrowed identity index between lookups by state ID and block name.
+fn pinned_identities() -> &'static [RegistryIdentity<'static>] {
     static IDENTITIES: OnceLock<Box<[RegistryIdentity<'static>]>> = OnceLock::new();
-    let identities = IDENTITIES.get_or_init(|| {
+    IDENTITIES.get_or_init(|| {
         read_identities(
             crate::pinned_block_registry_bytes(),
             crate::active_content_registry_protocol(),
         )
         .unwrap_or_default()
-    });
-    let identity = identities.get(sequential_id as usize)?;
-    (identity.sequential_id == sequential_id).then_some(identity)
+    })
 }
 
 /// Reads borrowed text and the model class from bounded current-format framing.
