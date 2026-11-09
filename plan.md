@@ -1496,7 +1496,12 @@ potions, clock and compass atlases from frames or pre-1.9 strips, the legacy HUD
 so vanilla's `.tga` cannot shadow them, and grass sides are composed into Bedrock's tint masks.
 Every vanilla 1.7.10 and 1.8.9 block and item texture with a Bedrock counterpart maps to it, and
 their HUD crops match pixel for pixel. Translation holds at most 1 GiB of decoded and derived
-pixels, an implementation bound rather than a vanilla limit. The
+pixels, an implementation bound rather than a vanilla limit.
+Compasses and clocks animate with a pack's own strips: its `compass_atlas`, `recovery_compass_atlas`
+and `watch_atlas` images, shown at the native 32 and 64 frames. A strip under the Java item name
+(`compass.png`, `clock.png`) in a Bedrock pack at exactly the native frame count is also used.
+That Java-named route is a provisional approximation with no vanilla counterpart, so it closes no
+parity gate; a partial strip is ignored rather than mixed with base frames. The
 Java-to-Bedrock name tables and potion tints were derived outside the repository by matching
 Java Edition client textures against bedrock-samples; a fixture-gated test checks every table
 target and the flipbook list against the pinned sample pack, but no pinned Java source checks the
