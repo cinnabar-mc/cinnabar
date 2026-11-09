@@ -37,7 +37,7 @@ mod tests {
 
     #[test]
     fn explicit_asset_sources_precede_the_layout_default() {
-        let default = PathBuf::from("/bundle/resources/assets/vanilla-v2193.mcbea");
+        let default = PathBuf::from("/bundle/resources/assets/vanilla-v2225.mcbea");
         let environment = select_asset_path_with_default(
             None,
             Some(OsString::from("/override/environment.mcbea")),

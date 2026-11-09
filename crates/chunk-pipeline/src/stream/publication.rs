@@ -23,6 +23,23 @@ impl WorldStream {
             .set_local_actor_presentation_position(position, reanchor);
     }
 
+    /// Takes the local player off its vehicle on the client, ahead of the server's unlink; see
+    /// [`client_world::WorldAuthority::leave_local_mount`].
+    pub fn leave_local_mount(&mut self) {
+        self.authority.leave_local_mount();
+    }
+
+    /// Makes movement collide with the vehicle the local player got off again; see
+    /// [`client_world::WorldAuthority::release_local_passed_through_vehicle`].
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.authority.release_local_passed_through_vehicle();
+    }
+
+    /// Retains StartGame's binding of the local player's mode to the world default.
+    pub fn set_local_game_mode_follows_default(&mut self, follows: bool) {
+        self.authority.set_local_game_mode_follows_default(follows);
+    }
+
     /// Retains StartGame's level mode for remote-player target admission.
     pub fn set_world_default_game_mode(&mut self, mode: client_world::ingestion::GameModeUpdate) {
         self.authority.set_world_default_game_mode(mode);
@@ -190,7 +207,7 @@ impl WorldStream {
     pub fn advance_actor_interpolation_ticks(&mut self, ticks: u32) {
         self.authority.advance_actor_interpolation_ticks(ticks)
     }
-    /// Predicts remote actor positions for this frame's picks without advancing them.
+    /// Stages remote motion for vehicle and collision queries without advancing live actors.
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.authority.predict_remote_actor_motion(ticks)
     }
@@ -223,10 +240,6 @@ impl WorldStream {
     pub fn set_actor_camera_rotation(&mut self, rotation: [f32; 2]) {
         self.authority.set_actor_camera_rotation(rotation)
     }
-    /// Activates or clears the current world's optional native totem-use counting interval.
-    pub fn set_totem_tracking(&mut self, enabled: bool) {
-        self.authority.set_totem_tracking(enabled);
-    }
     /// Sets the view outside which rigs hold their pose at each tick; `None` animates all.
     pub fn set_actor_animation_view(&mut self, view: Option<actor_animation::ActorAnimationView>) {
         self.authority.set_actor_animation_view(view)
@@ -240,6 +253,11 @@ impl WorldStream {
     /// first-person hand read a driven rig instead of a static fallback.
     pub fn sync_local_player_pose(&mut self, feed: &LocalPlayerFeed) {
         self.authority.sync_local_player_pose(feed)
+    }
+
+    /// Drives the predicted pose of the boat the local player steers.
+    pub fn sync_local_vehicle_pose(&mut self, feed: Option<client_world::LocalVehicleFeed>) {
+        self.authority.sync_local_vehicle_pose(feed)
     }
 
     /// Publishes a client-selected appearance against the retained local player profile.
@@ -266,7 +284,7 @@ impl WorldStream {
     ) {
         self.authority.set_local_motion_authority(authority);
     }
-    /// Advances local torso motion with each admitted physical tick's matching swing samples.
+    /// Advances local torso and legs with each admitted physical tick's matching swing samples.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),

@@ -12,13 +12,13 @@ mod tests;
 pub(in crate::ui_runtime::presentation) struct BoundsCache {
     entries: HashMap<u64, CachedBounds>,
     font: Option<assets::FontCatalogIdentity>,
-    style: Option<ui::mod_hud::NametagStyle>,
+    style: Option<ui::mod_presentation::NametagStyle>,
 }
 
 struct CachedBounds {
     lines: Arc<[Arc<str>]>,
     badge: bool,
-    counter: Option<Arc<ui::mod_hud::CounterAnnotation>>,
+    annotation: Option<Arc<ui::mod_presentation::Spans>>,
     measured: Option<MeasuredBounds>,
     seen: bool,
 }
@@ -54,7 +54,7 @@ impl BoundsCache {
         rotation: Quat,
         font: &RuntimeFontCatalog,
         layouts: &mut TextLayoutCache,
-        style: Option<&ui::mod_hud::NametagStyle>,
+        style: Option<&ui::mod_presentation::NametagStyle>,
     ) -> bool {
         if self.font != Some(font.identity()) || self.style.as_ref() != style {
             self.entries.clear();
@@ -67,7 +67,7 @@ impl BoundsCache {
         let cached = self.entries.get_mut(&anchor.runtime_id).filter(|cached| {
             cached.lines == anchor.lines
                 && cached.badge == anchor.cinnabar_badge
-                && cached.counter == anchor.counter
+                && cached.annotation == anchor.annotation
         });
         // The first plate contains the ordinary label's unlifted anchor. An on-screen
         // anchor therefore intersects the conservative hull without measuring its text.
@@ -92,7 +92,7 @@ impl BoundsCache {
                 CachedBounds {
                     lines: Arc::clone(&anchor.lines),
                     badge: anchor.cinnabar_badge,
-                    counter: anchor.counter.clone(),
+                    annotation: anchor.annotation.clone(),
                     measured,
                     seen: true,
                 },
@@ -108,33 +108,30 @@ fn measure_bounds(
     anchor: &NametagAnchor,
     font: &RuntimeFontCatalog,
     layouts: &mut TextLayoutCache,
-    style: Option<&ui::mod_hud::NametagStyle>,
+    style: Option<&ui::mod_presentation::NametagStyle>,
 ) -> Option<MeasuredBounds> {
     let name = line_metrics(&anchor.lines[0], font, layouts)?;
-    let mut runs: [Option<LineMetrics>; 2] = [None, None];
+    let mut runs: Vec<LineMetrics> = Vec::new();
     let mut counter_width = 0.0;
     let mut gap = 0.0;
-    if let Some(counter) = &anchor.counter {
-        for (index, text) in [&counter.prefix, &counter.value].into_iter().enumerate() {
-            if index == 0 && text.is_empty() {
-                continue;
-            }
+    if let Some(spans) = &anchor.annotation {
+        for text in spans.texts() {
             let metrics = line_metrics(text, font, layouts)?;
             counter_width += metrics.width_px;
-            runs[index] = Some(metrics);
+            runs.push(metrics);
         }
         let space = line_metrics(" ", font, layouts)?;
         gap = space.width_px;
     }
     let separate = anchor
-        .counter
-        .as_ref()
-        .is_some_and(|counter| counter.separate);
+        .annotation
+        .as_deref()
+        .is_some_and(super::annotation::separate);
     let before = anchor
-        .counter
-        .as_ref()
-        .is_some_and(|counter| counter.before);
-    let inline_width = if anchor.counter.is_some() && !separate {
+        .annotation
+        .as_deref()
+        .is_some_and(super::annotation::before);
+    let inline_width = if anchor.annotation.is_some() && !separate {
         counter_width + gap
     } else {
         0.0
@@ -169,7 +166,7 @@ fn measure_bounds(
         bounds.include(metrics.rect, [left, top], true);
         bounds.plate(width, top);
     }
-    if let Some(counter) = &anchor.counter {
+    if anchor.annotation.is_some() {
         let (mut left, index) = if separate {
             (
                 nametag_line_left(counter_width),
@@ -187,11 +184,11 @@ fn measure_bounds(
             )
         };
         let top = index as f32 * NAMETAG_LINE_PITCH_PX;
-        for run in runs.into_iter().flatten() {
+        for run in runs {
             bounds.include(run.rect, [left, top], true);
             left += run.width_px;
         }
-        if counter.separate {
+        if separate {
             bounds.plate(counter_width, top);
         }
     }
@@ -256,7 +253,7 @@ impl MeasuredBounds {
 
 struct Bounds<'a> {
     rect: Option<[f32; 4]>,
-    style: Option<&'a ui::mod_hud::NametagStyle>,
+    style: Option<&'a ui::mod_presentation::NametagStyle>,
 }
 
 impl Bounds<'_> {

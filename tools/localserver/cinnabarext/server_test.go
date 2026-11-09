@@ -1,9 +1,12 @@
 package cinnabarext
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -136,7 +139,7 @@ func TestNewServerOffersItsBundles(t *testing.T) {
 	}
 	scope := offer.Scope
 	union := cfg.Bundles[0].Manifest.Permissions | another.Manifest.Permissions
-	if scope.Permissions != union || !slices.Equal(scope.Origins, []string{DeliveryOrigin}) || scope.GPUBytes != 0 {
+	if scope.Permissions != union || !slices.Equal(scope.Origins, []string{DeliveryOrigin}) || scope.GPUBytes != MediaGPUBytes {
 		t.Errorf("scope %+v, want permissions %v and origins [%s]", scope, union.List(), DeliveryOrigin)
 	}
 	if guest := min(scope.MemoryBytes/uint64(len(cfg.Bundles)), MaxGuestMemory); guest == 0 || scope.MemoryBytes > MaxSessionMemory {
@@ -227,6 +230,44 @@ func TestNextRevisionNeverDecreases(t *testing.T) {
 	}
 }
 
+// A revision kept in an earlier file carries over: the next one follows the highest, and the
+// earlier file goes once path holds it. An earlier file that holds no revision fails, changing
+// nothing.
+func TestNextRevisionContinuesEarlierFiles(t *testing.T) {
+	dir := t.TempDir()
+	path, earlier := filepath.Join(dir, "key.revision"), filepath.Join(dir, "world", RevisionFile)
+	for _, c := range []struct{ path, earlier, want string }{{"3", "7", "8"}, {"9", "2", "10"}} {
+		if err := os.WriteFile(path, []byte(c.path), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(filepath.Dir(earlier), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(earlier, []byte(c.earlier), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := NextRevision(path, earlier, filepath.Join(dir, "missing"))
+		if err != nil || strconv.FormatUint(got, 10) != c.want {
+			t.Fatalf("after %s and %s: revision %d, %v; want %s", c.path, c.earlier, got, err, c.want)
+		}
+		if data, err := os.ReadFile(path); err != nil || strings.TrimSpace(string(data)) != c.want {
+			t.Fatalf("stored %q, %v", data, err)
+		}
+		if _, err := os.Stat(earlier); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("the earlier file survived: %v", err)
+		}
+	}
+	if err := os.WriteFile(earlier, []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := NextRevision(path, earlier); err == nil {
+		t.Fatalf("after garbage: revision %d", got)
+	}
+	if data, _ := os.ReadFile(path); strings.TrimSpace(string(data)) != "10" {
+		t.Fatalf("a failed migration changed path to %q", data)
+	}
+}
+
 // The marker pack is a resource pack Dragonfly loads that holds exactly the marker. Its version is
 // the revision, so a client never takes an older offer from its pack cache; rewriting it leaves
 // nothing of the previous one.
@@ -292,5 +333,16 @@ func TestAudienceMatchesClientURLHost(t *testing.T) {
 		if err := checkAudience(audience); err != nil {
 			t.Errorf("rejected canonical audience %q: %v", audience, err)
 		}
+	}
+}
+
+// A drawing-only client part needs a nonzero signed GPU reservation before it can draw.
+func TestDrawingOnlyBundleReservesGPU(t *testing.T) {
+	s, _ := testServer(t, func(cfg *Config) {
+		cfg.Bundles[0].Manifest.Permissions = NewPermissions(PermissionWorldDraw, PermissionRenderMaterial)
+	})
+	offer := s.Offer()
+	if offer.Scope.GPUBytes == 0 || offer.Scope.GPUBytes > MaxGPUBytes {
+		t.Fatalf("drawing reservation %d is outside the host budget", offer.Scope.GPUBytes)
 	}
 }

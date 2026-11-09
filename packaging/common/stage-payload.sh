@@ -17,6 +17,15 @@ runtime_binaries() {
     awk '{print $1}' "$runtime_binary_list"
 }
 
+# The DX12 shader compiler pin travels with these scripts, like the fetch-dxc.ps1 that installs it,
+# so a payload and its check agree when an older source checkout is packaged.
+dxc_pin="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)/windows/dxc.json"
+
+# windows_runtime_libraries: DLLs Windows payloads install beside the runtime executables.
+windows_runtime_libraries() {
+    sed -n 's/^[[:space:]]*"library"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$dxc_pin"
+}
+
 # runtime_binary_source <name> <override>: a configured executable or its sibling build output.
 runtime_binary_source() {
     local name="$1" override="$2" directory
@@ -54,11 +63,12 @@ stage_prep_kit() {
     done < <(prep_kit_files)
 }
 
-# stage_resources <resource_root> <assetc_binary>: physics registry, notices, licenses, UI font, prep kit.
-stage_resources() {
-    local resources="$1" assetc="$2"
+# stage_shared_resources <resource_root>: physics registry, notices, licenses and UI font, the
+# resources every platform ships, including those that cannot run the prep kit.
+stage_shared_resources() {
+    local resources="$1"
     mkdir -p "$resources/assets"
-    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2193.bin" "$resources/assets/block-physics-v2193.bin"
+    install -m 0644 "$repo_root/crates/assets/data/block-physics-v2225.bin" "$resources/assets/block-physics-v2225.bin"
     install -m 0644 "$repo_root/THIRD_PARTY_NOTICES.md" "$resources/assets/THIRD_PARTY_NOTICES.md"
     mkdir -p "$resources/licenses"
     install -m 0644 "$repo_root/LICENSE" "$resources/licenses/Cinnabar-LICENSE.md"
@@ -68,7 +78,12 @@ stage_resources() {
     require_file "$font" 'restore the bundled Cinnangles Sans source'
     install -d "$resources/fonts"
     install -m 0644 "$font" "$resources/fonts/${font##*/}"
-    stage_prep_kit "$resources/prep-kit" "$assetc"
+}
+
+# stage_resources <resource_root> <assetc_binary>: the shared resources plus the prep kit.
+stage_resources() {
+    stage_shared_resources "$1"
+    stage_prep_kit "$1/prep-kit" "$2"
 }
 
 # ui_font_path: the bundled Cinnangles Sans source; first-run draws with it.
@@ -84,7 +99,7 @@ resource_manifest() {
     local platform="$1" exe='' file
     [[ "$platform" != windows ]] || exe=.exe
     file="$(ui_font_path)"
-    printf '%s\n' licenses/Cinnabar-LICENSE.md assets/block-physics-v2193.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
+    printf '%s\n' licenses/Cinnabar-LICENSE.md assets/block-physics-v2225.bin assets/THIRD_PARTY_NOTICES.md "fonts/${file##*/}" "prep-kit/bin/assetc$exe"
     for file in "$repo_root"/assets/licenses/*; do printf 'licenses/%s\n' "${file##*/}"; done
     prep_kit_files | sed 's|^|prep-kit/|'
 }

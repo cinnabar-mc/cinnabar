@@ -2,7 +2,8 @@
 use super::*;
 use render_model::{ActorEmitterTransform, sampled_locator_transform};
 
-/// Resolves an authored locator in a sampled render layer; absent locators use the actor origin.
+/// Resolves an authored locator in a sampled render layer through the placed model; absent or
+/// unresolved locators use the actor's interpolated position with the model's axes.
 pub fn actor_emitter_transform(
     actor: &ActorSnapshot,
     rig: Option<&ActorRigSnapshot<'_>>,
@@ -25,9 +26,10 @@ pub fn actor_emitter_transform(
             rig.axis_scale[1],
             rig.axis_scale[2],
         ]);
-    let (world, _) = sampled_rig_placement(rig, actor, alpha, authored)?;
+    let placement = sampled_rig_placement(rig, actor, alpha, authored)?;
+    let world = placement.world_from_model;
     let origin = ActorEmitterTransform {
-        position: world.map(|row| row[3]),
+        position: placement.position,
         basis: std::array::from_fn(|axis| world.map(|row| row[axis])),
     };
     let (Some(name), Some((assets, base))) = (locator, rig.geometry_source()) else {

@@ -154,6 +154,7 @@ impl TerrainUnitBatches {
 
 /// Adds the unit resource, commands and preparation after current direct-occlusion results.
 pub(in crate::chunk) fn install(render_app: &mut SubApp) {
+    crate::world_passes::install(render_app);
     render_app
         .init_resource::<TerrainUnitBatches>()
         .add_systems(
@@ -168,7 +169,7 @@ pub(in crate::chunk) fn install(render_app: &mut SubApp) {
         .add_systems(
             Render,
             prepare::prepare_units
-                .run_if(render_scene::panorama::world_passes_enabled)
+                .in_set(crate::world_passes::WorldPassSystems)
                 .in_set(RenderSystems::PrepareResources)
                 .after(gpu_cull::direct::prepare_direct_occlusion),
         );
@@ -185,7 +186,7 @@ fn configure_support(
         adapter.get_downlevel_capabilities().flags,
         device.features(),
         Backends::from(info.backend),
-        apple_gpu(&info),
+        direct_draws_required(&info),
     );
     pipeline.unit_supported = supported(mode, &device.limits());
 }

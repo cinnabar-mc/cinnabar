@@ -1,3 +1,4 @@
+use super::{DroppedItemModel, MAX_ITEM_LAYERS, block_mesh};
 use crate::{
     ActorGlint, ActorRigVertex, OPAQUE_WHITE, extruded_sprite_vertices, held_sprite_vertices,
     textured_cube_vertices,
@@ -121,9 +122,141 @@ pub fn native_dropped_sprite_mesh(
     )
 }
 
+impl DroppedItemModel {
+    /// Validates admission geometry without constructing unused sprite fallback vertices.
+    pub fn mesh_vertex_count(&self, side: u32) -> Option<usize> {
+        match self {
+            Self::Sprite(sprite) | Self::NativeSprite(sprite) => {
+                if sprite.width > side || sprite.height > side {
+                    return None;
+                }
+                crate::item_geometry::sprite_vertex_count(
+                    sprite.width as usize,
+                    sprite.height as usize,
+                    &sprite.rgba8,
+                    if matches!(self, Self::NativeSprite(_)) {
+                        2
+                    } else {
+                        1
+                    },
+                )
+            }
+            Self::Vacant => None,
+            Self::Cube(cube) => {
+                let bytes = (cube.tile as usize)
+                    .checked_mul(cube.tile as usize)?
+                    .checked_mul(4)?;
+                (cube.tile > 0
+                    && cube.tile <= side
+                    && cube.faces.iter().all(|face| face.len() == bytes))
+                .then_some(36)
+            }
+            Self::Block(block) => {
+                for (sprite, _) in block.materials.iter() {
+                    if sprite.width == 0
+                        || sprite.height == 0
+                        || sprite.width > side
+                        || sprite.height > side
+                        || sprite.rgba8.len()
+                            != (sprite.width as usize)
+                                .checked_mul(sprite.height as usize)?
+                                .checked_mul(4)?
+                    {
+                        return None;
+                    }
+                }
+                block.quads.iter().try_fold(0usize, |count, quad| {
+                    block.materials.get(quad.material as usize)?;
+                    count.checked_add(super::block_quad_vertex_count(quad))
+                })
+            }
+        }
+    }
+
+    /// Builds vertices without retaining texture layers; rejects malformed or excessive geometry.
+    pub fn mesh(&self, side: u32, layers_used: usize) -> Option<Vec<ItemMeshVertex>> {
+        match self {
+            DroppedItemModel::Vacant => None,
+            DroppedItemModel::Sprite(sprite) | DroppedItemModel::NativeSprite(sprite) => {
+                let (width, height) = (sprite.width as usize, sprite.height as usize);
+                if layers_used >= MAX_ITEM_LAYERS
+                    || sprite.width > side
+                    || sprite.height > side
+                    || sprite.rgba8.len() != width * height * 4
+                {
+                    return None;
+                }
+                let build = if matches!(self, DroppedItemModel::NativeSprite(_)) {
+                    native_dropped_sprite_mesh
+                } else {
+                    extruded_sprite_mesh
+                };
+                build(
+                    sprite.width,
+                    sprite.height,
+                    &sprite.rgba8,
+                    side,
+                    layers_used as u32,
+                )
+            }
+            DroppedItemModel::Cube(cube) => {
+                let tile = cube.tile as usize;
+                if cube.tile == 0
+                    || cube.tile > side
+                    || layers_used + 6 > MAX_ITEM_LAYERS
+                    || cube.faces.iter().any(|face| face.len() != tile * tile * 4)
+                {
+                    return None;
+                }
+                let layers = std::array::from_fn(|face| (layers_used + face) as u32);
+                cube_mesh(layers, cube.tints, cube.tile, side)
+            }
+            DroppedItemModel::Block(block) => {
+                for (sprite, _) in block.materials.iter() {
+                    if sprite.width == 0
+                        || sprite.height == 0
+                        || sprite.width > side
+                        || sprite.height > side
+                        || sprite.rgba8.len() != (sprite.width * sprite.height * 4) as usize
+                    {
+                        return None;
+                    }
+                }
+                block_mesh(block, layers_used as u32, side)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sprite_admission_counts_match_geometry_without_allocating_vertices() {
+        let mut seed = 0x2133_u64;
+        for side in [1, 4, 16, 128, 512] {
+            let rgba8: std::sync::Arc<[u8]> = (0..side * side * 4)
+                .map(|_| {
+                    seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+                    [0, 1, 2, 255][(seed >> 32) as usize % 4]
+                })
+                .collect();
+            for model in [DroppedItemModel::Sprite, DroppedItemModel::NativeSprite] {
+                let model = model(crate::DroppedItemSprite {
+                    width: side,
+                    height: side,
+                    rgba8: rgba8.clone(),
+                });
+                let expected = model.mesh(side, 1).map(|vertices| vertices.len());
+                let before = test_alloc::thread_allocations();
+                let count = model.mesh_vertex_count(side);
+                assert_eq!(test_alloc::thread_allocations(), before);
+                assert_eq!(count, expected);
+                assert!(model.mesh_vertex_count(side - 1).is_none());
+            }
+        }
+    }
 
     fn pixels(width: u32, height: u32, solid_texels: &[(u32, u32)]) -> Vec<u8> {
         let mut rgba8 = vec![0_u8; (width * height * 4) as usize];

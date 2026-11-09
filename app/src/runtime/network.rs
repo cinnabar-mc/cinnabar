@@ -149,6 +149,7 @@ mod bootstrap;
 mod bootstrap_presentation;
 mod bootstrap_world;
 mod controls;
+pub(crate) mod digger_registry;
 pub(crate) mod equipment;
 mod world_ingress;
 #[cfg(test)]
@@ -186,8 +187,8 @@ pub(crate) mod resource_packs;
 pub(crate) mod session;
 pub(crate) mod session_registries;
 pub(crate) use actor_publication::{
-    advance_actor_frame, advance_actor_motion, prepare_actor_render_frame, publish_entity_shadows,
-    publish_local_actor_damage,
+    advance_actor_frame, advance_actor_motion, complete_actor_motion_trace,
+    prepare_actor_render_frame, publish_entity_shadows, publish_local_actor_damage,
 };
 
 #[cfg(test)]

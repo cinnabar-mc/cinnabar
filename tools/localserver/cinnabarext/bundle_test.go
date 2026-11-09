@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -108,6 +109,26 @@ func TestReadBundleTakesItsSignedManifest(t *testing.T) {
 	}
 	if bundle.Digest != Digest(data) || bundle.Bytes != uint64(len(data)) {
 		t.Fatalf("digest %s and size %d, want %s and %d", bundle.Digest, bundle.Bytes, Digest(data), len(data))
+	}
+}
+
+// A bundle may declare MaxActions actions at the longest identifier: its signed manifest fits
+// the client's manifest limit, and the verifier's answer that carries it reaches the server.
+func TestReadBundleTakesEveryActionAtTheLongestIdentifier(t *testing.T) {
+	actions := make([]string, MaxActions)
+	for i := range actions {
+		suffix := "." + strconv.Itoa(i)
+		actions[i] = strings.Repeat("a", MaxIdentifierBytes-len(suffix)) + suffix
+	}
+	slices.Sort(actions)
+	path := filepath.Join(t.TempDir(), "benergistics.cxb")
+	writeCXB(t, path, resignedManifest(t, func(m *Manifest) { m.Actions = actions }), component)
+	bundle, err := ReadBundle(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(bundle.Manifest.Actions, actions) {
+		t.Fatalf("%d actions, want %d", len(bundle.Manifest.Actions), len(actions))
 	}
 }
 

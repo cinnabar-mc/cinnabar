@@ -223,6 +223,9 @@ pub struct MeasureCache {
     styles: Memo<usize, super::style::Style>,
     suppressed: HashSet<usize>,
     roles: super::scroll::RoleMemo,
+    /// The last update started over for a suppressed scroll bar panel, which its
+    /// layouts will likely suppress again.
+    restarted: bool,
     /// The root's address last layout; a moved root's entries go stale.
     root: usize,
     /// The last layout's placements and output, for splicing unchanged subtrees.
@@ -230,6 +233,36 @@ pub struct MeasureCache {
 }
 
 impl MeasureCache {
+    /// Counts dimensional memo entries retained by this cache for memory regressions.
+    #[cfg(test)]
+    pub(crate) fn retained_entries(&self) -> usize {
+        let Self {
+            children,
+            natural,
+            sizes,
+            lengths,
+            flags,
+            placed,
+            targets,
+            styles,
+            suppressed,
+            roles,
+            restarted: _,
+            root: _,
+            placements: _,
+        } = self;
+        children.len()
+            + natural.len()
+            + sizes.len()
+            + lengths.len()
+            + flags.len()
+            + placed.len()
+            + targets.len()
+            + styles.len()
+            + suppressed.len()
+            + roles.len()
+    }
+
     /// Replace changed controls in place and retain measurements of untouched subtrees.
     pub fn update_tree(&mut self, tree: &mut ResolvedControl, next: ResolvedControl) {
         let mut dirty = Dirty::default();
@@ -238,7 +271,14 @@ impl MeasureCache {
         }
     }
 
-    /// Controls the last layout placed rather than reused unchanged.
+    /// Whether a layout starting now records its placements: an update while a
+    /// scroll bar panel is suppressed starts the measurements over, records included.
+    pub(super) fn splices_next(&self) -> bool {
+        !self.restarted && self.suppressed.is_empty()
+    }
+
+    /// Controls the last layout placed rather than reused unchanged; a layout
+    /// that could not splice into the next records and reports none.
     pub fn placed(&self) -> usize {
         self.placements.placed_count()
     }
@@ -262,9 +302,14 @@ impl MeasureCache {
         // The root moves into the render call; its cached address differs from `tree`.
         dirty.insert(self.root);
         if !self.suppressed.is_empty() {
-            *self = Self::default();
+            *self = Self {
+                restarted: true,
+                ..Self::default()
+            };
             return;
         }
+        self.restarted = false;
+        self.placements.unpin();
         self.children.retain(|key, _| !dirty.contains(&key.0));
         self.natural.retain(|key, _| !dirty.contains(&key.0));
         self.sizes.retain(|key, _| !dirty.contains(&key.0));
@@ -273,7 +318,7 @@ impl MeasureCache {
         self.placed.retain(|key, _| !dirty.contains(&key.0));
         self.targets.retain(|key, _| !dirty.contains(&key.0));
         self.styles.retain(|key, _| !dirty.contains(key));
-        self.roles.clear();
+        self.roles.retain(|view, _| !dirty.contains(view));
         // Every change reaches the root, which the placements key apart from its address.
         self.placements.forget(super::reuse::ROOT, false);
         for address in dirty {
@@ -536,7 +581,7 @@ pub(super) fn natural(
     measured
 }
 
-/// [`super::layout_children`], memoized by the parent and its size: children sit at the
+/// [`super::place::layout_children`], memoized by the parent and its size: children sit at the
 /// same offsets from their parent wherever it is placed.
 pub(super) fn placed_children<'a>(
     parent: &'a ResolvedControl,
@@ -569,7 +614,7 @@ pub(super) fn placed_children<'a>(
         return placed;
     }
     let relative: Vec<(usize, Rect)> =
-        super::layout_children(parent, Rect::new(0.0, 0.0, rect.w, rect.h), env)
+        super::place::layout_children(parent, Rect::new(0.0, 0.0, rect.w, rect.h), env)
             .into_iter()
             .map(|(child, at)| (child_index(parent, child), at))
             .collect();

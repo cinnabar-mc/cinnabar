@@ -1,0 +1,282 @@
+package main
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	shared "github.com/cinnabar-mc/protocolgen/generated/data"
+	"github.com/df-mc/dragonfly/server/world"
+	"github.com/hashimthearab/rust-mcbe/tools/registrygen/internal/targetpin"
+	"github.com/segmentio/fasthash/fnv1"
+)
+
+func TestV2225CheckedArtifactsAreExactBoundAndLegacyIsByteIdentical(t *testing.T) {
+	root := filepath.Join("..", "..")
+	legacyBytes, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v1001.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyMetadata, legacy, err := decodeBREGRecords(legacyBytes, registryProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reencodedLegacy, err := encodeWithMetadata(legacyMetadata, legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(reencodedLegacy, legacyBytes) {
+		t.Fatal("legacy BREG changed during decode/encode identity round trip")
+	}
+
+	breg, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-registry-v2225.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	metadata, records, err := decodeBREGRecords(breg, v2225BlockProtocol)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.CanonicalStates != uint32(v2225BlockStateCount) || len(records) != v2225BlockStateCount {
+		t.Fatalf("v2225 states = %d", len(records))
+	}
+	for index, record := range records {
+		if record.SequentialID != uint32(index) {
+			t.Fatalf("runtime ID %d is %d", index, record.SequentialID)
+		}
+	}
+	blockHash, err := targetpin.BlockHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.ToLower(hexDigest(breg)); got != blockHash {
+		t.Fatalf("BREG SHA-256 = %s", got)
+	}
+	lreg, err := os.ReadFile(filepath.Join(root, "crates", "assets", "data", "block-light-registry-v2225.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	properties, err := decodeLREGProperties(lreg, breg, v2225BlockProtocol, len(records))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lightHash, err := targetpin.LightHash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(properties) != len(records) || hexDigest(lreg) != lightHash {
+		t.Fatal("v2225 LREG identity mismatch")
+	}
+	expected, err := applySharedBlockFacts(records)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(properties, expected) {
+		t.Fatal("active light carrier differs from shared state facts and target rules")
+	}
+
+}
+
+func TestV2225NetworkHashUsesCanonicalLittleEndianNBT(t *testing.T) {
+	propertiesA := map[string]any{"z": int32(0x01020304), "a": uint8(1)}
+	propertiesB := map[string]any{"a": uint8(1), "z": int32(0x01020304)}
+	first, err := v2225NetworkBlockHash("minecraft:test", propertiesA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := v2225NetworkBlockHash("minecraft:test", propertiesB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != second || first != 0x15556e09 {
+		t.Fatalf("canonical network hash = %#x/%#x", first, second)
+	}
+}
+
+func TestV2225OrderingIsStableFNV1ByIdentifier(t *testing.T) {
+	states := []world.BlockState{
+		{Name: "minecraft:z", Version: 1},
+		{Name: "minecraft:a", Properties: map[string]any{"order": int32(1)}, Version: 1},
+		{Name: "minecraft:a", Properties: map[string]any{"order": int32(2)}, Version: 1},
+	}
+	ordered := orderV2225BlockStates(states)
+	var equalOrdinals []int
+	for _, entry := range ordered {
+		if entry.state.Name == "minecraft:a" {
+			equalOrdinals = append(equalOrdinals, entry.ordinal)
+		}
+	}
+	if len(equalOrdinals) != 2 || equalOrdinals[0] != 1 || equalOrdinals[1] != 2 {
+		t.Fatalf("equal-identifier order = %v", equalOrdinals)
+	}
+	for index := 1; index < len(ordered); index++ {
+		left := fnv1.HashString64(ordered[index-1].state.Name)
+		right := fnv1.HashString64(ordered[index].state.Name)
+		if left > right {
+			t.Fatalf("FNV-1 order decreases at %d", index)
+		}
+	}
+}
+
+func TestV2225ProjectionIsDeterministicAndDefaultDeniesWithoutChangingIdentity(t *testing.T) {
+	legacy := []Record{{SequentialID: 4, NetworkHash: 40, Name: "minecraft:known", StateJSON: []byte(`{}`), Flags: flagCubeGeometry | flagOccludesFullFace, Provenance: ProvenanceDragonfly}}
+	source := []Record{
+		{SequentialID: 0, NetworkHash: 10, Name: "minecraft:known", StateJSON: []byte(`{}`), Provenance: ProvenanceDragonfly},
+		{SequentialID: 1, NetworkHash: 11, Name: "minecraft:unlisted", StateJSON: []byte(`{}`), Provenance: ProvenanceDragonfly},
+	}
+	first, firstStats, err := projectV2225BlocksForTest(source, legacy, map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, secondStats, err := projectV2225BlocksForTest(source, legacy, map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !recordsEqual(first.records[0], second.records[0]) || !recordsEqual(first.records[1], second.records[1]) || firstStats != secondStats {
+		t.Fatal("projection is not deterministic")
+	}
+	denied := first.records[1]
+	if denied.SequentialID != 1 || denied.NetworkHash != 11 || denied.Name != retailReservedName || !bytes.Equal(denied.StateJSON, reservedStateJSON(1)) {
+		t.Fatalf("denied identity was not neutralized safely: %+v", denied)
+	}
+}
+
+// Connection-only state keys keep the unconnected legacy facts under the new identity.
+func TestV2225ConnectionStatesReduceToLegacyFacts(t *testing.T) {
+	legacy := []Record{{SequentialID: 7, NetworkHash: 70, Name: "minecraft:oak_fence", StateJSON: []byte(`{}`), ModelFamily: ModelFamilyFence, Provenance: ProvenanceDragonfly}}
+	connected := []byte(`{"minecraft:connection_east":{"type":"byte","value":1},"minecraft:connection_north":{"type":"byte","value":0},"minecraft:connection_south":{"type":"byte","value":0},"minecraft:connection_west":{"type":"byte","value":1}}`)
+	source := []Record{{SequentialID: 0, NetworkHash: 12, Name: "minecraft:oak_fence", StateJSON: connected, Provenance: ProvenanceDragonfly}}
+	projection, stats, err := projectV2225BlocksForTest(source, legacy, map[string]struct{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := projection.records[0]
+	if stats.reduced != 1 || projection.classes[0] != v2225ClassLegacyReduced || projection.facts[0] != 0 {
+		t.Fatalf("connected fence was not reduced: %+v", stats)
+	}
+	if got.ModelFamily != ModelFamilyFence || got.NetworkHash != 12 || got.SequentialID != 0 || !bytes.Equal(got.StateJSON, connected) {
+		t.Fatalf("reduced record = %+v", got)
+	}
+}
+
+// A twinned block needs its admitting item and borrows the twin's same-state facts.
+func TestV2225TwinsRequireRetailItemAndSchemaIdenticalTwinState(t *testing.T) {
+	half := []byte(`{"minecraft:vertical_half":{"type":"string","value":"top"}}`)
+	legacy := []Record{{SequentialID: 3, NetworkHash: 30, Name: "minecraft:smooth_stone_double_slab", StateJSON: half, ModelFamily: ModelFamilyCube, Provenance: ProvenanceDragonfly}}
+	source := []Record{{SequentialID: 0, NetworkHash: 13, Name: "minecraft:white_wool_double_slab", StateJSON: half, Provenance: ProvenanceDragonfly}}
+	denied, stats, err := projectV2225BlocksForTest(source, legacy, map[string]struct{}{})
+	if err != nil || stats.twins != 0 || denied.records[0].Name != retailReservedName {
+		t.Fatalf("twin admitted without its item: %+v %v", stats, err)
+	}
+	twinned, stats, err := projectV2225BlocksForTest(source, legacy, map[string]struct{}{"minecraft:white_wool_slab": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := twinned.records[0]
+	if stats.twins != 1 || twinned.classes[0] != v2225ClassTwin || got.Name != "minecraft:white_wool_double_slab" || got.ModelFamily != ModelFamilyCube || got.NetworkHash != 13 {
+		t.Fatalf("twin record = %+v %+v", got, stats)
+	}
+	if _, _, err := projectV2225BlocksForTest(source, nil, map[string]struct{}{"minecraft:white_wool_slab": {}}); err == nil {
+		t.Fatal("accepted a twin without its legacy state")
+	}
+}
+
+func projectV2225BlocksForTest(source, legacy []Record, allowed map[string]struct{}) (v2225Projection, v2225ProjectionStats, error) {
+	padded := make([]Record, v2225BlockStateCount)
+	copy(padded, source)
+	for index := len(source); index < len(padded); index++ {
+		padded[index] = Record{SequentialID: uint32(index), NetworkHash: uint32(index + 100), Name: "minecraft:padding", StateJSON: []byte(`{"i":{"type":"int","value":0}}`), Provenance: ProvenanceDragonfly}
+	}
+	return projectV2225Blocks(padded, legacy, allowed)
+}
+
+func TestV2225ManifestPublishesOnlyDeniedAggregate(t *testing.T) {
+	payload, err := os.ReadFile(filepath.Join("..", "..", "assets", "block-projection-v2225.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest v2225BlockProjectionManifest
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&manifest); err != nil {
+		t.Fatal(err)
+	}
+	projection := manifest.Projection
+	classified := projection.LegacyExactStates + projection.LegacyReducedStates +
+		projection.AuthoredStates + projection.TwinStates + projection.DeniedCount + projection.EducationStates
+	invalidCensus := projection.DeniedCount != v2225PhysicsReservedCount() ||
+		projection.EducationStates != v2225EducationStateCount() || projection.AuthoredStates != 24
+	invalidTwins := projection.TwinNames != len(v2225Twins)
+	if invalidCensus || invalidTwins || len(projection.DeniedFingerprint) != 64 || projection.States != classified {
+		t.Fatalf("projection aggregate = %+v", projection)
+	}
+	if manifest.Source.Module != shared.ModulePath || manifest.Source.SourceLockSHA256 != shared.SourceLockSHA256 || manifest.Source.CloudburstRef != shared.CloudburstRef {
+		t.Fatalf("source identity = %+v", manifest.Source)
+	}
+	if bytes.Contains(bytes.ToLower(payload), []byte("denied_names")) || bytes.Contains(bytes.ToLower(payload), []byte("unresolved_names")) {
+		t.Fatal("manifest exposes excluded identifiers")
+	}
+}
+
+func TestV2225DecodersRejectWrongProtocolCrossHashTrailingAndMalformed(t *testing.T) {
+	root := filepath.Join("..", "..", "crates", "assets", "data")
+	breg, _ := os.ReadFile(filepath.Join(root, "block-registry-v2225.bin"))
+	lreg, _ := os.ReadFile(filepath.Join(root, "block-light-registry-v2225.bin"))
+	if _, _, err := decodeBREGRecords(breg, registryProtocol); err == nil {
+		t.Fatal("accepted wrong BREG protocol")
+	}
+	if _, _, err := decodeBREGRecords(append(append([]byte(nil), breg...), 0), v2225BlockProtocol); err == nil {
+		t.Fatal("accepted trailing BREG")
+	}
+	wrong := append([]byte(nil), lreg...)
+	wrong[16] ^= 1
+	if _, err := decodeLREGProperties(wrong, breg, v2225BlockProtocol, v2225BlockStateCount); err == nil {
+		t.Fatal("accepted cross-hash LREG")
+	}
+	malformed := append([]byte(nil), lreg...)
+	malformed[48] ^= 1
+	if _, err := decodeLREGProperties(malformed, breg, v2225BlockProtocol, v2225BlockStateCount); err == nil {
+		t.Fatal("accepted malformed LREG")
+	}
+}
+
+func hexDigest(data []byte) string { return strings.ToLower(fmtSHA(sha256.Sum256(data))) }
+func fmtSHA(digest [32]byte) string {
+	const digits = "0123456789abcdef"
+	out := make([]byte, 64)
+	for i, value := range digest {
+		out[i*2], out[i*2+1] = digits[value>>4], digits[value&15]
+	}
+	return string(out)
+}
+
+// TestV2225AuthoredAdmissionPreservesSourceIdentity keeps authored states independent of legacy models.
+func TestV2225AuthoredAdmissionPreservesSourceIdentity(t *testing.T) {
+	for _, name := range []string{"minecraft:shelf_mushroom", "minecraft:straw_bed"} {
+		t.Run(name, func(t *testing.T) {
+			source := []Record{{SequentialID: 0, NetworkHash: 17, Name: name, StateJSON: []byte(`{}`), Provenance: ProvenanceDragonfly}}
+			allowed := map[string]struct{}{name: {}}
+			projection, stats, err := projectV2225BlocksForTest(source, nil, allowed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stats.authored != 1 || projection.classes[0] != v2225ClassAuthored || projection.facts[0] != -1 {
+				t.Fatalf("authored projection = %+v", stats)
+			}
+			if !recordsEqual(projection.records[0], source[0]) {
+				t.Fatal("authored admission replaced source identity or borrowed model facts")
+			}
+			denied, stats, err := projectV2225BlocksForTest(source, nil, map[string]struct{}{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stats.authored != 0 || denied.records[0].Name != retailReservedName {
+				t.Fatal("authored state admitted without a retail item")
+			}
+		})
+	}
+}

@@ -42,6 +42,7 @@ mod partial_faces;
 mod random_offset;
 mod session;
 mod texture_budget;
+mod top_rotation;
 mod vanilla_terrain;
 
 mod vanilla_fallback;
@@ -175,6 +176,7 @@ fn block(name: &str, state_count: u32, visual: CustomBlockVisuals) -> CustomBloc
         player_interact: false,
         name: name.into(),
         tags: Default::default(),
+        tags_complete: true,
         state_count,
         collides: true,
         collision_boxes: None,

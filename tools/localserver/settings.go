@@ -16,6 +16,16 @@ import (
 
 const defaultChunkWorkers = 4
 
+// localChunkLoadsPerTick and localChunkTransactions replace Dragonfly's per-player chunk send
+// budget of 4 chunk requests per tick and 8 blob cache transactions awaiting the client's
+// ClientCacheBlobStatus. The loopback client acknowledges blobs within milliseconds, so the
+// defaults only throttle join and fly-in streaming. Pending blob memory stays bounded by
+// Dragonfly's per-session cap of 4,096 unacknowledged blobs.
+const (
+	localChunkLoadsPerTick = 32
+	localChunkTransactions = 64
+)
+
 const maxPlayers = 4 // one local player plus a reconnect overlapping its predecessor
 
 // settings are the per-world options the core passes on the command line.
@@ -25,15 +35,21 @@ type settings struct {
 	containerTitleTest                      bool
 	terrainFixture, terrainFixtureGenerate  bool
 	actorBurstArtwork                       int
+	entityGallery, entityGalleryAppearances string
 	terrainFixtureRadius                    int
 	blockGallery                            bool
 	blockGalleryFilter                      string
 	opaqueOverdraw                          bool
 	holograms                               bool
 	luckyBlock                              bool
+	baseTextureIcon                         bool
+	heldItemFixture                         bool
 	dir, addr, name, gameMode, diff         string
 	generator                               string
 	chunkWorkers                            int
+	// timeOfDay is the time of day every world opens at with its daylight cycle stopped, which
+	// parseTimeOfDay reads; empty keeps the stored time and cycle.
+	timeOfDay string
 	// experiences is the directory of server Experience artifacts, empty for none; runtime is the
 	// experience-runtime binary that runs them.
 	experiences, runtime string
@@ -43,6 +59,7 @@ type settings struct {
 	// extensionMedia is a directory served over loopback HTTPS at extensionMediaAddr for client
 	// part media; empty for none.
 	extensionMedia, extensionMediaAddr string
+	modArtifacts, modClients           []string
 }
 
 func parseSettings(args []string, stderr io.Writer) (settings, error) {
@@ -61,6 +78,7 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.StringVar(&s.gameMode, "game-mode", "survival", "survival, creative or adventure")
 	flags.StringVar(&s.diff, "difficulty", "normal", "peaceful, easy, normal or hard")
 	flags.StringVar(&s.generator, "generator", "flat", "flat terrain")
+	flags.StringVar(&s.timeOfDay, "time", "", "freeze every world at this time of day: ticks or "+strings.Join(timeNames(), ", "))
 	flags.IntVar(&s.chunkWorkers, "chunk-workers", defaultChunkWorkers, "background chunk generation workers per dimension (1..16)")
 	flags.BoolVar(&s.cameraTest, "camera-test", false, "enable /cameratest tutorial, firstperson, spline, inline, aim and clear fixtures")
 	flags.BoolVar(&s.containerTitleTest, "container-title-test", false, "enable /containertitle filtered and raw actor-backed chest menu fixtures")
@@ -68,18 +86,25 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	flags.BoolVar(&s.totemTexture, "totem-texture", false, "offer an original totem icon replacement for activation testing")
 	flags.IntVar(&s.actorBurstArtwork, "actor-burst-artwork", 0, "offer an original resource pack with N textures; /actorburst N artwork")
 	flags.BoolVar(&s.actorBurst, "actor-burst", false, "enable /actorburst N shared|skins|geometry|swing|strafe and /actorburst clear")
+	flags.StringVar(&s.entityGallery, "entity-gallery", "", "actor registry file; enable /entitygallery [filter] [page] and /entitygallery clear")
+	flags.StringVar(&s.entityGalleryAppearances, "entity-gallery-appearances", "", "optional JSON appearance cases for the entity gallery")
 	flags.BoolVar(&s.luckyBlock, "lucky-block", false, "register a server-defined lucky block; /lucky places three ahead")
+	flags.BoolVar(&s.baseTextureIcon, "base-texture-icon", false, "register fixture:base_texture_icon, whose pack icon names a base-game block texture")
+	flags.BoolVar(&s.heldItemFixture, "held-item-fixture", false, "register fixture:held_* items that cover the default grip and each form of render offsets")
 	flags.BoolVar(&s.opaqueOverdraw, "opaque-overdraw", false, "generate a fixed foliage, forest canopy and cave rendering fixture")
 	flags.BoolVar(&s.holograms, "holograms", false, fmt.Sprintf("spawn %d formatted floating labels; /holograms, /holograms freeze, /holograms clear", hologramCount))
 	flags.StringVar(&s.experiences, "experiences", "", "directory of server Experience artifacts")
 	flags.StringVar(&s.runtime, "experience-runtime", "", "experience-runtime binary; required with -experiences")
-	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer")
+	flags.StringVar(&s.extensionKey, "extension-key", "", "server key seed file (cinnabar-cxb keygen) that signs the client part offer; the last offered revision is kept beside it")
 	flags.StringVar(&s.extensionAudience, "extension-audience", "", "host:port that players join by, as the client canonicalizes it")
 	flags.StringVar(&s.extensionCXB, "extension-cxb", "", "directory of client part bundles (.cxb) to offer")
 	flags.StringVar(&s.extensionMedia, "extension-media", "", "directory of client part media served over loopback HTTPS; needs the -extension flags")
 	flags.StringVar(&s.extensionMediaAddr, "extension-media-addr", extension.DefaultMediaAddr, "IPv4 loopback ip:port of the -extension-media server")
 	if err := flags.Parse(args); err != nil {
 		return settings{}, err
+	}
+	if s.entityGalleryAppearances != "" && s.entityGallery == "" {
+		return settings{}, errors.New("-entity-gallery-appearances requires -entity-gallery")
 	}
 	if s.actorBurstArtwork < 0 || s.actorBurstArtwork > actorBurstLimit {
 		return settings{}, fmt.Errorf("actor burst artwork must be 0..%d", actorBurstLimit)
@@ -113,6 +138,11 @@ func parseSettings(args []string, stderr io.Writer) (settings, error) {
 	}
 	if _, err := s.worldDifficulty(); err != nil {
 		return settings{}, err
+	}
+	if s.timeOfDay != "" {
+		if _, err := parseTimeOfDay(s.timeOfDay); err != nil {
+			return settings{}, err
+		}
 	}
 	return s, nil
 }
@@ -200,6 +230,12 @@ func (s settings) resourcesDir() string {
 	return filepath.Join(s.dir, "resources")
 }
 
+// configureChunkSending sets the per-player chunk send budget for the loopback client.
+func configureChunkSending(conf *server.Config) {
+	conf.ChunkLoadsPerTick = localChunkLoadsPerTick
+	conf.MaxChunkTransactions = localChunkTransactions
+}
+
 // applyTo sets the world's gameplay defaults; they are re-applied on every start so the stored settings win over level.dat.
 func (s settings) applyTo(worlds ...*world.World) {
 	mode, _ := s.worldGameMode()
@@ -218,6 +254,10 @@ func (s settings) applyTo(worlds ...*world.World) {
 			if w.Dimension() == world.Overworld {
 				w.SetSpawn((&blockGallery{}).DefaultSpawn(w.Dimension()))
 			}
+		}
+		if s.timeOfDay != "" {
+			ticks, _ := parseTimeOfDay(s.timeOfDay)
+			freezeTime(w, ticks)
 		}
 	}
 }

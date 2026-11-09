@@ -21,6 +21,7 @@ fn reject_block_press(
         .unwrap();
     let press = PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -214,6 +215,7 @@ fn a_fresh_block_press_expires_while_waiting_for_a_physics_tick() {
         .unwrap();
     let press = PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,
@@ -421,6 +423,7 @@ fn press_at(sample: crate::movement::InteractionSample) -> PressContext {
     let stack = protocol::NetworkItemStack::empty();
     PressContext {
         refused_destroy: None,
+        actor_life: None,
         tick: sample.tick,
         player_position: sample.position,
         input_mode: PlayerInputMode::Mouse,

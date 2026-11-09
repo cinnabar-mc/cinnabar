@@ -74,7 +74,7 @@ fn same_bounds(left: Bounds, right: Bounds) -> bool {
 
 #[test]
 fn closed_picker_uses_the_secondary_role_and_preserves_flow_when_pressed() {
-    let action = MenuAction::SettingsScalePicker;
+    let action = MenuAction::SettingsDropdown(0);
     for (hovered, pressed) in [(false, false), (true, false), (true, true)] {
         let mut view = MenuView::new(true, "Player".into());
         view.hovered = hovered.then_some(action);

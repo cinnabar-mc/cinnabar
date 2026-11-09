@@ -142,7 +142,7 @@ pub fn book_data(
         .translation(label)
         .map_or_else(|| label.to_owned(), |text| text.to_string());
     data.set_global("#tab_label_text", Scalar::Text(label));
-    data.set_global("#text_box_item_name", Scalar::Text(state.search.to_owned()));
+    data.set_global("#text_box_item_name", Scalar::Text(state.shown_search()));
     if !shown {
         return;
     }
@@ -207,7 +207,7 @@ pub fn book_data(
         .collect();
     let items = std::sync::Arc::from(items);
     *cache = Some(
-        BookCache::capture(source, frame, first_icon, icons, &items)
+        BookCache::capture(source, frame, first_icon, &items)
             .unwrap_or_else(|| BookCache::capture_rows(creative, rows, first_icon, icons, &items)),
     );
     data.set_shared_collection(COLLECTION, items);

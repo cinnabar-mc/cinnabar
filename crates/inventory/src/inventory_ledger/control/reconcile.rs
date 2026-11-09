@@ -150,6 +150,20 @@ impl PlayerInventoryLedger {
                     if owned_screen && self.controls.personal.desired_open {
                         continue;
                     }
+                    // A cancelled, unopened screen has changed only local predictions.
+                    // Retire them when its open expires; admitted work keeps its recovery path.
+                    if owned_screen
+                        && !self.has_confirmed_close_inputs()
+                        && !self.pending_requests().any(|pending| {
+                            pending.personal_generation == Some(generation)
+                            && pending.state
+                                != crate::inventory_ledger::InventoryPendingState::AwaitingTransport
+                        })
+                    {
+                        self.abandon_requests(|pending| {
+                            pending.personal_generation == Some(generation)
+                        });
+                    }
                     if owned_screen && self.personal_generation_pending(generation) {
                         if matches!(self.personal, Some(PersonalWindow::Opening { .. })) {
                             self.personal = Some(PersonalWindow::Recovering { generation });

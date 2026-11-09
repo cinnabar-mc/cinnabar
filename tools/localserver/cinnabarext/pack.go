@@ -20,7 +20,7 @@ import (
 // loads. Dragonfly offers its packs as optional unless told otherwise, and so this one.
 const MarkerPackDir = "cinnabar-extension-offer"
 
-// RevisionFile is the file in the world directory that holds the last offered revision.
+// RevisionFile names the file that holds the last offered revision.
 const RevisionFile = "extension-revision"
 
 // WriteMarkerPack replaces the marker pack in resources with one that holds the marker at
@@ -94,23 +94,18 @@ func packVersion(text string) (resource.Version, error) {
 	return v, nil
 }
 
-// NextRevision stores and returns the revision after the one in path, 1 when there is none. The
-// client rejects an offer below a revision it has seen, so a file that holds no revision is an
-// error rather than a reason to start again from 1.
-func NextRevision(path string) (uint64, error) {
+// NextRevision stores in path and returns the revision after the last one in path or in earlier,
+// files that held the revision before path did; 1 when none holds one. The client rejects an
+// offer below a revision it has seen, so a file that holds no revision is an error rather than a
+// reason to start again from 1. The earlier files are removed once path holds the new revision.
+func NextRevision(path string, earlier ...string) (uint64, error) {
 	var last uint64
-	data, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
-		return 0, err
-	default:
-		if last, err = strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64); err != nil {
-			return 0, fmt.Errorf("%s does not hold a revision: %w", path, err)
+	for _, file := range append([]string{path}, earlier...) {
+		revision, err := readRevision(file)
+		if err != nil {
+			return 0, err
 		}
-		if last == math.MaxUint64 {
-			return 0, fmt.Errorf("%s holds the last revision", path)
-		}
+		last = max(last, revision)
 	}
 	next := last + 1
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -123,5 +118,30 @@ func NextRevision(path string) (uint64, error) {
 	if err := os.Rename(temp, path); err != nil {
 		return 0, err
 	}
+	for _, file := range earlier {
+		if err := os.Remove(file); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return 0, err
+		}
+	}
 	return next, nil
+}
+
+// readRevision returns the revision in path, 0 when there is no file. A file that holds no
+// revision, or the last one, is an error.
+func readRevision(path string) (uint64, error) {
+	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	revision, err := strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("%s does not hold a revision: %w", path, err)
+	}
+	if revision == math.MaxUint64 {
+		return 0, fmt.Errorf("%s holds the last revision", path)
+	}
+	return revision, nil
 }

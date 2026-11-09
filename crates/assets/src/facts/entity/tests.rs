@@ -5,6 +5,8 @@ fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
     for (class, expected) in [
         (NativeEntityClass::Player, "minecraft:player"),
         (NativeEntityClass::Tnt, "minecraft:tnt"),
+        (NativeEntityClass::Sheep, "minecraft:sheep"),
+        (NativeEntityClass::Shulker, "minecraft:shulker"),
         (
             NativeEntityClass::FireworksRocket,
             "minecraft:fireworks_rocket",
@@ -27,7 +29,7 @@ fn facts_migration_unique_native_classes_resolve_their_asset_identity() {
 #[test]
 fn pinned_facts_preserve_classes_components_and_equipment() {
     let facts = EntityFacts::pinned();
-    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_50.txt").lines() {
+    for actor in include_str!("../../../../protocol/data/retail_actors_1_26_60.txt").lines() {
         assert_ne!(facts.get(actor).class_key, 0, "missing actor {actor}");
     }
     assert_eq!(

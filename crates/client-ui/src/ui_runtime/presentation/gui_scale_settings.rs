@@ -54,18 +54,17 @@ impl UiPresentationRuntime {
     }
 
     /// Visible animated thumbs take precedence over the stationary track while dragging.
+    /// Returns the thumb's row by [`launcher::menu::MenuAction::settings_slider_row`].
     pub fn settings_slider_thumb_hit_test(&self, point: ui::UiPoint) -> Option<u16> {
         self.projections
             .oreui_slider_tracks
             .iter()
             .rev()
             .find_map(|(action, _, thumb)| {
-                let launcher::menu::MenuAction::SettingsOption(index, _) = action else {
-                    return None;
-                };
                 thumb
                     .is_some_and(|thumb| thumb.contains(point))
-                    .then_some(*index)
+                    .then(|| action.settings_slider_row())
+                    .flatten()
             })
     }
 
@@ -92,28 +91,27 @@ impl UiPresentationRuntime {
             .find_map(|(candidate, bounds)| (*candidate == action).then_some(*bounds))
     }
 
-    /// Returns the resolved GUI-scale track for app input integration tests.
-    #[cfg(any(test, feature = "test-support"))]
+    /// The painted OreUI GUI-scale track, for input to hold while a press captures it.
     pub fn gui_scale_slider_track(&self) -> Option<ui::UiRect> {
-        self.settings_slider_drag_targets
+        self.projections
+            .oreui_slider_tracks
             .iter()
-            .filter_map(|(action, bounds)| {
-                matches!(action, launcher::menu::MenuAction::SettingsScale(_)).then_some(*bounds)
-            })
-            .reduce(|track, bounds| {
-                super::rect(
-                    track.min().x().min(bounds.min().x()),
-                    track.min().y().min(bounds.min().y()),
-                    track.max().x().max(bounds.max().x()),
-                    track.max().y().max(bounds.max().y()),
-                )
-                .expect("slider hit targets already contain finite bounds")
+            .find_map(|(action, track, _)| {
+                matches!(action, launcher::menu::MenuAction::SettingsScale(_)).then_some(*track)
             })
     }
 
-    /// A captured slider follows the current layout after a scale change.
-    /// Native scale option buttons publish no slider capture geometry.
-    pub fn gui_scale_drag_action(&self, point: ui::UiPoint) -> Option<launcher::menu::MenuAction> {
+    /// The GUI-scale stop a captured pointer at `point` selects, clamping to the end modifiers
+    /// beyond the track. On the OreUI screen, `captured_track` replaces the live track so a
+    /// relayout after each step cannot move the stops under a held pointer.
+    pub fn gui_scale_drag_action(
+        &self,
+        point: ui::UiPoint,
+        captured_track: Option<ui::UiRect>,
+    ) -> Option<launcher::menu::MenuAction> {
+        if let Some(track) = self.gui_scale_slider_track() {
+            return self.oreui_gui_scale_drag_action(captured_track.unwrap_or(track), point);
+        }
         captured_slider_action(
             self.settings_slider_drag_targets
                 .iter()
@@ -122,6 +120,24 @@ impl UiPresentationRuntime {
                 }),
             point,
         )
+    }
+
+    /// The nearest modifier stop to `point` along an OreUI GUI-scale `track`.
+    fn oreui_gui_scale_drag_action(
+        &self,
+        track: ui::UiRect,
+        point: ui::UiPoint,
+    ) -> Option<launcher::menu::MenuAction> {
+        let choices = &self.menu_view.as_ref()?.gui_scale_choices;
+        let width = track.width();
+        if choices.len() <= 1 || width <= 0.0 || !point.x().is_finite() {
+            return None;
+        }
+        let fraction = ((point.x() - track.min().x()) / width).clamp(0.0, 1.0);
+        let step = (fraction * (choices.len() - 1) as f32).round() as usize;
+        choices
+            .get(step)
+            .map(|choice| launcher::menu::MenuAction::SettingsScale(choice.offset))
     }
 
     /// A captured setting follows its full track horizontally until the pointer releases.

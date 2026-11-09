@@ -18,7 +18,7 @@ pub(crate) fn registry_base() -> RegistryBase {
 /// Supplies the collision owner now captured by real session startup and teardown systems.
 pub(crate) fn collision_resource() -> client_interaction::movement::PhysicsCollisionRegistries {
     let breg = assets::pinned_block_registry_bytes();
-    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2193.bin");
+    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2225.bin");
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(breg, version).unwrap();
     client_interaction::movement::PhysicsCollisionRegistries::from_assets(
@@ -35,7 +35,7 @@ pub(crate) fn prepared_packs(
     hashed: bool,
 ) -> PackApplication {
     let mut packs = PackApplication::default();
-    packs.registries = base.prepare(generation, hashed, custom, &packs, &|| false);
+    packs.registries = base.prepare(generation, hashed, custom, None, &packs, &|| false);
     packs
 }
 
@@ -54,10 +54,51 @@ fn prepare(
         SessionGeneration::new(7),
         hashed,
         custom,
+        None,
         &PackApplication::default(),
         &|| false,
     )
     .unwrap()
+}
+
+#[test]
+fn digger_queries_are_ready_in_the_worker_prepared_session_bundle() {
+    let digger = protocol::ItemDigger {
+        use_efficiency: false,
+        destroy_speeds: Arc::new([protocol::DiggerSpeed {
+            block: protocol::DiggerBlock::Tags("q.any_tag('test:stone')".into()),
+            speed: 8,
+        }]),
+    };
+    let registry = protocol::ItemRegistryEvent {
+        entries: Arc::new([protocol::ItemRegistryEntry {
+            components: Some(Arc::new(protocol::ItemComponents {
+                digger: Some(Arc::new(digger.clone())),
+                ..Default::default()
+            })),
+            ..protocol::vanilla_item_registry()[0].clone()
+        }]),
+    };
+    let prepared = registry_base()
+        .prepare(
+            SessionGeneration::new(7),
+            false,
+            &protocol::CustomBlocks::default(),
+            Some(&registry),
+            &PackApplication::default(),
+            &|| false,
+        )
+        .unwrap();
+    assert_eq!(
+        pack_runtime::digger_match(
+            &digger,
+            &prepared.digger_filters,
+            "test:block",
+            None,
+            &|tag| Some(tag == "test:stone")
+        ),
+        pack_runtime::DiggerMatch::Speed(8)
+    );
 }
 
 #[test]
@@ -199,6 +240,7 @@ fn cancellation_never_publishes_partially_prepared_registries() {
                     SessionGeneration::new(7),
                     true,
                     &blocks,
+                    None,
                     &PackApplication::default(),
                     &cancelled
                 )
@@ -283,7 +325,14 @@ fn overlay_assets_are_materialized_before_commit_and_keep_the_exact_base() {
     };
     let prepared = base
         .clone()
-        .prepare(SessionGeneration::new(7), true, &blocks, &packs, &|| false)
+        .prepare(
+            SessionGeneration::new(7),
+            true,
+            &blocks,
+            None,
+            &packs,
+            &|| false,
+        )
         .unwrap();
     assert!(!Arc::ptr_eq(&prepared.assets, &base.assets));
     assert!(Arc::ptr_eq(&prepared.source_assets, &base.assets));
@@ -302,4 +351,20 @@ fn overlay_assets_are_materialized_before_commit_and_keep_the_exact_base() {
         &base.collisions,
         &blocks
     ));
+}
+
+/// Session publication must keep the worker's programs bound to their original entity carrier.
+#[test]
+fn prepared_actor_catalog_matches_only_its_captured_carrier() {
+    let assets = actor_animation::test_support::counting_random_assets();
+    let prepared = prepare(
+        registry_base().with_entity_assets(Some(Arc::clone(&assets))),
+        false,
+        &protocol::CustomBlocks::default(),
+    );
+    let catalog = prepared.actor_catalog.as_ref().unwrap();
+    assert!(Arc::ptr_eq(catalog.assets(), &assets));
+    assert!(prepared.matches_actor_assets(Some(&assets)));
+    assert!(!prepared.matches_actor_assets(None));
+    assert!(!prepared.matches_actor_assets(Some(&Arc::new((*assets).clone()))));
 }

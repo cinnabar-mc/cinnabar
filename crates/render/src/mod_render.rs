@@ -4,13 +4,14 @@
 
 use render_scene::ModRenderScene;
 
+mod buffers;
 mod passes;
 #[cfg(test)]
 pub(crate) use passes::PassGpu;
 
 pub(crate) mod composition;
 mod primitives;
-mod retained;
+pub(crate) mod retained;
 #[cfg(test)]
 mod tests;
 
@@ -47,6 +48,9 @@ fn install(app: &mut App) {
         return;
     };
     if render_app.world().contains_resource::<Installed>() {
+        crate::chunk::blocks::install(app);
+        retained::clips::install_graph(app.sub_app_mut(RenderApp).world_mut());
+        crate::chunk::blocks::install_graph(app.sub_app_mut(RenderApp).world_mut());
         crate::actor_render::masks::install_graph(app.sub_app_mut(RenderApp).world_mut());
         passes::install_graph(app.sub_app_mut(RenderApp).world_mut());
         composition::install_graph(app.sub_app_mut(RenderApp).world_mut());
@@ -60,4 +64,4 @@ fn install(app: &mut App) {
     composition::install(app.sub_app_mut(RenderApp));
 }
 
-use mod_render::{block_highlights, position_box};
+use mod_render::block_highlights;

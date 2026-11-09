@@ -5,7 +5,12 @@
     reason = "names missing GPU fixtures when tests skip"
 )]
 
+mod atomics;
+mod dot;
+#[cfg(target_os = "windows")]
+mod fxc;
 mod geometry_frames;
+mod partial;
 
 use super::loader::{build, runnable_programs, translate_config};
 use super::passes::{FrameIo, ViewState, record_frame};
@@ -100,25 +105,6 @@ fn enabled_full_screen_programs_run_in_frame_order() {
     assert_eq!(plans[3].group, ProgramGroup::Final);
 }
 
-#[test]
-fn a_failed_required_program_fails_the_load() {
-    let pack = pack(&[
-        ("composite.vsh", PASS_VERTEX),
-        (
-            "composite.fsh",
-            "#version 120\nvoid main() { gl_FragData[0] = undefined_name; }\n",
-        ),
-    ]);
-    let translation = pack.translate(&translate_config(&pack, JAVA_DIMENSIONS[0]));
-    let error = runnable_programs(&translation).expect_err("composite fails");
-    let lines: Vec<&str> = error.lines().collect();
-    assert_eq!(lines.len(), 1, "one line per failed program: {error}");
-    assert!(
-        lines[0].starts_with("composite: composite.fsh:") && lines[0].contains("undefined_name"),
-        "names the program and its first diagnostic: {error}"
-    );
-}
-
 /// Switching packs shows Vanilla, which removes the block ids, between them; the geometry
 /// adapter still remembers the revision its terrain attributes came from, so the next pack's
 /// ids must arrive under another one or its terrain keeps the previous pack's `mc_Entity`.
@@ -137,7 +123,13 @@ fn the_next_packs_block_ids_never_reuse_a_revision() {
 
 /// Requests only fixture features and fails if an available device cannot be created.
 pub(super) fn gpu() -> Option<GpuContext> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    device_on(&wgpu::Instance::new(
+        wgpu::InstanceDescriptor::new_without_display_handle(),
+    ))
+}
+
+/// [`gpu`] on `instance`'s default adapter, if it has one.
+fn device_on(instance: &wgpu::Instance) -> Option<GpuContext> {
     let adapter = match bevy::tasks::block_on(instance.request_adapter(&Default::default())) {
         Ok(adapter) => adapter,
         Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
@@ -187,10 +179,28 @@ fn render_frame_options(
     second_view: bool,
     geometry_fixture: bool,
 ) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
-    let pack = pack(files);
+    render_pack_options(
+        gpu,
+        &pack(files),
+        frames,
+        viewport,
+        second_view,
+        geometry_fixture,
+    )
+}
+
+/// [`render_frame_options`] for an opened pack, such as one with binary files.
+fn render_pack_options(
+    gpu: &GpuContext,
+    pack: &ShaderPack,
+    frames: usize,
+    viewport: [u32; 4],
+    second_view: bool,
+    geometry_fixture: bool,
+) -> (Arc<super::loader::PackGpu>, Vec<u8>) {
     let pack = Arc::new(
         build(
-            &pack,
+            pack,
             "fixture",
             JAVA_DIMENSIONS[0],
             &Default::default(),
@@ -584,6 +594,54 @@ fn a_3d_custom_texture_leaves_2d_reads_of_its_name_on_the_buffer() {
     });
 }
 
+/// Copies `colortex0` through texture coordinates.
+const COPY: &str = "#version 120
+uniform sampler2D colortex0;
+varying vec2 texcoord;
+void main() {
+    gl_FragData[0] = texture2D(colortex0, texcoord);
+}
+";
+
+#[test]
+fn a_custom_image_yields_to_its_buffer_once_the_stage_flips_it() {
+    let Some(gpu) = gpu() else {
+        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
+        return;
+    };
+    // As Super Duper Vanilla's clouds and bloom: `composite` still reads the image, then
+    // writes `colortex0`, so `composite1` and `final` read that buffer as Iris binds it.
+    let directory = tempfile::tempdir().unwrap();
+    let shaders = directory.path().join("shaders");
+    std::fs::create_dir(&shaders).unwrap();
+    let mut png = vec![];
+    {
+        let mut encoder = png::Encoder::new(&mut png, 1, 1);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[65, 66, 67, 255]).unwrap();
+    }
+    std::fs::write(shaders.join("clouds.png"), png).unwrap();
+    for (name, text) in [
+        (
+            "shaders.properties",
+            "texture.composite.colortex0 = clouds.png\n",
+        ),
+        ("composite.vsh", PASS_VERTEX),
+        ("composite.fsh", INVERT),
+        ("composite1.vsh", PASS_VERTEX),
+        ("composite1.fsh", COPY),
+        ("final.vsh", PASS_VERTEX),
+        ("final.fsh", FINAL),
+    ] {
+        std::fs::write(shaders.join(name), text).unwrap();
+    }
+    let pack = ShaderPack::open(directory.path()).unwrap();
+    let (_, bytes) = render_pack_options(&gpu, &pack, 1, [0, 0, SIZE[0], SIZE[1]], false, false);
+    assert_pixels(&bytes, |_| [190, 189, 188]);
+}
+
 /// Inverts `colortex0` in place: samples it and writes `colorimg0`, the same texture.
 const INVERT_IN_PLACE: &str = "#version 430
 layout(local_size_x = 4, local_size_y = 4) in;
@@ -670,58 +728,6 @@ fn images_sampled_and_written_in_one_dispatch_read_snapshots() {
     assert_pixels(&bytes, |_| [255, 255, 255]);
 }
 
-/// Counts its 16 invocations into an `r32ui` custom image with an image atomic.
-const COUNT_ATOMICALLY: &str = "#version 430
-layout(local_size_x = 4, local_size_y = 4) in;
-const ivec3 workGroups = ivec3(1, 1, 1);
-layout(r32ui) uniform uimage2D counter;
-void main() {
-    imageAtomicAdd(counter, ivec2(0), 1u);
-}
-";
-
-/// Writes the counter's first texel, over 255, to red.
-const SHOW_COUNT: &str = "#version 430
-uniform usampler2D counterSampler;
-void main() {
-/* DRAWBUFFERS:0 */
-    uint count = texelFetch(counterSampler, ivec2(0), 0).r;
-    gl_FragData[0] = vec4(float(count) / 255.0, 0.0, 0.0, 1.0);
-}
-";
-
-#[test]
-fn image_atomics_count_into_a_custom_image() {
-    let Some(gpu) = gpu() else {
-        eprintln!("missing fixture: native GPU adapter for the shader pack frame");
-        return;
-    };
-    if !gpu
-        .device
-        .features()
-        .contains(wgpu::Features::TEXTURE_ATOMIC)
-    {
-        eprintln!("missing fixture: a GPU with TEXTURE_ATOMIC for image atomics");
-        return;
-    }
-    let (_, bytes) = render_frames(
-        &gpu,
-        &[
-            (
-                "shaders.properties",
-                "image.counter = counterSampler RED_INTEGER R32UI UNSIGNED_INT true false 1 1\n",
-            ),
-            ("composite.csh", COUNT_ATOMICALLY),
-            ("composite.vsh", PASS_VERTEX),
-            ("composite.fsh", SHOW_COUNT),
-            ("final.vsh", PASS_VERTEX),
-            ("final.fsh", FINAL),
-        ],
-        2,
-    );
-    assert_pixels(&bytes, |_| [16, 0, 0]);
-}
-
 /// A pack's switched-off pass, as Noble's `deferred` is without a LOD mod: no output, and a
 /// target nothing else writes.
 const SWITCHED_OFF: &str = "#version 430
@@ -786,8 +792,14 @@ fn a_rejected_required_actor_pipeline_keeps_native_world_rendering() {
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
     let adapter = bevy::tasks::block_on(instance.request_adapter(&Default::default())).unwrap();
-    let (device, queue) =
-        bevy::tasks::block_on(adapter.request_device(&Default::default())).unwrap();
+    let (device, queue) = bevy::tasks::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: crate::required_vertex_storage_buffers(),
+            ..Default::default()
+        },
+        ..Default::default()
+    }))
+    .unwrap();
     let gpu = GpuContext {
         device,
         queue,

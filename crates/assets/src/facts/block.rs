@@ -13,6 +13,8 @@ pub enum BlockStateIdentity<'a> {
 }
 /// Canonical empty-block identity checked against the pinned air trait.
 pub const AIR_IDENTIFIER: &str = "minecraft:air";
+/// The piston whose head wears the sticky art when its actor data does not say.
+pub const STICKY_PISTON_IDENTIFIER: &str = "minecraft:sticky_piston";
 
 /// Placeholder identity for a block state the client has not admitted.
 pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
@@ -21,12 +23,13 @@ pub const RESERVED_BLOCK_NAME: &str = "cinnabar:reserved";
 pub fn custom_block_effective_tools<'a>(tags: impl IntoIterator<Item = &'a str>) -> u8 {
     use crate::compiled::block_destroy::ToolKind;
     tags.into_iter().fold(0, |mask, tag| {
-        mask | match tag {
-            "minecraft:is_pickaxe_item_destructible" => ToolKind::Pickaxe.bit(),
-            "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
-            "minecraft:is_shovel_item_destructible" => ToolKind::Shovel.bit(),
-            "minecraft:is_hoe_item_destructible" => ToolKind::Hoe.bit(),
-            _ => 0,
+        let shared = [ToolKind::Pickaxe, ToolKind::Shovel, ToolKind::Hoe]
+            .into_iter()
+            .find(|kind| kind.native_destructible_tag() == Some(tag));
+        mask | match shared {
+            Some(kind) => kind.bit(),
+            None if tag == "minecraft:is_hatchet_item_destructible" => ToolKind::Axe.bit(),
+            None => 0,
         }
     })
 }
@@ -120,13 +123,14 @@ impl BlockFacts {
             records: records
                 .iter()
                 .map(|r| {
+                    let render = super::block_render_fact(&r.name);
                     let mut fact = BlockFact {
                         readable: true,
                         traits: r.traits,
                         family: r.model_family,
                         survival: r.survival,
-                        render: super::block_render_fact(&r.name),
-                        ambient: super::presentation_generated::ambient_block(&r.name),
+                        render,
+                        ambient: super::presentation::ambient_callback(&r.name, render.kind),
                         leaf_particle: (r.model_family == ModelFamily::Leaves)
                             .then(|| super::presentation::leaf_particle(&r.name))
                             .flatten(),

@@ -1,19 +1,19 @@
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     BossBarColor, BossBarOverlay, BossEventUpdateType, ModalFormCancelReason, PlayStatusType,
     SoftEnumUpdateType, TextPacketType, TitleType,
 };
-use bedrock_protocol_1_26_51::packets::{
+use bedrock_protocol_1_26_60::packets::{
     self, BossEvent as BossEventPacket, CommandOutput, LevelEvent, ModalFormRequest,
     ModalFormResponse, PacketId, PlayStatus, SetHealth, SetScore, SetTitle, Text, ToastRequest,
     UpdateSoftEnum,
 };
-use bedrock_protocol_1_26_51::types::{
+use bedrock_protocol_1_26_60::types::{
     ActorUniqueID, CommandOutputData, CommandOutputMessage, ScoreboardId, SetScoreInfoItem,
     TextData,
 };
-use bedrock_protocol_1_26_51::wire::{self, Decode, Encode};
+use bedrock_protocol_1_26_60::wire::{self, Decode, Encode};
 use bytes::{BufMut, BytesMut};
 use protocol::{
     BossAction, BossColor, ChatAutocompleteAction, CustomFormValue, FormButtonImage, FormKind,
@@ -176,7 +176,7 @@ fn representative_ui_packets_normalize_without_vendor_types() {
     ));
     assert!(matches!(
         ui(PlayStatus {
-            status: PlayStatusType::Playerspawn,
+            status: PlayStatusType::PlayerSpawn,
         })
         .unwrap(),
         UiEvent::Hud(protocol::HudEvent::PlayerStatus(
@@ -904,7 +904,7 @@ fn modal_form_responses_encode_exact_submit_and_cancel_markers() {
     let direct_cancel = ModalFormResponse {
         form_id: wire::VarUInt(7),
         json_response: None,
-        form_cancel_reason: Some(ModalFormCancelReason::Userclosed),
+        form_cancel_reason: Some(ModalFormCancelReason::UserClosed),
     };
     assert_eq!(
         protocol::encode(&cancel).unwrap(),

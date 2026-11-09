@@ -1,8 +1,8 @@
 //! Compact permission summaries, explicit consent and optional customization.
 
-use super::{Content, command};
+use super::{Content, actions, command};
 use crate::{
-    settings::resources::{actions, caption},
+    settings::resources::caption,
     theme,
     widgets::{self, Variant},
 };
@@ -22,19 +22,26 @@ pub(super) fn draw(
 ) -> Result<(), PaintError> {
     content.y += content.canvas.r(1.2);
     let (allowed, requested) = item.requested_counts();
-    caption(
-        content,
-        &format!("Permissions: {allowed} of {requested} requested allowed"),
-    )?;
     let sensitive: Vec<_> = item
         .permissions
         .iter()
         .filter(|permission| permission.enabled && permission.sensitive)
         .map(|permission| permission.name.as_str())
         .collect();
+    let mut summary = format!("{allowed} of {requested} permissions");
     if !sensitive.is_empty() {
-        caption(content, &format!("⚠ Allowed: {}", sensitive.join(", ")))?;
+        summary.push_str(" · ");
+        summary.push_str(&sensitive.join(", "));
     }
+    let [left, right] = content.inset();
+    content.canvas.text_line(
+        &summary,
+        [left, content.y],
+        right - left,
+        theme::CAPTION,
+        theme::TEXT_DIMMER,
+    )?;
+    content.y += content.canvas.r(theme::CAPTION.line + 0.8);
     if snapshot.customizing == Some(item.id) {
         customize(content, snapshot, item, available)
     } else if active
@@ -51,7 +58,9 @@ pub(super) fn draw(
                 Variant::Secondary,
                 available.then_some(command(Action::Customize(item.id))),
             )],
-        )
+        )?;
+        content.y += content.canvas.r(0.8);
+        Ok(())
     }
 }
 
@@ -80,7 +89,9 @@ fn consent(
         Variant::Secondary,
         available.then_some(command(Action::Customize(item.id))),
     ));
-    actions(content, &buttons)
+    actions(content, &buttons)?;
+    content.y += content.canvas.r(0.8);
+    Ok(())
 }
 
 /// Wraps the existing tags into rows without treating unrequested capabilities as requests.
@@ -109,6 +120,9 @@ fn chips(content: &mut Content<'_, '_>, item: &InstalledMod) -> Result<(), Paint
 }
 
 /// Keeps batch actions, a requested-first grid and the full-list disclosure together.
+///
+/// A marketplace mod can only receive its requested permissions, so its card offers neither
+/// Grant all nor the full-list disclosure.
 fn customize(
     content: &mut Content<'_, '_>,
     snapshot: &Snapshot,
@@ -123,11 +137,20 @@ fn customize(
             available.then_some(command(Action::AllowRequested(item.id))),
         ));
     }
-    buttons.push((
-        "Revoke all",
-        Variant::Destructive,
-        available.then_some(command(Action::RevokeAll(item.id))),
-    ));
+    let marketplace = item.marketplace();
+    if item.permissions.iter().any(|permission| permission.enabled) {
+        buttons.push((
+            "Revoke all",
+            Variant::Destructive,
+            available.then_some(command(Action::RevokeAll(item.id))),
+        ));
+    } else if !marketplace {
+        buttons.push((
+            "Grant all",
+            Variant::Primary,
+            available.then_some(command(Action::GrantAll(item.id))),
+        ));
+    }
     buttons.push((
         "Done",
         Variant::Secondary,
@@ -135,11 +158,15 @@ fn customize(
     ));
     actions(content, &buttons)?;
     content.y += content.canvas.r(1.2);
-    let indices = item.permission_order(snapshot.show_all_permissions);
+    let indices = item.permission_order(snapshot.show_all_permissions && !marketplace);
     if indices.is_empty() {
         caption(
             content,
-            "No declared requests. Show all permissions to choose.",
+            if marketplace {
+                "No permissions requested."
+            } else {
+                "No declared requests. Show all permissions to choose."
+            },
         )?;
     }
     grid(content, item, &indices, available)?;
@@ -161,6 +188,9 @@ fn customize(
             |permission| permission.description.as_str(),
         ),
     )?;
+    if marketplace {
+        return Ok(());
+    }
     let [left, right] = content.inset();
     let y = content.y;
     let action = command(Action::ShowAllPermissions(item.id));

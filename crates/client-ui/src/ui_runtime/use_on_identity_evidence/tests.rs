@@ -8,7 +8,7 @@ use {super::*, inventory::InventoryAuthorityEvent};
 fn runtime(player_runtime: &mut player_state::PlayerState, enabled: bool) -> UiRuntime {
     *player_runtime = player_state::PlayerState::new(7);
     let mut runtime = UiRuntime::new(7);
-    runtime.use_on_identity_evidence = UseOnIdentityEvidence::new(enabled, 7);
+    runtime.session.use_on_identity_evidence = UseOnIdentityEvidence::new(enabled, 7);
     player_runtime.inventory.set_local_selected_slot(0);
     runtime
 }
@@ -86,7 +86,7 @@ fn normal_transaction_observes_the_final_stack_at_its_single_fifo_sequence() {
             },
         )),
     );
-    let (sequence, identity) = runtime.use_on_identity_evidence.stack_sources[0]
+    let (sequence, identity) = runtime.session.use_on_identity_evidence.stack_sources[0]
         .as_ref()
         .unwrap();
     assert_eq!(*sequence, 2);
@@ -103,32 +103,37 @@ fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
     push(&mut player_runtime, &mut original, 2, slot(37));
     let mut snapshot_player = player_runtime.clone();
     let mut snapshot = original.clone();
-    let evidence = &snapshot.use_on_identity_evidence;
+    let evidence = &snapshot.session.use_on_identity_evidence;
     assert!(evidence.enabled);
     assert_eq!(evidence.session, 7);
     assert_eq!(evidence.last_sequence, Some(2));
     assert_eq!(
         evidence.registry,
-        original.use_on_identity_evidence.registry
+        original.session.use_on_identity_evidence.registry
     );
     assert_eq!(
         evidence.stack_sources,
-        original.use_on_identity_evidence.stack_sources
+        original.session.use_on_identity_evidence.stack_sources
     );
     assert_eq!(
         serde_json::to_value(&evidence.rows).unwrap(),
-        serde_json::to_value(&original.use_on_identity_evidence.rows).unwrap()
+        serde_json::to_value(&original.session.use_on_identity_evidence.rows).unwrap()
     );
-    assert!(!snapshot.use_on_identity_evidence.admit_sequence(7, 2));
+    assert!(
+        !snapshot
+            .session
+            .use_on_identity_evidence
+            .admit_sequence(7, 2)
+    );
     push(&mut snapshot_player, &mut snapshot, 3, slot(37));
     assert_eq!(
-        snapshot.use_on_identity_evidence.rows.len(),
+        snapshot.session.use_on_identity_evidence.rows.len(),
         1,
         "clone must not log an already observed identity again"
     );
     push(&mut snapshot_player, &mut snapshot, 4, slot(36));
-    assert_eq!(snapshot.use_on_identity_evidence.rows.len(), 2);
-    assert_eq!(original.use_on_identity_evidence.rows.len(), 1);
+    assert_eq!(snapshot.session.use_on_identity_evidence.rows.len(), 2);
+    assert_eq!(original.session.use_on_identity_evidence.rows.len(), 1);
     for count in 1..=12 {
         push(
             &mut player_runtime,
@@ -138,16 +143,19 @@ fn cloned_ui_preserves_evidence_fifo_deduplication_and_full_quota() {
         );
     }
     let mut full = original.clone();
-    assert_eq!(full.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert_eq!(full.session.use_on_identity_evidence.rows.len(), MAX_ROWS);
     assert_eq!(
-        full.use_on_identity_evidence.last_sequence,
-        original.use_on_identity_evidence.last_sequence
+        full.session.use_on_identity_evidence.last_sequence,
+        original.session.use_on_identity_evidence.last_sequence
     );
-    assert!(!full.use_on_identity_evidence.admit_sequence(7, 100));
+    assert!(!full.session.use_on_identity_evidence.admit_sequence(7, 100));
     player_runtime.begin_session(8);
     full.begin_session(8);
-    assert!(full.use_on_identity_evidence.rows.is_empty());
-    assert_eq!(original.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert!(full.session.use_on_identity_evidence.rows.is_empty());
+    assert_eq!(
+        original.session.use_on_identity_evidence.rows.len(),
+        MAX_ROWS
+    );
 }
 
 #[test]
@@ -157,10 +165,11 @@ fn disabled_observation_has_no_retained_rows_or_sources() {
     let mut runtime = runtime(&mut player_runtime, false);
     push(&mut player_runtime, &mut runtime, 1, registry());
     push(&mut player_runtime, &mut runtime, 2, slot(37));
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
-    assert!(runtime.use_on_identity_evidence.registry.is_none());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.registry.is_none());
     assert!(
         runtime
+            .session
             .use_on_identity_evidence
             .stack_sources
             .iter()
@@ -180,9 +189,9 @@ fn ordered_drain_correlates_both_registry_and_stack_arrival_orders() {
             (registry(), slot(37))
         };
         push(&mut player_runtime, &mut runtime, 1, first);
-        assert!(runtime.use_on_identity_evidence.rows.is_empty());
+        assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
         push(&mut player_runtime, &mut runtime, 2, second);
-        let row = &runtime.use_on_identity_evidence.rows[0];
+        let row = &runtime.session.use_on_identity_evidence.rows[0];
         assert_eq!(row.session_generation, 7);
         assert_eq!(row.observed_fifo_sequence, 2);
         assert_eq!(
@@ -200,7 +209,7 @@ fn ordered_drain_correlates_both_registry_and_stack_arrival_orders() {
         assert_eq!(row.identity.stack.stack_network_id, 41);
         push(&mut player_runtime, &mut runtime, 3, slot(37));
         push(&mut player_runtime, &mut runtime, 4, registry());
-        assert_eq!(runtime.use_on_identity_evidence.rows.len(), 1);
+        assert_eq!(runtime.session.use_on_identity_evidence.rows.len(), 1);
     }
 }
 
@@ -225,9 +234,9 @@ fn full_inventory_content_establishes_selected_wire_stack_provenance() {
             },
         )),
     );
-    assert_eq!(runtime.use_on_identity_evidence.rows.len(), 1);
+    assert_eq!(runtime.session.use_on_identity_evidence.rows.len(), 1);
     assert_eq!(
-        runtime.use_on_identity_evidence.rows[0].stack_observed_fifo_sequence,
+        runtime.session.use_on_identity_evidence.rows[0].stack_observed_fifo_sequence,
         2
     );
 }
@@ -246,10 +255,13 @@ fn deduplicated_rows_are_capped_and_new_session_clears_every_identity() {
             slot(count),
         );
     }
-    assert_eq!(runtime.use_on_identity_evidence.rows.len(), MAX_ROWS);
+    assert_eq!(
+        runtime.session.use_on_identity_evidence.rows.len(),
+        MAX_ROWS
+    );
     player_runtime.begin_session(8);
     runtime.begin_session(8);
-    let evidence = &runtime.use_on_identity_evidence;
+    let evidence = &runtime.session.use_on_identity_evidence;
     assert_eq!(evidence.session, 8);
     assert!(evidence.rows.is_empty());
     assert!(evidence.registry.is_none());
@@ -267,9 +279,13 @@ fn stale_session_or_fifo_cannot_replace_observed_identity() {
     push(&mut player_runtime, &mut runtime, 2, slot(37));
     runtime.observe_use_on_identity(&player_runtime, 8, 3, &registry());
     runtime.observe_use_on_identity(&player_runtime, 7, 1, &registry());
-    assert_eq!(runtime.use_on_identity_evidence.last_sequence, Some(2));
+    assert_eq!(
+        runtime.session.use_on_identity_evidence.last_sequence,
+        Some(2)
+    );
     assert_eq!(
         runtime
+            .session
             .use_on_identity_evidence
             .registry
             .as_ref()
@@ -277,7 +293,7 @@ fn stale_session_or_fifo_cannot_replace_observed_identity() {
             .0,
         1
     );
-    assert_eq!(runtime.use_on_identity_evidence.rows.len(), 1);
+    assert_eq!(runtime.session.use_on_identity_evidence.rows.len(), 1);
 }
 
 #[test]
@@ -293,7 +309,7 @@ fn pending_selection_and_mismatched_wire_stack_are_not_authority_rows() {
         .queue_local_hotbar_selection(0, None);
     push(&mut player_runtime, &mut runtime, 1, registry());
     push(&mut player_runtime, &mut runtime, 2, slot(37));
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
     player_runtime.inventory.clear_pending_hotbar_selection(0);
     // A changed ledger snapshot alone does not establish new wire provenance.
     let InventoryAuthorityEvent::Inventory(event) = slot(12) else {
@@ -301,9 +317,9 @@ fn pending_selection_and_mismatched_wire_stack_are_not_authority_rows() {
     };
     player_runtime.inventory.ledger_mut().apply(&event);
     runtime.observe_use_on_identity(&player_runtime, 7, 3, &registry());
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
     push(&mut player_runtime, &mut runtime, 4, slot(12));
-    assert_eq!(runtime.use_on_identity_evidence.rows.len(), 1);
+    assert_eq!(runtime.session.use_on_identity_evidence.rows.len(), 1);
 }
 
 #[test]
@@ -372,7 +388,7 @@ fn pending_inventory_prediction_and_required_recovery_are_not_authority_rows() {
     );
     player_runtime.inventory.clear_pending_hotbar_selection(0);
     push(&mut player_runtime, &mut runtime, 3, registry());
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
     assert!(
         player_runtime
             .inventory
@@ -382,7 +398,7 @@ fn pending_inventory_prediction_and_required_recovery_are_not_authority_rows() {
     player_runtime.inventory.ledger_mut().poll_timeout(u64::MAX);
     assert!(player_runtime.inventory.ledger_mut().resync_required());
     push(&mut player_runtime, &mut runtime, 4, registry());
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
 }
 
 #[test]
@@ -401,8 +417,8 @@ fn invalid_stack_digest_and_missing_target_registry_cannot_emit_rows() {
         2,
         InventoryAuthorityEvent::Inventory(InventoryEvent::Slot(event)),
     );
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
-    assert!(runtime.use_on_identity_evidence.stack_sources[0].is_none());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.stack_sources[0].is_none());
     push(
         &mut player_runtime,
         &mut runtime,
@@ -412,8 +428,8 @@ fn invalid_stack_digest_and_missing_target_registry_cannot_emit_rows() {
         }),
     );
     push(&mut player_runtime, &mut runtime, 4, slot(37));
-    assert!(runtime.use_on_identity_evidence.rows.is_empty());
-    assert!(runtime.use_on_identity_evidence.registry.is_none());
+    assert!(runtime.session.use_on_identity_evidence.rows.is_empty());
+    assert!(runtime.session.use_on_identity_evidence.registry.is_none());
 }
 
 #[test]
@@ -423,7 +439,7 @@ fn serialization_contains_only_fixed_identity_fields_and_normalized_digests() {
     let mut runtime = runtime(&mut player_runtime, true);
     push(&mut player_runtime, &mut runtime, 1, registry());
     push(&mut player_runtime, &mut runtime, 2, slot(37));
-    let row = &runtime.use_on_identity_evidence.rows[0];
+    let row = &runtime.session.use_on_identity_evidence.rows[0];
     let encoded = serde_json::to_string(row).unwrap();
     for excluded in [
         "private-payload",

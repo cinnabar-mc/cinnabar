@@ -2,12 +2,12 @@
 
 use super::*;
 use crate::WorldPacketError;
-use bedrock_protocol_1_26_51::enums::{
+use bedrock_protocol_1_26_60::enums::{
     CameraPresetAudioListener, CameraShakeAction as WireShakeAction,
     CameraShakeType as WireShakeType, ControlScheme,
 };
-use bedrock_protocol_1_26_51::packets::{Camera, CameraPresets, CameraShake};
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::packets::{Camera, CameraPresets, CameraShake};
+use bedrock_protocol_1_26_60::wire;
 use std::sync::Arc;
 
 /// Unwraps an optional little-endian float field.
