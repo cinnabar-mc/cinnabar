@@ -585,8 +585,6 @@ pub fn run(args: args::ClientArgs) -> Result<()> {
         catalog: ui_catalog,
         block_entity_font,
     } = interface;
-    let mut ui_presentation = ui_presentation;
-    ui_presentation.set_safe_area(crate::ui_runtime::presentation::platform_safe_area_insets());
     app.insert_resource(render_scene::shaderpack::ShaderPackCompilerExecutable(
         shader_compiler,
     ));

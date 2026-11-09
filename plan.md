@@ -1351,8 +1351,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views. Overlapping requests
-  keep the active form and answer busy, including reused IDs.
+  scaling and image/layout behavior against matched native views.
+  Simple automatic server-form entrance chains whose size or offset remains authoritative
+  in placement feed dimensional expressions into layout, clipping, culling and actual-state
+  hit regions. Anchored offset replacements and widget/pointer-owned placement retain the
+  legacy paint path; their layout composition remains incomplete. Event/reset,
+  render-wait, destruction, mixed and generic-screen animation semantics retain their
+  legacy paths and remain incomplete. Keyword endpoints, complex child/sibling dependencies
+  and native-view/performance acceptance remain unverified.
+  Overlapping requests keep the active form and answer busy, including reused IDs.
   Answered button and custom forms retain their rendered surface for an explicitly provisional
   250 ms handoff grace: a replacement received in that window swaps in place, otherwise the
   surface expires while input edges stay consumed. Version-matched native timing and visual
@@ -1808,7 +1815,10 @@ launches. Native Windows startup, update and crash-restart acceptance remains in
   stop at the rendered distance, so only fog would move. Bedrock's dynamic resolution is
   unverified outside Vibrant Visuals. Physical-phone performance acceptance remains incomplete.
   Android restores immersive system bars on resume, window focus and keyboard dismissal,
-  while preserving keyboard control. Device-window regression coverage does not close
+  while preserving keyboard control. Native UI receives display-cutout insets combined with
+  keyboard overlap at the window's DPI, while the world surface stays full size.
+  The crosshair uses that full viewport while edge controls stay inside the safe area.
+  Device-window regression coverage does not close
   physical-phone navigation, cutout or gameplay acceptance.
   Android pack, mod, skin and cape imports open the system document picker and copy the
   chosen documents into app cache storage before importing them, then release each copy after
