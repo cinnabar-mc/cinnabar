@@ -138,3 +138,21 @@ fn a_resumed_sign_in_still_opens_a_fresh_code_or_a_later_xbox_signup_page() {
     menu.update_sign_in_browser(false);
     assert_ne!(menu.sign_in_browser.state(&signup), BrowserState::Waiting);
 }
+
+/// A client without a sign-in of its own, as when it joins a world or closes, leaves the prompt
+/// another client sharing the install is waiting on.
+#[test]
+fn stopping_without_an_own_sign_in_keeps_another_clients_prompt() {
+    let mut menu = MenuRuntime::new(true, 2, "Offline Player".into());
+    let cache = menu.layout.auth_cache();
+    save_prompt(&cache);
+    menu.stop_sign_in();
+    assert!(launcher::pending_sign_in::path(&cache).exists());
+    let user_data = menu.layout.user_data_root.clone();
+    drop(menu);
+    assert!(
+        launcher::pending_sign_in::path(&cache).exists(),
+        "closing removed another client's prompt"
+    );
+    fs::remove_dir_all(user_data).unwrap();
+}
