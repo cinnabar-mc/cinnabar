@@ -43,6 +43,7 @@ mod routing;
 mod session;
 mod shield;
 mod style;
+mod trims;
 mod types;
 pub use block_items::{BlockItemPreparer, PreparedBlockItems};
 pub use java::java_draws_attachable;
@@ -115,6 +116,7 @@ type ArmorBoneMap = Arc<[Option<usize>]>;
 #[derive(Resource)]
 pub struct EquipmentRuntime {
     shield_patterns: shield::Patterns,
+    trims: trims::Trims,
     assets: Arc<RuntimeEntityAssets>,
     catalog: Option<Arc<RuntimeEquipmentCatalog>>,
     icons: Arc<RuntimeIconCatalog>,
@@ -312,6 +314,7 @@ impl EquipmentRuntime {
         );
         let runtime = Self {
             shield_patterns: Default::default(),
+            trims: Default::default(),
             attachables: actor_animation::AttachablesRuntime::new(Arc::clone(&assets)),
             attachable_meshes: BTreeMap::new(),
             native_meshes: BTreeMap::new(),

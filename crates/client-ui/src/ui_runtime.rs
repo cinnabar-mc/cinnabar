@@ -137,6 +137,10 @@ pub struct UiRuntime {
     pub session: session::SessionUi,
     item_fuel_catalog: Option<Arc<assets::RuntimeEntityAssets>>,
     toast_display_millis: u64,
+    /// The player's bindings and active input mode, which name the controls in
+    /// `:_input_<binding>:` placeholders when server text arrives.
+    control_settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    input_mode: semantic_input::InputMode,
     /// Developer captures never draw toasts.
     hide_toasts: bool,
     chat_history: ChatHistory,
@@ -169,6 +173,8 @@ impl UiRuntime {
             loading_screen: None,
             resource_pack_loading: false,
             toast_display_millis: ui::TOAST_DISPLAY_MILLIS,
+            control_settings: Arc::default(),
+            input_mode: semantic_input::InputMode::default(),
             hide_toasts: false,
             chat_history: ChatHistory::default(),
             dropped_unsent_chat_messages: 0,
@@ -786,6 +792,19 @@ impl UiRuntime {
     /// Applies the toast preference even when this frame cannot publish a viewport.
     pub fn set_toast_lifetime(&mut self, lifetime: u64) {
         self.toast_display_millis = lifetime;
+    }
+
+    /// Names controls in server text received from now on with these bindings.
+    pub fn set_control_settings(
+        &mut self,
+        settings: Arc<launcher::menu::settings_options::SettingsOptions>,
+    ) {
+        self.control_settings = settings;
+    }
+
+    /// Names controls in server text received from now on for this input mode.
+    pub fn set_input_mode(&mut self, mode: semantic_input::InputMode) {
+        self.input_mode = mode;
     }
 
     /// Stops drawing toasts for the session (developer `--hide-toasts`); they still queue

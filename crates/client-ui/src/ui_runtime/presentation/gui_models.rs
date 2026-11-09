@@ -29,6 +29,7 @@ mod pack_equipment;
 mod player_layers;
 mod preparation;
 mod shield_icons;
+mod trim_icons;
 mod world_shield;
 pub use world_shield::WorldShieldArtwork;
 mod sources;
@@ -131,6 +132,7 @@ pub(super) fn icon_key(icon: IconRef) -> IconKey {
 #[derive(Default)]
 pub(super) struct GuiModels {
     pub(super) shield_icons: shield_icons::ShieldIcons,
+    pub(super) trim_icons: trim_icons::TrimIcons,
     pub(super) enabled: bool,
     #[cfg(test)]
     hud_cpu_reference: bool,
@@ -660,8 +662,9 @@ impl UiPresentationRuntime {
         let armor = std::array::from_fn(|slot| {
             let texture = self.player_preview_gear.armor[slot].as_ref()?;
             self.gui_models
-                .pack_equipment
-                .region(slot)
+                .trim_icons
+                .region(texture)
+                .or_else(|| self.gui_models.pack_equipment.region(slot))
                 .or_else(|| {
                     let key = atlas::key([texture.width, texture.height], &texture.rgba);
                     self.gui_models.sources.textures.get(&key).copied()
