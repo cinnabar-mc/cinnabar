@@ -813,7 +813,10 @@ impl Builder<'_> {
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice();
-            textures.push(TextureArray { layers, mips });
+            textures.push(TextureArray {
+                layers,
+                mips: mips.into(),
+            });
         }
         self.overlay.texture_source_sizes = sizes;
         self.overlay.texture_source_grids = grids;

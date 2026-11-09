@@ -77,13 +77,14 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
     {
         content::retain_fallback_filters(row, original, &visibility[&ordinary_label]);
     }
-    for control in catalog.controls_mut().filter(|control| {
-        content_scope
+    catalog.update_controls(|control| {
+        if content_scope
             .as_ref()
             .is_none_or(|scope| !scope.contains_namespace(&control.owner_ns))
-    }) {
-        suppress_chat(control, &chat);
-    }
+        {
+            suppress_chat(control, &chat);
+        }
+    });
     let mut restore = BTreeSet::new();
     collect_definition(builtin, overlay_ref, &mut restore);
     for name in ROOTS {
@@ -109,10 +110,7 @@ pub(super) fn prefer_builtin(catalog: &mut Catalog, builtin: &Catalog) -> Vec<Ra
         .filter_map(|name| Some((format!("${name}"), builtin.global(&name)?.clone())))
         .collect::<serde_json::Map<_, _>>();
     catalog.overlay_globals_text(&Value::Object(globals).to_string());
-    for screen in catalog
-        .controls_mut()
-        .filter(|control| control.owner_ns == "hud" && control.name == "hud_screen")
-    {
+    if let Some(screen) = catalog.lookup_mut("hud", "hud_screen") {
         let additional = screen
             .props
             .get("$additional_screen_content")

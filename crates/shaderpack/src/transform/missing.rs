@@ -55,6 +55,7 @@ pub(crate) fn vertex_outputs(
         fragment.version,
         true,
         false,
+        false,
     )?;
     let mut outputs = Vec::new();
     let mut initializers = Vec::new();

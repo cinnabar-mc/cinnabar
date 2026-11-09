@@ -254,25 +254,31 @@ impl ActorAnimationStore {
         };
         let mut next = 0;
         while next < jobs.len() {
-            // Each rig spends at most its actor budget, so this many fit before the world runs out.
-            let capacity = if parallel {
-                world_left / MAX_MOLANG_OPS_PER_ACTOR_TICK
-            } else {
-                0
-            };
-            if capacity < 2 {
-                let job = &mut jobs[next];
-                if job.evaluates() && world_left > 0 {
-                    job.outcome = Some(evaluate_job(job, catalogs.view(), &mut world_left));
-                }
-                ledger.apply(job);
-                next += 1;
-                continue;
-            }
             let (mut end, mut evaluating) = (next, 0);
-            while end < jobs.len() && (evaluating < capacity || !jobs[end].evaluates()) {
-                evaluating += usize::from(jobs[end].evaluates());
-                end += 1;
+            let mut reserved = 0;
+            if parallel {
+                while let Some(job) = jobs.get(end) {
+                    if job.evaluates() {
+                        let allowance = job.molang_budget(catalogs.view());
+                        if allowance > world_left - reserved {
+                            break;
+                        }
+                        reserved += allowance;
+                        evaluating += 1;
+                    }
+                    end += 1;
+                }
+            }
+            if evaluating < 2 {
+                let end = end.max(next + 1);
+                for job in &mut jobs[next..end] {
+                    if job.evaluates() && world_left > 0 {
+                        job.outcome = Some(evaluate_job(job, catalogs.view(), &mut world_left));
+                    }
+                    ledger.apply(job);
+                }
+                next = end;
+                continue;
             }
             evaluate_concurrently(&mut jobs[next..end], evaluating, catalogs.clone());
             for job in &mut jobs[next..end] {
@@ -335,6 +341,18 @@ impl TickJob<'_> {
     const fn evaluates(&self) -> bool {
         matches!(self.step, Step::Evaluate { .. })
     }
+
+    /// Returns the full allowance a worker must reserve for this rig's catalog.
+    fn molang_budget(&self, catalogs: Catalogs<'_>) -> usize {
+        let assets = if self.state.pack {
+            catalogs.pack.map(|(assets, _)| assets)
+        } else {
+            Some(catalogs.vanilla.0)
+        };
+        assets.map_or(MAX_MOLANG_OPS_PER_ACTOR_TICK, |assets| {
+            molang_tick_budget(assets, self.state.rig_binding)
+        })
+    }
 }
 
 /// Selects only unresolved poses that the current animation view can admit.
@@ -379,6 +397,7 @@ fn culled(
             .and_then(|binding| assets.geometry_visible_bounds(binding.geometry as usize))
             .unwrap_or_default()
     };
+    let bounds = crate::actor_culling_bounds(bounds, actor, scale);
     !view.admits(actor.position(), scale, player, bounds)
         && !view.admits(actor.previous_position(), scale, player, bounds)
 }
@@ -489,7 +508,7 @@ impl Board {
     /// Evaluates claimed rigs until none are left or the caller has stopped waiting.
     fn help(&self) {
         self.help_with(|job| {
-            let mut own = MAX_MOLANG_OPS_PER_ACTOR_TICK;
+            let mut own = job.molang_budget(self.catalogs.view());
             self.pass.evaluate(job, self.catalogs.view(), &mut own);
         });
     }
@@ -591,7 +610,7 @@ fn evaluate_job(
     };
     let (state, actor, context) = (&mut *job.state, job.actor, &job.context);
     let mut budget = EvalBudget {
-        actor_left: MAX_MOLANG_OPS_PER_ACTOR_TICK,
+        actor_left: molang_tick_budget(assets, state.rig_binding),
         world_left,
         work_left: MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK,
         transitions_left: MAX_CONTROLLER_TRANSITIONS_PER_TICK,
@@ -826,3 +845,6 @@ impl Ledger<'_> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod large_script_tests;

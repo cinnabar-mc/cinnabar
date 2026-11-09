@@ -24,6 +24,8 @@ impl LocalPhysicsController {
         self.processed_jump_arc_active = false;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.replayed_speed = None;
+        self.rewind_pending = None;
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();
@@ -97,6 +99,8 @@ impl LocalPhysicsController {
         self.dropped_tick_count = 0;
         self.last_world_identity = None;
         self.sample_history.clear();
+        self.replayed_speed = None;
+        self.rewind_pending = None;
         self.controller_history.clear();
         self.live_climber = None;
         self.pending_climber = Default::default();

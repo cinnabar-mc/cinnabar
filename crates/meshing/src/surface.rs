@@ -12,6 +12,8 @@ pub const TILE_SHIFT: u32 = 5;
 pub const TILE_MASK: u32 = 15;
 /// Tiles in the three-by-three face partition.
 pub const TILE_COUNT: u32 = 9;
+/// Coverage with every tile visible.
+pub const ALL_TILES: u16 = (1 << TILE_COUNT) - 1;
 pub const BORDER_SHIFT: u32 = 9;
 pub const DRAW_WORD_MASK: u32 = 65535;
 const _: () = assert!(assets::MAX_MODEL_TEMPLATE_QUADS <= QUAD_INDEX_MASK as usize + 1);
@@ -56,7 +58,7 @@ impl SurfaceRule {
             && self.states.windows(2).all(|pair| pair[0] < pair[1])
             && (1..=127).contains(&self.border)
             && self.clauses.iter().all(|clause| {
-                clause.tiles & !0x1ff == 0
+                clause.tiles & !ALL_TILES == 0
                     && clause.conditions.iter().all(|condition| {
                         condition.offset != [0; 3]
                             && condition
@@ -84,7 +86,7 @@ impl SurfaceRule {
                 let position = std::array::from_fn(|axis| coordinate[axis] + offset[axis]);
                 let Some((section, [x, y, z])) = neighbourhood.block_source(position) else {
                     return Coverage {
-                        tiles: 0x1ff,
+                        tiles: ALL_TILES,
                         border: self.border,
                     };
                 };
@@ -155,7 +157,7 @@ pub(crate) fn push_draws(
     coverage: Option<Coverage>,
 ) {
     if let Some(coverage) = coverage {
-        for tile in 0..9 {
+        for tile in 0..TILE_COUNT as u8 {
             if coverage.tiles & (1 << tile) != 0 {
                 output.push(draw.with_surface_tile(tile, coverage.border));
             }

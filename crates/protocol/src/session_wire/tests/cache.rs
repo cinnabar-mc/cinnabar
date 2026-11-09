@@ -137,3 +137,24 @@ fn go_cached_pack_fixture_preserves_path_and_hash() {
     assert_eq!(cache.path, Path::new("/cache/fixture.mcpack"));
     assert_eq!(cache.sha256, <[u8; 32]>::from(Sha256::digest(b"abc")));
 }
+
+/// Received archives stay resident for the session, so none may keep spare buffer capacity
+/// from growing as its bytes were read or streamed.
+#[test]
+fn received_archives_retain_no_spare_capacity() {
+    let root = tempfile::tempdir().unwrap();
+    let root = root.path().canonicalize().unwrap();
+    let cached = vec![7; 100_003];
+    let mut handoff = cached_handoff(&root, &cached);
+    handoff.packs.extend(handoff_with_sizes(&[70_001]).packs);
+    let mut receiver = HandoffPackReceiver::new(&handoff, Some(&root)).unwrap();
+    let streamed = vec![9; 70_001];
+    for chunk in streamed.chunks(4_096) {
+        receiver.accept(1, chunk).unwrap();
+    }
+    let archives = receiver.into_archives().unwrap();
+    assert_eq!(archives, [cached, streamed]);
+    for archive in &archives {
+        assert_eq!(archive.capacity(), archive.len());
+    }
+}

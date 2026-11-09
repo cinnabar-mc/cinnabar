@@ -51,6 +51,8 @@ pub enum ItemUseAnimation {
     Crossbow,
     /// Raised over the shoulder while charging a throw, as vanilla's trident is.
     Spear,
+    /// Swept over a block while used, as vanilla's brush is.
+    Brush,
 }
 
 impl ItemUseAnimation {
@@ -63,6 +65,7 @@ impl ItemUseAnimation {
             Self::Bow => Some(Fact::Bow),
             Self::Crossbow => Some(Fact::Crossbow),
             Self::Spear => Some(Fact::Spear),
+            Self::Brush => Some(Fact::Brush),
         }
     }
 }
