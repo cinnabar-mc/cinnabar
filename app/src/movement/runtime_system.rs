@@ -216,11 +216,21 @@ pub(crate) fn advance_local_physics(
                 |packet| network.send_inventory_packets(vec![packet]),
             )
         });
-    if step == gameplay::movement::DismountStep::Waiting {
-        // No new seated movement joins what the dismount waits for.
-        publish_physics_view(&mut physics, &mut view);
-        return;
-    }
+    let world = match step {
+        gameplay::movement::DismountStep::Seated => world,
+        gameplay::movement::DismountStep::Waiting => {
+            // No new seated movement joins what the dismount waits for.
+            publish_physics_view(&mut physics, &mut view);
+            return;
+        }
+        gameplay::movement::DismountStep::GotOff => {
+            drop(world);
+            let Some(world) = leave_local_mount(&mut client_world, &collisions) else {
+                return;
+            };
+            world
+        }
+    };
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -229,13 +239,6 @@ pub(crate) fn advance_local_physics(
         &mut movement_speed,
         &world,
     );
-    // The client world's mount state keeps the player off the mount from here, so movement,
-    // its body, animation, view, picking and collision all stop following the seat at once.
-    if step == gameplay::movement::DismountStep::GotOff
-        && let Some(stream) = client_world.stream.as_mut()
-    {
-        stream.leave_local_mount();
-    }
     if !advanced {
         return;
     }
@@ -247,6 +250,24 @@ pub(crate) fn advance_local_physics(
         });
     }
     publish_physics_view(&mut physics, &mut view);
+}
+
+/// Takes the local player off its mount in the client world, whose mount state then keeps it
+/// off until the server's links for it change: its body, animation, view and picking stop
+/// following the seat at once. Returns the collision view for the rest of the frame's ticks,
+/// which collides with the mount just left.
+pub(super) fn leave_local_mount<'a>(
+    client_world: &'a mut ClientWorld,
+    collisions: &'a PhysicsCollisionRegistries,
+) -> Option<sim::PaletteWorld<'a>> {
+    client_world.stream.as_mut()?.leave_local_mount();
+    let client_world: &'a ClientWorld = client_world;
+    let stream = client_world.stream.as_ref()?;
+    Some(super::collision_world(
+        stream,
+        collisions.registry(stream.network_id_mode()),
+        &client_world.movement_colliders,
+    ))
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.
