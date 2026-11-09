@@ -17,7 +17,7 @@ fn touch_panel_app() -> (App, Entity, Vec2) {
     surface.document = document.to_string();
     let component = fixture_with_panel(
         &serde_json::json!({
-            "toggle_key": "F10", "controls": [], "surface": surface,
+            "controls": [], "surface": surface,
         })
         .to_string(),
     );

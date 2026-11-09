@@ -252,6 +252,18 @@ fn raised_reclaim_leaves_ready_worker_results_queued() {
     assert_eq!(stream.admitted_mesh_jobs.load(Ordering::Acquire), 1);
 }
 
+/// Retained worker senders cannot keep a retired stream's queued mesh permits charged.
+#[test]
+fn dropping_stream_releases_queued_mesh_permits() {
+    let stream = stream_with_ready_worker_service();
+    let admitted = Arc::clone(&stream.admitted_mesh_jobs);
+    let sender = stream.mesh_tx.clone();
+    assert_eq!(admitted.load(Ordering::Acquire), 1);
+    drop(stream);
+    assert_eq!(admitted.load(Ordering::Acquire), 0);
+    drop(sender);
+}
+
 /// Queues `count` inline air columns with their decodes already completed.
 fn stream_with_decoded_columns(count: u64) -> WorldStream {
     let mut stream = block_entity_visual_stream();
@@ -266,6 +278,42 @@ fn stream_with_decoded_columns(count: u64) -> WorldStream {
         stream.decode_tx.send(completion).unwrap();
     }
     stream
+}
+
+/// A poll skips a result whose publication is still in progress instead of waiting on its
+/// producer, and collects it on the next poll.
+#[test]
+fn poll_skips_a_result_still_being_published() {
+    let mut stream = stream_with_decoded_columns(1);
+    let completion = stream.decode_rx.try_recv().unwrap();
+    let sender = stream.decode_tx.clone();
+    let (holding, held) = crossbeam_channel::bounded(0);
+    let (release, released) = crossbeam_channel::bounded::<()>(0);
+    let producer = std::thread::spawn(move || {
+        let publish = sender.reserve_publication();
+        holding.send(()).unwrap();
+        let _ = released.recv();
+        publish(completion);
+    });
+    held.recv().unwrap();
+    stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
+    let frame = std::thread::spawn(move || {
+        let report = stream.poll([0.0; 3], 0);
+        (stream, report)
+    });
+    test_time::eventually("the poll finishes while publication is held", || {
+        frame.is_finished()
+    });
+    drop(release);
+    producer.join().unwrap();
+    let (mut stream, report) = frame.join().unwrap();
+    assert_eq!(report.decoded_results, 0);
+    assert_eq!(stream.decode_rx.len(), 1);
+
+    stream.frame_deadline = Some(Instant::now() + Duration::from_secs(60));
+    let report = stream.poll([0.0; 3], 0);
+    assert_eq!(report.decoded_results, 1);
+    assert_eq!(stream.committed_sequence(), 1);
 }
 
 /// A reclaim request stops a poll before its next heavy commit even with a whole slice left.

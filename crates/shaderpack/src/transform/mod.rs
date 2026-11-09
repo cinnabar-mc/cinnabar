@@ -13,6 +13,7 @@ mod dot;
 mod interface;
 pub(crate) mod items;
 mod legacy;
+pub use legacy::ALPHA_TESTED_OUTPUT;
 pub(crate) use legacy::interface_identifier;
 mod local_constants;
 mod math;
@@ -112,6 +113,7 @@ pub(crate) fn transform(
         &pp.tokens,
         stage,
         pp.version,
+        names.normalize_legacy,
         names.software_fused_dot,
         unbound_core_inputs,
     )?;
@@ -277,6 +279,7 @@ fn stage_tokens(
     tokens: &[Tok],
     stage: StageKind,
     version: u32,
+    compatibility: bool,
     software_fused_dot: bool,
     unbound_core_inputs: bool,
 ) -> Result<legacy::Legacy, TransformError> {
@@ -287,6 +290,7 @@ fn stage_tokens(
         fused.as_deref().unwrap_or(wide),
         stage,
         version,
+        compatibility,
         unbound_core_inputs,
     )
 }

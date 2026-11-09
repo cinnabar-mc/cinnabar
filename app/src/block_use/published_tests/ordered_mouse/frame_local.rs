@@ -54,7 +54,7 @@ fn ordered_frame_local_new_use_forgets_the_previous_block_resolution() {
     let (mut world, mut captured) = mouse_fixture();
     tap(&mut world, MouseButton::Right);
     mouse_frame(&mut world, MouseButton::Right, &[]);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
     captured.drain();
     item_use_tests::hold_snowball(&mut world);
     world.insert_resource(crate::item_use::ModItemUsePolicy { pulse: true });

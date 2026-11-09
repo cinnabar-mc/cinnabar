@@ -181,3 +181,52 @@ fn a_full_mod_collection_stays_readable_after_saving() {
     write_selection(&root.join(REGISTRATION_FILE), selected).unwrap();
     assert_eq!(read(root).mods.len(), mod_api::MAX_LOADED_MODS);
 }
+
+#[test]
+fn marketplace_permissions_cannot_exceed_the_request_while_local_mods_can() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    let index = |name| {
+        ModGrants::CAPABILITIES
+            .iter()
+            .position(|capability| capability.name == name)
+            .unwrap()
+    };
+    let bytes = crate::modding::marketplace::component_fixture(r#"{"hud":true}"#);
+    let managed = resolved_component(&root.join(format!(
+        "{}11-fixture.wasm",
+        launcher::mods::MARKETPLACE_FILE_PREFIX
+    )));
+    let local = resolved_component(&root.join("local.wasm"));
+    for component in [&managed, &local] {
+        std::fs::write(component, &bytes).unwrap();
+        select(root, component, true, "enable".into()).unwrap();
+    }
+    let grants = |component: &Path| {
+        read(root)
+            .mods
+            .into_iter()
+            .find(|entry| same_path(&entry.component, component))
+            .unwrap()
+            .grants
+    };
+
+    let before = std::fs::read(root.join(REGISTRATION_FILE)).unwrap();
+    assert!(permission(root, &managed, index("camera"), true, "camera".into()).is_err());
+    assert_eq!(std::fs::read(root.join(REGISTRATION_FILE)).unwrap(), before);
+    permission(root, &managed, index("hud"), true, "hud".into()).unwrap();
+    grant_all(root, &managed, "all".into()).unwrap();
+    let requested = ModGrants {
+        hud: true,
+        ..Default::default()
+    };
+    assert_eq!(grants(&managed), requested);
+    permission(root, &managed, index("hud"), false, "off".into()).unwrap();
+    assert_eq!(grants(&managed), ModGrants::default());
+
+    permission(root, &local, index("camera"), true, "camera".into()).unwrap();
+    assert!(grants(&local).camera);
+    grant_all(root, &local, "all".into()).unwrap();
+    let local_grants = grants(&local);
+    assert!(local_grants.hud && local_grants.camera && local_grants.interaction);
+}

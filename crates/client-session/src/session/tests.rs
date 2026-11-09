@@ -815,6 +815,7 @@ async fn control_kinds_and_sequenced_world_data_use_only_their_own_channels() {
             packs: (),
             terrain_before_spawn: true,
             level_identity: None,
+            level_name: Default::default(),
         },
         NetworkControlEvent::Failed {
             message: "failure".to_owned(),

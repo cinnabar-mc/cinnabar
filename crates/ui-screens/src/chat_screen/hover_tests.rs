@@ -145,6 +145,7 @@ fn check_message_tooltip(expected_caption: &str, color: i32) {
                         local_player: "Alex",
                         editor: &editor,
                         messages: &messages,
+                        first_message_id: 1,
                         suggestions: &[],
                         usage: None,
                         selected_suggestion: None,

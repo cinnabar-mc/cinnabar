@@ -50,5 +50,5 @@ fn java_offhand_shield_retains_its_banner_cloth() {
     .unwrap();
     let (draw, atlas) = source.items[1].as_ref().expect("offhand shield");
     assert_eq!(draw.presentation.submission.texture_layer, 0);
-    assert_eq!(&atlas.rgba8[..3], assets::banner::color_rgb(15));
+    assert_eq!(&atlas.rgba8.range(0, 3)[..], assets::banner::color_rgb(15));
 }

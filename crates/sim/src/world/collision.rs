@@ -5,6 +5,17 @@ const UNLOADED_BOUNDARY_REVISION: u64 = 0;
 // Extend beyond valid i32 coordinates so f32-rounded queries overlap at both limits.
 const UNLOADED_BOUNDARY_VERTICAL_LIMIT: f64 = -(i32::MIN as f64) * 2.0;
 
+impl WorldCollisionIdentity {
+    /// Whether the query reached a column that has not arrived, which movement meets as a
+    /// solid barrier rather than its blocks.
+    #[must_use]
+    pub fn reaches_absent_columns(&self) -> bool {
+        self.chunks
+            .iter()
+            .any(|revision| revision.revision == UNLOADED_BOUNDARY_REVISION)
+    }
+}
+
 impl<'a> PaletteWorld<'a> {
     /// Keeps anchors in absent terrain blocked until their own feet region arrives.
     pub(super) fn require_movement_origin(&self, feet: Vec3) -> Result<(), WorldQueryError> {
@@ -93,7 +104,9 @@ impl<'a> PaletteWorld<'a> {
                 (min[2] >> 4..=max[2] >> 4).map(move |z| ChunkKey::new(self.dimension, x, z))
             })
             .collect::<Vec<_>>();
-        let identity = self.identity_for_chunks(chunks.iter().copied())?;
+        let mut identity = self.identity_for_chunks(chunks.iter().copied())?;
+        // Piston arm collision follows its owner's actor, which may sit outside the scan.
+        let mut owner_columns = Vec::new();
 
         self.emit_unloaded_boundary_instances(query, &chunks, &mut *emit);
         let mut section = SectionCache::default();
@@ -128,6 +141,13 @@ impl<'a> PaletteWorld<'a> {
                             .physics(runtime_id)
                             .ok_or(WorldQueryError::UnknownRuntimeId { runtime_id, block })?;
                         let shapes = self.block_collision_shapes(block, physics, query)?;
+                        if let Some(owner) = self.collision_actor_owner(block, physics)? {
+                            let column =
+                                ChunkKey::new(self.dimension, owner[0] >> 4, owner[2] >> 4);
+                            if !chunks.contains(&column) && !owner_columns.contains(&column) {
+                                owner_columns.push(column);
+                            }
+                        }
                         if shapes.is_empty() {
                             // Powder snow has no shape of its own; a mover-aware
                             // query decides whether its block box collides.
@@ -161,6 +181,9 @@ impl<'a> PaletteWorld<'a> {
                     }
                 }
             }
+        }
+        if !owner_columns.is_empty() {
+            identity = self.identity_for_chunks(chunks.iter().chain(&owner_columns).copied())?;
         }
         if let Some(colliders) = &self.actor_colliders {
             for &shape in colliders.iter() {
@@ -203,6 +226,22 @@ mod tests {
         let mut store = ChunkStore::new();
         store.mark_chunk_loaded(ChunkKey::new(0, 0, 0)).unwrap();
         (store, registry)
+    }
+
+    /// Getting off beside a column that has not arrived places no one until it does.
+    #[test]
+    fn a_dismount_beside_an_absent_column_waits_for_it() {
+        let (store, registry) = terrain();
+        let world = PaletteWorld::for_movement(&store, &registry, 0);
+        let dismount = |x| crate::Dismount {
+            vehicle: Vec3::new(x, 80.0, 8.5),
+            vehicle_motion: Vec3::ZERO,
+            seat: Vec3::new(x, 80.0, 8.5),
+            rider_width: crate::PLAYER_WIDTH,
+            rider_height: crate::PLAYER_HEIGHT,
+        };
+        assert!(dismount(8.5).exit_feet(&world).is_some());
+        assert_eq!(dismount(15.5).exit_feet(&world), None);
     }
 
     #[test]

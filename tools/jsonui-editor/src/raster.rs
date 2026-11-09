@@ -399,6 +399,13 @@ fn shaded_sample(
         let luma = sample[0] * 0.299 + sample[1] * 0.587 + sample[2] * 0.114;
         sample = [luma, luma, luma, sample[3]];
     }
+    if flags & render_api::UI_STYLE_RGB_COVERAGE != 0 {
+        let coverage = sample[0].max(sample[1]).max(sample[2]);
+        for channel in &mut sample[..3] {
+            *channel /= coverage.max(0.000001);
+        }
+        sample[3] *= coverage;
+    }
     let texel = sample.map(|channel| (channel * 255.0).round() as u8);
     if flags & render_api::UI_STYLE_SPRITE_COLOR_MASK != 0 {
         let dye = bounds.unwrap_or_default();

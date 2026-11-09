@@ -120,7 +120,14 @@ pub(crate) fn press(
             crate::survival_mining::observe_destroy_target(
                 &player,
                 &context,
-                &input.context.origin,
+                {
+                    let (origin, ticked) = input.context.attack.block_pick();
+                    crate::survival_mining::DestroyPick {
+                        origin,
+                        ticked,
+                        held: None,
+                    }
+                },
                 caps,
                 input.context.mode,
                 input.context.identity,

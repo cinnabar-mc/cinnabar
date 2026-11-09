@@ -174,6 +174,15 @@ fn ordered_placement_keeps_its_local_swing_when_authority_is_published() {
         .iter()
         .find_map(protocol::test_support::packets::swing);
     assert_eq!(swing, Some((42, Some("build".into()))));
+    // Vanilla voices placement only from the server's level sound event, so a local copy
+    // would double it whenever the server's copy fails to pair with it.
+    assert_eq!(
+        app.world()
+            .resource::<Messages<client_audio::audio::LocalBlockCue>>()
+            .len(),
+        0,
+        "placement must not voice a local place sound"
+    );
 }
 
 #[test]

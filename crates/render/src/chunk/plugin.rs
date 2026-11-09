@@ -188,6 +188,9 @@ impl Plugin for ChunkRenderPlugin {
                     queue_transparent_chunks
                         .in_set(crate::world_passes::WorldPassSystems)
                         .in_set(RenderSystems::Queue),
+                    transparent::batching::batch_adjacent_water
+                        .in_set(RenderSystems::PhaseSort)
+                        .after(crate::transparent_phase::sort),
                     prepare_chunk_texture_assets
                         .in_set(ChunkPublicationStage::Attributes)
                         .run_if(render_scene::startup_work::world_work_allowed),

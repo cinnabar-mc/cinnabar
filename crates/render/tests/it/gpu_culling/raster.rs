@@ -13,13 +13,38 @@ enum Submission {
 
 /// Draws the CPU path and the two-phase GPU path, from a stale history, through `vertex` and
 /// every submission the device offers, and fails when more than `tolerance` pixels differ.
-fn compare_cull_paths(vertex: &str, tolerance: usize) {
+fn compare_cull_paths(vertex: &str, tolerance: usize, boxes: bool, samples: u32) {
     let fixed = wgpu::Features::INDIRECT_FIRST_INSTANCE;
     let count = fixed | wgpu::Features::MULTI_DRAW_INDIRECT_COUNT;
-    let Some(gpu) = Gpu::for_fixture_with("gpu culled terrain raster", count) else {
+    let Some((gpu, adapter)) = Gpu::for_fixture_with_adapter(
+        "gpu culled terrain raster",
+        count
+            | wgpu::Features::SHADER_EARLY_DEPTH_TEST
+            | wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        wgpu::Limits::default(),
+    ) else {
         return;
     };
     let features = gpu.device.features();
+    if [DEPTH_FORMAT, wgpu::TextureFormat::Rgba8Unorm]
+        .into_iter()
+        .any(|format| {
+            !adapter
+                .get_texture_format_features(format)
+                .flags
+                .sample_count_supported(samples)
+        })
+    {
+        eprintln!("missing fixture: {samples}x terrain raster samples");
+        return;
+    }
+    if boxes
+        && (gpu.backend != wgpu::Backend::Vulkan
+            || !features.contains(wgpu::Features::SHADER_EARLY_DEPTH_TEST))
+    {
+        eprintln!("missing fixture: Vulkan forced early depth for box colour comparison");
+        return;
+    }
     let mut submissions = [
         (Submission::Fixed, features.contains(fixed)),
         (Submission::Count, features.contains(count)),
@@ -46,13 +71,14 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
     ];
     let mut occluded_any = false;
     for (index, camera) in cameras.iter().enumerate() {
-        let raster = Raster::through(
+        let raster = Raster::through_samples(
             &gpu,
             &terrain,
             camera,
             true,
             wgpu::TextureFormat::Rgba8Unorm,
             vertex,
+            samples,
         );
         let eye = camera.eye.as_dvec3().to_array();
         let visible = (0..slots)
@@ -72,7 +98,7 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
         culler.set_order(nearest_first);
 
         // CPU path: facing solid runs front to back, then the cutout tails.
-        let cpu = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+        let cpu = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         let mut cpu_draws = 0;
         {
@@ -89,7 +115,7 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
             }
         }
         gpu.queue.submit([encoder.finish()]);
-        let expected = read_texture(&gpu, &cpu.color, 0);
+        let expected = read_texture(&gpu, cpu.resolved.as_ref().unwrap_or(&cpu.color), 0);
         gpu_snapshot::save(&format!("gpu_cull_cpu_{vertex}_{index}"), &expected);
         let background = &expected[..4];
         assert!(
@@ -104,8 +130,18 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
         // GPU path: early from the stale history, Hi-Z from that depth, then late.
         let mut next_history = None;
         for &submission in &submissions {
-            culler.set_history(&bits_of(&history, slots));
-            let gpu_target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, 1);
+            let history_words = bits_of(&history, slots)
+                .into_iter()
+                .map(|word| {
+                    if boxes {
+                        word * model::HISTORY_RASTER_VISIBLE
+                    } else {
+                        word
+                    }
+                })
+                .collect::<Vec<_>>();
+            culler.set_history(&history_words);
+            let gpu_target = Target::new(&gpu, wgpu::TextureFormat::Rgba8Unorm, samples);
             let mut gpu_draws = 0;
             let mut pyramid_mips = 0;
             for phase in CullPhase::ALL {
@@ -113,13 +149,50 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
                 if submission == Submission::Fixed && phase == CullPhase::Early {
                     encoder.clear_buffer(&culler.storage.args, 0, None);
                 }
-                let pyramid = (phase == CullPhase::Late)
+                let pyramid = (phase == CullPhase::Late && !boxes)
                     .then(|| gpu_target.pyramid(&gpu, &culler.kernels, &mut encoder));
                 if let Some(pyramid) = &pyramid {
                     pyramid_mips = pyramid.mip_count();
                 }
                 let input = view_input(camera, pyramid_mips);
-                culler.encode(&mut encoder, &input, phase, pyramid.as_ref());
+                if boxes {
+                    let mut uniform = CullViewUniform::new(
+                        &input,
+                        phase,
+                        culler.slots,
+                        culler.storage.capacity,
+                        culler.kernels.workgroup,
+                    );
+                    uniform.depth[3] = model::OCCLUSION_RASTER;
+                    culler.storage.write_uniform(&gpu.queue, phase, &uniform);
+                    if phase == CullPhase::Late {
+                        let boxes = box_occlusion::RasterCull::new(
+                            &gpu.device,
+                            &culler.storage,
+                            culler.kernels.workgroup,
+                            DEPTH_FORMAT,
+                            samples,
+                        );
+                        boxes.encode(
+                            &mut encoder,
+                            &gpu_target.depth.create_view(&Default::default()),
+                            culler.slots,
+                            uniform.viewport,
+                            (None, None),
+                        );
+                    }
+                    let groups = culler
+                        .kernels
+                        .bind_groups(&gpu.device, &culler.storage, None);
+                    culler.kernels.encode_cull(
+                        &mut encoder,
+                        &groups[phase as usize],
+                        culler.slots,
+                        None,
+                    );
+                } else {
+                    culler.encode(&mut encoder, &input, phase, pyramid.as_ref());
+                }
                 if submission == Submission::Resolved {
                     gpu.queue.submit([encoder.finish()]);
                     encoder = gpu.device.create_command_encoder(&Default::default());
@@ -131,7 +204,14 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
                 } else {
                     let mut pass = gpu_target.pass(&mut encoder, phase == CullPhase::Early);
                     for stream in [CullStream::Solid, CullStream::Cutout] {
-                        raster.bind(&mut pass, stream, &culler.storage.draw_offsets);
+                        if boxes && phase == CullPhase::Early {
+                            if stream != CullStream::Solid {
+                                continue;
+                            }
+                            raster.bind_early(&mut pass, &culler.storage.draw_offsets);
+                        } else {
+                            raster.bind(&mut pass, stream, &culler.storage.draw_offsets);
+                        }
                         let offset = u64::from(args_region(culler.storage.capacity, phase, stream));
                         let max = slots as u32 * stream.draws_per_record();
                         if submission == Submission::Count {
@@ -150,7 +230,24 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
                 gpu.queue.submit([encoder.finish()]);
                 gpu_draws += culler.args(phase).iter().map(Vec::len).sum::<usize>();
             }
-            let next = culler.history();
+            let next = if boxes {
+                let bytes = read_buffer(
+                    &gpu,
+                    &culler.storage.record_draws,
+                    u64::from(culler.slots) * 4,
+                );
+                bytemuck::cast_slice::<u8, u32>(&bytes)
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(rank, word)| {
+                        ((word & model::DECISION_CANDIDATE != 0)
+                            && (word & model::DECISION_HIDDEN == 0))
+                            .then_some(culler.order[rank] as usize)
+                    })
+                    .collect()
+            } else {
+                culler.history()
+            };
             assert!(next.iter().all(|slot| visible.contains(slot)));
             assert!(
                 next_history
@@ -158,7 +255,21 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
                     .is_none_or(|previous| *previous == next)
             );
 
-            let actual = read_texture(&gpu, &gpu_target.color, 0);
+            let actual = read_texture(
+                &gpu,
+                gpu_target.resolved.as_ref().unwrap_or(&gpu_target.color),
+                0,
+            );
+            if boxes {
+                let actual_depth = box_occlusion_tests::sampled_depth(&gpu, &gpu_target);
+                let expected_depth = box_occlusion_tests::sampled_depth(&gpu, &cpu);
+                let different = actual_depth
+                    .iter()
+                    .zip(&expected_depth)
+                    .filter(|(a, b)| a != b)
+                    .count();
+                assert_eq!(different, 0, "camera {index} depth differs");
+            }
             gpu_snapshot::save(
                 &format!("gpu_cull_gpu_{vertex}_{index}_{submission:?}"),
                 &actual,
@@ -190,15 +301,23 @@ fn compare_cull_paths(vertex: &str, tolerance: usize) {
 
 #[test]
 fn gpu_culled_terrain_rasterises_exactly_like_the_cpu_culled_path() {
-    compare_cull_paths("unsealed_vertex", 0);
+    compare_cull_paths("unsealed_vertex", 0, false, 1);
 }
 
 /// Sealed quads overlap coplanar neighbours by a sub-pixel sliver, where the
 /// paths' different draw orders may pick either neighbour's edge texel.
 #[test]
 fn gpu_culled_sealed_terrain_rasterises_like_the_cpu_culled_path() {
-    compare_cull_paths("vertex", SEALED_DRAW_ORDER_PIXELS);
+    compare_cull_paths("vertex", SEALED_DRAW_ORDER_PIXELS, false, 1);
 }
 
 /// Seam pixels per 256 x 256 frame whose colour may follow draw order.
 const SEALED_DRAW_ORDER_PIXELS: usize = 24;
+
+/// Current-frame boxes must retain exact completed colour and depth after camera changes.
+#[test]
+fn raster_box_occlusion_matches_unculled_terrain_on_first_disocclusion_frame() {
+    for samples in [1, 2, 4, 8] {
+        compare_cull_paths("vertex", 0, true, samples);
+    }
+}

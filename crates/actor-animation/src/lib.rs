@@ -41,6 +41,8 @@ pub mod consumables;
 mod properties;
 mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
+mod head_rotation;
+pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
@@ -102,7 +104,7 @@ pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::compose_pose;
-pub use render::RenderTextureLayer;
+pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
@@ -136,3 +138,6 @@ mod dragon_tests;
 #[cfg(test)]
 #[global_allocator]
 static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+/// Owner-bone placement shared by world and live UI equipment.
+pub mod attachment;

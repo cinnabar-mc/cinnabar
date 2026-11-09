@@ -236,3 +236,128 @@ fn validation_cache_tracks_every_model_stream_generation_and_asset_identity() {
         (false, true)
     );
 }
+
+/// The first item always proceeds; later ones stop once the allowance is spent.
+#[test]
+fn preparation_deadline_admits_one_item_then_stops_when_spent() {
+    use crate::chunk::gpu::upload::PreparationDeadline;
+    use std::time::Duration;
+
+    let started = web_time::Instant::now();
+    let allowance = Duration::from_millis(1);
+    let deadline = PreparationDeadline::new(started, allowance);
+    assert!(deadline.admits_more(started, 4));
+    assert!(deadline.admits_more(started + allowance - Duration::from_nanos(1), 4));
+    assert!(!deadline.admits_more(started + allowance, 1));
+    assert!(deadline.admits_more(started + allowance * 100, 0));
+}
+
+/// Deferred uploads keep their permits and priority order, then acknowledge each generation once.
+#[test]
+fn spent_preparation_time_defers_the_burst_without_reordering_it() {
+    let acknowledgements = ChunkUploadAcknowledgements::default();
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        acknowledgements.clone(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    app.insert_resource(
+        ChunkUploadBudget::new(0, 0).with_preparation_time(std::time::Duration::ZERO),
+    );
+    let config = PublicationServiceConfig::DEFAULT;
+    let allowance = render_api::PublicationAllowance::new(config);
+    allowance.begin_frame(
+        1,
+        config.maximum_frame_items,
+        config.maximum_frame_bytes,
+        0,
+        config.maximum_frame_items,
+    );
+    let template = instance();
+    let bytes = chunk_instance_upload_byte_len(&template);
+    let now = Instant::now();
+    let mut spawn = |x: i32, priority: ChunkUploadPriority| {
+        let mut instance = template.clone();
+        instance.key = SubChunkKey::new(0, x, 0, 0);
+        instance.priority = priority;
+        instance.token = Some(render_scene::ChunkUploadToken {
+            generation: instance.generation,
+            dirty_since: now,
+        });
+        let permit = allowance
+            .try_admit_payload(bytes)
+            .unwrap()
+            .into_handoff()
+            .unwrap()
+            .into_render_entity()
+            .unwrap();
+        instance.publication_permit =
+            Some(render_scene::chunk::api::PublicationPermitSlot::new(permit));
+        app.world_mut().spawn(instance).id()
+    };
+    // Spawned out of order: the urgent edit goes first, then nearest first.
+    let far = spawn(3, ChunkUploadPriority::new(0.0));
+    let near = spawn(0, ChunkUploadPriority::new(0.0));
+    let urgent = spawn(5, ChunkUploadPriority::urgent());
+    let middle = spawn(1, ChunkUploadPriority::new(0.0));
+    let expected = [urgent, near, middle, far];
+
+    let mut admitted = Vec::new();
+    for frame in 0..expected.len() {
+        let stats = prepare(&mut app);
+        assert_eq!(stats.chunk_updates, 1, "frame {frame} admits exactly one");
+        assert_eq!(stats.candidates_deferred, expected.len() - frame - 1);
+        assert_eq!(stats.time_limited, frame + 1 < expected.len());
+        let completed = acknowledgements.drain();
+        assert_eq!(completed.len(), 1);
+        let uploaded = app
+            .world()
+            .get::<ChunkRenderInstance>(expected[frame])
+            .unwrap();
+        assert_eq!(completed[0].key, uploaded.key);
+        assert_eq!(completed[0].token, uploaded.token.unwrap());
+        assert_eq!(completed[0].uploaded_bytes, bytes);
+        let remaining = expected.len() - frame - 1;
+        assert_eq!(allowance.live_permits(), remaining);
+        assert_eq!(allowance.live_payload_bytes(), bytes * remaining as u64);
+        for &entity in &expected[frame + 1..] {
+            let deferred = app.world().get::<ChunkRenderInstance>(entity).unwrap();
+            assert_eq!(
+                deferred.publication_permit.as_ref().unwrap().stage(),
+                Some(PublicationPermitStage::RenderEntity),
+            );
+            assert!(app.world().resource::<GpuUpdateFairness>().wait_age(entity) > 0);
+        }
+        let arena = app.world().resource::<ChunkGpuArena>();
+        let newly = expected
+            .iter()
+            .copied()
+            .filter(|entity| arena.allocations.contains_key(entity) && !admitted.contains(entity))
+            .collect::<Vec<_>>();
+        admitted.extend(newly);
+    }
+    assert_eq!(admitted, expected);
+    assert_eq!(prepare(&mut app).chunk_updates, 0);
+    assert!(acknowledgements.drain().is_empty());
+}
+
+/// An unspent allowance leaves the whole burst in one frame, as before the guard.
+#[test]
+fn unspent_preparation_time_admits_the_whole_burst() {
+    let mut app = super::gpu_publication::noop_gpu_publication_app(
+        ChunkUploadAcknowledgements::default(),
+        ChunkGpuRemovalQueue::default(),
+    );
+    app.insert_resource(
+        ChunkUploadBudget::new(usize::MAX, u64::MAX)
+            .with_preparation_time(std::time::Duration::MAX),
+    );
+    let template = instance();
+    for x in 0..4 {
+        let mut instance = template.clone();
+        instance.key = SubChunkKey::new(0, x, 0, 0);
+        app.world_mut().spawn(instance);
+    }
+    let stats = prepare(&mut app);
+    assert_eq!(stats.chunk_updates, 4);
+    assert!(!stats.time_limited);
+}

@@ -31,6 +31,7 @@ fn geometry(size: [f32; 3], uv: assets::EntityGeometryUv) -> assets::EntityGeome
             never_render: None,
             reset: None,
             texture_meshes: Box::default(),
+            poly_mesh: None,
             cubes: vec![EntityGeometryCube {
                 origin: [Scalar::ZERO; 3],
                 size: size.map(|v| Scalar::new(v).unwrap()),
@@ -245,6 +246,25 @@ fn malformed_rehashed_headers_cannot_bypass_carrier_policy_or_limits() {
     for length in [0, 8, 128, bytes.len() - 1] {
         assert!(RuntimeActorCatalog::decode(&bytes[..length], &entities).is_err());
     }
+}
+
+#[test]
+fn catalog_slim_skin_draws_its_left_leg_unmirrored() {
+    use assets::starter_skins::{CLASSIC_SKIN_GEOMETRY, SLIM_SKIN_GEOMETRY};
+    let mirrored = |identifier: &str, bone: &str| {
+        let mut model = geometry(
+            [1.0; 3],
+            assets::EntityGeometryUv::Box([assets::EntityGeometryScalar::ZERO; 2]),
+        );
+        model.identifier = identifier.into();
+        model.bones[0].name = bone.into();
+        model.bones[0].mirror = Some(true);
+        model.bones[0].cubes[0].mirror = true;
+        assets::SkinGeometry::from_catalog(&model).unwrap().bones[0].cubes[0].mirror
+    };
+    assert!(!mirrored(SLIM_SKIN_GEOMETRY, "leftLeg"));
+    assert!(mirrored(SLIM_SKIN_GEOMETRY, "rightLeg"));
+    assert!(mirrored(CLASSIC_SKIN_GEOMETRY, "leftLeg"));
 }
 
 #[test]

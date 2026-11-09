@@ -21,7 +21,7 @@ impl EquipmentRuntime {
             width: texture.width,
             height: texture.height,
             layers: 1,
-            rgba8: Arc::clone(&texture.rgba8),
+            rgba8: Arc::clone(&texture.rgba8).into(),
         })
     }
 

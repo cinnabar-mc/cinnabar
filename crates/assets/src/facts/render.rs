@@ -39,6 +39,10 @@ pub enum BlockRenderKind {
     Grindstone,
     /// Stonecutter body and saw plane that turns with its cardinal direction.
     Stonecutter,
+    /// Lectern stand that turns with its cardinal direction; the block entity draws the book.
+    Lectern,
+    /// Bell frame for each mounting and direction; the block entity draws the body.
+    Bell,
     Lever,
     LilyPad,
     PitcherCrop,
@@ -60,6 +64,10 @@ pub enum BlockRenderKind {
     Crafter,
     /// Piston body whose top, bottom and side slots follow its head.
     PistonBase,
+    /// Jigsaw cube whose authored faces and UVs turn with its facing and rotation.
+    Jigsaw,
+    /// Vault whose cutout shell turns with its direction and draws an inward interior.
+    Vault,
     CommandBlock,
     Composter,
     Cauldron,
@@ -87,6 +95,8 @@ pub enum BlockRenderKind {
     StainedGlass,
     CopperGrate,
     CandleCake,
+    /// One to four placed candles, each with its crossed wick.
+    Candle,
     Shelf,
     LightningRod,
     CopperBulb,
@@ -218,6 +228,7 @@ impl BlockRenderKind {
             | R::RespawnAnchor
             | R::Shelf
             | R::SeaPickle
+            | R::Candle
             | R::BrewingStand
             | R::Campfire
             | R::Hopper
@@ -237,9 +248,15 @@ impl BlockRenderKind {
             | R::CoralWallFan
             | R::LilyPad => (true, true, false, true),
             R::Crystal => (true, true, false, true),
-            R::CommandBlock | R::Observer | R::Dispenser | R::Crafter | R::PistonBase => {
-                (true, false, false, true)
-            }
+            R::CommandBlock
+            | R::Observer
+            | R::Dispenser
+            | R::Crafter
+            | R::PistonBase
+            | R::Jigsaw
+            | R::Lectern
+            | R::Bell => (true, false, false, true),
+            R::Vault => (true, true, false, true),
             R::EndPortalFrame | R::Lantern => (true, true, true, true),
             R::FlowerPot | R::Azalea | R::Bamboo => (false, false, true, false),
             R::StainedGlass

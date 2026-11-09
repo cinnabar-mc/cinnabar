@@ -90,6 +90,10 @@ carried_sprites! {
         "minecraft:horn_coral_fan",
         "minecraft:tube_coral_fan",
     ],
+    // The terrain model holds only the frame; the block entity draws the bell itself.
+    |_: &RegistryRecord, render: BlockRenderFact| render.kind == R::Bell => [
+        "minecraft:bell",
+    ],
     |_: &RegistryRecord, render: BlockRenderFact| render.kind == R::LeafLitter => [
         "minecraft:leaf_litter",
     ],

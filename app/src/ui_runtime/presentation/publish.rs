@@ -270,6 +270,7 @@ pub(crate) fn prepare_ui_runtime(
             .as_ref()
             .and_then(|pack| pack.equipment.clone()),
     );
+    presentation.set_preview_player_layers(client_world.pack_entities.clone());
     let settings = Arc::clone(&settings_snapshot.0);
     let show_custom_item_models = settings.value(SettingId::ShowCustomItemModels) != 0;
     presentation.set_player_preview_custom_item_models(show_custom_item_models);
@@ -326,8 +327,26 @@ pub(crate) fn prepare_ui_runtime(
                 })
                 .flatten()
         });
-    if hud_doll || runtime.emotes().is_open() {
+    presentation.begin_live_capture();
+    // A screen's live renderer draws the same animated actor as the HUD doll.
+    if hud_doll
+        || (presentation.has_preview_player_layers() && !menu_visible)
+        || runtime.emotes().is_open()
+        || (presentation.live_renderer_shown() && !menu_visible)
+    {
         presentation.set_cosmetic_motion(hand_rig.cosmetic_motion());
+        presentation.set_hud_glide(
+            client_world
+                .stream
+                .as_ref()
+                .and_then(|stream| stream.authority().local_player_ui().actor())
+                .and_then(|actor| {
+                    client_presentation::presentation::actors::glide_rotation(
+                        actor,
+                        actor_partial.0,
+                    )
+                }),
+        );
         presentation.capture_hud_player_with_emote(
             client_world
                 .stream
@@ -345,7 +364,7 @@ pub(crate) fn prepare_ui_runtime(
     let hide_hand = !overlays.hand;
     // The paper doll shows in the inventory and menus; the CPU hands only while no GPU hand rig.
     let first_person = client_presentation::camera::hand_first_person(
-        camera_settings.perspective(),
+        Some(&*camera_settings),
         server_camera.as_deref(),
     );
     let java_held_item = camera_settings.feel().java_animations
@@ -414,7 +433,7 @@ pub(crate) fn prepare_ui_runtime(
             .stream
             .as_ref()
             .map(|stream| stream.authority().inventory_ui()),
-        camera_settings.perspective(),
+        camera_settings.rendered_perspective(),
         now_millis,
         icon_frames,
     );
@@ -432,12 +451,35 @@ pub(crate) fn prepare_ui_runtime(
         [feet.x, feet.y, feet.z].map(|axis| axis.floor() as i32)
     });
     presentation.hud_frame_mut().thunderstorm = weather.lightning_level() > 0.0;
+    presentation.hud_frame_mut().locator_view =
+        cameras
+            .single()
+            .ok()
+            .and_then(|(_, transform, projection)| {
+                let Projection::Perspective(projection) = projection else {
+                    return None;
+                };
+                Some(ui_screens::hud_renderers::LocatorView {
+                    position: transform.translation.to_array(),
+                    forward: transform.forward().to_array(),
+                    right: transform.right().to_array(),
+                    vertical_fov: projection.fov,
+                })
+            });
     presentation.hud_frame_mut().death_screen =
         menu_visible && menu_scene == Some(launcher::menu::MenuScreen::Death);
     presentation.hud_frame_mut().dimension = client_world
         .stream
         .as_ref()
         .map_or(0, |stream| stream.current_dimension());
+    runtime.observe_locator_actors(presentation.hud_frame().dimension, |id| {
+        client_world
+            .stream
+            .as_ref()?
+            .authority()
+            .actor_by_unique_id(id)?
+            .interpolated_position(actor_partial.0.clamp(0.0, 1.0))
+    });
     presentation.hud_frame_mut().world_time = Some(
         client_presentation::environment::visual_world_time(*clock, time.elapsed_secs_f64()),
     );

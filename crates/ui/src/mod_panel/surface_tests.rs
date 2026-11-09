@@ -31,7 +31,7 @@ fn panels_require_a_surface_and_reject_removed_native_layout_fields() {
 
 /// A surface-only panel shaped like a packet mod's menu validates without native fields.
 #[test]
-fn surface_only_packet_menu_panels_validate() {
+fn surface_only_panels_validate() {
     let document = serde_json::json!({"namespace":"lunar","root":{"type":"panel","controls":[
         {"toggle":{"type":"button","size":[20,10],"button_mappings":[{"from_button_id":
             "button.menu_select","to_button_id":"mod.control:0","mapping_type":"pressed"}]}},
@@ -39,7 +39,7 @@ fn surface_only_packet_menu_panels_validate() {
             "binding_name_override":"#offset"}]}}
     ]}});
     let panel: Panel = serde_json::from_value(serde_json::json!({
-        "show_gameplay_hud":true,"toggle_key":"RightShift","motion":true,"capture_key":false,
+        "show_gameplay_hud":true,"motion":true,"capture_key":false,
         "reference_size":[495,304],
         "controls":[{"kind":"toggle","id":"aim","label":"Aim","value":false}],
         "surface":{"screen":"lunar.root","document":document.to_string(),

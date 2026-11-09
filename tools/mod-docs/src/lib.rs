@@ -41,7 +41,7 @@ const APPENDICES: &[(&str, &str)] = &[
     ("Drawing materials", "drawing-materials"),
     ("Entity masks", "entity-masks"),
     ("Native packet frames", "native-frame"),
-    ("Native packet menus", "native-menu"),
+    ("Packet panel capabilities", "packet-panels"),
 ];
 
 /// Locates the source checkout independently of the caller's working directory.

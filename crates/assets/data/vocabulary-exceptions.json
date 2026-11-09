@@ -1494,7 +1494,7 @@
       "reference": {
         "file": "registry-policy.json",
         "location": {
-          "pointer": "/unresolved_retail/1"
+          "pointer": "/unresolved_retail/0"
         },
         "domain": "block",
         "identifier": "minecraft:disc_press"

@@ -43,6 +43,10 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     let mut player = player_state::PlayerState::new(1);
     let mut runtime = UiRuntime::new(1);
     runtime.session.player_roster.set_entries(names(2));
+    runtime
+        .session
+        .player_roster
+        .set_level_name("Example World".into());
     let frame = |presentation: &mut UiPresentationRuntime,
                  player: &player_state::PlayerState,
                  runtime: &UiRuntime| {
@@ -59,6 +63,12 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
         presentation.screens.player_list.as_ref().unwrap().passes(),
         1
     );
+    runtime
+        .session
+        .player_roster
+        .set_level_name("New World".into());
+    let renamed = frame(&mut presentation, &player, &runtime);
+    assert_ne!(shown.vertices, renamed.vertices);
     runtime.session.player_roster.set_entries(names(3));
     let changed = frame(&mut presentation, &player, &runtime);
     assert_ne!(shown.vertices, changed.vertices);
@@ -76,6 +86,7 @@ fn hold_release_roster_changes_and_chat_focus_drive_the_rendered_overlay() {
     );
     runtime.begin_session(2);
     assert!(!runtime.player_list_held());
+    assert!(runtime.session.player_roster.level_name().is_empty());
     assert!(runtime.known_player_names().is_empty());
     frame(&mut presentation, &player, &runtime);
     assert!(presentation.screens.player_list.is_none());
@@ -110,6 +121,10 @@ fn touch_roster_heading_stays_below_utility_buttons_on_first_paint() {
         presentation.enable_touch_controls(true);
         let mut runtime = UiRuntime::new(1);
         runtime.session.player_roster.set_entries(names(8));
+        runtime
+            .session
+            .player_roster
+            .set_level_name("Example World".into());
         runtime.toggle_touch_player_list();
         let dpi = DpiScale::new(1.).unwrap();
         presentation

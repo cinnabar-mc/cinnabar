@@ -308,14 +308,19 @@ impl LocalViewPose {
         [-pitch.to_degrees(), -yaw.to_degrees()]
     }
 
-    /// The shared presentation heading; third-person orbit and gameplay keep their input heading.
-    pub fn camera_rotation(self) -> Quat {
+    /// The player's view heading before optional mod presentation offsets, including sleep and freelook.
+    pub fn player_camera_rotation(self) -> Quat {
         if self.sleeping_camera
             && let Some(pose) = self.sleeping
         {
             return pose.rotation;
         }
         self.look_rotation()
+    }
+
+    /// The presented heading for render consumers, independently of gameplay aim.
+    pub fn camera_rotation(self, settings: &CameraSettingsAuthority) -> Quat {
+        settings.offset_view_rotation(self.player_camera_rotation())
     }
 
     /// Whether look input turns a freelook heading instead of the body.
@@ -790,8 +795,8 @@ pub fn resolve_camera_pose(
     let perspective = settings.perspective();
     let rotation = settings
         .death_rotation()
-        .unwrap_or_else(|| view.camera_rotation());
-    let transform = if let Some(presented) = settings.presented_view() {
+        .unwrap_or_else(|| view.player_camera_rotation());
+    let mut transform = if let Some(presented) = settings.presented_view() {
         Transform::from_translation(presented.position).with_rotation(presented.rotation)
     } else if let Some(stream) = client_world.stream.as_ref() {
         let collision_world = sim::PaletteWorld::new(
@@ -803,7 +808,7 @@ pub fn resolve_camera_pose(
         match settings.rig() {
             Some(rig) => collision_safe_rig_pose(
                 view.eye_translation(),
-                view.camera_rotation(),
+                view.player_camera_rotation(),
                 rig,
                 &collision_world,
             ),
@@ -817,6 +822,7 @@ pub fn resolve_camera_pose(
     } else {
         unavailable_world_perspective_pose(view.eye_translation(), rotation, perspective)
     };
+    transform.rotation = settings.offset_view_rotation(transform.rotation);
     *camera_transform.1 = transform;
     *published = CameraPose::new(transform);
     if let Some(stream) = client_world.stream.as_ref()

@@ -235,6 +235,23 @@ mod tests {
         assert!(validate(std::slice::from_ref(&visual), &sources).is_err());
     }
 
+    /// Mirrored-rod-art items take vanilla's third-person rod grip, which covers exactly these.
+    #[test]
+    fn mirrored_rod_art_covers_exactly_the_native_fishing_rod_items() {
+        let mirrored: Vec<_> = catalog()
+            .iter()
+            .filter_map(|(identifier, mirrored)| mirrored.then_some(*identifier))
+            .collect();
+        assert_eq!(
+            mirrored,
+            [
+                "minecraft:carrot_on_a_stick",
+                "minecraft:fishing_rod",
+                "minecraft:warped_fungus_on_a_stick",
+            ]
+        );
+    }
+
     #[test]
     fn unknown_names_cannot_inherit_a_tool_or_rod_grip() {
         assert_eq!(

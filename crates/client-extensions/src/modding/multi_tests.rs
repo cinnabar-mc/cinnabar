@@ -103,6 +103,7 @@ fn merged_presentation_follows_load_order_and_caches_unchanged_output() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -282,7 +283,7 @@ fn panel_hosts(directory: &Path) -> ModHosts {
     );
     for (index, key) in ["KeyA", "KeyB", "KeyC"].into_iter().enumerate() {
         let bundle = serde_json::json!({
-            "panel": {"toggle_key":key, "controls":[], "surface":{"screen":format!("{key}.root"),
+            "panel": {"controls":[], "surface":{"screen":format!("{key}.root"),
                 "document":serde_json::json!({"namespace":key,"root":{"type":"panel"}}).to_string()}},
             "surfaces":{}
         });
@@ -299,12 +300,17 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
     let directory = tempfile::tempdir().unwrap();
     for (key, selected) in [("KeyA", 0), ("KeyB", 0), ("KeyC", 1)] {
         let mut runtime = panel_hosts(directory.path());
-        runtime.select_panel(&[key.into()]);
+        let index = ["KeyA", "KeyB", "KeyC"]
+            .iter()
+            .position(|item| *item == key)
+            .unwrap();
+        runtime.host_mut(index).set_panel_open(true);
+        runtime.select_opened_panel(index);
         let removed = runtime.remove(0);
-        assert_eq!(removed.panel().unwrap().toggle_key, "KeyA");
+        assert_eq!(removed.panel().unwrap().surface.screen, "KeyA.root");
         assert_eq!(runtime.host_count(), 2);
-        assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyB");
-        assert_eq!(runtime.host(1).panel().unwrap().toggle_key, "KeyC");
+        assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyB.root");
+        assert_eq!(runtime.host(1).panel().unwrap().surface.screen, "KeyC.root");
         assert_eq!(runtime.panel_owner(), selected);
     }
 }
@@ -313,7 +319,8 @@ fn removing_the_first_host_keeps_surviving_order_and_selected_panel() {
 fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     let directory = tempfile::tempdir().unwrap();
     let mut runtime = panel_hosts(directory.path());
-    assert!(runtime.select_panel(&["KeyC".into()]));
+    runtime.host_mut(2).set_panel_open(true);
+    assert!(runtime.select_opened_panel(2));
     runtime.host_mut(2).set_panel_open(true);
     runtime.swap(0, 2);
     assert_eq!(runtime.panel_owner(), 0);
@@ -325,7 +332,7 @@ fn reordering_hosts_keeps_panel_selection_on_its_instance() {
     assert_eq!(runtime.panel_owner(), 1);
     runtime.remove(0);
     assert_eq!(runtime.panel_owner(), 0);
-    assert_eq!(runtime.host(0).panel().unwrap().toggle_key, "KeyC");
+    assert_eq!(runtime.host(0).panel().unwrap().surface.screen, "KeyC.root");
     assert!(runtime.host(0).panel_open());
 }
 
@@ -361,7 +368,7 @@ struct Probe {
     label: &'static str,
     ticks: u32,
     rig_x: f32,
-    command: &'static str,
+    command: String,
     second_frame_cues: usize,
     extra: &'static str,
 }
@@ -373,7 +380,7 @@ impl Probe {
             label,
             ticks,
             rig_x,
-            command: "/ability flash",
+            command: "/ability flash".into(),
             second_frame_cues: 2,
             extra: "",
         }
@@ -396,7 +403,7 @@ impl Probe {
             .replace("$LABEL_LENGTH", &self.label.len().to_string())
             .replace("$LABEL", self.label)
             .replace("$COMMAND_LENGTH", &self.command.len().to_string())
-            .replace("$COMMAND", self.command)
+            .replace("$COMMAND", &self.command)
             .replace("$TICKS", &self.ticks.to_string())
             .replace("$RIG_X", &self.rig_x.to_string())
             .replace("$SECOND_FRAME_CUES", &self.second_frame_cues.to_string())
@@ -453,6 +460,7 @@ fn run(probes: &[Probe], frames: usize) -> (ModHosts, Merged, Vec<usize>) {
         merged = run_frame(
             &mut runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -549,6 +557,7 @@ fn grants_stay_per_mod() {
     let merged = run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -624,6 +633,7 @@ fn inactive_hosts_do_not_capture_world_state() {
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             modules: None,
             pressed: false,
             controls: &controls,
@@ -649,7 +659,11 @@ fn load_set(mods: Vec<(PathBuf, ModGrants)>) -> ModHosts {
             .collect(),
     )
     .into_iter();
-    ModHosts::new(hosts.next().unwrap(), hosts.collect())
+    let mut runtime = ModHosts::new(hosts.next().unwrap(), hosts.collect());
+    runtime.budget = mod_host::CallbackBudget::with_clock(mod_api::TOTAL_MOD_FRAME_FUEL, || {
+        std::time::Duration::ZERO
+    });
+    runtime
 }
 
 #[test]
@@ -673,6 +687,7 @@ fn aggregate_frame_fuel_stops_later_callbacks_without_quarantining_skipped_mods(
     run_frame(
         &mut runtime,
         FrameInput {
+            native_editing: None,
             pressed: false,
             controls: &controls,
             previous_cues: &[],
@@ -957,6 +972,7 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
         run_frame(
             runtime,
             FrameInput {
+                native_editing: None,
                 modules: None,
                 pressed: false,
                 controls: &controls,
@@ -1000,4 +1016,83 @@ fn control_modes_combine_across_mods_and_drop_a_trapped_mod() {
         None,
         "unloading the last mode owner restores the player's settings"
     );
+}
+
+/// Dispatch retains inventory authority in both the shared sample and each guest's eligibility.
+#[test]
+fn inventory_only_mods_can_stage_offhand_swaps_through_the_dispatcher() {
+    let directory = tempfile::tempdir().unwrap();
+    let package = include_str!("../../../mod-api/wit/extension.wit")
+        .lines()
+        .next()
+        .unwrap()
+        .trim_start_matches("package ")
+        .trim_end_matches(';');
+    let (name, version) = package.split_once('@').unwrap();
+    let path = directory.path().join("inventory.wat");
+    std::fs::write(
+        &path,
+        include_str!("inventory_probe.wat")
+            .replace("$INVENTORY", &format!("{name}/inventory@{version}")),
+    )
+    .unwrap();
+    let mut runtime = load_set(vec![(
+        path,
+        ModGrants {
+            inventory: true,
+            ..Default::default()
+        },
+    )]);
+    let controls = ControlFrame {
+        focused: true,
+        ..mod_host::empty_controls()
+    };
+    runtime.begin_frame();
+    run_frame_callbacks(
+        &mut runtime,
+        FrameInput {
+            native_editing: None,
+            modules: None,
+            pressed: false,
+            controls: &controls,
+            previous_cues: &[],
+            player_state: None,
+            world_observation: None,
+            fps: None,
+            sidebar: None,
+            chat: &[],
+            chat_events: &[],
+            gameplay_facts: Default::default(),
+        },
+        |grants| {
+            assert!(grants.inventory);
+            assert!(grants.needs_gameplay());
+            (Some(snapshot()), Vec::new(), None)
+        },
+        |index, error| panic!("mod {index} failed: {error}"),
+    );
+    assert_eq!(
+        runtime.host_mut(0).take_inventory_requests(),
+        [mod_host::InventoryRequest::SwapOffhand {
+            session: snapshot().session,
+            slot: 20
+        }]
+    );
+}
+
+/// Event-handler composition across components.
+#[path = "multi_handler_tests.rs"]
+mod handlers;
+
+#[path = "multi_budget_tests.rs"]
+mod budget;
+
+/// A native editor sampled for one panel owner never reaches a mod that took the panel
+/// before delivery, nor a closed panel.
+#[test]
+fn native_editing_reaches_only_the_sampled_open_owner() {
+    assert!(editing_for(0, Some(0), true));
+    assert!(!editing_for(1, Some(0), true));
+    assert!(!editing_for(0, Some(0), false));
+    assert!(!editing_for(0, None, true));
 }
