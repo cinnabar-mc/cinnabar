@@ -58,16 +58,15 @@ pub(crate) fn drain_live_named_audio(
 }
 
 /// Raises the "No audio" toast once each time the sound output stays unopenable, in menus
-/// and in game, and logs where the step-by-step fixes are.
+/// and in game, and logs where the step-by-step fixes are. `now` is the real time since
+/// startup that stamps the toast; `ui` is only written, and so only marked changed, when the
+/// toast is raised.
 pub(crate) fn notify_audio_output_unavailable(
-    device: Option<NonSendMut<AudioDevice>>,
-    ui: Option<ResMut<UiRuntimeResource>>,
-    time: Res<Time<Real>>,
-    mut notice: Local<OutageNotice>,
+    device: &mut AudioDevice,
+    mut ui: ResMut<UiRuntimeResource>,
+    now: std::time::Duration,
+    notice: &mut OutageNotice,
 ) {
-    let (Some(mut device), Some(mut ui)) = (device, ui) else {
-        return;
-    };
     if !notice.observe(device.output_unavailable()) {
         return;
     }
@@ -75,7 +74,7 @@ pub(crate) fn notify_audio_output_unavailable(
         help = HELP_URL,
         "sound output still unavailable; showing the No audio toast"
     );
-    let now_millis = u64::try_from(time.elapsed().as_millis()).unwrap_or(u64::MAX);
+    let now_millis = u64::try_from(now.as_millis()).unwrap_or(u64::MAX);
     ui.0.push_client_toast(
         Arc::from(UNAVAILABLE_TITLE),
         Arc::from(UNAVAILABLE_MESSAGE),

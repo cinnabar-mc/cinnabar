@@ -831,6 +831,8 @@ pub(super) fn apply_engine_variables(
     let (brandishing, charge) = super::brandish::brandish_spear(actor, context, input);
     variables.set(engine.is_brandishing_spear, truth(brandishing));
     variables.set(engine.charge_amount, charge);
+    let brushing = super::brush::using_brush(actor, context, input);
+    variables.set(engine.is_using_brush, truth(brushing));
     variables.set(
         engine.damage_nearby_mobs,
         flag(ActorFlag::DamageNearbyMobs.wire_value()),
