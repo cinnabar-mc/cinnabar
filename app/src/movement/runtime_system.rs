@@ -66,6 +66,7 @@ pub(crate) fn advance_local_physics(
     }
     if auto_fly.enabled() || !physics.is_active() {
         locals.reset();
+        locals.settle_dismount_fence(&mut movement_ticker);
         return;
     }
     let Some(stream) = client_world.stream.as_ref() else {
@@ -166,7 +167,16 @@ pub(crate) fn advance_local_physics(
 
     if !movement_ticker.can_advance_physics_frame() {
         locals.observe_dismount(&frame, movement_ticker.session_generation());
-        // Retain presses and publish the pose while transport pauses simulation.
+        // Retain presses and publish the pose while transport pauses simulation. A request
+        // the player already got off for still goes out, since it holds movement back.
+        if locals.got_off_mount() {
+            flush_dismount(
+                &mut locals,
+                &physics,
+                &mut movement_ticker,
+                network.as_deref(),
+            );
+        }
         publish_physics_view(&mut physics, &mut view);
         return;
     }
@@ -186,13 +196,29 @@ pub(crate) fn advance_local_physics(
     if !advanced {
         return;
     }
+    flush_dismount(
+        &mut locals,
+        &physics,
+        &mut movement_ticker,
+        network.as_deref(),
+    );
+    publish_physics_view(&mut physics, &mut view);
+}
+
+/// Sends a retained dismount request, then lets through the movement it held back once
+/// transport admits it.
+fn flush_dismount(
+    locals: &mut LocomotionState,
+    physics: &LocalPhysicsController,
+    movement_ticker: &mut MovementTicker,
+    network: Option<&NetworkHandle<PackApplication>>,
+) {
     if let (Some(position), Some(network)) = (physics.network_position(), network) {
         locals.flush_dismount(position, |packet| {
             network.send_inventory_packets(vec![packet])
         });
     }
-    locals.settle_dismount_fence(&mut movement_ticker);
-    publish_physics_view(&mut physics, &mut view);
+    locals.settle_dismount_fence(movement_ticker);
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.

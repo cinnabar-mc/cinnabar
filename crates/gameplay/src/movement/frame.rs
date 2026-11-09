@@ -203,17 +203,28 @@ impl LocomotionState {
         {
             return false;
         }
-        let Some(seat) = physics.state().map(|state| state.position) else {
+        let vec3 = |[x, y, z]: [f32; 3]| sim::Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+        // A boat the player steers moves as the client predicts it, unless the server moved
+        // it since; then the boat and its seat stand where the server put them.
+        let feed = physics
+            .predicted_vehicle_feed()
+            .filter(|feed| feed.runtime_id == mount);
+        let current = feed.filter(|feed| {
+            facts
+                .vehicle
+                .is_some_and(|vehicle| vehicle.revision == feed.revision)
+        });
+        let seat = if feed.is_some() && current.is_none() {
+            facts.ride_seat.map(vec3)
+        } else {
+            physics.state().map(|state| state.position)
+        };
+        let Some(seat) = seat else {
             return false;
         };
-        // A boat the player steers moves as the client predicts it.
-        let (position, motion) = physics
-            .predicted_vehicle_feed()
-            .filter(|feed| feed.runtime_id == mount)
-            .map_or((placement.position, placement.motion), |feed| {
-                (feed.position, feed.velocity)
-            });
-        let vec3 = |[x, y, z]: [f32; 3]| sim::Vec3::new(f64::from(x), f64::from(y), f64::from(z));
+        let (position, motion) = current.map_or((placement.position, placement.motion), |feed| {
+            (feed.position, feed.velocity)
+        });
         let exit = sim::Dismount {
             vehicle: vec3(position),
             vehicle_motion: vec3(motion),
