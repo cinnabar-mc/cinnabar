@@ -10,10 +10,13 @@ type NetworkObservation struct {
 	RoundTripMillis func() *uint32
 }
 
-// latencySampler converts the upstream's half-RTT estimate without measuring the local bridge.
+// latencySampler reports the upstream's round trip without measuring the local bridge. It prefers
+// the transport's average connected-ping round trip, which excludes how long the server holds its
+// acknowledgements, and otherwise doubles the transport's half-RTT estimate.
 func latencySampler(upstream upstreamSession) func() *uint32 {
-	connection, ok := upstream.(interface{ Latency() time.Duration })
-	if !ok {
+	pinger, pings := upstream.(interface{ AveragePing() (time.Duration, bool) })
+	estimator, estimates := upstream.(interface{ Latency() time.Duration })
+	if !pings && !estimates {
 		return func() *uint32 { return nil }
 	}
 	return func() (sample *uint32) {
@@ -23,8 +26,29 @@ func latencySampler(upstream upstreamSession) func() *uint32 {
 				sample = nil
 			}
 		}()
-		return roundTripMillis(connection.Latency())
+		if pings {
+			if rtt, ok := pinger.AveragePing(); ok {
+				return pingMillis(rtt)
+			}
+		}
+		if estimates {
+			return roundTripMillis(estimator.Latency())
+		}
+		return nil
 	}
+}
+
+// pingMillis rounds a measured round trip up to full milliseconds. A measured zero stays zero
+// rather than becoming unknown.
+func pingMillis(rtt time.Duration) *uint32 {
+	const maxMillis = uint64(^uint32(0))
+	rtt = max(rtt, 0)
+	millis := uint64(rtt / time.Millisecond)
+	if rtt%time.Millisecond != 0 {
+		millis++
+	}
+	value := uint32(min(maxMillis, millis))
+	return &value
 }
 
 // roundTripMillis rounds a positive half-RTT estimate up to full milliseconds.
