@@ -9,6 +9,8 @@ mod java_grip_facts_tests;
 #[path = "runtime/held_animation_tests.rs"]
 pub(super) mod held_animation_tests;
 
+#[path = "runtime/armor_geometry_tests.rs"]
+mod armor_geometry_tests;
 #[path = "runtime/legacy_combat_tests.rs"]
 mod legacy_combat_tests;
 #[path = "runtime/worn_texture_tests.rs"]
@@ -1179,29 +1181,4 @@ fn glinting_held_items_draw_the_item_glint_across_their_sprite_in_every_view() {
             "an atlas sprite spans less than its page, so the glint scale exceeds 0.5"
         );
     }
-}
-
-#[test]
-fn canonical_humanoid_armor_geometry_aliases_to_native_player_armor() {
-    use super::runtime::canonical_armor_geometry_identifier;
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.helmet"),
-        "geometry.player.armor.helmet"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.chestplate"),
-        "geometry.player.armor.chestplate"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.leggings"),
-        "geometry.player.armor.leggings"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.humanoid.armor.boots"),
-        "geometry.player.armor.boots"
-    );
-    assert_eq!(
-        canonical_armor_geometry_identifier("geometry.custom.model"),
-        "geometry.custom.model"
-    );
 }
