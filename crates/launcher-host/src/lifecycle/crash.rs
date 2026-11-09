@@ -32,7 +32,7 @@ use std::{
     backtrace::Backtrace,
     path::{Path, PathBuf},
     sync::{
-        OnceLock,
+        Mutex, OnceLock, PoisonError,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -94,6 +94,8 @@ static CONTEXT: OnceLock<Context> = OnceLock::new();
 /// Set while a panic or fault is being reported, and for good once one was written in-process.
 /// A panic the monitor took clears it again, so a later fault still gets its own report.
 static REPORTED: AtomicBool = AtomicBool::new(false);
+/// The latest panic the hook saw, named by its thread.
+static LAST_PANIC: Mutex<Option<String>> = Mutex::new(None);
 
 /// Captures every panic and native fault of this process.
 ///
@@ -128,6 +130,7 @@ pub fn install(
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let message = info.to_string();
+        record_last_panic(&message);
         let backtrace = Backtrace::force_capture().to_string();
         (hooks.log_panic)(&format!("{message}\n{backtrace}\n"));
         previous(info);
@@ -144,6 +147,23 @@ pub fn install(
         }
         (hooks.flush)();
     }));
+}
+
+/// Keeps `message` as the latest panic, prefixed with the panicking thread's name.
+fn record_last_panic(message: &str) {
+    let thread = std::thread::current();
+    let panic = format!("{} {message}", thread.name().unwrap_or("An unnamed thread"));
+    *LAST_PANIC.lock().unwrap_or_else(PoisonError::into_inner) = Some(panic);
+}
+
+/// The latest panic seen since [`install`], such as `Render thread panicked at <location>:
+/// <message>`. A failure that ends the app without a cause of its own names it, because a
+/// panic on a thread other than the caller's reaches the caller only as an error exit.
+pub fn last_panic() -> Option<String> {
+    LAST_PANIC
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .clone()
 }
 
 /// Hands a panic to the monitor, dumps the panicking thread and connects again for whatever

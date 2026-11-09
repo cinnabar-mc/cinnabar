@@ -248,6 +248,7 @@ impl HudEditor {
             (delta[0] * signed[0] + delta[1] * signed[1]) / (base[0].powi(2) + base[1].powi(2));
         // Growth consumes only the space between the fixed corner and the dragged edges.
         // A minimum-sized card may still need translation if its starting bounds were offscreen.
+        let [min_scale, max_scale] = self.draft.scale_bounds().map(f64::from);
         let max_scale = (0..2)
             .map(|axis| {
                 let space = if resize.corner & (1 << axis) == 0 {
@@ -257,10 +258,9 @@ impl HudEditor {
                 };
                 space.max(0.).min(self.viewport[axis]) / base[axis]
             })
-            .fold(f64::from(ui::mod_hud::MAX_CARD_SCALE), f64::min)
-            .max(f64::from(ui::mod_hud::MIN_CARD_SCALE));
-        let scale = (resize.scale + projection)
-            .clamp(f64::from(ui::mod_hud::MIN_CARD_SCALE), max_scale) as f32;
+            .fold(max_scale, f64::min)
+            .max(min_scale);
+        let scale = (resize.scale + projection).clamp(min_scale, max_scale) as f32;
         let changed = self.draft.cards[index].scale != scale;
         self.draft.cards[index].scale = scale;
         let size = cards::dimensions(&self.draft.cards[index]);
@@ -654,6 +654,35 @@ mod resize_tests {
             assert_eq!(editor.draft.cards[0].scale, MAX_CARD_SCALE);
             assert_bounds(&editor);
         }
+    }
+
+    /// A host's narrower scale bounds stop corner drags, scale keys and validation alike.
+    #[test]
+    fn host_scale_bounds_limit_every_scaling_path() {
+        for (direction, bound) in [(-1., 0.5), (1., 1.5)] {
+            let mut editor = editor([2000., 1600.]);
+            editor.draft.scale_range = Some([0.5, 1.5]);
+            let resize = capture(&editor, 3);
+            editor.resize_card(0, resize, [direction * 10000.; 2]);
+            assert_eq!(editor.draft.cards[0].scale, bound);
+            assert_bounds(&editor);
+            editor.selected = Some(0);
+            let key = if direction < 0. {
+                "hud.scale_down"
+            } else {
+                "hud.scale_up"
+            };
+            editor.action(key, &mut []).unwrap();
+            assert_eq!(editor.draft.cards[0].scale, bound);
+        }
+        let mut hud = editor([400., 300.]).draft.clone();
+        hud.scale_range = Some([0.5, 1.5]);
+        hud.cards[0].scale = 2.;
+        assert!(hud.validate().is_err());
+        hud.cards[0].scale = 1.5;
+        assert!(hud.validate().is_ok());
+        hud.scale_range = Some([0.1, 1.5]);
+        assert!(hud.validate().is_err());
     }
 
     /// Recovered offscreen geometry remains finite and bounded when the minimum size can fit.

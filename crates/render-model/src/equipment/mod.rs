@@ -10,8 +10,9 @@ mod tests;
 
 pub use attachable::{BoneChannels, attach, authored_rotation};
 pub use display::{
-    ItemDisplay, SpriteGrip, attach_to_bone, held_block_display, held_block_display_for_hand,
-    held_sprite_display, held_sprite_display_for_hand, sprite_item_transform,
+    ItemDisplay, SpriteGrip, attach_to_bone, head_block_display, held_block_display,
+    held_block_display_for_hand, held_sprite_display, held_sprite_display_for_hand,
+    sprite_item_transform,
 };
 pub use render_offsets::{
     native_sprite_from_held, offset_first_person_lead, offset_held_display, offset_sprite_display,

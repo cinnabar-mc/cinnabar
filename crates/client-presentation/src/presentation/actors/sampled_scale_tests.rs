@@ -543,6 +543,7 @@ fn replacement_geometry_can_cross_the_frustum_while_its_base_box_is_outside() {
         assert!(admit_frame_bounds(
             &mut presentation,
             &rig,
+            world.actor(1).unwrap(),
             view,
             Some(&mut frame)
         ));
@@ -699,6 +700,84 @@ fn player_collision_bounds_do_not_hide_render_candidates() {
                 ));
             }
         }
+    }
+}
+
+#[test]
+fn collision_bounds_keep_their_size_through_render_admission_and_placement() {
+    let world = world("1", false, [0.0, 0.0, -5.0]);
+    let mut actor = world.actor(1).unwrap().clone();
+    for (key, value) in [
+        (ActorDataKey::Scale, 4.0),
+        (ActorDataKey::Width, 0.6),
+        (ActorDataKey::Height, 1.8),
+    ] {
+        actor
+            .metadata
+            .insert(key.wire_value(), ActorMetadataValue::Float(value));
+    }
+    let (artwork, locations) =
+        ActorArtworkPages::default().with_equipment_rasters(&[render_model::EquipmentRaster {
+            width: 1,
+            height: 1,
+            rgba8: Arc::from([255; 4]),
+        }]);
+    let mut poses = PoseConversions::default();
+    for (scale, axis_scale, height) in [
+        (1.0, [1.0; 3], 8.0),
+        (0.5, [1.0; 3], 7.2),
+        (1.0, [3.0, 1.0, 1.0], 24.0),
+        (0.125, [1.0; 3], 7.2),
+    ] {
+        let rig = ActorRigSnapshot {
+            scale,
+            axis_scale,
+            ..world.actor_rig(1).unwrap()
+        };
+        let view = Some(ActorCullView {
+            camera_position: Vec3::new(0.0, height + 2.0, 0.0),
+            clip_from_world: Mat4::from_translation(Vec3::new(0.0, -(height + 2.0), 0.0))
+                * Mat4::from_scale(Vec3::new(0.01, 1.0, -0.01)),
+            max_distance: 100.0,
+        });
+        assert!(!rig_may_be_visible(
+            &rig,
+            &actor,
+            0.5,
+            view,
+            None,
+            |_, _| false
+        ));
+        let mut presentation =
+            entity_rig_presentation_cached(&rig, &actor, &artwork, 0.5, Some(&mut poses)).unwrap();
+        let submission = &presentation.submission;
+        let (_, high) = submission.culling_bounds.at(
+            submission.world_from_actor.map(|row| row[3]),
+            submission.culling_scale(),
+        );
+        assert!((high[1] - height).abs() < 1e-4);
+        assert!(!actor_rig_submission_is_visible(submission, view));
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &rig,
+            &actor,
+            view,
+            None,
+        ));
+        let mut layers = rig.render.to_vec();
+        layers[0].geometry = Some(rig.geometry_source().unwrap().1.try_into().unwrap());
+        let selected = ActorRigSnapshot {
+            render: &layers,
+            ..rig
+        };
+        presentation.artwork = locations[0];
+        assert!(!admit_frame_bounds(
+            &mut presentation,
+            &selected,
+            &actor,
+            view,
+            None,
+        ));
     }
 }
 

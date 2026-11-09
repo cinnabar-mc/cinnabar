@@ -489,3 +489,123 @@ func TestDeviceFlowStillEndsOnDenialAndExpiry(t *testing.T) {
 		}
 	})
 }
+
+func TestDeviceFlowKeepsPollingThroughAnswersThatLeaveTheCodeUnanswered(t *testing.T) {
+	htmlPage := func(status int) func(*http.Request) (*http.Response, error) {
+		return func(request *http.Request) (*http.Response, error) {
+			return &http.Response{
+				StatusCode: status, Header: http.Header{"Content-Type": {"text/html; charset=utf-8"}},
+				Body: io.NopCloser(strings.NewReader("<html>provider-secret</html>")), Request: request,
+			}, nil
+		}
+	}
+	for _, test := range []struct {
+		name string
+		step func(*http.Request) (*http.Response, error)
+	}{
+		{"captive portal page", htmlPage(http.StatusOK)},
+		{"proxy refusal page", htmlPage(http.StatusForbidden)},
+		{"request timeout", tokenReply(http.StatusRequestTimeout, ``)},
+		{"empty accepted answer", tokenReply(http.StatusOK, `{}`)},
+		{"provider temporarily unavailable", tokenReply(http.StatusBadRequest, `{"error":"temporarily_unavailable"}`)},
+		{"provider server error", tokenReply(http.StatusBadRequest, `{"error":"server_error"}`)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+					test.step, tokenReply(http.StatusOK, `{"access_token":"token","token_type":"bearer"}`),
+				}}
+				token, err := pollDevice(context.Background(), endpoint, time.Now().Add(15*time.Minute))
+				if err != nil || token == nil || token.AccessToken != "token" {
+					t.Fatalf("Request() = %v, %v; want the token on the next poll", token, err)
+				}
+			})
+		})
+	}
+}
+
+func TestDeviceFlowBacksOffWhenRateLimited(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			tokenReply(http.StatusTooManyRequests, ``),
+			tokenReply(http.StatusOK, `{"access_token":"token","token_type":"bearer"}`),
+		}}
+		token, err := pollDevice(context.Background(), endpoint, time.Now().Add(15*time.Minute))
+		if err != nil || token == nil {
+			t.Fatalf("Request() = %v, %v; want the token after backing off", token, err)
+		}
+		if gap := endpoint.polls[1].Sub(endpoint.polls[0]); gap != 10*time.Second {
+			t.Fatalf("polled again after %v, want the 10s slow_down interval", gap)
+		}
+	})
+}
+
+func TestDeviceFlowAcceptsAFormEncodedToken(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/x-www-form-urlencoded"}},
+					Body: io.NopCloser(strings.NewReader("access_token=token&token_type=bearer")), Request: request,
+				}, nil
+			},
+		}}
+		token, err := pollDevice(context.Background(), endpoint, time.Now().Add(15*time.Minute))
+		if err != nil || token == nil || token.AccessToken != "token" || len(endpoint.polls) != 1 {
+			t.Fatalf("Request() = %v, %v after %d polls; want the token at once", token, err, len(endpoint.polls))
+		}
+	})
+}
+
+func TestDeviceFlowEndsOnAnswersThatRejectTheCode(t *testing.T) {
+	for _, code := range []string{"access_denied", "authorization_declined", "bad_verification_code", "invalid_grant", "invalid_client"} {
+		t.Run(code, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+					tokenReply(http.StatusBadRequest, `{"error":"`+code+`"}`),
+				}}
+				_, err := pollDevice(context.Background(), endpoint, time.Now().Add(15*time.Minute))
+				if !errors.Is(err, errDeviceAuthorization) || len(endpoint.polls) != 1 {
+					t.Fatalf("Request() = %v after %d polls, want a failed sign-in at once", err, len(endpoint.polls))
+				}
+			})
+		})
+	}
+}
+
+func TestDeviceFailureNamesARejectionAfterALostAnswer(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			tokenFailure(syscall.ECONNRESET),
+			tokenReply(http.StatusBadRequest, `{"error":"invalid_grant"}`),
+		}}
+		_, err := pollDevice(context.Background(), endpoint, time.Now().Add(15*time.Minute))
+		if want := "device_complete:http_400:invalid_grant:after_lost_answer"; err == nil || failureDiagnostic(err) != want {
+			t.Fatalf("diagnostic of %v = %q, want %q", err, failureDiagnostic(err), want)
+		}
+	})
+}
+
+func TestDeviceFlowFollowsARedirectedTokenEndpoint(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		endpoint := &scriptedTokenEndpoint{steps: []func(*http.Request) (*http.Response, error){
+			func(request *http.Request) (*http.Response, error) {
+				return &http.Response{
+					StatusCode: http.StatusTemporaryRedirect, Header: http.Header{"Location": {"https://login.example.test/moved"}},
+					Body: io.NopCloser(strings.NewReader("")), Request: request,
+				}, nil
+			},
+			func(request *http.Request) (*http.Response, error) {
+				if request.URL.Path != "/moved" || request.Method != http.MethodPost {
+					t.Errorf("redirected poll = %s %s, want POST /moved", request.Method, request.URL.Path)
+				}
+				return tokenReply(http.StatusOK, `{"access_token":"token","token_type":"bearer"}`)(request)
+			},
+		}}
+		start := time.Now()
+		token, err := pollDevice(context.Background(), endpoint, start.Add(15*time.Minute))
+		if err != nil || token == nil || token.AccessToken != "token" || time.Since(start) != 5*time.Second {
+			t.Fatalf("Request() = %v, %v after %v; want the token from the redirect on the first poll", token, err, time.Since(start))
+		}
+	})
+}

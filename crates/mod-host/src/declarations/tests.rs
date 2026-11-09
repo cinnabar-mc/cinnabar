@@ -280,75 +280,24 @@ fn explicit_raw_core_requests_override_native_export_inference() {
 }
 
 #[test]
-fn update_repository_is_optional_top_level_and_never_breaks_other_metadata() {
-    let empty = wat::parse_str("(component)").unwrap();
-    assert!(read(&empty).metadata.update_repository.is_none());
-    let mut valid = named(&empty, "Zoom");
-    section(
-        &mut valid,
-        mod_api::UPDATE_REPOSITORY_SECTION,
-        b"https://github.com/Example/Zoom.git",
-    );
-    let metadata = read(&valid).metadata;
-    assert_eq!(metadata.update_repository.unwrap().slug(), "example/zoom");
+fn legacy_update_sections_are_ignored_without_losing_other_metadata() {
+    let mut bytes = named(&wat::parse_str("(component)").unwrap(), "Zoom");
+    for (section_name, data) in [
+        (
+            mod_api::UPDATE_REPOSITORY_SECTION,
+            "https://github.com/example/zoom",
+        ),
+        (
+            mod_api::UPDATE_URL_SECTION,
+            "https://github.com/example/zoom/releases/latest/download/zoom.wasm",
+        ),
+    ] {
+        section(&mut bytes, section_name, data.as_bytes());
+    }
+    let metadata = read(&bytes).metadata;
+    assert!(metadata.update_repository.is_none());
+    assert!(metadata.update_url.is_none());
     assert_eq!(metadata.name.as_deref(), Some("Zoom"));
-
-    for data in [
-        b"https://other.example/zoom".as_slice(),
-        b"\xff",
-        b"https://github.com/example/zoom/releases",
-    ] {
-        let mut invalid = named(&empty, "Zoom");
-        section(&mut invalid, mod_api::UPDATE_REPOSITORY_SECTION, data);
-        let metadata = read(&invalid).metadata;
-        assert!(metadata.update_repository.is_none());
-        assert_eq!(metadata.name.as_deref(), Some("Zoom"));
-    }
-    let mut duplicate = valid.clone();
-    section(
-        &mut duplicate,
-        mod_api::UPDATE_REPOSITORY_SECTION,
-        b"https://github.com/example/other",
-    );
-    assert!(read(&duplicate).metadata.update_repository.is_none());
-    // Encode a nested component with its own repository; the outer component opts out.
-    let mut outer = empty;
-    outer.push(4);
-    length(valid.len(), &mut outer);
-    outer.extend(valid);
-    assert!(read(&outer).metadata.update_repository.is_none());
-}
-
-#[test]
-fn automatic_update_url_requires_one_valid_top_level_declaration() {
-    let empty = wat::parse_str("(component)").unwrap();
-    assert!(read(&empty).metadata.update_url.is_none());
-    let mut valid = named(&empty, "Zoom");
-    let url = b"https://github.com/Example/Zoom/releases/latest/download/zoom.wasm";
-    section(&mut valid, mod_api::UPDATE_URL_SECTION, url);
-    let metadata = read(&valid).metadata;
-    let source = metadata.update_url.unwrap();
-    assert_eq!(source.repository().slug(), "example/zoom");
-    assert_eq!(source.asset(), "zoom.wasm");
-    for data in [
-        b"https://example.com/zoom.wasm".as_slice(),
-        b"\xff",
-        b"https://github.com/example/zoom",
-    ] {
-        let mut invalid = named(&empty, "Zoom");
-        section(&mut invalid, mod_api::UPDATE_URL_SECTION, data);
-        let metadata = read(&invalid).metadata;
-        assert!(metadata.update_url.is_none());
-        assert_eq!(metadata.name.as_deref(), Some("Zoom"));
-    }
-    let mut duplicate = valid.clone();
-    section(&mut duplicate, mod_api::UPDATE_URL_SECTION, url);
-    assert!(read(&duplicate).metadata.update_url.is_none());
-    let mut nested = empty;
-    nested.push(4);
-    length(valid.len(), &mut nested);
-    nested.extend(valid);
-    assert!(read(&nested).metadata.update_url.is_none());
 }
 
 #[test]
@@ -366,7 +315,7 @@ fn snapshot_declarations_keep_native_permissions_and_update_metadata_together() 
     );
     let declared = declarations_snapshot(&bytes).unwrap();
     assert!(declared.requested.unwrap().unwrap().camera);
-    assert_eq!(declared.metadata.update_url.unwrap().asset(), "native.wasm");
+    assert!(declared.metadata.update_url.is_none());
 }
 
 #[test]
@@ -374,7 +323,7 @@ fn revision_updates_disable_legacy_fallback_even_when_invalid_or_duplicated() {
     let base = wat::parse_str("(component)").unwrap();
     let declaration = serde_json::json!({
         "source": "https://github.com/example/mod/releases/latest/download/mod.wasm",
-        "package": "example-mod", "api_revision": "a".repeat(40), "revision": "a".repeat(40),
+        "package": ui::mod_metadata::OFFICIAL_UPDATE_PACKAGE, "api_revision": "a".repeat(40), "revision": "a".repeat(40),
     })
     .to_string();
     for data in [declaration.as_bytes(), b"invalid"] {

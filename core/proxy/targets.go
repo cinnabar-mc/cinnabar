@@ -333,6 +333,15 @@ func resolveRawNetherNetTarget(_ context.Context, address string, account *authc
 	return newNetherNetTarget(value, account, logger), nil
 }
 
+// IsNetherNetTarget reports whether address is a valid explicit NetherNet target.
+func IsNetherNetTarget(address string) bool {
+	if !strings.HasPrefix(strings.ToLower(address), NetherNetTargetPrefix) {
+		return false
+	}
+	_, _, err := parseNetherNetTarget(address)
+	return err == nil
+}
+
 // parseNetherNetTarget splits nethernet/jsonrpc/<id> or nethernet/http/<host:port> into its
 // lower-case signaling and value. Vanilla signals a NetherNet ID only over JSON-RPC, so no other
 // signaling is accepted for one, and none is inferred from the value.

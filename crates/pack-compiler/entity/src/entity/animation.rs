@@ -264,9 +264,12 @@ pub(super) fn compile(
             ));
             continue;
         }
-        let definition = definition
-            .as_object()
-            .ok_or_else(|| invalid("animation definition must be an object"))?;
+        // An invalid definition loses only its own clips; the stack's other animations and
+        // entities still apply.
+        let Some(definition) = definition.as_object() else {
+            outcomes.push(fallback(source, symbol, FallbackReason::InvalidDefinition));
+            continue;
+        };
         if definition
             .get("animation_length")
             .and_then(Value::as_str)
@@ -279,61 +282,81 @@ pub(super) fn compile(
             ));
             continue;
         }
-        let mut partial = false;
-        if retain_server_clips {
-            let names: Vec<Box<str>> = definition
-                .get("bones")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flat_map(|bones| bones.keys())
-                .map(|name| name.to_ascii_lowercase().into())
-                .collect();
-            match compile_clip_for_geometry(
-                symbol,
-                source,
-                definition,
-                (None, &names, false),
-                ClipOutputs {
-                    clips: &mut clips,
-                    channels: &mut channels,
-                    keyframes: &mut keyframes,
-                    molang,
-                },
-            ) {
-                Ok((_, dropped)) => partial |= dropped > 0,
-                Err(ClipCompileError::Invalid(error)) => return Err(error),
+        let checkpoint = (clips.len(), channels.len(), keyframes.len(), molang.mark());
+        let mut compiled = Vec::new();
+        let result: Result<bool, AssetError> = 'clip: {
+            let mut partial = false;
+            if retain_server_clips {
+                let names: Vec<Box<str>> = definition
+                    .get("bones")
+                    .and_then(Value::as_object)
+                    .into_iter()
+                    .flat_map(|bones| bones.keys())
+                    .map(|name| name.to_ascii_lowercase().into())
+                    .collect();
+                match compile_clip_for_geometry(
+                    symbol,
+                    source,
+                    definition,
+                    (None, &names, false),
+                    ClipOutputs {
+                        clips: &mut clips,
+                        channels: &mut channels,
+                        keyframes: &mut keyframes,
+                        molang,
+                    },
+                ) {
+                    Ok((_, dropped)) => partial |= dropped > 0,
+                    Err(ClipCompileError::Invalid(error)) => break 'clip Err(error),
+                }
             }
-        }
-        for geometry in used_geometries {
-            match compile_clip_for_geometry(
-                symbol,
-                source,
-                definition,
-                (
-                    Some(geometry),
-                    &effective_bones[geometry as usize],
-                    skin_modelled.contains(&geometry),
-                ),
-                ClipOutputs {
-                    clips: &mut clips,
-                    channels: &mut channels,
-                    keyframes: &mut keyframes,
-                    molang,
-                },
-            ) {
-                Ok((clip, dropped)) => {
-                    partial |= dropped > 0;
+            for geometry in used_geometries {
+                match compile_clip_for_geometry(
+                    symbol,
+                    source,
+                    definition,
+                    (
+                        Some(geometry),
+                        &effective_bones[geometry as usize],
+                        skin_modelled.contains(&geometry),
+                    ),
+                    ClipOutputs {
+                        clips: &mut clips,
+                        channels: &mut channels,
+                        keyframes: &mut keyframes,
+                        molang,
+                    },
+                ) {
+                    Ok((clip, dropped)) => {
+                        partial |= dropped > 0;
+                        compiled.push((geometry, clip));
+                    }
+                    Err(ClipCompileError::Invalid(error)) => break 'clip Err(error),
+                }
+            }
+            Ok(partial)
+        };
+        match result {
+            Ok(partial) => {
+                for (geometry, clip) in compiled {
                     clip_indices.insert((identifier.into(), geometry), clip);
                 }
-                Err(ClipCompileError::Invalid(error)) => return Err(error),
+                if partial {
+                    outcomes.push(fallback(
+                        source,
+                        symbol,
+                        FallbackReason::UnsupportedOptionalExpression,
+                    ));
+                }
             }
-        }
-        if partial {
-            outcomes.push(fallback(
-                source,
-                symbol,
-                FallbackReason::UnsupportedOptionalExpression,
-            ));
+            Err(_) => {
+                let (clip_count, channel_count, keyframe_count, mark) = checkpoint;
+                clips.truncate(clip_count);
+                channels.truncate(channel_count);
+                keyframes.truncate(keyframe_count);
+                molang.rollback(mark);
+                outcomes.push(fallback(source, symbol, FallbackReason::InvalidDefinition));
+            }
         }
     }
     let PendingControllers {

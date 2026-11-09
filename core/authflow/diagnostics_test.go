@@ -130,6 +130,7 @@ func TestDeviceFailureDiagnosticNamesTheStepAndProviderAnswer(t *testing.T) {
 		{"provider rejects the code", "device_complete:http_400:invalid_grant", prompt, rejectedPoll(answer(http.StatusBadRequest, "invalid_grant"))},
 		{"provider sends an unreadable answer", "device_complete:http_403", prompt, rejectedPoll(answer(http.StatusForbidden, ""))},
 		{"provider code is not a standard one", "device_complete:http_400:unrecognized_code", prompt, rejectedPoll(answer(http.StatusBadRequest, "provider_secret"))},
+		{"player declines on Microsoft's page", "device_complete:http_400:authorization_declined", prompt, rejectedPoll(answer(http.StatusBadRequest, "authorization_declined"))},
 		{"accepted answer has no token", "device_complete:invalid_response", prompt, rejectedPoll(errors.New("oauth2: server response missing access_token provider-secret"))},
 		{"prompt request cannot connect", "device_start:transport", func(context.Context) (*oauth2.DeviceAuthResponse, error) {
 			return nil, &url.Error{Op: "Post", URL: "https://provider-secret.example.test", Err: syscall.ECONNRESET}

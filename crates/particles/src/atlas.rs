@@ -56,9 +56,9 @@ pub struct AtlasPatch {
     pub rgba8: Arc<[u8]>,
 }
 
+/// The static region lives once in `base`; dynamic tiles live only in their patches.
 pub struct ParticleAtlas {
     side: u32,
-    pixels: Vec<u8>,
     base: Option<Arc<[u8]>>,
     patches: HashMap<usize, AtlasPatch>,
     seq: u64,
@@ -74,7 +74,6 @@ impl Default for ParticleAtlas {
     fn default() -> Self {
         Self {
             side: ATLAS_SIDE,
-            pixels: vec![0; (ATLAS_SIDE * ATLAS_SIDE * 4) as usize],
             base: None,
             patches: HashMap::new(),
             seq: 0,
@@ -105,11 +104,13 @@ impl ParticleAtlas {
         }
         let mut atlas = Self {
             side,
-            pixels: vec![0; (side * side * 4) as usize],
             ..Self::default()
         };
+        // The snapshot is packed in place: it is the atlas's only full-size buffer.
+        let mut base = zeroed(side);
+        let pixels = Arc::get_mut(&mut base).expect("a new snapshot is unshared");
         // A white texel at the origin backs untextured or missing-texture particles.
-        atlas.blit(0, 0, 1, 1, &FALLBACK_TEXEL);
+        blit(pixels, side, 0, 0, 1, 1, &FALLBACK_TEXEL);
         atlas.placements.insert(
             "".into(),
             Placement {
@@ -131,7 +132,7 @@ impl ParticleAtlas {
             if y + h > atlas.static_rows() || w > side {
                 continue;
             }
-            atlas.blit(x, y, w, h, &texture.rgba8);
+            blit(pixels, side, x, y, w, h, &texture.rgba8);
             atlas.placements.insert(
                 texture.path.clone(),
                 Placement {
@@ -145,7 +146,7 @@ impl ParticleAtlas {
             x += w + 1;
             shelf = shelf.max(h);
         }
-        atlas.base = Some(Arc::from(atlas.pixels.as_slice()));
+        atlas.base = Some(base);
         atlas
     }
 
@@ -168,10 +169,8 @@ impl ParticleAtlas {
     /// The static-region snapshot uploaded once; the dynamic region starts empty.
     #[must_use]
     pub fn base(&mut self) -> Arc<[u8]> {
-        Arc::clone(
-            self.base
-                .get_or_insert_with(|| Arc::from(vec![0u8; self.pixels.len()])),
-        )
+        let side = self.side;
+        Arc::clone(self.base.get_or_insert_with(|| zeroed(side)))
     }
 
     /// Bumps whenever a dynamic tile is written.
@@ -205,9 +204,28 @@ impl ParticleAtlas {
         }
     }
 
+    /// Composes the current atlas, the static snapshot plus every live patch, into a new
+    /// buffer. Each call copies the whole atlas, so callers rebuild it only when
+    /// [`Self::patch_seq`] changes.
     #[must_use]
-    pub fn pixels(&self) -> &[u8] {
-        &self.pixels
+    pub fn pixels(&self) -> Arc<[u8]> {
+        let mut pixels = match &self.base {
+            Some(base) => Arc::from(&base[..]),
+            None => zeroed(self.side),
+        };
+        let target = Arc::get_mut(&mut pixels).expect("a new composition is unshared");
+        for patch in self.patches() {
+            blit(
+                target,
+                self.side,
+                patch.x,
+                patch.y,
+                patch.width,
+                patch.height,
+                &patch.rgba8,
+            );
+        }
+        pixels
     }
 
     /// Returns the dynamic slot covered by a tile placement; static textures have no pin.
@@ -359,7 +377,6 @@ impl ParticleAtlas {
         for at in covered {
             self.occupied[at] = Some(key);
         }
-        self.blit(placement.x, placement.y, side, side, pixels);
         self.seq += 1;
         self.patches.insert(
             slot,
@@ -387,14 +404,20 @@ impl ParticleAtlas {
             atlas_side: self.side,
         }
     }
+}
 
-    fn blit(&mut self, x: u32, y: u32, w: u32, h: u32, rgba: &[u8]) {
-        for row in 0..h {
-            let dest = (((y + row) * self.side + x) * 4) as usize;
-            let src = (row * w * 4) as usize;
-            self.pixels[dest..dest + (w * 4) as usize]
-                .copy_from_slice(&rgba[src..src + (w * 4) as usize]);
-        }
+/// Allocates one transparent `side` by `side` RGBA atlas buffer.
+fn zeroed(side: u32) -> Arc<[u8]> {
+    // A length-known iterator fills the shared allocation directly, without a staging copy.
+    std::iter::repeat_n(0, (side * side * 4) as usize).collect()
+}
+
+/// Copies a tightly packed `w` by `h` RGBA rectangle into an atlas row-major buffer.
+fn blit(pixels: &mut [u8], side: u32, x: u32, y: u32, w: u32, h: u32, rgba: &[u8]) {
+    for row in 0..h {
+        let dest = (((y + row) * side + x) * 4) as usize;
+        let src = (row * w * 4) as usize;
+        pixels[dest..dest + (w * 4) as usize].copy_from_slice(&rgba[src..src + (w * 4) as usize]);
     }
 }
 
@@ -466,6 +489,31 @@ mod tests {
                 .placement("textures/a")
                 .is_some()
         );
+    }
+
+    /// The packed atlas is retained for the session, so packing keeps a single atlas-sized
+    /// buffer rather than a working copy beside the uploaded snapshot.
+    #[test]
+    fn packing_allocates_one_atlas_buffer() {
+        let texture = assets::ParticleTexture {
+            path: "textures/particle/particles".into(),
+            width: 16,
+            height: 16,
+            rgba8: vec![5; 16 * 16 * 4].into(),
+        };
+        let carrier = assets::encode_particle_catalog([1; 32], &[texture], &[]).unwrap();
+        let assets = RuntimeParticleAssets::decode(&carrier).unwrap();
+        let (mut atlas, allocated) = test_alloc::measure(|| ParticleAtlas::from_assets(&assets));
+        let atlas_bytes = (atlas.side() * atlas.side() * 4) as usize;
+        assert!(
+            allocated.bytes < atlas_bytes + atlas_bytes / 8,
+            "packing allocated {} bytes for a {atlas_bytes}-byte atlas",
+            allocated.bytes
+        );
+        let placement = atlas.placement("textures/particle/particles").unwrap();
+        let at = ((placement.y * atlas.side() + placement.x) * 4) as usize;
+        assert_eq!(&atlas.base()[at..at + 4], &[5; 4]);
+        assert_eq!(&atlas.pixels()[at..at + 4], &[5; 4]);
     }
 
     #[test]
@@ -595,7 +643,7 @@ mod sprite_tests {
             let dest = (((p.y + row) * atlas.side + p.x) * 4) as usize;
             let source = (row * 128 * 4) as usize;
             assert_eq!(
-                &atlas.pixels[dest..dest + 512],
+                &atlas.pixels()[dest..dest + 512],
                 &pixels[source..source + 512]
             );
         }
@@ -618,7 +666,7 @@ mod sprite_tests {
         }
         for row in 0..128 {
             let dest = (((p.y + row) * atlas.side + p.x) * 4) as usize;
-            assert_eq!(&atlas.pixels[dest..dest + 512], &[77; 512]);
+            assert_eq!(&atlas.pixels()[dest..dest + 512], &[77; 512]);
         }
         assert_eq!(atlas.placement_references(p), 1);
         atlas.release_placement(p);

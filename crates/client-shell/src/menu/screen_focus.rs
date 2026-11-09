@@ -41,8 +41,13 @@ pub fn publish_gameplay_screen_controls(
     keys: Option<Res<ButtonInput<KeyCode>>>,
     mouse: Option<Res<ButtonInput<MouseButton>>>,
     pads: Query<&Gamepad>,
+    effective_mode: Option<Res<client_state::EffectiveGameplayInputMode>>,
+    mut presentation: Option<ResMut<UiPresentationResource>>,
     mut controls: ResMut<GameplayScreenControls>,
 ) {
+    if let (Some(menu), Some(presentation)) = (menu.as_deref(), presentation.as_mut()) {
+        sync_touch_controls(menu, effective_mode.map(|mode| mode.0), presentation);
+    }
     *controls = GameplayScreenControls {
         pick_block_pressed: menu.is_some()
             && (control_bindings::binding_gamepad(menu.as_deref(), BindingId::PickItem, &pads)
@@ -64,6 +69,36 @@ pub fn publish_gameplay_screen_controls(
             .as_deref()
             .is_some_and(|menu| menu.settings_snapshot().0.value(SettingId::HideHud) != 0),
     };
+}
+
+/// Shows the touch controls only where touch is available and, when the platform arbitrates a
+/// gameplay input mode, only in `Touch` mode. Without a mode the current state is kept.
+///
+/// Writes only on change, keeping presentation change detection and open touch utilities intact
+/// while the mode holds.
+pub fn sync_touch_controls(
+    menu: &MenuRuntime,
+    mode: Option<InputMode>,
+    presentation: &mut ResMut<UiPresentationResource>,
+) {
+    let enabled = if !menu.touch_available {
+        Some(false)
+    } else {
+        mode.map(|mode| mode == InputMode::Touch)
+    };
+    if let Some(enabled) = enabled
+        && presentation.touch_controls_enabled() != enabled
+    {
+        presentation.enable_touch_controls(enabled);
+    }
+}
+
+impl MenuRuntime {
+    /// Overrides touch availability for tests.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_touch_available(&mut self, available: bool) {
+        self.touch_available = available;
+    }
 }
 
 #[cfg(test)]

@@ -49,6 +49,8 @@ use {
 mod camera_policy;
 #[path = "teleport_ack_wiring_tests/correction_presentation.rs"]
 mod correction_presentation;
+#[path = "teleport_ack_wiring_tests/dismount.rs"]
+mod dismount;
 #[path = "teleport_ack_wiring_tests/respawn.rs"]
 mod respawn;
 

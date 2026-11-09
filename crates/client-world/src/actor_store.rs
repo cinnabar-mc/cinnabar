@@ -65,8 +65,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
+pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -911,10 +911,10 @@ pub use fire::FIRE_FADE_TICKS;
 pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    FishingHookPose, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES,
+    PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-
 pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
