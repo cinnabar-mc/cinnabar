@@ -869,7 +869,6 @@ mod dragon_particles;
 mod dropped;
 mod entities;
 mod fire;
-mod fishing;
 mod hitbox;
 mod hurt;
 mod last_death;
@@ -902,14 +901,13 @@ pub use entities::{
     BlockEntityCandidate, BlockEntityKind, BlockEntityView, RopeKind, RopeView, tnt_presentation,
 };
 pub use fire::FIRE_FADE_TICKS;
-pub use fishing::FishingHookPose;
 pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    FishingHookPose, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES,
+    PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-
 pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;
