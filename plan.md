@@ -166,6 +166,11 @@ acceptance remain incomplete; see the [backend contract](crates/render/src/frame
   matched chest-particle presentation and custom destruction overrides remain incomplete.
   Mining particles accept packed and face-specific block events, preserving full hashed
   identities and the event's block material; matched in-world capture acceptance remains open.
+- [ ] Qualify legacy particle events (`LevelEvent` `0x4000 | type` and 2009), which use the
+  native `ParticleType` enum. For types without a dedicated handler, native emits one particle
+  manually; Cinnabar runs the pack emitter instead, so burst counts may differ, and dragon
+  breath (49) stays unmapped because its lingering emitter needs cloud variables. Types 1, 25
+  and 52 have no identified native handler; the 1.26.60 client handlers are not yet compared.
 - [ ] Close straw-bed native-gallery and replacement-pack acceptance. Both halves
   use pack geometry and face corners in all four directions at full sheet resolution,
   with a quarter-block collision and selection box; sleeping and in-game breaking
