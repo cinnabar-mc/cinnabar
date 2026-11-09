@@ -232,6 +232,7 @@ fn only_compatibility_stages_write_the_alpha_tested_output() {
             normalize_legacy,
             geometry: true,
             vertex_clip: true,
+            bound_core_inputs: false,
         };
         let mut iface = ProgramInterface::default();
         transform(&pp, StageKind::Fragment, &mut iface, &names)
