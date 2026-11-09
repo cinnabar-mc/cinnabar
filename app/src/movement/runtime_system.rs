@@ -66,7 +66,6 @@ pub(crate) fn advance_local_physics(
     }
     if auto_fly.enabled() || !physics.is_active() {
         locals.reset();
-        locals.settle_dismount_fence(&mut movement_ticker);
         return;
     }
     let Some(stream) = client_world.stream.as_ref() else {
@@ -166,18 +165,8 @@ pub(crate) fn advance_local_physics(
     }
 
     if !movement_ticker.can_advance_physics_frame() {
+        // Retain presses and publish the pose while transport pauses simulation.
         locals.observe_paused_dismount(frame, movement_ticker.session_generation());
-        // Retain presses and publish the pose while transport pauses simulation. A request
-        // the player already got off for still goes out, since it holds movement back.
-        if locals.got_off_mount() {
-            flush_dismount(
-                &mut locals,
-                &physics,
-                &mut movement_ticker,
-                network.as_deref(),
-            );
-        }
-        locals.settle_dismount_fence(&mut movement_ticker);
         publish_physics_view(&mut physics, &mut view);
         return;
     }
@@ -186,6 +175,18 @@ pub(crate) fn advance_local_physics(
         collisions.registry(stream.network_id_mode()),
         &client_world.movement_colliders,
     );
+    // The client gets the player off a mount it places them beside before the frame's ticks;
+    // the server moves riders off any other mount once it has the request.
+    let server_places_dismount = !frame.facts.client_places_dismount();
+    if let Some(network) = network.as_deref() {
+        locals.leave_mount(
+            &mut frame,
+            &mut physics,
+            &movement_ticker,
+            &world,
+            |packet| network.send_inventory_packets(vec![packet]),
+        );
+    }
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -197,30 +198,14 @@ pub(crate) fn advance_local_physics(
     if !advanced {
         return;
     }
-    flush_dismount(
-        &mut locals,
-        &physics,
-        &mut movement_ticker,
-        network.as_deref(),
-    );
-    publish_physics_view(&mut physics, &mut view);
-}
-
-/// Sends a retained dismount request once the movement before it has gone out, then lets
-/// through the movement it held back once transport admits it.
-fn flush_dismount(
-    locals: &mut LocomotionState,
-    physics: &LocalPhysicsController,
-    movement_ticker: &mut MovementTicker,
-    network: Option<&NetworkHandle<PackApplication>>,
-) {
-    let position = physics.network_position();
-    match network {
-        Some(network) => locals.flush_dismount_request(movement_ticker, position, |packet| {
+    if server_places_dismount
+        && let (Some(position), Some(network)) = (physics.network_position(), network)
+    {
+        locals.flush_dismount(position, |packet| {
             network.send_inventory_packets(vec![packet])
-        }),
-        None => locals.settle_dismount_fence(movement_ticker),
+        });
     }
+    publish_physics_view(&mut physics, &mut view);
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.

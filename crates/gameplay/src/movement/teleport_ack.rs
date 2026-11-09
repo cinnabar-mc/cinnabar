@@ -77,7 +77,6 @@ impl MovementTicker {
     /// reconciliation; arming while already armed is a bounded no-op so a
     /// burst of teleports cannot queue multiple assertions.
     pub fn note_server_teleport(&mut self, kind: ServerTeleportKind) {
-        self.retire_dismount_placement();
         if (!self.teleport_ack_enabled && kind != ServerTeleportKind::MovePlayer)
             || self.pending_teleport_ack.is_some()
         {

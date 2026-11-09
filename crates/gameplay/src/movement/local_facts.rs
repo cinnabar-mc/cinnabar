@@ -49,6 +49,15 @@ pub struct LocalMovementFacts {
     pub swim_hunger_blocked: bool,
 }
 
+impl LocalMovementFacts {
+    /// Whether the client places the player when it gets off its mount, rather than leaving
+    /// that to the server.
+    #[must_use]
+    pub fn client_places_dismount(&self) -> bool {
+        self.mount.is_some_and(|mount| !mount.server_owns_dismount)
+    }
+}
+
 /// Where the player's mount is and how it moves, as getting off it reads them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct MountFacts {

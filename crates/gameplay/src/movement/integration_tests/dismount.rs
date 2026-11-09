@@ -478,13 +478,17 @@ fn reported_position(packet: &protocol::Packet) -> [f32; 3] {
     })
 }
 
-/// Movement state for one rider across frames.
+/// Movement state for one rider across frames, and the dismount requests its transport took.
 struct Rider {
     physics: LocalPhysicsController,
     ticker: MovementTicker,
     locals: super::LocomotionState,
     effects: super::LocalMovementEffectTimeline,
     speed: super::LocalMovementSpeedAuthority,
+    /// How transport answers a dismount request.
+    transport: Result<(), protocol::BatchSendError>,
+    /// Positions the dismount requests transport took reported.
+    sent: Vec<[f32; 3]>,
 }
 
 impl Rider {
@@ -496,10 +500,27 @@ impl Rider {
             locals: super::LocomotionState::default(),
             effects: super::LocalMovementEffectTimeline::default(),
             speed: super::LocalMovementSpeedAuthority::default(),
+            transport: Ok(()),
+            sent: Vec::new(),
         }
     }
 
+    /// Runs a frame as the client does: getting off first, then the frame's ticks.
     fn advance(&mut self, frame: super::PhysicsFrameInput) {
+        let transport = self.transport;
+        let sent = &mut self.sent;
+        self.locals.leave_mount(
+            &frame,
+            &mut self.physics,
+            &self.ticker,
+            &BlockFloor,
+            |packet| {
+                if transport.is_ok() {
+                    sent.push(reported_position(&packet));
+                }
+                transport
+            },
+        );
         assert!(self.locals.advance(
             frame,
             &mut self.physics,
@@ -510,32 +531,13 @@ impl Rider {
         ));
     }
 
-    /// Rides a frame on the still boat, sends its movement, then presses sneak on the next
-    /// frame, which runs `delta`.
+    /// Rides a frame on the still boat and sends its movement, then presses sneak on the
+    /// next frame, which runs `delta`.
     fn get_off(&mut self, delta: Duration) {
         self.advance(boat_frame(false));
         assert_eq!(self.physics.mode(), sim::MovementMode::Riding);
         self.flush_movement();
-        let mut press = boat_frame(false);
-        press.delta = delta;
-        press.sneak.pressed = true;
-        press.sneak.held = true;
-        self.advance(press);
-    }
-
-    /// Offers the retained dismount request to a transport answering `result`, as the
-    /// client's frame does; returns the positions the requests it accepted reported.
-    fn request(&mut self, result: Result<(), protocol::BatchSendError>) -> Vec<[f32; 3]> {
-        let mut sent = Vec::new();
-        let position = self.physics.network_position();
-        self.locals
-            .flush_dismount_request(&mut self.ticker, position, |packet| {
-                if result.is_ok() {
-                    sent.push(reported_position(&packet));
-                }
-                result
-            });
-        sent
+        self.advance(sneak_press(delta));
     }
 
     /// Ticks of the movement packets transport accepts now.
@@ -555,12 +557,21 @@ impl Rider {
     }
 }
 
+/// A frame of `delta` on the still boat that presses sneak.
+fn sneak_press(delta: Duration) -> super::PhysicsFrameInput {
+    let mut press = boat_frame(false);
+    press.delta = delta;
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    press
+}
+
 fn close(actual: [f32; 3], expected: [f32; 3]) -> bool {
     (0..3).all(|axis| (actual[axis] - expected[axis]).abs() < 1.0e-4)
 }
 
-/// Getting off a boat resting on land stands the rider on the ground beside it at once and
-/// reports that position, rather than leaving it on a seat sunk into the ground.
+/// Getting off a boat resting on land stands the rider on the ground beside it and reports
+/// that position, rather than leaving it on a seat sunk into the ground.
 #[test]
 fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
     let mut rider = Rider::new();
@@ -575,18 +586,17 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
         (1.0..1.01).contains(&feet.y),
         "the rider stands on the ground, not in it: {feet:?}"
     );
-
-    let sent = rider.request(Ok(()));
     let exit = [0.5, 1.001 + protocol::PLAYER_NETWORK_OFFSET, -0.5];
     assert!(
-        sent.len() == 1 && close(sent[0], exit),
-        "the request reports where the rider got off: {sent:?}"
+        rider.sent.len() == 1 && close(rider.sent[0], exit),
+        "the request reports where the rider got off: {:?}",
+        rider.sent
     );
 
     // The server's link lags the request; the rider stays off the boat meanwhile.
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
-    assert!(rider.request(Ok(())).is_empty(), "the request is sent once");
+    assert_eq!(rider.sent.len(), 1, "the request is sent once");
     let mut unlinked = boat_frame(false);
     unlinked.facts.ride = None;
     unlinked.facts.mount_runtime_id = None;
@@ -602,7 +612,7 @@ fn getting_off_a_boat_on_land_stands_the_rider_beside_it() {
 fn a_restored_link_seats_the_rider_again() {
     let mut rider = Rider::new();
     rider.get_off(speed_frame(Default::default()).delta);
-    assert_eq!(rider.request(Ok(())).len(), 1);
+    assert_eq!(rider.sent.len(), 1);
     rider.advance(boat_frame(false));
     assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
     let mut relinked = boat_frame(false);
@@ -611,144 +621,107 @@ fn a_restored_link_seats_the_rider_again() {
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
 }
 
-/// A link restored while the request to leave it still waits for transport is a new ride,
-/// which the old request no longer leaves.
+/// A rider stays seated until transport takes its dismount request, then gets off on a later
+/// tick without pressing again.
 #[test]
-fn a_restored_link_drops_a_waiting_dismount_request() {
+fn a_full_transport_keeps_the_rider_seated_until_it_takes_the_request() {
     let mut rider = Rider::new();
+    rider.transport = Err(protocol::BatchSendError::Full);
     rider.get_off(speed_frame(Default::default()).delta);
-    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
-    for _ in 0..2 {
-        let mut relinked = boat_frame(false);
-        relinked.facts.mount_changes += 2;
-        rider.advance(relinked);
-    }
     assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
-    assert!(rider.request(Ok(())).is_empty());
+    rider.flush_movement();
+    rider.transport = Ok(());
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
 }
 
-/// The server sees the seated movement, then the dismount request, then movement off the
-/// mount, even when transport backs up around it.
+/// The dismount request goes out only once the seated movement before it has, so the server
+/// sees the seated movement, the request, then movement off the mount.
 #[test]
-fn movement_after_getting_off_waits_for_the_dismount_request() {
+fn seated_movement_still_queued_keeps_the_rider_seated() {
     let mut rider = Rider::new();
     rider.advance(boat_frame(false));
-    let seated = rider.ticker.completed_tick();
-    let mut press = boat_frame(false);
-    press.sneak.pressed = true;
-    press.sneak.held = true;
-    rider.advance(press);
-    assert!(rider.ticker.completed_tick() > seated);
-
-    assert!(
-        rider.request(Ok(())).is_empty(),
-        "seated movement still queued goes ahead of the request"
-    );
-    let before = rider.flush_movement();
-    assert!(
-        !before.is_empty() && before.iter().all(|tick| *tick <= seated),
-        "only seated movement goes ahead of the request: {before:?}"
-    );
-    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
-    assert!(rider.flush_movement().is_empty(), "movement off the boat waits");
-    assert_eq!(
-        rider.ticker.interaction_before_tick(seated + 1),
-        None,
-        "so does an interaction before the first tick off the boat"
-    );
-    assert!(rider.ticker.build_action_state().is_none(), "and a build");
-
-    assert_eq!(rider.request(Ok(())).len(), 1);
-    let after = rider.flush_movement();
-    assert!(
-        !after.is_empty() && after.iter().all(|tick| *tick > seated),
-        "movement off the boat follows the request: {after:?}"
-    );
+    rider.advance(sneak_press(speed_frame(Default::default()).delta));
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "seated movement goes ahead of the request");
+    assert!(!rider.flush_movement().is_empty());
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
 }
 
-/// Interactions before the next tick report where the player got off, even when the frame
-/// it got off in ran no tick.
+/// Vanilla gets the rider off within a tick, so a press in a frame that runs none waits for
+/// the next one.
 #[test]
-fn interactions_after_getting_off_report_the_exit_before_the_next_tick() {
-    let mut rider = Rider::new();
-    let ticked = {
-        rider.advance(boat_frame(false));
-        rider.flush_movement();
-        rider.ticker.completed_tick()
-    };
-    let mut press = boat_frame(false);
-    press.delta = Duration::ZERO;
-    press.sneak.pressed = true;
-    press.sneak.held = true;
-    rider.advance(press);
-    assert_eq!(rider.ticker.completed_tick(), ticked);
-    let exit = rider.physics.network_position().unwrap();
-    assert!((exit[2] + 0.5).abs() < 1.0e-4, "got off north: {exit:?}");
-    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
-    assert_eq!(
-        rider.ticker.between_ticks_sample(),
-        None,
-        "no interaction reports the exit ahead of the request"
-    );
-    assert_eq!(rider.request(Ok(())).len(), 1);
-    let built = rider.ticker.build_action_state().unwrap().position;
-    assert!(close(built, exit), "build actions read the exit: {built:?}");
-    let between = rider.ticker.between_ticks_sample().unwrap().position;
-    assert!(close(between, exit), "frame interactions read the exit: {between:?}");
-}
-
-/// A server teleport after getting off replaces the exit, both in a dismount request still
-/// waiting for transport and in the position interactions read.
-#[test]
-fn a_teleport_after_getting_off_supersedes_the_exit() {
+fn a_press_between_ticks_gets_off_on_the_next_tick() {
     let mut rider = Rider::new();
     rider.get_off(Duration::ZERO);
-    assert!(rider.request(Err(protocol::BatchSendError::Full)).is_empty());
-    let teleported = [4.5, 1.0 + protocol::PLAYER_NETWORK_OFFSET, 4.5];
-    rider
-        .ticker
-        .note_server_teleport(super::ServerTeleportKind::MovePlayer);
-    rider
-        .physics
-        .apply_server_actor_position(teleported, Some(true));
-    let sent = rider.request(Ok(()));
-    assert!(
-        sent.len() == 1 && close(sent[0], teleported),
-        "the request reports the teleport: {sent:?}"
-    );
-    // A correction replay rebuilds the tick ends from the teleport.
-    rider.ticker.anchor_tick_end(teleported);
-    rider.ticker.reapply_dismount_placement();
-    let built = rider.ticker.build_action_state().unwrap().position;
-    assert!(close(built, teleported), "builds read the teleport: {built:?}");
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty());
+    rider.advance(boat_frame(false));
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert_eq!(rider.sent.len(), 1);
 }
 
 /// A mount whose dismounts only the server performs keeps its rider until the server moves it.
 #[test]
 fn a_server_owned_dismount_waits_for_the_server() {
-    let (mut physics, mut ticker) = walked_physics(0);
-    let mut locals = super::LocomotionState::default();
-    let mut effects = super::LocalMovementEffectTimeline::default();
-    let mut speed = super::LocalMovementSpeedAuthority::default();
-    for pressed in [false, true] {
-        let mut frame = boat_frame(true);
-        frame.sneak.pressed = pressed;
-        frame.sneak.held = pressed;
-        assert!(locals.advance(
-            frame,
-            &mut physics,
-            &mut ticker,
-            &mut effects,
-            &mut speed,
-            &BlockFloor
-        ));
-    }
-    assert_eq!(physics.mode(), sim::MovementMode::Riding);
-    let seat = physics.network_position().unwrap();
+    let mut rider = Rider::new();
+    rider.advance(boat_frame(true));
+    rider.flush_movement();
+    let mut press = boat_frame(true);
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    rider.advance(press);
+    assert_eq!(rider.physics.mode(), sim::MovementMode::Riding);
+    assert!(rider.sent.is_empty(), "the client does not place this rider");
+    let seat = rider.physics.network_position().unwrap();
     let mut sent = Vec::new();
-    locals.flush_dismount(seat, |packet| {
+    rider.locals.flush_dismount(seat, |packet| {
         sent.push(reported_position(&packet));
         Ok(())
     });
     assert_eq!(sent, [seat]);
+}
+
+/// A boat the player steers east puts its rider on its south side, also after the server
+/// replaced only the boat's motion, which leaves the predicted pose current.
+#[test]
+fn a_steered_boat_keeps_its_predicted_heading_through_a_motion_update() {
+    let steered = |motion| {
+        let mut frame = boat_frame(false);
+        frame.facts.vehicle = Some(super::vehicle::SteeredVehicle {
+            runtime_id: 7,
+            unique_id: -7,
+            body: sim::BoatBody {
+                width: 1.4,
+                height: 0.455,
+                height_offset: 0.375,
+            },
+            position: [0.5, 1.375, 0.5],
+            yaw: 0.0,
+            velocity: [0.3, 0.0, 0.0],
+            seat: [0.0; 3],
+            revision: client_world::VehicleRevision { pose: 0, motion },
+        });
+        frame.facts.vehicle_controlled_locally = true;
+        frame
+    };
+    let mut rider = Rider::new();
+    rider.advance(steered(0));
+    assert!(rider.physics.predicted_vehicle_feed().is_some());
+    rider.flush_movement();
+    let seat = rider.physics.state().unwrap().position;
+    let mut press = steered(1);
+    press.sneak.pressed = true;
+    press.sneak.held = true;
+    rider.advance(press);
+    assert_ne!(rider.physics.mode(), sim::MovementMode::Riding);
+    let [x, _, z] = rider.sent[0];
+    assert!(
+        (f64::from(x) - seat.x).abs() < 1.0e-4 && (f64::from(z) - seat.z - 1.0).abs() < 1.0e-4,
+        "an eastbound boat puts its rider south of its seat {seat:?}: {:?}",
+        rider.sent
+    );
 }

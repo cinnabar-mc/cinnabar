@@ -104,16 +104,6 @@ impl TickEnds {
         self.0.push_back(view);
     }
 
-    /// Moves the retained end of `tick` to `position`; returns whether it was retained.
-    pub(super) fn place(&mut self, tick: u64, position: [f32; 3]) -> bool {
-        self.0
-            .iter_mut()
-            .rev()
-            .find(|view| view.tick == tick)
-            .map(|view| view.position = position)
-            .is_some()
-    }
-
     pub(super) fn get(&self, tick: u64) -> Option<UnsentSampleView> {
         self.0.iter().rev().find(|view| view.tick == tick).copied()
     }
@@ -195,15 +185,6 @@ impl From<UnsentSampleView> for InteractionSample {
     }
 }
 
-/// Where getting off a mount placed the player, and which movement waits for its request.
-#[derive(Debug, Clone, Copy, Default)]
-pub(super) struct DismountBoundary {
-    /// The last tick sent before the dismount request reaches transport.
-    fence: Option<u64>,
-    /// The completed tick the player got off after, and its network position there.
-    placed: Option<(u64, [f32; 3])>,
-}
-
 /// Capacity of every movement retry queue: queued samples, staged sends,
 /// sent-history confirmations, and retained tick evidence.
 pub const OUTBOX_CAPACITY: usize = 32;
@@ -256,10 +237,6 @@ pub fn flush_player_auth_inputs_guarded<E>(
             .held_release
             .as_ref()
             .is_some_and(|held| sample.snapshot.tick > held.tick)
-            || ticker
-                .dismount
-                .fence
-                .is_some_and(|fence| sample.snapshot.tick > fence)
         {
             break;
         }
@@ -445,8 +422,7 @@ impl MovementTicker {
     /// The end state of the last completed tick. Vanilla runs build actions before each
     /// simulation tick, so the next tick's build actions observe this state.
     pub fn build_action_state(&self) -> Option<UnsentSampleView> {
-        // Builds wait, like movement, until a dismount request reaches transport.
-        if !self.physics_is_authorized() || self.dismount.fence.is_some() {
+        if !self.physics_is_authorized() {
             return None;
         }
         self.tick_ends.get(self.completed_tick())
@@ -464,11 +440,21 @@ impl MovementTicker {
         });
     }
 
+    /// Whether completed movement could still reach the server after a packet sent now:
+    /// queued ticks, or sent ones transport may cancel and this ticker would send again.
+    #[must_use]
+    pub fn movement_trails_transport(&self) -> bool {
+        !self.outbox.is_empty()
+            || self
+                .pending_sends
+                .iter()
+                .any(|pending| pending.retry_after_cancellation)
+    }
+
     /// A frame-time interaction once every completed tick has entered the outbound FIFO.
     /// It reports the newest admitted tick's position and precedes the next tick's input.
     pub fn between_ticks_sample(&self) -> Option<InteractionSample> {
-        // Nothing reports the position a dismount placed before its request goes out.
-        if !self.outbox.is_empty() || self.held_release.is_some() || self.dismount.fence.is_some() {
+        if !self.outbox.is_empty() || self.held_release.is_some() {
             return None;
         }
         let (tick, position) = self
@@ -486,77 +472,10 @@ impl MovementTicker {
                     .filter(|sent| sent.session_generation == self.session_generation)
                     .map(|sent| (sent.tick, sent.position))
             })?;
-        // A dismount since that tick moved the player where its request told the server.
-        let position = self
-            .dismount
-            .placed
-            .filter(|(placed, _)| *placed == tick)
-            .map_or(position, |(_, placed)| placed);
         (tick == self.completed_tick()).then_some(InteractionSample {
             tick: tick.checked_add(1)?,
             position,
         })
-    }
-
-    /// Places the player after the last completed tick as getting off a mount does:
-    /// interactions before the next tick report `position`, a network position, and later
-    /// movement waits until [`Self::release_dismount_fence`].
-    pub(super) fn place_dismount(&mut self, position: [f32; 3]) {
-        let tick = self.completed_tick();
-        self.dismount = DismountBoundary {
-            fence: Some(tick),
-            placed: Some((tick, position)),
-        };
-        self.reapply_dismount_placement();
-    }
-
-    /// Ends the tick a dismount placed the player after at the exit, also after a correction
-    /// rebuilds the tick ends, keeping the ticks after it.
-    pub(super) fn reapply_dismount_placement(&mut self) {
-        let Some((tick, position)) = self.dismount.placed else {
-            return;
-        };
-        if !self.tick_ends.place(tick, position) && tick == self.completed_tick() {
-            self.tick_ends.record(UnsentSampleView {
-                tick,
-                position,
-                delta: [0.0; 3],
-                displacement: [0.0; 3],
-                sneaking: false,
-            });
-        }
-    }
-
-    /// Whether movement from before getting off still waits for transport; the dismount
-    /// request follows it, so the server sees the player leave the seat in order.
-    #[must_use]
-    pub fn holds_movement_before_dismount(&self) -> bool {
-        // Replayed sends transport may still cancel come back ahead of the request too.
-        self.dismount.fence.is_some_and(|fence| {
-            self.outbox
-                .front()
-                .is_some_and(|sample| sample.snapshot.tick <= fence)
-                || self.pending_sends.iter().any(|pending| {
-                    pending.retry_after_cancellation && pending.sample.snapshot.tick <= fence
-                })
-        })
-    }
-
-    /// The network position getting off a mount placed the player at, until a server
-    /// teleport supersedes it.
-    #[must_use]
-    pub fn dismount_position(&self) -> Option<[f32; 3]> {
-        self.dismount.placed.map(|(_, position)| position)
-    }
-
-    /// Forgets where a dismount placed the player once a server teleport supersedes it.
-    pub(super) fn retire_dismount_placement(&mut self) {
-        self.dismount.placed = None;
-    }
-
-    /// Lets movement held back for a dismount request reach transport.
-    pub(super) fn release_dismount_fence(&mut self) {
-        self.dismount.fence = None;
     }
 
     /// Looks up only the exact tick still owned by the unsent movement queue.
@@ -591,9 +510,7 @@ impl MovementTicker {
     /// Pairs an attack with the state before the first input it precedes.
     /// Older unsent inputs must drain before an attack can use a later state.
     pub fn interaction_before_tick(&self, tick: u64) -> Option<InteractionSample> {
-        // Ticks after a dismount wait for its request, and so do interactions before them.
-        if !self.is_first_unsent_tick(tick) || self.dismount.fence.is_some_and(|fence| tick > fence)
-        {
+        if !self.is_first_unsent_tick(tick) {
             return None;
         }
         let previous = self.tick_ends.get(tick.checked_sub(1)?)?;
