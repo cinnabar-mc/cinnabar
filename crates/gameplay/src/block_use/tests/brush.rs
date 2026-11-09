@@ -7,15 +7,20 @@ fn a_brush_uses_itself_on_any_block_without_swinging() {
     let brush = verified(network_item(695, 0));
     let survival = GameModeCapabilities::for_mode(PlayerGameMode::Survival);
     assert_eq!(
-        LocalUse::Nothing.or_brush(true, &brush, &survival),
+        LocalUse::Nothing.or_brush(true, false, &brush, &survival),
         LocalUse::UseItem
     );
     // The block's own use and a placement keep the press, and other items gain nothing.
     for taken in [LocalUse::Interact, LocalUse::Place] {
-        assert_eq!(taken.or_brush(true, &brush, &survival), taken);
+        assert_eq!(taken.or_brush(true, false, &brush, &survival), taken);
     }
     assert_eq!(
-        LocalUse::Nothing.or_brush(false, &brush, &survival),
+        LocalUse::Nothing.or_brush(false, false, &brush, &survival),
+        LocalUse::Nothing
+    );
+    // A block removed since it was picked leaves air, which a brush cannot use.
+    assert_eq!(
+        LocalUse::Nothing.or_brush(true, true, &brush, &survival),
         LocalUse::Nothing
     );
     let unable = GameModeCapabilities {
@@ -23,7 +28,7 @@ fn a_brush_uses_itself_on_any_block_without_swinging() {
         ..survival
     };
     assert_eq!(
-        LocalUse::Nothing.or_brush(true, &brush, &unable),
+        LocalUse::Nothing.or_brush(true, false, &brush, &unable),
         LocalUse::Nothing
     );
 

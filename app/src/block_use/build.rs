@@ -189,7 +189,9 @@ fn prepare(
             local_use = LocalUse::Place;
         }
         if ready {
-            local_use = local_use.or_brush(brush, &observed.selection.item, &caps);
+            // An unreadable cell counts as air, so the brush predicts nothing there.
+            let clicked_air = world.is_air(observed.target.position).unwrap_or(true);
+            local_use = local_use.or_brush(brush, clicked_air, &observed.selection.item, &caps);
         }
         let destination = planted.map(|(cell, _)| cell).unwrap_or_else(|| {
             placement.as_ref().map_or_else(

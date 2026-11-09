@@ -22,6 +22,10 @@ impl ItemUseRuntime {
         }) {
             return false;
         }
+        // A replaced use ends without a release, taking its captured release state along.
+        if self.active.is_some() {
+            self.stop_without_release();
+        }
         self.active = Some(ActiveUse {
             selection,
             started_tick: tick,

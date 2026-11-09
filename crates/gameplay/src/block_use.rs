@@ -260,15 +260,17 @@ impl LocalUse {
     }
 
     /// A held brush's use succeeds on any block that neither the block's own use nor a
-    /// placement took, as vanilla's `BrushItem::_useOn` does for every non-air block. Like
-    /// other item use on a block, it needs the build ability.
+    /// placement took, as vanilla's `BrushItem::_useOn` does for every non-air block; a
+    /// clicked cell that is now air fails. Like other item use on a block, it needs the
+    /// build ability.
     pub fn or_brush(
         self,
         brush: bool,
+        clicked_air: bool,
         item: &VerifiedNetworkItemStack,
         caps: &GameModeCapabilities,
     ) -> Self {
-        if self == Self::Nothing && brush && caps.can_build && item.count() > 0 {
+        if self == Self::Nothing && brush && !clicked_air && caps.can_build && item.count() > 0 {
             Self::UseItem
         } else {
             self

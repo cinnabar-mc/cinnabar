@@ -44,13 +44,17 @@ fn a_click_on_a_block_releases_its_use_on_the_same_frame() {
 }
 
 #[test]
-fn a_use_on_a_block_replaces_a_stale_use_of_another_selection() {
+fn a_use_on_a_block_replaces_a_stale_use_and_its_pending_release() {
     let mut runtime = ItemUseRuntime::default();
     assert!(runtime.start_use_on(selection(3, BRUSH), BRUSH_TICKS, 0.35, 4));
     assert!(runtime.take_local_using_item().is_some());
+    // The old use's release was observed but its transaction never went out.
+    runtime.observe_use_button(false);
+    assert!(runtime.has_pending_release());
 
     // The server moved the selection to another brush while the old use still ran.
     assert!(runtime.start_use_on(selection(2, BRUSH), BRUSH_TICKS, 0.35, 10));
+    assert!(!runtime.has_pending_release());
     assert_eq!(runtime.active_timing(), Some((10, BRUSH_TICKS)));
     assert_eq!(runtime.take_local_using_item(), Some(true));
     assert!(runtime.step(&brush_frame(10, true)).packets.is_empty());
