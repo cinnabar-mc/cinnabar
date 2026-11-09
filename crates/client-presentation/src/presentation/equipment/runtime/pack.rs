@@ -293,8 +293,14 @@ impl EquipmentRuntime {
         let mut indices = catalog
             .bindings()
             .iter()
-            .filter(|binding| binding.geometry.resolution == EntityDependencyResolution::Catalog)
-            .filter_map(|binding| find_geometry_index(assets, &binding.geometry.identifier))
+            .filter_map(|binding| {
+                find_geometry_index(assets, &binding.geometry.identifier).or_else(|| {
+                    find_geometry_index(
+                        assets,
+                        canonical_armor_geometry_identifier(&binding.geometry.identifier),
+                    )
+                })
+            })
             .collect::<Vec<_>>();
         indices.sort_unstable();
         indices.dedup();
