@@ -26,7 +26,7 @@ fn partial_move_request_matches_pinned_gophertunnel_bytes() {
 }
 
 /// A player slot with an explicit stack or prediction identity.
-fn player(slot: u8, id: i32) -> StackRequestSlot {
+fn player(slot: u16, id: i32) -> StackRequestSlot {
     StackRequestSlot {
         container: StackRequestContainer::PlayerInventory,
         slot,
