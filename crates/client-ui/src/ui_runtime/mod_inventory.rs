@@ -10,6 +10,18 @@ use super::UiRuntime;
 type Outcome = Result<i32, InventoryGestureError>;
 
 impl UiRuntime {
+    /// Exchanges a player inventory cell and offhand through the authoritative ledger.
+    pub fn mod_swap_offhand(
+        &mut self,
+        player_runtime: &mut player_state::PlayerState,
+        slot: u8,
+    ) -> Outcome {
+        player_runtime
+            .inventory
+            .ledger_mut()
+            .begin_windowless_offhand_swap(slot)
+    }
+
     /// Takes `count` of the creative item `identifier` with `aux` into the first free inventory
     /// slot, else the empty cursor. Refused outside Creative and for an item the creative
     /// content lacks; a held stack is never replaced.

@@ -95,6 +95,7 @@ pub fn is_mob(fact: &EntityFact) -> bool {
         | NativeEntityClass::LingeringPotion
         | NativeEntityClass::DragonFireball
         | NativeEntityClass::FireworksRocket
+        | NativeEntityClass::ThrownTrident
         | NativeEntityClass::AreaEffectCloud => false,
     }
 }

@@ -1,7 +1,7 @@
 /// Connection states in the real registry must reach both runtime-ID maps.
 #[test]
 fn registry_connections_extend_fence_and_pane_colliders() {
-    let breg = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
     let protocol = active_content_registry_protocol();
     let records = read_registry_for_protocol(breg, protocol).unwrap();
     let preg = synthetic_preg(breg, &records);
@@ -72,7 +72,7 @@ fn registry_connections_extend_fence_and_pane_colliders() {
 /// Real registry door properties must pair in both palette identity modes.
 #[test]
 fn registry_door_halves_share_the_lower_open_state_and_upper_hinge() {
-    let breg = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
     let protocol = active_content_registry_protocol();
     let records = read_registry_for_protocol(breg, protocol).unwrap();
     let registries = PhysicsCollisionRegistries::from_assets(
@@ -134,7 +134,7 @@ fn registry_door_halves_share_the_lower_open_state_and_upper_hinge() {
 /// All registry stair corners preserve the native occupied quadrants in both ID spaces.
 #[test]
 fn registry_stair_corners_and_halves_have_native_piece_geometry() {
-    let breg = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
     let protocol = active_content_registry_protocol();
     let records = read_registry_for_protocol(breg, protocol).unwrap();
     let registries = PhysicsCollisionRegistries::from_assets(
@@ -208,7 +208,7 @@ fn registry_stair_corners_and_halves_have_native_piece_geometry() {
 /// Stable registry scaffolds expose support cubes; falling stability has no collision.
 #[test]
 fn registry_scaffold_stability_controls_support_geometry() {
-    let breg = include_bytes!("../../../../assets/data/block-registry-v2193.bin");
+    let breg = include_bytes!("../../../../assets/data/block-registry-v2225.bin");
     let protocol = active_content_registry_protocol();
     let records = read_registry_for_protocol(breg, protocol).unwrap();
     let registries = PhysicsCollisionRegistries::from_assets(

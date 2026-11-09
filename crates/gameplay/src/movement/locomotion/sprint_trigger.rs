@@ -31,6 +31,16 @@ impl SprintTrigger {
         intent: ModeIntent,
         observed: ModeObservation,
     ) -> bool {
+        // Only sprint admission sees the direction projection; physics and wire axes stay intact.
+        let observed = if intent.movement_override {
+            ModeObservation {
+                move_forward: observed.move_sideways.hypot(observed.move_forward),
+                move_sideways: 0.0,
+                ..observed
+            }
+        } else {
+            observed
+        };
         self.double_tap_ticks = self.double_tap_ticks.saturating_sub(1);
         let forward = observed.move_forward >= SPRINT_THRESHOLD;
         let admission = forward

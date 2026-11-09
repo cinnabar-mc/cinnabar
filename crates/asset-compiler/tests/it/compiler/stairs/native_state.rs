@@ -6,7 +6,7 @@ use {
 };
 
 fn native_stair_records() -> Vec<RegistryRecord> {
-    let data = include_bytes!("../../../../../assets/data/block-registry-v2193.bin");
+    let data = include_bytes!("../../../../../assets/data/block-registry-v2225.bin");
     let protocol = assets::registry_header_protocol(data).unwrap();
     assets::read_registry_for_protocol(data, protocol)
         .unwrap()

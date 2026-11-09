@@ -24,14 +24,12 @@ impl MenuRuntime {
             MenuAction::SearchSettings => {
                 self.settings.slider_selected = None;
                 self.settings.dropdown = None;
-                self.settings.scale_picker = false;
                 self.settings.key_remap = None;
             }
             MenuAction::ClearSettingsSearch => {
                 self.settings_query.set_text("");
                 self.settings.slider_selected = None;
                 self.settings.dropdown = None;
-                self.settings.scale_picker = false;
                 self.focus_field(MenuField::SettingsQuery);
                 self.settings_input.actions = vec![MenuAction::SearchSettings];
                 self.focused = 0;
@@ -40,24 +38,7 @@ impl MenuRuntime {
             MenuAction::SettingsAdvancedGraphics => {
                 self.settings.advanced_graphics = !self.settings.advanced_graphics;
             }
-            MenuAction::SettingsScale(offset) => {
-                self.set_gui_scale_offset(offset);
-                if self.settings.scale_picker {
-                    self.settings.scale_picker = false;
-                    self.settings_input.actions = vec![MenuAction::SettingsScalePicker];
-                    self.focused = 0;
-                }
-            }
-            MenuAction::SettingsScalePicker => {
-                self.settings.dropdown = None;
-                self.settings.scale_picker = !self.settings.scale_picker;
-                self.settings_input.actions = vec![if self.settings.scale_picker {
-                    MenuAction::SettingsScale(self.gui_scale_display_offset)
-                } else {
-                    MenuAction::SettingsScalePicker
-                }];
-                self.focused = 0;
-            }
+            MenuAction::SettingsScale(offset) => self.set_gui_scale_offset(offset),
             MenuAction::SettingsFullscreen(fullscreen) => {
                 self.fullscreen = fullscreen;
                 self.fullscreen_change = Some(fullscreen);
@@ -73,7 +54,6 @@ impl MenuRuntime {
                     self.refresh_storage();
                 }
                 self.settings.dropdown = None;
-                self.settings.scale_picker = false;
                 self.settings.key_remap = None;
             }
             MenuAction::SettingsOption(index, value) => {
@@ -97,12 +77,10 @@ impl MenuRuntime {
                     self.settings_apply = true;
                 }
                 self.settings.dropdown = None;
-                self.settings.scale_picker = false;
                 self.settings.slider_selected = None;
             }
             MenuAction::SettingsLanguage(index) => self.set_language(index),
             MenuAction::SettingsDropdown(index) => {
-                self.settings.scale_picker = false;
                 self.settings.dropdown = (self.settings.dropdown != Some(index)).then_some(index);
                 self.settings_input.actions = vec![if self.settings.dropdown.is_some() {
                     MenuAction::SettingsOption(index, self.settings_options.get(usize::from(index)))

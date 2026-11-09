@@ -9,8 +9,8 @@ struct Page {
 
 impl Page {
     /// Borrows pixels only while their page collection still has a live owner.
-    fn pixels(&self) -> Option<Arc<[u8]>> {
-        Some(Arc::clone(&self.owner.upgrade()?.get(self.index)?.rgba8))
+    fn pixels(&self) -> Option<PagePixels> {
+        Some(self.owner.upgrade()?.get(self.index)?.rgba8.clone())
     }
 }
 
@@ -18,15 +18,19 @@ type Pixels = BTreeMap<[u8; 32], Vec<Page>>;
 
 static LIVE: Mutex<Pixels> = Mutex::new(BTreeMap::new());
 
-/// Hashes the ordered layers into the page identity, reusing a live packed allocation.
-/// Single-layer pages share their source allocation. Cache entries own no pixels and cannot
-/// prevent a retired generation from being freed.
+/// Hashes the ordered layers into the page identity, reusing a live page's pixels.
+/// New pages reference each source layer's allocation instead of copying it. Cache entries
+/// own no pixels and cannot prevent a retired generation from being freed.
+///
+/// The key covers each layer's length as well as its bytes, so reused storage has the same
+/// allocation boundaries and every allocation still holds whole layers of the new page.
 pub(super) fn pack<'a>(
     layers: impl Iterator<Item = &'a Arc<[u8]>> + Clone,
     identity: &mut Sha256,
-) -> ([u8; 32], Arc<[u8]>) {
+) -> ([u8; 32], PagePixels) {
     let mut digest = Sha256::new();
     for layer in layers.clone() {
+        digest.update((layer.len() as u64).to_le_bytes());
         digest.update(layer);
         raster_pages::hash_pixels(identity, layer);
     }
@@ -39,12 +43,7 @@ pub(super) fn pack<'a>(
     {
         return (key, pixels);
     }
-    let mut ordered = layers.clone();
-    let pixels = match (ordered.next(), ordered.next()) {
-        (Some(layer), None) => Arc::clone(layer),
-        _ => concatenate_layers(layers.map(AsRef::as_ref)).into(),
-    };
-    (key, pixels)
+    (key, PagePixels::from_layers(layers))
 }
 
 /// Registers page owners, whose destructors release pixel allocations even with weak entries.
@@ -68,7 +67,7 @@ pub(super) fn remember(
                 return None;
             }
             let (before, after) = (previous.get(page.index)?, pages.get(page.index)?);
-            Arc::ptr_eq(&before.rgba8, &after.rgba8).then_some(page.index)
+            before.rgba8.ptr_eq(&after.rgba8).then_some(page.index)
         });
         if let Some(index) = inherited {
             add_owner(owners, pages, index);

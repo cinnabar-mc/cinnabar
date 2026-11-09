@@ -288,8 +288,7 @@ pub(crate) fn emit_own(
             .transform
             .map_or(paint, |transform| transform.bounds(paint));
         let clipped = painted.intersect(clip);
-        let floats =
-            matches!(&draw, Draw::Custom { renderer, .. } if renderer == "hover_text_renderer");
+        let floats = matches!(&draw, Draw::Custom { renderer, .. } if matches!(renderer.as_str(), "hover_text_renderer" | "paper_doll_renderer" | "hud_player_renderer" | "live_player_renderer"));
         let moves_geometry = node
             .anim
             .as_ref()

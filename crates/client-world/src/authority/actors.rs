@@ -2,6 +2,11 @@ use super::*;
 use simulation_clock::identity::{PositionAuthorityGeneration, SessionGeneration};
 
 impl WorldAuthority {
+    /// Shares immutable base analysis with display actors, preserving separate session state.
+    pub fn actor_animation_catalog(&self) -> Option<actor_animation::ActorAnimationCatalog> {
+        self.actors.animation_catalog()
+    }
+
     /// Reads the target's component proof without predicting unknown native interactions.
     pub fn offered_use(
         &self,
@@ -141,8 +146,17 @@ impl WorldAuthority {
         self.publish_actor_particles();
         self.publish_actor_audio();
     }
-    /// Predicts remote actors `ticks` ahead for [`Self::pick_hit_boxes`], leaving the live
-    /// actors to [`Self::advance_actor_interpolation_frame`].
+    /// Returns completed previous/current feet and interpolation steps for interaction diagnostics.
+    pub fn pick_motion(&self, actor: &ActorSnapshot) -> ([f32; 3], [f32; 3], u32) {
+        (
+            actor.previous_pose.position,
+            actor.position,
+            actor.interpolation_ticks_remaining,
+        )
+    }
+
+    /// Predicts remote motion for vehicle and collision queries, leaving interaction boxes
+    /// at the completed simulation pose until [`Self::advance_actor_interpolation_frame`].
     pub fn predict_remote_actor_motion(&mut self, ticks: u32) {
         self.actors.predict_remote_motion(ticks);
     }
@@ -265,7 +279,7 @@ impl WorldAuthority {
     pub fn start_local_player_swing(&mut self, ticks: i32) {
         self.actors.start_swing(self.local_player_runtime_id, ticks);
     }
-    /// Binds the local Java torso to the current simulation; `None` restores actor-clock motion.
+    /// Binds local torso and legs to the current simulation; `None` restores actor-clock motion.
     pub fn set_local_motion_authority(
         &mut self,
         authority: Option<(SessionGeneration, PositionAuthorityGeneration)>,
@@ -273,7 +287,7 @@ impl WorldAuthority {
         self.actors
             .set_local_motion_authority(self.local_player_runtime_id, authority);
     }
-    /// Applies completed local torso samples without advancing other actor motion or clocks.
+    /// Applies completed local torso and leg samples without advancing other actor clocks.
     pub fn sync_local_swing_motion(
         &mut self,
         authority: (SessionGeneration, PositionAuthorityGeneration),
@@ -344,6 +358,35 @@ impl WorldAuthority {
     ) -> Option<([f32; 3], f32)> {
         self.actors
             .rider_seat_on(self.local_player_unique_id, vehicle_feet, vehicle_yaw)
+    }
+    /// Takes the local player off its vehicle as getting off does on the client: until the
+    /// server's links for it change, the player rides nothing for movement, its seat pose,
+    /// view lock, animation, actor picking and collision. The committed link stays until the
+    /// server's unlink, which still commits as a mount change; any other link from the server
+    /// for the player, including the same link sent again, seats it again.
+    pub fn leave_local_mount(&mut self) {
+        self.actors.leave_local_vehicle(self.local_player_unique_id);
+    }
+    /// Whether the local player got off its mount on the client and waits for the server's
+    /// unlink; any server link for it ends this, seating it again unless it unlinks.
+    pub fn local_player_left_mount(&self) -> bool {
+        self.actors.left_local_vehicle(self.local_player_unique_id)
+    }
+    /// Collision bounds of the vehicle the local player got off on the client while movement
+    /// still passes through it.
+    pub fn local_passed_through_vehicle_bounds(&self) -> Option<crate::ActorCollisionBounds> {
+        self.actors
+            .passed_through_bounds(self.local_player_unique_id)
+    }
+    /// Makes movement collide with the vehicle the local player got off again, once the
+    /// player no longer overlaps it.
+    pub fn release_local_passed_through_vehicle(&mut self) {
+        self.actors
+            .release_passed_through(self.local_player_unique_id);
+    }
+    /// The mount the local player rides as the client shows it.
+    pub fn local_mount_unique_id(&self) -> Option<i64> {
+        self.actors.ridden_unique_id(self.local_player_unique_id)
     }
     /// How the local player's seat holds its view, with the vehicle's yaw `alpha` of the way
     /// through the current tick; `None` when the seat does not lock rotation.
@@ -428,6 +471,10 @@ impl WorldAuthority {
     pub fn dragon_death_rays(&self, partial_tick: f32) -> Vec<crate::DragonDeathView> {
         self.actors.dragon_death_rays(partial_tick)
     }
+    /// Loyalty ropes from thrown tridents to their present owners at the frame fraction.
+    pub fn loyalty_ropes(&self, partial_tick: f32) -> Vec<crate::LoyaltyRopeView> {
+        self.actors.loyalty_ropes(partial_tick)
+    }
     /// Replaces `ropes` with fishing lines and leads at their interpolated endpoints.
     pub fn ropes_into(&self, partial_tick: f32, ropes: &mut Vec<crate::RopeView>) {
         self.actors.ropes_into(partial_tick, ropes);
@@ -444,12 +491,29 @@ impl WorldAuthority {
     pub fn actor_ui_pose(&self, runtime_id: u64) -> Option<&[actor_animation::BoneTransform]> {
         self.actors.actor_ui_pose(runtime_id)
     }
+    /// Whether `bone` is `ancestor` or one of its descendants in the actor's rig.
+    pub fn actor_bone_descends_from(&self, runtime_id: u64, bone: usize, ancestor: usize) -> bool {
+        self.actors
+            .actor_bone_descends_from(runtime_id, bone, ancestor)
+    }
+    /// The live UI evaluation's owner variables and equipment properties.
+    pub fn actor_ui_rig(&self, runtime_id: u64) -> Option<actor_animation::ActorRigSnapshot<'_>> {
+        self.actors.actor_ui_rig(runtime_id)
+    }
+
     /// Full-body controller layers paired with the actor's UI pose.
     pub fn actor_ui_layers(
         &self,
         runtime_id: u64,
     ) -> Option<actor_animation::ActorRenderLayers<'_>> {
         self.actors.actor_ui_layers(runtime_id)
+    }
+    /// Controller layers for a paper doll drawn over the level view.
+    pub fn actor_paper_doll_layers(
+        &self,
+        runtime_id: u64,
+    ) -> Option<actor_animation::ActorRenderLayers<'_>> {
+        self.actors.actor_paper_doll_layers(runtime_id)
     }
     /// The rig's pose at the frame fraction with `targets` replacing their joints in model space;
     /// other bones keep their animated offsets from their parents.
@@ -614,12 +678,9 @@ impl WorldAuthority {
             .actors()
             .filter(move |actor| actor.runtime_id != local)
     }
-    /// The actor's interaction boxes where this frame's due ticks put it, for picks.
+    /// Interaction boxes at the completed simulation pose, before any pending actor ticks.
     pub fn pick_hit_boxes<'a>(&self, actor: &'a ActorSnapshot) -> crate::ActorHitBoxes<'a> {
-        match self.actors.pick_pose(actor.runtime_id) {
-            Some(pose) => actor.hit_boxes_at_pose(pose),
-            None => actor.hit_boxes(),
-        }
+        actor.hit_boxes()
     }
     /// Counts retained actors in this session.
     pub fn actor_count(&self) -> usize {

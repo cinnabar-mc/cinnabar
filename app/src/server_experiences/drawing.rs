@@ -64,6 +64,7 @@ impl Frame<'_, '_> {
             live: candidates.clone(),
             candidates,
             targets,
+            blocks: Vec::new(),
         })
     }
 }

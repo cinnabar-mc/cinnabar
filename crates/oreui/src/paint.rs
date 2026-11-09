@@ -722,6 +722,11 @@ impl<'a> Canvas<'a> {
 
     pub(super) fn hit(&mut self, action: MenuAction, b: Bounds) -> Result<(), PaintError> {
         self.focus_target(action, b)?;
+        self.pointer_hit(action, b)
+    }
+
+    /// Publishes a clipped pointer target without changing the authored focus order.
+    pub(super) fn pointer_hit(&mut self, action: MenuAction, b: Bounds) -> Result<(), PaintError> {
         let b = match self.clip {
             Some((_, c)) => [
                 b[0].max(c[0]),

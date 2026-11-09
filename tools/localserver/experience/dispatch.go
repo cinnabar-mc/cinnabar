@@ -122,16 +122,22 @@ type event struct {
 	// actor is the player who caused the event; nil for a neighbor event.
 	actor *world.EntityHandle
 	call  Call
+	// interaction is an interaction's click, which a result that passes it on replays.
+	interaction *interaction
 	// inventory and slots retain live player observations from their owning transaction.
 	inventory *Inventory
 	slots     []item.Stack
+	// entities retain owned actors from the same transaction as a player observation.
+	entities []EntitySnapshot
+	// ridingElsewhere retains occupancy outside this mod's actor snapshot.
+	ridingElsewhere bool
 }
 
 // anchored reports whether the call is about a block, its event's anchor. A client message and
 // an epoch are about their player: they run in the world that player is in, and have an anchor
 // and a snapshot only with that player's focus.
 func (c Call) anchored() bool {
-	return c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
+	return c.Entity == nil && c.Tick == nil && c.Timer == nil && c.Player == nil && ((c.ClientMessage == nil && c.Epoch == nil) || c.focus() != nil)
 }
 
 // NewHost returns a Host for the Experiences in sups, by Experience id, and installs it as the
@@ -166,6 +172,11 @@ func NewHost(
 		}
 	}
 	h.holder = &sinkHolder{h}
+	if reg != nil {
+		for _, t := range reg.entityTypes {
+			t.host = h
+		}
+	}
 	installedHooks.Store(h.holder)
 	return h
 }
@@ -282,9 +293,10 @@ func (h *Host) useOnBlock(
 		return false
 	}
 	b = b.placed(user, target, face, clickPos)
+	placed := b.inWorld(nil)
 	before := blockID(tx.Block(target))
-	placer.PlaceBlock(target, b, ctx)
-	if tx.Block(target) != world.Block(b) {
+	placer.PlaceBlock(target, placed, ctx)
+	if tx.Block(target) != placed {
 		return false
 	}
 	instance, ok := h.worlds.of(tx.World())
@@ -303,9 +315,11 @@ func (h *Host) useOnBlock(
 }
 
 // activate queues on-interact for the user's interaction. The clicked face comes from the
-// client unchecked, so a face out of range is ignored; the interaction stays consumed.
+// client unchecked, so a face out of range is ignored; the interaction stays consumed. A click
+// position within the cell becomes the call's hit, in pixels. The click and the held item are
+// kept for a result that passes the click on.
 func (h *Host) activate(
-	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, _ *item.UseContext,
+	b Block, pos cube.Pos, clickedFace cube.Face, tx *world.Tx, u item.User, ctx *item.UseContext,
 ) {
 	instance, ok := h.worlds.of(tx.World())
 	if u == nil || !ok {
@@ -316,11 +330,30 @@ func (h *Host) activate(
 		return
 	}
 	actor := u.H()
-	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
+	click := &interaction{face: clickedFace}
+	if ctx != nil && ctx.ClickPos != nil {
+		click.pos = *ctx.ClickPos
+	}
+	click.held, _ = u.HeldItems()
+	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, interaction: click, call: Call{
 		Interact: &InteractCall{
-			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace],
+			Player: actor.UUID().String(), Pos: blockPos(pos), Face: faces[clickedFace], Hit: hitOf(ctx),
 		},
 	}})
+}
+
+// hitOf is the click position that ctx carries, in pixels, when it lies within the cell.
+func hitOf(ctx *item.UseContext) *Pixel {
+	if ctx == nil || ctx.ClickPos == nil {
+		return nil
+	}
+	click := ctx.ClickPos.Mul(blockPixels)
+	for _, axis := range click {
+		if !(axis >= 0 && axis <= blockPixels) {
+			return nil
+		}
+	}
+	return &Pixel{X: float32(click[0]), Y: float32(click[1]), Z: float32(click[2])}
 }
 
 // neighbourUpdateTick queues on-neighbor-changed, at most once per position and
@@ -355,7 +388,8 @@ func (h *Host) scheduledTick(b Block, pos cube.Pos, tx *world.Tx) {
 }
 
 // breakHandler deletes the broken block's data. A player's break then queues on-break with that
-// data; a break without a user, such as an explosion, notifies nothing.
+// data, a harvest unless the player's game mode takes nothing from what it breaks; a break
+// without a user, such as an explosion, notifies nothing.
 func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 	instance, ok := h.worlds.of(tx.World())
 	if !ok {
@@ -372,11 +406,13 @@ func (h *Host) breakHandler(b Block, pos cube.Pos, tx *world.Tx, u item.User) {
 	}
 	actor := u.H()
 	id := actor.UUID().String()
+	p, isPlayer := u.(*player.Player)
+	harvest := isPlayer && !p.GameMode().CreativeInventory()
 	h.enqueue(b.t.exp, event{w: tx.World(), instance: instance, anchor: pos, actor: actor, call: Call{
 		Break: &BreakCall{Change: Change{
 			Pos: blockPos(pos), Actor: &id, Cause: CausePlayer, BeforeID: b.t.id,
 			AfterID: blockID(tx.Block(pos)), PreviousData: previous,
-		}},
+		}, Harvest: harvest},
 	}})
 }
 
@@ -530,6 +566,9 @@ type snapshot struct {
 	// slots are the actor's inventory slots as the snapshot holds them, which the commit checks
 	// again where it writes; nil without an actor.
 	slots []item.Stack
+	// containers are the request's loaded containers as the snapshot holds them, by listed
+	// position, which the commit checks again where it writes.
+	containers map[cube.Pos]containerState
 }
 
 // cellState is the state of one snapshot cell that a commit must find unchanged, and the length
@@ -539,12 +578,16 @@ type cellState struct {
 	loaded bool
 	id     string
 	// owned is set for this Experience's own block with a store entry, which block holds with
-	// its states.
+	// its states, and overlays with its overlays when it is an overlay host.
 	owned    bool
 	block    Block
+	overlays *overlayList
 	token    Token
 	hasToken bool
 	dataLen  uint64
+	// power is the redstone power that an owned redstone block receives. The commit does not
+	// check it.
+	power uint8
 }
 
 // snapshot reads the event's anchor and its loaded neighbors in a fresh task of the event's
@@ -556,10 +599,11 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 	if ev.call.Player != nil {
 		return h.observationSnapshot(d, *ev), nil
 	}
+	despawn := ev.call.Entity != nil && ev.call.Entity.Event.Type == "despawned"
 	if !h.playerCurrent(*ev) {
 		return snapshot{}, errStale
 	}
-	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil {
+	if ev.call.anchored() || ev.call.Tick != nil || ev.call.Timer != nil || ev.call.Entity != nil {
 		valid := false
 		if err := await(ctx, ev.w.Do(func(tx *world.Tx) {
 			if !h.playerCurrent(*ev) {
@@ -571,9 +615,15 @@ func (h *Host) snapshot(ctx context.Context, d *dispatcher, ev *event) (snapshot
 				snap = h.read(tx, d, *ev)
 			}
 		})); err != nil {
+			if despawn && errors.Is(err, world.ErrWorldClosed) {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, err
 		}
 		if !valid {
+			if despawn {
+				return h.entityDespawnSnapshot(d, *ev), nil
+			}
 			return snapshot{}, fmt.Errorf("%w: world instance changed", errStale)
 		}
 		return snap, nil
@@ -615,10 +665,11 @@ func await(ctx context.Context, task *world.Task) error {
 
 // read builds the event's snapshot in tx: the anchor and its six neighbors within the world's
 // height, loaded or not, with the data of the owned ones, then the members of the anchor's
-// network; nothing for an unanchored call.
+// network and the containers in reach of both; nothing for an unanchored call.
 func (h *Host) read(tx *world.Tx, d *dispatcher, ev event) snapshot {
 	snap := h.readFixed(tx, d, ev)
 	h.network(tx, d, ev, &snap)
+	h.containers(tx, d, ev, &snap)
 	return snap
 }
 
@@ -659,6 +710,8 @@ func (h *Host) readFixed(tx *world.Tx, d *dispatcher, ev event) snapshot {
 		cell := Cell{Pos: blockPos(pos), Loaded: st.loaded, ID: st.id, Owned: st.owned}
 		if st.owned {
 			cell.States = st.block.states()
+			cell.Overlays = st.overlays.list()
+			cell.Power = st.power
 			if data, ok := h.store.Data(d.id, ev.instance.storeKey(pos)); ok {
 				s := hex.EncodeToString(data)
 				cell.Data = &s
@@ -688,10 +741,13 @@ func (h *Host) cellState(tx *world.Tx, exp string, instance worldInstance, pos c
 	}
 	st.loaded = true
 	st.id = blockID(b)
-	own, ok := b.(Block)
+	own, overlays, ok := ownBlock(b)
 	st.owned = ok && own.t.exp == exp && st.hasToken
 	if st.owned {
-		st.block = own
+		st.block, st.overlays = own, overlays
+		if own.t.redstone {
+			st.power = receivedPower(tx, pos)
+		}
 	}
 	return st
 }

@@ -136,12 +136,11 @@ impl UiPresentationRuntime {
     pub fn refresh_scoreboard_owner_names(
         &mut self,
         store: &ScoreboardStore,
-        stream: Option<&chunk_pipeline::WorldStream>,
+        names: Option<client_world::ui_read::NametagUi<'_>>,
     ) {
         self.set_scoreboard_owner_names(required_sidebar_owner_ids(store).into_iter().filter_map(
             |unique_id| {
-                stream?
-                    .authority()
+                names?
                     .actor_display_name(unique_id)
                     .map(|name| (unique_id, name))
             },

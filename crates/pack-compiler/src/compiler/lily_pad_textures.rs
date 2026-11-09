@@ -132,7 +132,8 @@ fn copy_chain(
         .collect()
 }
 
-fn append_layer(
+/// Appends one canonical mip chain to the first carrier page with room.
+pub(super) fn append_layer(
     pages: &mut Vec<TexturePage>,
     chain: Box<[TextureMip]>,
 ) -> Result<TextureRef, AssetError> {
@@ -141,7 +142,7 @@ fn append_layer(
         .position(|page| page.texture.layers < MAX_CARRIER_TEXTURE_LAYERS as u32)
         .unwrap_or(pages.len());
     if index >= MAX_CARRIER_TEXTURE_PAGES {
-        return Err(invalid("lily-pad textures exceed the page/layer budget"));
+        return Err(invalid("carrier textures exceed the page/layer budget"));
     }
     if index == pages.len() {
         pages.push(TexturePage::new(TextureArray {
@@ -158,7 +159,7 @@ fn append_layer(
     let texture = TextureRef::new(index as u32, page.texture.layers)?;
     for (destination, mip) in page.texture.mips.iter_mut().zip(&chain) {
         if destination.size != mip.size {
-            return Err(invalid("lily-pad destination mip dimensions differ"));
+            return Err(invalid("carrier destination mip dimensions differ"));
         }
         let mut bytes = std::mem::take(&mut destination.rgba8).into_vec();
         bytes.extend_from_slice(&mip.rgba8);

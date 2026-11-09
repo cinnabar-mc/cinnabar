@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::{Control, MAX_PANEL_CONTROLS, Panel, Surface, SurfaceValue, text};
+use super::{Control, MAX_PANEL_CONTROLS, Panel, Surface, SurfaceValue, WidgetColors, text};
 
 /// Local catalogs are read once outside callbacks, independently of guest memory.
 pub const MAX_PANEL_BUNDLE_BYTES: usize = 8 * 1024 * 1024;
@@ -66,11 +66,10 @@ impl PanelBundle {
     pub fn matches_schema(&self, panel: &Panel) -> bool {
         self.matches_controls(&self.panel.controls, panel)
             || self.control_schemas.iter().any(|(id, controls)| {
-                panel.surface.as_ref().is_some_and(|surface| {
-                    self.surfaces
-                        .get(id)
-                        .is_some_and(|original| original.same_definition(surface))
-                }) && self.matches_controls(controls, panel)
+                self.surfaces
+                    .get(id)
+                    .is_some_and(|original| original.same_definition(&panel.surface))
+                    && self.matches_controls(controls, panel)
             })
     }
 
@@ -86,7 +85,7 @@ impl PanelBundle {
     /// Builds a route from its admitted static schema and initial values.
     pub fn route_panel(&self, id: &str) -> Option<Panel> {
         let mut panel = self.panel.clone();
-        panel.surface = Some(self.surfaces.get(id)?.clone());
+        panel.surface = self.surfaces.get(id)?.clone();
         if let Some(controls) = self.control_schemas.get(id) {
             panel.controls.clone_from(controls);
         }
@@ -124,14 +123,9 @@ impl PanelBundle {
             .map_err(|e| e.to_string())?
             .into_iter()
             .sum::<usize>()
-            + self
-                .panel
-                .surface
-                .as_ref()
-                .map(serde_json::to_vec)
-                .transpose()
+            + serde_json::to_vec(&self.panel.surface)
                 .map_err(|e| e.to_string())?
-                .map_or(0, |bytes| bytes.len())
+                .len()
             + serde_json::to_vec(&self.control_schemas)
                 .map_err(|error| error.to_string())?
                 .len();
@@ -208,6 +202,13 @@ pub struct PanelPatch {
     /// Changes the retained animation preference without replacing the panel schema.
     #[serde(default)]
     motion: Option<bool>,
+    /// Changes whether the gameplay HUD, mods' HUD surfaces included, stays drawn under the
+    /// open panel, until changed again or until new content replaces the panel.
+    #[serde(default)]
+    show_gameplay_hud: Option<bool>,
+    /// Replaces the popup widget colours; `{}` restores the built-in palette.
+    #[serde(default)]
+    widget_colors: Option<WidgetColors>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -309,29 +310,20 @@ impl PanelPatch {
                 .get(&id)
                 .ok_or("panel update names an unknown surface")?
                 .clone();
-            if let Some(current) = &panel.surface {
-                if current.same_definition(&route) {
-                    route.collections.clone_from(&current.collections);
-                }
-                route.bindings.clone_from(&current.bindings);
+            let current = &panel.surface;
+            if current.same_definition(&route) {
+                route.collections.clone_from(&current.collections);
             }
-            panel.surface = Some(route);
+            route.bindings.clone_from(&current.bindings);
+            panel.surface = route;
         }
         if let Some(bindings) = self.bindings {
-            let surface = panel
-                .surface
-                .as_mut()
-                .ok_or("panel bindings require a retained surface")?;
-            surface.bindings = bindings;
-            surface.validate_bindings()?;
+            panel.surface.bindings = bindings;
+            panel.surface.validate_bindings()?;
         }
         if let Some(changes) = self.binding_changes {
-            let surface = panel
-                .surface
-                .as_mut()
-                .ok_or("panel bindings require a retained surface")?;
-            surface.bindings.extend(changes);
-            surface.validate_bindings()?;
+            panel.surface.bindings.extend(changes);
+            panel.surface.validate_bindings()?;
         }
         if let Some(capture) = self.capture_key {
             panel.capture_key = capture;
@@ -339,11 +331,18 @@ impl PanelPatch {
         if let Some(motion) = self.motion {
             panel.motion = motion;
         }
+        if let Some(shown) = self.show_gameplay_hud {
+            panel.show_gameplay_hud = shown;
+        }
+        if let Some(colors) = self.widget_colors {
+            colors.validate()?;
+            panel.widget_colors = Some(colors);
+        }
         for (name, order) in self.collection_order {
             let collection = panel
                 .surface
-                .as_mut()
-                .and_then(|surface| surface.collections.get_mut(&name))
+                .collections
+                .get_mut(&name)
                 .ok_or("panel update names an unknown collection")?;
             collection.order = order;
             collection.validate_order()?;
@@ -351,8 +350,8 @@ impl PanelPatch {
         if let Some(reveal) = self.collection_reveal {
             let collection = panel
                 .surface
-                .as_mut()
-                .and_then(|surface| surface.collections.get_mut(&reveal.collection))
+                .collections
+                .get_mut(&reveal.collection)
                 .ok_or("panel reveal names an unknown collection")?;
             if reveal.item as usize >= collection.definition.items.len() {
                 return Err("panel reveal names an unknown item".into());

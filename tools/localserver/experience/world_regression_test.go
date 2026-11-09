@@ -17,10 +17,22 @@ import (
 	"github.com/go-gl/mathgl/mgl64"
 )
 
+// redirectTempDir points os.TempDir at a fresh test directory on every platform;
+// Windows reads TMP and TEMP, not TMPDIR.
+func redirectTempDir(t *testing.T) string {
+	dir := t.TempDir()
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		t.Setenv(name, dir)
+	}
+	if os.TempDir() != dir {
+		t.Fatalf("temporary directory %q not redirected to %q", os.TempDir(), dir)
+	}
+	return dir
+}
+
 // TestTemporaryInstanceRetainsUnloadedTerrain revisits a modified chunk during one opening.
 func TestTemporaryInstanceRetainsUnloadedTerrain(t *testing.T) {
-	tempRoot := t.TempDir()
-	t.Setenv("TMPDIR", tempRoot)
+	tempRoot := redirectTempDir(t)
 	synctest.Test(t, func(t *testing.T) {
 		registration := &WorldRegistration{Definitions: []WorldDefinition{{ID: "probe:temporary", Settings: WorldSettings{Generator: GeneratorEmpty, Dimension: DimensionOverworld}}}, Startup: []WorldInstance{{ID: "probe:temporary", Definition: "probe:temporary"}}}
 		h := NewHost(&Registry{}, openTestStore(t, t.TempDir()), map[string]*Supervisor{"probe": {registered: Loaded{Worlds: registration}}}, "world", nil, slog.New(slog.DiscardHandler))

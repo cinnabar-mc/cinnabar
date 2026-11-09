@@ -7,7 +7,10 @@
 //! last-bit difference into an unrelated value, so pack noise (BSL's waving foliage) came out
 //! as a different pattern. Calls in function bodies therefore go through `iris_dot` helpers
 //! spelled with explicit `fma`. Constant expressions keep the built-in: naga folds those
-//! itself and cannot call functions there.
+//! itself and cannot call functions there. Backends that need software rounding also replace
+//! the initial product, preserving subnormal values and signed zero without float64. Their
+//! helpers accumulate in a loop, so each call inlines the software step once rather than once
+//! per component: backend compilers inline every call, and DXC spent minutes on the copies.
 
 use crate::token::{Tok, id, lex};
 
@@ -18,10 +21,34 @@ float iris_dot(vec3 a, vec3 b) { return fma(a.z, b.z, fma(a.y, b.y, a.x * b.x));
 float iris_dot(vec4 a, vec4 b) { return fma(a.w, b.w, fma(a.z, b.z, fma(a.y, b.y, a.x * b.x))); }
 ";
 
+/// `dot_fma.glsl`'s steps with [`HELPERS`] over them. Starting from the first product's
+/// signed zero, the first step rounds that product and keeps the sign of a zero one.
+const SOFTWARE_HELPERS: &str = concat!(
+    include_str!("dot_fma.glsl"),
+    "\
+float iris_dot(float a, float b) { return iris_dot_fma(a, b, iris_dot_zero(a, b)); }
+float iris_dot(vec2 a, vec2 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 2; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+float iris_dot(vec3 a, vec3 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 3; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+float iris_dot(vec4 a, vec4 b) {
+    float sum = iris_dot_zero(a.x, b.x);
+    for (int i = 0; i < 4; i++) sum = iris_dot_fma(a[i], b[i], sum);
+    return sum;
+}
+"
+);
+
 /// Routes `dot` calls in function bodies through the `iris_dot` helpers, or `None` when the
 /// stage has none to route. Stages that use double precision keep the built-in: the helpers
 /// only have single-precision overloads.
-pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
+pub(super) fn order(src: &[Tok], software_fma: bool) -> Option<Vec<Tok>> {
     if src.iter().any(|t| {
         t.ident()
             .is_some_and(|n| n == "double" || n.starts_with("dvec"))
@@ -31,7 +58,10 @@ pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
     let constant = super::items::constant_contexts(src);
     let identifiers: std::collections::HashSet<_> = src.iter().filter_map(Tok::ident).collect();
     let mut helper = "iris_dot".to_string();
-    while identifiers.contains(helper.as_str()) {
+    while identifiers
+        .iter()
+        .any(|name| *name == helper || name.starts_with(&format!("{helper}_")))
+    {
         helper.push('_');
     }
     let items = super::items::split_items(src);
@@ -77,14 +107,19 @@ pub(super) fn order(src: &[Tok]) -> Option<Vec<Tok>> {
     if !routed {
         return None;
     }
+    let helpers = if software_fma {
+        SOFTWARE_HELPERS
+    } else {
+        HELPERS
+    };
     let mut out = Vec::new();
-    for item in super::items::split_items(&lex(HELPERS)) {
-        let (_, params) = super::items::func_params(&item).unwrap();
+    for item in super::items::split_items(&lex(helpers)) {
+        let (lp, params) = super::items::func_params(&item).unwrap();
         let types = signature(&params);
-        if !user_types.contains(&types) {
+        if item[lp - 1].ident() != Some("iris_dot") || !user_types.contains(&types) {
             out.extend(item.into_iter().map(|token| {
-                if token.ident() == Some("iris_dot") {
-                    id(&helper).at(token.line)
+                if let Some(name) = token.ident().filter(|name| name.starts_with("iris_dot")) {
+                    id(&format!("{helper}{}", &name["iris_dot".len()..])).at(token.line)
                 } else {
                     token
                 }
@@ -122,7 +157,7 @@ mod tests {
     /// Reorders a fixture expression and emits its resulting token stream.
     fn ordered(src: &str) -> Option<String> {
         let mut e = Emitter::default();
-        e.tokens(&order(&lex(src))?);
+        e.tokens(&order(&lex(src), false)?);
         Some(e.finish().0)
     }
 

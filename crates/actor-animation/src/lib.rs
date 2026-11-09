@@ -32,12 +32,17 @@ const MAX_RUNTIME_POSE_WORK_PER_ACTOR_FRAME: usize =
     FRAME_PASSES_PER_ACTOR * MAX_RUNTIME_POSE_WORK_PER_ACTOR_TICK;
 const MAX_RUNTIME_BINDINGS_PER_RIG: usize = 4_096;
 
+mod catalog;
+pub use catalog::ActorAnimationCatalog;
+
 mod actor;
 pub use actor::{AnimatedActor, AnimatedActors, MAX_ANIMATED_ACTORS};
 pub mod consumables;
 mod properties;
 mod rig_plans;
 pub use properties::{PropertyDefinition, PropertyKind};
+mod head_rotation;
+pub use head_rotation::HeadRotation;
 mod rig;
 pub use rig::{
     ActorAnimationStats, ActorLifetimeId, ActorRigSnapshot, BoneTransform, EntityRigId, HandPhase,
@@ -77,6 +82,7 @@ mod query;
 mod render;
 mod render_frame;
 pub use render_frame::{ActorRenderFrame, ActorRenderLayers};
+mod brandish;
 mod replay;
 mod server_animation;
 mod shulker;
@@ -98,7 +104,7 @@ pub use motion::{ACTOR_SWING_TICKS, SwingEffects};
 use motion::{MotionInput, MotionState};
 pub use pose::MODEL_PART_ORIGIN_Y;
 use pose::compose_pose;
-pub use render::RenderTextureLayer;
+pub use render::{ControllerActivity, RenderTextureLayer, RenderVisibility};
 pub use skin_layers::SkinRenderLayer;
 pub use tick::{ActorTickContext, StackVariant, WornArmor};
 use tick::{advance_motion, evaluate_state};
@@ -132,3 +138,6 @@ mod dragon_tests;
 #[cfg(test)]
 #[global_allocator]
 static TEST_ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
+
+/// Owner-bone placement shared by world and live UI equipment.
+pub mod attachment;

@@ -12,16 +12,14 @@ reads = [
     "assets/branding/icon.png",
     "assets/branding/title.png",
     "core/authcache/derived_suffix.txt",
+    "core/authcache/pending_prompt_suffix.txt",
+    "core/authcache/testdata/pending_prompt.json",
     "core/catalog/artwork_limit.txt",
     "core/catalog/profile_overview_limit.txt",
 ]
 
 [features]
 test-support = []
-# Offers shader-pack controls; enabled by the app's `shaderpacks` feature.
-shaderpacks = ["shader-pack-options"]
-# Runs shader-pack option screens on the `shaderpack` crate.
-shader-pack-options = ["dep:shaderpack"]
 
 [dependencies]
 cosmetics = { path = "../cosmetics" }
@@ -32,7 +30,7 @@ render-api = { path = "../render-api" }
 resource-pack = { path = "../resource-pack", default-features = false }
 semantic-input = { path = "../input" }
 ui = { path = "../ui" }
-shaderpack = { path = "../shaderpack", optional = true }
+shaderpack = { path = "../shaderpack" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 update-manifest = { path = "../update-manifest" }

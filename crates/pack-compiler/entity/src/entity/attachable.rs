@@ -44,8 +44,8 @@ use resources::{ControllerResources, named_resource};
 use textures::compile_texture_identifiers_with;
 pub use textures::decode_raster as decode_equipment_raster;
 pub use textures::{
-    compile_textures_for_assets, compile_textures_for_assets_with,
-    compile_textures_for_assets_with_priorities,
+    EquipmentRasterDrops, EquipmentRasterRefusal, compile_textures_for_assets,
+    compile_textures_for_assets_with, compile_textures_for_assets_with_priorities,
 };
 
 /// Literal transforms an item's attachable exposed, keyed by item identifier.
@@ -76,19 +76,27 @@ pub(super) fn validate_source(value: &Value) -> Result<(), AttachableError> {
     parse_description(value).map(|_| ())
 }
 
-/// Builds the sorted per-item binding table from every collected attachable.
+/// A pack's binding table and how many of its attachables a lenient compile left out.
+pub(super) struct CompiledBindings {
+    pub(super) bindings: Box<[EquipmentBinding]>,
+    pub(super) unusable: u32,
+}
+
+/// Builds the sorted per-item binding table from every collected attachable. A startup compile
+/// fails past the carrier's count bound; a server pack has no such limit.
 pub(super) fn compile_bindings(
     payloads: &SourceDocuments<'_>,
     symbols: &[EntityAssetSymbol],
     sources: &[EntityAssetSource],
     controller_resources: &BTreeMap<Box<str>, ControllerResources>,
     lenient: bool,
-) -> Result<Box<[EquipmentBinding]>, AttachableError> {
+) -> Result<CompiledBindings, AttachableError> {
     let materials = super::materials::MaterialStates::load(Path::new(""), payloads, sources)
         .map_err(|_| AttachableError::Malformed)?;
     let geometry_symbols = symbol_identifiers(symbols, EntityAssetKind::Geometry);
     let texture_symbols = symbol_identifiers(symbols, EntityAssetKind::Texture);
     let mut chosen = BTreeMap::<(Box<str>, Box<str>), ParsedAttachable>::new();
+    let mut unusable = 0;
     for path in payloads.paths() {
         if !path.starts_with("attachables/") {
             continue;
@@ -100,7 +108,10 @@ pub(super) fn compile_bindings(
         {
             Ok(parsed) => parsed,
             // A server pack's bad attachable drops only itself.
-            Err(_) if lenient => continue,
+            Err(_) if lenient => {
+                unusable += 1;
+                continue;
+            }
             Err(error) => return Err(error),
         };
         chosen.insert(
@@ -111,16 +122,8 @@ pub(super) fn compile_bindings(
             parsed,
         );
     }
-    if chosen.len() > MAX_EQUIPMENT_BINDINGS {
-        if !lenient {
-            return Err(AttachableError::TooMany);
-        }
-        let keep = chosen
-            .keys()
-            .take(MAX_EQUIPMENT_BINDINGS)
-            .cloned()
-            .collect::<Vec<_>>();
-        chosen.retain(|identifier, _| keep.contains(identifier));
+    if !lenient && chosen.len() > MAX_EQUIPMENT_BINDINGS {
+        return Err(AttachableError::TooMany);
     }
     let mut chosen = chosen.into_values().collect::<Vec<_>>();
     literals::compile(payloads, symbols, sources, &mut chosen);
@@ -128,7 +131,10 @@ pub(super) fn compile_bindings(
         .into_iter()
         .map(|parsed| binding(parsed, &geometry_symbols, &texture_symbols, &materials))
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(bindings.into_boxed_slice())
+    Ok(CompiledBindings {
+        bindings: bindings.into_boxed_slice(),
+        unusable,
+    })
 }
 
 /// Ordinary definitions supply item defaults; owner mappings stay in the runtime catalog.

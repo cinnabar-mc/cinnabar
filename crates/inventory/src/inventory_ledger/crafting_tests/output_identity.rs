@@ -108,3 +108,74 @@ fn station_crafting_preserves_high_bit_block_output_identities() {
         .unwrap();
     assert_output(&ledger, &recipe);
 }
+
+/// Admits a plain shield result with the runtime timestamp the server serialized.
+fn shield_recipe(tick: i64) -> protocol::RecipeHandle {
+    let mut user_data = vec![0; 10];
+    user_data.extend_from_slice(&tick.to_le_bytes());
+    let mut fixture = RecipeFixture::shaped(
+        "test:shield_data",
+        1,
+        1,
+        vec![IngredientFixture::named("minecraft:oak_log", 0)],
+        vec![OutputFixture {
+            user_data,
+            ..OutputFixture::new(PLANKS, 1)
+        }],
+    );
+    fixture.net_id = 78;
+    let mut catalog = RecipeCatalog::default();
+    catalog.begin_session(1);
+    assert!(catalog.apply(1, 1, &CraftingDataFixture::clearing(vec![fixture]).update()));
+    catalog.recipe(78).unwrap()
+}
+
+#[test]
+fn crafting_preserves_shield_runtime_data_in_predicted_stacks_and_requests() {
+    for tick in [0i64, 123] {
+        let recipe = shield_recipe(tick);
+        let mut expected = vec![0; 10];
+        expected.extend_from_slice(&tick.to_le_bytes());
+        for automatic in [false, true] {
+            let mut ledger = ledger(WORKBENCH_WINDOW_TYPE);
+            let mut entries = registry().entries.to_vec();
+            let output = entries
+                .iter_mut()
+                .find(|entry| entry.network_id == PLANKS)
+                .unwrap();
+            output.identifier = Arc::from("minecraft:shield");
+            output.negotiated_max_stack_size = Some(1);
+            ledger.apply_registry(&ItemRegistryEvent {
+                entries: entries.into(),
+            });
+            if automatic {
+                ledger.apply(&InventoryEvent::Slot(InventorySlotEvent {
+                    identity: SlotIdentity {
+                        container: ContainerIdentity::window(0),
+                        slot: 9,
+                    },
+                    stack: stack(LOG, 101, 1),
+                    storage_item: None,
+                }));
+                assert!(ledger.can_auto_craft(&recipe));
+                ledger.begin_auto_craft(&recipe, false).unwrap();
+            } else {
+                let slot = ledger.crafting_grid().slots().next().unwrap();
+                ledger.apply(&craft_slot(u16::from(slot), stack(LOG, 101, 1)));
+                ledger.begin_craft(&recipe, 1).unwrap();
+            }
+            let placed = placed_outputs(&ledger);
+            let output = placed
+                .first()
+                .map(|(_, stack)| stack)
+                .or_else(|| ledger.cursor_stack())
+                .unwrap();
+            assert_eq!(output.extra_data.as_ref(), expected);
+            assert!(ledger.newest_request().unwrap().actions.iter().any(|action| matches!(
+                action, StackRequestAction::CraftResultsDeprecated { results, .. }
+                if results[0].identifier.as_ref() == "minecraft:shield" && results[0].user_data.as_ref() == expected
+            )));
+            assert!(ledger.pending_batch().unwrap().is_some());
+        }
+    }
+}

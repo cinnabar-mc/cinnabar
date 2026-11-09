@@ -1,3 +1,4 @@
+pub(in crate::chunk) mod batching;
 pub(crate) mod face_metric;
 pub(crate) mod gamma_pass;
 pub(in crate::chunk) mod liquid;

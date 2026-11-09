@@ -52,7 +52,10 @@ use animate::AtlasAnimations;
 use bevy::{
     ecs::system::SystemParam,
     math::UVec2,
-    prelude::{App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, With},
+    prelude::{
+        App, Commands, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource, SystemCondition,
+        With,
+    },
     render::{
         Render, RenderApp, RenderSystems,
         render_resource::{Buffer, PipelineCache, Sampler, TextureView},
@@ -129,14 +132,19 @@ impl Plugin for ShaderpackAtlasPlugin {
                     update_shaderpack_animations,
                 )
                     .chain()
-                    .run_if(atlas_requested)
-                    .in_set(RenderSystems::PrepareResources),
+                    .run_if(super::scheduling::render_work_pending.and_then(atlas_requested))
+                    .in_set(RenderSystems::PrepareResources)
+                    .in_set(super::scheduling::ShaderPackSystems),
             )
             .add_systems(
                 Render,
                 release_shaderpack_atlas
-                    .run_if(bevy::ecs::schedule::common_conditions::not(atlas_requested))
-                    .in_set(RenderSystems::PrepareResources),
+                    .run_if(
+                        super::scheduling::render_work_pending
+                            .and_then(bevy::ecs::schedule::common_conditions::not(atlas_requested)),
+                    )
+                    .in_set(RenderSystems::PrepareResources)
+                    .in_set(super::scheduling::ShaderPackSystems),
             );
     }
 }
@@ -242,7 +250,7 @@ impl BuildToken {
 /// At most one build runs: a superseded or released build is cancelled and kept until its
 /// worker returns, and the latest request starts after it.
 #[derive(Resource, Default)]
-struct AtlasBuild {
+pub(super) struct AtlasBuild {
     requested: Option<ChunkTextureAssets>,
     /// `requested` has not started building.
     pending: bool,
@@ -255,6 +263,11 @@ struct AtlasBuild {
 }
 
 impl AtlasBuild {
+    /// Whether an atlas request or worker still needs preparation or release.
+    pub(super) fn has_work(&self) -> bool {
+        self.requested.is_some() || self.task.is_some() || self.retiring.is_some()
+    }
+
     /// Claims a changed source once and owns its pointer identities until the next request.
     fn request(&mut self, assets: &ChunkTextureAssets) -> bool {
         if self

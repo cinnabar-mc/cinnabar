@@ -10,20 +10,20 @@ use std::{
 };
 use thiserror::Error;
 
-pub const ITEM_FACTS_SOURCE_PATH: &str = "crates/assets/data/item-facts-v2193.bin";
-pub const ITEM_FACTS_FILENAME: &str = "item-facts-v2193.bin";
-pub const ITEM_FACTS_EXPANSION_PATH: &str = "crates/assets/data/item-facts-expansion-v2193.tsv";
+pub const ITEM_FACTS_SOURCE_PATH: &str = "crates/assets/data/item-facts-v2225.bin";
+pub const ITEM_FACTS_FILENAME: &str = "item-facts-v2225.bin";
+pub const ITEM_FACTS_EXPANSION_PATH: &str = "crates/assets/data/item-facts-expansion-v2225.tsv";
 pub const MAX_ITEM_FACTS_BYTES: usize = 4 * 1024 * 1024;
 /// Tracked inputs shared by the facts compiler and asset preparation recipe.
 pub const ITEM_FACTS_INPUTS: &[&str] = &[
     retail::INPUT_PATH,
-    "crates/protocol/data/item_capacity_1_26_50.tsv",
+    "crates/protocol/data/item_capacity_1_26_60.tsv",
     "crates/protocol/data/item_tags_native.tsv",
-    "crates/assets/data/item-armour-v2193.json",
-    "crates/assets/data/item-durability-v2193.json",
-    "crates/assets/data/item-fuel-v2193.tsv",
-    "crates/assets/data/item-glint-v2193.tsv",
-    "crates/assets/data/item-grips-v2193.tsv",
+    "crates/assets/data/item-armour-v2225.json",
+    "crates/assets/data/item-durability-v2225.json",
+    "crates/assets/data/item-fuel-v2225.tsv",
+    "crates/assets/data/item-glint-v2225.tsv",
+    "crates/assets/data/item-grips-v2225.tsv",
     "crates/assets/data/item-use-profiles.json",
     "crates/asset-compiler/data/registry-policy.json",
     "crates/assets/data/vocabulary-exceptions.json",
@@ -53,7 +53,7 @@ impl ItemFacts {
         static FACTS: OnceLock<Result<Arc<ItemFacts>, ItemFactsError>> = OnceLock::new();
         FACTS
             .get_or_init(|| {
-                let bytes = include_bytes!("../../data/item-facts-v2193.bin");
+                let bytes = include_bytes!("../../data/item-facts-v2225.bin");
                 Self::validate_pinned(bytes)?;
                 Self::decode(bytes).map(Arc::new)
             })
@@ -64,7 +64,7 @@ impl ItemFacts {
     /// Checks installed bytes against the reviewed carrier's external fingerprint.
     pub fn validate_pinned(bytes: &[u8]) -> Result<(), ItemFactsError> {
         ensure(bytes.len() <= MAX_ITEM_FACTS_BYTES, "carrier size")?;
-        let expected = include_str!("../../data/item-facts-v2193.sha256").trim();
+        let expected = include_str!("../../data/item-facts-v2225.sha256").trim();
         ensure(
             format!("{:x}", Sha256::digest(bytes)) == expected,
             "pinned carrier hash",

@@ -10,6 +10,7 @@ use client_shell::menu::MenuRuntime;
 pub(super) fn dispatch(
     menu: Option<&MenuRuntime>,
     runtime: &mut UiRuntime,
+    player: &player_state::PlayerState,
     modifiers: semantic_input::ModifierChord,
     control: Option<PhysicalControl>,
     now_millis: u64,
@@ -18,7 +19,7 @@ pub(super) fn dispatch(
     let Some(control) = control else {
         return false;
     };
-    let Some(command) = command(menu, runtime, modifiers, Some(control)) else {
+    let Some(command) = command(menu, runtime, player, modifiers, Some(control)) else {
         return false;
     };
     let _ = runtime.queue_chat_message(&command, now_millis);
@@ -28,23 +29,16 @@ pub(super) fn dispatch(
     true
 }
 
-/// Resolves an armed gameplay shortcut before ordinary bindings claim its press.
+/// Resolves an armed gameplay shortcut before ordinary bindings claim its press. Macros
+/// stay quiet while any screen is up.
 pub(in crate::ui_runtime) fn command(
     menu: Option<&MenuRuntime>,
     runtime: &UiRuntime,
+    player: &player_state::PlayerState,
     modifiers: semantic_input::ModifierChord,
     control: Option<PhysicalControl>,
 ) -> Option<String> {
-    if menu.is_some_and(MenuRuntime::is_visible)
-        || runtime.chat_focused()
-        || runtime.inventory_open()
-        || runtime.local_sleeping()
-        || runtime.sign_editor().is_open()
-        || runtime.emotes().is_open()
-        || runtime.server_forms().owns_input()
-        || runtime.data_driven_ui().owns_input()
-        || runtime.credits().owns_input()
-    {
+    if menu.is_some_and(MenuRuntime::is_visible) || runtime.screen_open_besides(player, None) {
         return None;
     }
     client_shell::menu::settings_options::control_bindings::binding_macro_command(
@@ -56,6 +50,7 @@ pub(in crate::ui_runtime) fn command(
 pub(super) fn dispatch_mouse(
     menu: Option<&MenuRuntime>,
     runtime: &mut UiRuntime,
+    player: &player_state::PlayerState,
     modifiers: semantic_input::ModifierChord,
     button: MouseButton,
     now_millis: u64,
@@ -64,6 +59,7 @@ pub(super) fn dispatch_mouse(
     dispatch(
         menu,
         runtime,
+        player,
         modifiers,
         client_shell::physical_input::mouse_button_code(button).map(PhysicalControl::MouseButton),
         now_millis,

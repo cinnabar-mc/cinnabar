@@ -502,7 +502,7 @@ func encodePhysicsRegistry(breg []byte, records []PhysicsRecord, expectedCount i
 }
 
 // encodePhysicsRegistryForProtocol stamps an explicit wire protocol so the
-// protocol-2193 projection can bind its own identity space without mutating
+// protocol-2225 projection can bind its own identity space without mutating
 // the shared protocol-1001 constants or its byte-reproducible output.
 func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expectedCount int, protocol uint32) ([]byte, error) {
 	if len(records) != expectedCount {
@@ -534,7 +534,7 @@ func encodePhysicsRegistryForProtocol(breg []byte, records []PhysicsRecord, expe
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.SequentialID)
 		encoded = binary.LittleEndian.AppendUint32(encoded, record.NetworkHash)
 		support := uint8(0)
-		if protocol == v2193BlockProtocol {
+		if protocol == v2225BlockProtocol {
 			support = uint8(record.MovementSemantics)
 		}
 		encoded = append(encoded, byte(len(record.Boxes)), record.Flags, byte(record.SurfaceResponse), support)

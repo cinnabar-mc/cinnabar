@@ -65,8 +65,10 @@ pub fn serve(mut input: impl Read, mut output: impl Write, report_fuel: bool) ->
         &loaded.manifest,
         &loaded.blocks,
         &loaded.items,
+        &loaded.entities,
         loaded.focus,
         loaded.worlds.clone(),
+        loaded.overlays.clone(),
     )? {
         return Ok(EXIT_LOAD_FAILED);
     }
@@ -103,19 +105,27 @@ fn start(
     Ok((engine, ticker, loaded))
 }
 
-/// Answers a load with what loaded: the manifest's id and version, the blocks and items, and
-/// whether its world takes a `focus`. An answer too large for a frame fails the load instead.
-/// Returns whether the load stands.
+/// Answers a load with what loaded: the manifest's id and version, the blocks and items, whether
+/// its world takes a `focus`, and its worlds and overlays. An answer too large for a frame fails
+/// the load instead. Returns whether the load stands.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the loaded response carries independently versioned registration lists"
+)]
 fn answer_loaded(
     output: &mut impl Write,
     manifest: &Manifest,
     blocks: &[BlockDef],
     items: &[ItemDef],
+    entities: &[crate::protocol::EntityDefinition],
     focus: bool,
     worlds: Option<crate::protocol::WorldRegistration>,
+    overlays: Option<crate::protocol::OverlayRegistration>,
 ) -> io::Result<bool> {
+    let api = crate::host::Api::of(&manifest.api);
     let response = Response::Loaded {
-        simulation: manifest.api == crate::host::Api::V0_9.api(),
+        entities: entities.to_vec(),
+        simulation: api.is_some_and(crate::host::Api::simulation),
         protocol: PROTOCOL_VERSION,
         id: manifest.id.clone(),
         version: manifest.version.clone(),
@@ -123,6 +133,7 @@ fn answer_loaded(
         items: items.to_vec(),
         focus,
         worlds,
+        overlays,
     };
     let failed = || Response::LoadFailed {
         reason: OVERSIZED_LOADED.to_owned(),
@@ -194,6 +205,7 @@ fn write_or(
 /// The `type` of `call` in the protocol.
 fn call_kind(call: &Call) -> &'static str {
     match call {
+        Call::Entity { .. } => "entity",
         Call::Tick { .. } => "tick",
         Call::Timer { .. } => "timer",
         Call::Player { .. } => "player",
@@ -212,11 +224,12 @@ mod tests {
     use std::collections::BTreeMap;
 
     use super::{OVERSIZED_LOADED, OVERSIZED_RESULT, answer, answer_loaded};
-    use crate::limits::{MAX_BLOCKS, MAX_FRAME_BYTES, MAX_ITEMS};
+    use crate::limits::{MAX_BLOCKS, MAX_FRAME_BYTES, MAX_ITEMS, MAX_OVERLAY_TYPES};
     use crate::manifest::Manifest;
     use crate::protocol::{
-        BlockDef, BlockState, BoneVisibility, FailKind, ItemDef, Material, Mining, Op, Outcome,
-        RenderMethod, Response, StateDef, StateTest, StateValue, StateValues, Visual, read_frame,
+        BlockDef, BlockDrops, BlockItem, BlockState, BoneVisibility, FailKind, ItemDef, Material,
+        Mining, Op, Outcome, OverlayDef, OverlayRegistration, RenderMethod, Response, StateDef,
+        StateTest, StateValue, StateValues, Visual, read_frame,
     };
 
     fn manifest() -> Manifest {
@@ -243,9 +256,24 @@ mod tests {
             visual: None,
             permutations: Vec::new(),
             network: false,
+            drops: BlockDrops::Itself,
+            item: BlockItem::Listed,
+            redstone: false,
         };
         let mut output = Vec::new();
-        assert!(!answer_loaded(&mut output, &manifest(), &[block], &[], false, None).unwrap());
+        assert!(
+            !answer_loaded(
+                &mut output,
+                &manifest(),
+                &[block],
+                &[],
+                &[],
+                false,
+                None,
+                None
+            )
+            .unwrap()
+        );
         let mut frames = output.as_slice();
         let failed = Response::LoadFailed {
             reason: OVERSIZED_LOADED.to_owned(),
@@ -257,7 +285,8 @@ mod tests {
     /// The `loaded` answer carries every definition at once: `MAX_BLOCKS` blocks shaped like
     /// AE2's covered cable, which took 38 KB of AE2's 569 KB answer (six four-way face states, two
     /// materials, sixteen bones shown under 384 state tests, every path absolute below a 200-byte
-    /// install directory), and `MAX_ITEMS` items still fit one frame.
+    /// install directory), `MAX_OVERLAY_TYPES` overlay types of the same shape and `MAX_ITEMS`
+    /// items still fit one frame.
     #[test]
     fn loaded_answer_of_ae2_sized_blocks_at_the_bounds_fits_a_frame() {
         let root = format!("/{}", "d".repeat(199));
@@ -322,6 +351,9 @@ mod tests {
                 }),
                 permutations: Vec::new(),
                 network: true,
+                drops: BlockDrops::Nothing,
+                item: BlockItem::Unlisted,
+                redstone: true,
             })
             .collect();
         let items: Vec<ItemDef> = (0..MAX_ITEMS)
@@ -330,15 +362,43 @@ mod tests {
                 display_name: "Storage Cell".to_owned(),
                 icon: format!("{root}/assets/textures/item/cell_{i}.png"),
                 max_stack: 64,
+                listed: false,
             })
             .collect();
+        let overlays = OverlayRegistration {
+            hosts: blocks.iter().map(|block| block.id.clone()).collect(),
+            types: (0..MAX_OVERLAY_TYPES)
+                .map(|i| OverlayDef {
+                    id: format!("probe:cable_arm_{i}"),
+                    states: blocks[0].states.clone(),
+                    visual: blocks[0].visual.clone().expect("the cable has a visual"),
+                    permutations: Vec::new(),
+                })
+                .collect(),
+        };
         let mut output = Vec::new();
-        assert!(answer_loaded(&mut output, &manifest(), &blocks, &items, false, None).unwrap());
+        let answered = answer_loaded(
+            &mut output,
+            &manifest(),
+            &blocks,
+            &items,
+            &[],
+            false,
+            None,
+            Some(overlays.clone()),
+        );
+        assert!(answered.unwrap());
         let mut frames = output.as_slice();
-        let Some(Response::Loaded { blocks: read, .. }) = read_frame(&mut frames).unwrap() else {
+        let Some(Response::Loaded {
+            blocks: read,
+            overlays: read_overlays,
+            ..
+        }) = read_frame(&mut frames).unwrap()
+        else {
             panic!("no loaded answer");
         };
         assert_eq!(read, blocks);
+        assert_eq!(read_overlays, Some(overlays));
     }
 
     /// A result too large for a frame is answered as a `limit` failure instead, and nothing of

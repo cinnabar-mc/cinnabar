@@ -136,6 +136,15 @@ function Assert-ProtocolDependencyProvenance {
         }
     }
 
+    $target = Get-BedrockTargetManifest -ProjectRoot $ProjectRoot
+    foreach ($field in @('codec_crate', 'codec_package')) {
+        if ($target.$field -isnot [string] -or $target.$field -cnotmatch '\A[a-z][a-z0-9-]*\z') {
+            throw "Bedrock target manifest must pin a valid $field"
+        }
+    }
+    $codecAlias = [string]$target.codec_crate
+    $codecPackage = [string]$target.codec_package
+
     $lock = Get-Content -Raw -LiteralPath $lockPath
     $upstream = Get-Content -Raw -LiteralPath $upstreamPath
     $metadataStdoutPath = [IO.Path]::GetTempFileName()
@@ -213,11 +222,11 @@ function Assert-ProtocolDependencyProvenance {
     }
     $protocolPackage = $protocolPackages[0]
     $expectedDependencies = [ordered]@{
-        'bedrock-protocol-1-26-51' = @()
+        $codecPackage = @()
     }
     foreach ($dependencyName in $expectedDependencies.Keys) {
         $matches = @($protocolPackage.dependencies | Where-Object {
-            ([string]$_.name -ceq $dependencyName) -or ([string]$_.rename -ceq $dependencyName)
+            ([string]$_.name -ceq $dependencyName) -or ([string]$_.rename -ceq $codecAlias)
         })
         if ($matches.Count -ne 1) {
             throw "protocol dependency provenance drifted: $dependencyName must resolve exactly once from the canonical protocol manifest"
@@ -228,15 +237,16 @@ function Assert-ProtocolDependencyProvenance {
                 throw "cargo metadata dependency $dependencyName is missing $field"
             }
         }
-        if ([string]$dependency.name -cne $dependencyName -or $null -ne $dependency.rename) {
-            throw "protocol dependency provenance drifted: $dependencyName must not be renamed"
+        $expectedRename = if ($dependencyName -ceq $codecAlias) { $null } else { $codecAlias }
+        if ([string]$dependency.name -cne $dependencyName -or $dependency.rename -cne $expectedRename) {
+            throw "protocol dependency provenance drifted: $dependencyName must use the target codec package and alias"
         }
         if ($null -ne $dependency.source -or $null -ne $dependency.kind -or $null -ne $dependency.target -or
             $dependency.optional -isnot [bool] -or [bool]$dependency.optional -or
             $dependency.uses_default_features -isnot [bool]) {
             throw "protocol dependency provenance drifted: $dependencyName must be one normal non-target non-optional local dependency"
         }
-        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$dependencyName\Cargo.toml"
+        $vendoredManifest = Join-Path $ProjectRoot "crates\protocol\vendor\$codecAlias\Cargo.toml"
         if (-not (Test-Path -LiteralPath $vendoredManifest -PathType Leaf)) {
             throw "protocol dependency provenance drifted: $dependencyName vendored path has no Cargo.toml"
         }
@@ -260,7 +270,7 @@ function Assert-ProtocolDependencyProvenance {
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($axolotlLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: Axolotl Stack revision is not $ExpectedAxolotlStackRevision"
     }
-    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/1.26.51/rust-contract``)"
+    $protocolgenLine = "- Generator commit: ``$ExpectedProtocolgenRevision`` (``generated/$($target.game_version)/rust-contract``)"
     if ([regex]::Matches($upstream, '(?m)^' + [regex]::Escape($protocolgenLine) + '\r?$').Count -ne 1) {
         throw "protocol dependency provenance drifted: protocolgen revision is not $ExpectedProtocolgenRevision"
     }
@@ -289,7 +299,7 @@ function Assert-ProtocolDependencyProvenance {
         $nameMatch = [regex]::Match($body, '(?m)^name\s*=\s*"(?<name>[^"]+)"\r?$')
         if (-not $nameMatch.Success) { continue }
         $name = $nameMatch.Groups['name'].Value
-        if ($name -ceq 'bedrock-protocol-1-26-51') {
+        if ($expectedDependencies.Contains($name)) {
             $null = $resolvedLocalPackages.Add($name)
             $resolutionKey = [regex]::Match($body, '(?m)^\s*(?<key>source|checksum)\s*=')
             if ($resolutionKey.Success) {
@@ -297,7 +307,7 @@ function Assert-ProtocolDependencyProvenance {
             }
         }
     }
-    foreach ($dependency in @('bedrock-protocol-1-26-51')) {
+    foreach ($dependency in $expectedDependencies.Keys) {
         if (-not $resolvedLocalPackages.Contains($dependency)) {
             throw "Cargo.lock does not contain local package $dependency"
         }

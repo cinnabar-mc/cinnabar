@@ -1,15 +1,37 @@
 //! Bevy device state handed between UI screens and gameplay as screens take and release input.
 use bevy::{
-    input::{ButtonState, mouse::AccumulatedMouseMotion},
+    input::{ButtonState, keyboard::KeyboardInput, mouse::AccumulatedMouseMotion},
     math::Vec2,
-    prelude::{ButtonInput, KeyCode, MouseButton},
+    prelude::{ButtonInput, KeyCode, MessageReader, MouseButton},
     window::{CursorOptions, WindowEvent},
 };
-use client_shell::physical_input::set_cursor_capture;
+use client_shell::physical_input::{keyboard_key, set_cursor_capture};
 use client_ui::ui_runtime::UiRuntime;
 
 #[cfg(test)]
 mod cancel_tests;
+
+/// Drops keyboard input another owner handles while keeping inventory modifiers in step
+/// with the physical keys: observed edges still update them, and when input is unavailable
+/// (an unfocused window) every modifier counts as released.
+pub(super) fn discard_keyboard(
+    runtime: &mut UiRuntime,
+    keyboard_messages: &mut MessageReader<KeyboardInput>,
+    input_available: bool,
+) {
+    let inventory_keys = runtime.inventory_keys_mut();
+    if input_available {
+        for input in keyboard_messages.read() {
+            inventory_keys.track_modifier(
+                keyboard_key(input.key_code),
+                input.state == ButtonState::Pressed,
+            );
+        }
+    } else {
+        keyboard_messages.clear();
+        inventory_keys.release_modifiers();
+    }
+}
 
 pub(crate) fn suppress_gameplay_input_for_inventory(
     runtime: &UiRuntime,

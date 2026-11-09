@@ -144,3 +144,90 @@ fn explicit_dimensions_keep_independent_arrivals() {
         })
     );
 }
+
+/// Received dimensions stay authoritative across non-standing pose and scale updates.
+#[test]
+fn remote_pose_flags_do_not_transform_received_dimensions_twice() {
+    use protocol_ids::ActorFlag;
+    for pose in [
+        ActorFlag::Sneaking,
+        ActorFlag::Swimming,
+        ActorFlag::Gliding,
+        ActorFlag::Crawling,
+        ActorFlag::Sleeping,
+    ] {
+        for (width, height, scale) in [(0.6, 0.6, 1.0), (0.6, 1.5, 1.0), (0.8, 1.2, 2.0)] {
+            let mut store = ActorStore::new(1, 0);
+            let ActorEvent::Spawn(mut spawn) = super::tests::spawn(7, 70) else {
+                unreachable!()
+            };
+            spawn.kind = protocol::ActorKind::Player {
+                uuid: [7; 16],
+                username: "Remote".into(),
+            };
+            store.apply(1, 1, ActorEvent::Spawn(spawn));
+            let feet = store.get(7).unwrap().position;
+            let bit = pose.wire_value();
+            let pose_metadata = protocol::ActorMetadata {
+                key: if bit < 64 {
+                    ActorDataKey::Flags
+                } else {
+                    ActorDataKey::FlagsTwo
+                }
+                .wire_value(),
+                value: if bit < 64 {
+                    ActorMetadataValue::Flags(1 << bit)
+                } else {
+                    ActorMetadataValue::FlagsExtended(1 << (bit - 64))
+                },
+            };
+            for (sequence, metadata) in [
+                (
+                    2,
+                    vec![
+                        pose_metadata.clone(),
+                        protocol::ActorMetadata {
+                            key: ActorDataKey::Width.wire_value(),
+                            value: ActorMetadataValue::Float(width),
+                        },
+                        protocol::ActorMetadata {
+                            key: ActorDataKey::Height.wire_value(),
+                            value: ActorMetadataValue::Float(height),
+                        },
+                        protocol::ActorMetadata {
+                            key: ActorDataKey::Scale.wire_value(),
+                            value: ActorMetadataValue::Float(scale),
+                        },
+                    ],
+                ),
+                (3, vec![pose_metadata]),
+            ] {
+                store.apply(
+                    1,
+                    sequence,
+                    ActorEvent::Metadata(protocol::ActorMetadataUpdateEvent {
+                        dimension: 0,
+                        runtime_id: 7,
+                        metadata: metadata.into(),
+                        properties: Arc::from([]),
+                        tick: sequence,
+                    }),
+                );
+                store.advance_interpolation_ticks(1);
+                let actor = store.get(7).unwrap();
+                let (min, max) = actor.bounding_box().unwrap();
+                assert_eq!(actor.position, feet);
+                assert!(
+                    (max[0] - min[0] - width * scale).abs() < 0.00001,
+                    "{pose:?}"
+                );
+                assert!(
+                    (max[1] - min[1] - height * scale).abs() < 0.00001,
+                    "{pose:?}"
+                );
+                assert_eq!(min[1], feet[1]);
+                assert_eq!(actor.hit_boxes().collect::<Vec<_>>(), [(min, max)]);
+            }
+        }
+    }
+}
