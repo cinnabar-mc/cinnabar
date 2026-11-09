@@ -1311,8 +1311,15 @@ OS Alt-Tab acceptance on macOS, Windows and Linux remains incomplete.
   acceptance remain incomplete.
 - [ ] `P5.6-FORMS` — Close modal/menu/custom form navigation, validation, cancellation
   and responses, including server-pack definitions, structured text, custom controls,
-  scaling and image/layout behavior against matched native views. Overlapping requests
-  keep the active form and answer busy, including reused IDs.
+  scaling and image/layout behavior against matched native views.
+  Simple automatic server-form entrance chains whose size or offset remains authoritative
+  in placement feed dimensional expressions into layout, clipping, culling and actual-state
+  hit regions. Anchored offset replacements and widget/pointer-owned placement retain the
+  legacy paint path; their layout composition remains incomplete. Event/reset,
+  render-wait, destruction, mixed and generic-screen animation semantics retain their
+  legacy paths and remain incomplete. Keyword endpoints, complex child/sibling dependencies
+  and native-view/performance acceptance remain unverified.
+  Overlapping requests keep the active form and answer busy, including reused IDs.
   Answered button and custom forms retain their rendered surface for an explicitly provisional
   250 ms handoff grace: a replacement received in that window swaps in place, otherwise the
   surface expires while input edges stay consumed. Version-matched native timing and visual
