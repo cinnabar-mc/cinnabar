@@ -1,6 +1,6 @@
 use super::plan::MixedStream;
 use super::*;
-use crate::chunk::transparent::liquid::transparent_frame_draw_for_range;
+use crate::chunk::transparent::liquid::transparent_frame_draws_for_range;
 use render_scene::TransparentSortMetrics;
 
 pub(in crate::chunk) type DrawMixedTerrainCommands = crate::gpu_timing::GpuDrawSpan<
@@ -126,7 +126,7 @@ impl RenderCommand<Transparent3d> for DrawMixedTerrain {
         }
         frame_probe.record_direct_streams(item.entity(), frame_identity, ChunkStreamMask::MODEL);
         frame_probe.record_transparent_draw(snapshot.generation(), || {
-            transparent_frame_draw_for_range(snapshot, arena, draw.water_range.clone())
+            transparent_frame_draws_for_range(snapshot, arena, draw.water_range.clone())
         });
         record_encoded_transparent_generation(metrics.into_inner(), snapshot.generation());
         RenderCommandResult::Success

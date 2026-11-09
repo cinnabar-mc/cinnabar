@@ -271,6 +271,9 @@ impl LocalPhysicsController {
         let boosts = self.boosts.clone();
         let pending_climber = self.pending_climber.clone();
         let mut effective_climber = anchor_controller.climber;
+        let mut network_height = corrected_network_position
+            .map(|position| movement_lerp::NetworkHeight::new(position[1]))
+            .or(anchor_controller.network_height);
         let (replay, replayed_ticks) = self
             .history
             .rewind_and_replay_prepared(
@@ -287,6 +290,9 @@ impl LocalPhysicsController {
                             .iter_mut()
                             .find(|frame| frame.tick == previous.tick_result.tick)
                             .expect("controller and prediction histories retain the same ticks");
+                        network_height =
+                            network_height.filter(|height| height.matches(state.position.y));
+                        frame.network_height = network_height;
                         frame.environment = previous.tick_result.environment;
                         frame.climber = ClimberFlags::after_tick(
                             &frame.input,
@@ -347,6 +353,7 @@ impl LocalPhysicsController {
                     let environment = previous.map_or(anchor_controller.environment, |output| {
                         output.tick_result.environment
                     });
+                    frame.network_height = network_height;
                     let prepared = frame.prepare(
                         &mut modes,
                         &mut anchor_state,
@@ -355,6 +362,7 @@ impl LocalPhysicsController {
                         input,
                         world,
                     );
+                    network_height = frame.network_height;
                     spun = frame.flags.pose_word().spinning() || input.riptide.is_some();
                     prepared
                 },
@@ -382,6 +390,8 @@ impl LocalPhysicsController {
                 .state
                 .as_ref()
                 .expect("successful replay retains state");
+            network_height = network_height.filter(|height| height.matches(state.position.y));
+            frame.network_height = network_height;
             frame.environment = last.tick_result.environment;
             frame.climber =
                 ClimberFlags::after_tick(&frame.input, &frame.environment, effective_climber);
@@ -433,11 +443,13 @@ impl LocalPhysicsController {
                 return Err(PhysicsCorrectionError::WorldIdentityMismatch { tick: result.tick });
             }
             retained.world_identity = result.world_identity.clone();
-            retained.position = [
-                result.position.x as f32,
-                result.position.y as f32 + PLAYER_NETWORK_OFFSET,
-                result.position.z as f32,
-            ];
+            retained.position = movement_lerp::NetworkHeight::position(
+                controller_frames
+                    .iter()
+                    .find(|frame| frame.tick == result.tick)
+                    .and_then(|frame| frame.network_height),
+                result.position,
+            );
             retained.movement = [
                 result.movement.x as f32,
                 result.movement.y as f32,
@@ -554,6 +566,7 @@ impl LocalPhysicsController {
             controller_frames.back().map_or(tick, |frame| frame.tick),
         );
         self.controller_history = controller_frames;
+        self.network_height = network_height;
         // Without replayed ticks, no producer superseded the live size or its owner.
         if !keep_live_flags {
             sync_state.replay_pending(&mut self.sync_pending);
@@ -586,17 +599,18 @@ impl LocalPhysicsController {
         self.refresh_motion_ticks();
         if let (Some(position), Some(state)) = (self.actor_position_pending, self.state.as_mut()) {
             position.apply(state);
+            self.network_height = Some(position.height);
+        }
+        if let (Some(lerp), Some(state)) = (self.movement_lerp, self.state.as_mut()) {
+            lerp.apply_ground_write(state);
         }
         let state = self
             .state
             .as_ref()
             .expect("successful replay retains local state");
         let final_tick = state.tick;
-        let final_position = [
-            state.position.x as f32,
-            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-            state.position.z as f32,
-        ];
+        let final_position =
+            movement_lerp::NetworkHeight::position(self.network_height, state.position);
         self.previous_position = if final_tick == tick {
             feet
         } else {

@@ -120,7 +120,12 @@ pub(super) fn covered_alpha(mesh: &Arc<UiMesh>) -> Option<Arc<UiMesh>> {
     for vertex in &mut vertices {
         vertex.style_flags |= u16::try_from(render_model::UI_STYLE_COLOR_MASK).ok()?;
     }
-    UiMesh::new(
+    let construct = if mesh.is_skinned() {
+        UiMesh::skinned
+    } else {
+        UiMesh::new
+    };
+    construct(
         vertices.into(),
         mesh.indices().into(),
         mesh.batches().into(),
@@ -136,6 +141,7 @@ pub(super) fn covered_alpha(mesh: &Arc<UiMesh>) -> Option<Arc<UiMesh>> {
     .map(Arc::new)
 }
 
+/// Applies tint and shine while preserving the mesh's CPU or GPU projection contract.
 pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Option<Arc<UiMesh>> {
     if color == [255; 4] && !glint {
         return Some(Arc::clone(mesh));
@@ -149,7 +155,12 @@ pub(super) fn modulated(mesh: &Arc<UiMesh>, color: [u8; 4], glint: bool) -> Opti
             vertex.style_flags |= u16::from(ui::UI_STYLE_GLINT);
         }
     }
-    UiMesh::new(
+    let construct = if mesh.is_skinned() {
+        UiMesh::skinned
+    } else {
+        UiMesh::new
+    };
+    construct(
         vertices.into(),
         mesh.indices().into(),
         mesh.batches().into(),

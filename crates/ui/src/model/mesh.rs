@@ -47,6 +47,7 @@ pub struct UiMesh {
     batches: Arc<[UiMeshBatch]>,
     draw_vertex_count: usize,
     compact_block_vertices: bool,
+    skinned: bool,
 }
 
 /// Meshes compare by contents. [`UiMesh::new`] admits only finite floats, so buffers shared
@@ -61,6 +62,7 @@ impl PartialEq for UiMesh {
             && same(&self.indices, &other.indices)
             && same(&self.batches, &other.batches)
             && self.compact_block_vertices == other.compact_block_vertices
+            && self.skinned == other.skinned
     }
 }
 
@@ -265,7 +267,25 @@ impl UiMesh {
             batches,
             draw_vertex_count,
             compact_block_vertices: false,
+            skinned: false,
         })
+    }
+
+    /// Keeps model-space XYZ, a one-based bone index in W, and local normals in overlay RGB.
+    /// The publication must supply a matching palette for this control's depth scope.
+    pub fn skinned(
+        vertices: Arc<[UiMeshVertex]>,
+        indices: Arc<[u32]>,
+        batches: Arc<[UiMeshBatch]>,
+    ) -> Result<Self, UiMeshError> {
+        let mut mesh = Self::new(vertices, indices, batches)?;
+        mesh.skinned = true;
+        Ok(mesh)
+    }
+
+    /// Whether the renderer applies a model palette instead of the ordinary node projection.
+    pub fn is_skinned(&self) -> bool {
+        self.skinned
     }
 
     /// Reserves each referenced vertex once per material, keeping material cutoffs independent.

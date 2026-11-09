@@ -2,6 +2,11 @@
 use super::UiRuntime;
 use std::sync::Arc;
 impl UiRuntime {
+    /// The installation-owned food definitions, when loaded.
+    pub fn food_catalog(&self) -> Option<&Arc<assets::RuntimeEquipmentCatalog>> {
+        self.food_catalog.as_ref()
+    }
+
     /// Retains installation-owned food definitions across sessions; None removes the fallback.
     pub fn set_food_catalog(&mut self, catalog: Option<Arc<assets::RuntimeEquipmentCatalog>>) {
         self.food_catalog = catalog;
@@ -15,22 +20,10 @@ impl UiRuntime {
         {
             return Some(food);
         }
-        let catalog = self.food_catalog.as_ref()?;
-        let facts = assets::facts::ItemFacts::builtin().ok()?;
-        let legacy = facts
-            .by_identifier(identifier)
-            .and_then(|fact| fact.use_profile)
-            .and_then(|index| facts.use_profile(index))
-            .and_then(|profile| match profile {
-                assets::item_use::ItemUseProfile::Provisional { duration_alias, .. } => {
-                    duration_alias.as_deref()
-                }
-                assets::item_use::ItemUseProfile::Unresolved => None,
-            })
-            .unwrap_or(identifier);
-        let food = catalog
-            .item_food(identifier)
-            .or_else(|| catalog.item_food(legacy))?;
+        let food = self
+            .food_catalog
+            .as_ref()?
+            .installed_item_food(identifier)?;
         protocol::FoodProperties::new(food.nutrition, food.saturation_modifier.get())
     }
 }

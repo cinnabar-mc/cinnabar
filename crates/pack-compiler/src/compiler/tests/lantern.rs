@@ -122,6 +122,20 @@ fn every_pinned_lantern_samples_its_sprite_after_carrier_roundtrip() {
             template.quad_count > 6,
             "cap and handle survive compilation"
         );
+        let quads =
+            &runtime.model_quads()[template.quad_start as usize..][..template.quad_count as usize];
+        assert!(
+            quads[..12]
+                .iter()
+                .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE == 0)
+        );
+        assert!(
+            quads[12..]
+                .iter()
+                .all(|q| q.flags & assets::MODEL_QUAD_FLAG_INHERITED_SHADE != 0),
+            "{}: handles keep the cap's shade",
+            record.name,
+        );
     }
 }
 use crate::compiler::canonical_state_u32;

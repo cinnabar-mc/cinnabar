@@ -1,4 +1,4 @@
-//! Keyboard/gamepad focus movement over hit regions, after 1.26.50: default
+//! Keyboard/gamepad focus movement over hit regions, after 1.26.60: default
 //! focus by precedence, identifier overrides, the directional sweep, scroll
 //! sections, and focus-container rules.
 

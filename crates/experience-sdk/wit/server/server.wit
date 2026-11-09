@@ -1,4 +1,4 @@
-package cinnabar:experience-server@0.11.0;
+package cinnabar:experience-server@0.12.0;
 
 interface types {
     record block-pos { x: s32, y: s32, z: s32 }
@@ -196,6 +196,32 @@ interface types {
     /// One overlay of a cell: its slot, 0 to 11 and unique in the cell (overlays draw and are
     /// picked in slot order), the face it turns to, and what it draws.
     record overlay { slot: u8, face: face, look: overlay-look }
+
+    // 0.12: what a block drops, how its item is offered, whether it takes part in redstone, and
+    // a player's game mode. Every type above is unchanged, so the older worlds share them.
+
+    /// What breaking a block drops by itself: `itself`, its own item, as a plain block does, or
+    /// `nothing`, which leaves every drop to the guest's `on-break`.
+    enum block-drops { itself, nothing }
+    /// A block's item: `listed` in the Experience's creative group, as a plain block's is;
+    /// `unlisted`, an item held, placed and dropped like any other that the creative inventory
+    /// leaves out; or `none`, no item at all, so the block is never held, picked or dropped as
+    /// itself and no stack of it can be made.
+    enum block-item { listed, unlisted, none }
+    /// The drops and item of one of the Experience's blocks, by id, and whether it takes part in
+    /// redstone: a `redstone` block receives power (`callback.redstone-power`), emits what its
+    /// callbacks set (`callback.set-redstone-power`), and gets `on-neighbor-changed` with its own
+    /// position as `neighbor` when the power it receives changes. Redstone dust connects only to
+    /// the Experience's `redstone` blocks.
+    record block-rule { block: string, drops: block-drops, item: block-item, redstone: bool }
+    /// What `content-rules` declares: rules for some of the Experience's blocks, each named once,
+    /// and the ids of its items that the creative inventory leaves out. A block without a rule
+    /// drops itself and has a listed item; a block without an item cannot drop itself.
+    record content-rules { blocks: list<block-rule>, unlisted-items: list<string> }
+    /// A player's game mode, read from what the mode allows, so a server's variant of one plays
+    /// as it: `spectator` passes through blocks, `creative` has the creative inventory,
+    /// `adventure` cannot edit the world, and `survival` is every other mode.
+    enum game-mode { survival, creative, adventure, spectator }
 }
 
 interface world-access {
@@ -203,7 +229,7 @@ interface world-access {
         block-pos, player-id, callback-info, world-error, value-node, block-state, network,
         inventory, new-stack, item-key, crafted, world-handle, world-instance, world-instance-id,
         player-location, position, store-key, simulation-step, schedule-handle, overlay,
-        entity-type-id, entity-handle, entity-state, entity-rotation,
+        entity-type-id, entity-handle, entity-state, entity-rotation, item-stack, game-mode,
     };
     /// Created only by the host, for one callback invocation.
     resource callback {
@@ -268,6 +294,9 @@ interface world-access {
         /// The actor's inventory as it was snapshotted, with staged slots applied;
         /// `player-unavailable` without an actor.
         inventory: func() -> result<inventory, world-error>;
+        /// The actor's game mode as it was snapshotted with its inventory; `player-unavailable`
+        /// without an actor.
+        game-mode: func() -> result<game-mode, world-error>;
         /// Stages new content for one of the actor's inventory slots; none empties it.
         set-slot: func(slot: u32, stack: option<new-stack>) -> result<_, world-error>;
         /// Stages an item entity holding `stack`, spawned at `pos`, a position `set-block` may
@@ -296,6 +325,44 @@ interface world-access {
         /// kind that is not one of this Experience's overlay types, or an item that is neither
         /// the server's nor this Experience's.
         set-overlays: func(pos: block-pos, overlays: list<overlay>) -> result<_, world-error>;
+        /// Whether this `on-break` is a harvest: its player broke the block in a game mode that
+        /// drops what is broken, so the drops a block without its own (`block-drops.nothing`)
+        /// leaves to the guest are due. False in creative and in every other callback.
+        harvested: func() -> bool;
+        /// Passes this `on-interact`'s click on instead of taking it, as a vanilla block with
+        /// nothing to do with the click does: once the callback commits, the player's held item
+        /// is used on the block as if it had no action, so a block item is placed against it and
+        /// a bucket or flint and steel is used. Staged like a write, and kept only if the
+        /// callback commits; nothing passes when the player holds another item by then. `denied`
+        /// in every other callback.
+        pass-interaction: func() -> result<_, world-error>;
+        /// The slots of the container block at `pos`, in the container's own order, with staged
+        /// changes applied: a chest (a double chest whole at either half), barrel, shulker box,
+        /// hopper, furnace, blast furnace, smoker or brewing stand. A container is in reach when
+        /// it is the anchor or a member of the anchor's network, or next to one of them:
+        /// `denied` for a position out of reach, `out-of-bounds` outside the world's height,
+        /// `unknown-block` for a block in reach that is no container, and `unavailable` for one
+        /// in an unloaded chunk or one the snapshot left out once it held as many containers or
+        /// as much of their item data as it may.
+        container: func(pos: block-pos) -> result<list<option<item-stack>>, world-error>;
+        /// Stages new content for slot `slot` of the container at `pos`, which `container`
+        /// reads; none empties it. The stack is one the guest may make, as for `set-slot`, and
+        /// the container takes it whatever its own rules for the slot. `out-of-bounds` for a
+        /// slot the container lacks. A slot written again, through either half of a double
+        /// chest, replaces its staged write, and the callback commits only if every container
+        /// it writes still holds what its snapshot did.
+        set-container-slot: func(pos: block-pos, slot: u32, stack: option<new-stack>) -> result<_, world-error>;
+        /// The redstone power, 0 to 15, that this Experience's `redstone` block at `pos` receives
+        /// from its neighbours, read like `block-states`: `not-owned` for another's block and
+        /// `unsupported-state` for one of its blocks that is not `redstone`.
+        redstone-power: func(pos: block-pos) -> result<u8, world-error>;
+        /// Stages the redstone power, 0 to 15, that this Experience's `redstone` block at `pos`
+        /// emits from every face, as a block of redstone does at 15: it powers the dust and
+        /// mechanisms next to it, but not through the blocks next to it. Written where
+        /// `set-block-state` writes; the block keeps its states, data and generation, and its
+        /// power until a callback sets another or it is replaced. `not-owned` for another's
+        /// block; `unsupported-state` for a block that is not `redstone` or a power above 15.
+        set-redstone-power: func(pos: block-pos, power: u8) -> result<_, world-error>;
     }
 }
 
@@ -308,7 +375,7 @@ world server {
     import world-access;
     import diagnostics;
     use world-access.{callback};
-    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle, entity-definition, entity-handle, entity-event, overlay-registration, pixel};
+    use types.{registration, block-change, block-pos, player-id, face, guest-error, value-node, world-registration, player-event, simulation-step, schedule-handle, entity-definition, entity-handle, entity-event, overlay-registration, pixel, content-rules};
     export entity-definitions: func() -> result<list<entity-definition>, guest-error>;
     export on-entity: func(ctx: borrow<callback>, handle: entity-handle, event: entity-event) -> result<_, guest-error>;
     /// Declares the Experience's world definitions and startup instances; it runs once, at startup.
@@ -316,6 +383,9 @@ world server {
     /// Declares the Experience's overlay hosts and overlay types; it runs once, at startup,
     /// after `register`.
     export overlays: func() -> result<overlay-registration, guest-error>;
+    /// Declares how the Experience's blocks drop and offer their items, and which of its items
+    /// the creative inventory leaves out; it runs once, at startup, after `register`.
+    export content-rules: func() -> result<content-rules, guest-error>;
     /// Ordered observations. Move events retain the first and last position in one host tick.
     export on-player: func(ctx: borrow<callback>, player: player-id, event: player-event) -> result<_, guest-error>;
     /// One admitted simulation tick, followed by due scheduled callbacks in handle order.
@@ -329,6 +399,7 @@ world server {
     /// the block, in pixels, when the client sent one within the cell. `target` is the slot of
     /// the block's first overlay, in slot order, whose turned selection box holds `hit` once
     /// grown by 0.032 pixels on each side; none without `hit` or when no overlay's box holds it.
+    /// The block takes the click unless the callback passes it on (`callback.pass-interaction`).
     export on-interact: func(ctx: borrow<callback>, player: player-id, pos: block-pos, clicked-face: face, hit: option<pixel>, target: option<u8>) -> result<_, guest-error>;
     export on-neighbor-changed: func(ctx: borrow<callback>, pos: block-pos, neighbor: block-pos) -> result<_, guest-error>;
     /// `player`'s client part sent `payload` on `channel`, revision `schema`. `ctx` has the

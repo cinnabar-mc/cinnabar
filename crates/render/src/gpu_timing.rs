@@ -76,7 +76,6 @@ pub(crate) fn within_span<R>(
 
 /// Brackets `record` with its own span of `stage` on frames that time every node; other
 /// frames record it untimed, inside the whole-frame span.
-#[cfg(feature = "shaderpacks")]
 pub(crate) fn within_stage<R>(
     timestamps: Option<&GpuTimestamps>,
     stage: RuntimeStage,

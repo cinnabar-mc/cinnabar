@@ -65,8 +65,8 @@ pub(crate) enum ActorApplyResult {
     StaleDimension,
 }
 
-/// Steps a remote actor takes to reach each absolute movement target.
-pub(crate) const ACTOR_INTERPOLATION_TICKS: u32 = 3;
+/// Interpolation steps to each remote-actor absolute target and local Normal `MovePlayer`.
+pub const ACTOR_INTERPOLATION_TICKS: u32 = 3;
 
 /// Vertical origin contributions; default values describe collision-feet coordinates.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
@@ -134,6 +134,8 @@ pub struct ActorSnapshot {
     /// Independently allocated render lifetime, including before a local spawn arrives.
     pub render_spawn_revision: NonZeroU64,
     pub movement_revision: u64,
+    /// Arrival of the latest applied actor-data update, whatever it contained; zero before any.
+    pub metadata_revision: u64,
     pub kind: ActorKind,
     /// Native facts copied at actor admission from its declared constructor.
     pub entity_fact: EntityFact,
@@ -272,6 +274,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision: 0,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::Unresolved,
             kind: spawn.kind,
             entity_fact,
@@ -342,6 +345,7 @@ impl ActorSnapshot {
             spawn_revision,
             render_spawn_revision,
             movement_revision,
+            metadata_revision: 0,
             interaction_traits: assets::interactions::EntityInteractionTraits::GENERIC_MOB,
             kind: ActorKind::Player {
                 uuid,
@@ -478,6 +482,12 @@ impl ActorSnapshot {
     #[must_use]
     pub fn is_enchanted(&self) -> bool {
         self.flag(ActorFlag::Enchanted.wire_value())
+    }
+
+    /// Whether the actor's sheared flag is set, as shearing a snow golem does.
+    #[must_use]
+    pub fn is_sheared(&self) -> bool {
+        self.flag(ActorFlag::Sheared.wire_value())
     }
 
     /// Reads a rendering flag, including the local rig's visual primary word.
@@ -676,6 +686,8 @@ pub struct LocalPlayerFeed {
     pub flying: bool,
     /// Predicted elytra glide; overrides the streamed gliding flag on the local rig.
     pub gliding: bool,
+    /// Predicted swimming pose; overrides the streamed swimming flag on the local rig.
+    pub swimming: bool,
     /// Predicted Riptide spin pose, independent of swimming and gliding.
     pub spinning: bool,
     /// Consecutive completed gliding ticks, which ease the body into its glide tilt.
@@ -766,6 +778,8 @@ pub(crate) struct ActorStore {
     remote_state_excluded_runtime_id: Option<u64>,
     /// The local player's persistent id, known from the session start before its actor exists.
     local_unique_id: Option<i64>,
+    /// The session's wire runtime id for air, as synced block metadata encodes it.
+    air_block_network_id: Option<u32>,
     /// The vehicle the local player steers, whose pose the client predicts.
     local_vehicle: local_vehicle::LocalVehicle,
     /// Health admitted before the client-fed local actor is created.
@@ -797,8 +811,7 @@ pub(crate) struct ActorStore {
     /// Whether the local player's own rig should render first-person; set by each pose feed.
     local_first_person: bool,
     local_view_dirty: bool,
-    /// Remote motion this frame's due ticks reach, sorted by runtime id and read by picks until
-    /// the frame advances the live actors; reused across frames.
+    /// Staged vehicle and collision motion, sorted by runtime id and reused across frames.
     pick_states: Vec<movement_interpolation::PickState>,
     picks_ahead: bool,
     local_view_bobbing: bool,
@@ -879,6 +892,7 @@ pub(crate) mod properties;
 mod query;
 mod shadow;
 mod spatial;
+pub use spatial::MIN_COLLISION_DIMENSION;
 mod synchronized_audio;
 mod terrain_interlock;
 
@@ -890,10 +904,10 @@ pub use fire::FIRE_FADE_TICKS;
 pub use hitbox::ActorHitBoxes;
 pub use hurt::{
     ActorDamageState, ActorPickup, ActorStatus, ActorStatusNotice, DEATH_DURATION_TICKS,
-    HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES, PICKUP_DURATION_TICKS,
+    FishingHookPose, HURT_DURATION_TICKS, HURT_OVERLAY_ALPHA, MAX_STATUS_NOTICES,
+    PICKUP_DURATION_TICKS,
 };
 pub use lightning::LightningBoltView;
-
 pub use placement::{ActorFluidProbe, RideSeat, SeatViewLock, seat_world_offset};
 pub use properties::PropertyDefault;
 pub use shadow::ActorShadowCaster;

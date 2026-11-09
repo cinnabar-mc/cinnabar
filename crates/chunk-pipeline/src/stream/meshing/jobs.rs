@@ -299,7 +299,7 @@ impl WorldStream {
             let biome_records = self.biome_record_cache(key.dimension);
             let tint_identity = self.biome_tint_identity();
             let dispatched_at = Instant::now();
-            dispatch.spawn(pending.urgent, move || {
+            dispatch.spawn_with_scratch(pending.urgent, move |scratch| {
                 #[cfg(feature = "tracy")]
                 let _zone =
                     tracing::info_span!("mesh.build", key = ?key, revision = pending.revision)
@@ -314,7 +314,7 @@ impl WorldStream {
                 let mesh = if cancelled.load(Ordering::Acquire) {
                     ChunkMesh::default()
                 } else {
-                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome)
+                    snapshot.mesh(classifier, &runtime_assets, network_id_mode, &biome, &mut scratch.mesh)
                 };
                 let dependency_mask = if cancelled.load(Ordering::Acquire) {
                     MeshDependencyMask::default()
@@ -425,6 +425,7 @@ impl WorldStream {
         overlays: super::overlays::OverlayHosts,
     ) -> MeshSnapshot {
         let mut adjacent = std::array::from_fn(|_| None);
+        let mut empty_section = None;
         for offset @ [dx, dy, dz] in MeshNeighbourhood::adjacent_offsets() {
             let neighbour = key
                 .x
@@ -432,13 +433,27 @@ impl WorldStream {
                 .zip(key.y.checked_add(i32::from(dy)))
                 .zip(key.z.checked_add(i32::from(dz)))
                 .and_then(|((x, y), z)| {
-                    self.authority
-                        .terrain()
-                        .sub_chunk(SubChunkKey::new(key.dimension, x, y, z))
+                    let neighbour = SubChunkKey::new(key.dimension, x, y, z);
+                    self.authority.terrain().sub_chunk(neighbour).or_else(|| {
+                        (!self.surface_rules.is_empty() && self.known_air.contains(&neighbour))
+                            .then(|| {
+                                empty_section
+                                    .get_or_insert_with(|| {
+                                        Arc::new(SubChunk::decode(
+                                            &[8, 0],
+                                            &world::RawBlockIds {
+                                                air: self.classifier.air_network_id(),
+                                            },
+                                        ))
+                                    })
+                                    .clone()
+                            })
+                    })
                 });
             adjacent[mesh_offset_index(offset)] = neighbour;
         }
         MeshSnapshot {
+            surface_rules: self.surface_rules.clone(),
             rendering: self.mesh_render_settings,
             center,
             biomes: self.biome_neighbourhood(key),

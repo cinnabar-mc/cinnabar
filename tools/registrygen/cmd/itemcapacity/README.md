@@ -1,27 +1,16 @@
 # Item capacity generator
 
-This command projects a pinned item-capacity measurement onto the repository's retail item
-allowlist. It accepts only the complete Bedrock Dedicated Server 1.26.52.3 measurement used
-for protocol 2193 and writes deterministic TSV and provenance files.
-
-To repeat the measurement, copy `probe/manifest.json` and `probe/main.js` into a behavior
-pack (`manifest.json` and `scripts/main.js` respectively), enable that pack in a local world,
-start the matching public dedicated server, and retain its complete log. The probe uses the
-documented `ItemStack.maxAmount` property and does not modify inventories. See the
-[ItemStack API](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itemstack?view=minecraft-bedrock-stable#maxamount).
-
-Run the generator with all paths explicit:
+This command projects a reviewed item-capacity measurement onto the active retail
+allowlist. It validates the supplied measurement metadata, complete log, bundled
+probe, completion counts and allowlist coverage before writing a deterministic TSV.
+Keep raw logs and measurement metadata in a separate evidence store.
 
 ```text
-go run ./cmd/itemcapacity -probe-log <server-log> -retail-items <retail-items.tsv> -out <capacity.tsv> -provenance-out <provenance.json>
+go run ./cmd/itemcapacity -measurement <measurement.json> -probe-log <server-log> -retail-items <retail-items.tsv> -out <capacity.tsv> -provenance-out <evidence-output.json>
 ```
 
-The command records the independently measured public-binary hash in the provenance and
-verifies the exact vetted log hash, probe headers, completion counts, row validity, and
-complete allowlist coverage. It does not read or hash a server executable. It never fetches
-or installs a server and never publishes measured identifiers outside the retail allowlist.
-
-A freshly repeated measurement has different timestamps and session details, so its complete
-log will not match the pinned log hash. Accepting a new measurement requires reviewing it and
-explicitly updating the pinned hash and provenance; the unchanged command intentionally only
-replays the vetted measurement.
+The metadata supplies the target server version, protocol, row counts and SHA-256
+hashes of the server, log, probe script, probe manifest and retail allowlist. The
+version and protocol must match the pinned catalog. The generator does not download
+or run a server. The bundled probe reads the documented
+[ItemStack.maxAmount property](https://learn.microsoft.com/en-us/minecraft/creator/scriptapi/minecraft/server/itemstack?view=minecraft-bedrock-stable#maxamount).

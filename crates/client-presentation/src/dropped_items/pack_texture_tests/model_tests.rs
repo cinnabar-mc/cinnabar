@@ -215,3 +215,109 @@ fn dedicated_drops_use_current_models_and_preserve_session_artwork_and_fallbacks
         }
     }
 }
+
+#[test]
+fn carried_blocks_draw_world_models_at_their_placement_and_skip_air() {
+    let (_, terrain) = crate::presentation::equipment::PreparedBlockItems::narrow_box(20);
+    let (icons, stream) = fixture_item(ITEM, 0, 1);
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(ChunkTextureAssets::new(terrain));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    let placement = [
+        [0.5, 0.0, 0.0, 10.0],
+        [0.0, 0.5, 0.0, 64.8125],
+        [0.0, 0.0, 0.5, 10.75],
+    ];
+    let carried = |block_runtime_id| crate::actor_publication::carried_blocks::CarriedBlock {
+        block: crate::actor_publication::carried_blocks::CarriedBlockId::Wire(block_runtime_id),
+        world_from_block: placement,
+        light: (4, 12),
+    };
+    for (block_runtime_id, drawn) in [(1, true), (0, false)] {
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            DroppedItemFrame {
+                carried_blocks: &[carried(block_runtime_id)],
+                ..Default::default()
+            },
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        let carried: Vec<_> = scene
+            .instances
+            .iter()
+            .filter(|instance| instance.world_from_item == placement)
+            .collect();
+        assert_eq!(
+            carried.len(),
+            usize::from(drawn),
+            "block {block_runtime_id}"
+        );
+        if let Some(instance) = carried.first() {
+            assert!(matches!(
+                scene.models[instance.model as usize],
+                DroppedItemModel::Block(_) | DroppedItemModel::Cube(_)
+            ));
+            assert_eq!((instance.block_level, instance.sky_level), (4, 12));
+        }
+    }
+}
+
+#[test]
+fn framed_cubes_take_the_frame_block_pose_while_framed_sprites_keep_theirs() {
+    let (mut icons, stream) = fixture(0);
+    let block = [10, 2, 3];
+    let (sprite_pose, block_pose) = (
+        render_model::item_frame_item_transform(block, 1, 0.0),
+        render_model::item_frame_block_transform(block, 1, 0.0),
+    );
+    let mut world = World::new();
+    world.init_resource::<DroppedItemScene>();
+    world.insert_resource(render_scene::StaticItemPlacementsResource(
+        render_model::StaticItemPlacements(vec![render_model::StaticItemPlacement {
+            shield_pattern: None,
+            allow_block_models: true,
+            identifier: ITEM.into(),
+            metadata: 0,
+            potted_block: None,
+            carried_block: Some(assets::BlockVisualId(1)),
+            world_from_item: sprite_pose,
+            world_from_block: Some(block_pose),
+            light: None,
+        }]),
+    ));
+    let mut publisher = SystemState::<DroppedItemPublisher<'_, '_>>::new(&mut world);
+    for cube in [true, false] {
+        install(&mut icons, Some(90), cube, 0);
+        publisher.get_mut(&mut world).unwrap().publish(
+            Some(&icons),
+            Some(&stream),
+            None,
+            (None, None),
+            Default::default(),
+            (None, Default::default()),
+        );
+        let scene = world.resource::<DroppedItemScene>();
+        // Both poses centre the item on the panel front, apart from the fixture's dropped stack.
+        let instance = scene
+            .instances
+            .iter()
+            .find(|instance| {
+                (0..3).all(|row| instance.world_from_item[row][3] == sprite_pose[row][3])
+            })
+            .expect("the framed item must stay visible");
+        let expected = match &scene.models[instance.model as usize] {
+            DroppedItemModel::Cube(_) if cube => block_pose,
+            DroppedItemModel::Sprite(_) if !cube => sprite_pose,
+            _ => panic!("cube artwork draws a cube and icon artwork a sprite"),
+        };
+        assert_eq!(
+            instance.world_from_item, expected,
+            "a framed block is drawn at the frame's block pose, a sprite at the item pose"
+        );
+    }
+}

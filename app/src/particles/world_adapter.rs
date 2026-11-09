@@ -120,18 +120,27 @@ impl ParticleWorld for StreamParticleWorld<'_> {
     }
 
     fn fluid(&self, block: [i32; 3]) -> Fluid {
-        match self.palette().block_physics(block) {
-            Ok(sample) => {
-                let flags = sample.primary().flags;
-                if flags.contains(BlockPhysicsFlags::WATER) {
-                    Fluid::Water
-                } else if flags.contains(BlockPhysicsFlags::LAVA) {
-                    Fluid::Lava
-                } else {
-                    Fluid::None
-                }
-            }
-            Err(_) => Fluid::None,
-        }
+        fluid_at(&self.palette(), block)
     }
 }
+
+/// Reads the primary fluid only after every material layer has passed validation.
+fn fluid_at(world: &impl CollisionWorld, block: [i32; 3]) -> Fluid {
+    let mut primary = None;
+    if world
+        .visit_block_materials(block, &mut |facts| {
+            primary.get_or_insert(facts.flags);
+        })
+        .is_err()
+    {
+        return Fluid::None;
+    }
+    match primary {
+        Some(flags) if flags.contains(BlockPhysicsFlags::WATER) => Fluid::Water,
+        Some(flags) if flags.contains(BlockPhysicsFlags::LAVA) => Fluid::Lava,
+        _ => Fluid::None,
+    }
+}
+
+#[cfg(test)]
+mod tests;

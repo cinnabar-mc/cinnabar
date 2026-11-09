@@ -61,7 +61,7 @@ fn missing_physics_registry_reports_acquisition_guidance() {
     .expect_err("missing carrier must fail");
     let message = format!("{error:#}");
 
-    assert!(message.contains("read required protocol-2193 physics registry"));
+    assert!(message.contains("read required protocol-2225 physics registry"));
     assert!(message.contains("make assets"));
     assert!(message.contains("make client"));
 }

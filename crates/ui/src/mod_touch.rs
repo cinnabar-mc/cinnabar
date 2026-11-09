@@ -13,6 +13,15 @@ pub const MAX_TOUCH_LABEL_BYTES: usize = 24;
 pub const TOUCH_BUTTON_SIZE: [f32; 2] = [18., 96.];
 /// Largest default offset from the anchored edge or centre, in GUI pixels.
 pub const MAX_TOUCH_BUTTON_OFFSET: f32 = 1024.;
+/// Inclusive uniform size multipliers a player may give a touch control in the layout editor.
+pub const TOUCH_CONTROL_SCALE: [f32; 2] = [0.5, 3.];
+const _: () = assert!(
+    TOUCH_CONTROL_SCALE[0] >= crate::mod_hud::MIN_CARD_SCALE
+        && TOUCH_CONTROL_SCALE[0] < 1.
+        && TOUCH_CONTROL_SCALE[1] > 1.
+        && TOUCH_CONTROL_SCALE[1] <= crate::mod_hud::MAX_CARD_SCALE
+        && TOUCH_CONTROL_SCALE[1] as f64 <= json_ui::transform::MAX_SCALE
+);
 /// Taps retained for one mod until its next frame callback; later taps are dropped.
 pub const MAX_QUEUED_TOUCH_PRESSES: usize = 16;
 /// Saved-layout and editor names of mod buttons carry this prefix before the button id.

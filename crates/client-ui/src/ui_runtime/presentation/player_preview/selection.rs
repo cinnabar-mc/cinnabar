@@ -23,6 +23,23 @@ pub(in crate::ui_runtime::presentation) struct SelectedBinding<'a> {
 }
 
 impl EquipmentSelection {
+    /// Evaluates the admitted definition through the ordinary attachable animation runtime.
+    pub(in crate::ui_runtime::presentation) fn evaluate(
+        &mut self,
+        from_pack: bool,
+        identifier: &str,
+        actor: &dyn actor_animation::AnimatedActor,
+        rig: &actor_animation::ActorRigSnapshot<'_>,
+        input: actor_animation::AttachableAnimationInput<'_>,
+    ) -> Option<actor_animation::AttachableRigSnapshot<'_>> {
+        let layer = if from_pack {
+            self.pack.as_mut()?
+        } else {
+            self.base.as_mut()?
+        };
+        layer.runtime.evaluate(identifier, actor, rig, input)
+    }
+
     /// Selects session artwork before startup, sharing the caller's budget across both layers.
     #[allow(clippy::too_many_arguments)]
     pub(in crate::ui_runtime::presentation) fn binding<'a>(
@@ -166,6 +183,7 @@ pub(super) fn standalone_hands(held: Option<(&str, u32)>) -> [Option<(PreviewHan
         held.map(|(identifier, metadata)| {
             (
                 PreviewHandItem {
+                    shield_pattern: None,
                     grip: None,
                     glint: None,
                     identifier: Arc::from(identifier),

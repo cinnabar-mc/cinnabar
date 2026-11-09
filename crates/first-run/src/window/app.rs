@@ -63,7 +63,7 @@ pub(super) struct SetupApp {
     pointer: Pointer,
     hovered: Option<Action>,
     input: Input<Action>,
-    controllers: Option<gilrs::Gilrs>,
+    controllers: Option<bootstrap_ui::controllers::Controllers>,
     preferences: Preferences,
     modifiers: ModifiersState,
     overlay_dirty: bool,
@@ -92,7 +92,6 @@ impl SetupApp {
         let mut input = Input::default();
         input.reset(&screen);
         let preferences = Preferences::load(&layout);
-        let controllers = bootstrap_ui::controllers();
         Self {
             layout,
             text,
@@ -110,7 +109,7 @@ impl SetupApp {
             pointer: Pointer::default(),
             hovered: None,
             input,
-            controllers,
+            controllers: None,
             preferences,
             modifiers: ModifiersState::default(),
             overlay_dirty: true,
@@ -245,6 +244,7 @@ impl ApplicationHandler for SetupApp {
             }
         }
         self.window = Some(window);
+        self.controllers = bootstrap_ui::controllers();
         if self.screen == Screen::Starting {
             self.start_worker();
         }
@@ -354,11 +354,15 @@ impl ApplicationHandler for SetupApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        while let Some(event) = self.controllers.as_mut().and_then(gilrs::Gilrs::next_event) {
+        while let Some(event) = self
+            .controllers
+            .as_mut()
+            .and_then(bootstrap_ui::controllers::Controllers::next_event)
+        {
             if !self.pointer.active {
                 continue;
             }
-            if let Some(command) = input::controller(event.event, &self.preferences.settings) {
+            if let Some(command) = input::controller(event, &self.preferences.settings) {
                 let (action, changed) =
                     self.input
                         .apply(&self.screen, Source::Controller, command, None);

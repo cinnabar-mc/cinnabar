@@ -454,3 +454,57 @@ fn a_refused_swap_cannot_restore_another_clients_unconfirmed_predecessor() {
     assert_eq!(fs::read(&target).unwrap(), b"other client's installation");
     assert_eq!(fs::read(&backup).unwrap(), b"other client's predecessor");
 }
+
+/// Restart swaps in the copy unpacked before exit instead of unpacking the payload again.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_prepared_candidate_installs_without_the_staged_payload() {
+    let root = tempfile::tempdir().unwrap();
+    let (directory, keys) = staged(root.path(), "linux-x86_64");
+    let target = root.path().join("client.AppImage");
+    fs::write(&target, "current installation").unwrap();
+    let stale = root.path().join(".client.AppImage.prepared-older");
+    fs::write(&stale, "another release").unwrap();
+    let lease = crate::lease::Lease::acquire(root.path()).unwrap();
+    prepare(
+        &directory,
+        &target,
+        &keys,
+        check("linux-x86_64"),
+        now(),
+        &lease,
+    )
+    .unwrap();
+    drop(lease);
+    assert!(!stale.exists());
+    fs::remove_file(directory.join(stage::ARTIFACT_FILE)).unwrap();
+    after_exit(
+        Request {
+            stage_dir: &directory,
+            target: &target,
+            keys: &keys,
+            switch_from: None,
+            check: check("linux-x86_64"),
+            now: now(),
+        },
+        crate::lease::Lease::acquire(root.path()).unwrap(),
+        |installed| {
+            assert_eq!(fs::read(installed).unwrap(), PAYLOAD);
+            Ok(())
+        },
+    )
+    .unwrap();
+    assert_eq!(fs::read(&target).unwrap(), PAYLOAD);
+    let leftovers = fs::read_dir(root.path())
+        .unwrap()
+        .filter(|entry| {
+            entry
+                .as_ref()
+                .unwrap()
+                .file_name()
+                .to_string_lossy()
+                .starts_with(".client.AppImage.")
+        })
+        .count();
+    assert_eq!(leftovers, 0);
+}

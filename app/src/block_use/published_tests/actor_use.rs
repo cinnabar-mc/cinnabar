@@ -79,7 +79,7 @@ fn actor_use_is_admitted_on_the_press_frame_before_the_next_physics_tick() {
     assert_eq!(tx.runtime_id, 99);
     assert_eq!(tx.slot, 0);
     assert_eq!(tx.from_position, [4.5, 2.620_01, 8.5]);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
     assert!(
@@ -107,7 +107,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     world.insert_resource(network);
     world.run_system_cached(produce_block_use).unwrap();
     let runtime = world.resource::<BlockUseRuntime>();
-    assert!(!runtime.press_interacted());
+    assert!(!runtime.press_consumed());
     assert!(
         runtime
             .due(
@@ -127,7 +127,7 @@ fn a_refused_actor_press_remains_pending_without_consuming_air_use() {
     hold_use(&mut world);
     world.run_system_cached(produce_block_use).unwrap();
     assert_eq!(captured.drain().len(), 1);
-    assert!(world.resource::<BlockUseRuntime>().press_interacted());
+    assert!(world.resource::<BlockUseRuntime>().press_consumed());
 }
 
 /// Uses a snowball on a player after the server set `interact_text`, returning the packet kinds.

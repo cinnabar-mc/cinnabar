@@ -4,7 +4,6 @@ use assets::{
     TextureMip,
 };
 use bevy::{
-    camera::visibility::{self, VisibilityClass},
     prelude::{Changed, Component, Resource, Vec3},
     render::{
         extract_component::ExtractComponent, extract_resource::ExtractResource,

@@ -8,7 +8,7 @@ impl State {
     pub(crate) fn drawing_entity_keys(
         &self,
     ) -> impl Iterator<Item = mod_render::retained::EntityKey> + '_ {
-        self.render.retained.snapshot().entities.values().copied()
+        self.render.entity_keys()
     }
 
     /// Links the canonical imports directly to the same host implementation in both contexts.
@@ -33,6 +33,8 @@ impl State {
                 .bind_session(session.connection, session.dimension);
             self.render.masks.bind(session);
         }
+        self.environment.surface_rules.clear();
+        self.environment.pending_surface_rules = None;
         self.environment.time_override = None;
         self.environment.weather_override = None;
         self.environment.fullbright = false;
@@ -56,16 +58,27 @@ impl State {
         }
         let removed = self
             .render
-            .retained
-            .snapshot()
-            .entities
-            .values()
-            .copied()
+            .entity_keys()
             .filter(|key| !context.live.contains(key))
             .collect::<Vec<_>>();
         self.render
             .update_entities(context.candidates.clone(), &removed)
             .map_err(|error| anyhow::anyhow!("drawing entities: {}", error.detail))?;
+        for status in &context.blocks {
+            if let Some(block) = self
+                .render
+                .retained
+                .snapshot()
+                .geometry
+                .get(&status.handle)
+                .and_then(|geometry| geometry.blocks())
+            {
+                block.accept_status(status.revision, status.result);
+            }
+            if let Some(clip) = self.render.retained.snapshot().clips.get(&status.handle) {
+                clip.status.complete(status.result);
+            }
+        }
         self.render.masks.publish_targets(&context.targets);
         Ok(())
     }

@@ -848,7 +848,6 @@ fn particle_keys_cannot_replace_later_retained_draws_and_expire_with_the_phase()
 mod storage_tests;
 
 /// The particle atlas allows the pack's raw view only while a pack draws; switching recreates it.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn the_particle_atlas_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

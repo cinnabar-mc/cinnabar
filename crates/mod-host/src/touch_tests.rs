@@ -17,9 +17,9 @@ fn button(id: &str) -> wit::Button {
     wit::Button {
         id: id.into(),
         label: "Menu".into(),
-        anchor: hud::Anchor::TopRight,
-        offset: hud::Point { x: 4., y: 24. },
-        size: hud::Point { x: 36., y: 18. },
+        anchor: wit::Anchor::TopRight,
+        offset: wit::Point { x: 4., y: 24. },
+        size: wit::Point { x: 36., y: 18. },
     }
 }
 

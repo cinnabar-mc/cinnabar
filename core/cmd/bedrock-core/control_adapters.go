@@ -73,6 +73,10 @@ func (launcherControl) RealmInviteCode(input string) (string, error) {
 	return catalog.RealmInviteCode(input)
 }
 
+func (s launcherControl) LeaveRealm(ctx context.Context, realmID int) error {
+	return s.Service.LeaveRealm(ctx, realmID)
+}
+
 func (s launcherControl) RealmMembership(ctx context.Context, code string, accept bool) (control.Realm, error) {
 	realm, err := s.Service.RealmMembership(ctx, code, accept)
 	return wireRealm(realm), err

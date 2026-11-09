@@ -1,7 +1,34 @@
 //! Top-level item splitting, the light declaration parser, and GLSL type helpers.
 
+use super::TransformError;
 use crate::token::{Tok, TokKind, id, int, p};
 use std::collections::{HashMap, HashSet};
+
+/// Rejects unbalanced token groups before a compatibility parser inspects their contents.
+pub(super) fn validate_delimiters(tokens: &[Tok]) -> Result<(), TransformError> {
+    let mut delimiters = Vec::new();
+    for token in tokens {
+        if token.is("(") || token.is("[") || token.is("{") {
+            delimiters.push(token);
+        } else if token.is(")") || token.is("]") || token.is("}") {
+            let expected = match token.text() {
+                ")" => "(",
+                "]" => "[",
+                _ => "{",
+            };
+            if !delimiters.pop().is_some_and(|open| open.is(expected)) {
+                return Err(TransformError::new(
+                    "unmatched closing delimiter",
+                    token.line,
+                ));
+            }
+        }
+    }
+    if let Some(open) = delimiters.last() {
+        return Err(TransformError::new("unclosed delimiter", open.line));
+    }
+    Ok(())
+}
 
 /// Storage, interpolation and precision qualifiers recognised before a declaration's type.
 pub(super) const QUALIFIERS: &[&str] = &[

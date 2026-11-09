@@ -18,7 +18,7 @@ pub(crate) fn registry_base() -> RegistryBase {
 /// Supplies the collision owner now captured by real session startup and teardown systems.
 pub(crate) fn collision_resource() -> client_interaction::movement::PhysicsCollisionRegistries {
     let breg = assets::pinned_block_registry_bytes();
-    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2193.bin");
+    let preg = include_bytes!("../../../../../crates/assets/data/block-physics-v2225.bin");
     let version = assets::active_content_registry_protocol();
     let records = assets::read_registry_for_protocol(breg, version).unwrap();
     client_interaction::movement::PhysicsCollisionRegistries::from_assets(
@@ -351,4 +351,20 @@ fn overlay_assets_are_materialized_before_commit_and_keep_the_exact_base() {
         &base.collisions,
         &blocks
     ));
+}
+
+/// Session publication must keep the worker's programs bound to their original entity carrier.
+#[test]
+fn prepared_actor_catalog_matches_only_its_captured_carrier() {
+    let assets = actor_animation::test_support::counting_random_assets();
+    let prepared = prepare(
+        registry_base().with_entity_assets(Some(Arc::clone(&assets))),
+        false,
+        &protocol::CustomBlocks::default(),
+    );
+    let catalog = prepared.actor_catalog.as_ref().unwrap();
+    assert!(Arc::ptr_eq(catalog.assets(), &assets));
+    assert!(prepared.matches_actor_assets(Some(&assets)));
+    assert!(!prepared.matches_actor_assets(None));
+    assert!(!prepared.matches_actor_assets(Some(&Arc::new((*assets).clone()))));
 }
