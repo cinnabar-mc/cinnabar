@@ -684,7 +684,7 @@ fn surface_rules_crop_pack_faces_without_changing_block_identity_or_materials() 
         masked.model_draw_refs().len(),
         baseline.model_draw_refs().len() * 2
     );
-    for pair in masked.model_draw_refs().chunks_exact(2) {
+    for pair in masked.model_draw_refs().as_chunks::<2>().0 {
         assert_eq!(pair[0].quad_index(), pair[1].quad_index());
         assert_eq!((pair[0].words()[1] >> 5) & 15, 0);
         assert_eq!((pair[1].words()[1] >> 5) & 15, 8);
