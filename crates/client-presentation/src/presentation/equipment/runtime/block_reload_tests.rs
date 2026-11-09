@@ -15,6 +15,23 @@ fn terrain_with_template_flags(
     flags: u32,
     template_flags: u32,
 ) -> Arc<RuntimeAssets> {
+    terrain_with_properties(
+        height,
+        color,
+        flags,
+        template_flags,
+        [assets::LightProperties::OPAQUE_DARK; 8],
+    )
+}
+
+/// Encodes the fixture with independent model flags and per-visual light properties.
+fn terrain_with_properties(
+    height: i16,
+    color: [u8; 4],
+    flags: u32,
+    template_flags: u32,
+    light_properties: [assets::LightProperties; 8],
+) -> Arc<RuntimeAssets> {
     let quads = assets::BlockFace::ALL.map(|face| {
         let (corners, uvs) = assets::gui_item::cube_face(face);
         let mut quad = assets::ModelQuad {
@@ -64,7 +81,7 @@ fn terrain_with_template_flags(
     };
     let compiled = assets::CompiledAssets {
         visuals: vec![visual; 8].into(),
-        light_properties: vec![assets::LightProperties::OPAQUE_DARK; 8].into(),
+        light_properties: light_properties.into(),
         hashed: Box::new([]),
         materials: vec![
             assets::Material::unvaried(),
@@ -535,6 +552,66 @@ fn first_person_stair_pose_follows_the_active_terrain_template() {
             assert!((pose.translation_scale[3] - 0.4).abs() < 1.0e-6);
         }
     }
+}
+
+#[test]
+fn retained_first_person_stair_turn_follows_the_prepared_visual() {
+    let world =
+        terrain_with_template_flags(128, [30, 40, 50, 255], 0, assets::MODEL_TEMPLATE_FLAG_STAIR);
+    let (runtime, _, _, mut item) = fixture(world);
+    let HeldKind::Block(visual) = item.kind else {
+        unreachable!()
+    };
+    for (state, fallback) in [
+        (Some(visual), None),
+        (Some(u32::MAX), Some(visual)),
+        (None, Some(visual)),
+    ] {
+        item.kind = HeldKind::RetainedBlock {
+            state,
+            item: fallback,
+        };
+        assert_eq!(runtime.held_block_visual(item.kind), Some(visual));
+        assert!(runtime.first_person_block_quarter_turn(&item));
+    }
+    item.kind = HeldKind::RetainedBlock {
+        state: Some(u32::MAX),
+        item: None,
+    };
+    assert!(!runtime.first_person_block_quarter_turn(&item));
+}
+
+#[test]
+fn retained_first_person_emission_follows_the_prepared_visual_for_both_hands() {
+    let light = assets::LightProperties::new(13, 15).unwrap();
+    let mut properties = [assets::LightProperties::OPAQUE_DARK; 8];
+    properties[7] = light;
+    let world = terrain_with_properties(128, [30, 40, 50, 255], 0, 0, properties);
+    let (mut runtime, _, body, mut item) =
+        fixture_with_icons(world, Some(([1; 32], [30, 40, 50, 255])));
+    for (state, fallback, expected) in [
+        (Some(7), Some(6), light.emission()),
+        (Some(6), Some(7), 0),
+        (Some(u32::MAX), Some(7), light.emission()),
+        (None, Some(7), light.emission()),
+    ] {
+        item.kind = HeldKind::RetainedBlock {
+            state,
+            item: fallback,
+        };
+        let main = runtime
+            .first_person_item(&body, &item, ItemAnimationState::default())
+            .unwrap();
+        let off = runtime.first_person_offhand(&body, &item).unwrap();
+        assert_eq!(main.emitted_light, expected, "{:?}", item.kind);
+        assert_eq!(off.emitted_light, expected, "{:?}", item.kind);
+        assert_eq!(runtime.first_person_emitted_light(&item, false), 0);
+    }
+    item.kind = HeldKind::RetainedBlock {
+        state: Some(u32::MAX),
+        item: None,
+    };
+    assert_eq!(runtime.first_person_emitted_light(&item, true), 0);
 }
 
 #[test]
