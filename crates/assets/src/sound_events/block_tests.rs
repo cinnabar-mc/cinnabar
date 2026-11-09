@@ -153,6 +153,29 @@ fn events_a_material_lacks_fall_back_to_the_normal_material() {
 }
 
 #[test]
+fn empty_block_materials_skip_normal_event_and_default_fallbacks() {
+    let tables = SoundEventTables::from_json(
+        &json!({
+            "block_sounds": {"normal": {"events": {
+                "break": "dig.stone", "default": "block.fallback"
+            }}},
+            "interactive_sounds": {"block_sounds": {"normal": {"events": {
+                "step": "step.stone", "default": "movement.fallback"
+            }}}}
+        }),
+        &json!({"muted": {"sound": ""}}),
+    );
+    let material = tables.material_of_with_component("minecraft:muted", Some("stone"));
+    assert_eq!(material, "");
+    for event in ["break", "unknown"] {
+        assert!(tables.block(material, event).is_none());
+    }
+    for event in ["step", "jump"] {
+        assert!(tables.interactive("player", event, material).is_none());
+    }
+}
+
+#[test]
 fn footsteps_on_materials_without_interactive_entries_use_the_normal_material() {
     let tables = SoundEventTables::from_json(
         &json!({"interactive_sounds": {

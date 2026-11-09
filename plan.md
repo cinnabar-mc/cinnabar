@@ -888,7 +888,8 @@ their finite alternatives within the prewarm byte budget. Comparative combat sou
 latency, server-pack prewarming and physical output latency remain incomplete.
 
 Block sound materials resolve from pack entries, then base server components, then a
-stone fallback. Block and interactive events a material lacks fall back to the `normal`
+stone fallback. Explicitly empty pack materials disable block sound lookup.
+Block and interactive events a material lacks fall back to the `normal`
 material's event, then its default, as the native lookup does. Per-permutation sound
 components and native qualification of the unnamed-block stone fallback remain incomplete.
 

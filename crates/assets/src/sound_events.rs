@@ -303,11 +303,15 @@ fn defining_set<'a>(
 /// The set and event name a material plays for `event`, as the native lookup chooses them:
 /// the material's own event through its `base` chain, else the `normal` material's event,
 /// else that material's `default`. A material's own `default` is no fallback for other events.
+/// An empty material disables block sound lookup.
 fn material_event<'a>(
     sets: &'a HashMap<Box<str>, EventSet>,
     material: &str,
     event: &'a str,
 ) -> Option<(&'a EventSet, &'a str)> {
+    if material.is_empty() {
+        return None;
+    }
     defining_set(sets, material, event)
         .map(|set| (set, event))
         .or_else(|| {
