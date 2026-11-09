@@ -256,7 +256,7 @@ impl PackedModelDrawRef {
     /// Restricts this face to one tile of a three-by-three block-face partition.
     #[must_use]
     pub fn with_surface_tile(self, tile: u8, border: u8) -> Self {
-        assert!(tile < 9 && (1..=127).contains(&border));
+        assert!(u32::from(tile) < crate::surface::TILE_COUNT && (1..=127).contains(&border));
         Self {
             quad_index: (self.quad_index & crate::surface::QUAD_INDEX_MASK)
                 | (u32::from(tile) << crate::surface::TILE_SHIFT)
@@ -278,7 +278,7 @@ impl PackedModelDrawRef {
             || (self.quad_index <= crate::surface::DRAW_WORD_MASK
                 && (self.quad_index >> crate::surface::BORDER_SHIFT) != 0
                 && ((self.quad_index >> crate::surface::TILE_SHIFT) & crate::surface::TILE_MASK)
-                    < 9)
+                    < crate::surface::TILE_COUNT)
     }
 
     #[must_use]
