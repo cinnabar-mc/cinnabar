@@ -1053,9 +1053,9 @@ held build schedule, and starts the brush's local held use, which button-up rele
 Actors using a main-hand item with the brush use animation publish the native
 `variable.is_using_brush`, so the pack's third-person `brushing` pose sweeps the brush.
 The brush's 200-tick use duration is observed on BDS 1.26.61.1; its native registration
-was not found in the reconstruction. The native first-person brush sweep
-(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants were not
-readable without the binary), the brush dust the native client spawns every 8 ticks
+is unverified. The native first-person brush sweep
+(`ItemInHandRenderer::renderFirstPerson` use animation 12, whose constants are
+unverified), the brush dust the native client spawns every 8 ticks
 (particle type 86, drawn through the level's block-particle effect with unread
 parameters), a server-flag start of a brush taking its use duration, and the native
 `variable.is_holding_spyglass` and `variable.is_tooting_goat_horn` flags remain

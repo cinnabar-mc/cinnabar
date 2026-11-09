@@ -293,7 +293,7 @@ pub(crate) fn advance(
     runtime: &mut BlockUseRuntime,
     item_use: &mut client_interaction::item_use::ItemUseRuntime,
     swings: &mut SwingTracker,
-    movement: &MovementTicker,
+    movement: &mut MovementTicker,
     attempt: &mut BuildInput,
 ) -> bool {
     let Some(plan) = prepare(
@@ -402,21 +402,28 @@ pub(crate) fn advance(
     if trigger == ItemUseTrigger::SimulationTick && plan.local_use == LocalUse::Nothing {
         runtime.record_failed_repeat(tick, target);
     }
+    // The use starts on its build tick, before physics simulates it, so that tick moves
+    // at the use's speed and its input carries the start.
     if plan.local_use == LocalUse::UseItem {
         let profile = stream
             .authority()
             .item_use_profile(observed.selection.item.network_id());
-        item_use.start_use_on(
+        if item_use.start_use_on(
             observed.selection.clone(),
             profile.ticks.unwrap_or_default(),
             profile.movement,
-        );
+            tick,
+        ) {
+            movement.mark_started_using_item(tick);
+        }
     }
-    if plan.local_use == LocalUse::Place
-        && plan
-            .change
-            .as_ref()
-            .is_none_or(|change| !change.to.is_empty())
+    // Vanilla's `GameMode::useItemOn` starts the item's cooldown after any successful use on.
+    if (plan.local_use == LocalUse::UseItem
+        || plan.local_use == LocalUse::Place
+            && plan
+                .change
+                .as_ref()
+                .is_none_or(|change| !change.to.is_empty()))
         && let Some(cooldown) = plan.cooldown
     {
         item_use.start_cooldown(cooldown, tick);
