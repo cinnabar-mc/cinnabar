@@ -11,12 +11,15 @@ use std::{
 };
 
 use bevy::{
-    app::AppExit,
+    app::{AppExit, OnAppExitSystems},
     ecs::system::NonSendMarker,
-    prelude::{Entity, MessageReader, Query, Res, Resource},
-    window::Window,
+    prelude::{App, Entity, IntoScheduleConfigs, Last, MessageReader, Query, Res, Resource},
+    window::{ExitSystems, Window},
     winit::WINIT_WINDOWS,
 };
+
+#[cfg(target_os = "linux")]
+mod wayland;
 
 use diagnostics::markers::{
     SHUTDOWN_PHASE_MARKER, SHUTDOWN_WATCHDOG_ARMED_MARKER, SHUTDOWN_WATCHDOG_FIRED_MARKER,
@@ -193,18 +196,40 @@ pub fn begin_bounded_shutdown(watchdog: &ShutdownWatchdog, exit: &AppExit) {
     }
 }
 
-/// Hides every window as soon as an exit is requested, so the teardown that follows (trace and
-/// far-terrain flushes, network and GPU shutdown) never shows as a window that ignores its close
-/// button. The request reaches winit directly because `changed_windows` runs unordered with the
-/// blocking exit systems; the `Window` component is kept in step so it applies the same state.
-/// Order every blocking exit system after this one.
+/// Hides native windows before Bevy removes their handles or starts exit cleanup.
+pub(super) fn configure_shutdown(app: &mut App) {
+    app.add_systems(
+        Last,
+        (hide_windows_on_exit, arm_shutdown_watchdog)
+            .chain()
+            .after(ExitSystems)
+            .before(OnAppExitSystems),
+    );
+}
+
+/// Hides windows directly before blocking exit work; Wayland needs a surface unmap.
 pub fn hide_windows_on_exit(
     mut exits: MessageReader<AppExit>,
     mut windows: Query<(Entity, &mut Window)>,
+    #[cfg(target_os = "linux")] handles: Query<&bevy::window::RawHandleWrapper>,
+    #[cfg(target_os = "linux")] channels: Option<
+        bevy::prelude::ResMut<bevy::render::pipelined_rendering::RenderAppChannels>,
+    >,
+    #[cfg(target_os = "linux")] executor: Option<Res<bevy::ecs::schedule::MainThreadExecutor>>,
+    #[cfg(target_os = "linux")] watchdog: Res<ShutdownWatchdog>,
     _main_thread: NonSendMarker,
 ) {
-    if exits.read().next().is_none() {
+    let Some(_exit) = exits.read().reduce(
+        |selected, next| {
+            if selected.is_error() { selected } else { next }
+        },
+    ) else {
         return;
+    };
+    #[cfg(target_os = "linux")]
+    if handles.iter().any(wayland::is_wayland) {
+        begin_bounded_shutdown(&watchdog, _exit);
+        wayland::stop_rendering(channels, executor);
     }
     for (entity, mut window) in &mut windows {
         window.visible = false;
@@ -213,6 +238,12 @@ pub fn hide_windows_on_exit(
                 native.set_visible(false);
             }
         });
+        #[cfg(target_os = "linux")]
+        if let Ok(handle) = handles.get(entity)
+            && let Err(error) = wayland::unmap(handle)
+        {
+            tracing::warn!("Could not unmap the closing Wayland surface: {error}");
+        }
     }
 }
 
@@ -237,6 +268,7 @@ mod tests {
     #[derive(Resource, Default)]
     struct HiddenBeforeBlocking(Option<bool>);
 
+    /// Samples visibility while exit cleanup still has access to the window.
     fn record_window_visibility(
         windows: Query<&Window>,
         mut seen: bevy::prelude::ResMut<HiddenBeforeBlocking>,
@@ -244,19 +276,20 @@ mod tests {
         seen.0 = windows.iter().next().map(|window| !window.visible);
     }
 
+    /// Installs the production exit ordering without opening a native window.
     fn exit_test_app() -> bevy::prelude::App {
-        use bevy::prelude::{App, IntoScheduleConfigs, Last};
         let mut app = App::new();
         app.add_message::<AppExit>()
             .init_resource::<HiddenBeforeBlocking>()
             .insert_resource(ShutdownWatchdog::new(Duration::from_secs(60), |_| {}))
-            .add_systems(
-                Last,
-                (
-                    (hide_windows_on_exit, arm_shutdown_watchdog).chain(),
-                    record_window_visibility.after(arm_shutdown_watchdog),
-                ),
-            );
+            .add_systems(Last, record_window_visibility.in_set(OnAppExitSystems));
+        configure_shutdown(&mut app);
+        app.edit_schedule(Last, |schedule| {
+            schedule.set_build_settings(bevy::ecs::schedule::ScheduleBuildSettings {
+                ambiguity_detection: bevy::ecs::schedule::LogLevel::Error,
+                ..Default::default()
+            });
+        });
         app.world_mut().spawn(Window::default());
         app
     }
@@ -269,6 +302,31 @@ mod tests {
         assert_eq!(app.world().resource::<HiddenBeforeBlocking>().0, Some(true));
     }
 
+    /// Models native handle removal after Bevy's exit cleanup contract.
+    fn remove_windows(
+        mut commands: bevy::prelude::Commands,
+        windows: Query<(Entity, &Window)>,
+        mut seen: bevy::prelude::ResMut<HiddenAtRemoval>,
+    ) {
+        for (entity, window) in &windows {
+            seen.0.push(!window.visible);
+            commands.entity(entity).despawn();
+        }
+    }
+
+    #[derive(Resource, Default)]
+    struct HiddenAtRemoval(Vec<bool>);
+
+    #[test]
+    fn exit_hides_windows_before_their_native_handles_can_be_removed() {
+        let mut app = exit_test_app();
+        app.init_resource::<HiddenAtRemoval>()
+            .add_systems(Last, remove_windows.after(OnAppExitSystems));
+        app.world_mut().write_message(AppExit::Success);
+        app.update();
+        assert_eq!(app.world().resource::<HiddenAtRemoval>().0, [true]);
+    }
+
     #[test]
     fn the_window_stays_visible_until_an_exit_is_requested() {
         let mut app = exit_test_app();
@@ -279,6 +337,7 @@ mod tests {
         );
     }
 
+    /// Records the cleanup actions selected for an interrupted teardown.
     fn cut_short(code: i32) -> Vec<String> {
         let steps = RefCell::new(Vec::new());
         end_cut_short(

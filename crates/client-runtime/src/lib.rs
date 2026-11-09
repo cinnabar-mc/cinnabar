@@ -17,8 +17,6 @@ pub mod session;
 pub mod shutdown;
 pub mod world_service;
 
-#[cfg(not(target_arch = "wasm32"))]
-use bevy::prelude::IntoScheduleConfigs;
 use bevy::prelude::{App, Plugin};
 use std::marker::PhantomData;
 
@@ -38,14 +36,7 @@ impl<P: Send + Sync + 'static> Plugin for ClientRuntimePlugin<P> {
         world_service::configure_world_service(app, network::NetworkFrameFlush);
         publication::configure_publication_frame(app);
         #[cfg(not(target_arch = "wasm32"))]
-        app.add_systems(
-            bevy::prelude::Last,
-            (
-                shutdown::hide_windows_on_exit,
-                shutdown::arm_shutdown_watchdog,
-            )
-                .chain(),
-        );
+        shutdown::configure_shutdown(app);
     }
 
     fn finish(&self, app: &mut App) {

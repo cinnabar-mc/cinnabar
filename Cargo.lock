@@ -2647,6 +2647,7 @@ dependencies = [
  "pack-runtime",
  "protocol",
  "protocol-ids",
+ "raw-window-handle",
  "redb",
  "render",
  "render-api",
@@ -2656,6 +2657,7 @@ dependencies = [
  "test-time",
  "tokio",
  "tracing",
+ "wayland-client",
  "web-time",
 ]
 
