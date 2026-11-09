@@ -5,7 +5,9 @@ use std::collections::BTreeMap;
 use render_model::ActorVertex;
 
 /// Base and outer-layer cuboids of one biped part share their local center.
-pub(super) fn part_centers(source: &[ActorVertex]) -> BTreeMap<u32, [f32; 3]> {
+pub(in crate::ui_runtime::presentation) fn part_centers(
+    source: &[ActorVertex],
+) -> BTreeMap<u32, [f32; 3]> {
     let mut bounds = BTreeMap::<u32, ([f32; 3], [f32; 3])>::new();
     for vertex in source {
         let (min, max) = bounds

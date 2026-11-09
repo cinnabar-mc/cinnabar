@@ -72,9 +72,15 @@ pub(in crate::ui_runtime) fn death_settings() -> ScreenSettings {
     }
 }
 
+/// A data-driven form keeps the world drawn behind it, owns player input, frees the cursor and
+/// counts as a showing menu for later server requests: the default screen settings.
+fn data_driven_settings() -> ScreenSettings {
+    ScreenSettings::default()
+}
+
 impl UiRuntime {
     /// Visits the authoritative scene construction without allocating a stack.
-    pub(super) fn visit_scenes_in(
+    pub(in crate::ui_runtime) fn visit_scenes_in(
         &self,
         player_runtime: &player_state::PlayerState,
         host: SceneHost,
@@ -120,6 +126,12 @@ impl UiRuntime {
                 json(Some(ui_screens::emote_screen::EMOTE_SCREEN)),
             );
         }
+        if self.mob_effect_screen().is_open() {
+            visit(
+                Scene::MobEffects,
+                json(Some(ui_screens::mob_effect_screen::MOB_EFFECT_SCREEN)),
+            );
+        }
         if let Some(stage) = host.loading.filter(|_| host.menu.is_none()) {
             // Only the in-session dimension change keeps the server-restylable JSON-UI screen.
             let settings = if stage == ui::LoadingStage::ChangingDimension {
@@ -133,6 +145,10 @@ impl UiRuntime {
             let reference = ui_screens::sign_editor::SIGN_SCREEN;
             visit(Scene::SignEditor, json(Some(reference)));
         }
+        if self.command_block().is_open() {
+            let reference = ui_screens::command_block_screen::COMMAND_BLOCK_SCREEN;
+            visit(Scene::CommandBlock, json(Some(reference)));
+        }
         let form = self.server_forms().active();
         let settings_form = self.server_forms().settings_form_active();
         // An answered form keeps absorbing input until its answer is sent.
@@ -142,9 +158,12 @@ impl UiRuntime {
                 json(Some(form.map_or(SERVER_FORM_SCREEN, form_screen))),
             );
         }
+        if self.data_driven_ui().owns_input() {
+            visit(Scene::DataDriven, data_driven_settings());
+        }
         if let Some(screen) = host.menu {
             let reference = if host.over_world || screen.requires_session() {
-                launcher::menu::menu_reference(screen)
+                launcher::menu::flow::menu_reference(screen)
             } else {
                 None
             };
@@ -163,6 +182,12 @@ impl UiRuntime {
                 Scene::Credits,
                 json(Some(ui_screens::credits_screen::CREDITS_SCREEN)),
             );
+        }
+        // A global-pack edit gets a stable client-owned cover. It is deliberately separate from
+        // world-entry loading so session handoffs keep their normal readiness contract, and the
+        // old pack remains visible until the replacement is complete.
+        if self.resource_pack_loading() && host.loading.is_none() {
+            visit(Scene::ResourcePackLoading, loading_settings());
         }
     }
 

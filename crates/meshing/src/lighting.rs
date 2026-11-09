@@ -500,7 +500,8 @@ fn bake_quad_in_plane<I: LightingInputs + ?Sized>(
     PackedQuadLighting::new(samples)
 }
 
-/// Bakes exactly one sidecar for every quad in a template's immutable order.
+/// Bakes exactly one sidecar for every quad in a template's immutable order; `rotation` is the
+/// model turn the shader applies (see [`crate::MODEL_TURN_X_SHIFT`]).
 #[must_use]
 pub fn bake_template_lighting(
     classifier: &BlockClassifier,
@@ -551,6 +552,7 @@ pub fn bake_template_lighting_with_sampler<S: MeshLightSampler + ?Sized>(
         block,
         template_id,
         rotation,
+        u32::MAX,
         surface_emits(classifier, assets, network_id_mode, neighbourhood, block),
     )
 }
@@ -561,6 +563,7 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     block: [i32; 3],
     template_id: u32,
     rotation: u32,
+    visible: u32,
     emitting_block: bool,
 ) -> Option<Vec<PackedQuadLighting>> {
     let template = assets.model_templates().get(template_id as usize)?;
@@ -577,27 +580,28 @@ pub(crate) fn bake_template<I: LightingInputs + ?Sized>(
     {
         return Some(vec![lighting_at(inputs.sample(block)); quads.len()]);
     }
-    Some(
-        quads
-            .iter()
-            .map(|quad| {
-                model_quad_face(*quad, rotation).map_or_else(
-                    || lighting_at(inputs.sample(block)),
-                    |face| {
-                        bake_quad_with(
-                            inputs,
-                            block,
-                            face,
-                            quad.positions
-                                .map(|position| rotate_model_position(position, rotation)),
-                            true,
-                            emitting_block,
-                        )
-                    },
-                )
-            })
-            .collect(),
-    )
+    let mut lighting: Vec<_> = quads
+        .iter()
+        .map(|quad| {
+            model_quad_face(*quad, rotation).map_or_else(
+                || lighting_at(inputs.sample(block)),
+                |face| {
+                    bake_quad_with(
+                        inputs,
+                        block,
+                        face,
+                        quad.positions.map(|position| {
+                            crate::overlays::turn_model_position(position, rotation)
+                        }),
+                        true,
+                        emitting_block,
+                    )
+                },
+            )
+        })
+        .collect();
+    detail::inherit_detail_lighting(quads, rotation, visible, &mut lighting);
+    Some(lighting)
 }
 
 /// Nether portals take vanilla's flat lighting path: boundary-adjacent light, own light
@@ -774,6 +778,7 @@ pub(crate) const fn cube_face_positions(face: Face) -> [[i16; 3]; 4] {
     }
 }
 
+/// The face `quad` lies on after the model turn `rotation`, if it lies on one.
 const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {
     let face = match quad.flags & MODEL_QUAD_FLAG_FACE_MASK {
         1 => Some(Face::NegativeY),
@@ -787,8 +792,22 @@ const fn model_quad_face(quad: ModelQuad, rotation: u32) -> Option<Face> {
     rotate_face(face, rotation)
 }
 
-const fn rotate_face(face: Option<Face>, rotation: u32) -> Option<Face> {
-    match (face, rotation & 3) {
+/// `face` after the model turn `rotation`: its quarter turns about x, each taking +y to +z, then
+/// its quarter turns about y, as [`crate::overlays::turn_model_position`] turns positions.
+const fn rotate_face(mut face: Option<Face>, rotation: u32) -> Option<Face> {
+    let mut x_turns =
+        (rotation & crate::overlays::MODEL_TURN_X_MASK) >> crate::overlays::MODEL_TURN_X_SHIFT;
+    while x_turns > 0 {
+        face = match face {
+            Some(Face::PositiveY) => Some(Face::PositiveZ),
+            Some(Face::PositiveZ) => Some(Face::NegativeY),
+            Some(Face::NegativeY) => Some(Face::NegativeZ),
+            Some(Face::NegativeZ) => Some(Face::PositiveY),
+            other => other,
+        };
+        x_turns -= 1;
+    }
+    match (face, rotation & crate::overlays::MODEL_TURN_Y_MASK) {
         (Some(Face::NegativeX), 1) => Some(Face::NegativeZ),
         (Some(Face::PositiveX), 1) => Some(Face::PositiveZ),
         (Some(Face::NegativeZ), 1) => Some(Face::PositiveX),
@@ -805,14 +824,8 @@ const fn rotate_face(face: Option<Face>, rotation: u32) -> Option<Face> {
     }
 }
 
-const fn rotate_model_position([x, y, z]: [i16; 3], rotation: u32) -> [i16; 3] {
-    match rotation & 3 {
-        1 => [256 - z, y, x],
-        2 => [256 - x, y, 256 - z],
-        3 => [z, y, 256 - x],
-        _ => [x, y, z],
-    }
-}
+#[path = "lighting/detail.rs"]
+mod detail;
 
 #[cfg(test)]
 #[path = "lighting/flat_tests.rs"]

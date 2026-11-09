@@ -4,7 +4,7 @@ use super::*;
 use protocol_ids::ActorDataKey;
 
 /// Collision dimensions retain a small positive extent after server scaling.
-pub(super) const MIN_COLLISION_DIMENSION: f32 = 0.005;
+pub const MIN_COLLISION_DIMENSION: f32 = 0.005;
 
 impl ActorSnapshot {
     /// Bounds for movement use constructor dimensions when the server omits them.
@@ -164,7 +164,7 @@ impl ActorSnapshot {
     }
 
     /// Offset from stored collision feet to the native actor-state position.
-    pub(crate) fn network_position_offset(&self) -> f32 {
+    pub fn network_position_offset(&self) -> f32 {
         match &self.kind {
             ActorKind::Player { .. } => {
                 if self.player_is_sleeping() {
@@ -183,15 +183,17 @@ impl ActorSnapshot {
 }
 
 impl ActorStore {
-    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount.
+    /// Shares solid bounds in stable runtime order, excluding the mover and its current mount,
+    /// or the vehicle it got off while it still passes through it.
     pub(crate) fn movement_collider_snapshot(
         &self,
         mover: u64,
         rider: i64,
     ) -> std::sync::Arc<[ActorCollisionBounds]> {
-        self.effect_members
-            .collidable
-            .snapshot(mover, self.ridden_unique_id(rider))
+        let skipped = self
+            .ridden_unique_id(rider)
+            .or_else(|| self.passed_through_vehicle(rider));
+        self.effect_members.collidable.snapshot(mover, skipped)
     }
 }
 

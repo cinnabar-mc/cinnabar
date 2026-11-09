@@ -1,7 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use {
-    super::{Artwork, ArtworkSet, DecodeCache, Packed, Source, decode_bytes, sources},
+    super::{Artwork, ArtworkSet, DecodeCache, Packed, Source, decode_bytes, ranked_sources},
     ui::IconRef,
     ui_engine::{
         pages::{ART_PAGE_GUTTER as GUTTER, WHOLE_ART_PAGE},
@@ -29,16 +29,13 @@ fn title() -> Option<&'static Artwork> {
 /// Shelf-packs ordinary art; full-width sources retain a dedicated page without edge gutters.
 pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: bool) -> Packed {
     let side = render_model::UI_ART_PAGE_SIDE;
-    let rest: Vec<(String, &Artwork, bool)> = sources(set)
+    let (ranked, mut left_out) = ranked_sources(set);
+    let rest: Vec<(String, &Artwork, bool)> = ranked
         .iter()
         .filter_map(|source| {
             let key = source.key();
-            let art = cache.decoded.get(&key)?;
-            Some((
-                key.0,
-                art.as_ref(),
-                matches!(source, Source::Item(_, false)),
-            ))
+            let art = cache.get(&key)?;
+            Some((key.0, art, matches!(source, Source::Item(_, false))))
         })
         .collect();
     let decoded: Vec<(String, &Artwork, bool)> = title()
@@ -55,7 +52,8 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     let mut buffers: Vec<Vec<u8>> = Vec::new();
     let mut refs = HashMap::with_capacity(decoded.len());
     let (mut page, mut x, mut y, mut shelf) = (None, GUTTER, GUTTER, 0u32);
-    for (path, art, clamp_edges) in decoded {
+    let mut full_at = None;
+    for (index, (path, art, clamp_edges)) in decoded.iter().enumerate() {
         if art.width == 0
             || art.height == 0
             || art.width > side
@@ -67,11 +65,13 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
         if art.width + 2 * GUTTER > side || art.height + 2 * GUTTER > side {
             let dedicated = buffers.len();
             if dedicated >= render_model::MAX_UI_ART_PAGES {
+                left_out = true;
+                full_at = Some(index);
                 break;
             }
             buffers.push(vec![0; page_bytes]);
-            copy_image(&mut buffers[dedicated], side, [0, 0], art, clamp_edges);
-            refs.insert(path, icon(dedicated, [0, 0], art));
+            copy_image(&mut buffers[dedicated], side, [0, 0], art, *clamp_edges);
+            refs.insert(path.clone(), icon(dedicated, [0, 0], art));
             continue;
         }
         if x + art.width + GUTTER > side {
@@ -88,6 +88,8 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
             None => {
                 let next = buffers.len();
                 if next >= render_model::MAX_UI_ART_PAGES {
+                    left_out = true;
+                    full_at = Some(index);
                     break;
                 }
                 buffers.push(vec![0; page_bytes]);
@@ -95,10 +97,26 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
                 next
             }
         };
-        copy_image(&mut buffers[target_page], side, [x, y], art, clamp_edges);
-        refs.insert(path, icon(target_page, [x, y], art));
+        copy_image(&mut buffers[target_page], side, [x, y], art, *clamp_edges);
+        refs.insert(path.clone(), icon(target_page, [x, y], art));
         x += art.width + GUTTER;
         shelf = shelf.max(art.height);
+    }
+    // Partial packs are transient; report only a request's final omissions.
+    if complete
+        && tracing::enabled!(target: "server_form", tracing::Level::DEBUG)
+        && let Some(index) = full_at
+    {
+        let omitted: Vec<_> = decoded[index..]
+            .iter()
+            .map(|(path, art, _)| (path.as_str(), [art.width, art.height]))
+            .collect();
+        tracing::debug!(
+            target: "server_form",
+            dropped = omitted.len(),
+            ?omitted,
+            "art pages full; lower-priority artwork left out"
+        );
     }
     let pages = buffers
         .into_iter()
@@ -110,6 +128,7 @@ pub(super) fn pack(set: &ArtworkSet, cache: &DecodeCache, id: u64, complete: boo
     Packed {
         id,
         complete,
+        left_out,
         pages,
         refs,
     }
@@ -141,6 +160,7 @@ fn copy_image(page: &mut [u8], side: u32, [x, y]: [u32; 2], art: &Artwork, clamp
 
 fn icon(page: usize, [x, y]: [u32; 2], art: &Artwork) -> IconRef {
     IconRef {
+        color_mask: None,
         page: page as u16,
         uv: [
             x as u16,

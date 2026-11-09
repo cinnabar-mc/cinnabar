@@ -9,8 +9,8 @@ fn root() -> PathBuf {
 fn active_registry_regeneration_preserves_every_output_byte() {
     let root = root();
     for input in [
-        "crates/protocol/data/retail_items_1_26_50.tsv",
-        "crates/protocol/data/retail_biomes_1_26_50.txt",
+        "crates/protocol/data/retail_items_1_26_60.tsv",
+        "crates/protocol/data/retail_biomes_1_26_60.txt",
         "crates/assets/data/block-registry-v1001.bin",
     ] {
         if !root.join(input).is_file() {
@@ -81,11 +81,11 @@ fn pinned_pack_vocabularies_regenerate_byte_for_byte() {
     );
     assert_eq!(
         std::fs::read(out).unwrap(),
-        include_bytes!("../../../assets/data/vanilla-pack-vocabulary-1.26.50.tsv")
+        include_bytes!("../../../assets/data/vanilla-pack-vocabulary-1.26.60.tsv")
     );
     assert_eq!(
         std::fs::read(actors).unwrap(),
-        include_bytes!("../../../protocol/data/retail_actors_1_26_50.txt")
+        include_bytes!("../../../protocol/data/retail_actors_1_26_60.txt")
     );
     let derivative = Command::new("python3")
         .arg(root.join("tools/registrygen/generate_block_inputs.py"))
@@ -100,7 +100,7 @@ fn pinned_pack_vocabularies_regenerate_byte_for_byte() {
         "{}",
         String::from_utf8_lossy(&derivative.stderr)
     );
-    for filename in ["block-properties-v2193.json", "block-components-v2193.tsv"] {
+    for filename in ["block-properties-v2225.json", "block-components-v2225.tsv"] {
         assert_eq!(
             std::fs::read(scratch.path().join("crates/assets/data").join(filename)).unwrap(),
             std::fs::read(root.join("crates/assets/data").join(filename)).unwrap()
@@ -154,7 +154,7 @@ fn block_entity_only_regeneration_matches_the_committed_active_table() {
         .arg("--root")
         .arg(&root)
         .args(["--kind", "block-entities", "--check", "--breg"])
-        .arg(root.join("crates/assets/data/block-registry-v2193.bin"))
+        .arg(root.join("crates/assets/data/block-registry-v2225.bin"))
         .arg("--out")
         .arg(scratch.path().join("block-entities.json"))
         .output()

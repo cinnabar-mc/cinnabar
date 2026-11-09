@@ -8,6 +8,7 @@ mod dragon_egg;
 mod draw;
 mod emitter;
 mod event_budget;
+mod fishing;
 mod library;
 mod molang;
 mod particle;
@@ -18,11 +19,14 @@ mod world;
 pub mod ambient;
 pub mod tiles;
 
-pub use atlas::{ATLAS_SIDE, AtlasPatch, particle_textures_fit};
+pub use atlas::{ATLAS_SIDE, AtlasPatch, FALLBACK_TEXEL, TILE_SLOT, particle_textures_fit};
 pub use dragon_egg::dragon_egg_teleport_requests;
 pub use draw::{DrawLists, ParticleInstance, ParticleView};
 pub use emitter::{ParticleSound, SpawnRequest, TileRequest};
 pub use event_budget::EventOverflows;
+pub use fishing::{
+    fish_tease_cell, fish_tease_request, fish_trail_requests, fishing_bite_requests,
+};
 pub use molang::Queries;
 pub use system::{MAX_EMITTERS, MAX_LIVE_PARTICLES, ParticleSystem};
 pub use triggers::{

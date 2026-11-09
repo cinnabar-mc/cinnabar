@@ -7,7 +7,6 @@ mod tests;
 pub(in super::super) struct Drag {
     index: usize,
     before: Placement,
-    measurement_pending: bool,
     grab: [f64; 2],
     start: [f64; 2],
     last: [f64; 2],
@@ -42,64 +41,6 @@ fn card_action_index(action: &str) -> Option<usize> {
 }
 
 impl HudEditor {
-    /// Retains capture across content updates and card reordering when its geometry still matches.
-    pub(super) fn reconcile_drag(&mut self, next: &[ui::mod_hud::Card]) -> Option<usize> {
-        let reordered = !self
-            .draft
-            .cards
-            .iter()
-            .map(|card| &card.id)
-            .eq(next.iter().map(|card| &card.id));
-        let index = self.drag.as_ref().and_then(|drag| {
-            super::publication::matching_geometry(&self.draft.cards[drag.index], next)
-        });
-        let measurement_pending = self.drag.as_ref().zip(index).is_some_and(|(drag, index)| {
-            let old = &self.draft.cards[drag.index];
-            let new = &next[index];
-            new.text_plate.is_some()
-                && (old.rows != new.rows
-                    || old.text_plate != new.text_plate
-                    || old.font != new.font
-                    || old.text_scale != new.text_scale)
-        });
-        if self.drag.is_some() && index.is_none() {
-            let previous = self.drag.as_ref().expect("captured card").index;
-            self.cancel_drag();
-            return Some(previous);
-        } else if let Some(drag) = &mut self.drag {
-            drag.index = index.expect("matched captured card");
-            drag.measurement_pending |= measurement_pending;
-            if reordered {
-                drag.guides = [None; 2];
-                drag.targets = [None; 2];
-                self.snap_dirty = true;
-            }
-        }
-        None
-    }
-
-    /// Captures bounds only when a publication may change deferred native text geometry.
-    pub(super) fn pending_measurement_size(&self) -> Option<[f64; 2]> {
-        self.drag
-            .as_ref()
-            .filter(|drag| drag.measurement_pending)
-            .map(|drag| cards::dimensions(&self.draft.cards[drag.index]))
-    }
-
-    /// Ends capture when measured live content invalidates its original resize or grab geometry.
-    pub(super) fn finish_measurement(&mut self, previous: Option<[f64; 2]>) {
-        let Some(drag) = self.drag.as_mut().filter(|drag| drag.measurement_pending) else {
-            return;
-        };
-        drag.measurement_pending = false;
-        let size = cards::dimensions(&self.draft.cards[drag.index]);
-        if previous.is_some_and(|before| {
-            (0..2).any(|axis| (before[axis] - size[axis]).abs() > GEOMETRY_EPSILON)
-        }) {
-            self.cancel_drag();
-        }
-    }
-
     /// Ends capture once; later presentation failures stop painting without replacing the result.
     pub(super) fn finish(&mut self, saved: bool) {
         if !self.open {
@@ -129,16 +70,6 @@ impl HudEditor {
         self.drag = None;
         self.view = ViewState::default();
         self.hovered = None;
-    }
-    /// Releases input and snapshots once, retaining only explicitly animated closing chrome.
-    pub(in super::super) fn close(&mut self, animate: bool) {
-        if !self.open {
-            return;
-        }
-        self.finish(self.autosave);
-        if animate && let Some(surface) = &self.draft.surface {
-            self.transitions.begin_exit(surface);
-        }
     }
     /// Captures the complete bounded placement set for one persistence callback.
     fn snapshot(&self, saved: bool) -> EditorResult {
@@ -317,6 +248,7 @@ impl HudEditor {
             (delta[0] * signed[0] + delta[1] * signed[1]) / (base[0].powi(2) + base[1].powi(2));
         // Growth consumes only the space between the fixed corner and the dragged edges.
         // A minimum-sized card may still need translation if its starting bounds were offscreen.
+        let [min_scale, max_scale] = self.draft.scale_bounds().map(f64::from);
         let max_scale = (0..2)
             .map(|axis| {
                 let space = if resize.corner & (1 << axis) == 0 {
@@ -326,10 +258,9 @@ impl HudEditor {
                 };
                 space.max(0.).min(self.viewport[axis]) / base[axis]
             })
-            .fold(f64::from(ui::mod_hud::MAX_CARD_SCALE), f64::min)
-            .max(f64::from(ui::mod_hud::MIN_CARD_SCALE));
-        let scale = (resize.scale + projection)
-            .clamp(f64::from(ui::mod_hud::MIN_CARD_SCALE), max_scale) as f32;
+            .fold(max_scale, f64::min)
+            .max(min_scale);
+        let scale = (resize.scale + projection).clamp(min_scale, max_scale) as f32;
         let changed = self.draft.cards[index].scale != scale;
         self.draft.cards[index].scale = scale;
         let size = cards::dimensions(&self.draft.cards[index]);
@@ -376,12 +307,33 @@ impl HudEditor {
             .iter()
             .rev()
             .find(|hit| hit.enabled && hit.pressed.is_some() && hit.contains(point));
-        let hovered = hit.map(|hit| hit.key.as_str());
-        if self.view.hovered.as_deref() != hovered {
+        // A captured drag hovers its own, possibly reindexed, card: the previous frame's
+        // regions trail a fast pointer, and a changed view state would discard every
+        // retained placement.
+        let captured = self.drag.as_ref().filter(|_| !pressed && held);
+        let (hovered, hovered_card) = match captured {
+            Some(drag) => {
+                let action = match drag.resize {
+                    Some(resize) => format!("hud.resize:{}:{}", drag.index, resize.corner),
+                    None => format!("hud.card:{}", drag.index),
+                };
+                let key = frame
+                    .hits
+                    .iter()
+                    .rev()
+                    .find(|hit| hit.pressed.as_deref() == Some(action.as_str()))
+                    .map(|hit| hit.key.as_str());
+                (key, Some(drag.index))
+            }
+            None => (
+                hit.map(|hit| hit.key.as_str()),
+                hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?)),
+            ),
+        };
+        if (captured.is_none() || hovered.is_some()) && self.view.hovered.as_deref() != hovered {
             self.data_dirty = true;
             self.view.hovered = hovered.map(str::to_owned);
         }
-        let hovered_card = hit.and_then(|hit| card_action_index(hit.pressed.as_deref()?));
         if self.hovered != hovered_card {
             self.data_dirty = true;
             self.hovered = hovered_card;
@@ -424,11 +376,7 @@ impl HudEditor {
             return vec![ui::mod_panel::Event { id, value: 1. }];
         }
         match action.as_deref() {
-            Some("hud.close") => {
-                self.close_requested = true;
-                return Vec::new();
-            }
-            Some("hud.save") => {
+            Some("hud.close" | "hud.save") => {
                 self.finish(true);
                 return Vec::new();
             }
@@ -467,7 +415,6 @@ impl HudEditor {
                 Drag {
                     index,
                     before: before.expect("captured placement"),
-                    measurement_pending: false,
                     grab: std::array::from_fn(|axis| point[axis] - at[axis]),
                     start: point,
                     last: point,
@@ -604,14 +551,7 @@ mod resize_tests {
 
     /// Opens a real native editor around one uniformly scalable card.
     fn editor(viewport: [f64; 2]) -> HudEditor {
-        let mut ui = ModUi::default();
-        ui.set_mod_panel(
-            crate::PanelUiOwner::Environment(0),
-            Some(&crate::test_support::sample_panel()),
-        )
-        .unwrap();
-        ui.set_mod_panel_open(true);
-        ui.open_mod_hud_editor(&Hud {
+        let mut editor = HudEditor::new(&Hud {
             cards: vec![Card {
                 id: "resize".into(),
                 width: 100.,
@@ -625,7 +565,7 @@ mod resize_tests {
             ..Default::default()
         })
         .unwrap();
-        let mut editor = ui.mod_hud_editor.take().unwrap();
+        editor.snap = false;
         editor.viewport = viewport;
         editor
     }
@@ -714,6 +654,35 @@ mod resize_tests {
             assert_eq!(editor.draft.cards[0].scale, MAX_CARD_SCALE);
             assert_bounds(&editor);
         }
+    }
+
+    /// A host's narrower scale bounds stop corner drags, scale keys and validation alike.
+    #[test]
+    fn host_scale_bounds_limit_every_scaling_path() {
+        for (direction, bound) in [(-1., 0.5), (1., 1.5)] {
+            let mut editor = editor([2000., 1600.]);
+            editor.draft.scale_range = Some([0.5, 1.5]);
+            let resize = capture(&editor, 3);
+            editor.resize_card(0, resize, [direction * 10000.; 2]);
+            assert_eq!(editor.draft.cards[0].scale, bound);
+            assert_bounds(&editor);
+            editor.selected = Some(0);
+            let key = if direction < 0. {
+                "hud.scale_down"
+            } else {
+                "hud.scale_up"
+            };
+            editor.action(key, &mut []).unwrap();
+            assert_eq!(editor.draft.cards[0].scale, bound);
+        }
+        let mut hud = editor([400., 300.]).draft.clone();
+        hud.scale_range = Some([0.5, 1.5]);
+        hud.cards[0].scale = 2.;
+        assert!(hud.validate().is_err());
+        hud.cards[0].scale = 1.5;
+        assert!(hud.validate().is_ok());
+        hud.scale_range = Some([0.1, 1.5]);
+        assert!(hud.validate().is_err());
     }
 
     /// Recovered offscreen geometry remains finite and bounded when the minimum size can fit.

@@ -32,7 +32,9 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         unique_id: -1,
         runtime_id: 1,
         spawn_revision: 1,
+        render_spawn_revision: std::num::NonZeroU64::MIN,
         movement_revision: 0,
+        metadata_revision: 0,
         kind: ActorKind::Entity {
             identifier: "minecraft:test".into(),
         },
@@ -51,6 +53,7 @@ fn actor_with_metadata(metadata: HashMap<u32, ActorMetadataValue>) -> ActorSnaps
         player_game_mode: None,
         source_tick: None,
         metadata,
+        explicit_dimensions: Default::default(),
         local_presentation_flags: None,
         attributes: HashMap::new(),
         int_properties: HashMap::new(),

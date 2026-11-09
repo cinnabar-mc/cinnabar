@@ -63,3 +63,96 @@ fn custom_content_models_reach_both_hands_and_replace_with_artwork() {
             .is_none()
     );
 }
+
+#[test]
+fn held_session_artwork_precedes_startup_carried_cubes() {
+    let (mut runtime, _, item) = block_fixture();
+    let (base, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+    assert!(block);
+    for sheet in [false, true] {
+        let [width, height] = assets::BLOCK_ITEM_SHEET_SIZE.map(u32::from);
+        let icons = SessionIcons {
+            icons: vec![SessionIcon {
+                identifier: Arc::clone(&item.identifier),
+                metadata: 0,
+                width: 1,
+                height: 1,
+                rgba8: Box::new([190, 20, 80, 255]),
+            }],
+            block_sheets: if sheet {
+                vec![SessionIcon {
+                    identifier: Arc::clone(&item.identifier),
+                    metadata: 0,
+                    width,
+                    height,
+                    rgba8: vec![255; (width * height * 4) as usize].into(),
+                }]
+            } else {
+                vec![]
+            },
+            ..Default::default()
+        };
+        let staged = StagedSessionIcons::stage_icons(&icons).unwrap();
+        let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(staged.rasters());
+        runtime.set_session_items(None, Some(staged), locations);
+        let (mesh, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+        assert_eq!(
+            block, sheet,
+            "a session icon without a sheet must be held as a sprite"
+        );
+        assert_ne!(mesh, base);
+    }
+    runtime.set_session_items(None, None, Vec::new());
+    let (restored, _, block, _) = runtime.held_mesh(&item, false).unwrap();
+    assert!(block);
+    assert_eq!(restored, base);
+}
+
+/// Installs `icons` as the session's artwork.
+fn install_session_icons(runtime: &mut EquipmentRuntime, icons: SessionIcons) {
+    let items = crate::session_assets::SessionItems {
+        components: Arc::new(Default::default()),
+        icons: Some(Arc::new(icons)),
+    };
+    let staged = StagedSessionIcons::stage(Some(&items)).unwrap();
+    let (_, locations) = ActorArtworkPages::default().with_equipment_rasters(staged.rasters());
+    runtime.set_session_items(Some(&items), Some(staged), locations);
+}
+
+#[test]
+fn held_dials_draw_the_packs_strip_frame_in_both_views() {
+    let (mut runtime, _, mut item) = block_fixture();
+    item.identifier = Arc::from("minecraft:compass");
+    item.kind = HeldKind::Other;
+    let strip = assets::icon::dial::dial_strip("minecraft:compass").unwrap();
+    install_session_icons(
+        &mut runtime,
+        SessionIcons {
+            icons: (0..inventory::COMPASS_FRAMES)
+                .map(|frame| SessionIcon {
+                    identifier: strip.frames_identifier.into(),
+                    metadata: frame,
+                    width: 1,
+                    height: 1,
+                    rgba8: Box::new([frame as u8 * 7, 20, 80, 255]),
+                })
+                .collect(),
+            ..Default::default()
+        },
+    );
+    let mut shown = Vec::new();
+    for frame in [3, 9, 3] {
+        runtime.set_dial_frames(inventory::DialFrames {
+            compass: Some(frame),
+            recovery_compass: None,
+            clock: None,
+        });
+        // The held mesh and the icon mesh both pick the pack's frame, with its dimensions.
+        let (mesh, ..) = runtime.held_mesh(&item, true).expect("pack frame mesh");
+        assert_eq!(runtime.held_icon_mesh(&item).unwrap().0, mesh);
+        assert_eq!(runtime.held_icon_dimensions(&item), Some([1, 1]));
+        shown.push(mesh);
+    }
+    assert_ne!(shown[0], shown[1], "the needle moves between frames");
+    assert_eq!(shown[0], shown[2]);
+}

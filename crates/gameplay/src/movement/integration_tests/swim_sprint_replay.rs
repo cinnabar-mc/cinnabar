@@ -120,6 +120,7 @@ fn a_replayed_server_sprint_ends_at_a_liquid_stop() {
     assert_eq!(delayed.state(), on_time.state());
     assert_eq!(delayed.latest_sneak_sprint(), Some((false, false)));
     assert_eq!(delayed.prediction_sync_posture(), Some((false, false)));
+    assert_eq!(delayed.prediction_sync_flags().sprinting, Some(false));
     assert_eq!(
         delayed
             .take_server_control_flags()
@@ -219,6 +220,7 @@ fn live_sprint_ownership_survives_zero_tick_frames_before_a_stopped_replay() {
     for _ in 0..2 {
         reconcile_timeline_rewind(&mut ticker, &mut physics, rewind, &SidePool).unwrap();
         assert_eq!(physics.prediction_sync_posture(), Some((false, true)));
+        assert_eq!(physics.prediction_sync_flags().sprinting, Some(true));
     }
     assert_eq!(ticker.completed_tick(), latest);
     assert!(locals.advance(
@@ -315,6 +317,7 @@ fn unrecorded_failed_replayed_sprint_still_overlays_the_completed_posture() {
                 .is_err()
         );
         assert_eq!(physics.prediction_sync_posture(), Some((false, true)));
+        assert_eq!(physics.prediction_sync_flags().sprinting, Some(true));
         if position_correction {
             let sample = physics.sample_at(103).unwrap().clone();
             reconcile_candidate_physics_correction(
@@ -334,6 +337,7 @@ fn unrecorded_failed_replayed_sprint_still_overlays_the_completed_posture() {
         }
         assert_eq!(physics.latest_sneak_sprint(), Some((false, true)));
         assert_eq!(physics.prediction_sync_posture(), Some((false, true)));
+        assert_eq!(physics.prediction_sync_flags().sprinting, Some(true));
     }
     let (mut physics, mut ticker) = walked_physics(1);
     let jump = physics.advance(

@@ -57,6 +57,15 @@ The edit screen exposes the remaining options.
 Older and imported worlds recover their options from level data. A `level.dat` over 1 MiB is
 never parsed or rewritten; that world's options show as unavailable.
 
+While the host plays a BDS world, Settings lists a Game section under World in vanilla's in-game
+order and wording. Name, seed, world type, starting map, bonus chest, simulation distance and
+hardcore stay locked; cheat rules wait for cheats, and turning cheats off keeps them. Each change
+saves at once. Live changes reach the running server through its console (`gamerule`, `difficulty`,
+`alwaysday`, `changesetting allow-cheats`); container BDS takes the line through the server's stdin.
+Default game mode and default player permission apply on the next start. If a console write fails,
+the Game section explains that the saved change applies on the next start. Rules applied live stay
+pending until the server exits successfully. A crash or forced shutdown keeps them pending.
+
 Resource packs, behaviour packs and experiments remain unavailable. Xbox Live, Realms and
 friends-broadcast settings are not exposed on the local BDS multiplayer page. Hardcore remains
 unavailable, as do custom flat presets and Education Edition. Runtime acceptance of every option across supported BDS platforms remains open.
@@ -93,6 +102,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   are never silently extended with a different generator. Seeds are retained in world metadata
   for BDS; Dragonfly's flat terrain does not use them. Natural-terrain imports are rejected before
   saving if the selected backend is Dragonfly; retry with BDS available.
+- **Dragonfly chunk streaming:** each player gets up to 32 chunk requests per tick while fewer than 64
+  sub-chunk blob cache transactions await the client's acknowledgement (Dragonfly defaults: 4 and 8).
+  Unacknowledged blobs stay capped at 4,096 per session.
 - **Dragonfly animals:** Passive animal simulation and natural population are unsupported. Previously saved
   unsupported actors retain their stored data when their chunks are saved, but are not loaded as live entities.
 - **Downloads** name the agent `Cinnabar-local-worlds`; minecraft.net resets unnamed downloaders.
@@ -102,6 +114,10 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   Server processes are tracked children: on exit the client asks the open world's server to stop its
   own way (`stop`, or `docker stop`), cancels a start in progress, and gives the server its 30 s save
   budget before the exit sweep escalates to SIGTERM and kill.
+- **World lifetime:** saved worlds start only on an explicit open. Leaving requests a save and
+  stop immediately on every backend, including translated BDS. Reopening waits for the previous
+  server's save and backend cleanup before starting another server. Android setup prepares
+  reusable startup code in a temporary world; attaching the launcher never starts a saved world.
 - **Pause:** on focus loss or while the pause menu is open, dragonfly suspends its tick loop (`World.SetPaused`, the fork's equivalent of the
   integrated server's sim-time pause): entities, block ticks, time and weather stop; connections stay up and resume
   continues from the same state. BDS does not register `/globalpause` and has no other true pause, so BDS worlds
@@ -114,6 +130,9 @@ Never bundled or committed. `bds/` beside the worlds dir holds `<version>/` buil
   `/flyspeed off` restores the previous flight abilities; `/speed` also switches back to ability flight.
   Direct flight has no speed multiplier cap, but motion must fit the protocol's floating-point values.
   Cinnabar's existing collision-query extent also limits accepted motion; acceptance beyond that bound remains incomplete.
+  `/time set <ticks|sunrise|day|noon|sunset|night|midnight>` sets the world's time of day and stops its
+  daylight cycle so captures see the same sky; `/time cycle` resumes it. The local server's
+  `-time <ticks|name>` flag opens every world at that time, frozen.
 - **Login:** signed in, the core presents the account's identity. Signed out, it presents a self-signed NetherNet
   identity (BDS refuses anonymous HTTP offers) and an offline login from the client's identity, both admitted
   because `online-mode=false`. The launcher's own loopback BDS retries once with local identity if account

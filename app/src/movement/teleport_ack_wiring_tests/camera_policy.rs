@@ -1,19 +1,13 @@
 use bevy::prelude::{EulerRot, Quat, Vec3};
-use {
-    super::*, client_presentation::camera::CameraSettingsAuthority,
-    client_presentation::local_player::LocalViewPose,
-};
+use {super::*, client_presentation::local_player::LocalViewPose};
 
 #[test]
-fn teleport_camera_opt_in_keeps_production_position_reconciliation_and_ack() {
+fn teleport_rotation_keeps_production_position_reconciliation_and_ack() {
     let aim = Quat::from_euler(EulerRot::YXZ, 0.35, -0.2, 0.0);
-    for enabled in [false, true] {
+    {
         let mut physics = LocalPhysicsController::default();
         physics.reanchor_network_position([0.0, 70.0, 0.0], 100, true);
         let mut app = wiring_app(authorized_ticker(false), physics);
-        app.world_mut()
-            .resource_mut::<CameraSettingsAuthority>()
-            .set_preserve_teleport_rotation(enabled);
         app.world_mut()
             .insert_resource(LocalViewPose::new(Vec3::ZERO, aim));
         submit(
@@ -44,11 +38,7 @@ fn teleport_camera_opt_in_keeps_production_position_reconciliation_and_ack() {
             view.eye_translation()
                 .abs_diff_eq(Vec3::new(30.5, 71.620_01, 0.5), 0.0001)
         );
-        let expected = if enabled {
-            aim
-        } else {
-            crate::runtime::telemetry::bedrock_camera_rotation(90.0, 15.0)
-        };
+        let expected = crate::runtime::telemetry::bedrock_camera_rotation(90.0, 15.0);
         assert!(view.rotation().abs_diff_eq(expected, 0.0001));
         assert_eq!(
             app.world()

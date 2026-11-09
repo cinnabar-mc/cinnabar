@@ -18,6 +18,9 @@ inputs:
   cargo-outputs:
     description: Further directories under target/ to cache, such as another profile or a cross target's profile
     default: ''
+  cargo-messages:
+    description: Cargo JSON messages from this job's builds; other units' outputs are left out when saving
+    default: ''
   store:
     description: auto (the budgeted store), cache (GitHub cache), or artifact (workflow artifacts)
     default: auto
@@ -108,6 +111,7 @@ runs:
       working-directory: ${{ github.workspace }}
       env:
         CACHE_PATHS: ${{ inputs.paths }}
+        CACHE_CARGO_MESSAGES: ${{ inputs.cargo-messages }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" drop-linked-outputs
     - name: Check replacement headroom while keeping existing entries
       id: room
@@ -141,6 +145,7 @@ runs:
         CACHE_BUCKET: ${{ inputs.bucket }}
         CACHE_PREFIX: ${{ steps.storage.outputs.prefix }}
         CACHE_PATHS: ${{ inputs.paths }}
+        CACHE_CARGO_MESSAGES: ${{ inputs.cargo-messages }}
       run: python3 "$GITHUB_ACTION_PATH/cache.py" pack-artifact
     - uses: actions/upload-artifact@v7
       id: upload

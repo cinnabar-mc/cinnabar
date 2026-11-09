@@ -1,8 +1,8 @@
-//! The Bedrock login client-data claims the core presents upstream for this client. The core claims
-//! the device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`) to match its sign-in.
+//! The Bedrock login client-data claims the core presents upstream for this client. The core supplies
+//! the host device (`DeviceOS`, `DeviceModel`, `DeviceId`, `DefaultInputMode`).
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
-use bedrock_protocol_1_26_51::enums::InputMode;
+use bedrock_protocol_1_26_60::enums::InputMode;
 use serde_json::{Value, json};
 use std::num::NonZeroI64;
 
@@ -12,7 +12,7 @@ use crate::PlayerInputMode;
 pub const GAME_VERSION: &str = bridge::contract::GAME_VERSION;
 
 /// The Bedrock network protocol this client speaks.
-pub const PROTOCOL_VERSION: i32 = bedrock_protocol_1_26_51::PROTOCOL_VERSION;
+pub const PROTOCOL_VERSION: i32 = bedrock_protocol_1_26_60::PROTOCOL_VERSION;
 
 /// The highest Bedrock memory tier, used by desktop client-data claims.
 const SUPER_HIGH_MEMORY_TIER: u32 = 4;
@@ -185,7 +185,7 @@ pub(crate) fn login_client_data(
         "SkinAnimationData": "",
         "SkinColor": "#b37b62",
         "SkinData": skin_data,
-        "SkinGeometryData": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.geometry_data)),
+        "SkinGeometryData": STANDARD.encode(geometry.map_or(crate::skin_change::ABSENT_GEOMETRY_DATA, |geometry| geometry.geometry_data.as_str())),
         "SkinGeometryDataEngineVersion": geometry.map_or_else(String::new, |geometry| STANDARD.encode(&geometry.engine_version)),
         "SkinId": skin.map_or_else(|| crate::skin_change::classic_skin_id(&arm_size), |skin| skin.id.clone()),
         "SkinImageHeight": skin_height,
@@ -204,7 +204,7 @@ fn input_mode_value(mode: PlayerInputMode) -> u32 {
     let mode = match mode {
         PlayerInputMode::Mouse => InputMode::Mouse,
         PlayerInputMode::Touch => InputMode::Touch,
-        PlayerInputMode::GamePad => InputMode::Gamepad,
+        PlayerInputMode::GamePad => InputMode::GamePad,
     };
     mode.to_raw()
 }
@@ -294,7 +294,7 @@ mod tests {
                 .unwrap()
                 .pop()
                 .unwrap();
-            let bedrock_protocol_1_26_51::packets::Packet::PlayerSkin(packet) = *packet.data else {
+            let bedrock_protocol_1_26_60::packets::Packet::PlayerSkin(packet) = *packet.data else {
                 panic!("skin packet")
             };
             assert_eq!(
@@ -316,11 +316,11 @@ mod tests {
         assert_eq!(target["wire_protocol"], i64::from(PROTOCOL_VERSION));
         assert_eq!(
             target["codec_contract"],
-            u64::from(bedrock_protocol_1_26_51::CODEC_CONTRACT)
+            u64::from(bedrock_protocol_1_26_60::CODEC_CONTRACT)
         );
         assert_eq!(
             target["codec_manifest_sha256"],
-            bedrock_protocol_1_26_51::MANIFEST_SHA256
+            bedrock_protocol_1_26_60::MANIFEST_SHA256
         );
     }
 
@@ -374,7 +374,7 @@ mod tests {
             geometry: Some(ClientSkinGeometry {
                 resource_patch: "{\"patch\":1}".into(),
                 geometry_data: "{\"geometry\":2}".into(),
-                engine_version: "1.26.50".into(),
+                engine_version: "1.26.60".into(),
             }),
         };
         let settings = LoginSettings {
@@ -428,7 +428,7 @@ mod tests {
         assert_eq!(decoded(&claims, "SkinGeometryData"), b"{\"geometry\":2}");
         assert_eq!(
             decoded(&claims, "SkinGeometryDataEngineVersion"),
-            b"1.26.50"
+            b"1.26.60"
         );
         assert_eq!(claims["PremiumSkin"], false);
         assert_eq!(claims["PersonaSkin"], false);
@@ -452,6 +452,7 @@ mod tests {
         assert_eq!(decoded(&claims, "SkinData").len(), 64 * 64 * 4);
         let patch: Value = serde_json::from_slice(&decoded(&claims, "SkinResourcePatch")).unwrap();
         assert_eq!(patch["geometry"]["default"], "geometry.humanoid.custom");
+        assert_eq!(decoded(&claims, "SkinGeometryData"), b"null\n");
         assert_eq!(claims["CapeData"], "");
         assert_eq!(claims["CapeOnClassicSkin"], false);
     }

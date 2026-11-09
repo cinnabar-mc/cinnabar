@@ -46,6 +46,7 @@ type Config struct {
 	// Injectable for tests; nil selects the real implementation.
 	RealmMembership func(context.Context, *authcache.Account, string, bool) (catalog.Realm, error)
 	Realms          func(context.Context, *authcache.Account) ([]catalog.Realm, error)
+	LeaveRealm      func(context.Context, *authcache.Account, int) error
 	Friends         func(context.Context, *authcache.Account) ([]catalog.Friend, error)
 	People          func(context.Context, *authcache.Account) ([]catalog.Person, error)
 	Gamertag        func(context.Context, *authcache.Account) (string, error)
@@ -88,6 +89,9 @@ func New(cfg Config) *Service {
 	}
 	if cfg.Realms == nil {
 		cfg.Realms = catalog.Realms
+	}
+	if cfg.LeaveRealm == nil {
+		cfg.LeaveRealm = catalog.LeaveRealm
 	}
 	if cfg.Friends == nil {
 		cfg.Friends = catalog.Friends
@@ -309,23 +313,36 @@ func (s *Service) joinGathering(ctx context.Context, account *authcache.Account,
 	return target, nil
 }
 
-// gatheringTarget names the transport the assignment selects: host:port for RakNet, or the
-// NetherNet ID with its signaling dialect.
+// gatheringTarget names the transport the assignment selects, as gophertunnel's
+// realms.Networks.Experience reads it and vanilla joins it: RakNet to host:port for DEFAULT,
+// NetherNet HTTP signaling probed at host:port, never RakNet, for NETHERNET, and JSON-RPC
+// signaling to the NetherNet ID for NETHERNET_JSONRPC.
 func gatheringTarget(address *gatherings.Address) (string, error) {
 	if address == nil {
 		return "", errors.New("launcher: gathering returned no address")
 	}
-	dial, err := address.DialAddress()
-	if err != nil {
-		return "", err
+	// hostPort prefixes the assignment's host:port, which DEFAULT and NETHERNET require.
+	hostPort := func(protocol realms.NetworkProtocol, prefix string) (string, error) {
+		host := strings.TrimSpace(address.IPv4Address)
+		if host == "" || address.Port == 0 {
+			return "", fmt.Errorf("launcher: %s assignment has no host or port", protocol)
+		}
+		return prefix + net.JoinHostPort(host, strconv.Itoa(int(address.Port))), nil
 	}
-	switch realms.ParseNetworkProtocol(string(address.NetworkProtocol)) {
+	switch protocol := realms.ParseNetworkProtocol(string(address.NetworkProtocol)); protocol {
+	case realms.NetworkProtocolDefault, "":
+		return hostPort(realms.NetworkProtocolDefault, bridgecontract.RakNetTargetPrefix)
 	case realms.NetworkProtocolNetherNet:
-		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingWebSocket + "/" + dial, nil
+		return hostPort(protocol, bridgecontract.NetherNetTargetPrefix+bridgecontract.NetherNetSignalingHTTP+"/")
 	case realms.NetworkProtocolNetherNetJSONRPC:
-		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/" + dial, nil
+		id := strings.TrimSpace(address.NetherNetID)
+		if id == "" {
+			return "", errors.New("launcher: NetherNet assignment has no NetherNet ID")
+		}
+		return bridgecontract.NetherNetTargetPrefix + bridgecontract.NetherNetSignalingJSONRPC + "/" + id, nil
+	default:
+		return "", fmt.Errorf("launcher: unsupported gathering network protocol %q", address.NetworkProtocol)
 	}
-	return dial, nil
 }
 
 // SignOut deletes the cached Microsoft tokens and reports the signed-out state. The running

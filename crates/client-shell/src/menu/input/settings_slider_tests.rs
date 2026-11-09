@@ -8,6 +8,7 @@ use bevy::{
 };
 use ui::DpiScale;
 
+use super::mode::MenuInputMode;
 use super::*;
 use client_ui::ui_runtime::UiRuntime;
 use launcher::menu::settings_options::SettingId;
@@ -279,9 +280,7 @@ fn shader_fixture() -> (App, Entity) {
 #[test]
 fn shader_slider_drag_changes_steps_outside_the_track_and_releases_capture() {
     use launcher::shader_options::{Action, Input};
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
+
     let (mut app, window) = shader_fixture();
     let action = |step| {
         MenuAction::ShaderOptions(Action::Element {
@@ -338,9 +337,7 @@ fn shader_slider_drag_changes_steps_outside_the_track_and_releases_capture() {
 #[test]
 fn shader_slider_touch_drag_updates_steps_and_mouse_capture_rejects_new_screens() {
     use launcher::shader_options::{Action, Input};
-    if !render_model::SHADER_PACKS_ENABLED {
-        return;
-    }
+
     let (mut app, window) = shader_fixture();
     let action = |step| {
         MenuAction::ShaderOptions(Action::Element {

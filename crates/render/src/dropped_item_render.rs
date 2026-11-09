@@ -8,6 +8,8 @@ use bevy::prelude::IntoSystem;
 use bevy::prelude::System;
 use bevy::render::render_phase::AddRenderCommand;
 use bevy::render::render_resource::ShaderType;
+#[cfg(test)]
+use bevy::render::renderer::RenderQueue;
 use bevy::{
     asset::{AssetId, load_internal_asset, uuid_handle},
     core_pipeline::core_3d::{CORE_3D_DEPTH_FORMAT, Opaque3d, Opaque3dBatchSetKey, Opaque3dBinKey},
@@ -33,30 +35,30 @@ use bevy::{
         render_resource::{
             AddressMode, BindGroup, BindGroupEntry, BindGroupLayoutDescriptor,
             BindGroupLayoutEntry, BindingResource, BindingType, Buffer, BufferBindingType,
-            BufferDescriptor, BufferId, BufferInitDescriptor, BufferSize, BufferUsages,
-            CachedRenderPipelineId, Canonical, ColorTargetState, ColorWrites, CompareFunction,
-            DepthStencilState, Extent3d, Face, FilterMode, FragmentState, FrontFace, PipelineCache,
-            RenderPipeline, RenderPipelineDescriptor, Sampler, SamplerBindingType,
-            SamplerDescriptor, ShaderStages, Specializer, SpecializerKey, Texture,
-            TextureDataOrder, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureSampleType, TextureUsages, TextureView, TextureViewDescriptor,
+            BufferDescriptor, BufferId, BufferSize, BufferUsages, CachedRenderPipelineId,
+            Canonical, ColorTargetState, ColorWrites, CompareFunction, DepthStencilState, Face,
+            FilterMode, FragmentState, FrontFace, PipelineCache, RenderPipeline,
+            RenderPipelineDescriptor, Sampler, SamplerBindingType, SamplerDescriptor, ShaderStages,
+            Specializer, SpecializerKey, Texture, TextureSampleType, TextureView,
             TextureViewDimension, Variants, VertexAttribute, VertexFormat, VertexState,
             VertexStepMode,
         },
-        renderer::{RenderDevice, RenderQueue},
+        renderer::RenderDevice,
         sync_world::MainEntity,
         view::{ExtractedView, ViewUniform, ViewUniformOffset, ViewUniforms},
     },
 };
+#[cfg(test)]
 use model_upload::PreparedModels;
 #[cfg(test)]
 use model_upload::build_model;
 #[cfg(test)]
-use render_model::DroppedItemModel;
+use render_model::{DroppedItemModel, MIN_ITEM_ATLAS_SIDE};
 use std::ops::Range;
 use {
     render_model::{
-        ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES, MAX_DYNAMIC_ITEM_VERTICES, MIN_ITEM_ATLAS_SIDE,
+        DYNAMIC_LIGHT_LEVELS, ItemMeshVertex, MAX_DROPPED_ITEM_INSTANCES,
+        MAX_DYNAMIC_ITEM_VERTICES,
         dropped_item::{DroppedItemBounds, DroppedItemCullView, ITEM_MESH_VERTEX_BYTES},
     },
     render_scene::DroppedItemScene,
@@ -100,6 +102,7 @@ fn install(app: &mut App) {
     load_internal_asset!(app, ITEM_SHADER_HANDLE, "dropped_item.wesl", item_shader);
     crate::pipeline_warmup::register::<ItemPipeline>(app);
     crate::install_opaque_phase_reset(app.sub_app_mut(RenderApp));
+    crate::world_passes::install(app.sub_app_mut(RenderApp));
     app.sub_app_mut(RenderApp)
         .insert_resource(Installed)
         .init_resource::<ItemPipeline>()
@@ -116,7 +119,7 @@ fn install(app: &mut App) {
                 prepare_items.in_set(RenderSystems::PrepareResources),
                 prepare_bind_group.in_set(RenderSystems::PrepareBindGroups),
                 queue_items
-                    .run_if(render_scene::panorama::world_passes_enabled)
+                    .in_set(crate::world_passes::WorldPassSystems)
                     .in_set(RenderSystems::Queue),
             ),
         );
@@ -153,12 +156,15 @@ struct ItemGpu {
     glint: Option<glint::UploadedGlint>,
     _atlas: Option<Texture>,
     atlas_view: Option<TextureView>,
+    /// Waits to retry a failed upload until released atlas memory retires.
+    upload: crate::gpu_allocation::UploadRetry,
     models_revision: u64,
     /// Current model slots given priority during the last resource rebuild.
     prioritized_models: Vec<bool>,
     dynamic_count: u32,
-    /// Instance slot holding the identity transform used for dynamic geometry.
-    identity_instance: u32,
+    /// This frame's dynamic vertex ranges, each with the identity-transform instance holding its
+    /// light levels.
+    dynamic_draws: Vec<(Range<u32>, u32)>,
     /// This frame's `(vertex range, instance index)` draws.
     draws: Vec<ItemDraw>,
     /// Reused per-frame instance staging for the instance buffer upload.
@@ -262,7 +268,8 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         }),
         instance_buffer: device.create_buffer(&BufferDescriptor {
             label: Some("bounded dropped item instances"),
-            size: ((MAX_DROPPED_ITEM_INSTANCES + 1) * size_of::<GpuItemInstance>()) as u64,
+            size: ((MAX_DROPPED_ITEM_INSTANCES + DYNAMIC_LIGHT_LEVELS)
+                * size_of::<GpuItemInstance>()) as u64,
             usage: BufferUsages::VERTEX | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         }),
@@ -278,10 +285,11 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         glint: None,
         _atlas: None,
         atlas_view: None,
+        upload: crate::gpu_allocation::UploadRetry::default(),
         models_revision: u64::MAX,
         prioritized_models: Vec::new(),
         dynamic_count: 0,
-        identity_instance: 0,
+        dynamic_draws: Vec::new(),
         draws: Vec::new(),
         instance_scratch: Vec::new(),
         current_scratch: Vec::new(),
@@ -291,75 +299,6 @@ fn init_gpu(mut commands: Commands, device: Res<RenderDevice>) {
         #[cfg(test)]
         upload_calls: 0,
     });
-}
-
-/// Uploads current models before cached extras while keeping model handles unchanged.
-fn rebuild_models(
-    scene: &DroppedItemScene,
-    current: &[bool],
-    device: &RenderDevice,
-    queue: &RenderQueue,
-    gpu: &mut ItemGpu,
-) {
-    let policy = assets::texture::policy::TexturePolicy::for_device(
-        device.limits().max_texture_dimension_2d,
-    );
-    if policy
-        .page_bytes(MIN_ITEM_ATLAS_SIDE, MIN_ITEM_ATLAS_SIDE)
-        .is_none()
-    {
-        return;
-    }
-    let PreparedModels {
-        side,
-        atlas,
-        vertices,
-        ranges,
-    } = PreparedModels::new(
-        &scene.models,
-        current,
-        policy,
-        device.limits().max_texture_array_layers,
-        device.limits().max_buffer_size,
-    );
-    let layer_bytes = side as usize * side as usize * 4;
-    let layers = atlas.len() / layer_bytes;
-    gpu.mesh_buffer = (!vertices.is_empty()).then(|| {
-        device.create_buffer_with_data(&BufferInitDescriptor {
-            label: Some("dropped item model meshes"),
-            contents: bytemuck::cast_slice::<ItemMeshVertex, u8>(&vertices),
-            usage: BufferUsages::VERTEX,
-        })
-    });
-    gpu.ranges = ranges;
-    let texture = device.create_texture_with_data(
-        queue,
-        &TextureDescriptor {
-            label: Some("dropped item texture layers"),
-            size: Extent3d {
-                width: side,
-                height: side,
-                depth_or_array_layers: layers as u32,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8UnormSrgb,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        TextureDataOrder::LayerMajor,
-        &atlas,
-    );
-    gpu.atlas_view = Some(texture.create_view(&TextureViewDescriptor {
-        label: Some("dropped item texture layer array"),
-        dimension: Some(TextureViewDimension::D2Array),
-        ..default()
-    }));
-    gpu._atlas = Some(texture);
-    gpu.models_revision = scene.models_revision;
-    gpu.prioritized_models = current.to_vec();
-    gpu.bind_group = None;
 }
 
 /// Refills `current` with marks for current instance models, including retained terrain
@@ -396,8 +335,12 @@ fn prepare_items(
                         || (priority_changed && range.capacity_rejected))
             })
     });
-    if gpu.models_revision != scene.models_revision || gpu.atlas_view.is_none() || missing_current {
-        rebuild_models(&scene, &current, &uploads.device, &uploads.queue, &mut gpu);
+    let failed = gpu.upload.failed();
+    if gpu.models_revision != scene.models_revision
+        || (failed && gpu.upload.take_ready())
+        || (!failed && (gpu.atlas_view.is_none() || missing_current))
+    {
+        model_upload::rebuild_models(&scene, &current, &uploads.device, &uploads.queue, &mut gpu);
     }
     gpu.current_scratch = current;
     glint::upload(&scene, &uploads.device, &uploads.queue, &mut gpu);
@@ -410,7 +353,7 @@ fn prepare_items(
     {
         gpu.draws.clear();
         gpu.dynamic_count = 0;
-        gpu.identity_instance = 0;
+        gpu.dynamic_draws.clear();
         return;
     }
     let mut instances = std::mem::take(&mut gpu.instance_scratch);
@@ -449,16 +392,7 @@ fn prepare_items(
         });
         instances.push(glint::pack_instance(instance));
     }
-    gpu.identity_instance = instances.len() as u32;
-    instances.push(GpuItemInstance {
-        rows: [
-            [1.0, 0.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0, 0.0],
-            [0.0, 0.0, 1.0, 0.0],
-        ],
-        meta: [0, 15, 15, 0],
-        glint: [0.0; 4],
-    });
+    dynamic_light_draws(&scene, &mut instances, &mut gpu.dynamic_draws);
     uploads.write(
         &gpu.instance_buffer,
         0,
@@ -919,12 +853,49 @@ impl<P: PhaseItem> RenderCommand<P> for DrawItems {
         if gpu.dynamic_count != 0 {
             pass.set_render_pipeline(two_sided);
             pass.set_vertex_buffer(0, gpu.dynamic_buffer.slice(..));
-            pass.draw(
-                0..gpu.dynamic_count,
-                gpu.identity_instance..gpu.identity_instance + 1,
-            );
+            for (vertices, instance) in &gpu.dynamic_draws {
+                pass.draw(vertices.clone(), *instance..*instance + 1);
+            }
         }
         RenderCommandResult::Success
+    }
+}
+
+/// Splits the dynamic vertices into whole-triangle light runs. Each distinct light pair gets one
+/// identity-transform instance; vertices after the last run draw at full brightness.
+fn dynamic_light_draws(
+    scene: &DroppedItemScene,
+    instances: &mut Vec<GpuItemInstance>,
+    draws: &mut Vec<(Range<u32>, u32)>,
+) {
+    draws.clear();
+    let count = scene.dynamic.len() as u32;
+    let mut light_instances = [None; DYNAMIC_LIGHT_LEVELS];
+    let mut start = 0;
+    let runs = scene
+        .dynamic_light
+        .iter()
+        .map(|run| (run.end, run.block, run.sky));
+    for (end, block, sky) in runs.chain(std::iter::once((count, 15, 15))) {
+        let end = end.min(count) / 3 * 3;
+        if end <= start {
+            continue;
+        }
+        let [block, sky] = [block, sky].map(|level| u32::from(level.min(15)));
+        let instance = *light_instances[(block * 16 + sky) as usize].get_or_insert_with(|| {
+            instances.push(GpuItemInstance {
+                rows: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ],
+                meta: [0, block, sky, 0],
+                glint: [0.0; 4],
+            });
+            instances.len() as u32 - 1
+        });
+        draws.push((start..end, instance));
+        start = end;
     }
 }
 

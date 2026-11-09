@@ -34,7 +34,7 @@ impl Evaluator<'_> {
         if reads.is_none() {
             variables.clear_temporaries();
         }
-        let mut loops = Vec::new();
+        let mut loops = LoopCounters::default();
         let mut pc = 0;
         if reads.is_none()
             && self.program.is_none()
@@ -183,10 +183,7 @@ impl Evaluator<'_> {
                 }
                 MolangOp::Return => return pop(stack),
                 MolangOp::LoopStart(target) => match loop_iterations(pop(stack)?.number()) {
-                    Some(_) if loops.len() == MAX_MOLANG_LOOP_DEPTH => {
-                        return Err(EvalError::Invalid);
-                    }
-                    Some(iterations) => loops.push(iterations),
+                    Some(iterations) => loops.push(iterations)?,
                     None => pc = jump(target)?,
                 },
                 MolangOp::LoopNext(target)
@@ -223,5 +220,33 @@ impl Evaluator<'_> {
             return Err(EvalError::Invalid);
         }
         pop(stack)
+    }
+}
+
+/// Active loop counters, kept on the stack because assets bound loop nesting.
+#[derive(Default)]
+struct LoopCounters {
+    remaining: [u32; MAX_MOLANG_LOOP_DEPTH],
+    depth: usize,
+}
+
+impl LoopCounters {
+    /// Rejects nesting deeper than the asset bound, as compiled programs never exceed it.
+    fn push(&mut self, iterations: u32) -> Result<(), EvalError> {
+        *self
+            .remaining
+            .get_mut(self.depth)
+            .ok_or(EvalError::Invalid)? = iterations;
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn last_mut(&mut self) -> Option<&mut u32> {
+        self.remaining.get_mut(self.depth.checked_sub(1)?)
+    }
+
+    fn pop(&mut self) -> Option<u32> {
+        self.depth = self.depth.checked_sub(1)?;
+        Some(self.remaining[self.depth])
     }
 }

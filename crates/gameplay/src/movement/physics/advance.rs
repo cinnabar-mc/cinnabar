@@ -1,31 +1,9 @@
+//! Fixed-tick advancement and completed movement samples.
+
 use super::*;
 
 impl LocalPhysicsController {
-    pub fn advance(
-        &mut self,
-        elapsed: Duration,
-        input: MovementInput,
-        world: &impl CollisionWorld,
-    ) -> LocalPhysicsFrame {
-        self.advance_with_context(elapsed, input, PhysicsSampleContext::default(), world)
-    }
-
-    pub fn advance_with_context(
-        &mut self,
-        elapsed: Duration,
-        input: MovementInput,
-        context: PhysicsSampleContext,
-        world: &impl CollisionWorld,
-    ) -> LocalPhysicsFrame {
-        self.advance_with_context_and_effects(
-            elapsed,
-            input,
-            context,
-            world,
-            &mut NoMovementEffects,
-        )
-    }
-
+    /// Advances fixed ticks with their controls, effects and completed samples.
     pub fn advance_with_context_and_effects(
         &mut self,
         elapsed: Duration,
@@ -56,6 +34,10 @@ impl LocalPhysicsController {
         if context.input.jump.pressed || (input.jumping && !self.previous_jump_held) {
             self.jump_edge_pending = true;
         }
+        // Vanilla reads the jump button's current state each tick, so a press released before
+        // the next tick runs neither jumps nor deploys an elytra, and that tick sends no
+        // `Jumping`. Only a press still held when the tick runs keeps its edge.
+        self.jump_edge_pending &= input.jumping;
         self.previous_jump_held = input.jumping;
         input.jump_pressed = self.jump_edge_pending;
 
@@ -86,6 +68,11 @@ impl LocalPhysicsController {
         }
         movement_speed.adopt_server_sprinting(Some(self.modes.sprinting()));
         let sneak_request = input.sneaking;
+        input.descent_request = Some(input_requests::descent_request(
+            context.input_mode,
+            sneak_request,
+            context.input.sneak_toggle_down,
+        ));
         input.pitch_degrees = f64::from(context.pitch);
         input.fly_speed = context.mode_intent.fly_speed;
         input.vertical_fly_speed = context.mode_intent.vertical_fly_speed;
@@ -95,9 +82,18 @@ impl LocalPhysicsController {
         input.depth_strider = context.mode_intent.depth_strider;
         input.soul_speed = context.mode_intent.soul_speed;
         input.swift_sneak = context.mode_intent.swift_sneak;
+        input.sneak_profile = self.modes.sneak_profile();
+        input.can_stand_on_snow = context.mode_intent.can_stand_on_snow;
         let item_use_modifier = input.item_use_movement_modifier;
+        let mut rotation = [input.yaw_degrees as f32, context.pitch];
+        let mut rotation_changed = false;
         for tick_index in 0..allowed {
-            let context = context.for_next_tick(state.tick);
+            let fall_distance_override = self
+                .history
+                .state_at(state.tick)
+                .filter(|captured| captured.fall_distance() != state.fall_distance())
+                .map(|_| state.fall_distance());
+            let mut context = context.for_next_tick(state.tick);
             input.item_use_movement_modifier = context
                 .release_use_modifier
                 .map(|(_, modifier)| item_use_factor(modifier))
@@ -108,11 +104,38 @@ impl LocalPhysicsController {
                 .map(|request| request.launch);
             input.skip_travel = self.skip_travel_pending;
             let mut tick_input = self.input_edges.sample(context.input);
+            let mut flags = flag_frame::FrameFlags::capture(
+                &mut self.server_flags,
+                &self.modes,
+                state,
+                &mut tick_input,
+                self.live_climber,
+            );
             // Bedrock auto-jump semantics treat a held jump as a fresh request
-            // once the player is grounded again. Preserve the render-frame edge
-            // latch for taps shorter than one fixed tick, but never inject the
+            // once the player is grounded again. Keep the edge of a press made in
+            // an earlier render frame and still held, but never inject the
             // repeated edge while airborne or during the jump-delay window.
             input.jumping = physical_jump_held || self.jump_pulse_pending;
+            // A Normal-mode MovePlayer ease steps before travel; rendering eases from the
+            // position this tick started at.
+            let movement_lerp = self.movement_lerp;
+            let eased_rotation = movement_lerp.and_then(|lerp| lerp.step_rotation(rotation));
+            if let Some([yaw, pitch]) = eased_rotation.or(rotation_changed.then_some(rotation)) {
+                input.yaw_degrees = f64::from(yaw);
+                input.pitch_degrees = f64::from(pitch);
+                context.pitch = pitch;
+                context.head_yaw = crate::movement::wire_head_yaw(yaw);
+                let (yaw_sin, yaw_cos) = yaw.to_radians().sin_cos();
+                let (pitch_sin, pitch_cos) = pitch.to_radians().sin_cos();
+                context.camera_orientation =
+                    [-yaw_sin * pitch_cos, -pitch_sin, yaw_cos * pitch_cos];
+            }
+            let previous_height = self.network_height;
+            let lerp_entry = movement_lerp.map(|lerp| {
+                let entry = (state.position, state.velocity);
+                self.movement_lerp = lerp.step(state, &mut self.network_height);
+                entry
+            });
             let grounded_before_tick = state.on_ground;
             let jump_repeated = !input.immobile
                 && input.jumping
@@ -126,15 +149,18 @@ impl LocalPhysicsController {
             input.movement_speed = requested_movement_speed;
             input.liquid_contact_height = Some(
                 self.modes
-                    .liquid_contact_height(state.spin_attack_ticks.is_some()),
+                    .spin_aware_contact_height(state.spin_attack_ticks.is_some()),
             );
             input.liquid_flow_enabled = Some(self.modes.mode() != sim::MovementMode::Flying);
             let mut forced_sneak = false;
             let mut start_sprinting = false;
             let mut flight_request = None;
+            let mut before_flight_action = None;
             let mut mode_error = None;
             let previous_modes = self.modes;
-            let [move_sideways, move_forward] = ModeObservation::input_vector(input);
+            let [move_sideways, move_forward] = self
+                .modes
+                .intent_vector(input, self.last_environment.in_water);
             let mut observed = ModeObservation {
                 feet: state.position,
                 on_ground: state.on_ground,
@@ -153,12 +179,14 @@ impl LocalPhysicsController {
                 liquid_contact_height: input.liquid_contact_height,
                 jump_edge: self.jump_edge_pending,
                 jump_down: context.input.jump.held || self.jump_pulse_pending,
+                spinning: state.spin_attack_ticks.is_some(),
             };
             self.anchor_state.prepare_tick(
                 world,
                 self.modes,
                 context.mode_intent,
                 &mut observed,
+                state,
                 input,
             );
             state.position = observed.feet;
@@ -167,53 +195,58 @@ impl LocalPhysicsController {
                     input.mode = choice.mode;
                     input.sprinting = choice.sprinting;
                     start_sprinting = choice.start_sprinting;
+                    input.glide_ascent = choice.glide_ascent;
                     input.sneaking = sneak_request || choice.forced_sneak;
                     forced_sneak = choice.forced_sneak;
                     flight_request = choice.flight_request;
+                    if flight_request.is_some() {
+                        before_flight_action = Some(state.clone());
+                        state.clear_fall_distance();
+                    }
                 }
                 Err(_) if input.immobile => {
                     // Missing terrain cannot turn an authoritative freeze into a blocked tick.
                     self.modes = previous_modes;
                     input.mode = self.modes.mode();
+                    input.glide_ascent = false;
                     input.sneaking = sneak_request;
                 }
                 Err(error) => mode_error = Some(error),
             }
+            input.horizontal_pose = self.modes.pose_flags().horizontal();
+            input.swim_pose_active = Some(self.modes.pose_flags().swim_pose());
             if input.mode == sim::MovementMode::Riding {
                 input.sneaking = false;
             }
             speed::apply_sprint_speed(&mut movement_speed, &mut input, start_sprinting);
             self.modes.record_controls(input, context.input.sneak_down);
             // A rider's position is its seat on the mount, not a simulated result.
-            let mut ride_delta = None;
-            if input.mode == sim::MovementMode::Riding
-                && let Some(seat) = context
-                    .mode_intent
-                    .ride_seat
-                    .filter(|seat| seat.iter().all(|axis| axis.is_finite()))
-            {
-                let seat = Vec3::new(f64::from(seat[0]), f64::from(seat[1]), f64::from(seat[2]));
-                ride_delta = Some([
-                    (seat.x - state.position.x) as f32,
-                    (seat.y - state.position.y) as f32,
-                    (seat.z - state.position.z) as f32,
-                ]);
-                state.position = seat;
+            let seated = if input.mode == sim::MovementMode::Riding {
+                riding::seat_rider(
+                    &mut self.vehicle,
+                    state,
+                    &input,
+                    &mut context.mode_intent,
+                    world,
+                    &mut mode_error,
+                )
+            } else {
+                self.vehicle.reset();
+                None
+            };
+            // Interpolation already cleared this tick's velocity. Retain stamped impulses
+            // for replay, where they enter before that same interpolation step.
+            if movement_lerp.is_none() {
+                let next_tick = state.tick.saturating_add(1);
+                for overlay in self
+                    .server_motions
+                    .iter()
+                    .filter(|overlay| overlay.tick == next_tick)
+                {
+                    state.velocity = overlay.velocity;
+                }
             }
-            // A queued server impulse replaces this tick's starting velocity,
-            // mirroring how Bedrock applies knockback as an absolute velocity.
-            // The overlay is retained after application so a correction
-            // rewind covering its tick re-applies it deterministically;
-            // capacity bounds evict the oldest entries.
-            let next_tick = state.tick.saturating_add(1);
-            for overlay in self
-                .server_motions
-                .iter()
-                .filter(|overlay| overlay.tick == next_tick)
-            {
-                state.velocity = overlay.velocity;
-            }
-            let before = state.position;
+            let before = riding::before_seat(state.position, seated, self.vehicle.continued());
             // The liquid probe uses the prior tick's pose-adjusted eye anchor.
             // Retain the height with this input so correction replay samples
             // the same material cell instead of the rendered interpolation.
@@ -241,7 +274,7 @@ impl LocalPhysicsController {
                         // Failed ticks commit nothing. Retire the release and retry ordinary
                         // movement when its impulse plus existing motion cannot fit the query.
                         self.riptide_pending = None;
-                        crate::movement::diagnostics::note_skipped_authority(
+                        super::super::diagnostics::note_skipped_authority(
                             "riptide",
                             f64::from(launch.level()),
                         );
@@ -254,19 +287,40 @@ impl LocalPhysicsController {
             };
             match predicted {
                 Ok(output) => {
+                    self.network_height = self
+                        .network_height
+                        .filter(|height| height.matches(state.position.y));
+                    if let Some(eased) = eased_rotation {
+                        rotation = eased;
+                        rotation_changed = true;
+                        self.eased_rotation = Some(eased);
+                    }
                     self.skip_travel_pending = false;
                     let result = output.tick_result;
                     self.last_environment = result.environment;
+                    let launched = input.riptide.is_some()
+                        && input.mode != sim::MovementMode::Riding
+                        && !input.spectator;
+                    let spun = flags.pose_entry.spinning() || launched;
+                    server_flags::note_spin_end(&mut self.server_flags, spun, launched, state);
+                    let previous = self.live_climber;
+                    let climber = ClimberFlags::after_tick(&input, &result.environment, previous);
+                    self.live_climber = climber;
                     while self.controller_history.len() >= self.history_capacity {
                         self.controller_history.pop_front();
                     }
+                    flags.climber_write = self.pending_climber.consume_live();
                     let mut controller = ControllerFrame {
                         tick: state.tick,
                         speed: movement_speed,
                         start_sprinting,
                         speed_updates: std::mem::take(&mut speed_updates),
+                        sync_state: Default::default(),
+                        sync_server: std::mem::take(&mut self.sync_pending),
+                        position_before_tick: before,
                         anchor_state: self.anchor_state,
                         entry_velocity,
+                        fall_distance_override,
                         eye_offset: self.eye_offset,
                         intent: context.mode_intent,
                         jump_edge: self.jump_edge_pending,
@@ -275,6 +329,8 @@ impl LocalPhysicsController {
                         requested_sprint: sprint_request,
                         sprint_down: context.input.sprint_down,
                         server_sprinting: tick_input.server_sprinting,
+                        flags,
+                        entry_eye: self.eye_offset,
                         input_mode: context.input_mode,
                         mode_override: None,
                         sneak_override: None,
@@ -283,16 +339,21 @@ impl LocalPhysicsController {
                         flight_request,
                         grounded_before_tick,
                         jump_repeated,
-                        ride_delta,
+                        ride_delta: seated.map(|seated| seated.delta),
                         actor_position: self.actor_position_pending.take(),
+                        movement_lerp,
+                        network_height: self.network_height,
                         input,
                         modes: self.modes,
                         environment: result.environment,
+                        climber,
                     };
                     controller.finish_eye(&mut self.eye_offset, state);
+                    self.sync_state.complete_tick(&controller, state);
+                    controller.sync_state = self.sync_state;
                     self.controller_history.push_back(controller);
                     effects.commit_successful_tick();
-                    self.previous_position = before;
+                    self.previous_position = lerp_entry.map_or(before, |(position, _)| position);
                     self.visual_correction.tick();
                     let world_identity = result.world_identity;
                     self.last_world_identity = Some(world_identity.clone());
@@ -307,11 +368,13 @@ impl LocalPhysicsController {
                         input.sprinting,
                     );
                     processed.mode = input.mode;
+                    processed.pose_flags = Some(self.modes.pose_flags());
                     processed.spinning = state.spin_attack_ticks.is_some();
                     processed.spin_started = input.riptide.is_some()
                         && input.mode != sim::MovementMode::Riding
                         && !input.spectator;
                     processed.ride = context.mode_intent.ride;
+                    processed.vehicle = self.vehicle.commit(state.tick);
                     processed.forced_sneak = forced_sneak;
                     processed.flight_request = flight_request;
                     if input.immobile || input.mode == sim::MovementMode::Riding {
@@ -325,11 +388,10 @@ impl LocalPhysicsController {
                     tick_input.jump.released |= self.jump_pulse_held && !tick_input.jump.held;
                     frame.samples.push(PhysicsMovementSample {
                         tick: state.tick,
-                        position: [
-                            state.position.x as f32,
-                            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-                            state.position.z as f32,
-                        ],
+                        position: movement_lerp::NetworkHeight::position(
+                            self.network_height,
+                            state.position,
+                        ),
                         movement: [
                             result.movement.x as f32,
                             result.movement.y as f32,
@@ -363,8 +425,8 @@ impl LocalPhysicsController {
                         processed,
                         world_identity,
                     });
-                    if let (Some(delta), Some(sample)) = (ride_delta, frame.samples.last_mut()) {
-                        sample.movement = delta;
+                    if let (Some(seated), Some(sample)) = (seated, frame.samples.last_mut()) {
+                        sample.movement = seated.delta;
                     }
                     while self.sample_history.len() >= self.history_capacity {
                         self.sample_history.pop_front();
@@ -397,7 +459,18 @@ impl LocalPhysicsController {
                     input.jump_pressed = false;
                 }
                 Err(error) => {
+                    if let Some(previous) = before_flight_action.as_ref() {
+                        state.keep_fall_distance(previous);
+                    }
                     self.modes = previous_modes;
+                    state.position = riding::unseated(state.position, seated, &self.vehicle);
+                    if let Some((position, velocity)) = lerp_entry {
+                        state.set_position(position);
+                        state.velocity = velocity;
+                        self.movement_lerp = movement_lerp;
+                        self.network_height = previous_height;
+                    }
+                    self.vehicle.discard_pending();
                     let retryable_collision_blocked = matches!(
                         &error,
                         sim::PredictionError::Simulation(error)
@@ -412,8 +485,7 @@ impl LocalPhysicsController {
                         // returns or motion fits the query limit. New elapsed
                         // time starts a fresh tick.
                         self.previous_position = state.position;
-                        self.eye_offset.finish_interpolation();
-                        self.visual_correction.finish_interpolation();
+                        self.finish_render_interpolation();
                         self.accumulated_seconds = 0.0;
                         frame.dropped_ticks = 0;
                     } else {

@@ -54,8 +54,8 @@ mod widgets;
 static ALLOCATOR: test_alloc::CountingAllocator = test_alloc::CountingAllocator;
 
 pub use anim::{
-    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, Animator, ControlAnims, Easing, FlipWrite,
-    NodeAnim, Written,
+    AnimEvent, AnimGraph, AnimKind, AnimNode, Animated, AnimationRecord, Animator, ControlAnims,
+    Easing, FlipWrite, NodeAnim, Written,
 };
 pub use bind::{
     BindState, CUSTOM_CONTROL_INSTANCE_KEY, CollectionItem, ControlLibrary, DataSource,
@@ -109,7 +109,7 @@ pub use resolve::Resolver;
 pub use scene::{SceneEntry, SceneStack, ScreenNav, ScreenSettings};
 pub use screens::{
     ENGINE_SCREENS, ScreenRender, bind_screen, bind_screen_incremental, is_engine_screen,
-    rebind_screen, render_screen, resolve_screen, screen_settings,
+    rebind_screen, render_screen, resolve_screen, root_settings, screen_settings,
 };
 pub use sidecar::{
     AsepriteFrame, NineSlice, TextureMeta, parse_aseprite_frames, parse_texture_meta,

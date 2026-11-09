@@ -24,11 +24,18 @@ impl<R: bridge::FrameRead> PlaySession<R> {
                 .expect("enabled cache")
                 .cache()
                 .prefetch_packet(packet);
-            prefetch_while_reading(prefetch, |cx| {
-                self.transport
-                    .poll_read_ahead_one(crate::session_transport::MAX_READ_AHEAD_BYTES, cx)
-            })
-            .await;
+            if blob_recovery::BlobRecovery::until(
+                &mut self.blob_recovery,
+                prefetch_while_reading(prefetch, |cx| {
+                    self.transport
+                        .poll_read_ahead_one(crate::session_transport::MAX_READ_AHEAD_BYTES, cx)
+                }),
+            )
+            .await
+            .is_none()
+            {
+                return Ok(());
+            }
         }
         let (packet, packet_bytes) = self
             .pending_blob_prefetch

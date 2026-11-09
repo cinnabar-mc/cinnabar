@@ -329,7 +329,7 @@ impl TerrainSampler {
                 .physics(state.runtime_id)
                 .expect("positional bindings have physics");
             let collision = if positional(state.collision) {
-                let shapes = world.block_collision_shapes(position, physics, unit(position));
+                let shapes = self.collision_at(world, position, physics);
                 Some(self.positional(sample, position, physics, shapes, max_boxes)?)
             } else {
                 None
@@ -371,6 +371,34 @@ impl TerrainSampler {
         })
     }
 
+    /// Resolves movement geometry while recording the column of any owning actor.
+    fn collision_at<'a>(
+        &mut self,
+        world: &PaletteWorld<'_>,
+        position: [i32; 3],
+        physics: &'a BlockPhysics,
+    ) -> Result<std::borrow::Cow<'a, [Aabb]>, WorldQueryError> {
+        if let Some(owner) = world.collision_actor_owner(position, physics)? {
+            self.owner_column(world, owner)?;
+        }
+        world.block_collision_shapes(position, physics, unit(position))
+    }
+
+    /// Records an actor owner's column, which versions its geometry only while loaded.
+    fn owner_column(
+        &mut self,
+        world: &PaletteWorld<'_>,
+        owner: [i32; 3],
+    ) -> Result<(), WorldQueryError> {
+        let chunk = ChunkKey::new(world.dimension, owner[0] >> 4, owner[2] >> 4);
+        self.columns.insert((chunk.x, chunk.z));
+        world
+            .store
+            .collision_revision(chunk)
+            .map(|_| ())
+            .ok_or(WorldQueryError::UnloadedChunk(chunk))
+    }
+
     /// Resolves interaction geometry while recording every column it reads.
     fn selection_at<'a>(
         &mut self,
@@ -385,13 +413,7 @@ impl TerrainSampler {
             return world.block_collision_shapes(position, physics, unit(position));
         }
         if let Some(owner) = world.actor_selection_owner(position, physics)? {
-            // An owner's actor geometry is only versioned while its column is loaded.
-            let chunk = ChunkKey::new(world.dimension, owner[0] >> 4, owner[2] >> 4);
-            self.columns.insert((chunk.x, chunk.z));
-            world
-                .store
-                .collision_revision(chunk)
-                .ok_or(WorldQueryError::UnloadedChunk(chunk))?;
+            self.owner_column(world, owner)?;
         }
         let columns = &mut self.columns;
         world.selection_shapes_with_lookup(position, physics, |neighbour| {
@@ -478,7 +500,9 @@ impl Rule {
             None => physics.door.is_some(),
         };
         Self {
-            collision: offset || physics.door.is_some(),
+            collision: offset
+                || physics.door.is_some()
+                || physics.selection_context == SelectionContext::PistonArm,
             selection: world.may_pick(physics) && (offset || contextual),
         }
     }

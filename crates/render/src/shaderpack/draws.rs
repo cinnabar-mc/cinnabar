@@ -1,21 +1,18 @@
 //! The geometry draws the host records with a pack's `gbuffers_*` and `shadow*` programs:
 //! which program each draw uses (Iris's fallback chains), the fixed-function state Iris
-//! gives it unless `shaders.properties` overrides it (`alphaTest.*`, `blend.*`), and its
-//! pipeline over the geometry adapter's vertex layout.
+//! gives it unless `shaders.properties` overrides it (`alphaTest.*`, `blend.*`), and the
+//! resolved draws ready to record. Pipeline construction lives in [`super::draw_pipelines`].
 
-use super::alpha_test::{ONE_TENTH_ALPHA, inject_alpha_test};
+use super::alpha_test::ONE_TENTH_ALPHA;
+use super::draw_pipelines::{DrawPipelineInputs, draw_pipeline};
 use super::effects::{Effect, EffectSettings};
-use super::geometry::{GeometryCategory, TerrainLayout, vertex_buffer_layouts};
+use super::geometry::{GeometryCategory, TerrainLayout};
 use super::loader::GpuProgram;
 use super::pipelines::GpuContext;
-use super::pipelines::{blend_state, color_target};
 use super::plan::MAX_COLOR_BUFFERS;
 use super::resources::ShadowSlots;
-use shaderpack::{
-    AlphaTest, AlphaTestRule, BlendFactor, BlendMode, BufferId, ProgramReflection,
-    ShaderProperties, StageKind, geometry_fallback,
-};
-use std::borrow::Cow;
+use render_scene::shaderpack::LoadProgress;
+use shaderpack::{AlphaTest, AlphaTestRule, BlendFactor, BlendMode, geometry_fallback};
 use wgpu::TextureFormat;
 
 /// Iris's `renderStage` values (`MC_RENDER_STAGE_*`) of the stages the host draws.
@@ -26,7 +23,6 @@ pub(super) mod render_stage {
     pub(crate) const MOON: i32 = 5;
     pub(crate) const STARS: i32 = 6;
     pub(crate) const TERRAIN_SOLID: i32 = 8;
-    pub(crate) const TERRAIN_CUTOUT: i32 = 10;
     pub(crate) const ENTITIES: i32 = 11;
     pub(crate) const BLOCK_ENTITIES: i32 = 12;
     pub(crate) const DESTROY: i32 = 13;
@@ -108,7 +104,7 @@ pub(crate) const GLINT_BLEND: BlendMode = BlendMode::Factors {
 };
 
 impl DrawKind {
-    pub(crate) const ALL: [DrawKind; 32] = [
+    pub(crate) const ALL: [DrawKind; 33] = [
         DrawKind::Sky,
         DrawKind::Sunset,
         DrawKind::Effect(Effect::Sun),
@@ -124,7 +120,8 @@ impl DrawKind {
         DrawKind::Effect(Effect::ParticlesTranslucent),
         DrawKind::Effect(Effect::ParticlesAdditive),
         DrawKind::Effect(Effect::Clouds),
-        DrawKind::Effect(Effect::Weather),
+        DrawKind::Effect(Effect::Rain),
+        DrawKind::Effect(Effect::Snow),
         DrawKind::Entities,
         DrawKind::EntitiesTranslucent,
         DrawKind::SpiderEyes,
@@ -306,8 +303,12 @@ impl DrawKind {
         match self {
             DrawKind::Sky => render_stage::SKY,
             DrawKind::Sunset => render_stage::SUNSET,
-            DrawKind::TerrainSolid | DrawKind::ShadowSolid => render_stage::TERRAIN_SOLID,
-            DrawKind::TerrainCutout | DrawKind::ShadowCutout => render_stage::TERRAIN_CUTOUT,
+            // Iris draws the opaque section group (solid, cutout and cutout-mipped layers) as
+            // one `TERRAIN_SOLID` phase in both the main and shadow passes.
+            DrawKind::TerrainSolid
+            | DrawKind::ShadowSolid
+            | DrawKind::TerrainCutout
+            | DrawKind::ShadowCutout => render_stage::TERRAIN_SOLID,
             DrawKind::Translucent | DrawKind::ShadowTranslucent => {
                 render_stage::TERRAIN_TRANSLUCENT
             }
@@ -453,12 +454,15 @@ pub(crate) struct GeometryDraw {
     /// Index of its program in `PackGpu::programs`.
     pub program: usize,
     pub pipeline: wgpu::RenderPipeline,
+    pub emulation: Option<super::geometry_shader::Pipelines>,
     /// Per fragment output location: the `colortex` (shadow pass: `shadowcolor`) index it
     /// writes, when the pipeline has a target there.
     pub outputs: Vec<Option<u32>>,
     /// The expanded vertex an expanded terrain draw's pipeline reads; it draws only while
     /// the terrain pages hold that layout.
     pub layout: Option<TerrainLayout>,
+    /// The alpha test applied to the draw, if any.
+    pub alpha_test: Option<AlphaTest>,
 }
 
 /// A geometry program's pipeline pieces, from which its draws' pipelines are built.
@@ -468,182 +472,19 @@ pub(crate) struct GeometryStage {
     pub layout: wgpu::PipelineLayout,
     pub vertex: wgpu::ShaderModule,
     pub fragment: naga::Module,
+    pub emulation: Option<(
+        shaderpack::CompiledStage,
+        shaderpack::CompiledStage,
+        shaderpack::GeometryEmulation,
+    )>,
+    pub layouts: [Option<wgpu::BindGroupLayout>; 4],
 }
 
-/// What building one draw's pipeline needs from its program.
-pub(crate) struct DrawPipelineInputs<'a> {
-    pub device: &'a wgpu::Device,
-    pub cache: Option<&'a wgpu::PipelineCache>,
-    pub layout: &'a wgpu::PipelineLayout,
-    /// The resolved program's name, which `alphaTest.*` and `blend.*` rules name.
-    pub name: &'a str,
-    pub reflection: &'a ProgramReflection,
-    /// The program's vertex stage module.
-    pub vertex: &'a wgpu::ShaderModule,
-    /// The program's translated fragment stage, which the alpha test is injected into.
-    pub fragment: &'a naga::Module,
-    pub properties: &'a ShaderProperties,
-    /// The pack's effect directives (`rain.depth`).
-    pub effects: &'a EffectSettings,
-    /// Format of the target an output's draw buffer names (`colortexN`, or `shadowcolorN`
-    /// for shadow draws); `None` drops the output.
-    pub target_format: &'a dyn Fn(u32) -> Option<TextureFormat>,
-    /// The expanded vertex terrain draws read; other draws read [`TerrainLayout::WIDE`].
-    pub terrain_layout: TerrainLayout,
-}
-
-/// The draw buffer a `blend.<program>.<buffer>` rule names, in the draw's buffer space.
-fn rule_buffer(name: &str, shadow: bool) -> Option<u32> {
-    match (BufferId::parse(name)?, shadow) {
-        (BufferId::Color(i), false) | (BufferId::ShadowColor(i), true) => Some(i),
-        _ => None,
-    }
-}
-
-/// The vertex layout `kind` reads: the pack's terrain layout for terrain, the wide stream the
-/// host builds for everything else.
-fn draw_layout(kind: DrawKind, terrain: TerrainLayout) -> TerrainLayout {
-    if kind.category().is_some() {
-        terrain
-    } else {
-        TerrainLayout::WIDE
-    }
-}
-
-/// Builds the pipeline of `kind` with one program: the geometry vertex layout, Iris's
-/// culling and depth state (geometry winds counter-clockwise; the translator's clip-space
-/// Y flip mirrors it to clockwise), the alpha test and the blend state per draw buffer.
-pub(crate) fn draw_pipeline(
-    kind: DrawKind,
-    inputs: &DrawPipelineInputs<'_>,
-) -> Result<(wgpu::RenderPipeline, Vec<Option<u32>>), String> {
-    let reflection = inputs.reflection;
-    let layouts = if kind.actor() {
-        super::actors::layout::vertex_layouts(&reflection.vertex_inputs)
-    } else {
-        vertex_buffer_layouts(
-            &reflection.vertex_inputs,
-            &draw_layout(kind, inputs.terrain_layout),
-        )
-    }
-    .map_err(|e| e.to_string())?;
-    let buffers: Vec<_> = layouts
-        .iter()
-        .map(|layout| {
-            Some(wgpu::VertexBufferLayout {
-                array_stride: layout.array_stride,
-                step_mode: layout.step_mode,
-                attributes: &layout.attributes,
-            })
-        })
-        .collect();
-    let rules = &inputs.properties.blends;
-    let program_blend = rules
-        .iter()
-        .rev()
-        .find(|b| b.program == inputs.name && b.buffer.is_none())
-        .map(|b| b.mode);
-    let len = reflection
-        .color_outputs
-        .iter()
-        .map(|o| o.location as usize + 1)
-        .max()
-        .unwrap_or(0);
-    let mut targets = vec![None; len];
-    let mut outputs = vec![None; len];
-    for output in &reflection.color_outputs {
-        let Some(buffer) = output.buffer else {
-            continue;
-        };
-        let Some(format) = (inputs.target_format)(buffer) else {
-            continue;
-        };
-        let buffer_blend = rules
-            .iter()
-            .rev()
-            .find(|r| {
-                r.program == inputs.name
-                    && r.buffer
-                        .as_deref()
-                        .and_then(|b| rule_buffer(b, kind.shadow()))
-                        == Some(buffer)
-            })
-            .map(|r| r.mode);
-        let mode = buffer_blend
-            .or(program_blend)
-            .unwrap_or(kind.default_blend());
-        let target = color_target(format, output.ty, blend_state(mode));
-        if target.is_some() {
-            outputs[output.location as usize] = Some(buffer);
-        }
-        targets[output.location as usize] = target;
-    }
-    if !kind.depth() && targets.iter().all(Option::is_none) {
-        return Err("it writes no buffer the frame has".into());
-    }
-    let alpha = kind.alpha_test(inputs.name, &inputs.properties.alpha_tests);
-    let tested = alpha.and_then(|test| {
-        let mut module = inputs.fragment.clone();
-        inject_alpha_test(&mut module, test).then_some(module)
-    });
-    let fragment = super::pipelines::pack_shader_module(
-        inputs.device,
-        wgpu::ShaderModuleDescriptor {
-            label: Some(&format!("shader pack {} {kind:?} fsh", inputs.name)),
-            source: wgpu::ShaderSource::Naga(Cow::Owned(
-                tested.unwrap_or_else(|| inputs.fragment.clone()),
-            )),
-        },
-    );
-    let entry = |stage: StageKind| {
-        reflection
-            .entry_points
-            .iter()
-            .find(|(s, _)| *s == stage)
-            .map(|(_, e)| e.as_str())
-    };
-    let label = format!("shader pack {} {kind:?}", inputs.name);
-    let pipeline = inputs
-        .device
-        .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some(&label),
-            layout: Some(inputs.layout),
-            vertex: wgpu::VertexState {
-                module: inputs.vertex,
-                entry_point: entry(StageKind::Vertex),
-                compilation_options: Default::default(),
-                buffers: &buffers,
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                front_face: wgpu::FrontFace::Cw,
-                cull_mode: kind.culls().then_some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: kind.depth().then_some(wgpu::DepthStencilState {
-                format: TextureFormat::Depth32Float,
-                depth_write_enabled: Some(kind.depth_write(inputs.effects)),
-                depth_compare: Some(kind.depth_compare()),
-                stencil: Default::default(),
-                bias: Default::default(),
-            }),
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &fragment,
-                entry_point: entry(StageKind::Fragment),
-                compilation_options: Default::default(),
-                targets: &targets,
-            }),
-            multiview_mask: None,
-            cache: inputs.cache,
-        });
-    Ok((pipeline, outputs))
-}
-
-/// Builds every resolved draw's pipeline. Terrain draws read a [`TerrainLayout::compact`]
-/// vertex holding what any terrain program reads. Draws whose program cannot bind terrain
-/// vertices, or whose pipeline the device rejects, are dropped (logged); without a solid
-/// terrain draw none remain, so the Vanilla scene copy stays in place.
+/// Builds every resolved draw's pipeline, several at once (see [`super::pipeline_workers`]).
+/// Terrain draws read a [`TerrainLayout::compact`] vertex holding what any terrain program
+/// reads. Draws whose program cannot bind terrain vertices, or whose pipeline the device
+/// rejects, are dropped (logged); without a solid terrain draw none remain, so the Vanilla
+/// scene copy stays in place. Fails when the load is cancelled or runs out of GPU memory.
 #[allow(
     clippy::too_many_arguments,
     reason = "the pack-wide plan pieces a draw pipeline draws on"
@@ -658,7 +499,9 @@ pub(crate) fn geometry_draws(
     effects: &EffectSettings,
     buffer_formats: &[Option<TextureFormat>; MAX_COLOR_BUFFERS as usize],
     shadow: &ShadowSlots,
-) -> Vec<GeometryDraw> {
+    progress: &LoadProgress,
+    failures: &mut Vec<String>,
+) -> Result<Vec<GeometryDraw>, String> {
     let terrain_layout = TerrainLayout::compact(
         selected
             .iter()
@@ -672,9 +515,8 @@ pub(crate) fn geometry_draws(
         bytes = terrain_layout.stride(),
         "shader-pack terrain vertex"
     );
-    let mut draws = vec![];
-    for (kind, selected) in selected {
-        let stage = &stages[*selected];
+    let build = |&(kind, selected): &(DrawKind, usize)| -> Result<GeometryDraw, String> {
+        let stage = &stages[selected];
         let program = &programs[stage.program];
         let target_format = |buffer: u32| -> Option<TextureFormat> {
             if kind.shadow() {
@@ -687,13 +529,38 @@ pub(crate) fn geometry_draws(
                 buffer_formats.get(buffer as usize).copied().flatten()
             }
         };
+        let scope = super::pipelines::RejectionScope::push(&gpu.device);
+        let emulation = match &stage.emulation {
+            Some((vertex, geometry, contract)) => match super::geometry_shader::pipelines(
+                &gpu.device,
+                kind,
+                terrain_layout,
+                &stage.layouts,
+                &program.reflection,
+                vertex,
+                geometry,
+                contract,
+            ) {
+                Ok(pipelines) => Some(pipelines),
+                Err(error) => {
+                    let _ = scope.pop();
+                    return Err(format!("{} ({kind:?}): {error}", program.name));
+                }
+            },
+            None => None,
+        };
         let inputs = DrawPipelineInputs {
             device: &gpu.device,
             cache,
-            layout: &stage.layout,
+            layout: emulation
+                .as_ref()
+                .map_or(&stage.layout, |p| &p.raster_pipeline_layout),
             name: &program.name,
             reflection: &program.reflection,
-            vertex: &stage.vertex,
+            vertex: emulation
+                .as_ref()
+                .map_or(&stage.vertex, |p| &p.raster_vertex),
+            emulated: emulation.is_some(),
             fragment: &stage.fragment,
             properties,
             effects,
@@ -702,33 +569,35 @@ pub(crate) fn geometry_draws(
         };
         // Each draw gets its own error scope: a pipeline the device rejects drops only that
         // draw, as Iris falls back per program, instead of the pack-wide scope failing.
-        let scope = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let built = draw_pipeline(*kind, &inputs);
-        let rejected = bevy::tasks::block_on(scope.pop());
-        match (built, rejected) {
-            (Ok((pipeline, outputs)), None) => draws.push(GeometryDraw {
-                kind: *kind,
+        let built = draw_pipeline(kind, &inputs);
+        match (built, scope.pop()) {
+            (Ok(built), None) => Ok(GeometryDraw {
+                kind,
                 program: stage.program,
-                pipeline,
-                outputs,
+                pipeline: built.pipeline,
+                emulation,
+                outputs: built.outputs,
                 layout: kind.category().is_some().then_some(terrain_layout),
+                alpha_test: built.alpha_test,
             }),
-            (Err(error), _) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: {error}"
-            ),
-            (Ok(_), Some(error)) => bevy::log::warn!(
-                target: "cinnabar::shaderpack",
-                program = %program.name, draw = ?kind,
-                "draw skipped: the device rejected its pipeline: {error}"
-            ),
+            (Err(error), _) => Err(format!("{} ({kind:?}): {error}", program.name)),
+            (Ok(_), Some(error)) => Err(format!(
+                "{} ({kind:?}): the device rejected its pipeline: {error}",
+                program.name
+            )),
+        }
+    };
+    let mut draws = vec![];
+    for built in super::pipeline_workers::build_all(&gpu.device, selected, progress, build)? {
+        match built {
+            Ok(draw) => draws.push(draw),
+            Err(failure) => failures.push(failure),
         }
     }
     if !complete_world(|kind| draws.iter().any(|draw| draw.kind == kind)) {
         draws.clear();
     }
-    draws
+    Ok(draws)
 }
 
 #[cfg(test)]
@@ -920,6 +789,11 @@ mod tests {
             DrawKind::BeaconBeam.alpha_test("gbuffers_beaconbeam", &[]),
             None
         );
+        // Voxelising packs (Just Colored Lighting) only record light sources whose shadow
+        // draw reports `TERRAIN_SOLID`, which includes cutout blocks such as torches.
+        for kind in [DrawKind::TerrainCutout, DrawKind::ShadowCutout] {
+            assert_eq!(kind.render_stage(), 8, "{kind:?}");
+        }
         assert_eq!(DrawKind::Entities.render_stage(), 11);
         assert_eq!(DrawKind::Block.render_stage(), 12);
         assert_eq!(DrawKind::Hand.render_stage(), 16);

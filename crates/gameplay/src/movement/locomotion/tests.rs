@@ -100,6 +100,7 @@ fn airborne() -> ModeObservation {
         liquid_contact_height: None,
         jump_edge: false,
         jump_down: false,
+        spinning: false,
     }
 }
 
@@ -544,6 +545,93 @@ fn a_fresh_jump_press_cancels_a_glide_after_eleven_ticks() {
     );
 }
 
+/// With Instabuild, as in creative, a jump press never ends a glide.
+#[test]
+fn instabuild_keeps_gliding_through_a_jump_press() {
+    let mut tracker = ModeTracker::default();
+    let intent = ModeIntent {
+        elytra_ready: true,
+        instabuild: true,
+        ..ModeIntent::default()
+    };
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    for _ in 0..GLIDE_CANCEL_TICKS {
+        assert_eq!(
+            pick(&mut tracker, intent, airborne()),
+            MovementMode::Gliding
+        );
+    }
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    let landed = ModeObservation {
+        on_ground: true,
+        ..airborne()
+    };
+    assert_eq!(
+        pick(&mut tracker, intent, landed),
+        MovementMode::Walking,
+        "ground contact still ends the glide"
+    );
+}
+
+/// Holding jump makes an Instabuild glide climb once its cancel window has passed;
+/// without Instabuild the same hold never pushes the glide.
+#[test]
+fn held_jump_climbs_an_instabuild_glide_after_ten_ticks() {
+    let held = ModeObservation {
+        jump_down: true,
+        ..airborne()
+    };
+    for instabuild in [true, false] {
+        let mut tracker = ModeTracker::default();
+        let intent = ModeIntent {
+            elytra_ready: true,
+            instabuild,
+            ..ModeIntent::default()
+        };
+        let mut ascent = |observed| {
+            let choice = tracker.select(intent, observed, &Ceiling(None)).unwrap();
+            assert_eq!(choice.mode, MovementMode::Gliding);
+            choice.glide_ascent
+        };
+        assert!(!ascent(pressed(airborne())));
+        for tick in 1..GLIDE_CANCEL_TICKS {
+            assert!(!ascent(held), "tick {tick} is inside the cancel window");
+        }
+        assert_eq!(ascent(held), instabuild);
+        assert!(!ascent(airborne()), "releasing jump stops the climb");
+    }
+}
+
+/// In creative the flight double-tap is what ends a glide: flight takes over.
+#[test]
+fn creative_double_tap_switches_a_glide_to_flight() {
+    let mut tracker = ModeTracker::default();
+    let intent = ModeIntent {
+        elytra_ready: true,
+        instabuild: true,
+        can_fly: true,
+        ..ModeIntent::default()
+    };
+    pick(&mut tracker, intent, pressed(airborne()));
+    for _ in 0..GLIDE_CANCEL_TICKS {
+        pick(&mut tracker, intent, airborne());
+    }
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Gliding
+    );
+    assert_eq!(
+        pick(&mut tracker, intent, pressed(airborne())),
+        MovementMode::Flying
+    );
+}
+
 /// A server-ended glide never carries its tick count into the next glide.
 #[test]
 fn an_ended_glide_restarts_the_cancel_window() {
@@ -556,7 +644,9 @@ fn an_ended_glide_restarts_the_cancel_window() {
     for _ in 0..12 {
         pick(&mut tracker, intent, airborne());
     }
-    tracker.end(MovementMode::Gliding);
+    let mut poses = tracker.pose_flags();
+    poses.gliding = false;
+    tracker.adopt_pose_flags(poses);
     assert_eq!(
         pick(&mut tracker, intent, pressed(airborne())),
         MovementMode::Gliding
@@ -699,6 +789,25 @@ fn a_gap_that_fits_a_sneak_but_not_a_stand_forces_the_sneak_pose() {
     assert!(choice.forced_sneak);
 }
 
+/// A level older than base game version 1.20.10 sneaks at standing height, so
+/// the same gap skips the sneak pose and crawls; resets keep that profile.
+#[test]
+fn a_legacy_sneak_profile_crawls_where_the_current_one_forces_a_sneak() {
+    let mut tracker = ModeTracker::default();
+    tracker.set_sneak_profile(SneakProfile::Legacy);
+    tracker.reset();
+    let observed = ModeObservation {
+        on_ground: true,
+        feet: Vec3::new(0.0, 0.0, 0.0),
+        ..airborne()
+    };
+    let choice = tracker
+        .select(ModeIntent::default(), observed, &Ceiling(Some(1.6)))
+        .unwrap();
+    assert_eq!(choice.mode, MovementMode::Crawling);
+    assert!(!choice.forced_sneak);
+}
+
 /// Shallow water with the head above the surface never starts a swim; a swimmer keeps going.
 #[test]
 fn a_swim_starts_only_with_the_head_in_water() {
@@ -733,6 +842,10 @@ fn a_swimmer_leaving_the_water_stops_sprinting_with_the_swim() {
     let pool = Pool(10.0);
     let swimmer = ModeTracker {
         mode: MovementMode::Swimming,
+        poses: crate::movement::PoseFlags {
+            swimming: true,
+            ..Default::default()
+        },
         sprinting: true,
         previous_jumping: true,
         ..ModeTracker::default()
@@ -844,6 +957,10 @@ fn a_wet_non_swimmer_stops_sprinting_after_a_held_jump() {
 fn a_refused_restart_keeps_the_stale_sprint_request_released() {
     let mut tracker = ModeTracker {
         mode: MovementMode::Swimming,
+        poses: crate::movement::PoseFlags {
+            swimming: true,
+            ..Default::default()
+        },
         sprinting: true,
         ..ModeTracker::default()
     };
@@ -876,4 +993,37 @@ fn a_refused_restart_keeps_the_stale_sprint_request_released() {
             .unwrap()
             .sprinting
     );
+}
+
+/// A retained swim flag controls the liquid sprint stop even when flight owns travel.
+#[test]
+fn a_swim_surface_stop_uses_the_pose_flag_during_flight() {
+    for swimming in [false, true] {
+        let mut tracker = ModeTracker {
+            mode: MovementMode::Flying,
+            poses: crate::movement::PoseFlags {
+                swimming,
+                ..Default::default()
+            },
+            sprinting: true,
+            ..Default::default()
+        };
+        let choice = tracker
+            .select(
+                ModeIntent {
+                    flight: FlightAuthority::Fixed(true),
+                    ..Default::default()
+                },
+                ModeObservation {
+                    sprinting: true,
+                    sprint_down: true,
+                    move_forward: 1.0,
+                    ..airborne()
+                },
+                &Ceiling(None),
+            )
+            .unwrap();
+        assert_eq!(choice.mode, MovementMode::Flying);
+        assert_eq!(choice.sprinting, !swimming);
+    }
 }

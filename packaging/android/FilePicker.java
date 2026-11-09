@@ -46,7 +46,8 @@ public final class FilePicker {
      * another worker may still be importing an earlier one; the first selection of a process
      * clears earlier sessions' copies, and Android may reclaim the cache directory at any time.
      * A document larger than a non-negative {@code maxBytes} fails the selection without
-     * filling storage; a failed selection removes its copies.
+     * filling storage; a failed selection removes its copies. The picker shows every document,
+     * since providers label the same ZIP differently; native code checks extensions.
      */
     public static String[] pick(boolean multiple, long maxBytes)
             throws IOException, InterruptedException {

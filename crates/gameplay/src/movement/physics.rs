@@ -13,24 +13,35 @@ use {
 mod actor_move;
 mod advance;
 mod aim_pose;
+mod climber_authority;
 mod controller_frame;
 mod correction;
 mod dimension_wait;
 mod prediction_corrections;
+mod riding;
 mod riptide;
+mod server_flags;
 mod speed;
 mod sprint_retention;
 use controller_frame::ControllerFrame;
 mod eye;
 mod fixed_ticks;
+mod flag_frame;
 mod input_requests;
+mod lifecycle;
 mod motion_ticks;
+mod movement_lerp;
 mod posture;
+pub(in crate::movement) use posture::ClimberFlags;
 mod timeline;
 mod visual_correction;
 
 #[cfg(test)]
+mod fall_tests;
+#[cfg(test)]
 mod liquid_probe_tests;
+#[cfg(test)]
+mod pick_origin_tests;
 
 pub use motion_ticks::PhysicsMotionSample;
 pub use timeline::ServerControlFlags;
@@ -41,7 +52,7 @@ use super::state::{ProcessedMovementState, ReplayJumpArcFold};
 
 const LOCAL_PHYSICS_TICK_SECONDS: f64 = 1.0 / TICKS_PER_SECOND as f64;
 /// Retained prediction window until StartGame supplies `RewindHistorySize`.
-const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
+pub(in crate::movement) const LOCAL_PHYSICS_HISTORY_CAPACITY: usize = 32;
 /// Vanilla's ceiling on StartGame `RewindHistorySize`.
 const MAX_REWIND_HISTORY_SIZE: u16 = 1000;
 
@@ -277,17 +288,30 @@ pub struct LocalPhysicsController {
     replayed_speed: Option<super::speed_authority::EffectiveMovementSpeed>,
     /// Earliest timeline edit not yet incorporated by a successful replay.
     rewind_pending: Option<u64>,
+    live_climber: Option<ClimberFlags>,
+    pending_climber: climber_authority::PendingClimberWrites,
     motion_ticks: VecDeque<motion_ticks::CompletedMotionTick>,
     motion_anchor: Option<motion_ticks::CompletedMotionTick>,
     /// Server velocity replacements, retained while a replay can still reach them.
     server_motions: VecDeque<sim::MotionOverlay>,
     actor_position_pending: Option<actor_move::ActorPositionUpdate>,
+    /// A Normal-mode `MovePlayer` ease the next completed tick steps.
+    movement_lerp: Option<movement_lerp::MovementLerp>,
+    /// Exact eased height retained while collision feet stay at that height.
+    network_height: Option<movement_lerp::NetworkHeight>,
+    /// Completed interpolation aim awaiting publication to the view.
+    eased_rotation: Option<[f32; 2]>,
     deferred_corrections: prediction_corrections::DeferredPredictionCorrections,
     history_capacity: usize,
     /// Server sprint/sneak states awaiting adoption by the control latches.
     server_control_flags: Option<ServerControlFlags>,
     /// Accepted server posture newer than the latest completed sample.
     live_posture: ServerControlFlags,
+    /// Retained server flag writes and the pending item-use value.
+    server_flags: server_flags::ServerFlagAuthority,
+    sync_state: posture::SyncState,
+    /// Ordered writes belong to the timeline and survive actor-state replacement.
+    sync_pending: Vec<posture::ServerWrite>,
     /// One admitted release waiting for a successful movement tick.
     riptide_pending: Option<RiptideRequest>,
     boosts: super::boosts::BoostTimeline,
@@ -300,6 +324,8 @@ pub struct LocalPhysicsController {
     last_environment: sim::MovementEnvironment,
     dimension_waiting: bool,
     pub(super) prediction_sync: super::prediction_sync::PredictionSyncCountdown,
+    /// The steered boat's prediction.
+    vehicle: super::vehicle::VehiclePrediction,
 }
 
 impl Default for LocalPhysicsController {
@@ -329,14 +355,22 @@ impl Default for LocalPhysicsController {
             controller_history: VecDeque::with_capacity(LOCAL_PHYSICS_HISTORY_CAPACITY),
             replayed_speed: None,
             rewind_pending: None,
+            live_climber: None,
+            pending_climber: Default::default(),
             motion_ticks: VecDeque::with_capacity(MAX_LOCAL_PHYSICS_TICKS_PER_FRAME),
             motion_anchor: None,
             server_motions: VecDeque::new(),
             actor_position_pending: None,
+            movement_lerp: None,
+            network_height: None,
+            eased_rotation: None,
             deferred_corrections: Default::default(),
             history_capacity: LOCAL_PHYSICS_HISTORY_CAPACITY,
             server_control_flags: None,
             live_posture: Default::default(),
+            server_flags: Default::default(),
+            sync_state: Default::default(),
+            sync_pending: Vec::new(),
             riptide_pending: None,
             boosts: Default::default(),
             anchor_state: super::anchor_probe::AnchorProbeState::new(),
@@ -344,6 +378,7 @@ impl Default for LocalPhysicsController {
             last_environment: sim::MovementEnvironment::default(),
             dimension_waiting: false,
             prediction_sync: Default::default(),
+            vehicle: Default::default(),
         }
     }
 }
@@ -371,116 +406,6 @@ impl LocalPhysicsController {
         self.history_capacity
     }
 
-    pub fn deactivate(&mut self) {
-        self.prediction_sync.clear();
-        self.state = None;
-        self.eye_offset = eye::LocalEyeOffset::default();
-        self.visual_correction = visual_correction::VisualCorrection::default();
-        self.accumulated_seconds = 0.0;
-        self.discard_next_elapsed = false;
-        self.skip_travel_pending = false;
-        self.previous_jump_held = false;
-        self.jump_edge_pending = false;
-        self.input_edges = Default::default();
-        self.jump_pulse_pending = false;
-        self.jump_pulse_held = false;
-        self.jump_pulse_scope = None;
-        self.processed_jump_arc_active = false;
-        self.last_world_identity = None;
-        self.sample_history.clear();
-        self.replayed_speed = None;
-        self.rewind_pending = None;
-        self.controller_history.clear();
-        self.motion_ticks.clear();
-        self.motion_anchor = self
-            .state
-            .as_ref()
-            .map(motion_ticks::CompletedMotionTick::anchor);
-        self.server_motions.clear();
-        self.actor_position_pending = None;
-        self.deferred_corrections = Default::default();
-        self.server_control_flags = None;
-        self.live_posture = Default::default();
-        self.riptide_pending = None;
-        self.boosts.clear();
-        self.modes.reset();
-        self.last_environment = sim::MovementEnvironment::default();
-        self.dimension_waiting = false;
-        self.anchor_state.reset();
-        self.history = PredictionHistory::new(self.history_capacity)
-            .expect("local physics history capacity is non-zero");
-    }
-
-    /// Replaces prediction state from a server network-position anchor.
-    ///
-    /// Bedrock player movement positions carry the protocol network offset;
-    /// collision simulation uses the feet origin. Non-finite anchors disable
-    /// local prediction instead of allowing invalid state to reach collision.
-    ///
-    /// This is a hard reset used by StartGame, session/dimension replacement,
-    /// teleports, and un-replayable corrections. It deliberately clears the
-    /// retained axis collisions along with the rest of the history: no prior
-    /// motion survives the reset, so nothing can justify the discrete
-    /// ladder-climb branch until a fresh tick re-derives them.
-    pub fn reanchor_network_position(
-        &mut self,
-        network_position: [f32; 3],
-        tick: u64,
-        on_ground: bool,
-    ) {
-        if !network_position.into_iter().all(f32::is_finite) {
-            self.deactivate();
-            return;
-        }
-        let feet = Vec3::new(
-            f64::from(network_position[0]),
-            f64::from(network_position[1] - PLAYER_NETWORK_OFFSET),
-            f64::from(network_position[2]),
-        );
-        let mut state = PlayerState::new(feet);
-        state.tick = tick;
-        state.on_ground = on_ground;
-        self.state = Some(state);
-        self.previous_position = feet;
-        self.eye_offset = eye::LocalEyeOffset::default();
-        self.visual_correction = visual_correction::VisualCorrection::default();
-        self.accumulated_seconds = 0.0;
-        self.discard_next_elapsed = false;
-        self.skip_travel_pending = false;
-        self.previous_jump_held = false;
-        self.jump_edge_pending = false;
-        self.input_edges = Default::default();
-        self.jump_pulse_pending = false;
-        self.jump_pulse_held = false;
-        self.jump_pulse_scope = None;
-        self.processed_jump_arc_active = false;
-        self.dropped_tick_count = 0;
-        self.last_world_identity = None;
-        self.sample_history.clear();
-        self.replayed_speed = None;
-        self.rewind_pending = None;
-        self.controller_history.clear();
-        self.motion_ticks.clear();
-        self.motion_anchor = self
-            .state
-            .as_ref()
-            .map(motion_ticks::CompletedMotionTick::anchor);
-        self.server_motions.clear();
-        self.actor_position_pending = None;
-        self.deferred_corrections = Default::default();
-        self.modes.reset();
-        self.live_posture = Default::default();
-        self.riptide_pending = None;
-        self.last_environment = sim::MovementEnvironment::default();
-        self.dimension_waiting = false;
-        // Every hard anchor starts a fresh bounded probe epoch: the new
-        // position is probed before its first simulated tick, and any prior
-        // failure budget or frozen embedded-anchor hold is replaced.
-        self.anchor_state.note_hard_anchor();
-        self.history = PredictionHistory::new(self.history_capacity)
-            .expect("local physics history capacity is non-zero");
-    }
-
     /// Reanchors prediction while discarding the render-frame delta that
     /// elapsed before the new server anchor was installed.
     ///
@@ -499,17 +424,34 @@ impl LocalPhysicsController {
         self.discard_next_elapsed = self.is_active();
     }
 
-    /// Fixed ticks a frame of `elapsed` would complete, without advancing the clock.
-    pub fn ticks_due(&self, elapsed: Duration) -> u64 {
-        if self.state.is_none() || self.discard_next_elapsed {
-            return 0;
-        }
-        fixed_ticks::whole_ticks(self.accumulated_seconds + elapsed.as_secs_f64())
-    }
-
     /// Advances only when a finite, simulable server motion enters live prediction.
     pub const fn knockback_sequence(&self) -> u64 {
         self.knockback_sequence
+    }
+
+    pub fn advance(
+        &mut self,
+        elapsed: Duration,
+        input: MovementInput,
+        world: &impl CollisionWorld,
+    ) -> LocalPhysicsFrame {
+        self.advance_with_context(elapsed, input, PhysicsSampleContext::default(), world)
+    }
+
+    pub fn advance_with_context(
+        &mut self,
+        elapsed: Duration,
+        input: MovementInput,
+        context: PhysicsSampleContext,
+        world: &impl CollisionWorld,
+    ) -> LocalPhysicsFrame {
+        self.advance_with_context_and_effects(
+            elapsed,
+            input,
+            context,
+            world,
+            &mut NoMovementEffects,
+        )
     }
 
     #[must_use]
@@ -539,6 +481,27 @@ impl LocalPhysicsController {
     #[must_use]
     pub const fn state(&self) -> Option<&PlayerState> {
         self.state.as_ref()
+    }
+
+    /// The player's width and height: the size the server last gave it, or a standing
+    /// player's.
+    #[must_use]
+    pub fn body_size(&self) -> [f32; 2] {
+        self.prediction_sync_size()
+            .unwrap_or([sim::PLAYER_WIDTH as f32, sim::PLAYER_HEIGHT as f32])
+    }
+
+    /// The player's standing box at its current feet, which getting off a vehicle tests
+    /// against the vehicle's box.
+    #[must_use]
+    pub fn body_box(&self) -> Option<sim::Aabb> {
+        let feet = self.state()?.position;
+        let [width, height] = self.body_size().map(f64::from);
+        let half = width / 2.0;
+        Some(sim::Aabb::new(
+            sim::Vec3::new(feet.x - half, feet.y, feet.z - half),
+            sim::Vec3::new(feet.x + half, feet.y + height, feet.z + half),
+        ))
     }
 
     /// Processed `(sneaking, sprinting)` of the latest completed tick.
@@ -583,11 +546,10 @@ impl LocalPhysicsController {
     #[must_use]
     pub fn network_position(&self) -> Option<[f32; 3]> {
         let state = self.state.as_ref()?;
-        Some([
-            state.position.x as f32,
-            state.position.y as f32 + PLAYER_NETWORK_OFFSET,
-            state.position.z as f32,
-        ])
+        Some(movement_lerp::NetworkHeight::position(
+            self.network_height,
+            state.position,
+        ))
     }
 
     #[must_use]

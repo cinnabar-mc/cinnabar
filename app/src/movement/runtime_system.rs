@@ -15,7 +15,10 @@ use protocol::PlayerInputMode;
 use semantic_input::Action;
 use {
     crate::runtime::world::ClientWorld,
-    client_presentation::{camera::AutoFly, local_player::LocalViewPose},
+    client_presentation::{
+        camera::{AutoFly, CameraSettingsAuthority},
+        local_player::LocalViewPose,
+    },
     client_state::{PlayerRuntime, RuntimeSettings, SemanticInputSnapshot},
 };
 
@@ -26,13 +29,25 @@ use client_interaction::movement::{
 
 use client_interaction::movement::LocomotionState;
 
-/// Reads user movement settings and any native extension policy in one system parameter.
+/// Reads user movement settings, mods' control modes and the camera's movement capture in one
+/// system parameter.
 #[derive(SystemParam)]
 pub(crate) struct MovementSettings<'w> {
-    camera: Option<Res<'w, client_presentation::camera::CameraSettingsAuthority>>,
+    camera: Option<Res<'w, CameraSettingsAuthority>>,
     settings: Option<Res<'w, RuntimeSettings>>,
     #[cfg(not(target_arch = "wasm32"))]
-    mods: Option<Res<'w, crate::modding::ModRuntime>>,
+    mods: Option<Res<'w, crate::modding::ModControlModes>>,
+    #[cfg(not(target_arch = "wasm32"))]
+    movement_override: Option<Res<'w, crate::modding::ModMovementInputActive>>,
+}
+
+/// Reads the interaction owners whose item use shapes movement and whose waiting work keeps a
+/// player getting off its mount seated.
+#[derive(SystemParam)]
+pub(crate) struct InteractionOwners<'w> {
+    item_use: Option<Res<'w, client_interaction::item_use::ItemUseRuntime>>,
+    melee: Option<Res<'w, client_interaction::melee::MeleeRuntime>>,
+    block_use: Option<Res<'w, client_interaction::block_use::BlockUseRuntime>>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -40,7 +55,7 @@ pub(crate) fn advance_local_physics(
     time: Res<Time<Real>>,
     input: Res<SemanticInputSnapshot>,
     auto_fly: Res<AutoFly>,
-    client_world: Res<ClientWorld>,
+    mut client_world: ResMut<ClientWorld>,
     collisions: Res<PhysicsCollisionRegistries>,
     acceptance: Res<AcceptanceRun>,
     mut physics: ResMut<LocalPhysicsController>,
@@ -50,7 +65,7 @@ pub(crate) fn advance_local_physics(
     mut view: ResMut<LocalViewPose>,
     settings: MovementSettings<'_>,
     player: Option<Res<PlayerRuntime>>,
-    item_use: Option<Res<client_interaction::item_use::ItemUseRuntime>>,
+    interaction: InteractionOwners<'_>,
     mut locals: ResMut<LocomotionState>,
     network: Option<Res<NetworkHandle<PackApplication>>>,
 ) {
@@ -62,6 +77,7 @@ pub(crate) fn advance_local_physics(
         locals.reset();
         return;
     }
+    settle_passed_through_vehicle(&mut client_world, &physics);
     let Some(stream) = client_world.stream.as_ref() else {
         return;
     };
@@ -82,7 +98,8 @@ pub(crate) fn advance_local_physics(
     let facts = gameplay::movement::local_facts::read(
         player.as_deref().map(|player| &**player),
         &client_interaction::movement::world_view::GameplayWorldView(stream),
-        item_use
+        interaction
+            .item_use
             .as_deref()
             .is_some_and(|item_use| item_use.is_using()),
     );
@@ -92,25 +109,29 @@ pub(crate) fn advance_local_physics(
         .map(|settings| settings.user_settings_update().1.gameplay)
         .unwrap_or_default();
     #[cfg(not(target_arch = "wasm32"))]
-    let gameplay = {
-        let mut gameplay = gameplay;
-        if let Some(policy) = settings
-            .mods
-            .as_deref()
-            .and_then(|mods| mods.movement_toggles())
-        {
-            gameplay.toggle_sprint = policy.toggle_sprint;
-            gameplay.toggle_sneak = policy.toggle_sneak;
-            gameplay.always_sprint = policy.always_sprint;
-        }
-        gameplay
-    };
+    let gameplay = settings
+        .mods
+        .as_deref()
+        .map_or(gameplay, |mods| mods.apply(gameplay));
     let mut frame = gameplay::movement::PhysicsFrameInput {
         delta: time.delta(),
         now: time.elapsed(),
         active,
         input_authority_released: semantic.is_none_or(|snapshot| snapshot.authority_released),
         resolved_movement: input.movement_is_resolved(),
+        movement_override: {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                settings
+                    .movement_override
+                    .as_ref()
+                    .is_some_and(|mode| mode.0)
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                false
+            }
+        },
         movement,
         raw_movement,
         analogue_movement,
@@ -127,7 +148,8 @@ pub(crate) fn advance_local_physics(
         always_sprint: gameplay.always_sprint && input_mode == PlayerInputMode::Mouse,
         toggle_sneak: gameplay.toggle_sneak,
         facts,
-        item_use_modifier: item_use
+        item_use_modifier: interaction
+            .item_use
             .as_deref()
             .and_then(|item_use| item_use.movement_modifier()),
         hold: (client_world.dimension_transfer.active() || client_world.respawn.input_held()).then(
@@ -137,12 +159,11 @@ pub(crate) fn advance_local_physics(
             },
         ),
     };
-    if settings.camera.as_deref().is_some_and(|camera| {
-        matches!(
-            camera.detached_view(),
-            Some(client_presentation::camera::DetachedView::Fly { .. })
-        )
-    }) {
+    if settings
+        .camera
+        .as_deref()
+        .is_some_and(CameraSettingsAuthority::captures_movement)
+    {
         frame.movement = [0.0; 2];
         frame.raw_movement = [0.0; 2];
         frame.analogue_movement = [0.0; 2];
@@ -155,10 +176,12 @@ pub(crate) fn advance_local_physics(
         frame.toggle_sneak = false;
     }
 
-    if !movement_ticker.can_advance_physics_frame() {
+    // Transport pausing simulation, or a dismount waiting for seated movement already
+    // produced (decided for the whole frame by `decide_frame_ticks`), runs no ticks.
+    if !movement_ticker.can_advance_physics_frame() || locals.holds_ticks() {
+        // Retain presses and publish the pose while no tick runs.
         locals.observe_dismount(&frame, movement_ticker.session_generation());
-        // Retain presses and publish the pose while transport pauses simulation.
-        publish_physics_view(&physics, &mut view);
+        publish_physics_view(&mut physics, &mut view);
         return;
     }
     let world = super::collision_world(
@@ -166,6 +189,43 @@ pub(crate) fn advance_local_physics(
         collisions.registry(stream.network_id_mode()),
         &client_world.movement_colliders,
     );
+    // The client gets the player off a mount it places them beside before the frame's ticks;
+    // the server moves riders off any other mount once it has the request.
+    let server_places_dismount = !frame.facts.client_places_dismount();
+    let interactions = gameplay::movement::SeatedInteractions {
+        attack_pressed: input.phase(Action::Attack).pressed,
+        attack_queued: interaction
+            .melee
+            .as_deref()
+            .is_some_and(|melee| melee.press_pending() || melee.has_queued_work(&movement_ticker)),
+        item_release: interaction
+            .item_use
+            .as_deref()
+            .is_some_and(|item_use| item_use.has_pending_release()),
+        block_use: interaction
+            .block_use
+            .as_deref()
+            .is_some_and(|block_use| block_use.press_pending()),
+    };
+    let got_off = network.as_deref().is_some_and(|network| {
+        locals.leave_mount(
+            &mut frame,
+            &mut physics,
+            &movement_ticker,
+            &world,
+            interactions,
+            |packet| network.send_inventory_packets(vec![packet]),
+        )
+    });
+    let world = if got_off {
+        drop(world);
+        let Some(world) = leave_local_mount(&mut client_world, &collisions, &physics) else {
+            return;
+        };
+        world
+    } else {
+        world
+    };
     let advanced = locals.advance(
         frame,
         &mut physics,
@@ -177,20 +237,257 @@ pub(crate) fn advance_local_physics(
     if !advanced {
         return;
     }
-    if let (Some(position), Some(network)) = (physics.network_position(), network) {
+    if server_places_dismount
+        && let (Some(position), Some(network)) = (physics.network_position(), network)
+    {
         locals.flush_dismount(position, |packet| {
             network.send_inventory_packets(vec![packet])
         });
     }
-    publish_physics_view(&physics, &mut view);
+    publish_physics_view(&mut physics, &mut view);
+}
+
+/// Decides once per frame whether a requested dismount holds the frame's ticks;
+/// [`gameplay::movement::frame_simulates_tick`] and the movement system both read that
+/// decision. The caller runs it before anything consumes tick-bound pick or item-use state.
+pub(crate) fn decide_frame_ticks(world: &mut bevy::prelude::World) {
+    if !world.contains_resource::<LocomotionState>() {
+        return;
+    }
+    world.resource_scope(|world, mut locals: bevy::prelude::Mut<LocomotionState>| {
+        if let Some(movement_ticker) = world.get_resource::<MovementTicker>() {
+            locals.decide_frame_ticks(movement_ticker);
+        }
+    });
+}
+
+/// Takes the local player off its mount in the client world, whose mount state then keeps it
+/// off until the server's links for it change: its body, animation, view and picking stop
+/// following the seat at once. Returns the collision view for the rest of the frame's ticks,
+/// which collides with the mount just left unless the player, placed by `physics`, still
+/// overlaps it.
+pub(super) fn leave_local_mount<'a>(
+    client_world: &'a mut ClientWorld,
+    collisions: &'a PhysicsCollisionRegistries,
+    physics: &LocalPhysicsController,
+) -> Option<sim::PaletteWorld<'a>> {
+    client_world.stream.as_mut()?.leave_local_mount();
+    settle_passed_through_vehicle(client_world, physics);
+    let client_world: &'a ClientWorld = client_world;
+    let stream = client_world.stream.as_ref()?;
+    Some(super::collision_world(
+        stream,
+        collisions.registry(stream.network_id_mode()),
+        &client_world.movement_colliders,
+    ))
+}
+
+/// Makes movement collide again with the vehicle the player got off once the player's box no
+/// longer overlaps it, past face contact; until then a player left at its seat is not lifted
+/// out on top of it.
+pub(super) fn settle_passed_through_vehicle(
+    client_world: &mut ClientWorld,
+    physics: &LocalPhysicsController,
+) {
+    let Some(stream) = client_world.stream.as_mut() else {
+        return;
+    };
+    let Some((min, max)) = stream.authority().local_passed_through_vehicle_bounds() else {
+        return;
+    };
+    let vector = |[x, y, z]: [f32; 3]| sim::Vec3::new(x.into(), y.into(), z.into());
+    let vehicle = sim::Aabb::new(vector(min), vector(max));
+    if !physics
+        .body_box()
+        .is_some_and(|body| body.overlap_minimal_translation(vehicle).is_some())
+    {
+        stream.release_local_passed_through_vehicle();
+    }
 }
 
 /// Publishes retained physics while the shared presentation source resolves visual overrides.
-fn publish_physics_view(physics: &LocalPhysicsController, view: &mut LocalViewPose) {
+fn publish_physics_view(physics: &mut LocalPhysicsController, view: &mut LocalViewPose) {
+    if let Some([yaw, pitch]) = physics.take_eased_rotation() {
+        view.set_rotation(crate::runtime::telemetry::bedrock_camera_rotation(
+            yaw, pitch,
+        ));
+    }
     if let (Some(eye), Some(feet)) = (
         physics.render_eye_position(),
         physics.render_feet_position(),
     ) {
         view.set_subject_position(Vec3::from_array(eye), Vec3::from_array(feet));
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use crate::modding::ModControlModes;
+    use gameplay::movement::control_modes::{ControlModes, ControlObservation};
+    use std::time::Duration;
+
+    /// An empty collision world isolates the completed-aim publication boundary.
+    struct Air;
+
+    impl sim::CollisionWorld for Air {
+        fn collision_boxes(
+            &self,
+            _: sim::Aabb,
+        ) -> Result<sim::CollisionQuery<Vec<sim::Aabb>>, sim::WorldQueryError> {
+            Ok(sim::CollisionQuery::synthetic(Vec::new()))
+        }
+    }
+
+    #[test]
+    fn physics_view_publishes_eased_aim_once_without_overwriting_later_mouse_input() {
+        let position = [0.5, 2.620_01, 0.5];
+        let mut physics = super::LocalPhysicsController::default();
+        physics.reanchor_network_position(position, 100, true);
+        assert!(physics.start_server_movement_lerp(position, true, &Air));
+        physics.set_server_movement_lerp_rotation([90.0, 30.0]);
+        let frame = physics.advance(
+            simulation_clock::TICK_DURATION,
+            sim::MovementInput::default(),
+            &Air,
+        );
+        assert!(frame.blocked.is_none(), "{:?}", frame.blocked);
+        let mut view = super::LocalViewPose::default();
+        super::publish_physics_view(&mut physics, &mut view);
+        assert!(view.rotation().abs_diff_eq(
+            crate::runtime::telemetry::bedrock_camera_rotation(30.0, 10.0),
+            0.0001
+        ));
+        let mouse_rotation = crate::runtime::telemetry::bedrock_camera_rotation(35.0, 12.0);
+        view.set_rotation(mouse_rotation);
+        super::publish_physics_view(&mut physics, &mut view);
+        assert_eq!(view.rotation(), mouse_rotation);
+    }
+
+    /// One forward walking frame under `settings` with no sprint key input.
+    fn walk(
+        controls: &mut ControlModes,
+        millis: u64,
+        settings: ui::GameplaySettings,
+    ) -> gameplay::movement::control_modes::ControlOutput {
+        controls.update(ControlObservation {
+            now: Duration::from_millis(millis),
+            forward: 1.0,
+            toggle_sprint: settings.toggle_sprint,
+            always_sprint: settings.always_sprint,
+            toggle_sneak: settings.toggle_sneak,
+            ..ControlObservation::default()
+        })
+    }
+
+    /// The player's own always sprint keeps sprinting under a mod's toggle sprint: when the
+    /// mod's modes arrive after the player's (as while joining) and after a menu suspends input.
+    #[test]
+    fn player_always_sprint_survives_a_mods_toggle_sprint() {
+        let player = ui::GameplaySettings {
+            always_sprint: true,
+            ..Default::default()
+        };
+        let modes = ModControlModes(Some(mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }));
+        let mut controls = ControlModes::default();
+        assert!(walk(&mut controls, 0, ModControlModes(None).apply(player)).sprint_request);
+        let arrived = walk(&mut controls, 50, modes.apply(player));
+        assert!(
+            arrived.sprint_request && !arrived.stop_sprinting,
+            "the mod's modes stopped the player's always sprint"
+        );
+        controls.suspend(false);
+        assert!(
+            walk(&mut controls, 100, modes.apply(player)).sprint_request,
+            "always sprint did not resume after a menu"
+        );
+    }
+
+    /// What a sprint key press leaves behind under one set of control settings.
+    #[derive(Debug, PartialEq, Eq)]
+    struct Presses {
+        /// Walking forward again after the first press and a stop restarts the sprint.
+        first_restarts: bool,
+        /// The second press stopped an ongoing sprint.
+        second_stops: bool,
+        /// Walking forward again after the second press and a stop restarts the sprint.
+        second_restarts: bool,
+    }
+
+    /// Walks forward under `settings` through a sprint press and release, a stop and resumption,
+    /// then a second press with the same stop and resumption. `quick` puts both edges of each
+    /// press in one frame.
+    fn sprint_presses(settings: ui::GameplaySettings, quick: bool) -> Presses {
+        let mut controls = ControlModes::default();
+        let mut millis = 0;
+        let mut step = |pressed: bool, forward: f32| {
+            millis += 50;
+            controls.update(ControlObservation {
+                now: Duration::from_millis(millis),
+                forward,
+                sprint_pressed: pressed,
+                sprint_held: pressed && !quick,
+                toggle_sprint: settings.toggle_sprint,
+                always_sprint: settings.always_sprint,
+                toggle_sneak: settings.toggle_sneak,
+                ..ControlObservation::default()
+            })
+        };
+        assert!(step(true, 1.0).sprint_request);
+        assert!(
+            step(false, 1.0).sprint_request,
+            "a released sprint key keeps sprinting"
+        );
+        assert!(!step(false, 0.0).sprint_request, "stopping ends the sprint");
+        let first_restarts = step(false, 1.0).sprint_request;
+        let second = step(true, 1.0);
+        assert!(
+            second.sprint_request,
+            "the second press leaves the player sprinting"
+        );
+        step(false, 1.0);
+        step(false, 0.0);
+        Presses {
+            first_restarts,
+            second_stops: second.stop_sprinting,
+            second_restarts: step(false, 1.0).sprint_request,
+        }
+    }
+
+    /// Toggle sprint from control modes keeps the sprint request between presses, while a
+    /// second press clears it without stopping the ongoing sprint, as the native toggle does.
+    /// Hold sprint keeps nothing; omitting the modes restores it.
+    #[test]
+    fn control_mode_toggle_sprint_second_press_clears_the_request_without_stopping() {
+        let toggled = Presses {
+            first_restarts: true,
+            second_stops: false,
+            second_restarts: false,
+        };
+        let held = Presses {
+            first_restarts: false,
+            second_stops: false,
+            second_restarts: false,
+        };
+        let player = ui::GameplaySettings::default();
+        let modes = ModControlModes(Some(mod_host::GameplayControlModes {
+            toggle_sprint: true,
+            toggle_sneak: false,
+            always_sprint: false,
+        }));
+        assert_eq!(sprint_presses(player, false), held);
+        assert_eq!(sprint_presses(modes.apply(player), false), toggled);
+        assert_eq!(
+            sprint_presses(modes.apply(player), true),
+            toggled,
+            "presses released within one frame still toggle"
+        );
+        assert_eq!(
+            sprint_presses(ModControlModes(None).apply(player), false),
+            held
+        );
     }
 }

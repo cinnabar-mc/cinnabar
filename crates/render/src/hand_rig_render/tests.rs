@@ -10,6 +10,54 @@ use {
     render_scene::HandRigScene,
 };
 
+#[test]
+fn compact_hand_uploads_both_pose_endpoints_with_four_storage_buffers() {
+    use bevy::ecs::system::RunSystemOnce;
+    let (device, queue) = wgpu::Device::noop(&wgpu::DeviceDescriptor {
+        required_limits: wgpu::Limits {
+            max_storage_buffers_per_shader_stage: 4,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
+    let mut world = World::new();
+    world.insert_resource(RenderDevice::from(device));
+    world.insert_resource(RenderQueue::new(queue));
+    world.run_system_once(init_gpu).unwrap();
+    let mut gpu = world.remove_resource::<HandRigGpu>().unwrap();
+    assert_eq!(
+        crate::device_settings::vertex_storage_buffers(&gpu.layout),
+        4
+    );
+    let mut scene = HandRigScene::default();
+    assert!(scene.publish(single_instance_frame(), skin(), light(), 1.2, 1));
+    let mut state =
+        bevy::ecs::system::SystemState::<crate::upload_staging::FrameUploads>::new(&mut world);
+    let uploads = state.get(&world).unwrap();
+    let frame = scene.frame.as_ref().unwrap();
+    assert!(upload_pose(&mut gpu, &uploads, frame));
+    assert_eq!(
+        gpu.previous_bones.as_ref().unwrap().size() as usize,
+        std::mem::size_of_val(&*frame.rig.previous_bones)
+            + std::mem::size_of_val(&*frame.rig.current_bones)
+    );
+    assert!(gpu.current_bones.is_none());
+    let source = crate::shader_safety::from_actor_wesl(
+        include_str!("../hand_rig.wesl"),
+        "hand_rig.wesl",
+        render_model::ACTOR_GPU_INSTANCE_WORDS,
+        render_model::ACTOR_RIG_VERTEX_WORDS,
+    );
+    let bevy::shader::Source::Wesl(source) = source.source else {
+        panic!("hand source is WESL");
+    };
+    crate::shader_test_support::assert_binding_visibility(
+        &crate::shader_source::standalone(&source, &["COMPACT_BONES"]),
+        0,
+        &gpu.layout,
+    );
+}
+
 /// Missing hand depth backs off, recovers, and retries a resized request immediately.
 #[test]
 fn hand_depth_allocation_failure_backs_off_then_recovers() {
@@ -379,7 +427,7 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
         width: 2,
         height: 2,
         layers: 2,
-        rgba8: Arc::from(vec![0u8; bytes]),
+        rgba8: vec![0u8; bytes].into(),
     };
     let mut scene = HandRigScene::default();
     scene.set_item_atlases([Some(atlas(32)), None]);
@@ -398,7 +446,7 @@ fn item_atlas_is_kept_only_when_its_pixel_count_matches_and_a_frame_is_active() 
             width: u16::MAX,
             height: u16::MAX,
             layers: u32::MAX,
-            rgba8: Arc::from([]),
+            rgba8: Vec::new().into(),
         }),
         None,
     ]);
@@ -463,29 +511,26 @@ fn pose_updates_reuse_their_buffers() {
     assert!(buffers.windows(2).all(|pair| pair[0] == pair[1]));
 
     // Main and offhand pages may have unrelated dimensions and layer counts.
-    let main_pixels: Arc<[u8]> = vec![255; 16].into();
-    let off_pixels: Arc<[u8]> = vec![127; 48].into();
+    let main_pixels: render_model::PagePixels = vec![255; 16].into();
+    let off_pixels: render_model::PagePixels = vec![127; 48].into();
     scene.set_item_atlases([
         Some(HandItemAtlas {
             width: 2,
             height: 2,
             layers: 1,
-            rgba8: Arc::clone(&main_pixels),
+            rgba8: main_pixels.clone(),
         }),
         Some(HandItemAtlas {
             width: 4,
             height: 1,
             layers: 3,
-            rgba8: Arc::clone(&off_pixels),
+            rgba8: off_pixels.clone(),
         }),
     ]);
     upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
     assert_eq!(gpu.atlases[0].as_ref().unwrap().size, [2, 2, 1]);
     assert_eq!(gpu.atlases[1].as_ref().unwrap().size, [4, 1, 3]);
-    assert!(Arc::ptr_eq(
-        &gpu.atlases[1].as_ref().unwrap().pixels,
-        &off_pixels
-    ));
+    assert!(gpu.atlases[1].as_ref().unwrap().pixels.ptr_eq(&off_pixels));
 
     // The same pixel allocation with new dimensions is not the same texture.
     scene.set_item_atlases([
@@ -499,7 +544,7 @@ fn pose_updates_reuse_their_buffers() {
             width: 4,
             height: 1,
             layers: 3,
-            rgba8: Arc::clone(&off_pixels),
+            rgba8: off_pixels.clone(),
         }),
     ]);
     upload_atlas(&mut gpu, &device, &queue, scene.frame.as_ref().unwrap());
@@ -605,7 +650,6 @@ fn animated_hand_pipeline_matches_every_scene_sample_count_and_format() {
 }
 
 /// Hand artwork allows the pack's raw view only while a pack draws; switching recreates it.
-#[cfg(feature = "shaderpacks")]
 #[test]
 fn hand_artwork_allows_raw_views_only_while_a_pack_draws() {
     use crate::actor::gpu::{ArtworkRawViews, permits_raw_view};

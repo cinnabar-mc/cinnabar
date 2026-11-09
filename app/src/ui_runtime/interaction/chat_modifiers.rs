@@ -41,7 +41,7 @@ pub(crate) fn track(held: &mut ButtonInput<KeyCode>, input: &KeyboardInput) {
 ///
 /// Alt is excluded because AltGr and Option, alone or reported as Ctrl+Alt on Windows,
 /// are how many keyboard layouts produce characters such as `@`, `{` and `ą`.
-pub(super) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
+pub(crate) fn text_modified(held: &ButtonInput<KeyCode>) -> bool {
     let held = held
         .get_pressed()
         .map(|key| keyboard_key(*key))
@@ -69,6 +69,13 @@ pub(crate) fn command_key(
     binding_key(menu, BindingId::Command, input.key_code)
         || (input.text.as_deref() == Some("/")
             && named_control(menu, BindingId::Command) == named_control(None, BindingId::Command))
+}
+
+/// Recognizes hardware Enter and UIKit's Return text without a physical key code.
+pub(super) fn submit_key(input: &KeyboardInput) -> bool {
+    matches!(input.key_code, KeyCode::Enter | KeyCode::NumpadEnter)
+        || (matches!(input.key_code, KeyCode::Unidentified(_))
+            && matches!(input.text.as_deref(), Some("\n" | "\r")))
 }
 
 /// Whether `key` edits chat by whole words when the word-edit modifier is held.

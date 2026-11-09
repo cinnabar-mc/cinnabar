@@ -87,6 +87,7 @@ impl ServerAtlas {
         {
             return;
         }
+        self.revision.bump();
         let metadata_changed = self
             .client_rasters
             .iter()
@@ -124,6 +125,7 @@ impl ServerAtlas {
                 changed.push(usize::from(slot.page));
             } else {
                 self.resident.remove(key);
+                self.oversized.evicted(key);
             }
         }
         changed.sort_unstable();

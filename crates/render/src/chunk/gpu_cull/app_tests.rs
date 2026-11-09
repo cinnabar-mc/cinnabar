@@ -25,9 +25,19 @@ pub(in crate::chunk) fn render_plugin(
     backends: wgpu::Backends,
     required_features: WgpuFeatures,
 ) -> Option<RenderPlugin> {
+    render_plugin_with_storage_limit(backends, required_features, None)
+}
+
+/// Overrides the storage budget while retaining the adapter's other supported limits.
+pub(super) fn render_plugin_with_storage_limit(
+    backends: wgpu::Backends,
+    required_features: WgpuFeatures,
+    storage_limit: Option<u32>,
+) -> Option<RenderPlugin> {
     let noop = backends == wgpu::Backends::NOOP;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
+        flags: wgpu::InstanceFlags::from_env_or_default(),
         backend_options: wgpu::BackendOptions {
             noop: wgpu::NoopBackendOptions {
                 enable: noop,
@@ -37,13 +47,17 @@ pub(in crate::chunk) fn render_plugin(
         },
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let adapter =
-        bevy::tasks::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-            .ok()?;
+    let adapter = match bevy::tasks::block_on(
+        instance.request_adapter(&wgpu::RequestAdapterOptions::default()),
+    ) {
+        Ok(adapter) => adapter,
+        Err(wgpu::RequestAdapterError::NotFound { .. }) => return None,
+        Err(error) => panic!("terrain fixture adapter request failed: {error}"),
+    };
     if !adapter.features().contains(required_features) {
         return None;
     }
-    let required_limits = if noop {
+    let mut required_limits = if noop {
         wgpu::Limits {
             max_storage_buffers_per_shader_stage: required_vertex_storage_buffers(),
             ..Default::default()
@@ -51,11 +65,17 @@ pub(in crate::chunk) fn render_plugin(
     } else {
         adapter.limits()
     };
+    if let Some(storage) = storage_limit {
+        required_limits.max_storage_buffers_per_shader_stage = storage;
+    }
     let descriptor = wgpu::DeviceDescriptor {
         required_features,
         required_limits,
         ..Default::default()
     };
+    if !descriptor.required_limits.check_limits(&adapter.limits()) {
+        return None;
+    }
     let adapter_info = adapter.get_info();
     let (device, queue) = bevy::tasks::block_on(adapter.request_device(&descriptor)).unwrap();
     Some(RenderPlugin {
@@ -73,6 +93,24 @@ pub(in crate::chunk) fn render_plugin(
 
 pub(crate) fn noop_render_plugin(required_features: WgpuFeatures) -> RenderPlugin {
     render_plugin(wgpu::Backends::NOOP, required_features).expect("the NOOP adapter is built in")
+}
+
+#[test]
+fn minimum_storage_device_selects_compact_pipelines_after_device_initialization() {
+    let render =
+        render_plugin_with_storage_limit(wgpu::Backends::NOOP, WgpuFeatures::empty(), Some(4))
+            .unwrap();
+    let (mut app, _) = chunk_app_with(render, Msaa::Off, camera_transform(), |app| {
+        app.add_plugins((crate::ActorRenderPlugin, crate::HandRigRenderPlugin));
+    });
+    frame(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    let pipeline = world.resource::<ChunkPipeline>();
+    assert!(pipeline.compact);
+    assert!(!pipeline.unit_supported);
+    assert!(!world.resource::<GpuCullSupport>().0);
+    assert!(!world.resource::<DirectOcclusionSupport>().0);
+    assert!(world.contains_resource::<crate::actor_render::pipeline::ActorPipeline>());
 }
 
 /// A sub-chunk filled with one solid block.
@@ -349,4 +387,62 @@ pub(in crate::chunk) fn spawn_camera(app: &mut App, transform: Transform, order:
             transform,
         ))
         .id()
+}
+
+/// Streaming during raster probes must leave complete current CPU commands for fallback.
+#[test]
+fn raster_batch_refresh_survives_cpu_fallback_after_streaming() {
+    let (mut app, _) = chunk_app(
+        noop_render_plugin(
+            WgpuFeatures::INDIRECT_FIRST_INSTANCE | WgpuFeatures::SHADER_EARLY_DEPTH_TEST,
+        ),
+        Msaa::Off,
+        camera_transform(),
+    );
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = false;
+    insert_meshes(&mut app, &KEYS[..1]);
+    test_time::eventually("initial retained CPU terrain batch", || {
+        frame(&mut app);
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<ChunkIndirectBatches>()
+            .0
+            .values()
+            .any(|batch| batch.visible_entities.len() == 1)
+    });
+    app.sub_app_mut(RenderApp)
+        .world_mut()
+        .resource_mut::<GpuCull>()
+        .enable_raster();
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = true;
+    insert_meshes(&mut app, &KEYS[1..]);
+    test_time::eventually("streamed raster candidates", || {
+        frame(&mut app);
+        app.sub_app(RenderApp)
+            .world()
+            .resource::<GpuCull>()
+            .raster_orders[0]
+            .len()
+            == KEYS.len()
+    });
+    app.world_mut()
+        .resource_mut::<render_scene::ChunkOcclusionCulling>()
+        .0 = false;
+    frame(&mut app);
+    let world = app.sub_app(RenderApp).world();
+    let cached: usize = world
+        .resource::<ChunkIndirectBatches>()
+        .0
+        .values()
+        .map(|batch| batch.visible_entities.len())
+        .sum();
+    assert_eq!(
+        cached,
+        KEYS.len(),
+        "CPU fallback must include terrain streamed during raster frames"
+    );
 }

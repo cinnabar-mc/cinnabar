@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use bedrock_protocol_1_26_51::enums::GeneratorType;
-use bedrock_protocol_1_26_51::packets::DimensionData;
-use bedrock_protocol_1_26_51::types::SubChunkData;
-use bedrock_protocol_1_26_51::wire;
+use bedrock_protocol_1_26_60::enums::GeneratorType;
+use bedrock_protocol_1_26_60::packets::DimensionData;
+use bedrock_protocol_1_26_60::types::SubChunkData;
+use bedrock_protocol_1_26_60::wire;
 
 /// Vertical bounds advertised separately from StartGame.
 #[derive(Debug, Clone, PartialEq, Eq)]

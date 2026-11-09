@@ -1,6 +1,7 @@
 //! Tick-stamped authoritative edits (motion, attributes, flags) entering the
 //! rewind timeline.
 
+use super::server_flags::FlagWrite;
 use super::*;
 
 /// Placement of a tick-stamped authoritative update on the prediction timeline.
@@ -305,31 +306,45 @@ pub struct ServerControlFlags {
 
 impl LocalPhysicsController {
     /// Applies server movement flags stamped `tick` (`SetActorData`); returns
-    /// the tick to replay from when retained inputs changed.
+    /// the tick to replay from when retained history changed.
     ///
     /// A retained tick rewrites only the client's unchanged run after it, so a
     /// later client transition still wins; stale ticks clamp to the oldest
-    /// frame as vanilla's frame correction does. Modes are only ended, never
-    /// started: entry needs environment predicates the flag does not carry.
+    /// frame as vanilla's frame correction does. Pose, spin and item-use flags
+    /// follow vanilla's flag corrections (see `server_flags`).
     pub fn apply_server_movement_flags(
         &mut self,
         tick: u64,
         flags: client_world::MovementFlagUpdate,
     ) -> Option<u64> {
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: None,
+            sprinting: None,
+            extended_flags: None,
+            gliding: None,
+            swimming: None,
+            crawling: None,
+            spinning: None,
+            ..flags
+        });
         self.state.as_ref()?;
+        let climber_rewind = flags
+            .extended_flags
+            .and_then(|word| self.adopt_climber_flags(tick, word));
         let rewind = match self.timeline_slot(tick) {
             TimelineSlot::Live => None,
             TimelineSlot::Rewind(tick) => Some(tick),
             TimelineSlot::Stale => self.history.oldest_tick(),
         };
         let Some(tick) = rewind else {
+            self.adopt_live_server_flags(tick, FlagWrite::from_flags(&flags));
             let latest = self.state.as_ref()?.tick;
             self.adopt_live_flags(flags, latest.max(tick), false);
-            return None;
+            return climber_rewind;
         };
         let anchor = *self.history.input_at(tick)?;
         let mut present = client_world::MovementFlagUpdate::default();
-        let mut changed = false;
+        let mut changed = self.retain_server_flags(tick, FlagWrite::from_flags(&flags));
         if let Some(immobile) = flags.immobile.filter(|value| *value != anchor.immobile) {
             let (edited, _) = rewrite_run(
                 self.history.retained_inputs_after_mut(tick),
@@ -369,35 +384,8 @@ impl LocalPhysicsController {
             changed |= edited;
             present.sneaking = reached.then_some(sneaking);
         }
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag != Some(false) || anchor.mode != mode {
-                continue;
-            }
-            let (edited, reached) = rewrite_run(
-                self.history.retained_inputs_after_mut(tick),
-                |input| input.mode == mode,
-                |input| input.mode = sim::MovementMode::Walking,
-            );
-            changed |= edited;
-            if reached {
-                self.modes.end(mode);
-            }
-        }
-        self.adopt_live_flags(
-            client_world::MovementFlagUpdate {
-                gliding: None,
-                swimming: None,
-                crawling: None,
-                ..present
-            },
-            tick,
-            true,
-        );
-        changed.then_some(tick)
+        self.adopt_live_flags(present, tick, true);
+        changed.then_some(tick).or(climber_rewind)
     }
 
     /// Records a delayed sprint write stamped `tick`. Native applies each write
@@ -464,6 +452,15 @@ impl LocalPhysicsController {
                 .restore_controls(sprinting, self.modes.sneaking());
         } else {
             self.live_posture.sprinting = None;
+            // A delayed handoff is already retained at its original input boundary.
+            for write in &mut self.sync_pending {
+                match write {
+                    posture::ServerWrite::Flags(flags) | posture::ServerWrite::Controls(flags) => {
+                        flags.sprinting = None;
+                    }
+                    _ => {}
+                }
+            }
         }
         let sprinting = self.modes.sprinting();
         if previous.is_some_and(|previous| previous != sprinting) {
@@ -485,7 +482,7 @@ impl LocalPhysicsController {
     /// Adopts flags stamped `stamp` into the live latches. Live writes apply in
     /// arrival order; a delayed write older than an unrecorded live sprint leaves
     /// that newer sprint in place until a tick records it.
-    fn adopt_live_flags(
+    pub(super) fn adopt_live_flags(
         &mut self,
         mut flags: client_world::MovementFlagUpdate,
         stamp: u64,
@@ -497,25 +494,27 @@ impl LocalPhysicsController {
         {
             flags.sprinting = None;
         }
-        for (flag, mode) in [
-            (flags.gliding, sim::MovementMode::Gliding),
-            (flags.swimming, sim::MovementMode::Swimming),
-            (flags.crawling, sim::MovementMode::Crawling),
-        ] {
-            if flag == Some(false) {
-                self.modes.end(mode);
-            }
-        }
-        if !pose_flag_controls_sneak(self.modes.mode()) {
-            flags.sneaking = None;
-        }
+        let flags = self
+            .modes
+            .adopt_actor_flags(client_world::MovementFlagUpdate {
+                sneaking: flags.sneaking,
+                sprinting: flags.sprinting,
+                ..Default::default()
+            });
+        self.sync_pending.push(posture::ServerWrite::Controls(
+            client_world::MovementFlagUpdate {
+                sprinting: if rewound { None } else { flags.sprinting },
+                ..flags
+            },
+        ));
         if flags.sprinting.is_none() && flags.sneaking.is_none() {
             return;
         }
-        self.modes.restore_controls(
-            flags.sprinting.unwrap_or(self.modes.sprinting()),
-            flags.sneaking.unwrap_or(self.modes.sneaking()),
-        );
+        self.note_server_flags(client_world::MovementFlagUpdate {
+            sneaking: flags.sneaking,
+            sprinting: flags.sprinting,
+            ..Default::default()
+        });
         self.live_posture.sprinting = flags.sprinting.or(self.live_posture.sprinting);
         self.live_posture.sneaking = flags.sneaking.or(self.live_posture.sneaking);
         if flags.sprinting.is_some() {

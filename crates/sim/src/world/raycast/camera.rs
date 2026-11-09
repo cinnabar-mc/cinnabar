@@ -198,6 +198,7 @@ impl PaletteWorld<'_> {
                     local.z.clamp(0.0, 1.0),
                 ),
                 hit_world: point,
+                overlay: None,
             };
             if best
                 .as_ref()

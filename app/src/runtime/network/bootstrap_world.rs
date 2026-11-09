@@ -17,6 +17,7 @@ pub(super) struct StreamBootstrap<'a> {
     pub custom_blocks: &'a protocol::CustomBlocks,
     pub item_registry: Option<protocol::ItemRegistryEvent>,
     pub world_default_game_mode: protocol::GameModeUpdate,
+    pub player_game_mode_uses_world_default: bool,
     pub terrain_before_spawn: bool,
 }
 
@@ -45,6 +46,7 @@ pub(super) fn build(
         custom_blocks,
         item_registry,
         world_default_game_mode,
+        player_game_mode_uses_world_default,
         terrain_before_spawn,
     } = input;
     let StreamResources {
@@ -80,11 +82,17 @@ pub(super) fn build(
         resource_packs::install_chunk_textures(&mut textures, &session_assets);
     }
     timings.mark(bootstrap_timing::BootstrapPhase::BlockAssets);
-    let mut stream = if let Some(entity_assets) = client_world.entity_assets.as_ref() {
+    let actor_catalog = registries.actor_catalog.or_else(|| {
+        client_world
+            .entity_assets
+            .as_ref()
+            .map(|assets| actor_animation::ActorAnimationCatalog::new(Arc::clone(assets)))
+    });
+    let mut stream = if let Some(actor_catalog) = actor_catalog {
         WorldStream::new_with_asset_sets(
             bootstrap,
             Arc::clone(&session_assets),
-            Arc::clone(entity_assets),
+            actor_catalog,
             current,
             client_world.pending_surface_spawn,
         )
@@ -107,6 +115,7 @@ pub(super) fn build(
     }
     stream.set_server_animation_compiler(server_animation::compile_stop);
     stream.set_world_default_game_mode(world_default_game_mode);
+    stream.set_local_game_mode_follows_default(player_game_mode_uses_world_default);
     stream.set_display_interval(display_interval);
     stream.begin_frame_work();
     stream.set_startup_priority(true);
@@ -144,6 +153,8 @@ pub(super) fn build(
             icons: packs.item_icons.clone(),
         },
     ));
+    let old = std::mem::replace(&mut client_world.digger_filters, registries.digger_filters);
+    client_runtime::session::release_off_frame((old, client_world.pending_digger_registry.take()));
     if let Some(registry) = item_registry
         && !stream.seed_item_registry(registry)
     {

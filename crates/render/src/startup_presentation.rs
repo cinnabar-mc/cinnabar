@@ -1,5 +1,10 @@
 //! Confirms startup only after primary-window presentation and GPU completion.
 
+#[path = "startup_presentation/engine.rs"]
+mod engine;
+#[path = "startup_presentation/timing.rs"]
+pub(crate) mod timing;
+
 use bevy::{
     prelude::{
         App, ContainsEntity, Entity, IntoScheduleConfigs, Plugin, Query, Res, ResMut, Resource,
@@ -18,16 +23,30 @@ use render_scene::startup_presentation::StartupPresentation;
 pub struct StartupPresentationPlugin;
 
 impl Plugin for StartupPresentationPlugin {
+    /// Adjusts engine initializers after every default plugin has installed its render systems.
+    fn finish(&self, app: &mut App) {
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            engine::install(render);
+        }
+    }
+
     /// Shares the feedback resource and orders surface observation around render submission.
     fn build(&self, app: &mut App) {
+        timing::install(app);
         app.init_resource::<StartupPresentation>();
         let feedback = app.world().resource::<StartupPresentation>().clone();
+        app.init_resource::<render_scene::startup_work::WorldWorkAdmission>();
+        let admission = app
+            .world()
+            .resource::<render_scene::startup_work::WorldWorkAdmission>()
+            .clone();
         let Some(render_app) = app.get_sub_app_mut(RenderApp) else {
             return;
         };
         crate::device_poll::install(render_app);
         render_app
             .insert_resource(feedback)
+            .insert_resource(admission)
             .init_resource::<PresentationProbe>()
             .init_resource::<ExtractedSurfaceEpoch>()
             .add_systems(ExtractSchedule, extract_surface_epoch)
@@ -46,7 +65,7 @@ impl Plugin for StartupPresentationPlugin {
 
 /// The surface generation belonging to this extracted frame, even if main has advanced.
 #[derive(Default, Resource)]
-struct ExtractedSurfaceEpoch(Option<u64>);
+struct ExtractedSurfaceEpoch(Option<u64>, Option<u64>);
 
 /// Snapshots generation while main-world window extraction is still exclusive.
 fn extract_surface_epoch(
@@ -54,6 +73,7 @@ fn extract_surface_epoch(
     mut epoch: ResMut<ExtractedSurfaceEpoch>,
 ) {
     epoch.0 = feedback.content_epoch();
+    epoch.1 = feedback.pending_mode_change();
 }
 
 #[derive(Default, Resource)]
@@ -61,6 +81,8 @@ struct PresentationProbe {
     surface: Option<Entity>,
     submitted: u8,
     content_submitted: Option<u64>,
+    mode_submitted: Option<u64>,
+    offscreen_submitted: bool,
 }
 
 impl PresentationProbe {
@@ -85,6 +107,9 @@ fn capture_surface(
 ) {
     probe.surface = if probe.submitted < StartupPresentation::REQUIRED_FRAMES
         || probe.content_submitted != epoch.0
+        || epoch
+            .1
+            .is_some_and(|mode| probe.mode_submitted != Some(mode))
     {
         windows
             .iter()
@@ -105,13 +130,44 @@ fn observe_presentation(
     queue: Res<RenderQueue>,
     feedback: Res<StartupPresentation>,
     epoch: Res<ExtractedSurfaceEpoch>,
+    admission: Res<render_scene::startup_work::WorldWorkAdmission>,
 ) {
+    if !probe.offscreen_submitted
+        && let Some(timing) =
+            render_scene::startup_timing::current().filter(|timing| timing.is_offscreen())
+        && layers.iter().any(|(camera, layer)| {
+            matches!(
+                &camera.target,
+                Some(bevy::camera::NormalizedRenderTarget::Image(_))
+            ) && layer.presented_complete_content()
+        })
+    {
+        probe.offscreen_submitted = true;
+        timing.mark("content_submitted");
+        let timing = timing.clone();
+        let admission = admission.clone();
+        crate::device_poll::on_frame_complete(&queue, move || {
+            timing.record_offscreen_content(web_time::Instant::now());
+            timing.seal_samples();
+            admission.menu_presented();
+        });
+    }
     let presented_window = probe
         .surface
         .and_then(|entity| windows.get(entity).ok())
         .filter(|(_, window)| window.swap_chain_texture.is_none())
         .map(|(main, _)| main.id());
     let consumed = presented_window.is_some();
+    if let Some(mode) = epoch.1
+        && consumed
+        && probe.mode_submitted != Some(mode)
+    {
+        probe.mode_submitted = Some(mode);
+        let feedback = feedback.clone();
+        crate::device_poll::on_frame_complete(&queue, move || {
+            feedback.record_mode_frame(mode);
+        });
+    }
     if let Some(epoch) = epoch.0
         && consumed
         && probe.content_submitted != Some(epoch)
@@ -121,12 +177,27 @@ fn observe_presentation(
         })
     {
         probe.content_submitted = Some(epoch);
+        if let Some(timing) = render_scene::startup_timing::current() {
+            timing.mark("content_submitted");
+        }
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || feedback.record_content_frame(epoch));
+        let admission = admission.clone();
+        crate::device_poll::on_frame_complete(&queue, move || {
+            feedback.record_content_frame(epoch, web_time::Instant::now());
+            if feedback.has_presented_content() {
+                if let Some(timing) = render_scene::startup_timing::current() { timing.seal_samples(); }
+                admission.menu_presented();
+            }
+        });
     }
     if probe.take_presented(consumed) {
         let feedback = feedback.clone();
-        crate::device_poll::on_frame_complete(&queue, move || feedback.record_completed_frame());
+        crate::device_poll::on_frame_complete(&queue, move || {
+            if let Some(timing) = render_scene::startup_timing::current() {
+                timing.mark("first_gpu_complete");
+            }
+            feedback.record_completed_frame();
+        });
     }
 }
 
@@ -151,10 +222,16 @@ mod tests {
         feedback.replace_content_surface(false);
         feedback.replace_content_surface(true);
         assert_eq!(render.resource::<ExtractedSurfaceEpoch>().0, original);
-        feedback.record_content_frame(render.resource::<ExtractedSurfaceEpoch>().0.unwrap());
+        feedback.record_content_frame(
+            render.resource::<ExtractedSurfaceEpoch>().0.unwrap(),
+            web_time::Instant::now(),
+        );
         assert!(!feedback.has_presented_content());
         render.run_system_once(extract_surface_epoch).unwrap();
-        feedback.record_content_frame(render.resource::<ExtractedSurfaceEpoch>().0.unwrap());
+        feedback.record_content_frame(
+            render.resource::<ExtractedSurfaceEpoch>().0.unwrap(),
+            web_time::Instant::now(),
+        );
         assert!(feedback.has_presented_content());
     }
 

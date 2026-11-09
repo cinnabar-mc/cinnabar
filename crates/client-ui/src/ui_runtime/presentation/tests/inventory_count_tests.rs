@@ -191,6 +191,7 @@ fn personal_main_and_hotbar_counts_do_not_depend_on_item_icons() {
         assert_missing_icon_count_delta(single, counted);
 
         presentation.hud_frame_mut().inventory_icons.0[slot] = Some(IconRef {
+            color_mask: None,
             page: 0,
             uv: [0, 0, 1, 1],
             glint: false,
@@ -266,7 +267,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &player_runtime,
             &mut runtime,
             &mut without_icon,
-            Some(&stream),
+            Some(stream.authority().inventory_ui()),
             semantic_input::PerspectiveMode::FirstPerson,
             1,
             Default::default(),
@@ -277,7 +278,7 @@ fn ordinary_block_icon_uses_existing_inventory_and_hotbar_quads() {
             &player_runtime,
             &mut runtime,
             &mut presentation,
-            Some(&stream),
+            Some(stream.authority().inventory_ui()),
             semantic_input::PerspectiveMode::FirstPerson,
             1,
             Default::default(),
@@ -445,6 +446,7 @@ fn review_carried_item_draws_after_the_recipe_panel() {
         (Vec::new(), 1, ui::TextLayoutCache::new(128, 1024 * 1024));
     let mut frame = super::super::hud_layout::HudFrame {
         cursor_icon: Some(IconRef {
+            color_mask: None,
             page: 77,
             uv: [0, 0, 16, 16],
             glint: false,
@@ -452,6 +454,7 @@ fn review_carried_item_draws_after_the_recipe_panel() {
         ..Default::default()
     };
     frame.window_icons.book[0] = Some(IconRef {
+        color_mask: None,
         page: 78,
         uv: [0, 0, 16, 16],
         glint: false,
@@ -586,7 +589,7 @@ fn recipe_book_entries_glint_like_inventory_slots() {
         &player_runtime,
         &mut runtime,
         &mut presentation,
-        Some(&stream),
+        Some(stream.authority().inventory_ui()),
         semantic_input::PerspectiveMode::FirstPerson,
         1,
         Default::default(),

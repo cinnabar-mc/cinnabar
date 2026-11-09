@@ -50,10 +50,12 @@ impl UiPresentationRuntime {
         physical_size: [u32; 2],
         dpi_scale: DpiScale,
     ) -> Result<UiRenderInput, UiPresentationError> {
+        self.hud_elements.hide_all();
         self.hud_frame.mount_equipment = runtime.screen_state().mount_equipment;
         #[cfg(feature = "tracy")]
         let _build_span = tracing::info_span!("ui.build").entered();
         dynamic_textures::observe_session(self, runtime.session_id());
+        self.publish_shield_icons();
         session_icons::observe(self, runtime.session_icons());
         self.observe_server_ui(runtime.server_ui());
         self.publish_local_player_identity(runtime.session_id());
@@ -66,9 +68,6 @@ impl UiPresentationRuntime {
         self.menu_seconds = now_millis as f64 / 1_000.0;
         self.nametag_atlas.set_animation_seed(now_millis);
         self.configure_oreui_settings();
-        self.screens
-            .mod_ui
-            .advance_mod_hud_editor_exit(self.menu_seconds);
         if let Some(view) = &self.menu_view {
             self.menu_scrolls.configure_motion(
                 view.settings_options.value(SettingId::ScreenAnimations) != 0,
@@ -112,6 +111,7 @@ impl UiPresentationRuntime {
             // Every cursor style belongs to gameplay input, including pack image
             // replacements. Personal modal surfaces own input outside the scene stack.
             let crosshair_visible = stack.receives_input(Scene::Gameplay)
+                && !self.touch_hides_crosshair()
                 && !self.screens.mod_ui.mod_panel_open()
                 && !self.screens.mod_ui.experience_modal_open();
             if host.over_world {
@@ -127,6 +127,8 @@ impl UiPresentationRuntime {
             let open: Vec<Scene> = stack.scenes().iter().map(|scene| scene.key).collect();
             self.scene_clocks.observe(&open, self.menu_seconds);
             let mut menu_hit_targets = Vec::new();
+            // The HUD's own player doll keeps its pose while a screen shows another one.
+            let mut hud_nodes = 0..0;
             for scene in &scenes {
                 self.scene_clock = self.scene_clocks.clocks(*scene);
                 let (nodes, next) = (&mut nodes, &mut next_id);
@@ -153,6 +155,7 @@ impl UiPresentationRuntime {
                         if crosshair && !crosshair_visible {
                             continue;
                         }
+                        let hud_start = nodes.len();
                         self.append_engine_hud(
                             player_runtime,
                             runtime,
@@ -164,6 +167,7 @@ impl UiPresentationRuntime {
                             crosshair,
                         )?;
                         if !crosshair {
+                            hud_nodes = hud_start..nodes.len();
                             self.append_mod_hud(
                                 player_runtime,
                                 runtime,
@@ -172,7 +176,7 @@ impl UiPresentationRuntime {
                                 metrics,
                                 content,
                             );
-                            self.append_mod_widgets(
+                            self.append_hud_surfaces(
                                 player_runtime,
                                 runtime,
                                 nodes,
@@ -234,6 +238,11 @@ impl UiPresentationRuntime {
                             runtime, nodes, next, metrics, content, now_millis,
                         )?;
                     }
+                    Scene::MobEffects => {
+                        self.append_mob_effect_screen(
+                            runtime, nodes, next, metrics, content, now_millis,
+                        )?;
+                    }
                     Scene::Loading => {
                         if let Some(stage) = self.loading_stage {
                             if !stage.is_world_entry() {
@@ -241,7 +250,7 @@ impl UiPresentationRuntime {
                                     UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
                                         UiVisual::Solid {
                                             texture_page: self.solid_texture_page,
-                                            color: [8, 10, 14, 255],
+                                            color: oreui::loading_screen::RESOURCE_PACK_BACKGROUND,
                                         },
                                     ),
                                 );
@@ -252,6 +261,25 @@ impl UiPresentationRuntime {
                             )?;
                         }
                     }
+                    Scene::ResourcePackLoading => {
+                        nodes.push(
+                            UiNode::new(UiNodeId::new(*next), None, viewport).with_visual(
+                                UiVisual::Solid {
+                                    texture_page: self.solid_texture_page,
+                                    color: oreui::loading_screen::RESOURCE_PACK_BACKGROUND,
+                                },
+                            ),
+                        );
+                        *next = next.saturating_add(1);
+                        self.append_oreui_loading(
+                            LoadingStage::BuildingTerrain,
+                            oreui::loading_screen::RESOURCE_PACK_WORDS,
+                            nodes,
+                            next,
+                            metrics,
+                            content,
+                        )?;
+                    }
                     Scene::SignEditor => {
                         self.append_sign_editor(
                             runtime,
@@ -261,6 +289,16 @@ impl UiPresentationRuntime {
                             content_width,
                             content_height,
                             now_millis,
+                        )?;
+                    }
+                    Scene::CommandBlock => {
+                        self.append_command_block(
+                            runtime,
+                            nodes,
+                            next,
+                            metrics,
+                            content_width,
+                            content_height,
                         )?;
                     }
                     Scene::ServerForm | Scene::ServerSettingsForm => {
@@ -276,6 +314,9 @@ impl UiPresentationRuntime {
                             content_width,
                             content_height,
                         )?;
+                    }
+                    Scene::DataDriven => {
+                        self.append_data_driven_screen(runtime, nodes, next, metrics, content)?;
                     }
                     Scene::Menu(_) => {
                         menu_hit_targets = self.append_menu(
@@ -297,8 +338,14 @@ impl UiPresentationRuntime {
             if !scenes.contains(&Scene::Chat) {
                 self.close_chat_screen();
             }
+            if !scenes.contains(&Scene::DataDriven) {
+                self.retire_data_driven_screen();
+            }
             if !scenes.contains(&Scene::Emote) {
                 self.close_emote_screen();
+            }
+            if !scenes.contains(&Scene::MobEffects) {
+                self.close_mob_effect_screen();
             }
             if !scenes.contains(&Scene::SignEditor) {
                 self.hide_sign_editor();
@@ -344,7 +391,7 @@ impl UiPresentationRuntime {
                 content,
             );
             // Personal panels can admit host portraits while painting this frame.
-            self.sync_server_ui_pages();
+            self.end_ui_frame();
             let mut debug_eligibility =
                 crate::ui_runtime::scene_stack::construction::DebugOverlayEligibility::default();
             for entry in stack.scenes() {
@@ -363,7 +410,7 @@ impl UiPresentationRuntime {
                 obfuscation_seed: now_millis,
                 obfuscation: Some(&self.obfuscation),
             };
-            self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects);
+            self.apply_gui_models_in(&mut nodes, viewport, safe_area, effects, hud_nodes);
             let render_viewport = UiRenderViewport {
                 physical_size,
                 dpi_scale,
@@ -372,12 +419,15 @@ impl UiPresentationRuntime {
             // `§k` text re-rolls its glyphs every frame; the retained draw re-emits only it.
             let redrawn = redraw_changed(
                 self.last_frame.as_mut(),
-                self.last_input.as_ref(),
+                (self.last_input.as_ref(), &mut self.vertex_buffers),
                 &self.textures,
                 &nodes,
                 frame,
                 (viewport, render_viewport),
-                effects,
+                (
+                    effects,
+                    (&self.gui_models.hud_model, &self.gui_models.screen_model),
+                ),
             )
             .inspect_err(|_| self.last_frame = None)?;
             if redrawn.is_none() {
@@ -409,10 +459,20 @@ impl UiPresentationRuntime {
             let draw =
                 RetainedDraw::build(&nodes, viewport, UiScale::default(), safe_area, effects)
                     .map_err(UiPresentationError::Tree)?;
-            let input = adapt_ui_draw_list(
+            let models = super::gui_models::hud_model::model_poses(
+                &self.gui_models.hud_model,
+                &self.gui_models.screen_model,
+                &draw,
+                &nodes,
+                dpi_scale.get(),
+                physical_size,
+            );
+            let input = render_adapter::adapt_ui_draw_list_with_models(
                 draw.draw_list(),
                 Arc::clone(&self.textures),
                 render_viewport,
+                models,
+                &mut self.vertex_buffers,
             )
             .map_err(UiPresentationError::Adapter)?;
             self.last_frame = Some(BuiltFrame {
@@ -468,12 +528,21 @@ enum Redrawn {
 /// the last frame's tree shape and viewport; `None` asks for a full build.
 fn redraw_changed(
     last: Option<&mut BuiltFrame>,
-    previous: Option<&UiRenderInput>,
+    (previous, buffers): (
+        Option<&UiRenderInput>,
+        &mut render_model::FrameBuffers<render_model::UiRenderVertex>,
+    ),
     textures: &Arc<UiRenderTextureArray>,
     nodes: &[UiNode],
     frame: ([u32; 2], f32, SafeArea),
     (viewport, render_viewport): (UiRect, UiRenderViewport),
-    effects: TextEffects<'_>,
+    (effects, (hud_model, screen_model)): (
+        TextEffects<'_>,
+        (
+            &std::sync::Mutex<super::gui_models::hud_model::HudModel>,
+            &std::sync::Mutex<super::gui_models::hud_model::HudModel>,
+        ),
+    ),
 ) -> Result<Option<Redraw>, UiPresentationError> {
     let (Some(last), Some(previous)) = (last, previous) else {
         return Ok(None);
@@ -491,24 +560,42 @@ fn redraw_changed(
     ) else {
         return Ok(None);
     };
+    let model_poses = super::gui_models::hud_model::model_poses(
+        hud_model,
+        screen_model,
+        &last.draw,
+        nodes,
+        render_viewport.dpi_scale.get(),
+        render_viewport.physical_size,
+    );
     let input = if update.rebuilt {
         Redrawn::Rebuilt(
-            adapt_ui_draw_list(last.draw.draw_list(), Arc::clone(textures), render_viewport)
-                .map_err(UiPresentationError::Adapter)?,
+            render_adapter::adapt_ui_draw_list_with_models(
+                last.draw.draw_list(),
+                Arc::clone(textures),
+                render_viewport,
+                model_poses,
+                buffers,
+            )
+            .map_err(UiPresentationError::Adapter)?,
         )
     } else {
+        let mut posed = previous.clone();
+        posed.models = Arc::clone(&model_poses);
         let patched = render_adapter::patch_ui_vertices(
-            previous,
+            &posed,
             last.draw.draw_list(),
             &update.vertices,
             render_viewport.dpi_scale,
+            buffers,
         )
         .map_err(UiPresentationError::Adapter)?;
-        if previous.textures.as_ref() != textures.as_ref() {
+        if previous.textures.as_ref() != textures.as_ref() || previous.models != model_poses {
             let mut input = patched.unwrap_or_else(|| previous.clone());
             input.textures = Arc::clone(textures);
+            input.models = model_poses;
             input
-                .validate()
+                .validate_update(previous)
                 .map_err(render_adapter::UiRenderAdapterError::RenderInputRejected)
                 .map_err(UiPresentationError::Adapter)?;
             Redrawn::Changed(input)
