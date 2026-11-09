@@ -349,11 +349,14 @@ impl GuiModelPreparation {
                 Arc::clone(mesh)
             } else {
                 // World model thumbnails retain full-resolution tiles and directional UVs.
-                // Only authored carried sheets define the canonical cube shortcut.
-                if icons
-                    .block_sheets()
-                    .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
-                    .is_err()
+                // Authored carried or GUI sheets define the canonical cube shortcut.
+                if [icons.block_sheets(), icons.gui_block_sheets()]
+                    .into_iter()
+                    .all(|sheets| {
+                        sheets
+                            .binary_search_by_key(&block_visual.0, |sheet| sheet.visual.0)
+                            .is_err()
+                    })
                 {
                     continue;
                 }
