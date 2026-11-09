@@ -523,8 +523,8 @@ fn pending_speed_effect_survives_a_snap_that_clears_history() {
         &mut effects,
         &mut speed,
     );
-    let expected = Some(f64::from(0.2_f32 * 1.2));
-    assert_eq!(speed.current(), expected);
+    let expected = f64::from(0.2_f32 * 1.2);
+    assert_eq!(speed.current(), Some(expected));
     let tick = ticker.completed_tick();
     let position = physics.network_position().unwrap();
     reconcile_candidate_physics_correction(
@@ -548,8 +548,8 @@ fn pending_speed_effect_survives_a_snap_that_clears_history() {
             &VersionedFloor(1),
         ));
         assert_eq!(ticker.completed_tick(), completed);
-        assert_eq!(speed.current(), expected);
-        assert_eq!(speed.reported_current(), expected);
+        assert_eq!(speed.current(), Some(expected));
+        assert_eq!(speed.reported_current(), Some(expected));
     }
     assert_eq!(
         physics
@@ -558,6 +558,6 @@ fn pending_speed_effect_survives_a_snap_that_clears_history() {
             .attribute()
             .unwrap()
             .current,
-        expected.unwrap()
+        expected
     );
 }
